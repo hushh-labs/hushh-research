@@ -17,13 +17,13 @@ type Props = {
 
 function Coverage({ coverage, loading }: Pick<Props, "coverage" | "loading">) {
   const sources = new Map(coverage.map(row => [row.capability, row]));
-  return <details className="py-2">
-    <summary className="min-h-11 cursor-pointer content-center">{loading ? "Checking task sources…" : "Task sources"}</summary>
-    <ul className="space-y-1 py-2">
+  return <details>
+    <summary data-profile-role="name" className="min-h-11 cursor-pointer content-center">{loading ? "Checking task sources…" : "Task sources"}</summary>
+    <ul className="space-y-2 pb-2">
       {taskCapabilities().map(capability => {
         const source = sources.get(capability.id as TaskCoverage["capability"]);
         const status = loading ? "Checking…" : !source ? "Not checked yet" : source.status === "not_connected" ? "Not connected" : source.status === "unavailable" ? "Could not check" : source.status === "incomplete" ? `${source.count} found · Limited coverage` : source.count ? `${source.count} awaiting attention` : "No pending work";
-        return <li key={capability.id} className="flex items-start justify-between gap-3 text-sm"><span>{capability.title}</span><span className="text-muted-foreground">{status}</span></li>;
+        return <li key={capability.id} className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1"><span data-profile-role="name">{capability.title}</span><span data-profile-role="description" className="text-muted-foreground">{status}</span></li>;
       })}
     </ul>
   </details>;
@@ -86,16 +86,22 @@ export function TodoAgentSuggestions({ userId, vaultKey, vaultOwnerToken, eviden
       if (operation.current === identity) operation.current = null;
     }
   };
-  return <section aria-label="One task suggestions" className="space-y-2">
+  return <section aria-label="One task suggestions" className="space-y-1">
     <Coverage coverage={coverage} loading={loading} />
-    {coverage.some(source => source.status === "unavailable" || source.status === "incomplete") ? <HelperText as="p" role="status">Some sources could not be fully checked. Your other tasks are still here.</HelperText> : null}
-    <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={approved} disabled={!available || busy} onChange={event => setState({ identity, approved: event.target.checked, busy: false, saving: null, error: "", items: [], checked: false })} />Use my task summaries with One to suggest next steps.</label>
-    {!available ? <HelperText as="p">Task suggestions are not available on this agent yet.</HelperText> : null}
-    <HelperText as="p">One reviews up to 100 loaded summaries. Message contents, card details and Memory contents are excluded. Review suggestions before adding them.</HelperText>
-    <div className="flex flex-wrap gap-2"><Button variant="none" effect="fade" size="compact" disabled={!available || !approved || busy || loading || !evidence.length} onClick={() => void find()}>{busy ? "Working…" : "Suggest tasks"}</Button><Button variant="none" size="compact" disabled={busy || loading} onClick={onRefresh}>Refresh sources</Button></div>
-    {available && !loading && !evidence.length ? <HelperText as="p" role="status">No task summaries are available to assess yet.</HelperText> : null}
-    {visible && state.error ? <HelperText as="p" role="status">{state.error}</HelperText> : null}
-    {visible && state.checked && !state.items.length ? <HelperText as="p" role="status">No new suggestions from the available summaries.</HelperText> : null}
-    {visible ? state.items.map(item => <div key={item.key} className="space-y-1 border-b py-3"><MediumRowLabel as="h4">{item.title}</MediumRowLabel><HelperText as="p">{item.reason}</HelperText><Button variant="none" effect="fade" size="compact" disabled={busy} onClick={() => void save(item)}>Add task</Button></div>) : null}
+    {coverage.some(source => source.status === "unavailable" || source.status === "incomplete") ? <HelperText as="p" data-profile-role="description" role="status">Some sources couldn’t be fully checked.</HelperText> : null}
+    <label className="flex min-h-11 items-center gap-2">
+      <input type="checkbox" className="size-4 shrink-0 accent-[var(--app-accent)]" checked={approved} disabled={!available || busy} onChange={event => setState({ identity, approved: event.target.checked, busy: false, saving: null, error: "", items: [], checked: false })} />
+      <span data-profile-role="name">Let One suggest tasks from summaries.</span>
+    </label>
+    {!available ? <HelperText as="p" data-profile-role="description">Suggestions aren’t available for this agent.</HelperText> : null}
+    <HelperText as="p" data-profile-role="description">Up to 100 loaded summaries; no message content, card details or Memory content. Review before adding.</HelperText>
+    <div className="flex flex-wrap gap-1">
+      <Button variant="none" effect="fade" size="compact" data-profile-role="action" className="min-h-11" disabled={!available || !approved || busy || loading || !evidence.length} onClick={() => void find()}>{busy ? "Working…" : "Suggest tasks"}</Button>
+      <Button variant="none" effect="fade" size="compact" data-profile-role="action" className="min-h-11" disabled={busy || loading} onClick={onRefresh}>Refresh sources</Button>
+    </div>
+    {available && !loading && !evidence.length ? <HelperText as="p" data-profile-role="description" role="status">No task summaries yet.</HelperText> : null}
+    {visible && state.error ? <HelperText as="p" data-profile-role="description" role="status">{state.error}</HelperText> : null}
+    {visible && state.checked && !state.items.length ? <HelperText as="p" data-profile-role="description" role="status">No new suggestions.</HelperText> : null}
+    {visible ? state.items.map(item => <div key={item.key} className="space-y-1 border-b py-2"><MediumRowLabel as="h4" data-profile-role="name">{item.title}</MediumRowLabel><HelperText as="p" data-profile-role="description">{item.reason}</HelperText><Button variant="none" effect="fade" size="compact" data-profile-role="action" className="min-h-11" disabled={busy} onClick={() => void save(item)}>Add task</Button></div>) : null}
   </section>;
 }

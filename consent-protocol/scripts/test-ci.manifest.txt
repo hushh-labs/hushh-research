@@ -408,6 +408,7 @@ tests/test_requester_document_payment_source_unit.py
 tests/test_requester_document_payment_source_routes.py
 tests/test_requester_document_payment_source_postgres.py
 tests/test_pool_acquire_is_bounded.py
+tests/test_listener_connection.py
 tests/test_market_advisory_lock_connection.py
 
 # Deleted-account session invalidation is a cross-client privacy boundary.
@@ -417,6 +418,7 @@ tests/test_account_routes.py
 tests/test_account_delete_error_detail.py
 tests/test_account_lost_vault_phone.py
 tests/test_account_phone_routes.py
+tests/test_account_phone_trace_loop.py
 # Full encrypted export: bounded cursor memory, complete recovery history, snapshot and cleanup.
 tests/services/test_account_service_export.py
 tests/test_account_legal_acceptance.py
@@ -1083,6 +1085,7 @@ tests/test_no_orphaned_agents.py
 tests/test_pod_boots_off_google_cloud.py
 tests/test_pod_key_vault_custody.py
 tests/test_pod_object_store_contract.py
+tests/test_shared_files_upload_sessions.py
 tests/test_pod_platform_incarnation.py
 tests/test_pod_workload_identity.py
 # Azure lane identity (2026-10-02): cloud-neutral pod-to-hub request signing.

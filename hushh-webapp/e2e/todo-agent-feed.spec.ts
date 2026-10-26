@@ -116,6 +116,44 @@ for (const [width, dark] of [
   [393, true],
   [1280, false],
 ] as const) {
+  test(`agent Todo preview keeps Profile typography and compact rows at ${width}px${dark ? " dark" : ""}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.route("http://localhost/todo-fixture", route => route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    }));
+    await page.goto("http://localhost/todo-fixture");
+    await page.addScriptTag({ content: script });
+    await page.getByRole("button", { name: "Open agent Todo" }).click();
+    const preview = page.locator('[data-profile-type-scale="todo"]');
+    const title = preview.getByRole("heading", { name: "Review Alex's connection request", exact: true });
+    await expect(title).toBeVisible();
+    // This is the mounted agent-sheet path, outside the standalone page shell.
+    expect(await preview.evaluate(element => element.closest(".app-page-shell"))).toBeNull();
+    for (const [locator, size, weight] of [
+      [preview.getByRole("heading", { name: "To-do list", exact: true }), "20px", "600"],
+      [title, "13px", "400"],
+      [preview.getByRole("heading", { name: "Any time", exact: true }), "10px", "600"],
+      [preview.getByText("Up to 100 loaded summaries; no message content, card details or Memory content. Review before adding."), "12px", "400"],
+      [preview.getByRole("link", { name: "Open Review Alex's connection request", exact: true }), "12px", "500"],
+    ] as const) {
+      await expect(locator).toHaveCSS("font-size", size);
+      await expect(locator).toHaveCSS("font-weight", weight);
+      await expect(locator).toHaveCSS("font-family", /Plus Jakarta Sans/);
+    }
+    for (const control of await preview.locator('button, a, summary, label').all()) {
+      const box = (await control.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    const row = preview.locator("[data-todo-item]").first();
+    await expect(preview.locator("[data-todo-item]")).toHaveCount(2);
+    await expect(row).toHaveCSS("border-bottom-width", "1px");
+    expect((await row.boundingBox())!.height).toBeLessThanOrEqual(112);
+    expect(await preview.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`todo-preview-${width}.png`) });
+  });
+
   test(`agent task lifecycle and recovery at ${width}px${dark ? " dark" : ""}`, async ({
     page,
   }) => {

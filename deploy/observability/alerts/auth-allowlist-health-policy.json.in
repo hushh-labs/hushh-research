@@ -1,0 +1,61 @@
+{
+  "displayName": "[Managed] Auth Test Allowlist Health",
+  "documentation": {
+    "content": "The hourly protected phone-test allowlist check failed, could not verify its source, or stopped reporting for three hours. Check Verify Protected Configuration and scripts/ops/verify_secret_list_invariants.py. Inspect aggregate counts only and restore through secret_list_edit.py after reviewing the last good version. Never copy phone numbers, fixed OTPs, tokens or secret contents into logs or incident evidence. An intact list is configuration proof; it does not prove a completed OTP/auth journey. Runbook: deploy/observability/README.md#auth-availability",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": false,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "auth",
+    "incident_purpose": "diagnostic"
+  },
+  "conditions": [
+    {
+      "displayName": "Protected phone allowlist check failed or unavailable",
+      "conditionThreshold": {
+        "filter": "resource.type=\"global\" AND metric.type=\"logging.googleapis.com/user/obs_auth_allowlist_failure_count\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "Protected phone allowlist health missing for 3h",
+      "conditionAbsent": {
+        "filter": "resource.type=\"global\" AND metric.type=\"logging.googleapis.com/user/obs_auth_allowlist_health_count\"",
+        "duration": "10800s",
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ],
+    "autoClose": "1800s"
+  }
+}

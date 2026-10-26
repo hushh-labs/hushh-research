@@ -550,7 +550,7 @@ describe("AuthService.restoreNativeSession", () => {
       token: null,
     } as any);
     vi.mocked(FirebaseAuthentication.addListener).mockResolvedValue({
-      remove: vi.fn(),
+      remove: vi.fn().mockResolvedValue(undefined),
     } as any);
     vi.mocked(FirebaseAuthentication.confirmVerificationCode).mockResolvedValue(
       {} as any,
@@ -837,30 +837,6 @@ describe("AuthService.restoreNativeSession", () => {
     });
   });
 
-  it("sends deletion proof to an already-linked phone without changing its binding", async () => {
-    mockCapacitor.isNativePlatform.mockReturnValue(false);
-    const verifyPhoneNumber = vi.fn().mockResolvedValue("delete-verification-id");
-    mockPhoneAuthProvider.mockImplementation(function () {
-      return { verifyPhoneNumber };
-    });
-    mockAuth.currentUser = {
-      uid: "web-user",
-      phoneNumber: "+16505550100",
-    } as any;
-    const verifier = {} as any;
-
-    const verificationId = await AuthService.startPhoneDeletionVerification(
-      "+16505550100",
-      verifier,
-    );
-
-    expect(verificationId).toBe("delete-verification-id");
-    expect(verifyPhoneNumber).toHaveBeenCalledWith("+16505550100", verifier);
-    expect(mockUpdatePhoneNumber).not.toHaveBeenCalled();
-    expect(mockLinkWithCredential).not.toHaveBeenCalled();
-    expect(mockFirebaseAuthentication.unlink).not.toHaveBeenCalled();
-  });
-
   it("starts local dev phone verification without calling Firebase for the configured test phone", async () => {
     enableLocalDevPhoneTest();
     mockCapacitor.isNativePlatform.mockReturnValue(false);
@@ -974,7 +950,7 @@ describe("AuthService.restoreNativeSession", () => {
         callback: (event: any) => void | Promise<void>,
       ) => {
         listeners[eventName] = callback;
-        return { remove: vi.fn() } as any;
+        return { remove: vi.fn().mockResolvedValue(undefined) } as any;
       },
     );
 
@@ -986,9 +962,9 @@ describe("AuthService.restoreNativeSession", () => {
       },
     );
 
-    for (let i = 0; i < 10 && !listeners.phoneCodeSent; i += 1) {
-      await Promise.resolve();
-    }
+    await vi.waitFor(() => {
+      expect(FirebaseAuthentication.linkWithPhoneNumber).toHaveBeenCalledTimes(1);
+    });
     expect(listeners.phoneCodeSent).toBeTypeOf("function");
     await listeners.phoneCodeSent({ verificationId: "native-verification-id" });
 

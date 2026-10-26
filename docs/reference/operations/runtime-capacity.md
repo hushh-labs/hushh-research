@@ -130,6 +130,29 @@ Do not present the current single-reviewer, bounded-read test as 10,000-user pro
 6. Use the existing governed release and drained-retention workflow. Preserve
    rollback anchors, paused Drive processing and ciphertext-only persistence.
 
+### Notification listener capacity
+
+`AUTH_DB_LISTENER_ISOLATION_ENABLED=true` makes consent, referral and pod
+lifecycle listeners share one serialized LISTEN session from the existing
+asyncpg pool. With a pool maximum of four, three connections remain available
+for requests instead of one. Channels, callback owners and reconnect behavior
+remain separate. Failed generations wake all subscribers; cleanup cannot close
+a newer generation. Shutdown joins only the three owned listener tasks.
+
+The canonical packed setting is `auth_db_listener_isolation_enabled`.
+Deployment synchronization enables it by default; an explicit environment
+`AUTH_DB_LISTENER_ISOLATION_ENABLED=false` restores legacy acquisition.
+Apply either state on a new revision, because existing lifetime leases do not
+migrate when configuration changes. Verify all five notification channels,
+request completion under concurrent reads and resource release before promotion.
+Sharing listeners addresses a measured capacity bottleneck; it does not prove
+that every acquisition timeout has the same cause.
+
+Focused regression command:
+`cd consent-protocol && .venv/bin/python -m pytest tests/test_listener_connection.py tests/test_account_phone_trace_loop.py tests/test_observability_middleware.py -m feature_auth_reliability -q`.
+The HTTP loop uses real routing/challenge validation and an isolated storage
+port; it does not establish live SMS delivery or TestFlight behavior.
+
 A transaction pooler is not a drop-in replacement for direct session connections:
 PostgreSQL `LISTEN`, session advisory locks and asyncpg prepared statements need
 explicit compatibility paths. Regional HA and an isolated restore drill are

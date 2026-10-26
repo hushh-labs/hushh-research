@@ -13,6 +13,8 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -38,6 +40,30 @@ class CleanupCredentialUnavailable(RuntimeError):
 
 class CleanupProviderUnavailable(CleanupCredentialUnavailable):
     """A read/verification outage can retry without replaying a dispatched effect."""
+
+
+@lru_cache(maxsize=1)
+def _shared_google_projects() -> frozenset[str]:
+    """Server-reviewed authority hashes; request inputs cannot widen revocation."""
+    try:
+        policy = json.loads(
+            (
+                Path(__file__).resolve().parents[2] / "config/account-deletion-authority.json"
+            ).read_text()
+        )
+        hashes = policy["shared_google_project_sha256"]
+        if (
+            policy.get("version") != 1
+            or not isinstance(hashes, list)
+            or any(
+                not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+                for value in hashes
+            )
+        ):
+            raise ValueError("invalid authority policy")
+        return frozenset(hashes)
+    except Exception as exc:
+        raise CleanupCredentialUnavailable("Cleanup authority policy is unavailable") from exc
 
 
 @dataclass(repr=False)
@@ -67,6 +93,11 @@ class CleanupGrant:
         )
         result = {"revocationSupport": support}
         if self.kind == "google":
+            if (
+                hashlib.sha256(self.project_number.encode()).hexdigest()
+                in _shared_google_projects()
+            ):
+                result["authorityScope"] = "retain_shared_google"
             result["groupDigest"] = hashlib.sha256(
                 json.dumps(
                     ["google-oauth-project-account-v1", self.project_number, self.subject],
@@ -411,12 +442,31 @@ def _google(
     grant.refresh_token, grant.subject = refresh, subject
 
 
+def _retained_shared_google(grant: CleanupGrant, *, client_id: str, subject: Any) -> bool:
+    """Classify retained authority without opening a token we must never use."""
+    project = _configured_google_project(client_id)
+    if hashlib.sha256(project.encode()).hexdigest() not in _shared_google_projects():
+        return False
+    if not isinstance(subject, str) or not re.fullmatch(r"[0-9]{1,64}", subject):
+        raise CleanupCredentialUnavailable("Google cleanup account is unverified")
+    # The caller already checked the exact owner/revision against SQL inventory.
+    # This grants only the explicit local-erasure path; no provider port receives
+    # a credential, and exclusive projects retain ordinary decrypt/verification.
+    grant.kind, grant.client_id = "google", client_id
+    grant.project_number, grant.subject = project, subject
+    return True
+
+
 def _open_grant(conn, grant: CleanupGrant) -> None:
     row, owner = grant.row, grant.owner_id
     if grant.source in {"google_provider_connections", "google_calendar_additional_accounts"}:
         from hushh_mcp.services.google_connection_service import get_google_connection_service
 
         service = get_google_connection_service()
+        if _retained_shared_google(
+            grant, client_id=service._client_id(), subject=row.get("provider_subject")
+        ):
+            return
         aad = (
             service._calendar_account_aad(owner, row["account_id"])
             if grant.source == "google_calendar_additional_accounts"
@@ -437,6 +487,10 @@ def _open_grant(conn, grant: CleanupGrant) -> None:
         from hushh_mcp.services.gmail_receipts_service import get_gmail_receipts_service
 
         service = get_gmail_receipts_service()
+        if _retained_shared_google(
+            grant, client_id=service._oauth_client_id(), subject=row.get("google_sub")
+        ):
+            return
         refresh = service._decrypt_token(
             row.get("refresh_token_ciphertext"),
             row.get("refresh_token_iv"),

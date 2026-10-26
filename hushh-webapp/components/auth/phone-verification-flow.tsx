@@ -53,7 +53,8 @@ import {
 } from "@/lib/constants/country-phone-options";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
-import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
+import { resolvePhoneFailureMessage } from "@/lib/auth/phone-conflict-copy";
+import { apiErrorCode } from "@/lib/services/api-client";
 import { trackEvent } from "@/lib/observability/client";
 import {
   kaiAppCardTitleClassName,
@@ -123,13 +124,7 @@ type StartVerificationOutcome =
 type ConfirmVerificationOutcome = "verified" | "invalid" | "failed" | "busy";
 
 function phoneFailureMessage(error: unknown, fallback: string): string {
-  const code = String((error as { code?: unknown })?.code ?? "").replace(/^auth\//, "");
-  if (["credential-already-in-use", "phone-number-already-exists"].includes(code)) return PHONE_CONFLICT_COPY.inApp;
-  if (code === "code-expired") return "This verification code has expired. Please request a new code.";
-  if (code === "invalid-verification-code") return "That code isn't right. Check it and try again.";
-  if (code === "requires-recent-login") return "For security, sign in again before changing your phone number.";
-  if (code === "too-many-requests") return "Too many attempts. Wait a moment before trying again.";
-  return fallback;
+  return resolvePhoneFailureMessage(error, fallback, apiErrorCode(error));
 }
 
 // Offer metadata-backed plans and keep NANP area codes in the national number.

@@ -3,30 +3,52 @@
 ## Visual Context
 
 The [personal-agent map](README.md#visual-map) owns the architecture overview.
-The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
-current source, serving and installed-owner evidence.
+Use the [CI delivery map](../../reference/operations/ci.md) for the existing
+validation and deployment owners. This proposal changes their composition while
+preserving environment authority and the separate owner-pod installation flow.
 
-**Current surgical follow-up — 25 October 2026:**
-[PR #8447](https://github.com/hushh-labs/hushh-research/pull/8447) landed as
-`c927b76281`; exact-head CI and landed smoke pass. Main's financial Files,
-canonical lifecycle 418–421, migration 422 and peer source are preserved.
-Dev deployment [40189216380](https://github.com/hushh-labs/hushh-research/actions/runs/40189216380)
-is healthy: ADC at 11:55 UTC confirms both services at 100% on `c927b76281`,
-with schema, parity and provenance passing. UAT remains on `24545d1dc2` and
-requires its own accepted promotion. The previous dev attempt refused two retained
-consumer-memory consent guards at immutable 420. Qualify that exact predecessor
-through main's single pinned adoption authority (PR #8446); the consolidated
-PR #8447 preserves enforcement, records and checksums, adds incomplete-footprint
-refusal and permanent owner-scoped cleanup. Its 144 combined cases pass. Inherit
-peer Calendar and financial changes; no broad feature import or guard removal.
-The preceding peer dev rollout recovered on attempt two; its initial synthetic
-timeout is no longer a live blocker. `.agents` remains the sole authored development framework.
+**Current surgical follow-up — 25 October 2026, 21:02 UTC:**
+[Continuity corrections #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
+landed as `2a74d28cd0` after exact CI and landed smoke. Dev run `40224453087`,
+attempt 2, accepted application `5ad9ef542d`: worker invocation returned HTTP 200,
+98 legacy shared-backend revisions were retired and deletion fence removal passed.
+Corporate ADC confirms backend `00244-bg2` and frontend `00210-s8c` at 100%.
+Browser settlement [#8462](https://github.com/hushh-labs/hushh-research/pull/8462)
+landed as `eb855fbb57` after exact-head CI (19m35s) and landed smoke. Its installed
+image acceptance remains separate. The local Finance continuity correction waits
+for its own exact-candidate release.
 
-The next bounded correction joins Browser login redirects before closing the
-original action scope. Local pinned Chromium and the focused regression pass;
-the deployed image remains unqualified for interactive login. Batch this repair
-with its affected verification before the next image build. Preserve the accepted
-application receipt and repeat only acceptance affected by the changed image.
+UAT run `40228618750` rolled back that exact Dev-accepted application at Finance
+analytics; its workflow revision `e0cddfa231` did not change the application target.
+Both services retain `24545d1dc2`. The reviewer has a recorded Shared choice and
+no pod or pending setup. A same-account authentication/placement continuity defect
+has an original-source negative control and 34 passing nearest cases; its live
+candidate admission and UAT acceptance still require verification. Peer Files-expiry repair #8461 is integrated normally;
+its exact-session/provider-custody proof replaces the earlier unresolved fixture
+hypothesis without weakening generic missing-status recovery.
+
+The exact qualified pod remains source `9174abfbe594`, image `6e57f251…eeac423`.
+Azure's approved update and one Puppy/Gemma 12B response pass. GCP's approved Files
+operation still has an unconfirmed image handoff; preserve its held operation and
+never replay the exhausted queue continuation. Installed Browser takeover became
+uncertain without credential entry. The post-result settlement correction has
+source and hosted proof, not an installed image receipt; earlier executor and owner journeys
+remain open. The temporary fixture is deleted. Capacity samples do not justify an
+upgrade. Existing fixed-term sharing is the confirmed scope, without recurring
+billing or changing the paid test cohort.
+
+The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
+separates source, serving and installed-owner results. Batch completed source
+corrections, run one core mirror and exact-SHA hosted CI, then dev-first acceptance
+and UAT. Reuse unchanged native component and predecessor recovery evidence.
+
+Real-mail isolated acceptance completes two same-Firebase-UID deletion/enrollment
+cycles with retired-session refusal. Ordinary generation admission remains dark
+until deployed compatibility is qualified. Google/Apple/Microsoft recovery has
+no mail-sender dependency. Email retains its own canonical sender/key admission.
+UAT WorkOS offboarding remains active while its webhook secret is retained, even
+with SSO disabled; it requires captured generation authority before public
+replacement admission. Preserve the guard and existing integration custody. Reuse unchanged evidence; do not repeat unrelated model or test sweeps.
 
 **BYOC availability correction:** serving UAT omits the private-agent master flag
 and legitimately refuses cloud authorization; its frontend nevertheless offers
@@ -159,12 +181,6 @@ The existing automatic release cadence is held with
 Manual governed deployments and recorded cadence history remain available.
 Re-enabling automatic TestFlight/App Store/production dispatch requires a separate
 release decision; a successful UAT run must not silently promote this candidate.
-
-## Visual Context
-
-Use the [CI delivery map](../../reference/operations/ci.md) for the existing
-validation and deployment owners. This proposal changes their composition while
-preserving environment authority and the separate owner-pod installation flow.
 
 ## Decision
 

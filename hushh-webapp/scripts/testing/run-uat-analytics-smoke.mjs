@@ -5,8 +5,11 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
+import { installReviewerBridge } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-bootstrap.mjs";
 import { classifyCollectSettlement } from "./analytics-collect-delivery.mjs";
 import {
+  classifySmokeFailure,
+  createSafeJourneyDiagnostics,
   isCandidateAssetUnavailable,
   isCandidateStaticAsset5xx,
 } from "./analytics-smoke-failure.mjs";
@@ -79,23 +82,6 @@ function fail(message) {
   process.exit(1);
 }
 
-function classifySmokeFailure(message) {
-  if (/missing canonical reviewer test identity/i.test(message)) {
-    return "missing_fixture_credentials";
-  }
-  if (
-    /portfolio_viewed|recommendation_viewed|investor_activation_completed/i.test(
-      message,
-    )
-  ) {
-    return "portfolio_analysis_or_activation_instrumentation";
-  }
-  if (/measurement ID|forbidden production measurement/i.test(message)) {
-    return "measurement_id_or_sink_mismatch";
-  }
-  return "runtime_or_instrumentation_failure";
-}
-
 function validateRequiredParams(eventName, payload) {
   const required = ["platform", "event_category", "app_version"];
   if (
@@ -129,22 +115,21 @@ function validateRequiredParams(eventName, payload) {
 }
 
 async function installAnalyticsCapture(page) {
-  await page.addInitScript(
-    ({ expectedUserId, vaultPassphrase }) => {
-      window.__HUSHH_NATIVE_TEST__ = {
-        ...(window.__HUSHH_NATIVE_TEST__ || {}),
-        enabled: true,
-        autoReviewerLogin: true,
-        allowUatAnalyticsSmokeTelemetry: true,
-        expectedUserId,
-        vaultPassphrase,
-      };
-    },
-    {
-      expectedUserId: smokeUserId,
-      vaultPassphrase: reviewerPassphrase,
-    },
-  );
+  await page.addInitScript(installReviewerBridge, {
+    expectedUserId: smokeUserId,
+    vaultPassphrase: reviewerPassphrase,
+    reviewerSessionPassphrase: reviewerPassphrase,
+    reviewerMutationPolicy: "read_only",
+    reviewerAuthMode: "local_credentials",
+    appOrigin,
+  });
+  // Keep real UAT collect delivery enabled without changing reviewer authority.
+  await page.addInitScript(() => {
+    window.__HUSHH_NATIVE_TEST__ = {
+      ...(window.__HUSHH_NATIVE_TEST__ || {}),
+      allowUatAnalyticsSmokeTelemetry: true,
+    };
+  });
 }
 
 async function getSmokeState(page) {
@@ -352,6 +337,7 @@ page.setDefaultNavigationTimeout(defaultTimeoutMs);
 page.setDefaultTimeout(defaultTimeoutMs);
 await installAnalyticsCapture(page);
 const candidateAsset5xx = [];
+const journeyDiagnostics = createSafeJourneyDiagnostics(page, { appOrigin, expectedUserId: smokeUserId });
 let smokePhase = "initial_navigation";
 
 page.on("response", (response) => {
@@ -531,8 +517,10 @@ try {
   await clickIfVisible(reviewerButton);
   await waitForReviewerVaultBootstrap(page);
   await waitForLoginRedirectToSettle(page);
+  await journeyDiagnostics.capture("login_settled");
 
   await navigateInApp(page, "/one/kai?tab=portfolio");
+  await journeyDiagnostics.capture("portfolio_navigation");
   const routeViewEvent = await waitForAnalyticsEvent(
     page,
     "page_view",
@@ -656,6 +644,7 @@ try {
     ),
   );
 } catch (error) {
+  await journeyDiagnostics.capture("failure");
   const state = await getSmokeState(page).catch(() => ({
     events: [],
     measurementIds: [],
@@ -690,6 +679,7 @@ try {
           ? "candidate_asset_unavailable"
           : classifySmokeFailure(reason),
         fixturePolicy,
+        ...journeyDiagnostics.summary(),
         observedEventNames,
         observedMeasurementIds,
         candidateAsset5xxStatuses: candidateAsset5xx,

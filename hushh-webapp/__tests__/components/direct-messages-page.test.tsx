@@ -17,6 +17,7 @@ import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { CacheService } from "@/lib/services/cache-service";
 import { DirectMessagesServiceRequestError } from "@/lib/services/direct-messages-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { registerDirectMessageVideoCases, registerDirectMessagePhotoPreviewCase, registerDirectMessageReplyCases } from "./direct-message-media-cases";
 
 const mocks = vi.hoisted(() => {
   const conversation = {
@@ -280,7 +281,7 @@ describe("DirectMessagesPage", () => {
     mocks.morphyToast.error.mockReset();
     mocks.morphyToast.info.mockReset();
     mocks.morphyToast.promise.mockReset();
-    mocks.sendMessage.mockResolvedValue({
+    mocks.sendMessage.mockReset().mockResolvedValue({
       conversation: mocks.conversation,
       message: {
         id: "message-1",
@@ -722,6 +723,8 @@ describe("DirectMessagesPage", () => {
     expect(screen.queryByRole("img", { name: "Photo" })).not.toBeInTheDocument();
   });
 
+  registerDirectMessageVideoCases({ mocks, visibleMessage, renderConnectionThread, connectionThread });
+
   it("discards a pending inline photo when its conversation unmounts", async () => {
     const photo = arrangePhoto();
     let finish!: (value: Blob) => void;
@@ -737,29 +740,15 @@ describe("DirectMessagesPage", () => {
     expect(photo.create).not.toHaveBeenCalled();
   });
 
-  it("previews selected photos instead of filenames and releases their local URLs", async () => {
-    const create = vi.fn().mockReturnValueOnce("blob:first").mockReturnValueOnce("blob:second"), revoke = vi.fn();
-    vi.stubGlobal("URL", class extends URL { static createObjectURL = create; static revokeObjectURL = revoke; });
-    const view = renderConnectionThread();
-    await screen.findByRole("textbox", { name: "Message Ankit Kumar Singh" });
-    const input = document.querySelector('input[accept="image/jpeg,image/png,image/webp"]')!;
-    fireEvent.change(input, { target: { files: [new File(["photo"], "private-photo.png", { type: "image/png" })] } });
-    expect(await screen.findByRole("img", { name: "Photo ready to send" })).toHaveAttribute("src", "blob:first");
-    expect(screen.queryByText(/private-photo.png/)).not.toBeInTheDocument();
-    fireEvent.change(input, { target: { files: [new File(["second"], "second.png", { type: "image/png" })] } });
-    await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:first"));
-    expect(screen.getByRole("img", { name: "Photo ready to send" })).toHaveAttribute("src", "blob:second");
-    fireEvent.click(screen.getByRole("button", { name: "Remove attachment" }));
-    await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:second"));
-    expect(screen.queryByRole("img", { name: "Photo ready to send" })).not.toBeInTheDocument();
-    view.unmount();
-  });
+  registerDirectMessagePhotoPreviewCase({ renderConnectionThread });
 
   it("sends a finished voice note immediately and freezes an uncertain empty-content retry", async () => {
     mocks.captureFinish.mockResolvedValue({ audioBase64: btoa(String.fromCharCode(...validVoiceWav())), mimeType: "audio/wav" });
     mocks.sendMessage.mockRejectedValueOnce(new Error("Response lost"));
     renderConnectionThread();
-    fireEvent.click(await screen.findByRole("button", { name: "Record voice message" }));
+    const record = await screen.findByRole("button", { name: "Record voice message" });
+    await waitFor(() => expect(record).toBeEnabled());
+    fireEvent.click(record);
     const send = await screen.findByRole("button", { name: "Send voice message" });
     await waitFor(() => expect(send).toBeEnabled());
     fireEvent.click(send);
@@ -869,6 +858,7 @@ describe("DirectMessagesPage", () => {
     const composer = await screen.findByRole("textbox", {
       name: "Message Ankit Kumar Singh",
     });
+    await waitFor(() => expect(composer).toBeEnabled());
     expect(composer.closest("form")?.parentElement).not.toBe(screen.getByTestId("shared-chat-dock"));
 
     fireEvent.change(composer, { target: { value: "Hello Ankit" } });
@@ -1568,6 +1558,8 @@ describe("DirectMessagesPage", () => {
     if (change === "delete") await waitFor(() => expect(screen.queryByText("Replying to Ankit Kumar Singh")).not.toBeInTheDocument());
     else await waitFor(() => expect(document.querySelector('[class*="composerReplyPreview"]')).toHaveTextContent("Updated original"));
   });
+
+  registerDirectMessageReplyCases({ mocks, visibleMessage, renderConnectionThread });
 
   it("keeps a failed reply in the composer without a toast", async () => {
     const message = {

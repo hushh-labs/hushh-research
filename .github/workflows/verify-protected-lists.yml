@@ -52,7 +52,7 @@ jobs:
       - name: Verify UAT protected lists are intact
         run: |
           python3 scripts/ops/verify_secret_list_invariants.py \
-            --project "${{ env.GCP_PROJECT_ID }}"
+            --project "${{ env.GCP_PROJECT_ID }}" --emit-health-log
 
   production:
     name: "Production lists"
@@ -77,4 +77,4 @@ jobs:
       - name: Verify production protected lists are intact
         run: |
           python3 scripts/ops/verify_secret_list_invariants.py \
-            --project "${{ env.GCP_PROJECT_ID }}"
+            --project "${{ env.GCP_PROJECT_ID }}" --emit-health-log

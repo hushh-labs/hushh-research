@@ -64,6 +64,28 @@ EXPECTED_JOBS = {
     "integration-check": {"frontend", "backend"},
 }
 
+# Actual shared runtime/image inputs used by the governed environment releases.
+# Application flags, policy and SQL already fall under consent-protocol/**.
+DELETION_RELEASE_INPUTS = (
+    ".github/workflows/deploy-dev.yml",
+    ".github/workflows/deploy-uat.yml",
+    ".github/workflows/deploy-production.yml",
+    "deploy/drive/rollback_after_worker_failure.sh",
+    "deploy/backend.cloudbuild.yaml",
+    "deploy/backend-image.cloudbuild.yaml",
+    "deploy/frontend.cloudbuild.yaml",
+    "deploy/frontend-image.cloudbuild.yaml",
+    "deploy/dev.autodeploy.backend.cloudbuild.yaml",
+    "scripts/ops/sync_backend_runtime_secrets.py",
+    "scripts/ops/runtime_config_retention.py",
+    "scripts/ops/scope_commerce_runtime_policy.py",
+    "scripts/ops/shared_files_runtime_policy.py",
+    "scripts/ops/passkey_domain_policy.py",
+    "scripts/ops/upsert_gcp_secret.py",
+    "scripts/ops/sync_frontend_runtime_secrets.py",
+    "config/runtime-capacity.json",
+)
+
 
 class _Filter:
     def __init__(self, patterns: list[str]) -> None:
@@ -232,6 +254,33 @@ def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
     ):
         assert backend.match_file(path), path
     assert any(backend.match_file(path) for path in (reference, runtime))
+
+
+def _uncovered_deletion_release_inputs(filters: dict[str, _Filter]) -> set[str]:
+    paths = set(DELETION_RELEASE_INPUTS) | {
+        path for path in _tracked_files() if path.startswith("deploy/account-deletion/")
+    }
+    assert any(path.startswith("deploy/account-deletion/") for path in paths)
+    assert all((ROOT / path).is_file() for path in paths)
+    return {path for path in paths if not filters["backend"].match_file(path)}
+
+
+def test_environment_only_deletion_inputs_schedule_the_required_backend_lane() -> None:
+    missing = _uncovered_deletion_release_inputs(_filters())
+    assert not missing, (
+        f"Deletion runtime/release edits can skip Protocol and Integration: {missing}"
+    )
+
+
+def test_deletion_selection_guard_rejects_excluded_release_and_runtime_inputs() -> None:
+    excluded = {
+        "deploy/account-deletion/activate_release.py",
+        ".github/workflows/deploy-dev.yml",
+        "scripts/ops/sync_backend_runtime_secrets.py",
+    }
+    patterns = _filter_patterns()
+    patterns["backend"] += ["!" + path for path in sorted(excluded)]
+    assert _uncovered_deletion_release_inputs(_filters(patterns)) == excluded
 
 
 def test_lane_discovery_finds_every_path_filtered_lane() -> None:

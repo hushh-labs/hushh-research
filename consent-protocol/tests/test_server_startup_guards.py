@@ -8,6 +8,7 @@ import re
 import pytest
 
 import server
+from api import database_listener_lifecycle as listener_lifecycle
 
 
 @pytest.mark.parametrize(
@@ -150,6 +151,71 @@ def test_market_warmup_does_not_block_http_startup(monkeypatch: pytest.MonkeyPat
     assert len(scheduled) == 1
     assert len(tracked) == 1
     scheduled[0].close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.feature_auth_reliability
+@pytest.mark.trace_loop
+async def test_hub_startup_retains_ownership_of_every_database_listener(monkeypatch):
+    from api import consent_listener, pod_lifecycle_listener, referral_listener
+
+    async def dormant():
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(server, "pod_mode", lambda: False)
+    monkeypatch.setattr(listener_lifecycle, "_STARTUP_BACKGROUND_TASKS", set())
+    monkeypatch.setattr(listener_lifecycle, "_DATABASE_LISTENER_TASKS", set())
+    monkeypatch.setattr(consent_listener, "run_consent_listener", dormant)
+    monkeypatch.setattr(referral_listener, "run_referral_listener", dormant)
+    monkeypatch.setattr(pod_lifecycle_listener, "run_pod_lifecycle_listener", dormant)
+    tasks = []
+    try:
+        unrelated = asyncio.create_task(dormant())
+        server._track_startup_background_task(unrelated)
+        await server.startup_consent_listener()
+        await server.startup_pod_lifecycle_listener()
+        tasks = list(listener_lifecycle._STARTUP_BACKGROUND_TASKS)
+        assert len(tasks) == 4
+        assert len(listener_lifecycle._DATABASE_LISTENER_TASKS) == 3
+        await server.shutdown_database_listeners()
+        assert not unrelated.done()
+        assert listener_lifecycle._STARTUP_BACKGROUND_TASKS == {unrelated}
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    assert not listener_lifecycle._STARTUP_BACKGROUND_TASKS
+    assert not listener_lifecycle._DATABASE_LISTENER_TASKS
+
+
+@pytest.mark.asyncio
+@pytest.mark.feature_auth_reliability
+@pytest.mark.trace_loop
+async def test_listener_shutdown_reports_a_cleanup_that_did_not_settle(monkeypatch, caplog):
+    monkeypatch.setattr(listener_lifecycle, "_STARTUP_BACKGROUND_TASKS", set())
+    monkeypatch.setattr(listener_lifecycle, "_DATABASE_LISTENER_TASKS", set())
+    monkeypatch.setattr(listener_lifecycle, "_DATABASE_LISTENER_SHUTDOWN_TIMEOUT_SECONDS", 0.01)
+    started = asyncio.Event()
+    settle = asyncio.Event()
+
+    async def delayed_cleanup():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await settle.wait()
+
+    task = asyncio.create_task(delayed_cleanup())
+    server._track_database_listener_task(task)
+    await started.wait()
+    try:
+        with pytest.raises(RuntimeError, match="cleanup did not complete"):
+            await server.shutdown_database_listeners()
+        assert "shutdown.database_listeners_incomplete pending=1 failed=0" in caplog.text
+        assert task in listener_lifecycle._DATABASE_LISTENER_TASKS
+    finally:
+        settle.set()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 def test_named_circle_tables_are_required_runtime_dependencies():

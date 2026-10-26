@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { toast } from "sonner";
 import { AccountCloudCleanup } from "@/components/profile/account-cloud-cleanup";
 import { useCloudRemovalControl } from "@/components/profile/cloud-removal-control";
-import { azureAccountCleanupRequired } from "@/lib/services/account-cloud-cleanup";
+import { accountCleanupProvider } from "@/lib/services/account-cloud-cleanup";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
@@ -43,7 +43,8 @@ export function OnboardingRouteActions() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [cloudCleanupRequired, setCloudCleanupRequired] = useState(false);
+  const [cloudCleanupProvider, setCloudCleanupProvider] = useState<"azure" | "gcp" | null>(null);
+  const cloudCleanupRequired = cloudCleanupProvider !== null;
   const [menuOpen, setMenuOpen] = useState(false);
   const cloudRemoval = useCloudRemovalControl({ menuOpen });
   const deletionRunning = useRef(false);
@@ -88,7 +89,7 @@ export function OnboardingRouteActions() {
 
     deletionRunning.current = true;
     setIsDeleting(true);
-    let needsCloudReview = false;
+    let needsCloudReview: "azure" | "gcp" | null = null;
     try {
       const resolution = await resolveDeleteAccountAuth({
         userId: owner.ownerId,
@@ -126,8 +127,8 @@ export function OnboardingRouteActions() {
         skipFcmCleanup: true,
       });
     } catch (error) {
-      needsCloudReview = azureAccountCleanupRequired(error);
-      if (needsCloudReview && isValidatedAuthSessionOwnerCurrent(owner)) setCloudCleanupRequired(true);
+      needsCloudReview = accountCleanupProvider(error);
+      if (needsCloudReview && isValidatedAuthSessionOwnerCurrent(owner)) setCloudCleanupProvider(needsCloudReview);
       (isHandledAccountDeletionOutcome(error) ? console.warn : console.error)(
         "[TopAppBar] Failed to delete account:",
         error,
@@ -200,6 +201,9 @@ export function OnboardingRouteActions() {
               key={userId}
               userId={userId}
               token={vaultOwnerToken ?? null}
+              provider={cloudCleanupProvider ?? undefined}
+              purpose={cloudCleanupProvider === "gcp" ? "remove_cloud" : "account"}
+              continueAccountDeletion={cloudCleanupProvider === "gcp"}
               onUnlock={() => {
                 setDeleteConfirmOpen(false);
                 setVaultUnlockOpen(true);

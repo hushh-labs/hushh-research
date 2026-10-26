@@ -15,6 +15,23 @@ private final class ZeroSafeAreaView: UIView {
 }
 
 final class NativeSupportTests: XCTestCase {
+    func testDeletionProofFencesOwnerSessionExpiryAndCancelledExchange() {
+        let fence = DeletionPhoneProofFence(userID: "owner", attemptID: "attempt", now: 100)
+        XCTAssertFalse(fence.codeSent(userID: "other", sameSession: true, now: 101))
+        XCTAssertFalse(fence.codeSent(userID: "owner", sameSession: false, now: 101))
+        XCTAssertFalse(fence.codeSent(userID: "owner", sameSession: true, now: 400))
+        XCTAssertTrue(fence.codeSent(userID: "owner", sameSession: true, now: 101))
+        XCTAssertTrue(fence.exchange(userID: "owner", sameSession: true, now: 102))
+        XCTAssertFalse(fence.exchange(userID: "owner", sameSession: true, now: 103))
+        fence.retryCode()
+        XCTAssertTrue(fence.exchange(userID: "owner", sameSession: true, now: 104))
+        XCTAssertTrue(fence.settle())
+        XCTAssertFalse(fence.canRelease)
+        fence.drainExchange()
+        XCTAssertTrue(fence.canRelease)
+        XCTAssertFalse(fence.current(userID: "owner", sameSession: true, now: 105))
+    }
+
     @MainActor
     func testFullWindowWebViewPublishesStatusBarClearance() throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)

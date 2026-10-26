@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 422,
+  "expected_migration_version": 423,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -8,6 +8,7 @@
     "account_enrollment_review_digest",
     "account_firebase_mutations_settled",
     "account_generation_admission_cutoff",
+    "account_provider_cleanup_contract_version",
     "account_provider_cleanup_live_inventory",
     "account_provider_cleanup_pending",
     "account_provider_cleanup_qualified",
@@ -110,6 +111,7 @@
     "guard_account_firebase_mutation_receipt",
     "guard_account_generation_history",
     "guard_account_provider_cleanup_phase",
+    "guard_account_shared_provider_authority",
     "guard_azure_vm_power_deletion",
     "guard_azure_vm_power_registry",
     "guard_azure_vm_power_standby",
@@ -120,6 +122,7 @@
     "guard_direct_message_conversation_write",
     "guard_direct_message_message_write",
     "guard_direct_message_reaction_write",
+    "guard_drive_owner_search_capacity",
     "guard_email_account_capture",
     "guard_hashcoin_direct_transfer",
     "guard_hashcoin_redemption",
@@ -184,6 +187,7 @@
     "preserve_active_location_rating_visit",
     "preserve_drive_owner_delivery_basis",
     "preserve_drive_request_owner_payout",
+    "preserve_financial_discovery_capacity",
     "project_agent_outcome_feed",
     "project_calendar_mail_feed",
     "project_direct_message_feed_event",
@@ -315,8 +319,6 @@
     "verify_erasure_mail_preflight",
     "verify_erasure_owner_access_preflight",
     "verify_erasure_secret_preflight",
-    "guard_drive_owner_search_capacity",
-    "preserve_financial_discovery_capacity",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -3862,5 +3864,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 422
+  "expected_schema_head": 423
 }

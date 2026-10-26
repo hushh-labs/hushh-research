@@ -11,6 +11,7 @@ vi.mock("@/lib/services/api-client", async (importOriginal) => ({
 }));
 
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 function publishValidatedAuthSessionOwner(owner: string | null) {
@@ -245,5 +246,21 @@ describe("account identity session admission", () => {
     await expect(AccountIdentityService.finalizeNativePhoneVerification(user, identity.phone_number))
       .rejects.toThrow("could not be saved");
     expect(AccountIdentityService.peekCachedIdentity("owner-a")?.data).toEqual(identity);
+  });
+
+  it.each([
+    { status: 409, code: "PHONE_ALREADY_VERIFIED", message: "Sign in to that account or use a different phone number" },
+    { status: 409, code: "PHONE_VERIFICATION_CHANGED", message: "Request a new code" },
+    { status: 503, code: "IDENTITY_PROVIDER_UNAVAILABLE", message: "Wait a moment and retry" },
+  ])("preserves strict phone finalization status $status and code $code without publishing a rejected claim", async ({ status, code, message }) => {
+    const user = { uid: "owner-a", phoneNumber: "+12025550101", getIdToken: vi.fn().mockResolvedValue("token-a") } as unknown as User;
+    refreshShadow.mockResolvedValue(Response.json({ detail: { code, message: "untrusted server diagnostic" } }, { status }));
+    const error = await AccountIdentityService.finalizeNativePhoneVerification(user, user.phoneNumber).catch(failure => failure);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.status).toBe(status);
+    expect(apiErrorCode(error)).toBe(code);
+    expect(error.message).toContain(message);
+    expect(error.message).not.toContain("untrusted server diagnostic");
+    expect(AccountIdentityService.peekCachedIdentity("owner-a")).toBeNull();
   });
 });

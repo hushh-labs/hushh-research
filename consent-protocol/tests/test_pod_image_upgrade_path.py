@@ -211,33 +211,11 @@ def _env_of(body: dict) -> dict[str, str]:
     }
 
 
-# ---------------------------------------------------------------------------
-# The backend: replace in place, resolve the tag fresh, keep the anchors
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("configuration_changed", [False, True])
-@pytest.mark.parametrize("resume_queue", [False, True])
-async def test_files_activation_replaces_same_image_only_after_bound_checkpoints(
-    monkeypatch, configuration_changed, resume_queue
-):
-    from unittest.mock import Mock
-
-    from hushh_mcp.services import pod_upgrade_handoff, user_gcp_bootstrap
-    from hushh_mcp.services.pod_files.capability_bootstrap import FilesCapabilityBootstrap
+def _files_activation_checkpoints(plan, row, resume_queue):
+    """Retain the real durable checkpoint authority for the upgrade fixture."""
     from hushh_mcp.services.pod_files.capability_checkpoint import FilesUpgradeCheckpoint
-    from hushh_mcp.services.pod_files.capability_update import (
-        FilesCapabilityChanged,
-        plan_from_observation,
-    )
-    from tests.test_pod_files_provisioning import legacy_files_fixture
 
-    row, image, existing = legacy_files_fixture()
-    existing["spec"]["template"]["spec"]["containers"][0]["image"] = image
-    existing["status"] = {"url": "https://synthetic.run.app", "latestReadyRevisionName": "old"}
-    plan = plan_from_observation(row, image, existing)
-    events, receipts = [], []
+    events = []
     state = FilesUpgradeCheckpoint(
         plan=plan,
         operation_id="synthetic-operation",
@@ -264,16 +242,57 @@ async def test_files_activation_replaces_same_image_only_after_bound_checkpoints
         state.acknowledge(checkpoint)
         events.append((phase, step))
 
+    return state, prefix, persist, events
+
+
+# ---------------------------------------------------------------------------
+# The backend: replace in place, resolve the tag fresh, keep the anchors
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("configuration_changed", ["none", "before", "during"])
+@pytest.mark.parametrize("resume_queue", [False, True])
+async def test_files_activation_replaces_same_image_only_after_bound_checkpoints(
+    monkeypatch, configuration_changed, resume_queue
+):
+    from unittest.mock import Mock
+
+    from hushh_mcp.services import pod_upgrade_handoff, user_gcp_bootstrap
+    from hushh_mcp.services.pod_files.capability_bootstrap import FilesCapabilityBootstrap
+    from hushh_mcp.services.pod_files.capability_update import (
+        FilesCapabilityChanged,
+        plan_from_observation,
+    )
+    from hushh_mcp.services.user_gcp_bootstrap import BootstrapError
+    from tests.test_pod_files_provisioning import legacy_files_fixture
+
+    row, image, existing = legacy_files_fixture()
+    existing["spec"]["template"]["spec"]["containers"][0]["image"] = image
+    existing["status"] = {"url": "https://synthetic.run.app", "latestReadyRevisionName": "old"}
+    plan = plan_from_observation(row, image, existing)
+    state, prefix, persist, events = _files_activation_checkpoints(plan, row, resume_queue)
+    receipts = []
+
     def apply_delta(self, *, checkpoint, completed_prefix=None):
         completed = list(completed_prefix or [])
         for call in self.plan_calls(self._capability.substrate_plan())[len(completed) :]:
             checkpoint("intent", call["step"], completed)
             completed.append({"step": call["step"], "status": 200, "ok": True})
             checkpoint("observed", call["step"], completed)
+        run.services[plan.service]["metadata"]["resourceVersion"] = "after-files-iam"
+        if configuration_changed == "during":
+            run.services[plan.service]["metadata"].setdefault("annotations", {})[
+                "synthetic-concurrent-configuration"
+            ] = "changed"
 
     class FilesRun(FakeRun):
         def replace_service(self, name, body, **kwargs):
             assert state.complete
+            assert (
+                body["metadata"]["resourceVersion"]
+                == self.services[name]["metadata"]["resourceVersion"]
+            ), "Replacement must retain the post-IAM concurrency version"
             events.append(("replace", name))
             super().replace_service(name, body, **kwargs)
             self.services[name]["metadata"]["generation"] = 8
@@ -312,13 +331,18 @@ async def test_files_activation_replaces_same_image_only_after_bound_checkpoints
         files_upgrade_completed_steps=prefix or None,
         on_upgrade_ack=receipts.append,
     )
-    if configuration_changed:
+    if configuration_changed == "before":
         run.services[plan.service]["metadata"]["generation"] = 8
         with pytest.raises(FilesCapabilityChanged):
             await backend.upgrade(spec)
         copy_image.assert_not_called()
         handoff.prepare_and_wait.assert_not_called()
         assert not events and not run.replaced
+        return
+    if configuration_changed == "during":
+        with pytest.raises(BootstrapError, match="configuration changed"):
+            await backend.upgrade(spec)
+        assert state.complete and not run.replaced
         return
     result = await backend.upgrade(spec)
     handoff.prepare_and_wait.assert_called_once()

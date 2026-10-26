@@ -12,8 +12,11 @@ from pathlib import Path
 import asyncpg
 import psycopg2
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 
 from db import migrate
+from db.db_client import DatabaseClient, DatabaseExecutionError
 from db.migration_authority import (
     MigrationAuthorityError,
     MigrationMode,
@@ -21,7 +24,19 @@ from db.migration_authority import (
     build_manifest_entries,
     manifest_checksum,
 )
-from db.private_agent_adoption import _qualification_sql, execution_sql
+from db.private_agent_adoption import _authorization_attempts_sql, _qualification_sql, execution_sql
+from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
+from tests.helpers.private_agent_adoption import (
+    LEGACY_FUNCTIONS,
+    LEGACY_GUARD_MUTATIONS,
+    LEGACY_PREDECESSOR_DRIFT,
+    LEGACY_PREDECESSOR_SCHEMA,
+    LEGACY_TRIGGERS,
+    RECEIPT_PREDECESSORS,
+    authorization_state,
+    guard_catalog,
+    receipt_state,
+)
 from tests.pkm_conformance.postgres_harness import find_pg_bin
 from tests.test_migrations_are_replay_safe import replay_pg
 
@@ -30,99 +45,6 @@ MIGRATIONS = ROOT / "db/migrations"
 FOUNDATION = "420_private_agent_lifecycle_foundation.sql"
 IMMUTABLE_SHA256 = "78981e14e2dc4ef0d40a6275f785a5015367ea08d00ab7b4ef352538cb612f2d"
 pytestmark = [pytest.mark.feature_drive_packets, pytest.mark.trace_loop]
-
-# Reviewed schema-only definitions from the legacy Dev catalog. No owner rows.
-LEGACY_FUNCTIONS = r"""CREATE OR REPLACE FUNCTION public.guard_consumer_memory_consent()
- RETURNS trigger
- LANGUAGE plpgsql
- SET search_path TO 'public'
-AS $function$
-DECLARE
-  binding public.consumer_mcp_connections%ROWTYPE;
-  prior public.consent_audit%ROWTYPE;
-  ref TEXT;
-  requested_generation BIGINT;
-BEGIN
-  IF NEW.scope IS DISTINCT FROM 'cap.consumer.memory' THEN RETURN NEW; END IF;
-  IF NEW.agent_id IS NULL OR NEW.action IS NULL
-     OR NEW.agent_id !~ '^consumer_mcp:cmc_[a-f0-9]{32}:[1-9][0-9]*$'
-     OR NEW.action NOT IN (
-       'CONSENT_GRANTED', 'CONSUMER_TOKEN_ISSUED', 'REVOKED', 'CONSENT_DENIED'
-     ) THEN
-    RAISE EXCEPTION 'invalid consumer consent identity' USING ERRCODE = '42501';
-  END IF;
-
-  PERFORM pg_advisory_xact_lock_shared(hashtextextended(NEW.user_id, 171));
-  PERFORM pg_advisory_xact_lock_shared(hashtextextended(NEW.user_id, 198));
-  ref := split_part(NEW.agent_id, ':', 2);
-  requested_generation := split_part(NEW.agent_id, ':', 3)::bigint;
-  SELECT * INTO binding FROM public.consumer_mcp_connections
-    WHERE connection_id = ref AND user_id = NEW.user_id FOR UPDATE;
-  IF NOT FOUND OR binding.generation <> requested_generation THEN
-    RAISE EXCEPTION 'consumer connection changed' USING ERRCODE = '42501';
-  END IF;
-  SELECT * INTO prior FROM public.consent_audit
-    WHERE user_id = NEW.user_id AND agent_id = NEW.agent_id AND scope = NEW.scope
-      AND action IN (
-        'CONSENT_GRANTED', 'CONSUMER_TOKEN_ISSUED', 'REVOKED', 'CONSENT_DENIED'
-      )
-    ORDER BY issued_at DESC, id DESC LIMIT 1;
-
-  IF NEW.action = 'CONSENT_GRANTED' THEN
-    IF prior.id IS NOT NULL OR NEW.expires_at IS NOT NULL THEN
-      RAISE EXCEPTION 'consumer consent requires a new reviewed generation'
-        USING ERRCODE = '42501';
-    END IF;
-  ELSIF NEW.action = 'CONSUMER_TOKEN_ISSUED' THEN
-    IF prior.id IS NULL OR prior.action NOT IN ('CONSENT_GRANTED', 'CONSUMER_TOKEN_ISSUED')
-       OR NEW.expires_at IS NULL OR NEW.expires_at <= NEW.issued_at
-       OR NEW.token_id IS NULL OR NEW.token_id NOT LIKE 'HCT:%' THEN
-      RAISE EXCEPTION 'consumer runtime credential requires standing consent'
-        USING ERRCODE = '42501';
-    END IF;
-  ELSE
-    -- Standing grants do not expire. A token expiry worker cannot disconnect
-    -- the assistant merely because one runtime credential expired.
-    IF NEW.metadata::jsonb->>'reason' = 'expired' THEN
-      RAISE EXCEPTION 'consumer standing consent does not expire' USING ERRCODE = '42501';
-    END IF;
-    UPDATE public.consumer_mcp_connections SET generation = generation + 1,
-      authorization_floor_id = (SELECT last_value FROM public.developer_oauth_authorizations_id_seq)
-      WHERE connection_id = ref;
-    UPDATE public.developer_oauth_authorizations SET status = 'denied'
-      WHERE consumer_connection_id = ref AND consumer_generation = requested_generation;
-    UPDATE public.developer_oauth_tokens SET revoked_at =
-      floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint
-      WHERE authorization_id IN (SELECT id FROM public.developer_oauth_authorizations
-        WHERE consumer_connection_id = ref AND consumer_generation = requested_generation)
-      AND revoked_at IS NULL;
-  END IF;
-  NEW.issued_at := greatest(NEW.issued_at, coalesce(prior.issued_at + 1, 0));
-  RETURN NEW;
-END;
-$function$;
-
-CREATE OR REPLACE FUNCTION public.preserve_consumer_memory_consent()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF OLD.scope = 'cap.consumer.memory' OR
-     (TG_OP = 'UPDATE' AND NEW.scope = 'cap.consumer.memory') THEN
-    -- Full account erasure records this existing irreversible tombstone first.
-    IF TG_OP = 'DELETE' AND EXISTS (
-      SELECT 1 FROM public.account_deletion_tombstones
-      WHERE user_id_hash = 'sha256:' || encode(sha256(convert_to(OLD.user_id, 'UTF8')), 'hex')
-    ) THEN RETURN OLD; END IF;
-    RAISE EXCEPTION 'consumer consent decisions are append only' USING ERRCODE = '42501';
-  END IF;
-  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-  RETURN NEW;
-END;
-$function$;
-"""
-LEGACY_TRIGGERS = r"""CREATE TRIGGER zz_consumer_memory_consent BEFORE INSERT ON consent_audit FOR EACH ROW EXECUTE FUNCTION guard_consumer_memory_consent();
-CREATE TRIGGER zz_preserve_consumer_memory_consent BEFORE DELETE OR UPDATE ON consent_audit FOR EACH ROW EXECUTE FUNCTION preserve_consumer_memory_consent();"""
 
 
 def canonical_database(server, monkeypatch):
@@ -188,16 +110,6 @@ def install_legacy_guards(connection, *, triggers=True):
             cursor.execute(LEGACY_TRIGGERS)
 
 
-def guard_catalog(connection):
-    with connection.cursor() as cursor:
-        cursor.execute("""SELECT t.oid,t.tgname,t.tgenabled,t.tgfoid,
-          pg_get_triggerdef(t.oid,true),pg_get_functiondef(p.oid),p.prosecdef,p.proconfig
-          FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
-          WHERE t.tgrelid='public.consent_audit'::regclass
-          AND t.tgname LIKE 'zz_%consumer_memory%' ORDER BY t.tgname""")
-        return cursor.fetchall()
-
-
 def assert_absent_guard_qualification_blocks_concurrent_install(connection, server, database):
     with connection.cursor() as cursor:
         cursor.execute(
@@ -239,53 +151,8 @@ def assert_absent_guard_qualification_blocks_concurrent_install(connection, serv
 
 
 def reject_guard_drift(connection, entry):
-    mutations = (
-        (
-            "CREATE TRIGGER zz_unreviewed_consumer_memory BEFORE INSERT ON public.consent_audit FOR EACH ROW EXECUTE FUNCTION public.guard_consumer_memory_consent()",
-            "DROP TRIGGER zz_unreviewed_consumer_memory ON public.consent_audit",
-        ),
-        (
-            "ALTER TABLE public.consent_audit DISABLE TRIGGER zz_consumer_memory_consent",
-            "ALTER TABLE public.consent_audit ENABLE TRIGGER zz_consumer_memory_consent",
-        ),
-        (
-            "DROP TRIGGER zz_preserve_consumer_memory_consent ON public.consent_audit",
-            LEGACY_TRIGGERS.split(";\n", 1)[1],
-        ),
-        (
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; DROP TRIGGER zz_preserve_consumer_memory_consent ON public.consent_audit",
-            LEGACY_TRIGGERS,
-        ),
-        (
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; CREATE TRIGGER zz_consumer_memory_consent AFTER INSERT ON public.consent_audit FOR EACH ROW EXECUTE FUNCTION public.guard_consumer_memory_consent()",
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; "
-            + LEGACY_TRIGGERS.split(";\n", 1)[0],
-        ),
-        (
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; CREATE TRIGGER zz_consumer_memory_consent BEFORE INSERT ON public.consent_audit FOR EACH ROW EXECUTE FUNCTION public.guard_consumer_memory_consent('extra')",
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; "
-            + LEGACY_TRIGGERS.split(";\n", 1)[0],
-        ),
-        (
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; CREATE TRIGGER zz_consumer_memory_consent BEFORE INSERT ON public.consent_audit FOR EACH ROW WHEN(NEW.scope IS NOT NULL) EXECUTE FUNCTION public.guard_consumer_memory_consent()",
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; "
-            + LEGACY_TRIGGERS.split(";\n", 1)[0],
-        ),
-        (
-            "CREATE OR REPLACE FUNCTION public.guard_consumer_memory_consent() RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$ BEGIN RETURN NEW; END; $$",
-            LEGACY_FUNCTIONS,
-        ),
-        (
-            "ALTER FUNCTION public.guard_consumer_memory_consent() SECURITY DEFINER",
-            "ALTER FUNCTION public.guard_consumer_memory_consent() SECURITY INVOKER",
-        ),
-        (
-            "CREATE FUNCTION public.guard_consumer_memory_consent(integer) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$",
-            "DROP FUNCTION public.guard_consumer_memory_consent(integer)",
-        ),
-    )
     with connection.cursor() as cursor:
-        for mutation, cleanup in mutations:
+        for mutation, cleanup in LEGACY_GUARD_MUTATIONS:
             cursor.execute(mutation)
             before = guard_catalog(connection)
             try:
@@ -298,13 +165,13 @@ def reject_guard_drift(connection, entry):
                 cursor.execute(cleanup)
 
 
-async def execute_mode(server, database, entry, mode):
+async def execute_mode(server, database, entry, mode, *, following=()):
     connection = await asyncpg.connect(
         host=server.dir, port=server.port, user="hushh", database=database
     )
     try:
         return await apply_manifest_entries(
-            connection, (entry,), mode=mode, deploy_sha="synthetic-adoption-head"
+            connection, (entry, *following), mode=mode, deploy_sha="synthetic-adoption-head"
         )
     finally:
         await connection.close()
@@ -326,11 +193,13 @@ def assert_pending_ledger_receipt(server, database, connection, entry):
         receipt = cursor.fetchone()
         assert receipt[1:4] == (FOUNDATION, IMMUTABLE_SHA256, "applied")
         assert receipt[6] == "synthetic-adoption-head" and receipt[7] is None
+    normalized = authorization_state(connection)
     assert asyncio.run(execute_mode(server, database, entry, MigrationMode.LEDGER)) == ()
     with connection.cursor() as cursor:
         cursor.execute("SELECT * FROM schema_migrations WHERE migration_id='420'")
         assert cursor.fetchone() == receipt
     assert guard_catalog(connection) == before
+    assert authorization_state(connection) == normalized
 
 
 @pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
@@ -362,6 +231,35 @@ def test_immutable_foundation_preserves_qualified_guards_and_pending_ledger_rece
         assert guard_catalog(connection) == before
         reject_guard_drift(connection, entry)
         assert_pending_ledger_receipt(replay_pg, database, connection, entry)
+        # The next release must preserve423's installed admission guard while
+        # replaying immutable420, rather than rejecting or removing it.
+        successor = (MIGRATIONS / "423_account_shared_provider_authority.sql").read_text()
+        with connection.cursor() as cursor:
+            cursor.execute(successor)
+        assert asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY)) == (
+            FOUNDATION,
+        )
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT public.account_provider_cleanup_contract_version()")
+            assert cursor.fetchone()[0] == 2
+            cursor.execute("""CREATE OR REPLACE FUNCTION public.guard_account_shared_provider_authority()
+                RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public
+                AS $$ BEGIN RETURN NEW; END $$""")
+        try:
+            with pytest.raises(asyncpg.RaiseError, match="shared provider authority successor"):
+                asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY))
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute(successor)
+        with connection.cursor() as cursor:
+            cursor.execute("""CREATE OR REPLACE FUNCTION public.account_provider_cleanup_contract_version()
+                RETURNS integer LANGUAGE sql IMMUTABLE AS $$ SELECT NULL::integer $$""")
+        try:
+            with pytest.raises(asyncpg.RaiseError, match="shared provider authority successor"):
+                asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY))
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute(successor)
     assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256
 
 
@@ -382,3 +280,226 @@ def test_private_agent_adoption_refuses_changed_immutable_source(drift):
     )
     with pytest.raises(MigrationAuthorityError, match="checksum"):
         execution_sql(altered)
+
+
+def seed_legacy_authorization(connection):
+    with connection.cursor() as cursor:
+        canonical = authorization_state(connection)
+        cursor.execute(_authorization_attempts_sql())
+        assert authorization_state(connection) == canonical
+        cursor.execute(
+            "BEGIN; ALTER TABLE public.byoc_setup_jobs DROP COLUMN authorization_attempts"
+        )
+        try:
+            absent = authorization_state(connection)
+            assert absent[0] is None
+            cursor.execute(_authorization_attempts_sql())
+            assert authorization_state(connection) == absent
+        finally:
+            cursor.execute("ROLLBACK")
+        for filename, digest in RECEIPT_PREDECESSORS:
+            source = (MIGRATIONS / "parked" / filename).read_bytes()
+            assert hashlib.sha256(source).hexdigest() == digest
+            cursor.execute(source.decode())
+        cursor.execute(LEGACY_PREDECESSOR_SCHEMA)
+        cursor.execute("""INSERT INTO public.consent_audit_receipts
+          (subject_id,seq,event_type,issued_at_ms,prev_hash,hash,signature)
+          VALUES('synthetic-retained',1,'synthetic-preserved',0,'','synthetic-hash','synthetic-signature')""")
+        cursor.execute("""ALTER TABLE public.byoc_setup_jobs
+          ALTER COLUMN authorization_attempts DROP NOT NULL,
+          ALTER COLUMN authorization_attempts DROP DEFAULT;
+          INSERT INTO public.byoc_setup_jobs(user_id,job_id,project_id,status,stage,authorization_attempts)
+          VALUES('synthetic-null','synthetic-null-job','synthetic-unknown-project','failed','applying_iam',NULL),
+          ('synthetic-retained','synthetic-old-job','synthetic-project','recorded','recorded',
+           '{"opaque_fixture":{"retained":["marker",7]}}'::jsonb)""")
+    return authorization_state(connection)
+
+
+def reject_authorization_drift(connection, entry, before):
+    receipts = receipt_state(connection)
+    mutations = (
+        tuple(
+            (ddl, "authorization_attempts")
+            for ddl in (
+                "ALTER TABLE public.byoc_setup_jobs ALTER COLUMN authorization_attempts TYPE json USING authorization_attempts::json",
+                "ALTER TABLE public.byoc_setup_jobs ALTER COLUMN authorization_attempts SET DEFAULT '[]'::jsonb",
+                "ALTER TABLE public.byoc_setup_jobs DROP COLUMN authorization_attempts; ALTER TABLE public.byoc_setup_jobs ADD COLUMN authorization_attempts jsonb GENERATED ALWAYS AS ('{}'::jsonb) STORED",
+            )
+        )
+        + LEGACY_PREDECESSOR_DRIFT
+    )
+    with connection.cursor() as cursor:
+        for ddl, failure in mutations:
+            cursor.execute("BEGIN")
+            try:
+                cursor.execute(ddl)
+                with pytest.raises(psycopg2.errors.RaiseException, match=failure):
+                    cursor.execute(execution_sql(entry))
+            finally:
+                cursor.execute("ROLLBACK")
+            assert authorization_state(connection) == before
+            assert receipt_state(connection) == receipts
+        cursor.execute(
+            "CREATE UNIQUE INDEX synthetic_adoption_drift ON public.personal_agent_registry(space_id)"
+        )
+        try:
+            with pytest.raises(psycopg2.errors.RaiseException, match="indexes"):
+                cursor.execute(execution_sql(entry))
+            cursor.execute("ROLLBACK")
+            assert authorization_state(connection) == before
+            assert receipt_state(connection) == receipts
+        finally:
+            cursor.execute("ROLLBACK")
+            cursor.execute("DROP INDEX synthetic_adoption_drift")
+
+
+def assert_installed_authorization_guard_is_not_bypassed(connection, entry, before):
+    prefixes = (
+        "CREATE OR REPLACE FUNCTION public.guard_byoc_authorization_attempts()",
+        "CREATE TRIGGER zz_byoc_authorization_attempts BEFORE",
+    )
+    with connection.cursor() as cursor:
+        cursor.execute("BEGIN")
+        try:
+            for prefix in prefixes:
+                body = entry.sql.split("$object$" + prefix, 1)[1].split("$object$;", 1)[0]
+                cursor.execute(prefix + body)
+            with pytest.raises(psycopg2.Error, match="authorization recovery immutable"):
+                cursor.execute(_authorization_attempts_sql())
+        finally:
+            cursor.execute("ROLLBACK")
+    assert authorization_state(connection) == before
+
+
+def assert_unknown_history_check_is_required(connection, entry):
+    name = "byoc_setup_authorization_history_object"
+    before = authorization_state(connection)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT contype,convalidated,pg_get_constraintdef(oid,true)
+          FROM pg_constraint WHERE conrelid='public.byoc_setup_jobs'::regclass
+          AND conname=%s""",
+            (name,),
+        )
+        check = cursor.fetchone()
+        assert check == (
+            "c",
+            False,
+            "CHECK (jsonb_typeof(authorization_attempts) = 'object'::text) NOT VALID",
+        )
+        for replacement in ("", f"ADD CONSTRAINT {name} CHECK (true) NOT VALID"):
+            cursor.execute("BEGIN")
+            try:
+                cursor.execute(f"ALTER TABLE public.byoc_setup_jobs DROP CONSTRAINT {name}")
+                if replacement:
+                    cursor.execute("ALTER TABLE public.byoc_setup_jobs " + replacement)
+                with pytest.raises(psycopg2.errors.RaiseException, match="authorization"):
+                    cursor.execute(execution_sql(entry))
+            finally:
+                cursor.execute("ROLLBACK")
+            assert authorization_state(connection) == before
+
+
+def assert_unknown_authorization_is_fenced(connection, server, database):
+    before = authorization_state(connection)
+    engine = create_engine(
+        "postgresql+psycopg2://",
+        creator=lambda: psycopg2.connect(
+            host=server.dir, port=server.port, user="hushh", dbname=database
+        ),
+    )
+    try:
+        repo = ByocSetupJobRepo(client=DatabaseClient(engine=engine))
+        with pytest.raises(DatabaseExecutionError) as denied:
+            asyncio.run(
+                repo.start(user_id="synthetic-null", job_id="replacement", project_id="new-project")
+            )
+        assert isinstance(denied.value.__cause__, IntegrityError)
+        assert isinstance(denied.value.__cause__.orig, psycopg2.errors.CheckViolation)
+        assert (
+            denied.value.__cause__.orig.diag.constraint_name
+            == "byoc_setup_authorization_history_object"
+        )
+    finally:
+        engine.dispose()
+    with connection.cursor() as cursor:
+        for sql in (
+            "DELETE FROM public.byoc_setup_jobs WHERE user_id='synthetic-null'",
+            "UPDATE public.byoc_setup_jobs SET authorization_attempts='{}'::jsonb WHERE user_id='synthetic-null'",
+        ):
+            with pytest.raises(psycopg2.Error):
+                cursor.execute(sql)
+            assert authorization_state(connection) == before
+        cursor.execute("BEGIN")
+        try:
+            cursor.execute("""INSERT INTO public.byoc_setup_jobs(user_id,job_id,project_id)
+              VALUES('synthetic-new','synthetic-new-job','new-project')
+              RETURNING authorization_attempts""")
+            assert cursor.fetchone() == ({},)
+        finally:
+            cursor.execute("ROLLBACK")
+    assert authorization_state(connection) == before
+
+
+@pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
+@pytest.mark.parametrize("mode", [MigrationMode.REPLAY, MigrationMode.LEDGER])
+def test_legacy_unknown_authorization_preserves_wire_history_and_blocks_replacement(
+    replay_pg, monkeypatch, mode
+):
+    [entry] = build_manifest_entries(MIGRATIONS, [FOUNDATION])
+    connection, database = canonical_database(replay_pg, monkeypatch)
+    with closing(connection):
+        before = seed_legacy_authorization(connection)
+        receipts = receipt_state(connection)
+        assert len(receipts) == 1
+        assert "ledger" not in receipts[0][0]
+        assert before[0] == ("jsonb", False, None, "", "")
+        with connection.cursor() as cursor:
+            with pytest.raises(psycopg2.errors.RaiseException, match="column"):
+                cursor.execute(entry.sql)
+            cursor.execute("ROLLBACK")
+        assert authorization_state(connection) == before
+        assert_installed_authorization_guard_is_not_bypassed(connection, entry, before)
+        reject_authorization_drift(connection, entry, before)
+        if mode is MigrationMode.LEDGER:
+            assert_pending_ledger_receipt(replay_pg, database, connection, entry)
+        else:
+            assert asyncio.run(execute_mode(replay_pg, database, entry, mode)) == (FOUNDATION,)
+        column, rows = authorization_state(connection)
+        assert column == ("jsonb", True, "'{}'::jsonb", "", "")
+        assert rows[0][1] == before[1][0][1]
+        assert rows[1] == before[1][1]
+        with connection.cursor() as cursor:
+            cursor.execute("""SELECT authorization_attempts IS NOT NULL,
+              authorization_attempts='null'::jsonb FROM public.byoc_setup_jobs
+              WHERE user_id='synthetic-null'""")
+            assert cursor.fetchone() == (True, True)
+        assert_unknown_authorization_is_fenced(connection, replay_pg, database)
+        assert_unknown_history_check_is_required(connection, entry)
+        normalized = authorization_state(connection)
+        expected = () if mode is MigrationMode.LEDGER else (FOUNDATION,)
+        assert asyncio.run(execute_mode(replay_pg, database, entry, mode)) == expected
+        assert authorization_state(connection) == normalized
+        following = build_manifest_entries(
+            MIGRATIONS,
+            [
+                "421_cloud_removal_recovery.sql",
+                "422_financial_packet_discovery_capacity.sql",
+                "423_account_shared_provider_authority.sql",
+            ],
+        )
+        assert asyncio.run(
+            execute_mode(replay_pg, database, following[0], mode, following=following[1:])
+        ) == tuple(e.filename for e in following)
+        expected = (
+            () if mode is MigrationMode.LEDGER else (FOUNDATION, *(e.filename for e in following))
+        )
+        assert (
+            asyncio.run(execute_mode(replay_pg, database, entry, mode, following=following))
+            == expected
+        )
+        assert authorization_state(connection) == normalized
+        assert receipt_state(connection) == [
+            ({**row, "ledger": "consent"}, ctid) for row, ctid in receipts
+        ]
+    assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256

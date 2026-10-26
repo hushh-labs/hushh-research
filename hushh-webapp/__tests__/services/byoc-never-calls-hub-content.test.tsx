@@ -10,7 +10,6 @@ import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
  * and fail if any `/api/one/(agent-chat|email|location|information|kai)` or
  * `/api/kai` request reaches the hub for such an owner.
  */
-import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const HUB_CONTENT =
@@ -359,22 +358,6 @@ describe("the specialist tabs ask the owner's agent with a closed focus", () => 
       "/api/pkm/memory/proposals",
     ]);
     calls.hub.length = 0; // the afterEach guard is for private owners
-  });
-});
-
-describe("Kai for an own-cloud owner", () => {
-  it("shows that Kai is coming to their agent and renders no Kai surface", async () => {
-    const { KaiPrivateAgentGate } =
-      await import("@/components/kai/kai-private-agent-gate");
-    render(
-      <KaiPrivateAgentGate>
-        <div>kai workspace</div>
-      </KaiPrivateAgentGate>,
-    );
-    expect(
-      await screen.findByText("Kai will be available on your agent soon."),
-    ).toBeTruthy();
-    expect(screen.queryByText("kai workspace")).toBeNull();
   });
 });
 

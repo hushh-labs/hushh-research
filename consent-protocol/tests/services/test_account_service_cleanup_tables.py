@@ -287,10 +287,17 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         for index, call in enumerate(conn.execute.call_args_list)
         if "DELETE FROM" in str(call.args[0])
     )
-    initial_lock_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list[:4])
-    assert first_delete_call >= 4
+    initial_calls = conn.execute.call_args_list[:first_delete_call]
+    initial_lock_sql = "\n".join(str(call.args[0]) for call in initial_calls)
+    assert (
+        "LOCK TABLE public.actor_profiles, public.vault_keys IN ROW EXCLUSIVE MODE"
+        in initial_lock_sql
+    )
     assert initial_lock_sql.count("pg_advisory_xact_lock") == 3
-    assert conn.execute.call_args_list[1].args[1] == {"lock_key": "fabric_receipts:user_delete_123"}
+    fabric_lock = next(
+        call for call in initial_calls if "fabric_receipts:user_delete_123" in str(call)
+    )
+    assert fabric_lock.args[1] == {"lock_key": "fabric_receipts:user_delete_123"}
     expected_fragments = [
         "DELETE FROM email_auth_challenges",
         "DELETE FROM email_auth_enrollments",

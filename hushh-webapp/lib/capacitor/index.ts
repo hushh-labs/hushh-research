@@ -13,6 +13,8 @@
  */
 
 import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import type { NativeDeletionPhoneProofPlugin, NativeGoogleContactsAuthorization } from "./types/auth";
+export type { NativeGoogleContactsAuthorization } from "./types/auth";
 
 import type {
   // Consent types
@@ -79,15 +81,7 @@ export const HUSHH_AUTH_TOKEN_ERROR_CODE = {
 export type HushhAuthTokenErrorCode =
   (typeof HUSHH_AUTH_TOKEN_ERROR_CODE)[keyof typeof HUSHH_AUTH_TOKEN_ERROR_CODE];
 
-export interface NativeGoogleContactsAuthorization {
-  accessToken: string;
-  googleSubject: string;
-  grantedScopes: string[];
-  authority: "ios-sdk-grant" | "android-contacts-only";
-  expiresAt: number | null;
-}
-
-export interface HushhAuthPlugin {
+export interface HushhAuthPlugin extends NativeDeletionPhoneProofPlugin {
   /** One invocation, bound to the selected signup account; no Firebase exchange. */
   authorizeGoogleContacts(options: {
     expectedUserId: string;

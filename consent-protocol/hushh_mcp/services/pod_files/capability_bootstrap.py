@@ -133,7 +133,7 @@ class FilesCapabilityBootstrap(UserGcpBootstrap):
             checkpoint=checkpoint_after_permissions,
             completed_prefix=completed_prefix,
         )
-        if outcome.get("ok") is not True:
+        if not isinstance(outcome, dict) or outcome.get("ok") is not True:
             # Qualified intent/results have already been retained by checkpoint.
             # Failed/unknown provider work requires reconciliation, never replay.
             raise BootstrapError("Files activation requires reconciliation")
@@ -180,4 +180,18 @@ def apply_upgrade_configuration(
     )
     latest = client.get_service(service_name)
     capability.require_observation(latest)
+    # IAM writes may advance resourceVersion without changing the deployment.
+    # Carry that version forward only after excluding concurrent configuration
+    # changes; never adopt a new service snapshot into the approved replacement.
+    identity = ("name", "namespace", "uid", "generation", "labels", "annotations")
+    before = existing.get("metadata") or {}
+    after = latest.get("metadata") or {}
+    if latest.get("spec") != existing.get("spec") or any(
+        before.get(key) != after.get(key) for key in identity
+    ):
+        raise BootstrapError("Pod configuration changed during Files setup")
+    version = after.get("resourceVersion")
+    if not isinstance(version, str) or not version.strip():
+        raise BootstrapError("Files replacement concurrency version unavailable")
+    existing["metadata"]["resourceVersion"] = version
     capability.apply_configuration(existing=existing, desired=desired)

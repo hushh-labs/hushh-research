@@ -184,7 +184,8 @@ export class DirectMessagesService {
       createdAt: new Date(Date.parse(items.at(-1)?.createdAt ?? "2026-10-09T12:00:00Z") + 60_000).toISOString(), readAt: null }; items.push(message); }
     if (input.attachment) {
       attachments.set(message.id, input.attachment);
-      message.attachment = { kind: "photo", name: input.attachment.name, mimeType: input.attachment.type, size: input.attachment.size };
+      const kind = input.attachment.type.startsWith("image/") ? "photo" : input.attachment.type.startsWith("video/") ? "video" : input.attachment.type.startsWith("audio/") ? "audio" : "document";
+      message.attachment = { kind, name: input.attachment.name, mimeType: input.attachment.type, size: input.attachment.size };
     }
     if (input.replyToMessageId) {
       const reply = items.find((item) => item.id === input.replyToMessageId)!;

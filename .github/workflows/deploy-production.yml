@@ -222,8 +222,16 @@ jobs:
             "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"
           cp scripts/ci/runtime_capacity_inventory.py \
             "${RUNNER_TEMP}/release-tools/runtime_capacity_inventory.py"
+          cp scripts/ci/verify-cloud-scheduler-attempt.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
+          cp deploy/drive/rollback_after_worker_failure.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/account-deletion-fence-decision.py \
             "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
+          mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"
+          cp deploy/account-deletion/{install,remove}_release_fence.sql \
+            deploy/account-deletion/activate_release.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
+            deploy/account-deletion/verify_release_boundary.sql \
+            "${RUNNER_TEMP}/release-tools/account-deletion/"
           cp config/runtime-capacity.json \
             "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
           git log -1 --diff-filter=A --format=%H -- \
@@ -270,8 +278,14 @@ jobs:
             scripts/ci/runtime-capacity-budget.py
           cp "${RUNNER_TEMP}/release-tools/runtime_capacity_inventory.py" \
             scripts/ci/runtime_capacity_inventory.py
+          cp "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
+          mkdir -p deploy/drive
+          cp "${RUNNER_TEMP}/release-tools/rollback_after_worker_failure.sh" deploy/drive/
           cp "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py" \
             scripts/ci/account-deletion-fence-decision.py
+          mkdir -p deploy/account-deletion
+          cp "${RUNNER_TEMP}/release-tools/account-deletion/"* deploy/account-deletion/
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json" \
             config/runtime-capacity.json
 
@@ -808,6 +822,10 @@ jobs:
           fi
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
           echo "image_source=${BACKEND_IMAGE_SOURCE}" >> "$GITHUB_OUTPUT"
+
+      - name: Qualify current account lifecycle producer
+        if: steps.scope.outputs.deploy_backend == 'true'
+        run: python3 deploy/account-deletion/activate_release.py --qualify-source "${{ github.event.inputs.sha }}"
 
       - name: Qualify uninterrupted account deletion
         id: account-deletion-fence-decision
@@ -1915,232 +1933,20 @@ jobs:
         id: activate-account-deletion
         if: steps.classify.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
-        env:
-          BACKEND_URL: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
-          OIDC_AUDIENCE: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
-          PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
-          SCHEDULER_LOCATION: ${{ env.GCP_REGION }}
-          SCHEDULER_SERVICE_ACCOUNT_NAME: ${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}
-          JOB_NAME: ${{ env.ACCOUNT_DELETION_SCHEDULER_JOB }}
-          BATCH_LIMIT: "10"
         run: |
           set -euo pipefail
-          if [ "${PROJECT_ID}" != "hushh-pda" ] \
-             || [ "${PROD_CLOUDSQL_INSTANCE}" != "hushh-pda:us-central1:hushh-vault-db" ]; then
-            echo "Refusing account deletion activation: project or Cloud SQL instance is not the canonical production target." >&2
-            exit 1
-          fi
-          bash deploy/account-deletion/setup_cleanup_scheduler.sh \
-            | tee /tmp/prod-account-deletion-scheduler-setup.log
-
-          gcloud scheduler jobs describe "${JOB_NAME}" \
-            --project="${PROJECT_ID}" \
-            --location="${SCHEDULER_LOCATION}" \
-            --format=json > /tmp/prod-account-deletion-scheduler-config.json
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          job = json.loads(
-              Path('/tmp/prod-account-deletion-scheduler-config.json').read_text(
-                  encoding='utf-8'
-              )
-          )
-          target = job.get('httpTarget') or {}
-          oidc = target.get('oidcToken') or {}
-          expected_uri = (
-              'https://api.hushh.ai/api/account/deletion-cleanup/drain?limit=10'
-          )
-          expected_service_account_email = (
-              f"{os.environ['SCHEDULER_SERVICE_ACCOUNT_NAME']}@"
-              f"{os.environ['PROJECT_ID']}.iam.gserviceaccount.com"
-          )
-          checks = {
-              'enabled': job.get('state') == 'ENABLED',
-              'method': target.get('httpMethod') == 'POST',
-              'uri': target.get('uri') == expected_uri,
-              'service_account': oidc.get('serviceAccountEmail')
-              == expected_service_account_email,
-              'audience': oidc.get('audience') == 'https://api.hushh.ai',
-          }
-          if not all(checks.values()):
-              raise SystemExit('Account deletion cleanup scheduler configuration drifted')
-          PY
-
-          # lastAttemptTime only proves that an attempt started. A release may
-          # activate only after Cloud Logging records the matching HTTP target
-          # completion with a concrete 2xx response; absent status is failure.
-          scheduler_triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          gcloud scheduler jobs run "${JOB_NAME}" \
-            --project="${PROJECT_ID}" \
-            --location="${SCHEDULER_LOCATION}"
-
-          scheduler_job_resource="projects/${PROJECT_ID}/locations/${SCHEDULER_LOCATION}/jobs/${JOB_NAME}"
-          expected_uri="${BACKEND_URL%/}/api/account/deletion-cleanup/drain?limit=${BATCH_LIMIT}"
-          scheduler_log_filter="resource.type=\"cloud_scheduler_job\" AND resource.labels.project_id=\"${PROJECT_ID}\" AND resource.labels.location=\"${SCHEDULER_LOCATION}\" AND resource.labels.job_id=\"${JOB_NAME}\" AND logName=\"projects/${PROJECT_ID}/logs/cloudscheduler.googleapis.com%2Fexecutions\" AND timestamp>=\"${scheduler_triggered_at}\" AND jsonPayload.\"@type\"=\"type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished\""
-          scheduler_verified=false
-          for _attempt in $(seq 1 72); do
-            if ! gcloud logging read "${scheduler_log_filter}" \
-              --project="${PROJECT_ID}" \
-              --freshness=10m \
-              --order=desc \
-              --limit=20 \
-              --format=json > /tmp/prod-account-deletion-scheduler-finished-logs.json; then
-              echo "Cannot read Cloud Scheduler completion logs; grant the deploy identity logging.logEntries.list." >&2
-              exit 1
-            fi
-            if python3 scripts/ci/verify-cloud-scheduler-attempt.py \
-              --logs-json /tmp/prod-account-deletion-scheduler-finished-logs.json \
-              --triggered-at "${scheduler_triggered_at}" \
-              --expected-job "${scheduler_job_resource}" \
-              --expected-uri "${expected_uri}" \
-              --evidence-path /tmp/prod-account-deletion-scheduler-evidence.json
-            then
-              scheduler_verified=true
-              break
-            fi
-            sleep 5
-          done
-          if [ "${scheduler_verified}" != "true" ]; then
-            echo "Account deletion cleanup scheduler produced no fresh successful AttemptFinished evidence." >&2
-            exit 1
-          fi
-
-          # Zero traffic is not a hard drain: an already-routed request can
-          # still reach an old revision. Retire every pre-v201 backend revision
-          # before removing the database fence, then prove none remain.
-          gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${PROJECT_ID}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format=json > /tmp/prod-backend-preactivation-service.json
-          gcloud run revisions list \
-            --service="${{ env.BACKEND_SERVICE }}" \
-            --project="${PROJECT_ID}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format=json > /tmp/prod-backend-preactivation-revisions.json
-          python3 - <<'PY'
-          import json
-          import re
-          from pathlib import Path
-
-          service = json.loads(
-              Path('/tmp/prod-backend-preactivation-service.json').read_text(encoding='utf-8')
-          )
-          revisions = json.loads(
-              Path('/tmp/prod-backend-preactivation-revisions.json').read_text(encoding='utf-8')
-          )
-          legacy = {
-              str((revision.get('metadata') or {}).get('name') or '').strip()
-              for revision in revisions
-              if ((revision.get('metadata') or {}).get('labels') or {}).get('account-deletion-contract') != 'v201'
-          }
-          if any(not re.fullmatch(r'[a-z0-9-]+', revision) for revision in legacy):
-              raise SystemExit('Refusing to retire an invalid legacy revision name')
-          tags = []
-          for entry in ((service.get('status') or {}).get('traffic') or []):
-              if not isinstance(entry, dict):
-                  continue
-              revision = str(entry.get('revisionName') or '').strip()
-              if revision in legacy and int(entry.get('percent') or 0) > 0:
-                  raise SystemExit('A pre-v201 backend revision still has serving traffic')
-              tag = str(entry.get('tag') or '').strip()
-              if revision in legacy and tag:
-                  if not re.fullmatch(r'[a-z][a-z0-9-]{0,62}', tag):
-                      raise SystemExit('Refusing to remove an invalid legacy traffic tag')
-                  tags.append(tag)
-          Path('/tmp/prod-backend-legacy-revisions.txt').write_text(
-              ''.join(f'{revision}\n' for revision in sorted(legacy)), encoding='utf-8'
-          )
-          Path('/tmp/prod-backend-legacy-tags.txt').write_text(
-              ','.join(sorted(set(tags))), encoding='utf-8'
-          )
-          PY
-          legacy_tags="$(cat /tmp/prod-backend-legacy-tags.txt)"
-          if [ -n "${legacy_tags}" ]; then
-            gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
-              --project="${PROJECT_ID}" \
-              --region="${{ env.GCP_REGION }}" \
-              --remove-tags="${legacy_tags}"
-          fi
-          while IFS= read -r legacy_revision; do
-            [ -n "${legacy_revision}" ] || continue
-            gcloud run revisions delete "${legacy_revision}" \
-              --project="${PROJECT_ID}" \
-              --region="${{ env.GCP_REGION }}" \
-              --quiet
-          done < /tmp/prod-backend-legacy-revisions.txt
-          gcloud run revisions list \
-            --service="${{ env.BACKEND_SERVICE }}" \
-            --project="${PROJECT_ID}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format=json > /tmp/prod-backend-postretirement-revisions.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          revisions = json.loads(
-              Path('/tmp/prod-backend-postretirement-revisions.json').read_text(encoding='utf-8')
-          )
-          legacy = [
-              str((revision.get('metadata') or {}).get('name') or '')
-              for revision in revisions
-              if ((revision.get('metadata') or {}).get('labels') or {}).get('account-deletion-contract') != 'v201'
-          ]
-          evidence = {'status': 'retired' if not legacy else 'blocked', 'remaining_pre_v201_count': len(legacy)}
-          Path('/tmp/prod-account-deletion-revision-retirement.json').write_text(
-              json.dumps(evidence, indent=2, sort_keys=True), encoding='utf-8'
-          )
-          if legacy:
-              raise SystemExit('Pre-v201 backend revisions remain; retaining deletion fence')
-          PY
-
-          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${PROJECT_ID}")"
-          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${PROJECT_ID}")"
-          echo "::add-mask::${DB_USER}"
-          echo "::add-mask::${DB_PASSWORD}"
-          cloud-sql-proxy \
-            --address 127.0.0.1 \
-            --port 6544 \
-            ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
-            "${{ env.PROD_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-prod-activation.log 2>&1 &
-          PROXY_PID=$!
-          trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
-          python3 - <<'PY'
-          import socket
-          import time
-
-          deadline = time.time() + 20
-          while time.time() < deadline:
-              with socket.socket() as sock:
-                  sock.settimeout(0.5)
-                  if sock.connect_ex(("127.0.0.1", 6544)) == 0:
-                      raise SystemExit(0)
-              time.sleep(0.25)
-          raise SystemExit("Cloud SQL proxy did not bind for account deletion activation")
-          PY
-          export PGHOST=127.0.0.1
-          export PGPORT=6544
-          export PGDATABASE="${{ env.PROD_DB_NAME }}"
-          export PGUSER="$DB_USER"
-          export PGPASSWORD="$DB_PASSWORD"
-          expected_fence_count=0
-          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
-            expected_fence_count=2
-          fi
-          psql --no-psqlrc -v "expected_fence_count=${expected_fence_count}" \
-            --file deploy/account-deletion/verify_release_boundary.sql \
-            > /tmp/prod-account-deletion-boundary-preactivation.log
-          psql --no-psqlrc --tuples-only --no-align \
-            --command "SELECT json_build_object(
-              'counts_by_status', COALESCE((SELECT json_object_agg(cleanup_status, intent_count) FROM (SELECT cleanup_status, count(*) AS intent_count FROM public.account_deletion_tombstones GROUP BY cleanup_status) grouped), '{}'::json),
-              'oldest_due_age_seconds', COALESCE((SELECT floor(extract(epoch FROM (now() - min(cleanup_next_attempt_at))))::bigint FROM public.account_deletion_tombstones WHERE firebase_uid IS NOT NULL AND cleanup_status <> 'completed' AND cleanup_next_attempt_at <= now()), 0)
-            )" > /tmp/prod-account-deletion-cleanup-health.json
-          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
-            psql --no-psqlrc \
-              --file deploy/account-deletion/remove_release_fence.sql \
-              | tee /tmp/prod-account-deletion-fence-removal.log
-          fi
+          python3 deploy/account-deletion/activate_release.py \
+            --project "${{ env.GCP_PROJECT_ID }}" --region "${{ env.GCP_REGION }}" \
+            --backend-service "${{ env.BACKEND_SERVICE }}" \
+            --backend-url "${{ env.CONSENT_API_PUBLIC_ORIGIN }}" \
+            --oidc-audience "${{ env.CONSENT_API_PUBLIC_ORIGIN }}" \
+            --scheduler-job "${{ env.ACCOUNT_DELETION_SCHEDULER_JOB }}" \
+            --scheduler-service-account "${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}" \
+            --expected-sha "${{ github.event.inputs.sha }}" --expected-run-id "${{ github.run_id }}" \
+            --cloudsql-instance "${{ env.PROD_CLOUDSQL_INSTANCE }}" \
+            --db-name "${{ env.PROD_DB_NAME }}" --db-port 6544 \
+            --fence-required "${{ steps.account-deletion-fence-decision.outputs.required }}" \
+            --evidence-prefix /tmp/prod-account-deletion
           echo "activated=true" >> "$GITHUB_OUTPUT"
 
       - name: Resolve final Cloud Run state
@@ -2335,6 +2141,7 @@ jobs:
             /tmp/prod-account-deletion-scheduler-setup.log
             /tmp/prod-account-deletion-scheduler-config.json
             /tmp/prod-account-deletion-scheduler-finished-logs.json
+            /tmp/prod-account-deletion-activation.json
             /tmp/prod-account-deletion-scheduler-evidence.json
             /tmp/prod-account-deletion-cleanup-health.json
             /tmp/prod-account-deletion-revision-retirement.json

@@ -47,6 +47,7 @@ from api.middleware import (
     require_firebase_auth_read_only,
     require_vault_owner_token,
 )
+from api.middlewares.observability import request_trace_span
 from api.routes.account_cloud_cleanup import AccountCloudCleanupRequest, account_cloud_cleanup
 from api.routes.account_legal_acceptance import router as legal_acceptance_router
 from api.routes.account_lost_vault import LostVaultDeleteRequest
@@ -94,6 +95,7 @@ from hushh_mcp.services.phone_test_transport import (
 )
 from hushh_mcp.services.phone_test_transport import (
     _normalize_phone_number,
+    _require_phone_verification_owner,
     create_phone_test_challenge,
     validate_phone_test_confirmation,
 )
@@ -1662,17 +1664,6 @@ class UatPhoneTestConfirmRequest(BaseModel):
     expected_user_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
-def _require_phone_verification_owner(expected_user_id: str | None, firebase_uid: str) -> None:
-    if expected_user_id is not None and expected_user_id != firebase_uid:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "PHONE_VERIFICATION_ACCOUNT_CHANGED",
-                "message": "Your signed-in account changed. Start phone verification again.",
-            },
-        )
-
-
 def _raise_alias_error(exc: ActorIdentityAliasError) -> None:
     raise HTTPException(
         status_code=exc.status_code,
@@ -1983,7 +1974,8 @@ async def start_uat_test_phone_verification(
 ):
     """Start an environment-gated fixed-code phone verification challenge."""
     phone_number = _normalize_phone_number(payload.phone_number)
-    challenge = create_phone_test_challenge(firebase_uid, phone_number)
+    with request_trace_span("challenge"):
+        challenge = create_phone_test_challenge(firebase_uid, phone_number)
 
     if challenge is None:
         return {
@@ -1993,9 +1985,10 @@ async def start_uat_test_phone_verification(
         }
 
     try:
-        available = await ActorIdentityService().can_claim_test_phone(
-            user_id=firebase_uid, phone_number=phone_number
-        )
+        with request_trace_span("identity"):
+            available = await ActorIdentityService().can_claim_test_phone(
+                user_id=firebase_uid, phone_number=phone_number
+            )
     except Exception as exc:
         logger.warning("Phone test ownership lookup unavailable error=%s", type(exc).__name__)
         raise HTTPException(
@@ -2025,19 +2018,21 @@ async def confirm_uat_test_phone_verification(
     """Persist an environment-gated fixed-code phone verification claim."""
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
     phone_number = _normalize_phone_number(payload.phone_number)
-    source = validate_phone_test_confirmation(
-        firebase_uid,
-        phone_number,
-        payload.verification_id,
-        payload.verification_code,
-    )
+    with request_trace_span("provider"):
+        source = validate_phone_test_confirmation(
+            firebase_uid,
+            phone_number,
+            payload.verification_id,
+            payload.verification_code,
+        )
 
     try:
-        identity = await ActorIdentityService().claim_verified_phone(
-            user_id=firebase_uid,
-            phone_number=phone_number,
-            source=source,
-        )
+        with request_trace_span("persist"):
+            identity = await ActorIdentityService().claim_verified_phone(
+                user_id=firebase_uid,
+                phone_number=phone_number,
+                source=source,
+            )
     except ActorIdentityPhoneClaimConflictError:
         raise HTTPException(
             status_code=409,
@@ -2290,6 +2285,13 @@ async def _delete_account_result(user_id: str, *, target: str) -> dict[str, Any]
         return {"success": False, "error": type(exc).__name__}
 
 
+def _cleanup_provider_detail(value: object) -> dict[str, str]:
+    if not isinstance(value, str):
+        return {}
+    provider = {"user_azure": "azure", "user_gcp": "gcp"}.get(value)
+    return {"cleanupProvider": provider} if provider else {}
+
+
 async def _perform_account_deletion(user_id: str, *, target: str):
     """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
@@ -2309,11 +2311,7 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 detail={
                     "code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
                     "message": PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
-                    **(
-                        {"cleanupProvider": "azure"}
-                        if result.get("cleanup_provider") == "user_azure"
-                        else {}
-                    ),
+                    **_cleanup_provider_detail(result.get("cleanup_provider")),
                 },
             )
         if result.get("error_code") == ACCOUNT_DELETION_PAUSED_CODE:

@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import os
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic
@@ -17,13 +18,24 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from hushh_mcp.services import account_deletion_lifecycle_service as lifecycle
+from hushh_mcp.services import account_deletion_provider_credentials as credentials
 from hushh_mcp.services import account_deletion_provider_journal as journal
+from hushh_mcp.services import account_deletion_provider_worker as worker
+from hushh_mcp.services import account_deletion_release_admission as admission
 from hushh_mcp.services import account_service as account
 from hushh_mcp.services.account_deletion_provider_cleanup import ProviderCredentialSnapshot
 from tests.pkm_conformance import postgres_harness
 
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = [pytest.mark.feature_account_deletion, pytest.mark.trace_loop]
+
+
+def _release_sql(name: str) -> str:
+    return "\n".join(
+        line
+        for line in (ROOT.parent / "deploy/account-deletion" / name).read_text().splitlines()
+        if not line.startswith("\\")
+    )
 
 
 @pytest.fixture(scope="module")
@@ -190,8 +202,27 @@ async def test_provider_cleanup_retains_custody_through_failure_and_migration_re
             "290_chat_push_delivery.sql",
             "370_one_marketing_preferences.sql",
             "418_account_provider_cleanup_staging.sql",
+            "423_account_shared_provider_authority.sql",
         ]
         for migration in migrations:
+            if migration == "423_account_shared_provider_authority.sql":
+
+                def prepare_without_current_contract():
+                    engine = create_engine(database_url)
+                    try:
+                        with engine.begin() as transaction:
+                            return lifecycle.AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
+                                transaction,
+                                user_id="synthetic_precontract_owner",
+                                firebase_uid="synthetic_precontract_identity",
+                                table_exists=account.AccountService()._table_exists,
+                            )
+                    finally:
+                        engine.dispose()
+
+                with pytest.raises(Exception, match="account_provider_cleanup_contract_version"):
+                    await asyncio.to_thread(prepare_without_current_contract)
+                assert await conn.fetchval("SELECT count(*) FROM account_deletion_tombstones") == 0
             await conn.execute((ROOT / "db/migrations" / migration).read_text())
 
         uid = "synthetic_prepared_cleanup"
@@ -816,9 +847,157 @@ async def test_provider_cleanup_retains_custody_through_failure_and_migration_re
             )
             == "retained-api-key-ciphertext"
         )
+        await _assert_shared_producer_authority(conn, database_url, monkeypatch)
         await _assert_account_generation_cycles(conn, database_url, monkeypatch)
     finally:
         await conn.close()
+
+
+async def _shared_google_owner(conn, monkeypatch):
+    from hushh_mcp.services import account_deletion_provider_credentials as credentials
+    from hushh_mcp.services.google_connection_service import GoogleConnectionService
+
+    owner, identity = "synthetic_shared_google_owner", "synthetic_shared_google_identity"
+    project = "123456789012"
+    await conn.execute("INSERT INTO actor_profiles VALUES($1)", owner)
+    await conn.execute("INSERT INTO vault_keys VALUES($1)", owner)
+    monkeypatch.setenv(
+        "GOOGLE_OAUTH_CLIENT_ID", project + "-abcdefghijklmnop.apps.googleusercontent.com"
+    )
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "synthetic-client-secret")
+    service = GoogleConnectionService(db=object())
+    monkeypatch.setattr(service, "_token_key", lambda: b"k" * 32)
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_connection_service.get_google_connection_service",
+        lambda: service,
+    )
+    monkeypatch.setattr(
+        credentials,
+        "_shared_google_projects",
+        lambda: frozenset({hashlib.sha256(project.encode()).hexdigest()}),
+    )
+    sealed = service._encrypt("synthetic-retained-refresh", aad=f"google-connection:{owner}")
+    await conn.execute(
+        """INSERT INTO google_provider_connections
+        (user_id,provider,provider_subject,refresh_token_ciphertext,refresh_token_iv,refresh_token_tag)
+        VALUES($1,'google','123456789',$2,$3,$4)""",
+        owner,
+        sealed["ciphertext"],
+        sealed["iv"],
+        sealed["tag"],
+    )
+    return owner, identity
+
+
+async def _prepare_shared_cleanup(conn, engine, owner, identity):
+    with engine.begin() as transaction:
+        prepared = (
+            lifecycle.AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
+                transaction,
+                user_id=owner,
+                firebase_uid=identity,
+                table_exists=account.AccountService()._table_exists,
+            )
+        )
+    await conn.execute(
+        """UPDATE account_deletion_tombstones SET
+        provider_cleanup_next_attempt_at=now()+interval '1 day'
+        WHERE provider_cleanup_id<>$1::uuid AND cleanup_status<>'running'""",
+        prepared.cleanup_id,
+    )
+    return prepared
+
+
+@asynccontextmanager
+async def _owned_release_connection(database_url):
+    import asyncpg
+
+    owned = await asyncpg.connect(database_url)
+    try:
+        yield owned
+    finally:
+        await owned.close()
+
+
+async def _assert_shared_producer_authority(conn, database_url, monkeypatch):
+    """Real envelope → producer → approval → worker → installed SQL authority."""
+    import asyncpg
+
+    owner, identity = await _shared_google_owner(conn, monkeypatch)
+    engine = create_engine(database_url)
+
+    try:
+        prepared = await _prepare_shared_cleanup(conn, engine, owner, identity)
+        with (
+            patch.object(journal, "get_db_connection", engine.begin),
+            patch.object(admission, "_connect", lambda: _owned_release_connection(database_url)),
+        ):
+            (claim,) = await asyncio.to_thread(journal.claim_due, limit=1)
+            assert claim.cleanup_id == prepared.cleanup_id
+            item = next(iter(claim.inventory.values()))
+            assert item["authorityScope"] == "retain_shared_google"
+            assert item["revocationSupport"] == "required"
+            ports = [AsyncMock() for _ in range(3)]
+            finalize = AsyncMock(return_value={"success": True, "account_deleted": True})
+            with (
+                patch.object(credentials, "verify_grant", ports[0]),
+                patch.object(credentials, "stop_watch", ports[1]),
+                patch.object(credentials, "revoke_grant", ports[2]),
+                patch.object(account.AccountService, "finalize_provider_cleanup", finalize),
+            ):
+                with pytest.raises(journal.ProviderCleanupNotReady):
+                    await worker.run_claim(claim)
+                finalize.assert_not_awaited()
+                await asyncio.to_thread(journal.release, claim, action_required=True)
+                status = await asyncio.to_thread(
+                    journal.inspect_for_identity, identity, operation_id=prepared.cleanup_id
+                )
+                with pytest.raises(journal.ProviderCleanupNotReady, match="review changed"):
+                    await asyncio.to_thread(
+                        journal.authorize_continuation,
+                        identity,
+                        operation_id=prepared.cleanup_id,
+                        inventory_sha256="e" * 64,
+                        accept_local_erasure=True,
+                    )
+                await asyncio.to_thread(
+                    journal.authorize_continuation,
+                    identity,
+                    operation_id=prepared.cleanup_id,
+                    inventory_sha256=status["inventory_sha256"],
+                    accept_local_erasure=True,
+                )
+                (approved,) = await asyncio.to_thread(journal.claim_due, limit=1)
+                assert await worker.run_claim(approved)
+                assert await asyncio.to_thread(journal.is_ready, approved)
+                finalize.assert_awaited_once_with(approved)
+                for port in ports:
+                    port.assert_not_awaited()
+            receipt = await asyncio.to_thread(journal.current_receipt, approved)
+            ref = next(iter(approved.inventory))
+            assert receipt["items"][ref]["revocation"] == "local_erasure_approved"
+            assert "refresh" not in receipt["items"][ref]
+            before = await conn.fetchval(
+                "SELECT refresh_token_ciphertext FROM google_provider_connections WHERE user_id=$1",
+                owner,
+            )
+            with pytest.raises(asyncpg.ObjectNotInPrerequisiteStateError):
+                await conn.execute(
+                    (
+                        ROOT
+                        / "db/migrations/rollback/423_account_shared_provider_authority.rollback.sql"
+                    ).read_text()
+                )
+            assert await asyncio.to_thread(journal.current_receipt, approved) == receipt
+            assert (
+                await conn.fetchval(
+                    "SELECT refresh_token_ciphertext FROM google_provider_connections WHERE user_id=$1",
+                    owner,
+                )
+                == before
+            )
+    finally:
+        engine.dispose()
 
 
 async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
@@ -1501,6 +1680,9 @@ def _seed_erasure_spine(conn):
     conn.execute(
         text((ROOT / "db/migrations/418_account_provider_cleanup_staging.sql").read_text())
     )
+    conn.execute(
+        text((ROOT / "db/migrations/423_account_shared_provider_authority.sql").read_text())
+    )
 
 
 def _guard_erasure_boundaries(conn, failure):
@@ -1562,6 +1744,17 @@ def _request_full_erasure(engine, trace_id, rollback, *, deadline_seconds=12):
     from api.middleware import require_vault_owner_token
     from api.middlewares.observability import observability_middleware
     from hushh_mcp.services import account_deletion_provider_worker as worker
+    from hushh_mcp.services import account_deletion_release_admission as release_guard
+
+    @asynccontextmanager
+    async def release_connection():
+        import asyncpg
+
+        conn = await asyncpg.connect(engine.url.render_as_string(hide_password=False))
+        try:
+            yield conn
+        finally:
+            await conn.close()
 
     released = AsyncMock(return_value={"status": "released"})
     remove_identity = AsyncMock(return_value="deleted")
@@ -1584,6 +1777,7 @@ def _request_full_erasure(engine, trace_id, rollback, *, deadline_seconds=12):
         patch.object(account, "get_db_connection", engine.begin),
         patch.object(lifecycle, "get_db_connection", engine.begin),
         patch.object(journal, "get_db_connection", engine.begin),
+        patch.object(release_guard, "_connect", release_connection),
         patch.object(
             account,
             "_ACCOUNT_ERASURE_SQL_LIMITS",
@@ -1790,3 +1984,222 @@ def _parent_scan_work(plan):
             "Actual Loops"
         ]
     return own_work + sum(_parent_scan_work(child) for child in plan.get("Plans", []))
+
+
+@asynccontextmanager
+async def _release_database(database_url, monkeypatch):
+    """Isolate concurrency fixtures inside the disposable cluster only."""
+    import asyncpg
+
+    from hushh_mcp.services import account_deletion_release_admission as admission
+
+    name = "release_" + uuid4().hex
+    admin = await asyncpg.connect(database_url)
+    await admin.execute(f'CREATE DATABASE "{name}"')
+    url = database_url.replace("/postgres?", f"/{name}?")
+    conn = await asyncpg.connect(url)
+    await conn.execute("""
+        CREATE TABLE actor_profiles(user_id text PRIMARY KEY);
+        CREATE TABLE vault_keys(user_id text PRIMARY KEY);
+        CREATE TABLE account_deletion_tombstones(
+            erasure_phase text, cleanup_status text, provider_cleanup_receipt jsonb,
+            cleanup_intent_kind text DEFAULT 'full_account', provider_cleanup_inventory jsonb DEFAULT '{}');
+    """)
+
+    @asynccontextmanager
+    async def connect():
+        lease = await asyncpg.connect(url)
+        try:
+            yield lease
+        finally:
+            await lease.close(timeout=3)
+
+    monkeypatch.setattr(admission, "_connect", connect)
+    try:
+        yield conn, url
+    finally:
+        await conn.close()
+        await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
+        await admin.close()
+
+
+async def test_release_fence_refuses_worker_and_sql_before_cleanup(database_url, monkeypatch):
+    from hushh_mcp.services import account_deletion_provider_worker as worker
+    from hushh_mcp.services import account_deletion_release_admission as admission
+
+    async with _release_database(database_url, monkeypatch) as (conn, url):
+        # The real installer also proves compatibility before journal migration.
+        await conn.execute(
+            "ALTER TABLE account_deletion_tombstones DROP COLUMN provider_cleanup_receipt"
+        )
+        await conn.execute(_release_sql("install_release_fence.sql"))
+        load = AsyncMock()
+        monkeypatch.setattr(worker.journal, "load_grants", load)
+        with pytest.raises(admission.AccountDeletionReleasePaused):
+            await worker.run_claim(object())
+        load.assert_not_awaited()
+
+        def attempt_sql():
+            engine = create_engine(url)
+            try:
+                with engine.begin() as tx:
+                    admission.admit_erasure_transaction(tx)
+                    pytest.fail("release admission reached erasure")
+            finally:
+                engine.dispose()
+
+        with pytest.raises(Exception, match="temporarily unavailable"):
+            await asyncio.to_thread(attempt_sql)
+        await conn.execute(_release_sql("remove_release_fence.sql"))
+        async with admission.release_admission() as lease:
+            await lease.check()
+
+
+async def test_release_installer_serializes_workers_and_preserves_lost_session_uncertainty(
+    database_url, monkeypatch
+):
+    import asyncpg
+
+    from hushh_mcp.services import account_deletion_release_admission as admission
+
+    async with _release_database(database_url, monkeypatch) as (conn, url):
+        installer = await asyncpg.connect(url)
+        task = None
+        try:
+            async with admission.release_admission() as lease:
+                task = asyncio.create_task(
+                    installer.execute(_release_sql("install_release_fence.sql"))
+                )
+                for _ in range(100):
+                    if await conn.fetchval(
+                        "SELECT cardinality(pg_blocking_pids($1))>0", installer.get_server_pid()
+                    ):
+                        break
+                    await asyncio.sleep(0.01)
+                assert not task.done(), "installer crossed a worker's active effect boundary"
+                assert await conn.fetchval(
+                    "SELECT cardinality(pg_blocking_pids($1))>0", installer.get_server_pid()
+                )
+                await lease.check()
+            await asyncio.wait_for(task, 3)
+            with pytest.raises(admission.AccountDeletionReleasePaused):
+                async with admission.release_admission():
+                    pytest.fail("worker crossed an installed fence")
+            await conn.execute(_release_sql("remove_release_fence.sql"))
+
+            async with admission.release_admission() as lease:
+                await conn.execute("""INSERT INTO account_deletion_tombstones(erasure_phase,cleanup_status,provider_cleanup_receipt) VALUES(
+                    'provider_cleanup','retry', '{"items":{"grant":{"revocation":"dispatched"}}}')""")
+                lease._connection.terminate()
+                with pytest.raises(admission.AccountDeletionReleasePaused):
+                    await lease.check()
+                # Session disappearance cannot certify an in-flight HTTP effect.
+                with pytest.raises(
+                    asyncpg.ObjectNotInPrerequisiteStateError, match="require settlement"
+                ):
+                    await installer.execute(_release_sql("install_release_fence.sql"))
+                await installer.execute("ROLLBACK")
+            assert not await conn.fetchval(admission._FENCED)
+            await conn.execute("DELETE FROM account_deletion_tombstones")
+            await conn.execute("CREATE TABLE shared_files_storage(state text)")
+            await conn.execute("INSERT INTO shared_files_storage VALUES('erasing')")
+            with pytest.raises(
+                asyncpg.ObjectNotInPrerequisiteStateError, match="Files effects require settlement"
+            ):
+                await installer.execute(_release_sql("install_release_fence.sql"))
+            await installer.execute("ROLLBACK")
+            assert not await conn.fetchval(admission._FENCED)
+        finally:
+            if task is not None and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            await installer.close()
+
+
+async def test_shared_provider_sql_requires_exact_local_approval_and_no_dispatched_effects(
+    database_url, monkeypatch
+):
+    async with _release_database(database_url, monkeypatch) as (conn, _url):
+        import asyncpg
+
+        await conn.execute("""INSERT INTO account_deletion_tombstones(erasure_phase,cleanup_status,provider_cleanup_receipt)
+            VALUES('provider_cleanup','legacy','{"version":1,"items":{}}')""")
+        await conn.execute(
+            (ROOT / "db/migrations/423_account_shared_provider_authority.sql").read_text()
+        )
+        ref, owner_hash, cleanup_id = "a" * 64, "sha256:" + "b" * 64, uuid4()
+        inventory = {
+            ref: {
+                "revision": "c" * 64,
+                "groupDigest": "d" * 64,
+                "revocationSupport": "required",
+                "watchRequired": True,
+                "authorityScope": "retain_shared_google",
+            }
+        }
+        digest = await conn.fetchval(
+            "SELECT encode(sha256(convert_to($1::jsonb::text,'UTF8')),'hex')", json.dumps(inventory)
+        )
+        receipt = {
+            "version": 2,
+            "cleanupId": str(cleanup_id),
+            "ownerHash": owner_hash,
+            "inventorySha256": digest,
+            "localErasureAccepted": True,
+            "items": {
+                ref: {
+                    **inventory[ref],
+                    "revocation": "local_erasure_approved",
+                    "watchOutcome": "retained_shared",
+                }
+            },
+        }
+
+        async def qualified(value):
+            return await conn.fetchval(
+                "SELECT account_provider_cleanup_qualified($1::jsonb,$2::jsonb,$3,$4)",
+                json.dumps(value),
+                json.dumps(inventory),
+                owner_hash,
+                cleanup_id,
+            )
+
+        assert await qualified(receipt)
+        with pytest.raises(asyncpg.InsufficientPrivilegeError, match="current cleanup producer"):
+            await conn.execute("""INSERT INTO account_deletion_tombstones(erasure_phase,cleanup_status,provider_cleanup_receipt)
+                VALUES('provider_cleanup','pending','{"version":1,"items":{}}')""")
+        with pytest.raises(asyncpg.InsufficientPrivilegeError, match="legacy provider cleanup"):
+            await conn.execute("""UPDATE account_deletion_tombstones SET
+                provider_cleanup_receipt=provider_cleanup_receipt||'{"dispatch":"attempted"}'::jsonb
+                WHERE cleanup_status='legacy'""")
+        pending = {
+            **receipt,
+            "localErasureAccepted": False,
+            "items": {ref: {**inventory[ref], "revocation": "pending", "watchOutcome": "pending"}},
+        }
+        await conn.execute(
+            """INSERT INTO account_deletion_tombstones(erasure_phase,cleanup_status,
+            provider_cleanup_receipt,provider_cleanup_inventory) VALUES('provider_cleanup','pending',$1::jsonb,$2::jsonb)""",
+            json.dumps(pending),
+            json.dumps(inventory),
+        )
+        for phase, value in [
+            ("refresh", {"state": "dispatched"}),
+            ("watchOutcome", "dispatched"),
+            ("revocation", "dispatched"),
+        ]:
+            dispatched = {**pending, "items": {ref: {**pending["items"][ref], phase: value}}}
+            with pytest.raises(asyncpg.InsufficientPrivilegeError, match="cannot be dispatched"):
+                await conn.execute(
+                    "UPDATE account_deletion_tombstones SET provider_cleanup_receipt=$1::jsonb WHERE cleanup_status='pending'",
+                    json.dumps(dispatched),
+                )
+        for change in [
+            {"localErasureAccepted": False},
+            {"inventorySha256": "e" * 64},
+            {"items": {ref: {**receipt["items"][ref], "revocation": "revoked"}}},
+            {"items": {ref: {**receipt["items"][ref], "watchOutcome": "dispatched"}}},
+            {"items": {ref: {**receipt["items"][ref], "refresh": {"state": "uncertain"}}}},
+            {"items": {ref: {**receipt["items"][ref], "authorityScope": "exclusive"}}},
+        ]:
+            assert not await qualified({**receipt, **change})

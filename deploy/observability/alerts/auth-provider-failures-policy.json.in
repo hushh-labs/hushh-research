@@ -1,0 +1,71 @@
+{
+  "displayName": "[Managed] Firebase Phone Provider Failures",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "Shared Firebase phone provider: 403/429/5xx exceed 20% for five minutes and at least ten such failures occur in the aligned five-minute window. Covers SendVerificationCode and SignInWithPhoneNumber from web/iOS/Android. Wrong-code HTTP 400 and other ordinary client-error responses do not count as outages. Check Firebase/Identity Toolkit quota, provider status and response-code aggregates; never copy phone numbers, OTPs, tokens or request bodies into incidents. API metrics can arrive late and do not prove SMS delivery. This policy is owned once by shared Firebase project hushh-pda. Runbook: deploy/observability/README.md#auth-availability"
+  },
+  "combiner": "AND",
+  "enabled": false,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "auth",
+    "incident_purpose": "diagnostic"
+  },
+  "conditions": [
+    {
+      "displayName": "Firebase phone 403/429/5xx ratio >20% for 5m",
+      "conditionThreshold": {
+        "filter": "resource.type=\"consumed_api\" AND resource.labels.project_id=\"hushh-pda\" AND resource.labels.service=\"identitytoolkit.googleapis.com\" AND resource.labels.method=monitoring.regex.full_match(\"google[.]cloud[.]identitytoolkit[.]v1[.]AuthenticationService[.](SendVerificationCode|SignInWithPhoneNumber)\") AND metric.type=\"serviceruntime.googleapis.com/api/request_count\" AND metric.labels.response_code=monitoring.regex.full_match(\"403|429|5[0-9]{2}\")",
+        "denominatorFilter": "resource.type=\"consumed_api\" AND resource.labels.project_id=\"hushh-pda\" AND resource.labels.service=\"identitytoolkit.googleapis.com\" AND resource.labels.method=monitoring.regex.full_match(\"google[.]cloud[.]identitytoolkit[.]v1[.]AuthenticationService[.](SendVerificationCode|SignInWithPhoneNumber)\") AND metric.type=\"serviceruntime.googleapis.com/api/request_count\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "denominatorAggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.2,
+        "duration": "300s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "Firebase phone 403/429/5xx >=10 in 5m",
+      "conditionThreshold": {
+        "filter": "resource.type=\"consumed_api\" AND resource.labels.project_id=\"hushh-pda\" AND resource.labels.service=\"identitytoolkit.googleapis.com\" AND resource.labels.method=monitoring.regex.full_match(\"google[.]cloud[.]identitytoolkit[.]v1[.]AuthenticationService[.](SendVerificationCode|SignInWithPhoneNumber)\") AND metric.type=\"serviceruntime.googleapis.com/api/request_count\" AND metric.labels.response_code=monitoring.regex.full_match(\"403|429|5[0-9]{2}\")",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 9,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ],
+    "autoClose": "1800s"
+  }
+}

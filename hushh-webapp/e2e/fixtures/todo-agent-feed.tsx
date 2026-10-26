@@ -1,11 +1,17 @@
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { TodoListPage } from "../../components/todos/todo-list-page";
+import { OneTodoPreview } from "../../components/agent/one-todo-preview";
+import { useAuth } from "../../hooks/use-auth";
+import { useVault } from "../../lib/vault/vault-context";
 import { change, useFixture } from "./todo-agent-feed-boundaries";
 
 function Fixture() {
   const state = useFixture();
   const [mount, setMount] = useState(0);
+  const [preview, setPreview] = useState(false);
+  const { user } = useAuth();
+  const vault = useVault();
   return (
     <>
       <nav aria-label="Test controls">
@@ -24,10 +30,15 @@ function Fixture() {
         <button onClick={() => setMount((value) => value + 1)}>
           Reopen list
         </button>
+        <button onClick={() => { change({ preview: true }); setPreview(true); }}>Open agent Todo</button>
       </nav>
       {state.message ? <p role="alert">{state.message}</p> : null}
       {state.href ? (
         <section aria-label="Agent workspace">Request review workspace</section>
+      ) : preview && user ? (
+        <aside data-app-side-pane className="mx-auto w-full max-w-[430px] p-4">
+          <OneTodoPreview user={user} {...vault} />
+        </aside>
       ) : (
         <TodoListPage key={mount} />
       )}
