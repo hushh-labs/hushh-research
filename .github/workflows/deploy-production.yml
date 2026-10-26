@@ -217,6 +217,8 @@ jobs:
           done
           cp scripts/ops/verify-env-secrets-parity.py \
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
+          cp scripts/ops/secret_metadata_inventory.py \
+            "${RUNNER_TEMP}/release-tools/secret_metadata_inventory.py"
           for tool in cloudrun-retention.py process_group.py; do
             cp "scripts/ci/$tool" "${RUNNER_TEMP}/release-tools/$tool"
           done
@@ -276,6 +278,8 @@ jobs:
           done
           cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
             scripts/ops/verify-env-secrets-parity.py
+          cp "${RUNNER_TEMP}/release-tools/secret_metadata_inventory.py" \
+            scripts/ops/secret_metadata_inventory.py
           for tool in cloudrun-retention.py process_group.py; do
             cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ci/$tool"
           done

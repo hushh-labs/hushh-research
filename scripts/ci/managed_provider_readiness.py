@@ -295,7 +295,7 @@ def collect(provider, expected, step_exit, job):
         complete = (
             terminal_failed
             or complete
-            and any("managed_capabilities_probe" in value for value in values)
+            and (provider == "vertex" or any("managed_capabilities_probe" in value for value in values))
         )
         if complete:
             break
