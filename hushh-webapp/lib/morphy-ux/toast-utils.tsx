@@ -1,6 +1,6 @@
 "use client";
 
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { type ColorVariant, type FeedbackTone } from "./types";
 import {
   CheckCircleIcon,
@@ -10,7 +10,6 @@ import {
 } from "@/components/icons";
 import { useIconWeight } from "./icon-theme-context";
 import { cn } from "@/lib/utils";
-import { nativeFeedbackOptions } from "@/lib/capacitor/native-feedback";
 
 type MorphyToastTone = FeedbackTone | "danger";
 
@@ -209,7 +208,6 @@ export const useMorphyToast = () => {
     const { variant, duration = 3000, description, className } = options;
 
     return toast.success(joinToastText(message, description), {
-      ...nativeFeedbackOptions(message, description),
       duration,
       
       icon: (
@@ -226,7 +224,6 @@ export const useMorphyToast = () => {
     const { variant, duration = 5000, description, className } = options;
 
     return toast.error(joinToastText(message, description), {
-      ...nativeFeedbackOptions(message, description),
       duration,
       
       icon: (
@@ -243,7 +240,6 @@ export const useMorphyToast = () => {
     const { variant, duration = 5000, description, className } = options;
 
     return toast.error(joinToastText(message, description), {
-      ...nativeFeedbackOptions(message, description),
       duration,
       
       icon: (
@@ -260,7 +256,6 @@ export const useMorphyToast = () => {
     const { variant, duration = 4000, description, className } = options;
 
     return toast.warning(joinToastText(message, description), {
-      ...nativeFeedbackOptions(message, description),
       duration,
       
       icon: (
@@ -277,7 +272,6 @@ export const useMorphyToast = () => {
     const { variant, duration = 4000, description, className } = options;
 
     return toast.info(joinToastText(message, description), {
-      ...nativeFeedbackOptions(message, description),
       duration,
       
       icon: (
@@ -303,7 +297,6 @@ export const useMorphyToast = () => {
     } = options;
 
     return toast(joinToastText(message, description), {
-      ...nativeFeedbackOptions(message, description),
       duration,
       
       icon: icon || (
@@ -368,7 +361,6 @@ export const morphyToast = {
     const { variant, duration = 3000, description, className } = options || {};
 
     return toast.success(joinToastText(message, description), {
-      ...nativeFeedbackOptions(message, description),
       duration,
       
       className: cn(getToastToneClassName("success", variant), className),
@@ -379,7 +371,6 @@ export const morphyToast = {
     const { variant, duration = 5000, description, className } = options || {};
 
     return toast.error(joinToastText(message, description), {
-      ...nativeFeedbackOptions(message, description),
       duration,
       
       className: cn(getToastToneClassName("error", variant), className),
@@ -390,7 +381,6 @@ export const morphyToast = {
     const { variant, duration = 5000, description, className } = options || {};
 
     return toast.error(joinToastText(message, description), {
-      ...nativeFeedbackOptions(message, description),
       duration,
       
       className: cn(getToastToneClassName("danger", variant), className),
@@ -401,7 +391,6 @@ export const morphyToast = {
     const { variant, duration = 4000, description, className } = options || {};
 
     return toast.warning(joinToastText(message, description), {
-      ...nativeFeedbackOptions(message, description),
       duration,
       
       className: cn(getToastToneClassName("warning", variant), className),
@@ -412,7 +401,6 @@ export const morphyToast = {
     const { variant, duration = 4000, description, className } = options || {};
 
     return toast.info(joinToastText(message, description), {
-      ...nativeFeedbackOptions(message, description),
       duration,
       
       className: cn(getToastToneClassName("info", variant), className),
@@ -432,7 +420,6 @@ export const morphyToast = {
     } = options || {};
 
     return toast(joinToastText(message, description), {
-      ...nativeFeedbackOptions(message, description),
       duration,
       
       icon,
@@ -484,8 +471,6 @@ export const morphyToast = {
   ): ReturnType<typeof toast.promise> => {
     const accent = getToastVariantAccentClassName(data.variant);
     return toast.promise<T>(promise, {
-      ...(typeof data.success === "string" && typeof data.error === "string"
-        ? nativeFeedbackOptions(data.loading, data.description) : undefined),
       loading: data.loading,
       get success() { return !data.isCurrent || data.isCurrent() ? data.success : undefined; },
       get error() { return !data.isCurrent || data.isCurrent() ? data.error : undefined; },

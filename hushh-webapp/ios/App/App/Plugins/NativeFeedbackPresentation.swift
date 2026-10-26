@@ -70,7 +70,13 @@ struct NativeFeedbackFence {
         id = state.feedbackId; sequence = state.feedbackSequence; revision = state.feedbackRevision; terminal = false
         return true
     }
-    mutating func retire(id requested: String, sequence requestedSequence: Int, revision requestedRevision: Int, terminal: Bool = true) -> Bool {
+    mutating func retire(id requested: String, sequence requestedSequence: Int, revision requestedRevision: Int,
+                         owner requestedOwner: NativeDrawerIdentity, terminal: Bool = true) -> Bool {
+        guard requestedOwner.valid else { return false }
+        if let owner {
+            guard owner.documentId == requestedOwner.documentId && owner.ownerEpoch == requestedOwner.ownerEpoch &&
+                owner.ownerGeneration == requestedOwner.ownerGeneration else { return false }
+        } else { owner = requestedOwner }
         guard requestedSequence > sequence || requestedSequence == sequence && requested == id && requestedRevision >= revision else { return false }
         id = requested; sequence = requestedSequence; revision = requestedRevision; self.terminal = terminal
         return true
@@ -166,13 +172,13 @@ private struct NativeFeedbackView: View {
         }
         return true
     }
-    func retire(id: String, sequence: Int, revision: Int, context: [String: Any]) {
+    func retire(id: String, sequence: Int, revision: Int, owner: NativeDrawerIdentity, context: [String: Any]) {
         if let lastReceipt, sequence == lastReceipt["feedbackSequence"] as? Int {
             var expected = lastReceipt, requested = context
             expected.removeValue(forKey: "feedbackRevision"); requested.removeValue(forKey: "feedbackRevision")
             guard NSDictionary(dictionary: expected).isEqual(to: requested) else { return }
         }
-        guard fence.retire(id: id, sequence: sequence, revision: revision) else { return }
+        guard fence.retire(id: id, sequence: sequence, revision: revision, owner: owner) else { return }
         if let state = model.messages.first(where: { $0.feedbackId == id && $0.feedbackRevision <= revision }) { remove(state) }
     }
     func retainOnly(_ state: NativeDrawerProjection) {
@@ -183,14 +189,17 @@ private struct NativeFeedbackView: View {
     }
     func clear() {
         let previous = model.messages
-        for state in previous { _ = fence.retire(id: state.feedbackId, sequence: state.feedbackSequence, revision: state.feedbackRevision) }
+        for state in previous { _ = fence.retire(id: state.feedbackId, sequence: state.feedbackSequence, revision: state.feedbackRevision, owner: state.identity) }
         timers.values.forEach { $0.cancel() }; timers.removeAll()
         model.messages = [] // Scrub before any removal/event delivery.
         detach()
+        // The plugin calls this at an invalidated document/owner/privacy
+        // lifetime. Its lease fence rejects all previous-lifetime deliveries.
+        fence = NativeFeedbackFence(); lastReceipt = nil
         previous.forEach { ended?($0.receipt) }
     }
     private func remove(_ state: NativeFeedbackProjection, terminal: Bool = true) {
-        _ = fence.retire(id: state.feedbackId, sequence: state.feedbackSequence, revision: state.feedbackRevision, terminal: terminal)
+        _ = fence.retire(id: state.feedbackId, sequence: state.feedbackSequence, revision: state.feedbackRevision, owner: state.identity, terminal: terminal)
         timers.removeValue(forKey: state.feedbackId)?.cancel()
         model.messages.removeAll { $0.feedbackId == state.feedbackId }
         if model.messages.isEmpty { detach() }

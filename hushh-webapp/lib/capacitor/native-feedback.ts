@@ -1,5 +1,5 @@
 import type { PluginListenerHandle } from "@capacitor/core";
-import { toast, type ToastT } from "sonner";
+import { toast, type ToastT, type ExternalToast } from "sonner";
 import type { NativeDrawerIdentity, NativeDrawerProjection } from "./native-drawers";
 import { nativePrivacyCanInteract, nativePrivacyObservation } from "./session-privacy";
 
@@ -30,6 +30,40 @@ const entries = new Map<string, Entry>();
 let consumers = 0;
 let sequence = 0;
 let latestToasts: readonly ToastT[] = [];
+
+type Message = Parameters<typeof toast>[0];
+type FeedbackOptions = { id?: string | number; toasterId?: string; description?: unknown;
+  action?: unknown; cancel?: unknown; onDismiss?: unknown; onAutoClose?: unknown };
+function feedbackOptions<T extends FeedbackOptions>(message: unknown, data?: T): T | { id: string; toasterId: string } | undefined {
+  // Rich/actionable feedback keeps its authored presentation. Never discard a
+  // callback or change the renderer of an explicitly addressed existing toast.
+  if (data && ("id" in data || "toasterId" in data || data.action || data.cancel || data.onDismiss || data.onAutoClose)) return data;
+  const native = nativeFeedbackOptions(message, data?.description);
+  if (!native) return data;
+  // Keep Sonner's settlement-time getters intact (notably the existing
+  // isCurrent label fence). Spreading options would snapshot that authority.
+  const copy = data ? Object.create(Object.getPrototypeOf(data), Object.getOwnPropertyDescriptors(data)) : {};
+  return Object.assign(copy, native);
+}
+function textFeedback(method: (message: Message, data?: ExternalToast) => string | number, message: Message, data?: ExternalToast) {
+  return method(message, feedbackOptions(message, data));
+}
+/** Local facade, not a patch of Sonner. Existing web formatting, callbacks and
+ * promise semantics remain in their owners; only admitted text chooses native. */
+export const nativeFeedbackToast: typeof toast = Object.assign(
+  (message: Message, data?: ExternalToast) => textFeedback(toast, message, data), {
+    ...toast,
+    success: (message: Message, data?: ExternalToast) => textFeedback(toast.success, message, data),
+    error: (message: Message, data?: ExternalToast) => textFeedback(toast.error, message, data),
+    warning: (message: Message, data?: ExternalToast) => textFeedback(toast.warning, message, data),
+    info: (message: Message, data?: ExternalToast) => textFeedback(toast.info, message, data),
+    message: (message: Message, data?: ExternalToast) => textFeedback(toast.message, message, data),
+    loading: (message: Message, data?: ExternalToast) => textFeedback(toast.loading, message, data),
+    promise: <T>(promise: Promise<T> | (() => Promise<T>), data?: Parameters<typeof toast.promise<T>>[1]) =>
+      toast.promise(promise, typeof data?.success === "string" && typeof data?.error === "string"
+        ? feedbackOptions(data.loading, data) : data),
+  },
+);
 
 export function retainNativeFeedbackForm(form: Form): () => void {
   forms.add(form);
@@ -64,7 +98,7 @@ export function nativeFeedbackOptions(message: unknown, description?: unknown): 
     if (!state || !state.open || !live(owner, state)) continue;
     const form = [...forms].reverse().find(candidate => candidate.current() &&
       candidate.identity.documentId === state.documentId && candidate.identity.ownerEpoch === state.ownerEpoch &&
-      candidate.identity.ownerGeneration === state.ownerGeneration &&
+      candidate.identity.ownerGeneration === state.ownerGeneration && candidate.identity.family === state.family &&
       candidate.destinationId === (state.profileDestinationId ?? state.profileSupportDestinationId));
     if (state.profilePreparation?.formScene && form?.scene !== state.profilePreparation.formScene) continue;
     const id = `native-feedback-${crypto.randomUUID()}`;

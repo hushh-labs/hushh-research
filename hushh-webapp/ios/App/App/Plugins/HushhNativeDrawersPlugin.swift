@@ -289,7 +289,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             let parent: UIViewController?
             if let form = self.form {
                 parent = form.identity.documentId == state.documentId && form.identity.ownerEpoch == state.ownerEpoch &&
-                    form.identity.ownerGeneration == state.ownerGeneration && form.identity.revision == state.formRevision &&
+                    form.identity.ownerGeneration == state.ownerGeneration && form.identity.family == state.family && form.identity.revision == state.formRevision &&
                     form.sceneName == state.formScene ? form.feedbackPresenter : nil
             } else {
                 parent = state.formScene == nil && controller.presentationLayoutSettled &&
@@ -315,7 +315,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let sequence = options["feedbackSequence"] as? Int, let revision = options["feedbackRevision"] as? Int,
                   sequence > 0, revision >= 0, sequence <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
                   revision <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { call.reject("NATIVE_FEEDBACK_INVALID"); return }
-            self.feedback.retire(id: id, sequence: sequence, revision: revision, context: options)
+            self.feedback.retire(id: id, sequence: sequence, revision: revision, owner: identity, context: options)
             call.resolve(["retired": true])
         }
     }
