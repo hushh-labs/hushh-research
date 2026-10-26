@@ -84,7 +84,7 @@ function buildFinancialCoreV7Portfolio(
     source_metadata: asRecord(core.source_metadata) ?? {},
     total_value: core.total_value,
     cash_balance: core.cash_balance,
-  }) as PortfolioData;
+  }, { preserveEntries: true }) as PortfolioData;
   return hasHoldings(portfolio) ? portfolio : null;
 }
 
@@ -305,7 +305,7 @@ export function setActiveStatementSnapshot(
   };
 
   const canonical = asRecord(snapshot.canonical_v2) ?? snapshot;
-  const normalized = normalizeStoredPortfolio(canonical) as PortfolioData;
+  const normalized = normalizeStoredPortfolio(canonical, { preserveEntries: true }) as PortfolioData;
   nextFinancial.portfolio = normalized;
   nextFinancial.analytics = getPortfolioAnalytics(snapshot) ?? getPortfolioAnalytics(canonical) ?? asRecord(financial?.analytics) ?? null;
   nextFinancial.updated_at = updatedAt;
@@ -347,7 +347,7 @@ export function removeStatementSnapshot(
       remainingSnapshots[0];
     if (!activeSnapshot) return null;
     const canonical = asRecord(activeSnapshot?.canonical_v2) ?? activeSnapshot;
-    const normalized = normalizeStoredPortfolio(canonical) as PortfolioData;
+    const normalized = normalizeStoredPortfolio(canonical, { preserveEntries: true }) as PortfolioData;
     nextFinancial.sources = {
       ...nextSources,
       active_source: "statement",
@@ -463,7 +463,7 @@ export function buildFinancialDomainSummary(financial: AnyObj | null | undefined
   const portfolio =
     (activeSource === "plaid" ? getPlaidPortfolio(financial) : null) ??
     getStatementPortfolio(financial) ??
-    (normalizeStoredPortfolio(asRecord(financial?.portfolio) ?? {}) as PortfolioData);
+    (normalizeStoredPortfolio(asRecord(financial?.portfolio) ?? {}, { preserveEntries: true }) as PortfolioData);
   const holdings = Array.isArray(portfolio?.holdings) ? portfolio.holdings : [];
   const accountInfo = asRecord(portfolio?.account_info);
 

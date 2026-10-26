@@ -1,4 +1,5 @@
 import type { Holding, PortfolioData } from "@/components/kai/types/portfolio";
+import { groupHoldingPositions } from "@/lib/kai/holding-positions";
 
 export type DashboardAssetBucket =
   | "cash_equivalent"
@@ -329,8 +330,7 @@ function toPosition(raw: Holding, index: number): DashboardPosition | null {
 }
 
 export function buildDashboardPortfolioModel(portfolioData: PortfolioData): DashboardPortfolioModel {
-  const rawHoldings = (portfolioData.holdings || []) as Holding[];
-  const positions = rawHoldings
+  const positions = groupHoldingPositions(portfolioData.holdings || [])
     .map((holding, index) => toPosition(holding, index))
     .filter((row): row is DashboardPosition => Boolean(row))
     .sort((a, b) => b.marketValue - a.marketValue);

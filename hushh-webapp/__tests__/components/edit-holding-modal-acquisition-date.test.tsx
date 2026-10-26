@@ -11,6 +11,13 @@ vi.mock("@/lib/kai/ticker-universe-cache", () => ({
 }));
 
 describe("EditHoldingModal acquisition date (iOS-native tap contract)", () => {
+  it("keeps an unspecified entry cost unavailable when changing shares", () => {
+    const onSave = vi.fn();
+    render(<EditHoldingModal isOpen onClose={() => {}} holding={{ symbol: "AAPL", name: "Apple", quantity: 1, price: 100, market_value: 100 }} onSave={onSave} />);
+    fireEvent.change(screen.getByLabelText(/quantity/i), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ quantity: 2, market_value: 200, cost_basis: undefined, unrealized_gain_loss: undefined }));
+  });
   it("renders the date input as a full-size overlay, not a hidden 1px input", () => {
     render(
       <EditHoldingModal

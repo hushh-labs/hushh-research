@@ -9,6 +9,7 @@ import {
   setActiveStatementSnapshot,
 } from "@/lib/kai/brokerage/financial-sources";
 import { resolvePreferredPortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
+import { applyStatementHoldingsEdit } from "@/lib/kai/brokerage/statement-holdings-edit";
 import {
   computeStatementImportId,
   upsertStatementSnapshot,
@@ -227,5 +228,72 @@ describe("financial statement snapshots", () => {
     });
     expect(unlabeledA).not.toBe(unlabeledB);
     expect(upsertStatementSnapshot(twice, { id: unlabeledA })).toHaveLength(2);
+  });
+});
+
+describe("statement holding entries survive saves", () => {
+  const holdings = [
+    { symbol: "AAPL", name: "Apple", quantity: 10, price: 130, market_value: 1300, cost_basis: 1000, acquisition_date: "2026-01-10" },
+    { symbol: "AAPL", name: "Apple", quantity: 5, price: 130, market_value: 650, cost_basis: 600, acquisition_date: "2026-05-10" },
+  ];
+  const portfolio = { holdings, total_value: 1950, cash_balance: 0,
+    account_summary: { ending_value: 1950, cash_balance: 0, equities_value: 1950 } };
+  function fixture(kind: "snapshot" | "legacy" | "v7"): Record<string, unknown> {
+    if (kind === "v7") return {
+      pkm_contract_version: "7.0.0", profile: { sentinel: true },
+      financial_core_v7: { active_source: "statement", accounts: { account: { account_id: "account" } },
+        securities: { apple: { symbol: "AAPL", name: "Apple" } },
+        positions: Object.fromEntries(holdings.map((entry, index) => ["position-" + index, { ...entry, account_id: "account", security_id: "apple" }])),
+        account_summary: portfolio.account_summary, total_value: 1950, cash_balance: 0 },
+      source_artifacts_v7: { statement_snapshots: [{ id: "current", artifact_ref: "sha256:retained" }] },
+    };
+    const snapshots = [{ id: "current", canonical_v2: portfolio }, { id: "other", canonical_v2: { holdings: [{ symbol: "OTHER" }] } }];
+    return { profile: { sentinel: true }, portfolio,
+      sources: { active_source: "statement", statement: kind === "snapshot" ? { active_snapshot_id: "current", snapshots } : {} },
+      ...(kind === "legacy" ? { documents: { statements: snapshots } } : {}),
+    };
+  }
+  it.each(["snapshot", "legacy", "v7"] as const)("preserves and independently edits/removes two %s entries after reload", kind => {
+    let stored = fixture(kind);
+    const original = getStatementPortfolio(stored)!;
+    const first = { ...original, holdings: original.holdings!.map((entry, index) => ({ ...entry, entry_id: entry.position_id || "entry-" + index })) };
+    const save = (before: typeof original, after: typeof original) => {
+      stored = JSON.parse(JSON.stringify(applyStatementHoldingsEdit(stored, after, before, "current", NOW)));
+      expect(stored.profile).toEqual({ sentinel: true });
+      return getStatementPortfolio(stored)!;
+    };
+    let reloaded = save(original, first);
+    expect(reloaded.holdings).toHaveLength(2);
+    expect(reloaded.holdings!.map(entry => entry.acquisition_date)).toEqual(["2026-01-10", "2026-05-10"]);
+    const edited = reloaded.holdings!.map((entry, index) => index ? { ...entry, quantity: 7, market_value: 910, cost_basis: 840 } : entry);
+    reloaded = save(reloaded, { ...reloaded, holdings: edited, total_value: 2210,
+      account_summary: { ending_value: 2210, cash_balance: 0, equities_value: 2210 } });
+    expect(reloaded.holdings!.map(entry => entry.quantity)).toEqual([10, 7]);
+    reloaded = save(reloaded, { ...reloaded, holdings: reloaded.holdings!.slice(1), total_value: 910,
+      account_summary: { ending_value: 910, cash_balance: 0, equities_value: 910 } });
+    expect(reloaded.holdings).toHaveLength(1);
+    expect(reloaded.holdings![0]).toMatchObject({ quantity: 7, cost_basis: 840, acquisition_date: "2026-05-10" });
+    if (kind === "v7") expect(stored.source_artifacts_v7).toEqual({ statement_snapshots: [{ id: "current", artifact_ref: "sha256:retained" }] });
+    else expect(getStatementSnapshotOptions(stored)).toHaveLength(2);
+  });
+  it("refuses a stale edit instead of undoing concurrent changes", () => {
+    const stored = fixture("snapshot");
+    const previous = getStatementPortfolio(stored)!;
+    const changed = fixture("snapshot");
+    const sources = changed.sources as { statement: { snapshots: { canonical_v2: { holdings: typeof holdings } }[] } };
+    sources.statement.snapshots[0]!.canonical_v2 = { holdings: [{ ...holdings[0]!, quantity: 99 }, holdings[1]!] };
+    expect(() => applyStatementHoldingsEdit(changed, previous, previous, "current", NOW)).toThrow(/changed while/);
+    expect(() => applyStatementHoldingsEdit(stored, previous, previous, "missing", NOW)).toThrow();
+  });
+  it("keeps repeated V7 ticker edits and refuses an orphan account", () => {
+    let stored = fixture("v7");
+    for (const symbol of ["MSFT", "TSLA"]) {
+      const before = getStatementPortfolio(stored)!;
+      const next = { ...before, holdings: before.holdings!.map((entry, i) => i ? entry : { ...entry, symbol }) };
+      stored = applyStatementHoldingsEdit(stored, next, before, "current", NOW);
+      expect(getStatementPortfolio(stored)!.holdings![0]!.symbol).toBe(symbol);
+    }
+    const before = getStatementPortfolio(stored)!;
+    expect(() => applyStatementHoldingsEdit(stored, { ...before, holdings: before.holdings!.map(entry => ({ ...entry, account_id: "missing" })) }, before, "current", NOW)).toThrow(/account/);
   });
 });
