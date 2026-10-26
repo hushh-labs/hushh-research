@@ -100,6 +100,16 @@ jobs:
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
 
+      - name: Preserve workflow-owned version resolver
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Release helper repairs follow the reviewed workflow definition,
+          # independently of the exact application SHA checked out below.
+          RESOLVER_PATH="$RUNNER_TEMP/android-version-resolver.py"
+          cp scripts/ci/resolve-android-build-number.py "$RESOLVER_PATH"
+          printf 'ANDROID_VERSION_RESOLVER_PATH=%s\n' "$RESOLVER_PATH" >> "$GITHUB_ENV"
+
       - name: Resolve release SHA
         id: resolve
         shell: bash
@@ -396,7 +406,7 @@ jobs:
             echo "Google Play service account is required to resolve versionCode." >&2
             exit 1
           fi
-          NEXT_CODE="$("${RUNNER_TEMP}/play-venv/bin/python" scripts/ci/resolve-android-build-number.py \
+          NEXT_CODE="$("${RUNNER_TEMP}/play-venv/bin/python" "${ANDROID_VERSION_RESOLVER_PATH:?}" \
             --service-account-json "$PLAY_SERVICE_ACCOUNT_PATH" \
             --update-gradle)"
           echo "next_version_code=${NEXT_CODE}" >> "$GITHUB_OUTPUT"
@@ -570,6 +580,7 @@ jobs:
             printf -- '- **Version Code**: `%s`\n' "$VERSION_CODE"
             printf -- '- **Package Name**: `%s`\n' "$ANDROID_PACKAGE_NAME"
             printf -- '- **Source SHA**: `%s`\n' "$RELEASE_SHA"
+            printf -- '- **Version resolver definition SHA**: `%s`\n' "$GITHUB_SHA"
             printf -- '- **Runtime**: `uat` (`%s`)\n' "$NEXT_PUBLIC_BACKEND_URL"
             printf -- '- **Dry Run**: `%s`\n' "$DRY_RUN"
             printf -- '- **Private UAT AAB**: `%s` (14-day bucket retention; receipt only in Actions)\n' "$PRIVATE_ARTIFACT_OUTCOME"

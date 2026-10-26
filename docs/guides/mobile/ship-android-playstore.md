@@ -37,6 +37,12 @@ stricter `production.manual_dispatch_users` list for either track.
 2. **Automated Version Resolution:** The resolver `scripts/ci/resolve-android-build-number.py` queries Google Play's current bundles, APKs, and every active track release, finds the highest existing `versionCode`, and increments it automatically (`max(play_latest, gradle_current) + 1`). Both dry runs and live releases require that query; authorization/package lookup failures stop the run instead of pretending Play has no history.
 3. **Marketing VersionName:** Set `versionName "1.x.y"` in `hushh-webapp/android/app/build.gradle` to match the current marketing release.
 
+The version query opens a temporary Play edit and deletes it after the reads,
+including failed reads. Unconfirmed cleanup stops the release before returning a
+version floor. A dry run still queries Play and preserves a private AAB; it does
+not upload a bundle or commit a Play release. The version resolver follows the
+reviewed workflow definition, independently of the pinned application source SHA.
+
 ## How it works (what the workflow runs)
 
 ```bash

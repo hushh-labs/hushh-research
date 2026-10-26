@@ -41,9 +41,7 @@ import urllib.request
 from typing import NoReturn
 
 DEFAULT_PACKAGE_NAME = "com.hussh.app"
-DEFAULT_GRADLE_PATH = os.path.join(
-    "hushh-webapp", "android", "app", "build.gradle"
-)
+DEFAULT_GRADLE_PATH = os.path.join("hushh-webapp", "android", "app", "build.gradle")
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 PLAY_API_ROOT = "https://androidpublisher.googleapis.com/androidpublisher/v3"
 PLAY_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
@@ -179,7 +177,10 @@ def highest_play_version_code(token: str, package_name: str) -> int:
     uploaded versionCode for an established app.
     """
     edit_result = play_request(
-        f"{PLAY_API_ROOT}/applications/{package_name}/edits", token, method="POST", body={}
+        f"{PLAY_API_ROOT}/applications/{package_name}/edits",
+        token,
+        method="POST",
+        body={},
     )
     if isinstance(edit_result, urllib.error.HTTPError):
         detail = edit_result.read().decode("utf-8", "replace")
@@ -191,14 +192,27 @@ def highest_play_version_code(token: str, package_name: str) -> int:
 
     base_url = f"{PLAY_API_ROOT}/applications/{package_name}/edits/{edit_id}"
     results: dict[str, dict] = {}
-    for resource in ("tracks", "bundles", "apks"):
-        result = play_request(f"{base_url}/{resource}", token)
-        if isinstance(result, urllib.error.HTTPError):
-            detail = result.read().decode("utf-8", "replace")
+    try:
+        for resource in ("tracks", "bundles", "apks"):
+            result = play_request(f"{base_url}/{resource}", token)
+            if isinstance(result, urllib.error.HTTPError):
+                detail = result.read().decode("utf-8", "replace")
+                die(
+                    f"Google Play Developer API {result.code} listing {resource}: {detail}"
+                )
+            results[resource] = result
+    finally:
+        # This edit only provides a snapshot for version resolution. Never
+        # retain or commit it, including when a listing or response parse fails.
+        cleanup = play_request(base_url, token, method="DELETE")
+        if isinstance(cleanup, urllib.error.HTTPError):
+            status = cleanup.code
+            cleanup.close()
             die(
-                f"Google Play Developer API {result.code} listing {resource}: {detail}"
+                f"Google Play Developer API {status} deleting temporary "
+                "version-check edit; cleanup is unconfirmed"
             )
-        results[resource] = result
+        log("Deleted temporary Google Play version-check edit.")
 
     highest = 0
     track_count = 0
