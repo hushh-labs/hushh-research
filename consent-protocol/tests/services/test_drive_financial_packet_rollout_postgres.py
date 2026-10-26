@@ -1,7 +1,7 @@
 """Scheduled financial preset rollout and immutable frozen-sale preservation."""
 
 # ruff: noqa: F401,F811 -- canonical disposable PostgreSQL fixture graph
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -194,11 +194,11 @@ async def legacy_frozen_runtime(
     return service, head, identity
 
 
-@pytest.mark.parametrize("legacy_empty", [False, True])
 @pytest.mark.parametrize("cached_preview", [False, True])
-async def test_scheduled_frozen_owner_preview_preserves_sale_and_buyer_membership(
-    reusable, monkeypatch, legacy_empty, cached_preview
+async def test_scheduled_nonempty_owner_preview_preserves_sale_and_buyer_membership(
+    reusable, monkeypatch, cached_preview
 ):
+    legacy_empty = False
     service, head, identity = await legacy_frozen_runtime(
         reusable, monkeypatch, legacy_empty=legacy_empty, cached_preview=cached_preview
     )

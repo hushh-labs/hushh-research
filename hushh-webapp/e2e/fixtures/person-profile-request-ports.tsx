@@ -2,7 +2,12 @@
 // validation, calendar, receipt components, Dialog owner and optimized stylesheet.
 const user = { uid: "fixture-requester", getIdToken: async () => "fixture-id-token" };
 const getVaultOwnerToken = () => "fixture-owner-token";
-export const useAuth = () => ({ user });
+export const useAuth = () => ({ user, userId: user.uid });
+export const usePathname = () => "/one/profile";
+const searchParams = new URLSearchParams(location.search);
+export const useSearchParams = () => searchParams;
+const unexpectedNavigation = () => { throw new Error("Unexpected fixture route navigation"); };
+export const useRouter = () => ({ push: unexpectedNavigation, replace: unexpectedNavigation, back: unexpectedNavigation });
 export const useVault = () => ({ isVaultUnlocked: true, vaultOwnerToken: getVaultOwnerToken(), vaultKey: "fixture-key", getVaultOwnerToken });
 export const AuthService = {
   getCurrentUser: () => user,

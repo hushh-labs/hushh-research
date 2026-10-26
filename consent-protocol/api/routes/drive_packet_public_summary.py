@@ -1,4 +1,4 @@
-"""Authenticated summary discovery and explicit vault-owner publication."""
+"""Authenticated scalar discovery and the vault owner's summary visibility policy."""
 
 from typing import Literal
 from uuid import UUID
@@ -28,8 +28,33 @@ class PublicSummaryRequest(StrictRequest):
     disclosure: Literal["drive-packet-public-summary-v1"]
 
 
+class FinancialSummaryPreferenceRequest(StrictRequest):
+    enabled: StrictBool
+    expectedRevision: int = Field(ge=0, strict=True)
+    disclosure: Literal["drive-financial-summary-default-v1"]
+
+
 def _service():
     return DrivePacketPublicSummaryService()
+
+
+@router.get("/financial-summary-preference")
+async def financial_summary_preference(owner: Owner = Depends(_owner)):
+    return await _call("get_preference", owner=owner, factory=_service)
+
+
+@router.put("/financial-summary-preference")
+async def set_financial_summary_preference(
+    body: FinancialSummaryPreferenceRequest, owner: Owner = Depends(_owner)
+):
+    return await _call(
+        "set_preference",
+        owner=owner,
+        factory=_service,
+        enabled=body.enabled,
+        expected_revision=body.expectedRevision,
+        disclosure=body.disclosure,
+    )
 
 
 @router.get("/packet-publications")

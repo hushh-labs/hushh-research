@@ -103,6 +103,8 @@ ENROLLMENT_SCAN_LIMIT = 20
 
 
 async def candidate_owners(store):
+    from hushh_mcp.services.drive_period_packet_freeze import empty_sale_recovery_predicate
+
     cohort = connector_feature_owner_cohort("drive_period_packets", "google_drive_live")
     if cohort == ():
         return []
@@ -112,7 +114,7 @@ async def candidate_owners(store):
         return [
             row["user_id"]
             for row in connection.execute(
-                text("""SELECT c.user_id FROM user_external_connector_connections c
+                text(f"""SELECT c.user_id FROM user_external_connector_connections c
             LEFT JOIN drive_live_preferences p ON p.user_id=c.user_id
             WHERE c.connector_id='google_drive' AND c.status='connected'
               AND c.validation_state='verified' AND (p.user_id IS NULL OR p.background_enabled)
@@ -139,7 +141,8 @@ async def candidate_owners(store):
                         AND legacy.connection_generation=h.connection_generation
                         AND legacy.status='limited' AND legacy.incomplete_search
                         AND legacy.error_code IS NULL))
-                    OR (h.category='financial' AND h.predefined_query_version IS DISTINCT FROM :template))
+                    OR (h.category='financial' AND h.predefined_query_version IS DISTINCT FROM :template)
+                    OR {empty_sale_recovery_predicate("h")})
                   AND (h.lease_id IS NULL OR h.lease_expires_at<=clock_timestamp()))
                 OR EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
                   AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
@@ -148,7 +151,7 @@ async def candidate_owners(store):
             ORDER BY COALESCE(c.drive_packet_inspected_at,'epoch'::timestamptz),COALESCE((SELECT max(h.updated_at) FROM drive_packet_heads h
               WHERE h.user_id=c.user_id AND h.connection_generation=c.connection_generation
                 AND h.packet_kind='provider_discovery'),c.updated_at),c.user_id
-            LIMIT :limit"""),
+            LIMIT :limit"""),  # nosec B608 # interpolates only the fixed allowlisted h predicate; runtime values are bound below.
                 {
                     "limit": ENROLLMENT_SCAN_LIMIT,
                     "template": QUERY_VERSION,
