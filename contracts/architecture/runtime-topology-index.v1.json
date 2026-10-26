@@ -1526,7 +1526,7 @@
       "id": "one_area_discovery",
       "lifecycle_status": "customer0",
       "owner": "backend-api-contracts",
-      "primary_access_path": "Firebase-owner GET/PUT /api/one/area-discovery/me and bounded authenticated GET /api/one/area-discovery/search. Postgres indexed ZIP+UID scan, no positive result cache; per-account revision CAS and atomic daily search budget. Redis may replace budget storage only with equivalent atomic limits."
+      "primary_access_path": "Firebase-owner GET/PUT /api/one/area-discovery/me and bounded authenticated POST /api/one/area-discovery/search. Postgres indexed ZIP+UID scan, no positive result cache; per-account revision CAS and atomic daily search budget. Redis may replace budget storage only with equivalent atomic limits."
     },
     {
       "data_class": "workflow_state",
@@ -2274,6 +2274,16 @@
       "lifecycle_status": "dev_only",
       "owner": "iam-consent-governance",
       "primary_access_path": "transient WebAuthn challenge issue/consume during a registration or authentication ceremony (flag-off; migration parked)"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "account_workos_memberships"
+      ],
+      "id": "workos_generation_membership",
+      "lifecycle_status": "release_schema_qualification",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Verified SSO exchange captures original generation-zero attribution; Firebase admission checks signed membership/profile references. Signed Directory Sync callbacks resolve the captured organization/directory/person hash, never email or the latest owner."
     }
   ],
   "database_retirements": [
@@ -3835,6 +3845,8 @@
           "market.sectors.show_day",
           "market.sectors.show_highlights",
           "market.sectors.show_week",
+          "market.stock.quote.retry",
+          "market.stocks.retry",
           "route.back",
           "route.kai_home"
         ],
@@ -7143,21 +7155,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "6a7cbc71edeb570aafe6d563bfcfa6e1f9a984a73f1594bf14ea5e201522af38",
+    "action_gateway": "4a36164dd7f9eab12c6b12a1a387de803e7e5181c689b22eaf6c3bfbdd99f97d",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "ba5ccda8ef76d67e41ad8922705b3fe4cb5ef3eda0a4fbc95c57bbb160822200",
-    "data_plane": "28df46e7f57842614c21cb9d0fa7d3cf60365b3ff7bdacb51c32c56b7b81182a",
+    "data_plane": "249729a744d68438dde4479090630493c05e7d003eaf80ac3400aa51ec598bd6",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "69584fe9db71100558c021153c3b24c99711a4197aea21c94743f256a403f76d",
-    "route_layout": "6274fa0d679afd995cc1cff49d6e3dc2756c24693261a2e99b52028412e807df",
-    "surface_map": "158902a8a4fb82e3c2119d91eb7f3bd68f6db0c3274bde287db4bd3d7fcede83",
+    "route_index": "0ffc664551a4ceef26722bb9a7947bcd5549e5539b2b7e2c78694e22c347b797",
+    "route_layout": "70797338bdab9648b22a77d38f19f43049bfcf00fd7ebe910778fbe457b2f09f",
+    "surface_map": "fa19132e6b9bf362f41ef35d3e23b15dce12faf0755947dc9ce196bcc078fae3",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 304,
+    "actions": 307,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
@@ -7165,6 +7177,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 161,
     "semantic_routes": 17,
-    "table_families": 137
+    "table_families": 138
   }
 }

@@ -12,6 +12,7 @@ import { useKaiMarketHome } from "@/components/kai/shared/kai-market-home-contex
 import { marketSurfaceVariablesClassName } from "@/components/kai/shared/market-surface-theme";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiService } from "@/lib/services/api-service";
+import { loadPublicStockQuote } from "@/lib/services/public-stock-quote";
 
 /** Stock browsing shares Finance's existing resource and source-selection owner. */
 export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, browseStocks = true, historyRequested = false, onHistoryClose }: {
@@ -32,8 +33,9 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
     closeHistory();
     return true;
   }, { tab: "analysis" });
-  const { payload, loading, error, activePickSource, handlePickSourceChange } = useKaiMarketHome();
+  const { payload, loading, refreshing, error, activePickSource, handlePickSourceChange, loadInsights } = useKaiMarketHome();
   const rows = useMemo(() => (payload?.renaissance_list ?? payload?.pick_rows ?? []).filter(row => Boolean(row?.symbol)), [payload]);
+  const busy = loading || refreshing;
   const loadCompanyFacts = useCallback((symbols: string[]) => {
     if (!user?.uid) return Promise.resolve({});
     return ApiService.getKaiMarketCompanyFacts({ userId: user.uid, symbols });
@@ -45,12 +47,24 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
   const historyButton = history ? <ShellActionSurface variant="pill" className="h-12 text-xs sm:text-xs" onClick={() => setHistoryOpen(true)}><History className="h-4 w-4" />History</ShellActionSurface> : null;
 
   return <section aria-label="Stocks" className={marketSurfaceVariablesClassName} data-testid="kai-stocks-browser">
-    {browseStocks && loading && !payload ? <p role="status" className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading stocks…</p> : null}
-    {browseStocks && error && !payload ? <p role="status" className="py-4 text-sm text-muted-foreground">Stocks are temporarily unavailable.</p> : null}
+    {browseStocks && (busy || error) ? <div className="flex flex-wrap items-center justify-between gap-3 py-4 text-sm text-muted-foreground">
+      <p role="status" className="flex min-w-0 flex-1 items-center gap-2">
+        {busy ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" /> : null}
+        {busy
+          ? rows.length ? "Updating stocks…" : "Loading stocks…"
+          : rows.length ? "Some updates are temporarily unavailable." : "Stocks are temporarily unavailable."}
+      </p>
+      {error ? <ShellActionSurface variant="pill" className="h-11 text-sm sm:text-sm"
+        aria-label="Retry loading stocks" data-voice-control-id="kai_stocks_retry"
+        disabled={busy} onClick={() => void loadInsights({ manual: true })}>
+        {busy ? "Retrying…" : "Retry"}
+      </ShellActionSurface> : null}
+    </div> : null}
     {browseStocks && payload ? <RiaPicksList rows={rows} sources={payload.pick_sources ?? []} news={payload.news_tape ?? []}
       activeSourceId={activePickSource} onSourceChange={handlePickSourceChange}
       controlMode="adaptive-surface" loadCompanyFacts={active ? loadCompanyFacts : undefined}
       loadHistory={active ? loadHistory : undefined} toolbarActions={historyButton}
+      loadQuote={active ? loadPublicStockQuote : undefined}
       onSelectedSymbolChange={onSelectedSymbolChange}
       onAnalyze={onAnalyze ? symbol => onAnalyze(symbol, activePickSource) : undefined} /> : <div className="flex justify-end">{historyButton}</div>}
     <KaiControlSurface open={isHistoryOpen} onOpenChange={open => open ? setHistoryOpen(true) : closeHistory()} title="Saved analysis" surfaceClassName={financeStyles.detail}>

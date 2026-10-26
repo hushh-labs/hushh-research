@@ -236,6 +236,10 @@
       "file": "app/api/kai/[...path]/route.ts"
     },
     {
+      "template": "/api/market/quotes",
+      "file": "app/api/market/quotes/route.ts"
+    },
+    {
       "template": "/api/marketplace/{path*}",
       "file": "app/api/marketplace/[...path]/route.ts"
     },
@@ -9186,7 +9190,7 @@
         ]
       },
       "shell": {
-        "app_page_shell": false,
+        "app_page_shell": true,
         "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
@@ -9871,6 +9875,7 @@
         "phone_mandate.delete_previous",
         "phone_mandate.recover",
         "phone_mandate.select_country",
+        "phone_mandate.send_real_sms",
         "phone_mandate.submit_code",
         "phone_mandate.submit_number",
         "phone_mandate.transfer_cancel",
@@ -10997,5 +11002,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "40d466320a8b980abd44472fc2f2db7f61ddb1a4477e203452c21f8a79546ef0"
+  "content_sha256": "576c59ca41cff44f4a4bb3ab51c4f0388ffbf62789d063277c931620205556fa"
 }

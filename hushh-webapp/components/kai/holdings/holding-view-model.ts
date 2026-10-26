@@ -4,6 +4,7 @@ import type { HoldingMobileCardViewModel } from "@/components/kai/holdings/holdi
 export type HoldingsListItem = PortfolioHolding & {
   client_id: string;
   pending_delete?: boolean;
+  entries?: HoldingsListItem[];
 };
 
 export function finiteNumber(value: unknown): number | null {
@@ -47,8 +48,9 @@ export function toHoldingViewModel(
       costBasis !== null && shares > 0
         ? costBasis / shares
         : null,
-    currentPrice: finiteNumber(holding.price),
+    currentPrice: holding.price_unavailable ? null : finiteNumber(holding.price),
     costBasis,
+    acquisitionDate: holding.acquisition_date || null,
     source: holding.institution_name || context?.source || holding.source_type || null,
     quoteAsOf: holding.institution_price_as_of || null,
     statementAsOf: context?.statementAsOf || null,

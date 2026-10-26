@@ -4,6 +4,60 @@ import {
   consolidateHoldingsBySymbol,
   normalizeStoredPortfolio,
 } from "@/lib/utils/portfolio-normalize";
+import { groupHoldingPositions, prepareHoldingEntryEdit } from "@/lib/kai/holding-positions";
+import type { Holding } from "@/components/kai/types/portfolio";
+
+describe("entry-preserving position projection", () => {
+  const entries: Holding[] = [
+    { entry_id: "one", symbol: "AAPL", name: "Apple", quantity: 10, price: 130, market_value: 1300, cost_basis: 1000, acquisition_date: "2026-01-10" },
+    { entry_id: "two", symbol: "AAPL", name: "Apple", quantity: 5, price: 130, market_value: 650, cost_basis: 600, acquisition_date: "2026-05-10" },
+  ];
+  it("retains original entries while producing one weighted position without mutating input", () => {
+    const before = JSON.stringify(entries);
+    const restored = normalizeStoredPortfolio(JSON.parse(JSON.stringify({ holdings: entries })), { preserveEntries: true });
+    expect(restored.holdings).toHaveLength(2);
+    const positions = groupHoldingPositions(restored.holdings as Holding[]);
+    expect(positions).toHaveLength(1);
+    expect(positions[0]).toMatchObject({ quantity: 15, market_value: 1950, cost_basis: 1600, unrealized_gain_loss: 350, price: 130 });
+    expect(positions[0]!.cost_basis! / positions[0]!.quantity).toBeCloseTo(106.66667);
+    expect(positions[0]!.entries.map(entry => entry.entry_id)).toEqual(["one", "two"]);
+    expect(JSON.stringify(entries)).toBe(before);
+  });
+  it.each(["account_id", "currency", "instrument_kind", "position_side", "source_id", "security_id"] as const)("does not combine conflicting %s", field => {
+    const rows = entries.map((entry, i) => ({ ...entry, [field]: i ? "second" : "first" }));
+    expect(groupHoldingPositions(rows)).toHaveLength(2);
+  });
+  it("keeps partial cost/gain and mixed observed prices unavailable; excludes pending removals", () => {
+    const partial = groupHoldingPositions([entries[0]!, { ...entries[1]!, cost_basis: undefined, price: 140 }])[0]!;
+    expect(partial.cost_basis).toBeUndefined();
+    expect(partial.unrealized_gain_loss).toBeUndefined();
+    expect(partial.price_unavailable).toBe(true);
+    const removed = groupHoldingPositions([entries[0]!, { ...entries[1]!, pending_delete: true }])[0]!;
+    expect(removed.quantity).toBe(10);
+    expect(removed.market_value).toBe(1300);
+    expect(removed.entries).toHaveLength(2);
+    const income = groupHoldingPositions([
+      { ...entries[0]!, market_value: 100, estimated_annual_income: 10, est_yield: 10 },
+      { ...entries[1]!, market_value: 1000, estimated_annual_income: 20, est_yield: 2 },
+    ])[0]!;
+    expect(income.estimated_annual_income).toBe(30);
+    expect(income.est_yield).toBeCloseTo(30 / 1100 * 100);
+    expect(partial.est_yield).toBeUndefined();
+  });
+  it("adds into the selected account even when another account owns the same stock, without carrying old security across ticker edits", () => {
+    const rows = entries.map((entry, index) => ({ ...entry, security_id: "apple", account_id: "account-" + index }));
+    const draft = { ...entries[0]!, quantity: 2, market_value: 260, entry_id: undefined };
+    const added = prepareHoldingEntryEdit(draft, { ...rows[0]!, entry_id: undefined }, rows);
+    expect(added).toMatchObject({ security_id: "apple", account_id: "account-0", quantity: 2 });
+    expect(groupHoldingPositions([...rows, added]).map(position => position.entries.length)).toEqual([2, 1]);
+    expect(prepareHoldingEntryEdit({ ...draft, symbol: "MSFT" }, rows[0], rows)).toMatchObject({ account_id: "account-0", security_id: undefined, identifier_type: "ticker" });
+    expect(prepareHoldingEntryEdit(draft, null, rows).account_id).toBeUndefined();
+    const otherAccount = [{ ...rows[1]!, symbol: "MSFT", security_id: "microsoft", source_id: "other-source" }];
+    const changed = prepareHoldingEntryEdit({ ...draft, symbol: "MSFT" }, rows[0], otherAccount);
+    expect(changed).toMatchObject({ account_id: "account-0", security_id: undefined });
+    expect(changed.source_id).toBeUndefined();
+  });
+});
 
 describe("portfolio normalize helpers", () => {
   it("consolidates duplicate symbols using weighted price and summed totals", () => {

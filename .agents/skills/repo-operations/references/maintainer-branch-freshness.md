@@ -37,3 +37,13 @@ The shared hook honors this explicit mode; ordinary feature pushes retain their
 advisory default and main retains its existing forced mode and Admin preflight.
 On overlap, integrate and verify the existing branch again, then push one finished
 batch. This does not replace the final freshness check or authorize an Admin bypass.
+
+## Prepared Dev and UAT destinations
+
+For a PR targeting `dev` or `uat`, set `MAIN_SYNC_BRANCH` to that actual base and
+use `MAIN_SYNC_MODE=block`. Synchronizing only from Main does not prove freshness
+against either destination. CI requires the freshness job to succeed and queue
+validation refuses a missing or unsupported base instead of falling back to Main.
+These branches are being prepared; follow the active intake/deployment rules in
+[branch governance](../../../../docs/reference/operations/branch-governance.md#dev--uat-branch-preparation)
+until the promotion transition is activated.

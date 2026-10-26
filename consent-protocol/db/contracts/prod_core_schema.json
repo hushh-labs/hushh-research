@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 426,
+  "expected_migration_version": 428,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -148,6 +148,7 @@
     "guard_project_grant_setup_admission",
     "guard_wallet_card_access_grant",
     "guard_wallet_card_request",
+    "guard_workos_generation_membership",
     "insert_personal_agent_renewal",
     "install_account_deletion_write_guards",
     "install_account_generation_update_guards",
@@ -428,6 +429,17 @@
       "committed_at",
       "completed_at",
       "notice_dispatched_at"
+    ],
+    "account_workos_memberships": [
+      "binding_hash",
+      "created_at",
+      "generation",
+      "identity_hash",
+      "membership_hash",
+      "offboarded_at",
+      "origin",
+      "owner_hash",
+      "profile_hash"
     ],
     "actor_identity_cache": [
       "created_at",
@@ -2529,21 +2541,6 @@
       "updated_at",
       "user_id"
     ],
-    "one_area_discovery_preferences": [
-      "user_id",
-      "enabled",
-      "postal_code",
-      "revision",
-      "consent_version",
-      "adult_self_attested_at",
-      "consent_at",
-      "updated_at"
-    ],
-    "one_area_discovery_search_budgets": [
-      "user_id",
-      "bucket_date",
-      "searches"
-    ],
     "one_attention_ledger": [
       "created_at",
       "kind",
@@ -4568,5 +4565,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 426
+  "expected_schema_head": 428
 }

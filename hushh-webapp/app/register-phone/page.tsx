@@ -230,7 +230,12 @@ export function PhoneMandatePageContent() {
         /^\/one\/location\/invite\/[^/]+$/.test(invitationPath!) ||
         (invitationPath === ROUTES.CIRCLE_JOIN && invitationUrl.searchParams.get("invite")?.trim())
       ));
-      if (isTokenInvitation) {
+      // Setup's explicit Verify action must remain usable after reset too:
+      // vault ownership exempts generic admission, not a chosen phone operation.
+      const isSetupVerification = normalizeStaticExportPathname(
+        (redirectPath ?? "").split(/[?#]/)[0] ?? "",
+      ) === ROUTES.ONE_SETUP;
+      if (isTokenInvitation || isSetupVerification) {
         const identity = await AccountIdentityService.syncCurrentUser(user);
         if (cancelled) return;
         if (typeof identity?.phone_verified !== "boolean") {

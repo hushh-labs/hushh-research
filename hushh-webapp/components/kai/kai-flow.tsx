@@ -556,6 +556,7 @@ function normalizePortfolioData(
 ): ReviewPortfolioData {
   const normalized = normalizeStoredPortfolio(
     backendData as Record<string, unknown>,
+    { preserveEntries: true },
   ) as ReviewPortfolioData;
   const rawHoldings = Array.isArray(normalized.holdings)
     ? normalized.holdings

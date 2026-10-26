@@ -1,5 +1,6 @@
 import { requireSharedGoogleExchange } from './private-google-connections';
 import { ApiService } from "@/lib/services/api-service";
+import type { GoogleCalendarAccount } from "@/lib/services/google-calendar-service";
 import {
   snapshotValidatedAuthSessionOwner,
   isValidatedAuthSessionOwnerCurrent,
@@ -18,6 +19,9 @@ export type GoogleConnectionStatus = {
 
 export type GoogleConnectionCompletion = GoogleConnectionStatus & {
   service: "calendar";
+  /** Identifies the grant published by an Add account attempt, including "default" when reauthorized. */
+  completed_account_id?: string;
+  accounts?: GoogleCalendarAccount[];
 };
 
 /** Legacy Calendar callback transport; Drive uses `/api/connectors` instead. */
@@ -68,7 +72,11 @@ export class GoogleConnectionService {
       !result ||
       result.service !== "calendar" ||
       typeof result.connected !== "boolean" ||
-      !["connected", "needs_reauth", "disconnected"].includes(result.status)
+      !["connected", "needs_reauth", "disconnected"].includes(result.status) ||
+      (result.completed_account_id !== undefined &&
+        (typeof result.completed_account_id !== "string" ||
+          !result.completed_account_id ||
+          !Array.isArray(result.accounts)))
     ) {
       throw new Error("Google connection could not be verified.");
     }

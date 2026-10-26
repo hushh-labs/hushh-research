@@ -14,5 +14,5 @@ export function normalizeStatementPortfolio(candidate: Record<string, unknown>, 
     brokerage_name: account.brokerage_name ?? account.brokerage ?? source.brokerage,
     statement_period_start: account.statement_period_start ?? source.statement_period_start ?? period.start,
     statement_period_end: account.statement_period_end ?? source.statement_period_end ?? period.end,
-  }, historical_values: candidate.historical_values ?? snapshot?.historical_values ?? record(snapshot?.raw_extract_v2).historical_values }) as PortfolioData;
+  }, historical_values: candidate.historical_values ?? snapshot?.historical_values ?? record(snapshot?.raw_extract_v2).historical_values }, { preserveEntries: true }) as PortfolioData;
 }

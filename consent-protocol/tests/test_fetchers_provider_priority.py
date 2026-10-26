@@ -372,20 +372,25 @@ async def test_market_data_falls_back_when_finnhub_is_rate_limited(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("yield_value", [None, 0, 0.02])
-async def test_yahoo_fast_missing_dividend_yield_is_not_measured_zero(monkeypatch, yield_value):
+async def test_yahoo_fast_uses_chart_quote_time_without_inventing_yield(monkeypatch):
+    from hushh_mcp.services.legacy_market_data_adapter import _nullable_quote
+
     original_client = httpx.AsyncClient
 
     def reply(request):
+        assert request.url.path == "/v8/finance/chart/TEST"
         return httpx.Response(
             200,
             request=request,
             json={
-                "quoteResponse": {
+                "chart": {
                     "result": [
                         {
-                            "regularMarketPrice": 100,
-                            "trailingAnnualDividendYield": yield_value,
+                            "meta": {
+                                "symbol": "TEST",
+                                "regularMarketPrice": 100,
+                                "regularMarketTime": 1793000000,
+                            }
                         }
                     ]
                 }
@@ -398,8 +403,10 @@ async def test_yahoo_fast_missing_dividend_yield_is_not_measured_zero(monkeypatc
         "AsyncClient",
         lambda **kwargs: original_client(transport=httpx.MockTransport(reply), **kwargs),
     )
-    row = await fetchers._fetch_yahoo_quote_fast("TEST")
-    assert row["dividend_yield"] == yield_value
+    row = _nullable_quote(await fetchers._fetch_yahoo_quote_fast("TEST"))
+    assert row["price"] == 100
+    assert row["quoted_at"] == "2026-10-26T07:33:20+00:00"
+    assert row["dividend_yield"] is None
 
 
 def test_market_only_fundamentals_keep_unknown_distinct_from_measured_zero():

@@ -45,6 +45,13 @@ it("does not advertise a blocked update as Online or wake it through the status 
   expect(ApiService.wakePod).not.toHaveBeenCalled();
 });
 
+it.each([undefined, false, true])("promises installation only for an offerable update (%s)", async (offerable) => {
+  mockStatus.mockResolvedValue({ state: "active", updateAvailable: true, updateOfferable: offerable } as any);
+  render(<OneAgentPresence />);
+  const title = (await screen.findByTestId("one-agent-presence")).getAttribute("title") || "";
+  expect(title.includes("Choose Update now in Feed")).toBe(offerable === true);
+});
+
 beforeEach(() => {
   publishValidatedAuthSessionOwner("presence-owner");
   __resetProactiveWakeForTests();

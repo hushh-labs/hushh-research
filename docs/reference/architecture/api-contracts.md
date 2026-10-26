@@ -57,6 +57,19 @@ flowchart TB
 
 ---
 
+## Public market quotes
+
+`GET /api/market/quotes?symbols=ADBE` reuses the shared public quote provider
+and L1/L2 cache, without owner, holdings or vault context. Web reaches it through
+the fixed Next.js proxy at the same path; native uses the existing ApiService
+backend transport. The proxy forwards neither owner authorization nor cookies.
+The quote row retains `price`, legacy `change_percent`, `company_name`, and
+`source`, and adds nullable `change_pct` and provider `quoted_at`, plus
+`is_stale`, `is_delayed`, and `market_state`. Retrieval time never becomes
+quote time. Empty provider refreshes retain eligible cached prices; a cold
+closed-market request returns 503 without calling providers. Daily historical
+observations remain a separate contract.
+
 ## Request-specific revocation
 
 `POST /api/consent/revoke` preserves the optional `requestId` from the web client
@@ -2453,10 +2466,10 @@ separate work; a static export or native compile is not sign-in proof.
 
 | Method | Path                                  | Authorization      | Description                                                                                                         |
 | ------ | ------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| POST | `/api/one/google/connect/complete` | Firebase Bearer | Complete the owner-bound Google attempt; return connection status and authoritative service. No caller-supplied service is accepted. |
+| POST | `/api/one/google/connect/complete` | Firebase Bearer | Complete the owner-bound Google attempt; return connection status and authoritative service. An Add account Calendar completion also returns `completed_account_id` alongside `accounts[]` for the grant saved by this attempt (`default` when the primary account was reauthorized); the browser verifies that grant. No caller-supplied service is accepted. |
 | POST   | `/api/one/calendar/connect/start`     | Firebase Bearer    | Start incremental Google Calendar read or manage authorization; returns only an OAuth authorization URL and expiry. |
 | POST | `/api/one/calendar/connect/start` | Firebase Bearer | `additional:true` starts an owner-bound additional Calendar authorization through the existing connect endpoint, optionally bound to one existing `account_id` for reconnect. A verified Google subject cannot occupy two active account slots; the owner can retain at most three slots. |
-| POST   | `/api/one/calendar/connect/complete`  | Firebase Bearer    | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant.      |
+| POST   | `/api/one/calendar/connect/complete`  | Firebase Bearer    | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant. An Add account attempt includes the saved grant's `completed_account_id` and matching `accounts[]` entry, including `default` if the primary account was selected again. Top-level status fields continue to describe only the default grant. |
 | POST   | `/api/one/calendar/connect/native/start` | Firebase Bearer | Create an owner-bound, generation-fenced native attempt; return public client settings and opaque state. |
 | POST   | `/api/one/calendar/connect/native/complete` | Firebase Bearer | Exchange the native code only with the matching state, owner, service and permission; missing state is rejected. |
 | GET    | `/api/one/calendar/status/{user_id}`  | Firebase Bearer    | Return non-sensitive Calendar connection and permission state, including each owner-bound Calendar account ID/status and a three-account limit. |
@@ -4422,8 +4435,8 @@ reconciled with reads rather than automatically repeated.
 
 `features.drive_period_packets` admits the separate `DRIVE_PERIOD_PACKETS_ENABLED`
 capability in UAT. It does not enable the retired content collection, extraction,
-four-group classifier or legacy package builder. Current authorized owners receive
-Financial statements, Account statements, Brokerage and Insurance categories.
+four-group classifier or legacy package builder. Proactive enrollment currently
+prepares Financial statements; the other authored category templates are separate.
 Each category has an independent calendar-pair packet: January–February through
 November–December. Enrollment is bounded to elapsed/current pairs of the current
 year. Owners can search current pairs immediately; only final sale versions wait for closure.
@@ -4433,7 +4446,9 @@ Explicit background OFF, connector revocation, owner placement and account erasu
 remain execution fences. Default enrollment records a product policy, not an owner
 acceptance or permission grant.
 
-The existing Azure planner authors the search expression. The existing discovery
+Financial preparation uses the versioned `financial-records-v1` predefined query;
+it does not invoke Azure planning. Custom requests retain their Azure planner.
+The existing discovery
 compiler, Drive pagination and owner-search leases collect metadata without reading
 document bodies or running another content assessor. Only a complete closed search
 can freeze a packet; incomplete, failed and over-limit searches cannot authorize a sale.
@@ -4447,8 +4462,9 @@ and adds a discriminated `kind: "provider_discovery"` item with `category`,
 `periodStart`, `periodEnd`, `timezone`, server lifecycle state, fixed `priceCents:500`,
 and recipient-bound `requestId`/`purchaseState`. Unfrozen heads have version zero;
 frozen heads have version one. Owner-only contents contain bounded original links.
-Visitors receive only explicitly listed summaries under the existing connection
-audience, never unpurchased filenames or links.
+Visitors receive only summaries admitted by the owner's explicit listing audience,
+including separately authorized public summaries. Private filenames and links are
+never included in an unpurchased public summary. A connection remains required to request purchase.
 
 Owner preview uses `POST /sharing/packets/{id}/preview` with `{refresh:false}`
 on opening a period and `{refresh:true}` for an explicit refresh. It derives the
@@ -4469,7 +4485,19 @@ The last usable first 120 results are retained encrypted in the existing head bu
 envelope through retries and temporary-job expiry. A live job pages the full saved
 result set; an expired snapshot explicitly identifies any remaining uncached files.
 Frozen versions and completed purchases are not rewritten. No new index or content
-assessment is introduced. Azure failures cannot become a successful search result.
+assessment is introduced. A failed provider search cannot become a successful result.
+
+Provider file titles use the adapter's bounded UTF-8 metadata contract; the shorter
+caller-supplied exact-title query limit is not a file admission limit. Original
+names remain unchanged in encrypted source metadata. Packet display labels use
+the existing 255 UTF-16-unit browser limit, with an ellipsis for longer names.
+A legacy
+financial search marked incomplete without a typed reason can replay its frozen
+query once, preserving its job, original rows and positions. Due exhausted heads
+receive one migration claim only for their exact current-revision child. Replay
+revalidates current owner/background authority, generation, origin and head lease.
+Continued incompleteness is `search_incomplete`, not completion or an empty result;
+the recorded replay marker survives later recovery paths.
 
 Listing and purchase use the existing `/sharing/packets/{id}/listing` and
 `/sharing/packets/{id}/requests` endpoints. The new admission cannot reactivate a
@@ -5302,10 +5330,17 @@ existing platform coverage.
 `POST /api/account/phone/transfer/prepare` requires the current Firebase bearer,
 `expected_user_id` matching the captured application owner and an independent
 `phone_id_token`. The server verifies its phone provider, revocation, exact UID,
-authentication age, application fixtures and provider fictional-number config.
+authentication age and provider fictional-number config. Membership in a server
+fixed-code list does not disqualify an independently verified real SMS proof.
 The response is an opaque `transfer_id` and intent `expires_at`. This is a
 server authorization deadline, not a promise about provider OTP lifetime.
-Fixture, emulator, reviewer and shared test-code proofs cannot transfer a number.
+Provider fictional-number, emulator, reviewer and shared test-code proofs cannot
+transfer a number. Occupied fixed-code challenges do not silently switch to SMS: a
+human may explicitly request a fresh SMS proof. Failed or malformed eligibility
+checks stop with a typed error; only a successful non-test result permits ordinary
+SMS fallback. The shared production Firebase mutation fence remains authoritative
+in nonproduction; that refusal is permanent for the current authentication plane,
+not a reason to retry the same transfer.
 If removing the phone would strand an established phone-only identity, existing
 account recovery is required first.
 
@@ -5344,6 +5379,9 @@ Native verification extends the existing isolated proof bridge rather than
 linking the primary Firebase user. Owner/attempt fences suppress stale native
 callbacks. Harmless rerenders, typing and background/foreground events do not
 start a challenge. Resend is explicit and retires the prior local challenge.
+Web reCAPTCHA keeps its React-owned host attached and creates a fresh SDK-owned
+child for each attempt. Clearing or retrying the SDK cannot detach React's
+insertion anchor when the OTP form changes to account-conflict recovery.
 Native Profile Close consults the same visit-scoped pending-operation guard as
 the phone flow; it cannot discard an uncertain transfer before status settles.
 No provider expiry countdown is invented. Native provider error mapping follows

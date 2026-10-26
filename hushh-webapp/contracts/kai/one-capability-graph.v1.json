@@ -29043,6 +29043,162 @@
     },
     {
       "aliases": [
+        "Send a real SMS code",
+        "send a real SMS code"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.send_real_sms",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "An explicit human choice starts a fresh SMS possession proof instead of a shared test code; it does not transfer a phone or grant account access.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.send_real_sms",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.send_real_sms",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Send a real SMS code",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Use this number on this account",
         "use this number on this account"
       ],
@@ -40906,6 +41062,154 @@
     },
     {
       "aliases": [
+        "Retry quote",
+        "retry quote",
+        "reload stock price"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.stock.quote.retry",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Retries the public quote for the currently opened stock after its quote read failed. Retains the previous observed quote and never derives a spot quote from daily history.",
+      "execution": {
+        "binding_ref": "semantic_action:analysis_stock_quote_retry",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "analysis_stock_quote_retry"
+        }
+      },
+      "goal_id": "goal.market.stock.quote.retry",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Retry quote",
+      "navigation": {
+        "fallback": "analysis_stock_quote_retry",
+        "routes": [
+          "/one/kai?tab=analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "stock",
+        "quote",
+        "retry",
+        "price"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Go Back",
         "go back",
         "back"
@@ -42706,6 +43010,153 @@
       "search_keywords": [
         "sector highlights",
         "sector rotation"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Retry loading stocks",
+        "retry loading stocks",
+        "retry stock list"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.stocks.retry",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Retries the existing shared Finance read after a Stocks loading failure, retaining any saved rows and the current source selection.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_stocks_retry",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_stocks_retry"
+        }
+      },
+      "goal_id": "goal.market.stocks.retry",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Retry loading stocks",
+      "navigation": {
+        "fallback": "kai_stocks_retry",
+        "routes": [
+          "/one/kai?tab=analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "stocks",
+        "retry",
+        "loading"
       ],
       "settlement_proof": "directive_ledger_settlement",
       "side_effect": {
@@ -49378,7 +49829,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "8415787d717d2e87d45b0ea32d14c05b68d878c94e13860d56a35be27e21aff5",
+      "projection_digest": "31dc0dac668998edac0a869ebd3ca52c0a58dfcae3f9c97b3abaaf4656834304",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -49397,7 +49848,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "4be733c76f5be2bb",
+      "source_revision": "9031503093c4ce05",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -50915,7 +51366,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "4be733c76f5be2bb",
+    "source_revision": "9031503093c4ce05",
     "web": {
       "actions": [
         {
@@ -50958,7 +51409,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "15ee9b94611006e8038e6300c47de1bd5a56d593652e4a0fc8c8ef48e0d1465f",
+      "projection_digest": "7cfce5a7b9d82ecea61b3f1447f03d2a83262bafc75b84a7d4c2e90c034d3673",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50977,7 +51428,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "4be733c76f5be2bb",
+      "source_revision": "9031503093c4ce05",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -52534,7 +52985,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "4be733c76f5be2bb",
+  "revision": "9031503093c4ce05",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -53029,6 +53480,8 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
+        "market.stocks.retry",
         "route.back",
         "route.kai_home"
       ],
@@ -53197,6 +53650,8 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
+        "market.stocks.retry",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -53223,6 +53678,8 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
+        "market.stocks.retry",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -53249,6 +53706,8 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
+        "market.stocks.retry",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -53275,6 +53734,8 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
+        "market.stocks.retry",
         "route.back",
         "route.kai_home"
       ],
@@ -54509,18 +54970,19 @@
   ],
   "semantic_diff": {
     "added": [
-      "actions:phone_mandate.change_number",
-      "actions:phone_mandate.delete_previous",
-      "actions:phone_mandate.recover",
-      "actions:phone_mandate.transfer_cancel",
-      "actions:phone_mandate.transfer_confirm",
-      "actions:phone_mandate.transfer_review"
+      "actions:market.stock.quote.retry"
     ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one/kai",
+      "screens:screen:/one/kai?tab=analysis",
+      "screens:screen:/one/kai?tab=analysis&focus=active",
+      "screens:screen:/one/kai?tab=analysis&view=history",
+      "screens:screen:/one/kai?tab=portfolio"
+    ],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "35982be19f859840",
+    "from_revision": "fed9c40b9bb74ea8",
     "migrated": [],
     "removed": []
   },
@@ -56829,18 +57291,18 @@
     "capability_graph_evolution": "25a7bb6a3284890be1fa54abad56c6266de5196f0722c2be585375fd3db9d54a",
     "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "6a7cbc71edeb570aafe6d563bfcfa6e1f9a984a73f1594bf14ea5e201522af38",
+    "kai_action_gateway": "4a36164dd7f9eab12c6b12a1a387de803e7e5181c689b22eaf6c3bfbdd99f97d",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
-    "route_orchestration_index": "69584fe9db71100558c021153c3b24c99711a4197aea21c94743f256a403f76d",
+    "route_orchestration_index": "0ffc664551a4ceef26722bb9a7947bcd5549e5539b2b7e2c78694e22c347b797",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "4be733c76f5be2bb",
+  "source_revision": "9031503093c4ce05",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "4be733c76f5be2bb",
+    "current_graph_revision": "9031503093c4ce05",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -56923,6 +57385,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -57080,6 +57543,7 @@
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
           "c118b9582508fec4",
+          "c19f96c7fd08b9c1",
           "c1df11d262f16eea",
           "c257cdc2d62edab3",
           "c2e7e299b49c5228",
@@ -57145,6 +57609,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
+          "ed663d3d6a6d82c5",
           "edaa00dc65d3cb12",
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
@@ -57166,7 +57631,8 @@
           "fb7a6340d119acec",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
-          "fe7124ad349b7300"
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -57195,6 +57661,7 @@
           "43efe9fb3a1513f1",
           "45be718cd9891cd4",
           "49f1882f17ca746a",
+          "4be733c76f5be2bb",
           "4d911004af4b252b",
           "4f5bda58994aac11",
           "53c411e01494034b",
@@ -57227,6 +57694,7 @@
           "aaec4987307cbdee",
           "ad3f61d47487e20e",
           "bf818f0b3141079a",
+          "c19f96c7fd08b9c1",
           "c39f0674bed1fca1",
           "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
@@ -57242,9 +57710,11 @@
           "e72a95655f220acd",
           "e746225912756998",
           "ebddcf5afa07b6bb",
+          "ed663d3d6a6d82c5",
           "f0c409450ab444ad",
           "f2366731e915e5b5",
-          "fb9a089556077ad3"
+          "fb9a089556077ad3",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -57270,6 +57740,7 @@
           "3b4a692078832301",
           "43c428db7505bdee",
           "45be718cd9891cd4",
+          "4be733c76f5be2bb",
           "4d911004af4b252b",
           "4f5bda58994aac11",
           "53c411e01494034b",
@@ -57291,6 +57762,7 @@
           "a70ab77c9974866f",
           "aaec4987307cbdee",
           "ad3f61d47487e20e",
+          "c19f96c7fd08b9c1",
           "c39f0674bed1fca1",
           "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
@@ -57300,9 +57772,11 @@
           "de6d576a06f1dde6",
           "e72a95655f220acd",
           "e746225912756998",
+          "ed663d3d6a6d82c5",
           "f0c409450ab444ad",
           "f2366731e915e5b5",
-          "fb9a089556077ad3"
+          "fb9a089556077ad3",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [
@@ -57612,6 +58086,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
           "4f5bda58994aac11",
@@ -57729,6 +58204,7 @@
           "be499da2762f573e",
           "bec5fd5f0ffddc6c",
           "bf818f0b3141079a",
+          "c19f96c7fd08b9c1",
           "c32bec5a75d64734",
           "c39f0674bed1fca1",
           "c4365d405790f94d",
@@ -57778,6 +58254,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
+          "ed663d3d6a6d82c5",
           "edaa00dc65d3cb12",
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
@@ -57792,7 +58269,8 @@
           "f81cd566f223f92d",
           "fac4fe10478339eb",
           "fb9a089556077ad3",
-          "fe7124ad349b7300"
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [
@@ -57951,6 +58429,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -58108,6 +58587,7 @@
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
           "c118b9582508fec4",
+          "c19f96c7fd08b9c1",
           "c1df11d262f16eea",
           "c257cdc2d62edab3",
           "c2e7e299b49c5228",
@@ -58173,6 +58653,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
+          "ed663d3d6a6d82c5",
           "edaa00dc65d3cb12",
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
@@ -58194,7 +58675,8 @@
           "fb7a6340d119acec",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
-          "fe7124ad349b7300"
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -58282,6 +58764,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -58439,6 +58922,7 @@
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
           "c118b9582508fec4",
+          "c19f96c7fd08b9c1",
           "c1df11d262f16eea",
           "c257cdc2d62edab3",
           "c2e7e299b49c5228",
@@ -58504,6 +58988,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
+          "ed663d3d6a6d82c5",
           "edaa00dc65d3cb12",
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
@@ -58525,7 +59010,8 @@
           "fb7a6340d119acec",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
-          "fe7124ad349b7300"
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -58613,6 +59099,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -58769,6 +59256,7 @@
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
           "c118b9582508fec4",
+          "c19f96c7fd08b9c1",
           "c1df11d262f16eea",
           "c257cdc2d62edab3",
           "c2e7e299b49c5228",
@@ -58833,6 +59321,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
+          "ed663d3d6a6d82c5",
           "edaa00dc65d3cb12",
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
@@ -58854,7 +59343,8 @@
           "fb7a6340d119acec",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
-          "fe7124ad349b7300"
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -58942,6 +59432,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -59099,6 +59590,7 @@
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
           "c118b9582508fec4",
+          "c19f96c7fd08b9c1",
           "c1df11d262f16eea",
           "c257cdc2d62edab3",
           "c2e7e299b49c5228",
@@ -59164,6 +59656,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
+          "ed663d3d6a6d82c5",
           "edaa00dc65d3cb12",
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
@@ -59185,7 +59678,8 @@
           "fb7a6340d119acec",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
-          "fe7124ad349b7300"
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],

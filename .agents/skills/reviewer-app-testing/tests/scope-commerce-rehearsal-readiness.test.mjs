@@ -4,7 +4,45 @@ import { verifyProviderPreflight, verifyApplicationReadiness } from "../scripts/
 import { verifySharedDevReadiness } from "../scripts/scope-commerce-rehearsal-dev-readiness.mjs";
 import { validateCommerceState } from "../scripts/scope-commerce-rehearsal-state.mjs";
 import { syntheticState } from "./fixtures/synthetic-commerce-state.mjs";
+import { createCommerceMutationAdmission } from "../scripts/scope-commerce-rehearsal-admission.mjs";
 const APP_ORIGIN = "https://uat.one.hushh.ai";
+
+test("explicit fixed-term admission preserves the reviewed duration across each money boundary", async () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const cases = [
+    ["tariff", { scopeHandle: "s_fixture", machineScope: "attr.fixture.note", priceCents: 50 },
+      { scope_handle: "s_fixture", machine_scope: "attr.fixture.note", price_cents: 50 }, "base_duration_seconds"],
+    ["request", { personRef: id, scopeRef: "fixture", purpose: "synthetic check", connectorKeyId: id, operationId: id },
+      { person_ref: id, scope_refs: ["fixture"], purpose: "synthetic check", connector_key_id: id }, "duration_seconds"],
+    ["approval", { modelProcessingAllowed: false }, { model_processing_allowed: false }, "duration_seconds"],
+    ["quote", { requestId: id }, { request_id: id }, "duration_seconds"],
+  ];
+  for (const [type, expected, fields, durationKey] of cases) {
+    const admission = createCommerceMutationAdmission({ appOrigin: APP_ORIGIN, role: "primary", durationSeconds: 86_400 });
+    const pathname = `/api/scope-commerce/${type}`;
+    admission.permit({ type, pathname, expected });
+    const body = { idempotency_key: id, ...fields, [durationKey]: 86_400 };
+    const request = value => ({ url: () => APP_ORIGIN + pathname, method: () => "POST", postDataJSON: () => value });
+    await assert.rejects(admission.admit(request({ ...body, [durationKey]: 3600 })), /BOUNDED_MUTATION_BINDING_MISMATCH/);
+    assert.equal(await admission.admit(request(body)), true);
+    assert.equal(await admission.admit(request({ ...body })), true);
+    await assert.rejects(admission.admit(request({ ...body, idempotency_key: "22222222-2222-4222-8222-222222222222" })), /MUTATION_REPLAY_CHANGED|BOUNDED_MUTATION_BINDING_MISMATCH/);
+  }
+});
+
+test("the existing one-hour rehearsal stays exact and invalid configured terms fail before admission", async () => {
+  for (const durationSeconds of [0, -1, 1.5, NaN, Infinity, 31_536_001, "86400"]) {
+    assert.throws(() => createCommerceMutationAdmission({ appOrigin: APP_ORIGIN, role: "primary", durationSeconds }), /EXACT_TERM_REQUIRED/);
+  }
+  const id = "11111111-1111-4111-8111-111111111111";
+  const admission = createCommerceMutationAdmission({ appOrigin: APP_ORIGIN, role: "primary" });
+  const pathname = "/api/scope-commerce/quotes";
+  admission.permit({ type: "quote", pathname, expected: { requestId: id } });
+  const request = duration_seconds => ({ url: () => APP_ORIGIN + pathname, method: () => "POST",
+    postDataJSON: () => ({ request_id: id, duration_seconds, idempotency_key: id }) });
+  await assert.rejects(admission.admit(request(86_400)), /BOUNDED_MUTATION_BINDING_MISMATCH/);
+  assert.equal(await admission.admit(request(3600)), true);
+});
 
 function sandboxProof() {
   return { readiness: true, sandbox: true, account_pin_verified: true, isolation_evidence_verified: true,

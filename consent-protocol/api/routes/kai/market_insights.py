@@ -43,8 +43,10 @@ from hushh_mcp.services.renaissance_service import TIER_WEIGHTS, get_renaissance
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 
+from . import _shared_last_close as shared_last_close
 from ._market_presentation import (
     market_home_response,
+    quote_observation_fields,
     recommendation_from_target,
     resolve_public_module,
     stock_preview_quote,
@@ -198,6 +200,8 @@ MARKET_STATUS_STALE_TTL_SECONDS = 1800
 # graceful degradation behavior is unaffected; only the fresh window moves.
 MARKET_PRICE_SENSITIVE_PREFIXES = (
     "quotes:",
+    "indices:",
+    "picks:",
     "home:",
     "movers:",
     "sectors:",
@@ -1116,6 +1120,7 @@ async def _get_or_refresh_public_module(
         safe_float=_safe_float,
         refresh_prefixes=MARKET_PRICE_REFRESH_PREFIXES,
         sensitive_prefixes=MARKET_PRICE_SENSITIVE_PREFIXES,
+        last_close_prefixes=shared_last_close.LAST_CLOSE_PREFIXES,
     ).read(
         key=key,
         fresh_ttl_seconds=fresh_ttl_seconds,
@@ -1123,6 +1128,73 @@ async def _get_or_refresh_public_module(
         fetcher=fetcher,
         warm_source=warm_source,
         serve_stale_while_revalidate=serve_stale_while_revalidate,
+    )
+
+
+def _visible_pick_rows(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split pick rows into quotable rows and the symbols the symbol master rejects."""
+    symbol_master = get_symbol_master_service()
+    visible: list[dict[str, Any]] = []
+    hidden: list[dict[str, Any]] = []
+    for stock in rows:
+        input_symbol = str(_pick_row_value(stock, "ticker", "") or "").strip().upper()
+        if not input_symbol:
+            continue
+        quote_symbol, alias_repaired = _repair_quote_symbol(input_symbol)
+        classification = symbol_master.classify(quote_symbol)
+        if not classification.tradable:
+            hidden.append(
+                {
+                    "input_symbol": input_symbol,
+                    "normalized_symbol": classification.symbol,
+                    "reason": classification.reason,
+                    "trust_tier": classification.trust_tier,
+                    "filtered_out_reason": "unsupported_quote_symbol",
+                }
+            )
+            continue
+        visible.append(
+            {
+                "row": stock,
+                "input_symbol": input_symbol,
+                "quote_symbol": classification.symbol,
+                "alias_repaired": alias_repaired or classification.symbol != input_symbol,
+            }
+        )
+    return visible, hidden
+
+
+def _pick_quote_symbols(visible: list[dict[str, Any]]) -> list[str]:
+    """The pick list's own quote symbols: one stable list per pick list, indices excluded."""
+    symbols = {str(item.get("quote_symbol") or "").strip() for item in visible}
+    return sorted(symbols - {""} - set(shared_last_close.INDEX_SYMBOLS))
+
+
+async def _default_pick_symbols() -> list[str]:
+    """Quote symbols of the default pick list, the public list the warmer keeps fresh."""
+    rows, _sources, _resolved = await _resolve_pick_source_rows(
+        "startup", DEFAULT_PICK_SOURCE_ID, ria_sources=[]
+    )
+    return _pick_quote_symbols(_visible_pick_rows(rows)[0])
+
+
+def _shared_quotes() -> shared_last_close.SharedLastClose:
+    # Built per call so the cache and provider functions below stay late-bound.
+    return shared_last_close.SharedLastClose(
+        read_module=_get_or_refresh_public_module,
+        fetch_batch=fetch_market_data_batch,
+        fetch_one=fetch_market_data,
+        safe_float=_safe_float,
+        now_iso=_now_iso,
+        status_from_exception=_provider_status_from_exception,
+        is_open=_us_market_is_open,
+        pick_symbols=_default_pick_symbols,
+        fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
+        stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
+        fanout=QUOTE_FANOUT_CONCURRENCY,
+        logger=logger,
     )
 
 
@@ -2134,6 +2206,12 @@ async def _refresh_public_market_modules_once() -> None:
     if not _us_market_is_open():
         return
 
+    # First and outside the FMP budget: the indices and the default pick list refresh
+    # through one keyless batch each and are the last close served while closed, so a
+    # slow or throttled module below must not cost the snapshots their refresh.
+    if summary := await _shared_quotes().warm():
+        refresh_summary.append(summary)
+
     if is_budget_critical():
         # Preserve remaining daily FMP quota for real user requests: skip this
         # proactive background warm cycle entirely once we are down to the
@@ -2344,123 +2422,16 @@ async def _get_market_insights_payload(
             effective_pick_source,
             ria_sources=ria_source_roster if personalized else [],
         )
-        symbol_master = get_symbol_master_service()
-        visible_pick_rows_source: list[dict[str, Any]] = []
-        hidden_pick_symbols: list[dict[str, Any]] = []
-        for stock in renaissance_rows_source:
-            input_symbol = str(_pick_row_value(stock, "ticker", "") or "").strip().upper()
-            if not input_symbol:
-                continue
-            quote_symbol, alias_repaired = _repair_quote_symbol(input_symbol)
-            classification = symbol_master.classify(quote_symbol)
-            if not classification.tradable:
-                hidden_pick_symbols.append(
-                    {
-                        "input_symbol": input_symbol,
-                        "normalized_symbol": classification.symbol,
-                        "reason": classification.reason,
-                        "trust_tier": classification.trust_tier,
-                        "filtered_out_reason": "unsupported_quote_symbol",
-                    }
-                )
-                continue
-            visible_pick_rows_source.append(
-                {
-                    "row": stock,
-                    "input_symbol": input_symbol,
-                    "quote_symbol": classification.symbol,
-                    "alias_repaired": alias_repaired or classification.symbol != input_symbol,
-                }
-            )
-
-        renaissance_symbols = [
-            item["quote_symbol"]
-            for item in visible_pick_rows_source
-            if str(item.get("quote_symbol") or "").strip()
-        ]
-
-        # Benchmark levels must come from the indices, not similarly named ETFs.
-        core_symbols = ["^GSPC", "^IXIC", "^DJI", "^RUT"]
-        symbol_set = sorted({*watchlist_symbols, *core_symbols, *renaissance_symbols})
+        visible_pick_rows_source, hidden_pick_symbols = _visible_pick_rows(renaissance_rows_source)
+        # Index levels and the pick list come from shared last-close entries, never from
+        # similarly named ETFs or this viewer's own bundle, so a cold viewer entry cannot
+        # blank them. The viewer's own bundle keeps only the holdings outside both.
+        shared = _shared_quotes()
+        pick_symbols = _pick_quote_symbols(visible_pick_rows_source)
+        symbol_set = sorted(
+            set(watchlist_symbols) - set(pick_symbols) - set(shared_last_close.INDEX_SYMBOLS)
+        )
         quotes_key = f"quotes:{','.join(symbol_set)}"
-
-        async def fetch_quotes_bundle() -> dict[str, Any]:
-            quotes_by_symbol: dict[str, dict[str, Any]] = {}
-            statuses: dict[str, str] = {}
-            unresolved_symbols = list(symbol_set)
-
-            try:
-                batch_quotes = await fetch_market_data_batch(symbol_set, user_id, consent_token)
-            except Exception as exc:
-                logger.debug("[Kai Market] quote batch failed: %s", type(exc).__name__)
-                batch_quotes = {}
-
-            if batch_quotes:
-                next_unresolved: list[str] = []
-                for symbol in unresolved_symbols:
-                    payload = batch_quotes.get(symbol) if isinstance(batch_quotes, dict) else None
-                    price = _safe_float((payload or {}).get("price"))
-                    if price is None:
-                        next_unresolved.append(symbol)
-                        continue
-                    quotes_by_symbol[symbol] = payload or {}
-                    statuses[f"quote:{symbol}"] = "ok"
-                    market_insights_cache.append_series_point(f"quote:{symbol}", price)
-                unresolved_symbols = next_unresolved
-
-            semaphore = asyncio.Semaphore(QUOTE_FANOUT_CONCURRENCY)
-
-            async def fetch_symbol_quote(symbol: str) -> tuple[str, dict[str, Any], str]:
-                if symbol.startswith("^"):
-                    # The Yahoo batch already tried this index. Leave it unavailable
-                    # rather than retrying through equity plans and their global cooldowns.
-                    return symbol, {}, "unavailable"
-                async with semaphore:
-                    last_exc: Exception | None = None
-                    for allow_slow_fallbacks in (False, True):
-                        try:
-                            quote = await fetch_market_data(
-                                symbol,
-                                user_id,
-                                consent_token,
-                                allow_slow_fallbacks=allow_slow_fallbacks,
-                            )
-                            payload = quote or {}
-                            price = _safe_float(payload.get("price"))
-                            if price is None:
-                                continue
-                            market_insights_cache.append_series_point(f"quote:{symbol}", price)
-                            return symbol, payload, "ok"
-                        except Exception as exc:
-                            last_exc = exc
-                            logger.debug(
-                                "[Kai Market] quote failed for %s (allow_slow=%s): %s",
-                                symbol,
-                                allow_slow_fallbacks,
-                                type(exc).__name__,
-                            )
-                    return symbol, {}, _provider_status_from_exception(last_exc or RuntimeError())
-
-            results = await asyncio.gather(
-                *(fetch_symbol_quote(symbol) for symbol in unresolved_symbols)
-            )
-            degraded_quotes: list[str] = []
-            for symbol, payload, status_value in results:
-                quotes_by_symbol[symbol] = payload
-                statuses[f"quote:{symbol}"] = status_value
-                if status_value != "ok":
-                    degraded_quotes.append(f"{symbol}:{status_value}")
-            if degraded_quotes:
-                logger.warning(
-                    "[Kai Market] quote bundle degraded for %s symbols: %s",
-                    len(degraded_quotes),
-                    ", ".join(degraded_quotes[:6]),
-                )
-            return {
-                "quotes": quotes_by_symbol,
-                "provider_status": statuses,
-                "generated_at": _now_iso(),
-            }
 
         async def safe_public_module(name, task, fallback_factory):
             return await resolve_public_module(
@@ -2468,10 +2439,12 @@ async def _get_market_insights_payload(
             )
 
         (
-            (quotes_value, quotes_stale, _quotes_age, quotes_cache_tier, quotes_cache_hit),
+            quotes_read,
             (macro_value, macro_stale, _macro_age, macro_cache_tier, macro_cache_hit),
             (movers_value, movers_stale, _movers_age, movers_cache_tier, movers_cache_hit),
             (sectors_value, sectors_stale, _sectors_age, sectors_cache_tier, sectors_cache_hit),
+            index_read,
+            picks_read,
         ) = await asyncio.gather(
             safe_public_module(
                 "quotes",
@@ -2479,7 +2452,7 @@ async def _get_market_insights_payload(
                     key=quotes_key,
                     fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
                     stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
-                    fetcher=fetch_quotes_bundle,
+                    fetcher=lambda: shared.fetch_bundle(symbol_set, user_id, consent_token),
                     warm_source=warm_source,
                 ),
                 lambda status_value: {
@@ -2487,7 +2460,9 @@ async def _get_market_insights_payload(
                     "provider_status": {f"quote:{symbol}": status_value for symbol in symbol_set},
                     "generated_at": _now_iso(),
                 },
-            ),
+            )
+            if symbol_set
+            else shared.nothing_to_read(),
             safe_public_module(
                 "macro",
                 _get_or_refresh_public_module(
@@ -2544,17 +2519,18 @@ async def _get_market_insights_payload(
                 ),
                 lambda status_value: ([], status_value),
             ),
+            shared.load_indices(warm_source),
+            shared.load_picks(pick_symbols, warm_source),
         )
-        quote_bundle = quotes_value if isinstance(quotes_value, dict) else {}
-        quote_map = (
-            quote_bundle.get("quotes") if isinstance(quote_bundle.get("quotes"), dict) else {}
+        quote_bundle = shared_last_close.merge_quote_bundles(
+            quotes_read[0], index_read[0], picks_read[0]
         )
-        provider_status.update(
-            {str(k): str(v) for k, v in (quote_bundle.get("provider_status") or {}).items()}
-        )
-        stale = stale or quotes_stale
-        aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, quotes_cache_tier)
-        aggregated_cache_hit = aggregated_cache_hit and quotes_cache_hit
+        quote_map = quote_bundle["quotes"]
+        provider_status.update({str(k): str(v) for k, v in quote_bundle["provider_status"].items()})
+        for _value, read_stale, _age, read_tier, read_hit in (quotes_read, index_read, picks_read):
+            stale = stale or read_stale
+            aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, read_tier)
+            aggregated_cache_hit = aggregated_cache_hit and read_hit
         sp500_quote = quote_map.get("^GSPC") if isinstance(quote_map, dict) else None
         nasdaq_quote = quote_map.get("^IXIC") if isinstance(quote_map, dict) else None
         dow_quote = quote_map.get("^DJI") if isinstance(quote_map, dict) else None
@@ -2755,14 +2731,10 @@ async def _get_market_insights_payload(
                     "volume": _safe_int((quote or {}).get("volume")),
                     "market_cap": _safe_float((quote or {}).get("market_cap")),
                     "source_tags": sorted(set(["Renaissance", quote_source])),
-                    "degraded": bool(not quote),
+                    **quote_observation_fields(quote, quote_status),
                     "alias_repaired": alias_repaired,
                     "quote_provider": quote_source,
-                    "quote_status": "ok" if quote else quote_status,
                     "filtered_out_reason": None,
-                    "as_of": (quote or {}).get("fetched_at")
-                    if isinstance((quote or {}).get("fetched_at"), str)
-                    else None,
                 }
             )
 

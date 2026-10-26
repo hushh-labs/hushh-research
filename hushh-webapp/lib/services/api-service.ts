@@ -1154,6 +1154,7 @@ export interface KaiHomeRenaissanceItem {
   degraded: boolean;
   alias_repaired?: boolean;
   quote_provider?: string | null;
+  quoted_at?: string | null;
   quote_status?: string | null;
   filtered_out_reason?: string | null;
   as_of: string | null;
@@ -2486,25 +2487,21 @@ export class ApiService {
     >;
 
     if (!response.ok) {
-      return {
-        success: false,
-        eligible: false,
-        reason:
-          typeof payload.error === "string"
-            ? payload.error
-            : `uat_phone_test_start_${response.status}`,
-      };
+      const { ApiError } = await import("./api-client");
+      throw new ApiError("Phone verification is temporarily unavailable. Please retry.", response.status, payload);
     }
 
     if (
-      payload.success !== true ||
-      typeof payload.eligible !== "boolean" ||
+      !payload || typeof payload !== "object" || Array.isArray(payload) ||
+      payload.success !== true || typeof payload.eligible !== "boolean" ||
       (payload.eligible && (
         typeof payload.verification_id !== "string" ||
         !AuthService.isUatPhoneTestVerificationId(payload.verification_id)
       ))
     ) {
-      return { success: false, eligible: false, reason: "uat_phone_test_start_invalid_response" };
+      const { ApiError } = await import("./api-client");
+      throw new ApiError("Phone verification is temporarily unavailable. Please retry.", 502,
+        { code: "PHONE_TEST_START_INVALID_RESPONSE", response: payload });
     }
     return {
       success: true,
@@ -2547,7 +2544,7 @@ export class ApiService {
       unknown
     >;
     if (!response.ok) {
-      const detail = payload.detail;
+      const detail = payload?.detail;
       const message =
         typeof detail === "object" &&
         detail !== null &&
@@ -2555,10 +2552,11 @@ export class ApiService {
           ? String((detail as Record<string, unknown>).message)
           : typeof detail === "string"
             ? detail
-            : typeof payload.error === "string"
+            : typeof payload?.error === "string"
               ? payload.error
               : `UAT phone test verification failed with HTTP ${response.status}`;
-      throw new Error(message);
+      const { ApiError } = await import("./api-client");
+      throw new ApiError(message, response.status, payload);
     }
 
     return payload as unknown as AccountPhoneClaimResponse;
@@ -5202,9 +5200,7 @@ export class ApiService {
     });
   }
 
-  /**
-   * Fetch baseline market insights for Kai home without requiring vault access.
-   */
+  /** Public company facts require sign-in, without vault access. */
   static async getKaiMarketCompanyFacts(data: {
     userId: string;
     symbols: string[];

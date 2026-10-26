@@ -41,6 +41,10 @@
     "hushh_mcp/services/azure_vm_power_authority.py": {
       "connections": 3,
       "why": "Retained VM power authority holds its admitted operation session through settlement and close. It shares the existing process-wide three-connection ceiling; inventory does not increase fleet capacity."
+    },
+    "hushh_mcp/services/gmail_receipts_service.py": {
+      "connections": 1,
+      "why": "Scheduled Gmail reconciliation holds its advisory lock on a dedicated session so it leaves the final local request-pool slot available; shares the existing process-wide dedicated ceiling."
     }
   },
   "listener_modules": {

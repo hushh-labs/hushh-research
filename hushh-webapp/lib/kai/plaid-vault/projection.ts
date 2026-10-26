@@ -1000,6 +1000,6 @@ export function toPortfolioData(financial: FinancialInput): PortfolioData | null
       account_count: accountIds.size,
       requires_explicit_source_selection_for_analysis: false,
     },
-  }) as PortfolioData;
+  }, { preserveEntries: true }) as PortfolioData;
   return normalized;
 }

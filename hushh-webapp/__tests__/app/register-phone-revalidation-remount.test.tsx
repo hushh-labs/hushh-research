@@ -26,6 +26,7 @@ import { PhoneMandatePageContent } from "@/app/register-phone/page";
 const { replace, authState } = vi.hoisted(() => ({
   replace: vi.fn(),
   authState: {
+    search: "",
     current: {
       user: { uid: "u1", phoneNumber: null } as Record<string, unknown> | null,
       loading: false,
@@ -37,7 +38,7 @@ let mountCount = 0;
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(authState.search),
 }));
 vi.mock("@/components/app-ui/hushh-loader", () => ({
   HushhLoader: ({ label }: { label: string }) => <p>{label}</p>,
@@ -169,4 +170,20 @@ describe("the phone mandate page survives an auth re-validation", () => {
     await screen.findByText("step: phone");
     expect(screen.queryByText("step: code")).toBeNull();
   });
+});
+
+it("opens explicit setup verification for an unverified account with a preserved vault", async () => {
+  const { PostAuthRouteService } = await import("@/lib/services/post-auth-route-service");
+  vi.mocked(PostAuthRouteService.resolveAfterLogin).mockResolvedValue("/one/setup");
+  authState.search = "redirect=%2Fone%2Fsetup";
+  authState.current = { user: { uid: "reset-owner", phoneNumber: null }, loading: false };
+  replace.mockClear();
+  try {
+    render(<PhoneMandatePageContent />);
+    await screen.findByText("step: phone");
+    expect(replace).not.toHaveBeenCalled();
+  } finally {
+    authState.search = "";
+    vi.mocked(PostAuthRouteService.resolveAfterLogin).mockResolvedValue("/register-phone?redirect=%2Fone%2Fsetup");
+  }
 });

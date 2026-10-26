@@ -17,25 +17,18 @@ PINNED_GOOGLE_ADK_VERSION = "2.9.0"
 def assert_account_generation_configuration() -> None:
     """Never activate replacements by disabling an existing identity integration.
 
-    WorkOS offboarding and the conditional HushhTech exchange do not yet capture
-    account-generation mutation authority. Refuse the deployment combination;
-    keep their existing service running until that integration qualifies.
+    WorkOS captures generation zero and journals identity mutations. The
+    conditional HushhTech exchange still needs its own captured authority.
     """
     if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() != "true":
         return
-    workos_enabled = os.getenv("WORKOS_SSO_ENABLED", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
     product_enabled = os.getenv("HUSSH_TECH_CLIENT_ENABLED", "").strip().lower() in {
         "1",
         "true",
         "yes",
         "on",
     }
-    if workos_enabled or os.getenv("WORKOS_WEBHOOK_SECRET", "").strip() or product_enabled:
+    if product_enabled:
         raise RuntimeError("account_generation_identity_integration_not_qualified")
 
 

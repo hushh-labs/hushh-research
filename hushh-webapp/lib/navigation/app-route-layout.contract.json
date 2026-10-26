@@ -2181,7 +2181,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "Card request query opens an authenticated Dialog overlay. Back dismisses that review first. Add and Sharing unwind through the previous local tab and selected masked card before the authored Wallet parent; Cancel uses the same reset. A pending save consumes Back. Verified in wallet-workspace.layout.spec.ts and wallet-workspace.test.tsx."
+      "reason": "Card request query opens an authenticated Dialog overlay. Back dismisses that review first. Add is a sheet over the two local collections, My cards and Shared with me. Back and Cancel use the same draft reset and restore the previous selected masked card. Card details, Manage access, Wallet-wide access and sharing history unwind their local layers before the authored Wallet parent. A pending save consumes Back. Verified in wallet-workspace.layout.spec.ts and wallet-workspace.test.tsx."
     }
   },
   {

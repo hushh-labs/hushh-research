@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
-import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks } from "./fixtures/finance-screen-checks";
+import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks, registerHoldingEntryChecks, registerStockQuoteRecoveryChecks } from "./fixtures/finance-screen-checks";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
@@ -47,6 +47,7 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
+        { find: /^@\/lib\/kai\/ticker-universe-cache$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         { find: /^@\/lib\/kai\/kai-market-home-resource$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         {
           find: /^next\/navigation$/,
@@ -490,5 +491,8 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
   }
 }
 
+
+registerHoldingEntryChecks(mount);
+registerStockQuoteRecoveryChecks(mount);
 
 registerFinanceScreenChecks(mount);

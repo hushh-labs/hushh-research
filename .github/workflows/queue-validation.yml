@@ -20,7 +20,7 @@ name: "Queue Validation"
 
 on:
   merge_group:
-    branches: [main, integration/pr-train]
+    branches: [main, integration/pr-train, dev, uat]
 
 permissions:
   contents: read
@@ -65,10 +65,11 @@ jobs:
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.ref_name }}
           QUEUE_BASE_REF: ${{ github.event.merge_group.base_ref }}
         run: |
-          base="${QUEUE_BASE_REF#refs/heads/}"
-          if [ -z "$base" ]; then
-            base="main"
-          fi
+          case "$QUEUE_BASE_REF" in
+            refs/heads/main|refs/heads/integration/pr-train|refs/heads/dev|refs/heads/uat)
+              base="${QUEUE_BASE_REF#refs/heads/}" ;;
+            *) echo "Missing or unsupported merge-group base; refusing freshness check." >&2; exit 1 ;;
+          esac
           MAIN_SYNC_BRANCH="$base" sh scripts/git/check-main-sync.sh
 
   ci-status:

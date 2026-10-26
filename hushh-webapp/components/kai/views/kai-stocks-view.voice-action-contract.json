@@ -1,0 +1,32 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "kai_stocks",
+  "surface_title": "Kai Stocks",
+  "docs_references": ["hushh-webapp/docs/ui-contracts/finance.md"],
+  "defaults": {
+    "speaker_persona": "kai",
+    "reachability": {
+      "active_personas": ["investor"],
+      "routes": ["/one/kai?tab=analysis"],
+      "screens": ["kai_analysis"],
+      "hidden_navigable": false,
+      "navigation_prerequisites": []
+    }
+  },
+  "actions": [
+    {
+      "action_id": "market.stocks.retry",
+      "label": "Retry loading stocks",
+      "meaning": "Retries the existing shared Finance read after a Stocks loading failure, retaining any saved rows and the current source selection.",
+      "aliases": ["retry loading stocks", "retry stock list"],
+      "search_keywords": ["stocks", "retry", "loading"],
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {"status": "wired", "path": "control", "target": "kai_stocks_retry"},
+      "control_ids": ["kai_stocks_retry"],
+      "state_exposure": [],
+      "docs_references": ["hushh-webapp/docs/ui-contracts/finance.md"]
+    }
+  ]
+}

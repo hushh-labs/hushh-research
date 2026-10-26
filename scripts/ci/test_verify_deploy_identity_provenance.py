@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -46,6 +47,7 @@ def _args(**overrides) -> argparse.Namespace:
         "record_only": True,
         "provider_json": "",
         "iam_policy_json": "",
+        "custom_role_json": "",
         "report_path": "",
     }
     base.update(overrides)
@@ -68,17 +70,31 @@ def _live_policy() -> dict:
     }
 
 
-def _verify_with(provider: dict, policy: dict) -> dict:
+def _live_custom_role() -> dict:
+    return {
+        "name": REAL["PREREQUISITE_READ_ROLE"],
+        "includedPermissions": list(REAL["PREREQUISITE_READ_PERMISSIONS"]),
+        "stage": REAL["PREREQUISITE_READ_ROLE_STAGE"],
+    }
+
+
+def _verify_with(provider: dict, policy: dict, custom_role: dict | None = None) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         provider_path = Path(tmp) / "provider.json"
         policy_path = Path(tmp) / "policy.json"
+        role_path = Path(tmp) / "custom-role.json"
         provider_path.write_text(json.dumps(provider), encoding="utf-8")
         policy_path.write_text(json.dumps(policy), encoding="utf-8")
+        role_path.write_text(
+            json.dumps(_live_custom_role() if custom_role is None else custom_role),
+            encoding="utf-8",
+        )
         return MOD.verify(
             _args(
                 record_only=False,
                 provider_json=str(provider_path),
                 iam_policy_json=str(policy_path),
+                custom_role_json=str(role_path),
             )
         )
 
@@ -107,6 +123,18 @@ def test_the_record_as_committed_is_coherent() -> None:
     report = MOD.verify(_args())
     assert report["ok"], f"the committed record fails its own invariants: {report['failures']}"
     assert report["record_checked"] and not report["live_checked"]
+
+
+def test_record_only_never_reads_cloud_authority() -> None:
+    def refuse(_args):
+        raise AssertionError("Record-only attempted a cloud read")
+
+    original = MOD._gcloud_json
+    MOD._gcloud_json = refuse
+    try:
+        assert MOD.verify(_args())["ok"] is True
+    finally:
+        MOD._gcloud_json = original
 
 
 # -- the drift each check exists to catch ----------------------------------------------
@@ -138,7 +166,10 @@ def test_a_workflow_that_requests_a_different_environment_is_caught() -> None:
 
 def test_a_deploy_role_that_can_grant_authority_is_caught() -> None:
     escalated = dict(REAL)
-    escalated["DEPLOY_PROJECT_ROLES"] = [*REAL["DEPLOY_PROJECT_ROLES"], "roles/iam.securityAdmin"]
+    escalated["DEPLOY_PROJECT_ROLES"] = [
+        *REAL["DEPLOY_PROJECT_ROLES"],
+        "roles/iam.securityAdmin",
+    ]
     assert "deploy_role_can_grant_authority" in {
         f["reason"] for f in MOD.audit_record(escalated, None)
     }
@@ -183,6 +214,160 @@ def test_existing_production_release_workloads_have_recorded_authority() -> None
     assert report["ok"], report["failures"]
 
 
+def test_drive_prerequisite_record_closes_only_the_three_missing_reads() -> None:
+    assert REAL["PREREQUISITE_READ_ROLE"] == (
+        "projects/hushh-pda/roles/productionDrivePrerequisiteReader"
+    )
+    assert REAL["DEPLOY_PROJECT_ROLES"].count(REAL["PREREQUISITE_READ_ROLE"]) == 1
+    assert set(REAL["PREREQUISITE_READ_PERMISSIONS"]) == {
+        "apikeys.keys.list",
+        "apikeys.keys.getKeyString",
+        "resourcemanager.projects.getIamPolicy",
+    }
+    assert len(REAL["PREREQUISITE_READ_PERMISSIONS"]) == 3
+    assert REAL["PREREQUISITE_READ_ROLE_STAGE"] == "GA"
+    assert MOD.verify(_args())["expected"]["prerequisiteReadRole"]["stage"] == "GA"
+
+
+def test_custom_reader_record_cannot_grant_write_authority() -> None:
+    widened = {**REAL, "PREREQUISITE_READ_PERMISSIONS": ["resourcemanager.projects.setIamPolicy"]}
+    assert "prerequisite_read_role_record_invalid" in {
+        failure["reason"] for failure in MOD.audit_record(widened, None)
+    }
+
+
+def test_custom_reader_record_requires_an_active_stage() -> None:
+    for stage in (None, "UNKNOWN", "DISABLED", {}, False):
+        changed = {**REAL, "PREREQUISITE_READ_ROLE_STAGE": stage}
+        assert "prerequisite_read_role_record_invalid" in {
+            failure["reason"] for failure in MOD.audit_record(changed, None)
+        }
+
+
+def _run_role_setup(list_exit: int, names: str):
+    # Execute the real setup function with a shell-local CLI stub, never gcloud.
+    declarations = RECORD.read_text().split("command -v gcloud", 1)[0]
+    stub = """
+gcloud() {
+  printf '%s\n' "$*" >> "${ROLE_TEST_CALL_LOG}"
+  case "$1 $2 $3" in
+    'iam roles list')
+      printf '%s' "${ROLE_TEST_NAMES}"
+      printf 'private-cloud-error-canary' >&2
+      return "${ROLE_TEST_LIST_EXIT}" ;;
+    'iam roles create'|'iam roles update') return 0 ;;
+    *) return 99 ;;
+  esac
+}
+configure_prerequisite_read_role
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        calls = Path(tmp) / "calls"
+        result = subprocess.run(  # noqa: S603 -- real function, fixed shell-local fake CLI.
+            ["/bin/bash"],
+            input=declarations + stub,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            env={
+                **os.environ,
+                "ROLE_TEST_CALL_LOG": str(calls),
+                "ROLE_TEST_NAMES": names,
+                "ROLE_TEST_LIST_EXIT": str(list_exit),
+            },
+            check=False,
+        )
+        return result, calls.read_text().splitlines()
+
+
+def test_role_setup_distinguishes_missing_existing_and_unavailable_metadata() -> None:
+    role = REAL["PREREQUISITE_READ_ROLE"]
+    for list_exit, names, action in ((0, "", "create"), (0, role, "update"), (1, "", "")):
+        result, calls = _run_role_setup(list_exit, names)
+        assert (
+            calls[0]
+            == f"iam roles list --project=hushh-pda --filter=name={role} --format=value(name)"
+        )
+        assert result.returncode == (0 if action else 1)
+        if action:
+            assert len(calls) == 2
+            assert calls[1].startswith(f"iam roles {action} {REAL['PREREQUISITE_READ_ROLE_ID']} ")
+            assert "--permissions=" + ",".join(REAL["PREREQUISITE_READ_PERMISSIONS"]) in calls[1]
+            assert "--project=hushh-pda" in calls[1]
+            assert "--stage=" + REAL["PREREQUISITE_READ_ROLE_STAGE"] in calls[1]
+        else:
+            assert len(calls) == 1
+            assert (
+                result.stderr.strip() == "Unable to inspect the production prerequisite read role."
+            )
+        assert "private-cloud-error-canary" not in result.stderr
+
+
+def test_live_custom_role_read_uses_the_recorded_project_and_role() -> None:
+    calls = []
+
+    def read(args):
+        calls.append(args)
+        if args[:2] == ["iam", "roles"]:
+            return _live_custom_role()
+        return _live_policy() if args[0] == "projects" else _live_provider()
+
+    original = MOD._gcloud_json
+    MOD._gcloud_json = read
+    try:
+        assert MOD.verify(_args(record_only=False))["ok"] is True
+    finally:
+        MOD._gcloud_json = original
+    assert len(calls) == 3
+    assert calls[-1] == [
+        "iam",
+        "roles",
+        "describe",
+        REAL["PREREQUISITE_READ_ROLE_ID"],
+        f"--project={REAL['PROD_PROJECT_ID']}",
+    ]
+
+
+def test_missing_or_inactive_custom_role_never_passes() -> None:
+    without_stage = _live_custom_role()
+    del without_stage["stage"]
+    for changed, reason in (
+        ({}, "prerequisite_read_role_missing_or_mismatched"),
+        (
+            {"name": "projects/other/roles/reader"},
+            "prerequisite_read_role_missing_or_mismatched",
+        ),
+        ({**_live_custom_role(), "deleted": True}, "prerequisite_read_role_inactive"),
+        (
+            {**_live_custom_role(), "stage": "DISABLED"},
+            "prerequisite_read_role_inactive",
+        ),
+        (without_stage, "prerequisite_read_role_stage_drift"),
+        *(
+            ({**_live_custom_role(), "stage": stage}, "prerequisite_read_role_stage_drift")
+            for stage in (None, "UNKNOWN", {}, "ALPHA")
+        ),
+    ):
+        report = _verify_with(_live_provider(), _live_policy(), changed)
+        assert report["ok"] is False
+        assert reason in _reasons(report)
+
+
+def test_custom_role_missing_or_extra_permission_is_caught() -> None:
+    expected = REAL["PREREQUISITE_READ_PERMISSIONS"]
+    for permissions in (
+        *(list(set(expected) - {permission}) for permission in expected),
+        [*expected, "resourcemanager.projects.setIamPolicy"],
+    ):
+        report = _verify_with(
+            _live_provider(),
+            _live_policy(),
+            {**_live_custom_role(), "includedPermissions": permissions},
+        )
+        assert report["ok"] is False
+        assert "prerequisite_read_role_permissions_drift" in _reasons(report)
+
+
 def test_a_console_edited_condition_is_caught() -> None:
     """The console is the way this actually drifts: edited live, never in the record."""
     provider = _live_provider()
@@ -223,7 +408,9 @@ def test_a_refused_read_is_never_reported_as_a_pass() -> None:
     """The lane's identity may deploy, not read IAM. That must not read as green."""
 
     def _refuse(_args):
-        raise subprocess.CalledProcessError(1, "gcloud", stderr="PERMISSION_DENIED")
+        raise subprocess.CalledProcessError(
+            1, "gcloud", stderr="PERMISSION_DENIED private-cloud-error-canary"
+        )
 
     original = MOD._gcloud_json
     MOD._gcloud_json = _refuse
@@ -239,7 +426,11 @@ def test_a_refused_read_is_never_reported_as_a_pass() -> None:
     )
     assert report["classifications"] == ["deploy_identity_unverifiable"]
     assert report["live_checked"] is False
-    assert "PERMISSION_DENIED" in report["unverifiable"]["detail"]
+    assert report["unverifiable"]["reason"] == "live_read_refused"
+    assert report["unverifiable"]["detail"] == (
+        "Production deploy identity or custom role could not be read."
+    )
+    assert "private-cloud-error-canary" not in json.dumps(report)
 
 
 def test_a_missing_record_fails_loudly() -> None:
@@ -254,6 +445,7 @@ def main() -> int:
     tests = [
         test_the_real_record_parses_and_interpolates,
         test_the_record_as_committed_is_coherent,
+        test_record_only_never_reads_cloud_authority,
         test_dropping_the_ref_clause_is_caught,
         test_a_condition_for_another_environment_is_caught,
         test_a_workflow_that_requests_a_different_environment_is_caught,
@@ -261,6 +453,13 @@ def main() -> int:
         test_a_mapping_without_the_bound_attribute_is_caught,
         test_a_matching_provider_and_policy_pass,
         test_existing_production_release_workloads_have_recorded_authority,
+        test_drive_prerequisite_record_closes_only_the_three_missing_reads,
+        test_custom_reader_record_cannot_grant_write_authority,
+        test_custom_reader_record_requires_an_active_stage,
+        test_role_setup_distinguishes_missing_existing_and_unavailable_metadata,
+        test_live_custom_role_read_uses_the_recorded_project_and_role,
+        test_missing_or_inactive_custom_role_never_passes,
+        test_custom_role_missing_or_extra_permission_is_caught,
         test_a_console_edited_condition_is_caught,
         test_a_swapped_issuer_is_caught,
         test_privilege_creep_on_the_deploy_account_is_caught,

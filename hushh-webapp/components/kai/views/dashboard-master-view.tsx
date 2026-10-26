@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { groupHoldingPositions, prepareHoldingEntryEdit } from "@/lib/kai/holding-positions";
+import { applyStatementHoldingsEdit } from "@/lib/kai/brokerage/statement-holdings-edit";
 import {
   Building2,
   ChevronDown,
@@ -32,7 +36,6 @@ import financeStyles from "@/components/kai/shared/finance-workspace.module.css"
 import { PortfolioAllocationBar } from "@/components/kai/charts/portfolio-allocation-bar";
 import { SectorAllocationChart } from "@/components/kai/charts/sector-allocation-chart";
 import { StatementCashflowChart } from "@/components/kai/charts/statement-cashflow-chart";
-import { HoldingRowActions } from "@/components/kai/holdings/holding-row-actions";
 import { HoldingDetailsDrawer } from "@/components/kai/holdings/holding-details-drawer";
 import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 import { holdingTableColumns } from "@/components/kai/holdings/holding-table-columns";
@@ -375,7 +378,7 @@ function buildManagedHoldingsFromSource(sourceHoldings: PortfolioHolding[]): {
     return {
       ...holding,
       pending_delete: false,
-      client_id: sourceKey,
+      client_id: holding.entry_id || holding.position_id || sourceKey,
       source_key: sourceKey,
     };
   });
@@ -390,6 +393,7 @@ export function DashboardMasterView({
   section = "overview",
 }: DashboardMasterViewProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { vaultKey } = useVault();
   const { setPortfolioData: setCachePortfolioData } = useCache();
   const baselineBySourceRef = useRef<Map<string, ComparableHolding>>(new Map());
@@ -443,6 +447,8 @@ export function DashboardMasterView({
   });
   const [isSavingHoldings, setIsSavingHoldings] = useState(false);
   const [isHoldingsEditing, setIsHoldingsEditing] = useState(false);
+  const holdingsEditBaseRef = useRef<PortfolioData | null>(null);
+  const holdingsEditSnapshotRef = useRef<string | null>(null);
   const [holdingsSearch, setHoldingsSearch] = useState("");
   const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(null);
   const [isDeletingImportedData, setIsDeletingImportedData] = useState(false);
@@ -514,21 +520,23 @@ export function DashboardMasterView({
   }, [activeSource, displayedPortfolio]);
 
   useEffect(() => {
+    if (isHoldingsEditing) return;
     const sourceHoldings = (statementEditablePortfolio?.holdings ||
       []) as PortfolioHolding[];
     const { managed, baselineBySource } =
       buildManagedHoldingsFromSource(sourceHoldings);
     baselineBySourceRef.current = baselineBySource;
     setHoldingsDraft(managed);
-  }, [statementEditablePortfolio]);
+  }, [statementEditablePortfolio, isHoldingsEditing]);
 
   useEffect(() => {
-    if (activeSource === "statement") return;
+    if (activeSource === "statement" && (!isHoldingsEditing || holdingsEditSnapshotRef.current === activeStatementSnapshotId)) return;
     setIsHoldingsEditing(false);
+    setSelectedHoldingId(null);
     setIsModalOpen(false);
     setEditingHolding(null);
     setEditingHoldingId(null);
-  }, [activeSource]);
+  }, [activeSource, activeStatementSnapshotId, isHoldingsEditing]);
 
   useEffect(() => {
     if (section !== "holdings") {
@@ -578,7 +586,7 @@ export function DashboardMasterView({
             source_key: _sourceKey,
             ...rest
           } = holding;
-          return rest;
+          return { ...rest, entry_id: holding.entry_id || holding.position_id || holding.client_id };
         }),
     [holdingsDraft],
   );
@@ -835,7 +843,8 @@ export function DashboardMasterView({
   }, [activeSource, displayedPortfolio, sortedHoldingsDraft]);
 
   const allocationFilteredHoldingRows = useMemo(() => {
-    if (!selectedAllocationName) return sourceHoldingRows;
+    const positions = groupHoldingPositions(sourceHoldingRows);
+    if (!selectedAllocationName) return positions;
     const selectedSymbols = new Set(
       model.canonicalModel.positions
         .filter((position) => {
@@ -858,7 +867,7 @@ export function DashboardMasterView({
         .filter(Boolean),
     );
 
-    return sourceHoldingRows.filter((holding) =>
+    return positions.filter((holding) =>
       selectedSymbols.has(
         String(holding.symbol || "")
           .trim()
@@ -1046,17 +1055,39 @@ export function DashboardMasterView({
     baselineBySourceRef.current = baselineBySource;
     setHoldingsDraft(managed);
     closeHoldingModal();
+    setSelectedHoldingId(null);
     setIsHoldingsEditing(false);
   }, [closeHoldingModal, statementEditablePortfolio]);
 
-  const openAddHoldingModal = useCallback(() => {
+  useBackLayer(pathname || "/one/kai", isHoldingsEditing ? 1 : 0, () => {
+    if (isSavingHoldings) return true;
+    cancelHoldingsEdit();
+    return true;
+  });
+
+  const openAddHoldingModal = useCallback((seed?: PortfolioHolding) => {
     if (!canEditStatement) {
       toast.info("Plaid holdings are read-only in Finance.");
       return;
     }
     setEditingHolding({
-      symbol: "",
-      name: "",
+      symbol: seed?.symbol || "",
+      name: seed?.name || "",
+      security_id: seed?.security_id,
+      symbol_cusip: seed?.symbol_cusip,
+      identifier_type: seed?.identifier_type,
+      account_id: seed?.account_id,
+      persistent_account_id: seed?.persistent_account_id,
+      source_id: seed?.source_id,
+      source_type: seed?.source_type,
+      currency: seed?.currency || seed?.iso_currency_code,
+      instrument_kind: seed?.instrument_kind,
+      asset_type: seed?.asset_type,
+      position_side: seed?.position_side,
+      is_short: seed?.is_short,
+      is_short_position: seed?.is_short_position,
+      is_liability_position: seed?.is_liability_position,
+      is_cash_equivalent: seed?.is_cash_equivalent,
       quantity: 0,
       price: 0,
       market_value: 0,
@@ -1149,42 +1180,14 @@ export function DashboardMasterView({
         build: (context) => {
           const existingFinancial =
             (context.currentDomainData as Record<string, unknown> | null) ?? {};
-          const nextFinancialDomain = {
-            ...existingFinancial,
-            schema_version: 3,
-            domain_intent: {
-              primary: "financial",
-              source: "domain_registry_prepopulate",
-              contract_version: 2,
-              updated_at: nowIso,
-            },
-            portfolio: {
-              ...updatedPortfolioData,
-              domain_intent: {
-                primary: "financial",
-                secondary: "portfolio",
-                source: "kai_dashboard_holdings",
-                captured_sections: [
-                  "account_info",
-                  "account_summary",
-                  "holdings",
-                  "transactions",
-                ],
-                updated_at: nowIso,
-              },
-            },
-            updated_at: nowIso,
-          };
-
           return {
-            domainData: nextFinancialDomain as unknown as Record<
-              string,
-              unknown
-            >,
+            domainData: applyStatementHoldingsEdit(existingFinancial, updatedPortfolioData,
+              holdingsEditBaseRef.current || statementEditablePortfolio, holdingsEditSnapshotRef.current, nowIso),
+            mergeDecision: { merge_mode: "replace_domain" },
             summary: {
               intent_source: "kai_dashboard_holdings",
               has_portfolio: true,
-              holdings_count: holdingsForSave.length,
+              holdings_count: groupHoldingPositions(holdingsForSave).length,
               last_statement_total_value: endingValue,
               portfolio_risk_bucket: riskBucket,
               risk_bucket: riskBucket,
@@ -1485,12 +1488,13 @@ export function DashboardMasterView({
         return;
       }
 
-      const normalizedHolding: PortfolioHolding = {
+      const oldEntry = holdingsDraft.find(row => row.client_id === editingHoldingId);
+      const normalizedHolding: PortfolioHolding = prepareHoldingEntryEdit({
         ...updatedHolding,
         quantity,
         price,
         market_value: marketValue,
-      };
+      }, oldEntry || editingHolding, holdingsDraft);
 
       setHoldingsDraft((prev) => {
         const next = [...prev];
@@ -1519,7 +1523,7 @@ export function DashboardMasterView({
       });
       closeHoldingModal();
     },
-    [closeHoldingModal, editingHoldingId],
+    [closeHoldingModal, editingHoldingId, editingHolding, holdingsDraft],
   );
 
   const handleToggleDeleteHolding = useCallback((holdingId: string) => {
@@ -1544,49 +1548,25 @@ export function DashboardMasterView({
   }, [sourceHoldingRows]);
 
   const selectedHolding = useMemo(() => {
-    const holding = sourceHoldingRows.find((row) => row.client_id === selectedHoldingId);
+    const holding = groupHoldingPositions(sourceHoldingRows).find((row) => row.client_id === selectedHoldingId);
     return holding ? toHoldingViewModel(holding, holdingsTableDenominator, {
       source: activeSource === "statement" ? "Statement" : "Linked account",
       valuationKind: activeSource === "statement" ? "statement" : "linked",
       statementAsOf: activeSource === "statement" ? displayedPortfolio?.account_info?.statement_period_end : null,
     }) : null;
   }, [sourceHoldingRows, selectedHoldingId, holdingsTableDenominator, activeSource, displayedPortfolio]);
+  const selectedEntries = useMemo(() => {
+    const position = groupHoldingPositions(sourceHoldingRows).find(row => row.client_id === selectedHoldingId);
+    return (position?.entries ?? []).map(row => toHoldingViewModel(row, holdingsTableDenominator));
+  }, [sourceHoldingRows, selectedHoldingId, holdingsTableDenominator]);
   const loadHoldingHistory = useCallback((symbol: string, signal: AbortSignal) =>
     ApiService.getKaiStockPriceHistory(userId, symbol, signal), [userId]);
 
   const holdingsTableColumns = useMemo<ColumnDef<ManagedHolding>[]>(() => {
-    const columns: ColumnDef<ManagedHolding>[] = holdingTableColumns(holdingsTableDenominator);
-
-    if (canEditStatement && isHoldingsEditing) {
-      columns.unshift({
-        id: "row_actions",
-        header: () => <span className="sr-only">Actions</span>,
-        cell: ({ row }) => (
-          <div
-            className="flex items-center justify-center"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <HoldingRowActions
-              symbol={row.original.symbol}
-              isDeleted={Boolean(row.original.pending_delete)}
-              disableEdit={Boolean(row.original.pending_delete)}
-              layout="row"
-              className="w-auto"
-              onEdit={() => handleEditHolding(row.original.client_id)}
-              onToggleDelete={() =>
-                handleToggleDeleteHolding(row.original.client_id)
-              }
-            />
-          </div>
-        ),
-      });
-    }
-
-    return columns;
+    return holdingTableColumns(holdingsTableDenominator,
+      canEditStatement && isHoldingsEditing ? setSelectedHoldingId : undefined);
   }, [
     canEditStatement,
-    handleEditHolding,
-    handleToggleDeleteHolding,
     holdingsTableDenominator,
     isHoldingsEditing,
   ]);
@@ -2196,7 +2176,7 @@ export function DashboardMasterView({
                         variant="none"
                         effect="fade"
                         size="sm"
-                        onClick={openAddHoldingModal}
+                        onClick={() => openAddHoldingModal()}
                         data-voice-control-id="add_holding"
                       >
                         <Icon icon={Plus} size="sm" className="mr-1" />
@@ -2208,7 +2188,11 @@ export function DashboardMasterView({
                       variant="none"
                       effect="fade"
                       size="sm"
-                      onClick={() => setIsHoldingsEditing(true)}
+                      onClick={() => {
+                        holdingsEditBaseRef.current = statementEditablePortfolio;
+                        holdingsEditSnapshotRef.current = activeStatementSnapshotId;
+                        setIsHoldingsEditing(true);
+                      }}
                     >
                       Edit
                     </MorphyButton>
@@ -2285,22 +2269,10 @@ export function DashboardMasterView({
                         />
                       }
                       title={holding.symbol || "Holding"}
-                      description={holding.name || "Unnamed security"}
+                      description={`${holding.name || "Unnamed security"}${holding.entries.length > 1 ? ` · ${holding.entries.length} entries` : ""}`}
                       trailing={
                         isHoldingsEditing ? (
-                          <HoldingRowActions
-                            symbol={holding.symbol}
-                            isDeleted={Boolean(holding.pending_delete)}
-                            disableEdit={Boolean(holding.pending_delete)}
-                            layout="row"
-                            className="w-auto"
-                            onEdit={() =>
-                              handleEditHolding(holding.client_id)
-                            }
-                            onToggleDelete={() =>
-                              handleToggleDeleteHolding(holding.client_id)
-                            }
-                          />
+                          <span className="text-sm text-muted-foreground">Manage entries</span>
                         ) : (
                           <span className="text-right">
                             <span className="block text-sm font-medium tabular-nums text-foreground">
@@ -2312,14 +2284,10 @@ export function DashboardMasterView({
                           </span>
                         )
                       }
-                      onClick={
-                        isHoldingsEditing && !holding.pending_delete
-                          ? () => handleEditHolding(holding.client_id)
-                          : () => setSelectedHoldingId(holding.client_id)
-                      }
+                      onClick={() => setSelectedHoldingId(holding.client_id)}
                       ariaLabel={
                         isHoldingsEditing && !holding.pending_delete
-                          ? `Edit ${holding.symbol || "holding"}`
+                          ? `Manage entries for ${holding.symbol || "holding"}`
                           : `View details for ${holding.symbol || "holding"}`
                       }
                       className={cn(
@@ -2332,9 +2300,16 @@ export function DashboardMasterView({
               </SettingsGroup>
 
               <HoldingDetailsDrawer
-                open={Boolean(selectedHolding)}
+                open={Boolean(selectedHolding) && !isModalOpen}
                 holding={selectedHolding}
-                canManageHoldings={false}
+                entries={selectedEntries}
+                canManageHoldings={canEditStatement && isHoldingsEditing}
+                onEditEntry={handleEditHolding}
+                onToggleDeleteEntry={handleToggleDeleteHolding}
+                onAddEntry={() => {
+                  const seed = groupHoldingPositions(sourceHoldingRows).find(row => row.client_id === selectedHoldingId);
+                  openAddHoldingModal(seed?.entries[0]);
+                }}
                 loadHistory={loadHoldingHistory}
                 onOpenChange={(open) => {
                   if (!open) setSelectedHoldingId(null);
@@ -2346,11 +2321,7 @@ export function DashboardMasterView({
                   columns={holdingsTableColumns}
                   tableClassName="w-full [&_th]:px-2 [&_td]:px-2 [&_td]:align-middle"
                   data={allocationFilteredHoldingRows}
-                  onRowClick={
-                    isHoldingsEditing
-                      ? undefined
-                      : (holding) => setSelectedHoldingId(holding.client_id)
-                  }
+                  onRowClick={(holding) => setSelectedHoldingId(holding.client_id)}
                   searchKey="symbol"
                   globalSearchKeys={["symbol", "name"]}
                   searchPlaceholder="Search holdings by ticker or company"

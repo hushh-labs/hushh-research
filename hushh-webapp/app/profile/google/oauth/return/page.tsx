@@ -217,20 +217,22 @@ function GoogleOAuthReturnContent() {
     const active = flow.current;
     const requestedAccessLevel =
       attempt?.service === "calendar" ? attempt.accessLevel ?? "read" : "read";
-    const isVerifiedCalendarConnection = (connection: {
-      service?: string;
-      connected?: boolean;
-      status?: string;
-      access_level?: string | null;
-    } | null) =>
-      Boolean(
+    const isVerifiedCalendarConnection = (connection: GoogleConnectionCompletion | null) => {
+      if (attempt?.calendarAdditional && !connection?.completed_account_id) return false;
+      const completedAccount = connection?.completed_account_id
+        ? connection.accounts?.find(
+            account => account.account_id === connection.completed_account_id,
+          )
+        : connection;
+      return Boolean(
         connection?.service === "calendar" &&
           (!attempt || connection.service === attempt.service) &&
-          connection.connected &&
-          connection.status === "connected" &&
+          completedAccount?.connected &&
+          completedAccount.status === "connected" &&
           (requestedAccessLevel !== "manage" ||
-            connection.access_level === "manage"),
+            completedAccount.access_level === "manage"),
       );
+    };
     const settleSuccess = () => {
       if (!current || authority.current.generation !== active.generation)
         return;
@@ -270,7 +272,7 @@ function GoogleOAuthReturnContent() {
             authority.current.generation === active.generation &&
             authority.current.ownerId === active.ownerId;
           if (!remainsCurrent()) return;
-          const status = await user
+          const status = attempt?.calendarAdditional ? null : await user
             .getIdToken()
             .then((idToken) => {
               if (!remainsCurrent()) return null;
@@ -279,7 +281,7 @@ function GoogleOAuthReturnContent() {
             .catch(() => null);
           if (!remainsCurrent()) return;
           if (
-            isVerifiedCalendarConnection({
+            status && isVerifiedCalendarConnection({
               service: "calendar",
               ...status,
             })

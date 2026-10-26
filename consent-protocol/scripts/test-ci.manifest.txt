@@ -54,6 +54,7 @@ tests/services/test_connector_attempt_retention.py
 tests/test_drive_work_drain_routes.py
 tests/services/test_drive_work_wake.py
 tests/test_prod_drive_deploy_contract.py
+tests/test_prod_drive_prerequisite_diagnostics.py
 tests/test_protected_document_release_contract.py
 tests/test_drive_work_drain_scheduler_contract.py
 tests/test_drive_worker_server.py
@@ -68,6 +69,7 @@ tests/test_drive_packet_preview_routes.py
 tests/test_drive_groups_routes.py
 tests/test_drive_searches_routes.py
 tests/services/test_drive_live_reader.py
+tests/services/test_drive_live_reader_titles.py
 tests/services/test_drive_candidate_selection.py
 tests/services/test_google_drive_rest_transport.py
 # Drive writes: create/copy/move/comment cannot share by filing into a folder
@@ -80,6 +82,7 @@ tests/services/test_drive_live_formats.py
 tests/services/test_google_calendar_service.py
 tests/services/test_google_calendar_event_type.py
 tests/services/test_google_calendar_profile_photos.py
+tests/services/test_google_calendar_completion.py
 tests/services/test_gmail_oauth_callbacks.py
 tests/services/test_oauth_redirect_policy.py
 tests/agents/test_calendar_agent_tools.py
@@ -1414,8 +1417,10 @@ tests/services/test_drive_period_packets_postgres.py
 tests/services/test_drive_period_packet_previews_postgres.py
 tests/services/test_drive_financial_packet_recovery_postgres.py
 tests/services/test_drive_financial_packet_large_recovery_postgres.py
+tests/services/test_drive_financial_search_reason_postgres.py
 tests/services/test_drive_financial_packet_rollout_postgres.py
 tests/services/test_drive_period_packet_loop_postgres.py
+tests/services/test_drive_period_packet_titles_postgres.py
 
 tests/services/test_drive_packet_catalog_postgres.py
 
