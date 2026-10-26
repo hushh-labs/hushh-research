@@ -2,6 +2,11 @@ import { getLocalMarketPreviewPayload } from "../../components/kai/shared/local-
 import { useEffect, useState } from "react";
 import type { KaiMarketNewsPage } from "../../lib/services/api-service";
 
+export const getTickerUniverseSnapshot = () => [];
+export const preloadTickerUniverse = async () => [];
+export const searchTickerUniverse = () => [];
+export const searchTickerUniverseRemote = async () => [];
+
 // Only information, identity and transport are synthetic. The Market page,
 // cards, shared typography and controls render their production components.
 const payload = getLocalMarketPreviewPayload();

@@ -52,8 +52,27 @@ manufactured trend. `Holdings`, `Allocation`, `Performance`, and `Portfolio sour
 retain their existing destinations. Share PDF, source selection, statement
 import/review, statement editing, Save/Cancel/Delete/Restore, and read-only
 brokerage restrictions retain their current handlers and vault admission.
-The holding drawer uses a flat definition list; no extra read or mutation is
-performed when it opens. Its Edit/Delete controls retain the existing callbacks.
+The holding drawer uses a flat definition list and the existing public price-history
+read. Opening it performs no holding mutation; entry controls retain the draft/save flow.
+
+Holdings browse as one derived position per compatible security, source, account,
+currency and position side. The position retains its original entries; edits and
+pending removals target the selected entry, and Save persists the individual rows.
+Opening a position shows its shared chart/facts once, then **Your entries** with
+shares, cost basis and acquisition date when supplied. In Edit mode, Add entry,
+Edit, Remove and Restore reuse the existing editor and draft/save confirmation.
+The group drawer closes while the entry editor is open; closing the editor returns
+to the group. Back then closes details, cancels edit mode, and reaches the route parent.
+
+Normalized read projections preserve entries rather than merging them by ticker.
+Save updates the selected statement snapshot (including legacy statement storage)
+or the existing V7 position map. It preserves unrelated records and artifact
+references through the existing encrypted coordinator and revision checks. A
+changed source or stale edit is rejected before saving. Different statement
+snapshots are never added together; no prior entry breakdown is invented.
+Position cost/gain remains unavailable when constituent coverage is incomplete;
+different reported prices/times never become an invented common quote. Position
+counts and concentration use the same grouping as mobile and desktop lists.
 
 Stocks exposes `Search stocks` (placeholder `Symbol or company`) beside
 `History`. Tier, Sector, Rows per page, and the source selector when alternatives

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { HoldingMobileCardViewModel } from "@/components/kai/holdings/holding-mobile-card";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { StockHistoryPanel, type StockHistoryLoader } from "@/components/kai/charts/stock-history-panel";
+import { HoldingEntryList } from "./holding-entry-list";
 
 function formatCurrency(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "—";
@@ -40,6 +41,10 @@ interface HoldingDetailsDrawerProps {
   onEdit?: () => void;
   onToggleDelete?: () => void;
   loadHistory?: StockHistoryLoader;
+  entries?: HoldingMobileCardViewModel[];
+  onEditEntry?: (id: string) => void;
+  onToggleDeleteEntry?: (id: string) => void;
+  onAddEntry?: () => void;
 }
 
 function DetailRow({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
@@ -59,6 +64,10 @@ export function HoldingDetailsDrawer({
   onEdit,
   onToggleDelete,
   loadHistory,
+  entries,
+  onEditEntry,
+  onToggleDeleteEntry,
+  onAddEntry,
 }: HoldingDetailsDrawerProps) {
   const gainLossPct = holding?.gainLossPct ?? null;
   const gainLossTone =
@@ -112,6 +121,8 @@ export function HoldingDetailsDrawer({
             <DetailRow label="Valuation source" value={holding?.source || "Not supplied by source"} />
             <DetailRow label={holding?.valuationKind === "statement" ? "Statement as of" : "Price as of"} value={formatObservationDate(holding?.quoteAsOf || holding?.statementAsOf)} />
           </dl>
+          {entries ? <HoldingEntryList entries={entries} editable={canManageHoldings}
+            onEdit={onEditEntry} onToggleDelete={onToggleDeleteEntry} onAdd={onAddEntry} /> : null}
         </div>
 
         {canManageHoldings && onEdit && onToggleDelete ? (

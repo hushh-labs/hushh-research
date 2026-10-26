@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PkmMetadataReviewRequired } from "@/lib/personal-knowledge-model/manifest";
+import { applyStatementHoldingsEdit } from "@/lib/kai/brokerage/statement-holdings-edit";
+import { getStatementPortfolio } from "@/lib/kai/brokerage/financial-sources";
 
 /* ---------- mocks (before any real imports) ---------- */
 
@@ -503,6 +505,35 @@ describe("PkmWriteCoordinator", () => {
   });
 
   describe("conflict retry", () => {
+    it("rebuilds an entry removal from the latest financial revision without dropping unrelated records", async () => {
+      stubNoUpgradeNeeded();
+      let current: Record<string, unknown> = { sources: { active_source: "statement" }, profile: { revision: 1 }, portfolio: {
+        holdings: ["one", "two"].map(entry_id => ({ entry_id, symbol: "AAPL", name: "Apple", quantity: 1, price: 100, market_value: 100 })),
+        account_summary: { ending_value: 200 },
+      } };
+      const before = getStatementPortfolio(current)!;
+      prepareDomainWriteContextMock.mockImplementation(async () => ({
+        baseFullBlob: {}, domainData: current, expectedDataVersion: 1,
+        encryptedDomain: null, manifest: null, snapshot: null,
+      }));
+      pkmStoreMergedDomainWithPreparedBlobMock.mockImplementationOnce(async () => {
+        current = { ...current, profile: { revision: 2 } };
+        return { success: false, conflict: true, fullBlob: {} };
+      }).mockResolvedValueOnce({ success: true, fullBlob: {}, dataVersion: 3 });
+      const result = await PkmWriteCoordinator.saveMergedDomain({ ...BASE_PARAMS, domain: "financial",
+        confirmation: { ...BASE_PARAMS.confirmation, source: "kai_dashboard_portfolio_save" },
+        build: context => ({ domainData: applyStatementHoldingsEdit(context.currentDomainData,
+          { ...before, holdings: before.holdings!.slice(1) }, before, null, "2026-10-26T00:00:00Z"),
+          mergeDecision: { merge_mode: "replace_domain" }, summary: {},
+        }),
+      });
+      expect(result.success).toBe(true);
+      expect(pkmStoreMergedDomainWithPreparedBlobMock).toHaveBeenCalledTimes(2);
+      const request = pkmStoreMergedDomainWithPreparedBlobMock.mock.calls[1]![0];
+      expect(request.mergeDecision.merge_mode).toBe("replace_domain");
+      expect(request.domainData.profile).toEqual({ revision: 2 });
+      expect(request.domainData.portfolio.holdings.map((entry: { entry_id: string }) => entry.entry_id)).toEqual(["two"]);
+    });
     it("serializes competing writes and rebuilds against the latest revision after a remote conflict", async () => {
       stubNoUpgradeNeeded();
       let revision = 1;

@@ -38,6 +38,7 @@ export interface HoldingMobileCardViewModel {
   averagePrice: number | null;
   currentPrice: number | null;
   costBasis?: number | null;
+  acquisitionDate?: string | null;
   source?: string | null;
   quoteAsOf?: string | null;
   statementAsOf?: string | null;

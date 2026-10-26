@@ -47,6 +47,7 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
+        { find: /^@\/lib\/kai\/ticker-universe-cache$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         { find: /^@\/lib\/kai\/kai-market-home-resource$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         {
           find: /^next\/navigation$/,
@@ -490,5 +491,50 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
   }
 }
 
+
+for (const width of [393, 1440]) {
+  for (const theme of ["light", "dark"]) {
+    test(`Portfolio entries stay grouped through edit, add and removal at ${width}px ${theme}`, async ({ page }) => {
+      await mount(page, width);
+      await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
+      const list = page.getByTestId("grouped-holdings-fixture");
+      if (width < 768) await list.getByRole("button", { name: "View TEST entries" }).click();
+      else {
+        await expect(list.locator("tbody tr")).toHaveCount(1);
+        await list.getByRole("button", { name: "Manage entries", exact: true }).click();
+      }
+      const detail = page.getByRole("dialog", { name: "TEST", exact: true });
+      const entryList = detail.getByRole("region", { name: "Your entries" });
+      const shares = () => detail.getByText("Shares", { exact: true }).locator("..").locator("dd");
+      await expect(entryList.getByRole("listitem")).toHaveCount(2);
+      await expect(shares()).toHaveText("15");
+      await expect(detail.getByRole("region", { name: "Price history", exact: true })).toHaveCount(1);
+      await entryList.getByRole("button", { name: "Edit entry 2" }).click();
+      const editor = page.getByRole("dialog", { name: "Edit Holding", exact: true });
+      await expect(editor).toBeVisible();
+      await expect(page.getByRole("dialog")).toHaveCount(1);
+      await editor.getByLabel(/quantity/i).fill("7");
+      await editor.getByLabel(/cost basis/i).fill("840");
+      await editor.getByRole("button", { name: /save/i }).click();
+      await expect(shares()).toHaveText("17");
+      await expect(entryList.getByText("Acquired 2026-05-10", { exact: true })).toBeVisible();
+      await entryList.getByRole("button", { name: "Add entry", exact: true }).click();
+      await expect(editor).toBeVisible();
+      await editor.getByLabel(/quantity/i).fill("2");
+      await editor.getByLabel(/^price/i).fill("130");
+      await editor.getByLabel(/cost basis/i).fill("260");
+      await editor.getByRole("button", { name: /save/i }).click();
+      await expect(entryList.getByRole("listitem")).toHaveCount(3);
+      await expect(shares()).toHaveText("19");
+      await entryList.getByRole("button", { name: "Remove entry 1" }).click();
+      await expect(shares()).toHaveText("9");
+      await entryList.getByRole("button", { name: "Restore entry 1" }).click();
+      await expect(shares()).toHaveText("19");
+      expect(await detail.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      for (const button of await entryList.getByRole("button").all()) expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await page.screenshot({ path: test.info().outputPath(`grouped-holding-${width}-${theme}.png`) });
+    });
+  }
+}
 
 registerFinanceScreenChecks(mount);
