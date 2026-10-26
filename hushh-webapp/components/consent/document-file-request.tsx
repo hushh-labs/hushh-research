@@ -13,6 +13,7 @@ import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { MobileDocumentDateRange } from "./mobile-document-date-range";
 import { IllustratedRequestContent, IllustratedRequestForm, IllustratedRequestBody, IllustratedRequestActions } from "@/components/app-ui/illustrated-request-dialog";
 import { DocumentRequestQuoteNotice, useDocumentRequestQuote } from "./document-request-quote";
@@ -95,7 +96,11 @@ export function RequestFilesButton({
   });
   const terms = { purpose, periodStart: start || null, periodEnd: end || null,
     ...(receiveThrough === "drive" ? {} : { receiveThrough, activityAccepted, activityDisclosureVersion: hosting?.activityDisclosureVersion, accessDays }),
-    ...(agentPackagesEnabled ? { accessDays, requesterActorType, reason } : {}) };
+    ...(agentPackagesEnabled ? {
+      accessDays,
+      requesterActorType: receiveThrough === "drive" ? requesterActorType : "person" as const,
+      ...(receiveThrough === "drive" && requesterActorType === "ria" ? { reason } : {}),
+    } : {}) };
   const valid = validFileRequest(terms);
   const busy = request.phase !== "idle";
   const close = () => {
@@ -199,7 +204,7 @@ export function RequestFilesButton({
             >
               <IllustratedRequestBody>
               {!canRequest || (receiveThrough === "drive" && !driveAllowed) ? availabilityNotice : null}
-              {hosting ? <div className="space-y-3">
+              {hosting ? <div className="space-y-[var(--app-form-field-gap)]">
                 <Label htmlFor="document-receive-through" data-consent-role="form-label">Receive through</Label>
                 <select id="document-receive-through" data-voice-control-id="document-hosting-receive-through" data-consent-input="true" value={receiveThrough}
                   onChange={event => { setReceiveThrough(event.target.value as "drive" | "one" | "both"); setActivityAccepted(false); }} disabled={busy}
@@ -207,13 +212,14 @@ export function RequestFilesButton({
                   <option value="drive" disabled={!driveAllowed}>Google Drive</option><option value="one">Secure One link</option><option value="both">Both</option>
                 </select>
                 {receiveThrough !== "drive" ? <>
-                  <HelperText>Read PDF copies inside One and choose Download when you want to save them. Your request does not authorize access to the owner's files.</HelperText>
-                  <label className="flex min-h-11 items-start gap-3 text-sm"><input type="checkbox" checked={activityAccepted} disabled={busy} onChange={event => setActivityAccepted(event.target.checked)} className="mt-1" />
-                    <span>I accept that the owner can see access activity and approximate network country when available. Activity is retained for up to 90 days; downloaded copies cannot be recalled.</span>
+                  <HelperText>Request as yourself. The owner must approve access before you can read or download PDF copies.</HelperText>
+                  <label htmlFor="document-activity-accepted" className="flex min-h-11 cursor-pointer items-start gap-3">
+                    <Checkbox id="document-activity-accepted" checked={activityAccepted} disabled={busy} onCheckedChange={value => setActivityAccepted(value === true)} className="mt-1" />
+                    <HelperText as="span">I accept that the owner sees access activity and approximate network country when available. Activity is kept for up to 90 days. Downloaded copies cannot be recalled.</HelperText>
                   </label>
                 </> : null}
               </div> : null}
-              <div className="space-y-2">
+              <div className="space-y-[var(--app-form-field-gap)]">
                 <Label htmlFor="document-request-purpose" data-consent-role="form-label">
                   Which files do you need?
                 </Label>
@@ -227,8 +233,8 @@ export function RequestFilesButton({
                   placeholder="Bank statements"
                 />
               </div>
-              {agentPackagesEnabled && <>
-                <div className="space-y-2">
+              {agentPackagesEnabled && receiveThrough === "drive" && <>
+                <div className="space-y-[var(--app-form-field-gap)]">
                   <Label htmlFor="document-request-role" data-consent-role="form-label">Requesting as</Label>
                   <select id="document-request-role" data-consent-input="true" value={requesterActorType}
                     onChange={event => setRequesterActorType(event.target.value as "person" | "ria")}
@@ -238,13 +244,13 @@ export function RequestFilesButton({
                     <option value="ria">Verified RIA</option>
                   </select>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="document-request-reason" data-consent-role="form-label">Reason{requesterActorType === "ria" ? "" : " (optional)"}</Label>
+                {requesterActorType === "ria" ? <div className="space-y-[var(--app-form-field-gap)]">
+                  <Label htmlFor="document-request-reason" data-consent-role="form-label">Reason</Label>
                   <Textarea id="document-request-reason" data-consent-input="true" value={reason}
                     onChange={event => setReason(event.target.value)} maxLength={500}
-                    required={requesterActorType === "ria"} disabled={busy}
+                    required disabled={busy}
                     placeholder="Why do you need these documents?" />
-                </div>
+                </div> : null}
               </>}
               <fieldset className="min-w-0" disabled={busy} aria-describedby="document-period-help">
                 <legend data-consent-role="form-label" className="mb-2">Dates covered</legend>
@@ -278,7 +284,7 @@ export function RequestFilesButton({
                   </div>
                 </div>
               </fieldset>
-              {agentPackagesEnabled && <div className="space-y-2">
+              {(agentPackagesEnabled || receiveThrough !== "drive") && <div className="space-y-[var(--app-form-field-gap)]">
                 <Label htmlFor="document-access-days" data-consent-role="form-label">Access period</Label>
                 <select id="document-access-days" data-consent-input="true" value={accessDays}
                   onChange={event => setAccessDays(Number(event.target.value))}
@@ -304,7 +310,7 @@ export function RequestFilesButton({
               ) : null}
               {receiveThrough !== "one" ? <RecipientIdentityNotice preview={identity} /> : null}
               {receiveThrough === "drive" ? <DocumentRequestQuoteNotice quote={quote.quote} loading={quote.loading}
-                error={quote.error} onRetry={quote.refresh} personName={personName} /> : <HelperText>The owner chooses the exact files, final price and access deadline. You review the approved terms before paying.</HelperText>}
+                error={quote.error} onRetry={quote.refresh} personName={personName} /> : <HelperText>The owner approves the files, price and access deadline. Review these terms before paying.</HelperText>}
               </IllustratedRequestBody>
               <IllustratedRequestActions>
               <FlowActionGroup
