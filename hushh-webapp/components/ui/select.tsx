@@ -19,6 +19,7 @@ function Select({
   // The trigger/form renderer stays React. Freeze family capability here;
   // authorize each popup on its user intent, after auth/vault restoration.
   const [native] = React.useState(() => nativeOwnedChoicesEnabled() &&
+    (props.value !== undefined || props.defaultValue !== undefined) &&
     props.open === undefined && props.onOpenChange === undefined && props.defaultOpen !== true && props.dir === undefined &&
     immediateChoices(props.children) !== null)
   const [localValue, setLocalValue] = React.useState(props.defaultValue ?? "")
@@ -42,7 +43,7 @@ function Select({
   const requestOpen = React.useCallback((open: boolean) => current.current?.requestOpen(open), [])
   const eligible = open === undefined && onOpenChange === undefined && props.dir === undefined
   return <NativeChoiceTriggerContext.Provider value={native && !fallback ? { ...control, presented: control?.presented ?? false,
-    blocked: control?.blocked ?? false, bindTrigger } : null}>
+    blocked: control?.blocked ?? false, committed: control !== null, bindTrigger } : null}>
     <SelectPrimitive.Root data-slot="select" {...props}
       value={native ? value : props.value} onValueChange={native ? updateValue : props.onValueChange}
       open={native ? fallback ? open ?? fallbackOpen : false : open}
@@ -102,7 +103,7 @@ function SelectTrigger({
       )}
       {...props}
       ref={composedRef}
-      data-native-owned-choice={native ? native.blocked ? "blocked" : native.presented ? "presented" : "ready" : undefined}
+      data-native-owned-choice={native?.committed ? native.blocked ? "blocked" : native.presented ? "presented" : "ready" : undefined}
       {...(native && (native.presented || native.blocked) ? { "aria-expanded": native.presented, "aria-haspopup": "dialog" as const,
         "aria-controls": undefined, "data-state": native.presented ? "open" : "closed",
         "aria-busy": native.blocked || undefined } : {})}

@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot, type Root } from "react-dom/client";
 import { NativeOwnedChoiceLease, validOwnedChoiceProjection, type OwnedChoiceEvent, type OwnedChoiceProjection, type OwnedChoiceReceipt } from "@/lib/capacitor/native-owned-choice";
 
 const runtime = vi.hoisted(() => ({
@@ -66,6 +68,26 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("shared Select native presentation", () => {
+  it.each(["private-a", undefined])("hydrates a form initialized with %s without replacing its trigger or changing its option owner", async defaultValue => {
+    runtime.native = false;
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(<form><Field defaultValue={defaultValue} /></form>);
+    document.body.append(container);
+    const trigger = container.querySelector('[role="combobox"]');
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let root: Root | undefined;
+    try {
+      runtime.native = true;
+      await act(async () => { root = hydrateRoot(container, <form><Field defaultValue={defaultValue} /></form>); });
+      expect(container.querySelector('[role="combobox"]')).toBe(trigger);
+      if (defaultValue === undefined) expect(trigger).not.toHaveAttribute("data-native-owned-choice");
+      else expect(trigger).toHaveAttribute("data-native-owned-choice", "ready");
+      expect(new FormData(container.querySelector("form")!).get("posture")).toBe(defaultValue ?? "");
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root?.unmount()); container.remove(); error.mockRestore();
+    }
+  });
   it("authorizes a popup after owner restoration without replacing its preloaded form", async () => {
     runtime.current = false;
     const view = render(<form><Field /></form>);

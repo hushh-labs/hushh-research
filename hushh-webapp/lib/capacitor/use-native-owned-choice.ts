@@ -18,6 +18,7 @@ type Binding = {
   onValueChange: (value: string) => void;
 };
 export const NativeChoiceTriggerContext = createContext<{
+  committed: boolean;
   presented: boolean;
   blocked: boolean;
   bindTrigger: (node: HTMLButtonElement | null) => void;

@@ -31,13 +31,13 @@ committed callback; unchanged values do not repeat writes. Back, owner/privacy
 changes and capability failures retire the same lease before any web fallback.
 An attached opening/retiring sheet cannot report confirmed absence.
 
-Controlled opening, rich labels, custom event semantics, named groups and
+Initially unset uncontrolled values, controlled opening, rich labels, custom event semantics, named groups and
 authored direction remain complete React presentations. Their exclusion is
 semantic, not route-specific. AlertDialog's busy/refused confirmation and rich
 Popover content require their own complete presentation contracts; they are not
 silently converted into immediate choices. This extension does not qualify those
 families or change ordinary Release/TestFlight admission, which remains off.
-Current evidence: ten shared Select/privacy contract cases, the existing native
+Current evidence: twelve shared Select/privacy contract cases, the existing native
 Chrome/Popover suites and plugin-contract mutation controls pass. Native Release
 compilation passes. The new UIKit retirement regression and adjacent alert test
 pass on iPhone; integrated route-picker device acceptance is pending.
