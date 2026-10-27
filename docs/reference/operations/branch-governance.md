@@ -44,6 +44,18 @@ On 26 October 2026, Dev was created from Main `b819614ccc` and both prepared
 branches' protection passed live readback. UAT history reconciliation and the
 selective-promotion authority remain separate from this protection checkpoint.
 
+Explicit UAT candidates can use a CI-qualified commit in the protected `uat`
+history, with exact-SHA Dev acceptance still required before deployment. Main
+candidates retain mandatory Main smoke. Automatic selection retains its current
+Main baseline until the remaining intake/selector transition is qualified.
+
+For production, `sha` remains the UAT-accepted application. When approval landed
+as a different Main merge, `main_approval_sha` requires that merge's Main smoke,
+incorporation of the application and identical complete Git trees. The workflow
+retains this mapping and still requires UAT acceptance for the application SHA.
+No ignored paths, new content or predecessor bypass are allowed. This optional
+manual mode cannot be mixed with cadence, restoration or phone transitions.
+
 The following batches must complete before activation:
 
 1. Move ordinary intake to Dev without discarding train or active branch work.
@@ -110,8 +122,8 @@ This repo runs on a dedicated PR-train branch, a protected promotion branch, and
 | `integration/pr-train` | Community / contributor / agent PR intake and async train landing | Effective landing base for every non-maintainer feature/fix/docs PR |
 | `main` | Promotion branch for deployable history | Governed maintainers open PRs **directly into `main`** from a branch cut off `origin/main`; the train also opens normal promotion PRs. CI gate + merge queue + post-merge smoke always required. |
 | Dev | Agentic proving ground (fast lane) | Manual governed dispatch of a **CI-green SHA from `integration/pr-train` (default) or any ref** — never gated on `main`. See [dev-fast-lane.md](./dev-fast-lane.md). |
-| UAT | Hosted signoff environment | Manual deploy of an exact green `main` SHA |
-| Production | Live user traffic | Approved green `main` SHA through governed manual dispatch or certified release cadence |
+| UAT | Hosted signoff environment | Main baseline or explicit CI-qualified curated UAT application, with matching Dev acceptance |
+| Production | Live user traffic | UAT-accepted application and Main approval; distinct SHAs require exact tree equivalence. Governed manual dispatch or certified release cadence |
 
 ## Working Rules
 
@@ -124,9 +136,9 @@ This repo runs on a dedicated PR-train branch, a protected promotion branch, and
 7. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
 8. After an isolated hotfix lands, return local work to the normal development branch or `integration/pr-train` and delete the temporary branch after rollout validation.
 9. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
-10. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses an explicitly chosen exact green commit SHA.
+10. UAT uses an exact CI-qualified application with Dev acceptance. Main candidates require Main smoke; UAT-only candidates require canonical PR, queue or full branch validation.
 11. Production deploys only from a manually chosen or certified-cadence SHA that is reachable from `origin/main` and already green in CI.
-12. Do not open release PRs into environment branches; the deployment source of truth is `main`.
+12. Prepared-branch baseline and curated-selection PRs preserve history. Their merge does not deploy an environment; release tooling remains Main-owned.
 
 ## Codex Branch Preservation Gate
 
@@ -173,11 +185,11 @@ Before deleting a local backup branch, classify its unique commits as:
 
 ### UAT
 
-1. UAT deploys only through a manual workflow dispatch with an explicit green `main` SHA.
-2. The workflow checks out that exact chosen green `main` SHA.
+1. UAT deploys through its governed Main-owned workflow with an exact qualified application SHA.
+2. The workflow checks out that exact application; trusted release tooling remains Main-owned.
 3. Manual dispatch is limited to the maintainer cohort in `config/ci-governance.json` (`uat.manual_dispatch_users`) — see that file for the live list (do not hardcode names here; they drift). This list is held equal to the merge cohort (`main.review_bypass_users`) by design — anyone trusted to land code on `main` may validate it in the UAT sandbox — and `scripts/ci/verify-deployment-environment-governance.py` fails if the two drift apart. To change the cohort, edit the JSON then run `python3 scripts/ci/apply-governance.py --apply` (see "Adding or removing a maintainer" below).
-4. Workflow preflight fails if the requested SHA is not reachable from `origin/main`.
-5. Workflow preflight also fails if the SHA does not already have a successful `Main Post-Merge Smoke Gate`.
+4. Preflight requires reachability from Main or the curated UAT branch, plus exact-SHA Dev acceptance for each selected service.
+5. Main candidates require `Main Post-Merge Smoke Gate`. UAT-only candidates require an authenticated canonical PR, queue or full branch gate; diagnostics never qualify.
 6. The canonical GitHub deployment environment for this lane is `uat`.
 7. Cloud Run traffic changes must be made only by the GitHub UAT workflow service account. Human `gcloud run deploy` or `gcloud run services update-traffic` against UAT is deploy-authority drift, even for maintainers.
 8. Every UAT backend/frontend revision must carry `HUSHH_DEPLOY_ENV`, `HUSHH_DEPLOY_SOURCE`, `HUSHH_DEPLOY_SHA`, and `HUSHH_DEPLOY_RUN_ID` from the workflow. UAT release classification treats missing or mismatched provenance as `deploy_authority_drift` and rolls back the affected service.
@@ -186,7 +198,7 @@ Before deleting a local backup branch, classify its unique commits as:
 ### Production
 
 1. Production does not auto-deploy from branch pushes.
-2. Production deploys only through a governed `workflow_dispatch` with an explicit green `main` SHA.
+2. Production deploys through governed dispatch with the exact UAT-accepted application SHA. A distinct Main approval merge must pass smoke, incorporate that application and preserve its entire tree.
 3. The workflow validates that the SHA is reachable from `origin/main`.
 4. The workflow also validates that `Main Post-Merge Smoke Gate` succeeded for that SHA before deployment starts.
 5. Manual operators must be listed in `production.manual_dispatch_users`. The sole unattended exception is `production.automatic_release_workflow`: the protected-main release cadence controller, with immutable exact-run authority, complete input binding and a verified UAT source. The bot is never added to the human cohort. See [automatic native release cadence](./ci.md#automatic-native-release-cadence).

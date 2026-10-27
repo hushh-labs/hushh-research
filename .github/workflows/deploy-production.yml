@@ -16,6 +16,11 @@ on:
         description: "Exact green main SHA to deploy"
         required: true
         type: string
+      main_approval_sha:
+        description: "Optional Main merge approving identical UAT-tested application content; sha remains the exact accepted application"
+        required: false
+        default: ""
+        type: string
       restoration_validation_run:
         description: "One-time recorded production restoration: exact hosted recovery validation run; leave blank for normal releases"
         required: false
@@ -216,8 +221,31 @@ jobs:
           REQUIRED_BRANCH: main
           REQUIRE_CI_SUCCESS: "1"
           REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ inputs.main_approval_sha || inputs.sha }}
         run: bash scripts/ci/require-deploy-sha-on-main.sh "$REQUESTED_SHA"
+
+      - name: Bind curated application to its Main approval
+        if: inputs.main_approval_sha != ''
+        env:
+          APPLICATION_SHA: ${{ inputs.sha }}
+          APPROVAL_SHA: ${{ inputs.main_approval_sha }}
+          RESTORATION_RUN: ${{ inputs.restoration_validation_run }}
+          CADENCE_ORIGIN: ${{ inputs.cadence_origin }}
+        run: |
+          set -euo pipefail
+          [[ -z "$RESTORATION_RUN$CADENCE_ORIGIN" && "$PHONE_DEPLOY_PHASE" == standard ]] || {
+            echo "Curated approval cannot change restoration, cadence or phone-transition authority." >&2; exit 1;
+          }
+          python3 scripts/ci/promotion_approval.py --application-sha "$APPLICATION_SHA" \
+            --approval-sha "$APPROVAL_SHA" --output "$RUNNER_TEMP/main-application-approval.json"
+
+      - name: Retain immutable application approval mapping
+        if: inputs.main_approval_sha != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: main-application-approval-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/main-application-approval.json
+          if-no-files-found: error
 
       - name: Admit recorded production restoration
         id: restoration-admission

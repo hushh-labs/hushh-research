@@ -127,6 +127,15 @@ a normal UAT catch-up before retrying this service-only lane.
 
 ### 5. Dispatch only the requested environment
 
+An explicit curated UAT application may precede its Main approval. Require the
+existing source gate for that protected UAT history and exact-application Dev
+acceptance. For production, keep `sha` equal to the UAT-accepted application;
+if its approved Main merge has a distinct SHA, supply `main_approval_sha`.
+The workflow requires that merge's smoke, application incorporation and exact
+complete-tree equivalence, then checks the original application's UAT receipt.
+This is selective promotion, not an emergency or predecessor bypass. Default
+Main selection and ordinary same-SHA promotion retain their existing gates.
+
 UAT:
 
 ```bash

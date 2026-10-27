@@ -23,6 +23,54 @@ from tests.helpers.predecessor_acceptance import _serving_receipt as _serving_re
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_distinct_main_approval_requires_identical_uat_content_and_incorporation(
+    tmp_path, monkeypatch
+):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+    approval = importlib.import_module("promotion_approval")
+
+    def git(*arguments):
+        # Fixed synthetic Git history, isolated from developer branches.
+        return subprocess.check_output(["git", "-C", str(tmp_path), *arguments], text=True).strip()  # noqa: S603
+
+    git("init", "-b", "main")
+    git("config", "user.email", "synthetic@example.invalid")
+    git("config", "user.name", "Synthetic release fixture")
+    artifact = tmp_path / "application.txt"
+    artifact.write_text("baseline\n")
+    git("add", ".")
+    git("commit", "-m", "baseline")
+    base = git("rev-parse", "HEAD")
+    git("update-ref", "refs/remotes/origin/main", base)
+    git("checkout", "-b", "uat")
+    artifact.write_text("curated application\n")
+    git("commit", "-am", "curated")
+    application = git("rev-parse", "HEAD")
+    git("update-ref", "refs/remotes/origin/uat", application)
+    assert approval.uat_source(application, resolve=git)[0] == "uat"
+    git("checkout", "main")
+    git("merge", "--no-ff", "uat", "-m", "approve identical application")
+    accepted = git("rev-parse", "HEAD")
+    git("update-ref", "refs/remotes/origin/main", accepted)
+    record = approval.verify(application, accepted, resolve=git)
+    assert approval.uat_source(application, resolve=git) == ("main", "Main Post-Merge Smoke Gate")
+    assert approval.uat_source(accepted, resolve=git) == ("main", "Main Post-Merge Smoke Gate")
+    assert record["application_sha"] == application
+    assert record["main_approval_sha"] == accepted
+    assert record["predecessor_acceptance_required"] == "uat-exact-application-sha"
+    with pytest.raises(ValueError, match="incorporate"):
+        approval.verify(application, base, resolve=git)
+    # Even an incorporated UAT source cannot cover additional Main content.
+    artifact.write_text("unaccepted extra behavior\n")
+    git("add", ".")
+    changed = git(
+        "commit-tree", git("write-tree"), "-p", base, "-p", application, "-m", "changed approval"
+    )
+    git("update-ref", "refs/remotes/origin/main", changed)
+    with pytest.raises(ValueError, match="changes"):
+        approval.verify(application, changed, resolve=git)
+
+
 def _bash() -> str:
     bash = shutil.which("bash")
     assert bash is not None
@@ -269,6 +317,15 @@ def test_every_release_image_mode_requires_predecessor_before_mutation(environme
             i for i, step in enumerate(steps) if step.get("name") == "Authenticate to Google Cloud"
         )
         assert steps.index(recovery) < first_cloud
+        mapping = next(
+            step
+            for step in steps
+            if step.get("name") == "Bind curated application to its Main approval"
+        )
+        assert steps.index(mapping) < first_cloud
+        assert mapping["if"] == "inputs.main_approval_sha != ''"
+        assert "--sha" in gate["run"] and "github.event.inputs.sha" in gate["run"]
+        assert "main_approval_sha" not in gate["run"]
     else:
         assert "if" not in gate
     scoped = environment == "uat-one-chat"
