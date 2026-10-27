@@ -8,7 +8,7 @@ from unittest import mock
 
 import production_backend_successor as successor
 import production_backend_successor_control as control
-from production_backend_successor_control_cases import OperationalBackendControlCases
+from production_backend_successor_control_cases import OperationalBackendControlCases, _control_case
 import production_backend_successor_proof as proof
 import production_phone_receipt as phone
 from production_phone_receipt_fixtures import archive, phone_documents
@@ -153,6 +153,11 @@ class OperationalBackendReferenceCases(OperationalBackendControlCases):
                 self.assertEqual(proof._healthy_reference({"original_healthy": tag}, schema)[0], tag)
                 annotated = successor.annotate(healthy, COMMIT, OLD, ANCHOR)
                 self.assertEqual(successor.split(annotated, COMMIT)[0], healthy)
+                with mock.patch(__name__ + ".MESSAGE", healthy), _control_case(self) as case:
+                    self.assertEqual(proof.read_original(), case.original)
+                    self.assertEqual(case.original["message"], healthy)
+                    prepared = successor.tag_identity(case.intent["new_object"])["message"]
+                    self.assertEqual(successor.split(prepared, COMMIT)[0], healthy)
 
     def test_present_invalid_phone_summary_never_falls_back_to_legacy(self):
         documents = phone_documents(self)
@@ -184,6 +189,8 @@ class OperationalBackendReferenceCases(OperationalBackendControlCases):
             MESSAGE.replace("actor: governed-maintainer", "actor:"),
             MESSAGE + "frontend_url:\n",
             MESSAGE + "unknown:\n",
+            MESSAGE.replace("frontend_url: https://app.example.test", "frontend_url:invalid"),
+            MESSAGE.replace(COMMIT, OTHER),
             MESSAGE + successor.FIELD + "null\n",
             value.replace("00302-fix", "00302-changed"),
             value + value.splitlines(keepends=True)[-1],

@@ -1513,6 +1513,7 @@ tests/test_phone_schema_origin.py
 tests/test_phone_recovery_actions.py
 tests/test_phone_reader_probe.py
 tests/scripts/test_managed_provider_receipt.py
+tests/scripts/test_managed_provider_vertex_history.py
 
 tests/test_account_deletion_activation.py
 

@@ -95,7 +95,7 @@ def _continuation_owners():
 def _healthy_tag(proof, sha: str, revision: str) -> tuple[dict, str]:
     tag = proof.read_original()
     healthy, _operational = proof.reference.split(tag["message"], tag["commit"])
-    fields = dict(line.split(": ", 1) for line in healthy.splitlines()[1:])
+    fields = proof.reference.healthy_fields(healthy, tag["commit"])
     match = re.fullmatch(
         rf"https://github\.com/{re.escape(REPOSITORY)}/actions/runs/([1-9][0-9]*)",
         fields["run"],

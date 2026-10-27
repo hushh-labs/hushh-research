@@ -93,7 +93,13 @@ def _original_port(case):
     return command
 
 
-def test_completed_continuation_retains_original_runtime_provenance(production_case):
+@pytest.mark.parametrize("empty_url", [False, True])
+def test_completed_continuation_retains_original_runtime_provenance(production_case, empty_url):
+    if empty_url:
+        raw = production_case.tag["tag_object"].replace(
+            "frontend_url: https://app.example.test\n", "frontend_url:\n"
+        )
+        production_case.tag.update(production_case.proof.reference.tag_identity(raw))
     before = copy.deepcopy(production_case.case.original.documents)
     result = production_case.qualify()
     assert result["run_id"] == "400"
