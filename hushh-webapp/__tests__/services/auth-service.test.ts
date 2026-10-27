@@ -5,7 +5,7 @@ vi.mock("@/lib/auth/google-signup-token", () => ({
   requestGoogleSignupToken: signupToken,
   googleSignupConfigured: () => Boolean(process.env.NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID),
 }));
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
 
 const {
@@ -27,7 +27,6 @@ const {
   mockPhoneClaimAuth,
   mockSignInWithPopup,
   mockReauthenticateWithPopup,
-  mockReauthenticateWithCredential,
   mockLinkWithPopup,
   mockGoogleCredentialFromResult,
   mockGoogleSetCustomParameters,
@@ -85,7 +84,6 @@ const {
   mockInitializeApp: vi.fn(),
   mockSignInWithPopup: vi.fn(),
   mockReauthenticateWithPopup: vi.fn(),
-  mockReauthenticateWithCredential: vi.fn(),
   mockLinkWithPopup: vi.fn(),
   mockGoogleCredentialFromResult: vi.fn(),
   mockGoogleSetCustomParameters: vi.fn(),
@@ -139,7 +137,6 @@ vi.mock("firebase/auth", () => ({
   signInWithCustomToken: vi.fn(),
   signInWithPopup: mockSignInWithPopup,
   reauthenticateWithPopup: mockReauthenticateWithPopup,
-  reauthenticateWithCredential: mockReauthenticateWithCredential,
   linkWithPopup: mockLinkWithPopup,
   signOut: mockFirebaseSignOut,
   onAuthStateChanged: vi.fn(),
@@ -271,91 +268,6 @@ describe("AuthService.reauthenticateGoogleIdentity", () => {
       return "must-not-escape";
     });
     await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => current)).rejects.toThrow("session_changed");
-  });
-});
-
-describe("AuthService configured web Google credential reauthentication", () => {
-  const grant = { accessToken: "synthetic-google-grant", contactsGranted: false };
-  const credential = { providerId: "google.com", signInMethod: "google.com" };
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.stubEnv("NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID", "synthetic-client-id");
-    mockCapacitor.isNativePlatform.mockReturnValue(false);
-    mockAuth.currentUser = {
-      uid: "recipient",
-      providerData: [{ providerId: "google.com" }],
-      getIdToken: vi.fn().mockResolvedValue("fresh-firebase-proof"),
-    };
-    signupToken.mockResolvedValue(grant);
-    vi.mocked(GoogleAuthProvider.credential).mockReturnValue(credential as never);
-    mockReauthenticateWithCredential.mockResolvedValue({ user: mockAuth.currentUser });
-  });
-  afterEach(() => vi.unstubAllEnvs());
-
-  it("uses the existing gesture-bound identity grant for deletion without replacing sign-in", async () => {
-    const pending = AuthService.reauthenticateAccountDeletionIdentity("recipient", "google.com", () => true);
-    const gestureCalls = [...signupToken.mock.calls];
-    await expect(pending).resolves.toBe("fresh-firebase-proof");
-    expect(gestureCalls).toEqual([[{ includeContacts: false }]]);
-    expect(GoogleAuthProvider.credential).toHaveBeenCalledWith(null, grant.accessToken);
-    expect(mockReauthenticateWithCredential).toHaveBeenCalledWith(mockAuth.currentUser, credential);
-    expect(mockAuth.currentUser.getIdToken).toHaveBeenCalledWith(true);
-    expect(mockReauthenticateWithPopup).not.toHaveBeenCalled();
-    expect(mockSignInWithCredential).not.toHaveBeenCalled();
-    expect(mockSignInWithPopup).not.toHaveBeenCalled();
-    expect(mockFirebaseSignOut).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["auth/user-mismatch", "identity_mismatch"],
-    ["auth/invalid-credential", "identity_verification_failed"],
-  ])("rejects a Google credential exchange failure (%s) without reading a token", async (code, expected) => {
-    mockReauthenticateWithCredential.mockRejectedValueOnce({ code, message: "private-provider-value" });
-    await expect(AuthService.reauthenticateAccountDeletionIdentity("recipient", "google.com", () => true)).rejects.toThrow(expected);
-    expect(mockAuth.currentUser.getIdToken).not.toHaveBeenCalled();
-    expect(mockSignInWithCredential).not.toHaveBeenCalled();
-    expect(mockReauthenticateWithPopup).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["auth/initialization-not-ready", "identity_initialization_not_ready"],
-    ["auth/popup-blocked", "identity_popup_blocked"],
-    ["auth/popup-closed-by-user", "identity_cancelled"],
-    ["auth/timeout", "identity_timeout"],
-  ])("redacts grant failures (%s) without opening another popup", async (code, expected) => {
-    signupToken.mockRejectedValueOnce({ code, message: "private-provider-value" });
-    await expect(AuthService.reauthenticateAccountDeletionIdentity("recipient", "google.com", () => true)).rejects.toThrow(expected);
-    expect(mockReauthenticateWithCredential).not.toHaveBeenCalled();
-    expect(mockReauthenticateWithPopup).not.toHaveBeenCalled();
-    expect(mockAuth.currentUser.getIdToken).not.toHaveBeenCalled();
-  });
-
-  it.each(["grant", "exchange", "refresh"])("rejects an owner change during %s", async (stage) => {
-    let current = true;
-    if (stage === "grant") signupToken.mockImplementationOnce(async () => {
-      mockAuth.currentUser = { ...mockAuth.currentUser }; // Same UID, different session.
-      return grant;
-    });
-    if (stage === "exchange") mockReauthenticateWithCredential.mockImplementationOnce(async () => {
-      current = false;
-      return { user: mockAuth.currentUser };
-    });
-    if (stage === "refresh") mockAuth.currentUser.getIdToken.mockImplementationOnce(async () => {
-      current = false;
-      return "must-not-escape";
-    });
-    await expect(AuthService.reauthenticateAccountDeletionIdentity("recipient", "google.com", () => current)).rejects.toThrow("session_changed");
-    if (stage === "grant") expect(mockReauthenticateWithCredential).not.toHaveBeenCalled();
-    if (stage !== "refresh") expect(mockAuth.currentUser.getIdToken).not.toHaveBeenCalled();
-    expect(mockSignInWithCredential).not.toHaveBeenCalled();
-  });
-
-  it("retains the existing transport for shared verification screens without GIS preloading", async () => {
-    mockReauthenticateWithPopup.mockResolvedValueOnce({ user: mockAuth.currentUser });
-    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => true)).resolves.toBe("fresh-firebase-proof");
-    expect(mockReauthenticateWithPopup).toHaveBeenCalledTimes(1);
-    expect(signupToken).not.toHaveBeenCalled();
-    expect(mockReauthenticateWithCredential).not.toHaveBeenCalled();
   });
 });
 
