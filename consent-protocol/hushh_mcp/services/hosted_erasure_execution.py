@@ -20,6 +20,9 @@ async def managed_erasure_step(
     service: Any, *, user_id: str, stage: str, reservation: dict | None = None
 ) -> bool:
     """Route only verified managed snapshots; SQL remains completion authority."""
+    snapshot = (reservation or {}).get("registrySnapshot")
+    if isinstance(snapshot, dict) and not has_hosted_evidence(snapshot):
+        return False
     row = await service._registry.get(user_id)
     saved = ((row or {}).get("backend_metadata") or {}).get("erasure") or {}
     if reservation is not None and (
