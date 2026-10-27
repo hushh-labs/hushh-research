@@ -13,6 +13,21 @@ WEBKIT = DOCUMENT + "::test_protected_document_browser_payment_preview_download_
 PHONE = "tests/test_account_phone_browser.py"
 
 
+# Valid and rejected invocation cases share the gate assertion owner.
+DOCUMENT_PLATFORM_CASES = [
+    ("false", (), "", 0),
+    ("true", (), "Linux", 0),
+    ("true", ("--ci-linux-document",), "Linux", 0),
+    ("true", ("--ci-macos-webkit",), "macOS", 0),
+    ("false", ("--ci-linux-document",), "Linux", 64),
+    ("false", ("--ci-macos-webkit",), "macOS", 64),
+    ("true", ("--ci-linux-document",), "macOS", 64),
+    ("true", ("--ci-macos-webkit",), "Linux", 64),
+    ("true", ("unknown",), "Linux", 64),
+    ("true", ("all", "extra"), "Linux", 64),
+]
+
+
 def assert_document_platform(tmp_path, ci, mode, runner, expected):
     mirrors = tmp_path / "apt-mirrors.txt"
     mirrors.write_text(

@@ -468,18 +468,7 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
 
 @pytest.mark.parametrize(
     "ci,mode,runner,expected",
-    [
-        ("false", (), "", 0),
-        ("true", (), "Linux", 0),
-        ("true", ("--ci-linux-document",), "Linux", 0),
-        ("true", ("--ci-macos-webkit",), "macOS", 0),
-        ("false", ("--ci-linux-document",), "Linux", 64),
-        ("false", ("--ci-macos-webkit",), "macOS", 64),
-        ("true", ("--ci-linux-document",), "macOS", 64),
-        ("true", ("--ci-macos-webkit",), "Linux", 64),
-        ("true", ("unknown",), "Linux", 64),
-        ("true", ("all", "extra"), "Linux", 64),
-    ],
+    document_delivery_ci.DOCUMENT_PLATFORM_CASES,
 )
 def test_document_gate_preserves_official_mirrors_and_both_browser_engines(
     tmp_path, ci, mode, runner, expected
