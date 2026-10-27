@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks, registerHoldingEntryChecks, registerStockQuoteRecoveryChecks, expectMarketLocalTimes } from "./fixtures/finance-screen-checks";
 import os from "node:os";
+import { registerFinanceSharingChecks } from "./fixtures/finance-sharing-checks";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
@@ -47,12 +48,10 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
+        ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
         { find: /^@\/lib\/kai\/ticker-universe-cache$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         { find: /^@\/lib\/kai\/kai-market-home-resource$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
-        {
-          find: /^next\/navigation$/,
-          replacement: path.join(root, "e2e/fixtures/agent-markdown-boundaries.ts"),
-        },
+        { find: /^next\/navigation$/, replacement: path.join(root, "e2e/fixtures/agent-markdown-boundaries.ts") },
         { find: "@", replacement: root },
       ],
     },
@@ -96,6 +95,7 @@ test.beforeAll(async () => {
           "@/lib/kai/kai-market-news-resource", "@/lib/services/api-service",
           "@/lib/services/kai-token-guard", "@/lib/kai/actions/voice-surface-metadata",
         ].map(find => ({ find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), replacement: boundary })),
+        ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
         { find: "@", replacement: root },
       ],
     },
@@ -491,6 +491,8 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
   }
 }
 
+
+registerFinanceSharingChecks(mount);
 
 registerHoldingEntryChecks(mount);
 registerStockQuoteRecoveryChecks(mount);

@@ -115,7 +115,10 @@ import quietStyles from "./messages-quiet-action.module.css";
 import { WalletSharedCardMessage } from "@/components/wallet/wallet-shared-card-message";
 import { WalletCardAccessMessage } from "@/components/wallet/wallet-card-access-message";
 import { cardAccessReference } from "@/lib/services/wallet-card-access-service";
-import { isWalletCardShare, walletMessagePreview } from "@/lib/wallet/wallet-card-share";
+import { isWalletCardShare } from "@/lib/wallet/wallet-card-share";
+import { connectionMessagePreview as walletMessagePreview } from "@/lib/finance-sharing/message-preview";
+import { financeReference } from "@/lib/finance-sharing/contract";
+import { FinanceShareMessage } from "@/components/kai/sharing/finance-share-message";
 import { cardRequestReference, walletCardRequestHref } from "@/lib/wallet/card-request";
 
 type ThreadState = {
@@ -2116,7 +2119,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                         <p>{message.replyTo.deletedForEveryoneAt ? "This message was deleted." : walletMessagePreview(message.replyTo.content) || "Attachment"}</p>
                                       </button>
                                     ) : null}
-                                    {cardRequestReference(message.content) ? <Link className="underline underline-offset-4" href={walletCardRequestHref(cardRequestReference(message.content)!)}>View card request</Link> : cardAccessReference(message.content) ? <WalletCardAccessMessage key={`${message.id}:${activeConversationId}`} grantId={cardAccessReference(message.content)!} senderIsViewer={message.senderIsViewer} /> : isWalletCardShare(message.content) ? <WalletSharedCardMessage key={`${message.id}:${activeConversationId}`} content={message.content} peerPersonRef={thread.peerPersonRef} senderIsViewer={message.senderIsViewer} /> : message.content ? <p className={cn(styles.messageText, "whitespace-pre-wrap break-words")}>{message.content}</p> : null}
+                                    {financeReference(message.content) ? <FinanceShareMessage key={`${message.id}:${activeConversationId}`} grantId={financeReference(message.content)!} /> : cardRequestReference(message.content) ? <Link className="underline underline-offset-4" href={walletCardRequestHref(cardRequestReference(message.content)!)}>View card request</Link> : cardAccessReference(message.content) ? <WalletCardAccessMessage key={`${message.id}:${activeConversationId}`} grantId={cardAccessReference(message.content)!} senderIsViewer={message.senderIsViewer} /> : isWalletCardShare(message.content) ? <WalletSharedCardMessage key={`${message.id}:${activeConversationId}`} content={message.content} peerPersonRef={thread.peerPersonRef} senderIsViewer={message.senderIsViewer} /> : message.content ? <p className={cn(styles.messageText, "whitespace-pre-wrap break-words")}>{message.content}</p> : null}
                                     {lane === "people" ? <MessageAttachment key={`${presentationEpoch}:${message.id}`} message={message} admitted={isCurrentRead} isCurrentVisit={() => operationGeneration.current === presentationEpoch && readAdmission.current.admitted && readAdmission.current.lane === "people" && readAdmission.current.ownerId === user?.uid} getIdToken={() => {
                                       if (!user) throw new Error("Sign in to open this attachment.");
                                       return user.getIdToken();

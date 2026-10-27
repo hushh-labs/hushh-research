@@ -80,6 +80,7 @@ import {
 } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { WorldModelProvider } from "@/components/profile/world-model-provider";
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
+import { FinanceSharePublisher } from "@/components/kai/sharing/finance-share-publisher";
 import { WalletProfileBootstrap } from "@/components/wallet-card/wallet-profile-bootstrap";
 import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
@@ -680,6 +681,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                 app. Keeping it outside the route Suspense boundary prevents
                 fallback/resolved remounts from launching the same sync twice. */}
                     <PostAuthOnboardingSyncBridge />
+                    <FinanceSharePublisher />
                     <InitialContactsBridge />
                     <WalletProfileBootstrap />
                     <LocationBusAccountBridge />
