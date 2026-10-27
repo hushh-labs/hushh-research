@@ -1,5 +1,6 @@
-import { chromeControlId, type ChromeControlId, type ChromeFamily, type ChromeAgentSurface, type ChromeOption, type ChromeAccentPalette, type ChromeControl } from "./native-chrome-controls";
 "use client";
+
+import { nativeChromeSizeAllowed, chromeControlId, type ChromeControlId, type ChromeFamily, type ChromeControl } from "./native-chrome-controls";
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { nativeDrawerIsolation } from "./native-drawers";
@@ -137,12 +138,7 @@ export function measureNativeChromeGeometry(slot: HTMLElement, kind: ChromeFamil
     width: bounds.width, height: bounds.height,
     left: bounds.left - (panel?.offset ?? 0), right: bounds.right - (panel?.offset ?? 0), top: bounds.top, bottom: bounds.bottom };
   const viewport = { width: window.innerWidth, height: window.innerHeight };
-  const minimumWidth = kind === "appearance" ? 132 : kind === "agent-surface" ? 88 : 44;
-  const widthAdmitted = kind === "accent"
-    ? frame.width === 44 || frame.width >= 132 && frame.width <= 320
-    : kind === "agent-surface" || kind === "appearance"
-      ? frame.width >= minimumWidth && frame.width <= 320 : frame.width === 44;
-  if (!widthAdmitted || frame.height !== 44 ||
+  if (!nativeChromeSizeAllowed(kind, frame.width, frame.height) ||
       ![frame.x, frame.y, viewport.width, viewport.height].every(Number.isFinite) ||
       frame.left < 0 || frame.top < 0 || frame.right > viewport.width || frame.bottom > viewport.height) return null;
   if (kind === "appearance" || kind === "accent") {
@@ -231,7 +227,8 @@ export async function canResumeNativeChrome(projection: ChromeControlProjection,
   return suspended.get(id) === entry && outstanding.get(id)?.revision === entry.projection.revision;
 }
 
-function admittedValue(projection: ChromeControlProjection, value: string | undefined): boolean {
+function admittedValue(projection: ChromeControlProjection, value: string | undefined, updating = false): boolean {
+  if (projection.kind === "map-check-in") return updating ? value === "idle" || value === "active" : value === undefined;
   if (projection.kind === "agent-surface") return value === "one" || value === "puppy";
   if (projection.kind === "appearance") return value === "light" || value === "dark" || value === "system";
   if (projection.kind === "accent") return value === "blue" || value === "gold";
@@ -453,7 +450,7 @@ export class NativeChromeLease {
    * A stale update failure cannot retire or overwrite a newer presentation. */
   async update(presentation: ChromeUpdate, refreshAdmission = false): Promise<boolean> {
     if (!this.current || !this.inPlaceUpdates) return false;
-    if (this.projection.kind !== "more" && !admittedValue(this.projection, presentation.value) ||
+    if (this.projection.kind !== "more" && !admittedValue(this.projection, presentation.value, true) ||
         this.projection.kind === "more" && presentation.value !== undefined) {
       throw new Error("NATIVE_CHROME_UPDATE_INVALID");
     }

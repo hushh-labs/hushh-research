@@ -1,15 +1,15 @@
 import { Children, Fragment, isValidElement, type ReactNode } from "react";
-export type SemanticChoiceOption = { value: string; label: string; disabled: boolean };
+export type SemanticChoiceOption = { value: string; label: string; disabled: boolean; artworkId?: string };
 
 type Parts = { trigger: unknown; content: unknown; item: unknown; group: unknown };
-function plainText(node: ReactNode): string | null {
+export function plainChoiceText(node: ReactNode): string | null {
   if (node === null || node === undefined || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) {
-    const pieces = node.map(plainText);
+    const pieces = node.map(plainChoiceText);
     return pieces.every(piece => piece !== null) ? pieces.join("") : null;
   }
-  if (isValidElement<{ children?: ReactNode }>(node) && node.type === Fragment) return plainText(node.props.children);
+  if (isValidElement<{ children?: ReactNode }>(node) && node.type === Fragment) return plainChoiceText(node.props.children);
   return null;
 }
 function authoredProps(props: Record<string, unknown>): boolean {
@@ -45,7 +45,7 @@ export function collectImmediateChoices(children: ReactNode, parts: Parts): Sema
       if (!authoredProps(node.props)) { supported = false; return; }
       if (node.type === parts.group) { items(node.props.children as ReactNode); return; }
       if (node.type !== parts.item) { supported = false; return; }
-      const label = plainText(node.props.children as ReactNode)?.trim(), value = node.props.value;
+      const label = plainChoiceText(node.props.children as ReactNode)?.trim(), value = node.props.value;
       if (!label || label.length > 256 || typeof value !== "string" || !value ||
           (node.props.disabled !== undefined && typeof node.props.disabled !== "boolean")) { supported = false; return; }
       options.push({ value, label, disabled: node.props.disabled === true });

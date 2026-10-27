@@ -87,37 +87,43 @@ struct NativeFeedbackFence {
     @Published var messages = [NativeFeedbackProjection]()
     var dismiss: ((NativeFeedbackProjection) -> Void)?
 }
-private struct NativeFeedbackView: View {
-    @ObservedObject var model: NativeFeedbackModel
+struct NativePresentationFeedback: Decodable {
+    let id: String; let message: String; let tone: String; let dismissible: Bool
+    static let keys: Set<String> = ["id", "message", "tone", "dismissible"]
+    var valid: Bool { NativeDrawerIdentity.identifier(id) && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && message.utf16.count <= 2048 && ["normal", "loading", "success", "error", "warning", "info"].contains(tone) }
+}
+/// Shared bounded banner; its owning presentation supplies placement and lifetime.
+struct NativeTextFeedbackBanner: View {
+    let message: String; let tone: String; let dismissible: Bool; let dismiss: () -> Void
     var body: some View {
-        VStack(spacing: 8) {
-            ForEach(model.messages, id: \.feedbackId) { state in
-                HStack(spacing: 10) {
-                    if state.tone == "loading" { ProgressView().controlSize(.small) }
-                    else { Image(systemName: symbol(state.tone)).imageScale(.medium).accessibilityHidden(true) }
-                    Text(state.message).font(.subheadline).foregroundStyle(.primary)
-                        .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                    if state.dismissible {
-                        Button { model.dismiss?(state) } label: {
-                            Image(systemName: "xmark").font(.system(size: 13, weight: .medium))
-                                .frame(width: 44, height: 44)
-                        }.buttonStyle(.plain).accessibilityLabel("Dismiss notification")
-                    }
-                }.padding(.leading, 16).padding(.trailing, state.dismissible ? 0 : 16)
-                    .padding(.vertical, state.dismissible ? 4 : 14)
-                    .background { material }
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("native-feedback-banner")
+        HStack(spacing: 10) {
+            if tone == "loading" { ProgressView().controlSize(.small) }
+            else { Image(systemName: symbol).imageScale(.medium).accessibilityHidden(true) }
+            Text(message).font(.subheadline).foregroundStyle(.primary).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+            if dismissible {
+                Button(action: dismiss) { Image(systemName: "xmark").font(.system(size: 13, weight: .medium)).frame(width: 44, height: 44) }
+                    .buttonStyle(.plain).accessibilityLabel("Dismiss notification")
             }
-        }
+        }.padding(.leading, 16).padding(.trailing, dismissible ? 0 : 16).padding(.vertical, dismissible ? 4 : 14)
+            .background { material }.accessibilityElement(children: .contain).accessibilityIdentifier("native-feedback-banner")
     }
     @ViewBuilder private var material: some View {
         if #available(iOS 26.0, *) { RoundedRectangle(cornerRadius: 20).fill(.clear).glassEffect(.regular, in: .rect(cornerRadius: 20)) }
         else { RoundedRectangle(cornerRadius: 20).fill(.regularMaterial) }
     }
-    private func symbol(_ tone: String) -> String {
+    private var symbol: String {
         switch tone { case "success": "checkmark.circle"; case "error": "exclamationmark.circle"
         case "warning": "exclamationmark.triangle"; default: "info.circle" }
+    }
+}
+private struct NativeFeedbackView: View {
+    @ObservedObject var model: NativeFeedbackModel
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(model.messages, id: \.feedbackId) { state in
+                NativeTextFeedbackBanner(message: state.message, tone: state.tone, dismissible: state.dismissible) { model.dismiss?(state) }
+            }
+        }
     }
 }
 

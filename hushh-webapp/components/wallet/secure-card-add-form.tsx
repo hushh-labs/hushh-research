@@ -86,8 +86,8 @@ export function useSecureCardFormOwner({ onSubmit, onCancel, backRoute, getNetwo
   const id = useId();
   const draftLifetime = useRef({ token: Symbol("card-draft"), alive: true });
   useLayoutEffect(() => { if (!active) draftLifetime.current.token = Symbol("closed-card-draft"); }, [active]);
-  useEffect(() => { draftLifetime.current.alive = true; return () => {
-    draftLifetime.current.alive = false; draftLifetime.current.token = Symbol("retired-card-draft");
+  useEffect(() => { const lifetime = draftLifetime.current; lifetime.alive = true; return () => {
+    lifetime.alive = false; lifetime.token = Symbol("retired-card-draft");
   }; }, []);
   const saving = useRef(false);
   useBackLayer(backRoute ?? "", backRoute && active && onCancel ? 2 : 0, () => {
@@ -102,6 +102,7 @@ export function useSecureCardFormOwner({ onSubmit, onCancel, backRoute, getNetwo
   const [network, setNetwork] = useState<CardBrand | "">("");
   const draftId = useRef(walletOperationId());
   const edited = useRef({ pan: Boolean(initialPan), expiry: false, cardholderName: false });
+  const [editedFields, setEditedFields] = useState({ pan: Boolean(initialPan), expiry: false, cardholderName: false });
   const [scanReading, setScanReading] = useState<CardScanDraft | null>(null);
   const [expiry, setExpiry] = useState("");
   const [issuingRegion, setIssuingRegion] = useState("");
@@ -138,10 +139,14 @@ export function useSecureCardFormOwner({ onSubmit, onCancel, backRoute, getNetwo
       digits = digits.slice(0, index) + digits.slice(index + 1);
       before = index;
     }
-    edited.current[field] = true;
+    edited.current[field] = true; setEditedFields({ ...edited.current });
     entryCaret.current = { input, digits: before };
     if (field === "pan") setPan(digits.slice(0, 19));
     else setExpiry(formatCardExpiryInput(digits));
+  };
+  const changeCardholderName = (input: HTMLInputElement) => {
+    nameCaret.current = { input, start: input.value.slice(0, input.selectionStart ?? input.value.length).toUpperCase().length, end: input.value.slice(0, input.selectionEnd ?? input.value.length).toUpperCase().length };
+    edited.current.cardholderName = true; setEditedFields({ ...edited.current }); setCardholderName(input.value.toUpperCase());
   };
   useEffect(() => { if (!active) { setScanReading(null); } }, [active]);
   useEffect(() => { if (!active || !collectSecurityCode) setSecurityCode(""); }, [active, collectSecurityCode]);
@@ -170,7 +175,7 @@ export function useSecureCardFormOwner({ onSubmit, onCancel, backRoute, getNetwo
     draftLifetime.current.token = Symbol("changed-card-owner");
     setPan(""); setCardholderName(""); setExpiry(""); setNetwork(""); setScanReading(null); setSecurityCode("");
     setIssuingRegion(""); setErrors([]); entryCaret.current = null;
-    edited.current = { pan: false, cardholderName: false, expiry: false }; draftId.current = walletOperationId();
+    edited.current = { pan: false, cardholderName: false, expiry: false }; setEditedFields({ ...edited.current }); draftId.current = walletOperationId();
   }, [ownerKey]);
   const contextRef = useRef(context);
   contextRef.current = context;
@@ -255,7 +260,7 @@ export function useSecureCardFormOwner({ onSubmit, onCancel, backRoute, getNetwo
       // Some hosts leave the form mounted after saving. Never retain its secrets.
       setPan("");
       draftId.current = walletOperationId();
-      edited.current = { pan: false, expiry: false, cardholderName: false };
+      edited.current = { pan: false, expiry: false, cardholderName: false }; setEditedFields({ ...edited.current });
       setScanReading(null);
       setCardholderName("");
       setSecurityCode("");
@@ -285,9 +290,9 @@ export function useSecureCardFormOwner({ onSubmit, onCancel, backRoute, getNetwo
     draftLifetime.current.token = Symbol("reset-card-draft");
     setPan(""); setCardholderName(""); setExpiry(""); setSecurityCode(""); setNetwork(""); setIssuingRegion("");
     setScanReading(null); setErrors([]); setSaveError(undefined); setScanning(false);
-    edited.current = { pan: false, expiry: false, cardholderName: false }; draftId.current = walletOperationId();
+    edited.current = { pan: false, expiry: false, cardholderName: false }; setEditedFields({ ...edited.current }); draftId.current = walletOperationId();
   };
-  return { id, errorsRef, cardholderName, setCardholderName, securityCode, setSecurityCode, pan, setPan, network, setNetwork, scanReading, expiry, setExpiry, issuingRegion, setIssuingRegion, errors, submitting, scanning, setScanning, nameCaret, edited, changeEntry, ownerKey, draftVisible, digits, brand, networkHint, networkLoading, supportedNetworks, catalogFailed, setCatalogRevision, fieldErrors, submit, readScan, saveError, resetDraft, draftLifetime };
+  return { markFieldsEdited: () => { edited.current = { pan: true, expiry: true, cardholderName: true }; setEditedFields({ ...edited.current }); }, id, errorsRef, cardholderName, setCardholderName, securityCode, setSecurityCode, pan, setPan, network, setNetwork, scanReading, expiry, setExpiry, issuingRegion, setIssuingRegion, errors, submitting, scanning, setScanning, editedFields, changeCardholderName, changeEntry, ownerKey, draftVisible, digits, brand, networkHint, networkLoading, supportedNetworks, catalogFailed, setCatalogRevision, fieldErrors, submit, readScan, saveError, resetDraft, draftLifetime };
 }
 
 export type SecureCardFormOwner = ReturnType<typeof useSecureCardFormOwner>;
@@ -299,7 +304,7 @@ export function SecureCardAddForm(props: SecureCardAddFormProps) {
 
 export function SecureCardAddFormView({ owner, onCancel, backRoute, compact, showIntroduction = true, scanEnabled = true,
   scanInToolbar = false, collectSecurityCode = false, active = true, inSheet = false, footerHost }: SecureCardAddFormProps & { owner: SecureCardFormOwner }) {
-  const { id, errorsRef, cardholderName, setCardholderName, securityCode, setSecurityCode, pan, setPan, network, setNetwork, scanReading, expiry, setExpiry, issuingRegion, setIssuingRegion, errors, submitting, scanning, setScanning, nameCaret, edited, changeEntry, ownerKey, draftVisible, digits, brand, networkHint, networkLoading, supportedNetworks, catalogFailed, setCatalogRevision, fieldErrors, submit, readScan } = owner;
+  const { id, errorsRef, cardholderName, securityCode, setSecurityCode, pan, network, setNetwork, scanReading, expiry, issuingRegion, setIssuingRegion, errors, submitting, scanning, setScanning, editedFields, changeCardholderName, changeEntry, ownerKey, draftVisible, digits, brand, networkHint, networkLoading, supportedNetworks, catalogFailed, setCatalogRevision, fieldErrors, submit, readScan } = owner;
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void submit(); };
   const scanner = scanEnabled ? <WalletCardScanner backRoute={backRoute} key={ownerKey} active={draftVisible} disabled={submitting}
     compactControls={inSheet} featured={scanInToolbar && !inSheet && !scanReading}
@@ -330,7 +335,7 @@ export function SecureCardAddFormView({ owner, onCancel, backRoute, compact, sho
         <h2 className={TYPOGRAPHY_CLASSNAMES.sectionTitle}>Add your card</h2>
         <p>Enter the details printed on your card.</p>
       </div> : null}
-      {draftVisible && scanReading ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText} data-testid="wallet-scan-field-status">{(["pan", "cardholderName", "expiry"] as const).map(key => `${key === "pan" ? "Number" : key === "expiry" ? "Expiry" : "Name"}: ${edited.current[key] ? "edited" : scanReading.states[key].replace("_", " ")}`).join(" · ")}</p> : null}
+      {draftVisible && scanReading ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText} data-testid="wallet-scan-field-status">{(["pan", "cardholderName", "expiry"] as const).map(key => `${key === "pan" ? "Number" : key === "expiry" ? "Expiry" : "Name"}: ${editedFields[key] ? "edited" : scanReading.states[key].replace("_", " ")}`).join(" · ")}</p> : null}
       {draftVisible && (inSheet || scanReading || digits.length >= 12) ? <div className={cn("mx-auto w-full max-w-[26.5rem]", inSheet && styles.sheetPreview)}>
         <WalletCardFace placeholder={inSheet} cardholderName={cardholderName} summary={{ cardId: "draft", nickname: "", brand, last4: digits.length >= 4 ? digits.slice(-4) : "", expiryMonth: Number(expiry.split("/")[0]) || 0, expiryYear: Number(expiry.split("/")[1]) || 0, issuingRegion, createdAt: "" }} />
       </div> : null}
@@ -361,9 +366,7 @@ export function SecureCardAddFormView({ owner, onCancel, backRoute, compact, sho
               id={`${id}-holder`}
               value={draftVisible ? cardholderName : ""}
               onChange={(event) => {
-                const input = event.currentTarget;
-                nameCaret.current = { input, start: input.value.slice(0, input.selectionStart ?? input.value.length).toUpperCase().length, end: input.value.slice(0, input.selectionEnd ?? input.value.length).toUpperCase().length };
-                edited.current.cardholderName = true; setCardholderName(input.value.toUpperCase());
+                changeCardholderName(event.currentTarget);
               }}
               autoCapitalize="characters"
               spellCheck={false}

@@ -16,7 +16,7 @@ struct NativeWorkspaceRetirementFence {
 struct NativeWorkspaceIdentity: Codable, Equatable, Hashable {
     let documentId: String; let ownerEpoch: String; let ownerGeneration: Int; let revision: Int; let workspace: String
     var valid: Bool {
-        NativeDrawerIdentity.identifier(documentId) && NativeDrawerIdentity.identifier(ownerEpoch) && workspace == "referrals" &&
+        NativeDrawerIdentity.identifier(documentId) && NativeDrawerIdentity.identifier(ownerEpoch) && ["referrals", "wallet"].contains(workspace) &&
         ownerGeneration > 0 && revision > 0 && [ownerGeneration, revision].allSatisfy { $0 <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration }
     }
     var event: [String: Any] { ["documentId": documentId, "ownerEpoch": ownerEpoch, "ownerGeneration": ownerGeneration, "revision": revision, "workspace": workspace] }
@@ -72,9 +72,12 @@ struct NativeWorkspaceProjection: Decodable {
     let appearance: String; let accentHex: String; let foregroundHex: String
     let page: String; var title: String; let enabled: Bool; let backEnabled: Bool
     var sections: [NativeDrawerSection]; var tabs: NativeWorkspaceTabs?
+    var feedback: NativePresentationFeedback?
+    var walletProfileEditor: NativeWalletProfileEditor?
+    var wallet: NativeWalletCollection?
     var search: NativeWorkspaceSearch?; var circleEditor: NativeWorkspaceCircleEditor?
     var identity: NativeWorkspaceIdentity { .init(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, workspace: workspace) }
-    static let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "appearance", "accentHex", "foregroundHex", "page", "title", "enabled", "backEnabled", "sections", "tabs", "search", "circleEditor"]
+    static let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "appearance", "accentHex", "foregroundHex", "page", "title", "enabled", "backEnabled", "sections", "tabs", "search", "circleEditor", "wallet", "walletProfileEditor", "feedback"]
     static func closed(_ value: [String: Any]) -> Bool {
         guard Set(value.keys).isSubset(of: keys), let frame = value["frame"] as? [String: Any], Set(frame.keys).isSubset(of: ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "layoutRevision", "contentInset"]),
               let sections = value["sections"] as? [[String: Any]] else { return false }
@@ -91,6 +94,9 @@ struct NativeWorkspaceProjection: Decodable {
             guard let editor = raw as? [String: Any], Set(editor.keys) == ["destinationId", "draft", "draftRevision", "acknowledgedEditRevision", "busy", "canSave", "error"],
                   let draft = editor["draft"] as? [String: Any], Set(draft.keys) == ["name", "kind"] else { return false }
         }
+        if let raw = value["feedback"] { guard let feedback = raw as? [String: Any], Set(feedback.keys) == NativePresentationFeedback.keys else { return false } }
+        if let raw = value["walletProfileEditor"] { guard let editor = raw as? [String: Any], NativeWalletProfileEditor.closed(editor) else { return false } }
+        if let raw = value["wallet"] { guard let wallet = raw as? [String: Any], NativeWalletCollection.closed(wallet) else { return false } }
         return true
     }
     var valid: Bool {
@@ -98,7 +104,9 @@ struct NativeWorkspaceProjection: Decodable {
         guard identity.valid, updateSequence > 0, updateSequence <= max, privacyGeneration >= 0, privacyGeneration <= max, isolationGeneration >= 0, isolationGeneration <= max,
               frame.valid, ["overview", "rules", "circle-picker", "circle-create", "circle-people"].contains(page), NativeDrawerProjection.text(title, 256), sections.count <= 32,
               HushhNativeControlAppearance(appearance: appearance, accentHex: accentHex, foregroundHex: foregroundHex) != nil else { return false }
+        guard workspace == "wallet" ? wallet?.valid == true && page == "overview" && circleEditor == nil : wallet == nil else { return false }
         var ids = Set<String>(); var count = 0
+        if let wallet { ids.formUnion(wallet.cards.map(\.id) + [wallet.addId, wallet.closeId] + (wallet.accessId.map { [$0] } ?? [])) }
         for section in sections {
             guard NativeDrawerIdentity.identifier(section.id), ids.insert(section.id).inserted, section.title == nil || NativeDrawerProjection.text(section.title!, 256) else { return false }
             for row in section.rows {
@@ -114,6 +122,8 @@ struct NativeWorkspaceProjection: Decodable {
             for option in tabs.options { guard NativeDrawerIdentity.identifier(option.id), ids.insert(option.id).inserted, NativeDrawerProjection.text(option.label, 64) else { return false } }
         }
         if let search { guard NativeDrawerIdentity.identifier(search.id), ids.insert(search.id).inserted, search.query.utf16.count <= 256, NativeDrawerProjection.text(search.label, 64) else { return false } }
+        if let feedback { guard feedback.valid else { return false } }
+        if let walletProfileEditor { guard workspace == "wallet", wallet?.selectedId != nil, walletProfileEditor.valid else { return false } }
         if let circleEditor { guard page == "circle-create", circleEditor.valid else { return false } }
         return true
     }
@@ -122,9 +132,13 @@ struct NativeWorkspaceProjection: Decodable {
     }
     func permits(_ action: String, row: String?, text: String? = nil) -> Bool {
         guard enabled else { return false }
+        if wallet != nil && wallet?.selectedId != nil, let row, tabs?.options.contains(where: { $0.id == row }) == true { return false }
+        if action == "feedback-dismiss" { return feedback?.id == row && feedback?.dismissible == true && text == nil }
+        if action == "wallet-save" || action == "wallet-cancel" { return walletProfileEditor != nil && walletProfileEditor?.busy == false && row == nil && text == nil && (action == "wallet-cancel" || walletProfileEditor?.canSave == true) }
         if action == "circle-save" || action == "circle-cancel" { return circleEditor != nil && circleEditor?.busy == false && row == nil && text == nil && (action == "circle-cancel" || circleEditor?.canSave == true) }
         if action == "back" { return backEnabled && row == nil }
         guard action == "row", let row else { return false }
+        if let wallet, wallet.permits(row) { return text == nil }
         if search?.id == row { return text != nil && (text?.utf16.count ?? 257) <= 256 }
         guard text == nil else { return false }
         if tabs?.options.contains(where: { $0.id == row && !$0.selected }) == true { return true }
@@ -134,6 +148,7 @@ struct NativeWorkspaceProjection: Decodable {
 struct NativeWorkspaceAction: Equatable {
     let sequence: Int; let updateSequence: Int; let action: String; let row: String?
     var text: String? = nil; var editRevision: Int? = nil
+    var domain: String? = nil; var detailVisitId: String? = nil; var dismissed: Bool? = nil
 }
 @MainActor final class NativeWorkspaceModel: ObservableObject {
     @Published private(set) var state: NativeWorkspaceProjection
@@ -141,7 +156,27 @@ struct NativeWorkspaceAction: Equatable {
     @Published private(set) var active = true
     var emit: (([String: Any]) -> Void)?
     var emitEdit: ((String, [String: Any]) -> Void)?
+    var canInteractDetail: ((String, Bool) -> Bool)?
     var canInteract: (() -> Bool)?
+    private var retiringWalletEditors = [UUID: NativeWalletWorkspaceEditor]()
+    var hasRetiringEditorPresentations: Bool { !retiringWalletEditors.isEmpty }
+    private var editorRetirementWaiters = [() -> Void]()
+    func afterEditorRetirement(_ completion: @escaping () -> Void) {
+        if retiringWalletEditors.isEmpty { completion() } else { editorRetirementWaiters.append(completion) }
+    }
+    private func retireWalletEditor() {
+        guard let old = walletEditor else { return }; walletEditor = nil
+        let key = UUID(); retiringWalletEditors[key] = old
+        let finish = { [weak self] in
+            guard let self else { return }; self.retiringWalletEditors.removeValue(forKey: key)
+            if self.retiringWalletEditors.isEmpty { let callbacks = self.editorRetirementWaiters; self.editorRetirementWaiters = []; callbacks.forEach { $0() } }
+        }
+        var cleared = false, dismissed = false
+        old.model.dismissEditorMenus { dismissed = true; if cleared { finish() } }
+        old.clear(); cleared = true
+        if dismissed { finish() }
+    }
+    private(set) var walletEditor: NativeWalletWorkspaceEditor?
     var scrolled: ((CGFloat, Bool) -> Void)?
     let searchMenus = NativeEditorMenuLifetime()
     weak var searchField: UITextField?
@@ -149,8 +184,13 @@ struct NativeWorkspaceAction: Equatable {
     @Published private(set) var editor: NativeProfileEditorModel<NativeWorkspaceCircleProjection>?
     private var editorAction: NativeProfileNameAction?
     init(_ state: NativeWorkspaceProjection) { self.state = state; _ = reconcileEditor() }
-    var presentationComplete: Bool { state.circleEditor == nil || editor?.retired == false }
+    var presentationComplete: Bool { (state.circleEditor == nil || editor?.retired == false) && (state.walletProfileEditor == nil || walletEditor?.model.retired == false) && retiringWalletEditors.isEmpty }
     @discardableResult private func reconcileEditor() -> Bool {
+        if let next = state.walletProfileEditor {
+            if let walletEditor, walletEditor.model.projection.destinationId == next.destinationId {
+                if !walletEditor.update(state, editor: next) { return false }
+            } else { retireWalletEditor(); walletEditor = NativeWalletWorkspaceEditor(state: state, editor: next, workspace: self) }
+        } else { retireWalletEditor() }
         guard let next = state.circleEditor else { editor?.clear(); editor = nil; editorAction = nil; return true }
         let projection = NativeWorkspaceCircleProjection(state, next)
         if let editor, editor.projection.destinationId == next.destinationId {
@@ -187,36 +227,45 @@ struct NativeWorkspaceAction: Equatable {
               next.frame.layoutRevision != state.frame.layoutRevision || next.frame == state.frame else { return false }
         state = next; return reconcileEditor()
     }
-    @discardableResult func choice(_ action: String, row: String? = nil, text: String? = nil, editRevision: Int? = nil) -> Bool {
-        guard active, pending == nil, canInteract?() == true, state.permits(action, row: row, text: text), sequence < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return false }
+    @discardableResult func choice(_ action: String, row: String? = nil, text: String? = nil, editRevision: Int? = nil, detailVisitId: String? = nil, dismissed: Bool = false) -> Bool {
+        let admitted = detailVisitId.map { canInteractDetail?($0, dismissed) == true } ?? (canInteract?() == true && state.wallet?.selectedId == nil)
+        guard !dismissed || row == state.wallet?.closeId, active, pending == nil, admitted, state.permits(action, row: row, text: text), sequence < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return false }
         sequence += 1
-        let choice = NativeWorkspaceAction(sequence: sequence, updateSequence: state.updateSequence, action: action, row: row, text: text, editRevision: editRevision)
+        let choice = NativeWorkspaceAction(sequence: sequence, updateSequence: state.updateSequence, action: action, row: row, text: text, editRevision: editRevision, domain: detailVisitId == nil ? nil : "wallet-detail", detailVisitId: detailVisitId, dismissed: detailVisitId == nil ? nil : dismissed)
         pending = choice
         var event = state.identity.event.merging(["privacyGeneration": state.privacyGeneration, "sequence": sequence, "updateSequence": state.updateSequence, "action": action]) { _, new in new }
+        if let detailVisitId { event["domain"] = "wallet-detail"; event["detailVisitId"] = detailVisitId; event["dismissed"] = dismissed }
         if let row { event["rowId"] = row }; if let text { event["text"] = text }; if let editRevision { event["editRevision"] = editRevision }; emit?(event); return true
     }
     func confirm(_ action: NativeWorkspaceAction) -> Bool {
-        guard active, canInteract?() == true, pending == action, action.sequence > confirmed, action.updateSequence == state.updateSequence,
+        let admitted = action.detailVisitId.map { action.domain == "wallet-detail" && canInteractDetail?($0, action.dismissed == true) == true } ?? (action.domain == nil && canInteract?() == true && state.wallet?.selectedId == nil)
+        guard active, admitted, pending == action, action.sequence > confirmed,
+              (action.dismissed == true ? action.updateSequence <= state.updateSequence : action.updateSequence == state.updateSequence),
               state.permits(action.action, row: action.row, text: action.text) else { return false }
         if action.action.hasPrefix("circle-") {
             guard let editorAction, editorAction.editRevision == action.editRevision, editor?.confirm(editorAction) == true else { return false }
         }
+        if action.action.hasPrefix("wallet-") { guard walletEditor?.confirm(action) == true else { return false } }
         confirmed = action.sequence; return true
     }
     func settle(_ action: NativeWorkspaceAction) -> Bool {
         guard pending == action else { return false }; pending = nil
+        if action.action.hasPrefix("wallet-") { walletEditor?.settle() }
         if let editorAction { _ = editor?.settle(editorAction); self.editorAction = nil }; return true
     }
     func clear() {
-        active = false; pending = nil; emit = nil; canInteract = nil; scrolled = nil; editor?.clear(); editor = nil; emitEdit = nil
+        retireWalletEditor()
+        active = false; pending = nil; emit = nil; canInteract = nil; canInteractDetail = nil; scrolled = nil; editor?.clear(); editor = nil; emitEdit = nil
         searchField?.unmarkText(); searchField?.resignFirstResponder(); searchField?.text = ""; searchField?.undoManager?.removeAllActions()
-        state.sections = []; state.tabs = nil; state.search = nil; state.circleEditor = nil; state.title = ""
+        state.sections = []; state.tabs = nil; state.search = nil; state.circleEditor = nil; state.wallet = nil; state.walletProfileEditor = nil; state.feedback = nil; state.title = ""
     }
 }
 @available(iOS 26.0, *) private struct NativeWorkspaceBody: View {
     @ObservedObject var model: NativeWorkspaceModel
     @State private var scrollingFromPerson = false
     var body: some View {
+        Group {
+        if model.state.wallet != nil { NativeWalletWorkspaceBody(model: model) } else {
         VStack(spacing: 0) {
             HStack {
                 if model.state.backEnabled {
@@ -258,7 +307,15 @@ struct NativeWorkspaceAction: Equatable {
                 .onScrollPhaseChange { _, phase in scrollingFromPerson = phase == .interacting || phase == .decelerating }
                 .onScrollGeometryChange(for: CGFloat.self, of: { max(0, $0.contentOffset.y + $0.contentInsets.top) }) { _, value in model.scrolled?(value, scrollingFromPerson) }
             }
+        }
+        }
         }.background(Color(uiColor: .systemGroupedBackground))
+            .overlay(alignment: .top) {
+                if model.state.wallet?.selectedId == nil, let feedback = model.state.feedback {
+                    NativeTextFeedbackBanner(message: feedback.message, tone: feedback.tone, dismissible: feedback.dismissible) { model.choice("feedback-dismiss", row: feedback.id) }
+                        .padding(.horizontal, 16).padding(.top, 8)
+                }
+            }
             .tint(Color(uiColor: HushhNativeControlAppearance.color(model.state.accentHex) ?? .label))
             .preferredColorScheme(model.state.appearance == "dark" ? .dark : .light)
             .disabled(!model.active || !model.state.enabled)
@@ -339,17 +396,34 @@ struct NativeWorkspaceAction: Equatable {
     static let installationID = "route-workspace"
     let model: NativeWorkspaceModel
     private let host: UIViewController
+    private var walletPanel: NativeWalletPanelPresentation?
+    var coverage: (() -> Void)?
+    var coversPresentation: Bool { walletPanel?.coversPresentation == true || model.hasRetiringEditorPresentations || retiring && host.parent != nil }
+    // A complete Add sheet may cover its retained Wallet collection. Other
+    // workspaces, selected-card children and retiring presenters stay excluded.
+    var permitsWalletForm: Bool { ready && model.state.workspace == "wallet" && model.state.wallet?.selectedId == nil && !coversPresentation }
+    func setExternalCoverage(_ covered: Bool) { walletPanel?.setExternalCoverage(covered) }
+    func prepare(completion: @escaping (Bool) -> Void) {
+        model.afterEditorRetirement { [weak self] in
+            guard let self else { completion(false); return }; self.refresh()
+            guard let walletPanel = self.walletPanel else { completion(self.ready); return }
+            walletPanel.prepare { [weak self] settled in completion(settled && self?.ready == true) }
+        }
+    }
     private weak var container: NativePresentationContainer?
     private var retiring = false
     private var retirement = [() -> Void]()
     private var menusDismissed = false
     private var presentationsDismissed = false
-    var ready: Bool { model.active && model.presentationComplete && host.parent != nil && host.viewIfLoaded?.window != nil && host.viewIfLoaded?.superview != nil }
+    var ready: Bool { (walletPanel?.ready ?? true) && model.active && model.presentationComplete && host.parent != nil && host.viewIfLoaded?.window != nil && host.viewIfLoaded?.superview != nil }
     init?(_ state: NativeWorkspaceProjection, parent: UIViewController, container: NativePresentationContainer) {
         guard #available(iOS 26.0, *) else { return nil }
         model = NativeWorkspaceModel(state)
         host = UIHostingController(rootView: NativeWorkspaceBody(model: model))
         self.container = container
+        walletPanel = NativeWalletPanelPresentation(model: model, parent: parent)
+        walletPanel?.coverage = { [weak self] in self?.coverage?() }
+        model.canInteractDetail = { [weak self] visit, dismissed in self?.walletPanel?.allows(visit, dismissed: dismissed) == true }
         host.view.backgroundColor = .systemGroupedBackground
         host.view.accessibilityIdentifier = "native-route-workspace"
         parent.addChild(host)
@@ -376,11 +450,13 @@ struct NativeWorkspaceAction: Equatable {
         retirement.append(completion)
         guard !retiring else { return }; retiring = true
         let menus = DispatchGroup()
+        if let walletPanel { menus.enter(); walletPanel.retire { menus.leave() } }
+        if let editor = model.walletEditor { menus.enter(); editor.model.dismissEditorMenus { menus.leave() } }
         if let editor = model.editor { menus.enter(); editor.dismissEditorMenus { menus.leave() } }
         menus.enter(); model.searchMenus.dismiss(model.searchField.map { [$0] } ?? []) { menus.leave() }
-        menus.notify(queue: .main) { [self] in menusDismissed = true; finishRetirementIfReady() }
         container?.releaseWorkspaceScroll(model.state.identity)
-        model.clear(); host.view.endEditing(true); host.willMove(toParent: nil)
+        model.clear(); menus.enter(); model.afterEditorRetirement { menus.leave() }; host.view.endEditing(true); host.willMove(toParent: nil)
+        menus.notify(queue: .main) { [self] in menusDismissed = true; finishRetirementIfReady() }
         func dismissOwnedPresentation(_ completion: @escaping () -> Void) {
             guard host.presentedViewController != nil else { completion(); return }
             host.dismiss(animated: false, completion: completion)
@@ -391,6 +467,10 @@ struct NativeWorkspaceAction: Equatable {
         guard menusDismissed, presentationsDismissed else { return }
         container?.remove(Self.installationID); host.removeFromParent()
         guard host.parent == nil, host.view.superview == nil else { return }
+        // Detachment changes coverage after the last child-sheet callback.
+        // Reconcile before acknowledging retirement so returning routes do not
+        // inherit the departing workspace's touch/accessibility isolation.
+        coverage?()
         let callbacks = retirement; retirement.removeAll(); callbacks.forEach { $0() }
     }
 }

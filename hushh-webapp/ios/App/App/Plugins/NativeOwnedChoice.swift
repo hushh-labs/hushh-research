@@ -23,8 +23,9 @@ struct NativeOwnedChoiceOption: Decodable, Identifiable, Equatable {
     let label: String
     let disabled: Bool
     let selected: Bool
+    var artworkId: String? = nil
     var id: String { handle }
-    var valid: Bool { NativeDrawerIdentity.identifier(handle) && !label.isEmpty && label.utf16.count <= 256 }
+    var valid: Bool { NativeDrawerIdentity.identifier(handle) && !label.isEmpty && label.utf16.count <= 256 && (artworkId == nil || NativeProfileArtwork.resolve(artworkId!) != nil) }
 }
 
 struct NativeOwnedChoiceProjection: Decodable, Equatable {
@@ -36,12 +37,13 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
     let privacyGeneration: Int
     let updateSequence: Int
     var title: String
+    var showTitle: Bool? = nil
     var options: [NativeOwnedChoiceOption]
     let appearance: String
     let accentHex: String
     let foregroundHex: String
     static let keys = NativeOwnedChoiceIdentity.keys.union([
-        "privacyGeneration", "updateSequence", "title", "options", "appearance", "accentHex", "foregroundHex"])
+        "privacyGeneration", "updateSequence", "title", "options", "showTitle", "appearance", "accentHex", "foregroundHex"])
     var identity: NativeOwnedChoiceIdentity {
         NativeOwnedChoiceIdentity(documentId: documentId, ownerEpoch: ownerEpoch,
             ownerGeneration: ownerGeneration, visitId: visitId, revision: revision)
@@ -63,19 +65,20 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
     }
     static func closed(_ value: [String: Any]) -> Bool {
         Set(value.keys).isSubset(of: keys) && (value["options"] as? [[String: Any]])?.allSatisfy {
-            Set($0.keys).isSubset(of: ["handle", "label", "disabled", "selected"])
+            Set($0.keys).isSubset(of: ["handle", "label", "disabled", "selected", "artworkId"])
         } == true
     }
 }
 
 @MainActor private final class OwnedChoiceModel: ObservableObject {
     @Published var title: String
+    let showTitle: Bool
     @Published var options: [NativeOwnedChoiceOption]
     @Published var accent: UIColor
     @Published var enabled = true
     var choose: ((String?) -> Void)?
     init(_ state: NativeOwnedChoiceProjection) {
-        title = state.title; options = state.options; accent = state.theme!.accent
+        showTitle = state.showTitle ?? true; title = state.title; options = state.options; accent = state.theme!.accent
     }
     func clear() { enabled = false; title = ""; options = []; choose = nil }
 }
@@ -85,7 +88,7 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(model.title).font(.headline).accessibilityAddTraits(.isHeader)
+                if model.showTitle { Text(model.title).font(.headline).accessibilityAddTraits(.isHeader) }
                 Spacer(minLength: 12)
                 Button("Cancel") { model.choose?(nil) }.frame(minWidth: 44, minHeight: 44)
                     .disabled(!model.enabled)
@@ -95,6 +98,12 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
                     model.choose?(option.handle)
                 } label: {
                     HStack {
+                        if let id = option.artworkId, let artwork = NativeProfileArtwork.resolve(id) {
+                            ZStack {
+                                Image(uiImage: artwork.base).resizable().foregroundStyle(Color.primary)
+                                if let accent = artwork.accent { Image(uiImage: accent).resizable().foregroundStyle(Color(uiColor: model.accent)) }
+                            }.frame(width: 24, height: 24).accessibilityHidden(true)
+                        }
                         Text(option.label).foregroundStyle(.primary)
                         Spacer(minLength: 12)
                         if option.selected { Image(systemName: "checkmark").foregroundStyle(Color(uiColor: model.accent)) }
@@ -105,7 +114,7 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
         }.tint(Color(uiColor: model.accent))
             .background(Color(uiColor: .systemGroupedBackground))
             .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("native-owned-choice")
+            .accessibilityLabel(model.title).accessibilityIdentifier("native-owned-choice")
     }
 }
 

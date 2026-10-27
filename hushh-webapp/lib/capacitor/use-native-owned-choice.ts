@@ -15,6 +15,8 @@ type Binding = {
   value: string;
   disabled: boolean;
   label?: string;
+  context?: string;
+  showTitle?: boolean;
   onValueChange: (value: string) => void;
 };
 export const NativeChoiceTriggerContext = createContext<{
@@ -45,7 +47,7 @@ export function useNativeOwnedChoice(binding: Binding, authoredTrigger?: { curre
   const params = useSearchParams();
   const queryKey = params?.toString() ?? "";
   const visit = `${pathname}\0${queryKey}`;
-  const signature = JSON.stringify([binding.options, binding.value, binding.disabled]);
+  const signature = JSON.stringify([binding.options, binding.value, binding.disabled, binding.label, binding.context, binding.showTitle]);
   const localTrigger = useRef<HTMLButtonElement | null>(null);
   const trigger = authoredTrigger ?? localTrigger;
   const [presented, setPresented] = useState(false);
@@ -57,6 +59,7 @@ export function useNativeOwnedChoice(binding: Binding, authoredTrigger?: { curre
   const invalidateGeneration = useCallback(() => { epoch.current++; }, []);
   const pending = useRef(false);
   const lease = useRef<NativeOwnedChoiceLease | null>(null);
+  const ineligibleRetirement = useRef<NativeOwnedChoiceLease | null>(null);
   const bound = useRef<{ signature: string; visit: string } | null>(null);
   const observer = useRef<MutationObserver | null>(null);
   const focusFrame = useRef<number | null>(null);
@@ -82,7 +85,16 @@ export function useNativeOwnedChoice(binding: Binding, authoredTrigger?: { curre
     live.current = { ...binding, signature, visit };
     if (!binding.options) {
       const generation = epoch.current;
-      if (lease.current) void lease.current.retire().then(confirmed => settle(generation, confirmed, true));
+      if (lease.current) {
+        const current = lease.current;
+        if (ineligibleRetirement.current === current) return;
+        ineligibleRetirement.current = current;
+        void current.retire().then(async confirmed => {
+          // One targeted readback may resolve a lost retirement response. It
+          // never reopens a popup or repeats an operation.
+          settle(generation, confirmed || await current.retirementIsConfirmed(), true);
+        });
+      }
       else settle(generation, true, true);
       return;
     }
@@ -128,7 +140,7 @@ export function useNativeOwnedChoice(binding: Binding, authoredTrigger?: { curre
         const values = new Map<string, string>();
         const options = snapshot.options!.map(option => {
           const handle = crypto.randomUUID(); values.set(handle, option.value);
-          return { handle, label: option.label, disabled: option.disabled, selected: option.value === snapshot.value };
+          return { handle, label: option.label, disabled: option.disabled, selected: option.value === snapshot.value, ...(option.artworkId ? { artworkId: option.artworkId } : {}) };
         });
         const current = new NativeOwnedChoiceLease({ ...identity, visitId: crypto.randomUUID() }, port, isCurrent, event => {
           const value = event.outcome === "selected" ? values.get(event.handle!) : undefined;
@@ -152,7 +164,7 @@ export function useNativeOwnedChoice(binding: Binding, authoredTrigger?: { curre
         });
         observer.current.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-accent"] });
         await current.present({ ...identity, visitId: current.identity.visitId, ...appearance,
-          title: snapshot.label || accessibleChoiceLabel(trigger.current), options });
+          title: snapshot.label || accessibleChoiceLabel(trigger.current), ...(snapshot.showTitle === undefined ? {} : { showTitle: snapshot.showTitle }), options });
       } catch {
         if (!isCurrent() || !pending.current) return;
         settle(generation, lease.current ? await lease.current.retire() : true, true);

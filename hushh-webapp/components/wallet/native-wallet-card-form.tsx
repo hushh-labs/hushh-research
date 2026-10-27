@@ -75,7 +75,7 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
       if (!entry || !f.draftVisible) return;
       if (d.network !== "auto" && !f.supportedNetworks.includes(d.network as CardBrand) && d.network !== "other") return;
       if (d.issuingRegion !== "none" && !COUNTRY_PHONE_OPTIONS.some(option => option.value === d.issuingRegion)) return;
-      f.edited.current = { pan: true, expiry: true, cardholderName: true };
+      f.markFieldsEdited();
       f.setPan(d.pan); f.setCardholderName(d.cardholderName); f.setExpiry(d.expiry);
       f.setNetwork(d.network === "auto" ? "" : d.network as CardBrand);
       f.setIssuingRegion(d.issuingRegion === "none" ? "" : d.issuingRegion);

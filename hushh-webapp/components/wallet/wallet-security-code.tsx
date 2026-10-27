@@ -4,16 +4,21 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { ProfilePaneCardIcon } from "@/components/profile/profile-pane-icons";
 import { SettingsRow } from "@/components/profile/settings-ui";
 import { isWalletSecurityCode } from "@/lib/wallet/card-security-code";
+import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 type CodeView = { kind: "hidden" | "reading" | "missing" | "error" } | { kind: "visible"; value: string };
 
 /** Mount only in owner Wallet details. Never copy the code into shared readers. */
-export function WalletSecurityCode({ onRead, active }: { onRead: () => Promise<string | undefined>; active: boolean }) {
+export function useWalletSecurityCode({ onRead, active }: { onRead: () => Promise<string | undefined>; active: boolean }) {
   const [view, setView] = useState<CodeView>({ kind: "hidden" });
   const revision = useRef(0);
   const hide = useCallback(() => { revision.current++; setView({ kind: "hidden" }); }, []);
   useEffect(() => subscribeVaultSessionEpoch(hide), [hide]);
+  useEffect(() => subscribeNativePrivacyObservation(() => {
+    const state = nativePrivacyObservation().state;
+    if (state && (state.shielded || !state.appIsActive)) hide();
+  }), [hide]);
   useLayoutEffect(() => { if (!active) { revision.current++; setView({ kind: "hidden" }); } }, [active]);
   useEffect(() => {
     const lifecycle = revision;
@@ -36,6 +41,12 @@ export function WalletSecurityCode({ onRead, active }: { onRead: () => Promise<s
       if (operation === revision.current) setView(isWalletSecurityCode(value) ? { kind: "visible", value } : { kind: "missing" });
     } catch { if (operation === revision.current) setView({ kind: "error" }); }
   };
+  return { view, visible, toggle, hide };
+}
+
+export function WalletSecurityCode(props: Parameters<typeof useWalletSecurityCode>[0]) {
+  const { active } = props;
+  const { view, visible, toggle } = useWalletSecurityCode(props);
   return <SettingsRow icon={ProfilePaneCardIcon} iconTone="transparent" density="compact" title="CVV"
     description={active && view.kind === "error" ? "Could not show CVV. Try again." : undefined}
     trailing={<span className="flex min-w-0 items-center justify-end gap-2">

@@ -817,7 +817,7 @@ final class NativeVaultLayoutProbe {
                             "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
                             "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial",
                             "routeKind", "globalErrorKind", "phoneGate", "nativeChoiceBootstrap", "nativeChoiceReady", "nativeChoicePresented", "nativeChoiceBlocked",
-                            "nativeChoiceCount", "nativeChoiceViewportWidth",
+                            "nativeChoiceCount", "nativeChoiceViewportWidth", "walletNativeMode", "walletWeb", "walletIntro",
                             "nativeChoice0X", "nativeChoice0Y", "nativeChoice0Width", "nativeChoice0Height", "nativeChoice0Hit", "nativeChoice0Mode",
                             "nativeChoice1X", "nativeChoice1Y", "nativeChoice1Width", "nativeChoice1Height", "nativeChoice1Hit", "nativeChoice1Mode"])
             var payload = [String: Any]()
@@ -832,6 +832,8 @@ final class NativeVaultLayoutProbe {
             payload["nativeWebAXHidden"] = webView.accessibilityElementsHidden
             payload["nativeWebInWindow"] = webView.window != nil
             payload["nativeChoicePreparationCount"] = NativeOwnedChoiceCoordinator.preparationCount
+            payload["walletPresentationCount"] = NativeWalletPanelPresentation.presentationCount
+            payload["workspaceAdmissionStage"] = HushhNativeDrawersPlugin.workspaceAdmissionStage
             payload["nativeChoicePreparationStage"] = NativeOwnedChoiceCoordinator.preparationStage
             // Read UIKit's current docked-keyboard layout guide independently
             // of the Capacitor height event consumed by CSS. A hardware/floating
@@ -928,6 +930,9 @@ final class NativeVaultLayoutProbe {
         } catch { /* Malformed public diagnostics grant no authority. */ }
       }
       const result = {
+        walletNativeMode: Math.max(0, ['checking', 'native', 'web', 'blocked'].indexOf(document.querySelector('[data-native-wallet-workspace]')?.getAttribute('data-native-wallet-workspace')) + 1),
+        walletWeb: !!document.querySelector('[data-testid="wallet-card-browser"]'),
+        walletIntro: !!document.querySelector('[data-testid="wallet-introduction"]'),
         nativeChoiceBootstrap: window.__HUSHH_NATIVE_DRAWER_BOOTSTRAP__?.ownedChoices === true,
         nativeChoiceReady: document.querySelectorAll('[data-native-owned-choice="ready"]').length,
         nativeChoicePresented: document.querySelectorAll('[data-native-owned-choice="presented"]').length,

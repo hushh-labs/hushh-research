@@ -44,7 +44,6 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { NativeRouteAddSeat } from "@/components/app-ui/native-route-add";
 import { OpenProfileAction } from "@/components/app-ui/open-profile-action";
 import {
   DropdownMenu,
@@ -1246,7 +1245,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                           </ShellActionSurface>
                         ) : null}
 
-                        <NativeRouteAddSeat />
                         <OpenProfileAction avatarUrl={effectiveAvatarUrl} displayName={user?.displayName} />
                       </>
                     )}
