@@ -18730,7 +18730,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
       "symbol": null,
-      "value": 1476
+      "value": 1488
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32147,7 +32147,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
       "symbol": "test_provider_cleanup_retains_custody_through_failure_and_migration_replay",
-      "value": 702
+      "value": 723
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -32291,7 +32291,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
       "symbol": null,
-      "value": 2205
+      "value": 2225
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32336,7 +32336,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_provider_journal.py",
       "symbol": null,
-      "value": 607
+      "value": 616
     },
     {
       "detail": "module exceeds the advisory operon budget",

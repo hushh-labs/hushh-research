@@ -168,6 +168,13 @@ installation still executes the immutable historical body before migration 201.
 The normal identity-write guards remain authoritative for concurrent erasure;
 replay never deletes tombstones, disables a guard or changes accepted SQL checksums.
 
+Migration 428's owner financial-summary preference backfill uses the same filter,
+so replay during an in-flight deletion skips the erased owner instead of failing
+the deploy and retaining the deletion release fence. The static check
+`test_replayed_identity_backfills_skip_tombstoned_owners` refuses any new manifest
+migration whose replayed `INSERT ... SELECT` copies an account identity without
+enrollment here; its legacy exceptions (030, 127, 129) may only shrink.
+
 The checksum-pinned `db/private_agent_adoption.py` execution adapter preserves
 420's historical SQL and ledger checksum in replay and pending ledger execution;
 observe and already-applied ledger entries remain unchanged. Before 420's column
