@@ -251,19 +251,14 @@ class GitHub:
         This is historical acceptance only. A current-state caller must also
         bind the latest relevant deployment and the current run attempt.
         """
-        _, _, receipt = self._receipt(pin, environment)
-        release = receipt.get("release", {})
-        sha = release.get("sha", "")
-        services = selected(release.get("scope"))
-        require(
-            sorted(services) == receipt.get("resolved_services"),
-            "Accepted service scope is inconsistent",
+        sha, services = _provenance.application_scope(
+            self._receipt(pin, environment)[2]
         )
         return {
             "sha": sha,
             "services": {
                 service: self.accept(pin, environment, sha, service)
-                for service in sorted(services)
+                for service in services
             },
         }
 

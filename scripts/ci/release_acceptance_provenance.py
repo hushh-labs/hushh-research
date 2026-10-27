@@ -14,6 +14,24 @@ def require(condition: bool, message: str) -> None:
         raise Refused(message)
 
 
+def application_scope(receipt: dict) -> tuple[str, list[str]]:
+    """Resolve application identity independently of its workflow commit."""
+    release = receipt.get("release", {})
+    sha, scope = release.get("sha", ""), release.get("scope")
+    require(
+        isinstance(sha, str)
+        and re.fullmatch(r"[a-f0-9]{40}", sha) is not None
+        and scope in {"all", "backend", "frontend"},
+        "Resolved application identity and scope are required",
+    )
+    services = ["backend", "frontend"] if scope == "all" else [scope]
+    require(
+        services == receipt.get("resolved_services"),
+        "Accepted service scope is inconsistent",
+    )
+    return sha, services
+
+
 def validated_backend_image(observed: dict, project: str, service: str) -> str | None:
     fields = {"image_reference", "image_digest", "image_verified"}
     if not fields.intersection(observed):
