@@ -5,13 +5,11 @@ import { cn } from "@/lib/utils";
 
 import styles from "./calendar-compact-action.module.css";
 
-type CalendarCompactActionProps = Omit<ButtonProps, "variant" | "effect" | "size"> & {
-  pillClassName?: string;
-};
+type CalendarCompactActionProps = Omit<ButtonProps, "variant" | "effect" | "size">;
 
 /** Connect's neutral accent pill, scoped to ordinary Calendar actions. */
 export const CalendarCompactAction = React.forwardRef<HTMLButtonElement, CalendarCompactActionProps>(
-  ({ children, className, pillClassName, ...props }, ref) => (
+  ({ children, className, ...props }, ref) => (
     <MorphyButton
       ref={ref}
       variant="none"
@@ -20,7 +18,7 @@ export const CalendarCompactAction = React.forwardRef<HTMLButtonElement, Calenda
       className={cn(styles.target, className)}
       {...props}
     >
-      <span className={cn(styles.pill, pillClassName)}>{children}</span>
+      {children}
     </MorphyButton>
   ),
 );

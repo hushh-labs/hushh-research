@@ -288,13 +288,24 @@ jobs:
           set -euo pipefail
           echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
 
+      - name: Select UAT application source authority
+        id: application-authority
+        env:
+          APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
+        run: |
+          python3 scripts/ci/promotion_approval.py uat --application-sha "$APPLICATION_SHA" \
+            --github-output "$GITHUB_OUTPUT"
+
+      # Stable receipt-reader identity. Main retains its smoke requirement;
+      # UAT-only content also retains the exact Dev acceptance gate below.
       - name: Validate deployment SHA against main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REQUIRED_BRANCH: main
+          REQUIRED_BRANCH: ${{ steps.application-authority.outputs.branch }}
           REQUIRE_CI_SUCCESS: "1"
-          REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
-        run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve-sha.outputs.sha }}"
+          REQUIRED_CHECK_NAME: ${{ steps.application-authority.outputs.checks || 'Main Post-Merge Smoke Gate' }}
+          APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
+        run: bash scripts/ci/require-deploy-sha-on-main.sh "$APPLICATION_SHA"
 
       - name: Preserve current release tooling
         shell: bash

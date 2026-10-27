@@ -56,6 +56,7 @@ def load_script(name: str, filename: str) -> Any:
 
 serving = load_script("uat_capacity_serving", "resolve-cloud-run-serving-state.py")
 scope_tool = load_script("uat_capacity_scope", "resolve-deploy-scope.py")
+promotion = load_script("uat_capacity_promotion", "promotion_approval.py")
 
 
 def remaining_query_seconds() -> float:
@@ -110,11 +111,21 @@ def verify_request(target_sha: str) -> None:
                  "--surface", "uat", "--actor", actor]),
         "UAT actor governance",
     )
-    env = {**os.environ, "REQUIRED_BRANCH": "main", "REQUIRE_CI_SUCCESS": "1",
-           "REQUIRED_CHECK_NAME": "Main Post-Merge Smoke Gate"}
+    require_success(command(["git", "fetch", "--no-tags", "origin", "main", "uat"]),
+                    "UAT source refresh")
+
+    def resolve(*arguments: str) -> str:
+        return require_success(command(["git", *arguments]), "UAT source ancestry").strip()
+
+    try:
+        branch, checks = promotion.uat_source(target_sha, resolve=resolve)
+    except ValueError as error:
+        raise AdmissionError("UAT application has no approved source history") from error
+    env = {**os.environ, "REQUIRED_BRANCH": branch, "REQUIRE_CI_SUCCESS": "1",
+           "REQUIRED_CHECK_NAME": checks}
     require_success(
         command(["bash", str(ROOT / "scripts/ci/require-deploy-sha-on-main.sh"), target_sha], env=env),
-        "exact main SHA and CI validation",
+        "exact application SHA and CI validation",
     )
 
 

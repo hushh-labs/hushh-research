@@ -36,6 +36,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 
 PR_VALIDATION_WORKFLOW_PATH = ".github/workflows/ci.yml"
 PR_VALIDATION_WORKFLOW_NAME = "PR Validation"
@@ -55,7 +56,11 @@ class WorkflowRun:
     event: str
     head_sha: str
     status: str
+    conclusion: str
     created_at: str
+    attempt: int
+    started_at: str
+    updated_at: str
 
 
 def parse_pr_number(head_ref: str) -> int:
@@ -88,17 +93,52 @@ def latest_pr_validation_run(runs: list[WorkflowRun], pr_head_sha: str) -> Workf
     ]
     if not candidates:
         raise QueueEntryRejected(f"no PR Validation run exists for PR head {pr_head_sha}")
-    # The newest run is the verdict; a stale green run must not outvote a newer red one.
-    return max(candidates, key=lambda run: (run.created_at, run.run_id))
+    # Reruns retain their original run ID and creation time. A later attempt of
+    # an older run must supersede newer green evidence, including while pending.
+    def chronology(run):
+        try:
+            values = [datetime.fromisoformat(value.replace("Z", "+00:00"))
+                      for value in (run.started_at, run.updated_at)]
+            if type(run.attempt) is not int or run.attempt < 1 or any(v.tzinfo is None for v in values):
+                raise ValueError("missing current attempt")
+            if values[1] < values[0]:
+                raise ValueError("attempt update precedes start")
+            return values[0], run.run_id
+        except (AttributeError, TypeError, ValueError):
+            raise QueueEntryRejected("PR validation attempt chronology is unavailable") from None
+
+    return max(candidates, key=chronology)
+
+
+def validation_runs(payload: dict) -> list[WorkflowRun]:
+    rows = payload.get("workflow_runs")
+    if (not isinstance(rows, list) or type(payload.get("total_count")) is not int
+            or payload["total_count"] != len(rows) or len(rows) > 100):
+        raise QueueEntryRejected("Validation-run inventory is incomplete")
+    return [
+        WorkflowRun(
+            run_id=int(item["id"]), path=str(item.get("path", "")).split("@", 1)[0],
+            name=str(item.get("name", "")), event=str(item.get("event", "")),
+            head_sha=str(item.get("head_sha", "")), status=str(item.get("status", "")),
+            conclusion=str(item.get("conclusion", "")), created_at=str(item.get("created_at", "")),
+            attempt=item.get("run_attempt"), started_at=str(item.get("run_started_at", "")),
+            updated_at=str(item.get("updated_at", "")),
+        ) for item in rows
+    ]
+
+
+def require_unchanged_authority(run: WorkflowRun, current: list[WorkflowRun], sha: str) -> None:
+    if latest_pr_validation_run(current, sha) != run:
+        raise QueueEntryRejected("Competing validation attempt changed during queue admission")
 
 
 def require_gate_success(run: WorkflowRun, jobs: list[dict]) -> None:
-    if run.status != "completed":
+    if run.status != "completed" or run.conclusion != "success":
         raise QueueEntryRejected(
             f"PR Validation run {run.run_id} is still {run.status}; wait for it before queueing"
         )
     gates = [job for job in jobs if job.get("name") == GATE_JOB_NAME]
-    if not gates:
+    if len(gates) != 1:
         raise QueueEntryRejected(f"PR Validation run {run.run_id} has no {GATE_JOB_NAME} job")
     conclusions = {str(job.get("conclusion")) for job in gates}
     if conclusions != {"success"}:
@@ -137,21 +177,24 @@ def verify(repo: str, head_ref: str, merge_group_sha: str) -> str:
     payload = _gh_json(
         f"repos/{repo}/actions/runs?head_sha={pr_head_sha}&event=pull_request&per_page=100"
     )
-    runs = [
-        WorkflowRun(
-            run_id=int(item["id"]),
-            path=str(item.get("path", "")).split("@", 1)[0],
-            name=str(item.get("name", "")),
-            event=str(item.get("event", "")),
-            head_sha=str(item.get("head_sha", "")),
-            status=str(item.get("status", "")),
-            created_at=str(item.get("created_at", "")),
-        )
-        for item in payload.get("workflow_runs", [])
-    ]
+    runs = validation_runs(payload)
     run = latest_pr_validation_run(runs, pr_head_sha)
-    jobs = _gh_json(f"repos/{repo}/actions/runs/{run.run_id}/jobs?per_page=100").get("jobs", [])
+    inventory = _gh_json(f"repos/{repo}/actions/runs/{run.run_id}/attempts/{run.attempt}/jobs?per_page=100")
+    jobs = inventory.get("jobs")
+    if (not isinstance(jobs, list) or type(inventory.get("total_count")) is not int
+            or inventory["total_count"] != len(jobs) or len(jobs) > 100):
+        raise QueueEntryRejected("Current-attempt job inventory is incomplete")
     require_gate_success(run, jobs)
+    current = _gh_json(f"repos/{repo}/actions/runs/{run.run_id}")
+    if any(current.get(key) != expected for key, expected in {
+        "id": run.run_id, "run_attempt": run.attempt, "head_sha": run.head_sha,
+        "status": "completed", "conclusion": "success",
+        "run_started_at": run.started_at, "updated_at": run.updated_at,
+    }.items()) or _gh_json(f"repos/{repo}/pulls/{pr_number}")["head"]["sha"] != pr_head_sha:
+        raise QueueEntryRejected("PR head or validation attempt changed during queue admission")
+    require_unchanged_authority(run, validation_runs(_gh_json(
+        f"repos/{repo}/actions/runs?head_sha={pr_head_sha}&event=pull_request&per_page=100"
+    )), pr_head_sha)
     return (
         f"PR #{pr_number}: merge group {merge_group_sha} has the same tree as PR head "
         f"{pr_head_sha}, whose PR Validation run {run.run_id} passed {GATE_JOB_NAME}."
@@ -162,6 +205,31 @@ def _expect(condition: bool, message: str) -> None:
     # Not `assert`: `python -O` strips asserts, and a self-test must not pass vacuously.
     if not condition:
         raise AssertionError(message)
+
+
+def _attempt_order_self_test(run, older, newer, sha) -> WorkflowRun:
+    rerun = run(1, older.created_at, attempt=2, status="in_progress",
+                started_at="2026-09-03T00:00:00Z", updated_at="2026-09-03T00:00:00Z")
+    _expect(latest_pr_validation_run([rerun, newer], sha) == rerun,
+            "later rerun of an older run supersedes newer green evidence")
+    late_completion = run(1, older.created_at, updated_at="2026-09-03T00:00:00Z")
+    newer_failure = run(2, newer.created_at, conclusion="failure")
+    _expect(latest_pr_validation_run([late_completion, newer_failure], sha) == newer_failure,
+            "older run finishing later cannot hide a newer failed attempt")
+    try:
+        require_unchanged_authority(newer, [rerun, newer], sha)
+    except QueueEntryRejected:
+        pass
+    else:
+        raise AssertionError("accepted a competing attempt appearing during admission")
+    for bad in (run(1, older.created_at, attempt=0), run(1, older.created_at, updated_at="")):
+        try:
+            latest_pr_validation_run([bad, newer], sha)
+        except QueueEntryRejected:
+            pass
+        else:
+            raise AssertionError("accepted unverifiable attempt chronology")
+    return rerun
 
 
 def self_test() -> int:
@@ -198,6 +266,10 @@ def self_test() -> int:
             "event": "pull_request",
             "head_sha": sha,
             "status": "completed",
+            "conclusion": "success",
+            "attempt": 1,
+            "started_at": created,
+            "updated_at": created,
         }
         fields.update(overrides)
         return WorkflowRun(run_id=run_id, created_at=created, **fields)  # type: ignore[arg-type]
@@ -209,6 +281,7 @@ def self_test() -> int:
         run(7, "2026-09-09T00:00:00Z", head_sha="b" * 40),
     ]
     _expect(latest_pr_validation_run([older, newer, *decoys], sha) == newer, "newest PR Validation run wins")
+    rerun = _attempt_order_self_test(run, older, newer, sha)
     try:
         latest_pr_validation_run(decoys, sha)
     except QueueEntryRejected:
@@ -223,6 +296,9 @@ def self_test() -> int:
         (newer, [{"name": "Protocol (Python)", "conclusion": "success"}]),
         (newer, []),
         (run(3, "2026-09-03T00:00:00Z", status="in_progress"), [{"name": GATE_JOB_NAME, "conclusion": "success"}]),
+        (rerun, [{"name": GATE_JOB_NAME, "conclusion": "success"}]),
+        (run(3, newer.created_at, conclusion="failure"), [{"name": GATE_JOB_NAME, "conclusion": "success"}]),
+        (newer, [{"name": GATE_JOB_NAME, "conclusion": "success"}] * 2),
     )
     for candidate, jobs in rejections:
         try:
