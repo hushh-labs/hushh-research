@@ -39,10 +39,25 @@ from hushh_mcp.runtime_providers.dependency_health import (  # noqa: E402
     classify_provider_error,
     summarize,
 )
+from scripts.capability_probe_failure import FAILURE_REASONS  # noqa: E402
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 MAX_OUTPUT_TOKENS = 256
 STAGES = {"configuration", "federation", "primary_http", "response_validation"}
+
+
+def valid_failure_reason(capability: str, reason: object) -> bool:
+    return (
+        isinstance(reason, str)
+        and reason in FAILURE_REASONS
+        and (
+            reason == "unlisted"
+            or capability == "live_audio"
+            and reason.startswith("live.")
+            or capability == "one_text_root"
+            and reason.startswith("root.")
+        )
+    )
 
 
 class ReadinessConfigurationError(ValueError):
@@ -103,16 +118,18 @@ def capability_failure_event(report: dict) -> dict:
             not in {PROVIDER_UNAVAILABLE, CANDIDATE_MISCONFIGURED, APPLICATION_BROKEN}
             or not isinstance(error_type, str)
             or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,95}", error_type)
+            or ("failure_reason" in row and not valid_failure_reason(name, row["failure_reason"]))
         ):
             raise ReadinessResponseError("Invalid managed capability failure metadata")
-        failures.append(
-            {
-                "capability": name,
-                "classification": classification,
-                "error_type": error_type,
-                "elapsed_ms": row["elapsed_ms"],
-            }
-        )
+        failure = {
+            "capability": name,
+            "classification": classification,
+            "error_type": error_type,
+            "elapsed_ms": row["elapsed_ms"],
+        }
+        if "failure_reason" in row:
+            failure["failure_reason"] = row["failure_reason"]
+        failures.append(failure)
     if not failures:
         raise ReadinessResponseError("Managed capability failure has no failed child")
     classification = summarize([row["classification"] for row in failures])
