@@ -47,6 +47,9 @@ vi.mock("@/lib/services/auth-service", () => ({
   },
 }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {} }));
+vi.mock("@/lib/auth/google-signup-token", () => ({
+  preloadGoogleSignupAuth: async () => {},
+}));
 vi.mock("@/lib/firebase/config", () => ({
   prepareRecaptchaVerifier: mocks.prepareRecaptcha,
   resetRecaptcha: mocks.resetRecaptcha,
@@ -139,6 +142,24 @@ describe("lost vault deletion", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     publishValidatedAuthSessionOwner(null);
+  });
+
+  it.each([
+    ["identity_initialization_not_ready", "Google sign-in is getting ready"],
+    ["identity_timeout", "Your sign-in check timed out"],
+  ])("keeps verification retryable after %s without submitting deletion", async (code, message) => {
+    mocks.reauthenticate.mockRejectedValueOnce(new Error(code));
+    render(<LostVaultDeletePanel user={user} onBack={vi.fn()} />);
+    const google = await screen.findByRole("button", { name: "Continue with Google" });
+    fireEvent.click(google);
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(google).toBeEnabled();
+    expect(mocks.startPhoneProof).not.toHaveBeenCalled();
+    expect(mocks.deleteAccount).not.toHaveBeenCalled();
+    fireEvent.click(google);
+    await screen.findByLabelText("Mobile number");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(mocks.deleteAccount).not.toHaveBeenCalled();
   });
 
   it("preserves provider-only deletion only for a backend-confirmed no-phone account", async () => {
