@@ -831,6 +831,15 @@ blocks this initial rollout; it does not authorize SSO activation or an older
 reader. Release artifacts retain the plan, exact image probe, selected revision
 and these aggregate checks without phone numbers, OTPs or owner identifiers.
 
+The exact reviewed production restoration may appear in serving state or retained
+history without belonging to main ancestry. Its canonical source proof classifies
+it as pre-phone only after checking that the new phone authority writers are
+absent. WorkOS still requires directly disabled current and historical issuers.
+A healthy restoration serving reference additionally requires its immutable
+operation and release receipts; failed or rolled-back attempts cannot qualify.
+This classification supplies no phone rollback anchor. The independent reader
+still needs the full 425+431 source, image and runtime qualification above.
+
 
 ## Phone recovery action admission (431)
 
