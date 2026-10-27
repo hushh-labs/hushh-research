@@ -1,7 +1,7 @@
 {
   "displayName": "[Managed] Auth Test Allowlist Health",
   "documentation": {
-    "content": "The hourly protected phone-test allowlist check failed, could not verify its source, or stopped reporting for three hours. Check Verify Protected Configuration and scripts/ops/verify_secret_list_invariants.py. Inspect aggregate counts only and restore through secret_list_edit.py after reviewing the last good version. Never copy phone numbers, fixed OTPs, tokens or secret contents into logs or incident evidence. An intact list is configuration proof; it does not prove a completed OTP/auth journey. Runbook: deploy/observability/README.md#auth-availability",
+    "content": "The protected phone-test check failed or could not verify its source. When AUTH_PHONE_RUNTIME_HEALTH_ENABLED is true in that environment, the same check also requires a healthy serving-process phone-test configuration observation; while off, coverage remains list-only. Optional heartbeat coverage detects three hours without reports. Check Verify Protected Configuration and scripts/ops/verify_secret_list_invariants.py; inspect aggregate status/counts and optional runtime_status only. Restore a damaged list through secret_list_edit.py after reviewing the last good version, or inspect the deployed runtime configuration when runtime_status is unavailable. Never copy phone numbers, fixed OTPs, tokens or secret contents into logs or incident evidence. Neither intact lists nor runtime prerequisites prove a completed OTP/auth journey or SMS delivery. Runbook: deploy/observability/README.md#auth-availability",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",
