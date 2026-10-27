@@ -20,6 +20,10 @@ final class NativeSupportTests: XCTestCase {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let previous = scene.windows.first(where: \.isKeyWindow)
         let parent = UIViewController(), window = UIWindow(windowScene: scene)
+        let shield = HushhSessionPrivacyShield()
+        let web = WKWebView(frame: scene.coordinateSpace.bounds)
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers, privacyShield: shield)
+        parent.view = container
         window.rootViewController = parent; window.makeKeyAndVisible()
         parent.view.layoutIfNeeded()
         let navigation = UITabBar(frame: CGRect(x: 0, y: parent.view.bounds.height - 49, width: parent.view.bounds.width, height: 49))
@@ -27,8 +31,8 @@ final class NativeSupportTests: XCTestCase {
         let dock = UIButton(frame: CGRect(x: 20, y: navigation.frame.minY - 64, width: parent.view.bounds.width - 40, height: 44))
         dock.setTitle("Public dock", for: .normal)
         parent.view.addSubview(navigation); parent.view.addSubview(dock)
-        let shield = HushhSessionPrivacyShield()
         shield.attach(to: parent.view)
+        container.conceal()
         let document = "public-owned-choice-\(UUID().uuidString)"
         shield.observeDocument(document); shield.protectForAppInactive(); shield.markAppActive()
         let released = expectation(description: "Isolated public fixture privacy release")
@@ -36,13 +40,15 @@ final class NativeSupportTests: XCTestCase {
             XCTAssertTrue($0); released.fulfill()
         }
         await fulfillment(of: [released], timeout: 3)
+        XCTAssertTrue(web.isUserInteractionEnabled)
+        XCTAssertFalse(web.accessibilityElementsHidden)
         let choice = NativeOwnedChoiceCoordinator(privacyShield: shield)
+        choice.changed = { [weak choice] in container.isolateForOwnedDrawer(choice?.coversPresentation == true) }
         choice.parent = { parent }; choice.available = { true }
         choice.admitOwner = { _ in true }; choice.currentOwner = { _ in true }
         var events = 0; choice.emit = { _ in events += 1 }
         defer {
             choice.retire(); window.isHidden = true; window.rootViewController = nil
-            if let host = previous?.rootViewController?.view { shield.attach(to: host) }
             previous?.makeKeyAndVisible()
         }
         let identity: [String: Any] = ["documentId": document, "ownerEpoch": "public-owner", "ownerGeneration": 1,
@@ -82,12 +88,20 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(retirementCompleted); choice.readState(read); XCTAssertTrue(rejectedWhileAttached)
         await fulfillment(of: [detached], timeout: 3)
         XCTAssertNil(controller.presentingViewController); XCTAssertFalse(choice.coversPresentation)
+        XCTAssertTrue(web.isUserInteractionEnabled, "Popup retirement must preserve authorized WebView recovery even while native paint stays concealed")
+        XCTAssertFalse(web.accessibilityElementsHidden)
         var confirmed = false
         let absent = try XCTUnwrap(CAPPluginCall(callbackId: "public-absent", methodName: "getOwnedChoiceState", options: identity,
             success: { result, _ in
                 if case let .dictionary(value)? = result?.resultData { confirmed = value["phase"] as? String == "retired" }
             }, error: { _ in XCTFail("CHOICE_ABSENCE_REFUSED") }))
         choice.readState(absent); XCTAssertTrue(confirmed); XCTAssertEqual(events, 0)
+        shield.protectForAppInactive()
+        container.conceal()
+        container.isolateForOwnedDrawer(true)
+        container.isolateForOwnedDrawer(false)
+        XCTAssertFalse(web.isUserInteractionEnabled, "Popup retirement must never release an active privacy cover")
+        XCTAssertTrue(web.accessibilityElementsHidden)
     }
 
     @MainActor func testNativeFeedbackReplacementRetainsItsBoundedHostAndOutsideTouches() throws {

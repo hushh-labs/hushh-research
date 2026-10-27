@@ -31,6 +31,15 @@ committed callback; unchanged values do not repeat writes. Back, owner/privacy
 changes and capability failures retire the same lease before any web fallback.
 An attached opening/retiring sheet cannot report confirmed absence.
 
+Owned popups and their scrims belong above both bottom navigation and the Agent
+Dock. Covered bars retain their instances but cannot receive touches or
+accessibility focus. Dismissal restores the current authorized page through the
+session privacy gate; a retained native-paint concealment flag is not permission
+to block that recovered page. An active privacy cover still blocks restoration.
+The public UIKit regression checks both bars, actual detachment and this recovery
+boundary. Rich React overlays still require the complete presentation-owner
+handoff below; CSS z-index alone cannot satisfy this layering contract.
+
 Initially unset uncontrolled values, controlled opening, rich labels, custom event semantics, named groups and
 authored direction remain complete React presentations. Their exclusion is
 semantic, not route-specific. AlertDialog's busy/refused confirmation and rich
