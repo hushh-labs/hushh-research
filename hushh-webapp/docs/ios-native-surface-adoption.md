@@ -16,6 +16,42 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Wallet native Add scene — 2026-10-26
+
+Implementation `8935b960a7` (shared editor lifetime: `7fc0e95cdb`) adds an explicit,
+qualification-only iPhone Wallet presentation. `NativeRouteAdd` maps the authored
+Add callback into stationary shell chrome; it compares canonical paths, including
+the native export's trailing slash, and withdraws the seat on other routes.
+`NativeAddAction` uses the shared native glass-button family. It does not overlay
+a native button on scrolling React content or infer an operation from DOM markup.
+
+`NativeDrawers v1.walletCardForms` owns the complete native Add sheet above retained
+navigation and Agent Dock: UIKit presentation, SwiftUI navigation/form/pickers,
+and retained UIKit private text fields. The collection stays React. A single
+`useSecureCardFormOwner` retains validation, network lookup, scan merges and the
+existing encrypted-save handoff. Host acceptance is not a durable-save receipt.
+Scanner crop/review remains an explicit focused React handoff after confirmed
+sheet retirement, with pane retirement preceding native form readmission.
+
+The shared private editor fence/presentation lifecycle preserves Profile's typed
+facades. Wallet uses an independent route-owned identity. Its first admission
+sequence is consumed only after publication is accepted; an early React render
+cannot skip sequence 1. Final edits remain bound to the original draft lifetime,
+owner and visit. Reset/closure invalidates that lifetime; fresh privacy generation
+checks prevent an old CVV from returning after inactivity. Actual UIKit swipe
+dismissal follows the fenced Cancel/retirement path.
+
+Local Release evidence: exact staged/bundled web assets and app/runner identity;
+282 focused cases across the native lifecycle and card/workspace suites; reviewed
+Back/Search contracts; plugin parity; and three physical iPhone warm form cycles.
+The device run covered network-picker Back, keyboard, Cancel, swipe dismissal,
+covered-navigation isolation, no interactive web editor, Add withdrawal on One,
+and preserved WebView/session/draft. No card was entered or saved. Camera/library
+capture, visual/accessibility and physical performance qualification are not
+established by that journey. Ordinary Release/TestFlight admission remains OFF;
+web, Android, iPad and older wrappers retain their established renderer. Rollback
+is the existing single custom-native presentation switch.
+
 ### Shared overlay boundary — 2026-10-26
 
 The shared `Select` root now has a qualification-only private immediate-choice
