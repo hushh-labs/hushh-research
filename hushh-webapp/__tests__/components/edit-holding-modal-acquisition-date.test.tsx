@@ -1,8 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 import { findHoldingValidationIssue } from "@/lib/kai/holding-validation";
+
+afterEach(async () => {
+  // Radix restores focus on the next timer turn. Finish that work before the
+  // test environment replaces its DOM realm for the next file.
+  cleanup();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+});
 
 vi.mock("@/lib/kai/ticker-universe-cache", () => ({
   getTickerUniverseSnapshot: () => [],
