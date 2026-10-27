@@ -13,7 +13,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
-from zipfile import ZipFile
+from zipfile import ZipFile, ZipInfo
 
 
 maintenance = importlib.import_module("uat-retention-maintenance")
@@ -148,7 +148,8 @@ class PendingUatStateTests(unittest.TestCase):
             run_id = int(endpoint.split('/')[1])
             return jobs[run_id] if endpoint.endswith('/jobs?filter=latest&per_page=100') else runs[run_id]
 
-        def download(_repository: str, item: dict, directory: Path, *, environment: str = "uat") -> None:
+        def download(_repository: str, item: dict, directory: Path, *, environment: str = "uat", source_kind: str = "pending_drain") -> None:
+            self.assertEqual(source_kind, "pending_drain")
             backend_at, worker_at = states[item['id']]
             (directory / 'README.txt').write_text('drain evidence')
             for service, observed_at, duration in (
@@ -222,7 +223,8 @@ class PendingUatStateTests(unittest.TestCase):
                 return jobs
             raise AssertionError(endpoint)
 
-        def download(_repository: str, selected: dict, directory: Path, *, environment: str = "uat") -> None:
+        def download(_repository: str, selected: dict, directory: Path, *, environment: str = "uat", source_kind: str = "pending_drain") -> None:
+            self.assertEqual(source_kind, "pending_drain")
             self.assertEqual(selected['id'], artifact['id'])
             (directory / 'README.txt').write_text('drain evidence')
             (directory / 'consent-protocol.json').write_text(json.dumps(saved))
@@ -355,6 +357,7 @@ class PendingUatStateTests(unittest.TestCase):
                 maintenance.restore_state('org/repo', Path(temporary), environment='production')
             self.assertEqual(list(Path(temporary).iterdir()), [])
 
+class ImmutableStateArchiveTests(unittest.TestCase):
     def test_pending_download_binds_id_digest_and_rejects_unsafe_zip(self) -> None:
         _run, artifact, _jobs = fixture()
 
@@ -392,6 +395,51 @@ class PendingUatStateTests(unittest.TestCase):
             )):
                 with self.assertRaisesRegex(maintenance.retention.UnsafeState, 'digest changed'):
                     maintenance.download_pending_uat_state('org/repo', bad_digest, directory)
+
+    def test_saved_checkpoint_without_readme_preserves_archive_safety(self) -> None:
+        _run, artifact, _jobs = fixture()
+
+        def archive(*, receipt: bool = True, extra: str | ZipInfo | None = None) -> bytes:
+            memory = BytesIO()
+            with ZipFile(memory, 'w') as bundle:
+                if receipt:
+                    bundle.writestr('completed.json', '{"pass_status":"complete"}')
+                bundle.writestr('consent-protocol.json', '{"pending_mutation":null}')
+                if extra is not None:
+                    bundle.writestr(extra, '{}')
+            return memory.getvalue()
+
+        symlink = ZipInfo('hushh-webapp.json')
+        symlink.create_system = 3
+        symlink.external_attr = 0o120777 << 16
+        cases = (
+            ('modern', archive(), 'saved_checkpoint', True),
+            ('legacy_missing_readme', archive(), 'pending_drain', False),
+            ('missing_receipt', archive(receipt=False), 'saved_checkpoint', False),
+            ('unknown_path', archive(extra='../outside.json'), 'saved_checkpoint', False),
+            ('symlink', archive(extra=symlink), 'saved_checkpoint', False),
+            ('invalid_kind', archive(), 'unverified', False),
+        )
+        for name, content, source_kind, accepted in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                selected = {**artifact, 'size_in_bytes': len(content),
+                            'digest': 'sha256:' + hashlib.sha256(content).hexdigest()}
+                directory = Path(temporary)
+                with mock.patch.object(maintenance.retention, 'run_command', return_value=subprocess.CompletedProcess(
+                    [], 0, content, b''
+                )):
+                    if accepted:
+                        maintenance.download_pending_uat_state(
+                            'org/repo', selected, directory, source_kind=source_kind
+                        )
+                        self.assertEqual((directory / 'consent-protocol.json').read_text(),
+                                         '{"pending_mutation":null}')
+                    else:
+                        with self.assertRaises(maintenance.retention.UnsafeState):
+                            maintenance.download_pending_uat_state(
+                                'org/repo', selected, directory, source_kind=source_kind
+                            )
+                        self.assertEqual(list(directory.iterdir()), [])
 
 
 if __name__ == '__main__':
