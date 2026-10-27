@@ -602,6 +602,15 @@ redeploy is not possible, and only in this order:
 If the boundary check fails, leave the fence installed. Account deletion that
 fails closed is the safe state.
 
+In UAT a retained fence sustains itself. Every later backend deploy fails the
+unfenced preflight (`expected_fence_count=0`) and takes the fenced path, and
+only a release classified healthy reaches the activation step that removes the
+fence. Meanwhile the cleanup drain stays HTTP 200 and reports
+`paused_reason=release_fence_installed`, so the scheduler itself never fails;
+watch the stalled alert below instead. Before any manual step, confirm that no
+Deploy UAT run is in progress or queued. This adds no removal authority: use
+the ordered steps above, and never adopt another release's fence.
+
 For the recorded 27 October restoration, a verified application was already
 serving when the hosted activation command selected system Python without its
 database driver. An explicitly recorded admin continuation used the unchanged
@@ -724,7 +733,18 @@ Alert the IAM on-call when any of these conditions occurs:
 - a due tombstone remains in `pending`, `retry_pending`, or `quarantined` for
   more than ten minutes;
 - a `running` claim remains older than the five-minute lease-reclaim window;
-- `quarantine_incomplete` is returned by the synchronous cleanup attempt.
+- `quarantine_incomplete` is returned by the synchronous cleanup attempt;
+- `account_deletion.cleanup_stalled` appears in Cloud Logging. The drain logs
+  `account_deletion.cleanup_paused` at WARNING while a release pause holds due
+  work, and escalates to ERROR `account_deletion.cleanup_stalled` once a due
+  deletion has waited ten minutes. Both carry an enumerated `reason`
+  (`release_fence_installed`, `release_lock_unavailable`,
+  `lifecycle_roots_missing` or `admission_check_failed`), the due count and the
+  oldest due age. `reason=release_fence_installed` means a failed release
+  retained the fence; follow
+  [Recovery when a failed deploy leaves the fence installed](#recovery-when-a-failed-deploy-leaves-the-fence-installed).
+  The managed log metric `obs_account_deletion_cleanup_stalled_count` and the
+  `[Managed] One Account Deletion Cleanup Stalled` policy alert on this event.
 
 The rollout evidence must include scheduler state, exact target URI and method,
 exact OIDC service-account email and audience, oldest due-intent age, counts by
