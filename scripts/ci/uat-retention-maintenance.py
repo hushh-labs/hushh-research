@@ -1703,21 +1703,47 @@ def guard_only_preflight_proof(
 ) -> dict | None:
     """Qualify only the immutable, reviewed historical guard-before-mutation source."""
     source = run.get("head_sha")
-    if environment != "uat" or not isinstance(source, str) or source not in retention_preflight_evidence.AUDITED_SOURCE_SHAS:
+    if (
+        environment != "uat" or not isinstance(source, str)
+        or source not in retention_preflight_evidence.AUDITED_SOURCE_SHAS
+        or any(type(row.get("id")) is not int or row["id"] < 1 for row in (run, job))
+    ):
         return None
+    expected_blobs = retention_preflight_evidence.expected_source_blobs(source)
+    if expected_blobs is None:
+        return None
+    stage = "job_log"
     try:
+        flags = ("--allow-escape-sequences",) if "--allow-escape-sequences" in command("gh", "api", "--help") else ()
         log = command(
-            "gh", "run", "view", str(run["id"]), "--repo", repository,
-            "--job", str(job["id"]), "--log", "--attempt", str(run["run_attempt"]),
+            "gh", "api", f"repos/{repository}/actions/jobs/{job['id']}/logs", *flags,
         )
+        stage = "source_blobs"
         blobs = {
             path: command("git", "rev-parse", f"{source}:{path}").strip()
-            for path in retention_preflight_evidence.AUDITED_SOURCE_BLOBS
+            for path in expected_blobs
         }
-        return retention_preflight_evidence.qualify_guard_only_run(
+        proof = retention_preflight_evidence.qualify_guard_only_run(
             repository, environment, run, job, log, blobs
         )
-    except (KeyError, ValueError, OSError, subprocess.SubprocessError):
+        if proof is None:
+            print(json.dumps({"guard_evidence_refused": {
+                "run_id": run["id"], "job_id": job["id"], "stage": "qualification",
+                "source_sha": source, "log_bytes": len(log.encode()),
+                "source_match": blobs == expected_blobs,
+                "steps_match": retention_preflight_evidence._steps_match(job),
+                "raw_log_match": retention_preflight_evidence.raw_log_matches(log, job, source),
+            }}, sort_keys=True))
+        return proof
+    except (KeyError, ValueError, OSError, subprocess.SubprocessError) as error:
+        reason = "lookup_error"
+        if isinstance(error, subprocess.CalledProcessError):
+            match = re.search(r"\bHTTP (401|403|404|429|5\d\d)\b", str(error.stderr))
+            reason = f"http_{match[1]}" if match else "command_failed"
+        print(json.dumps({"guard_evidence_refused": {
+            "run_id": run.get("id"), "job_id": job.get("id"),
+            "stage": stage, "reason": reason,
+        }}, sort_keys=True))
         return None  # Missing evidence retains the existing publication fence.
 
 
