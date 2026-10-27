@@ -107,6 +107,16 @@ assignments bind previously-null referral/OAuth subjects. A new ownership-transf
 not ship by relying on the generic trigger: update this inventory and design an
 explicit deletion-safe transfer protocol first.
 
+`one_company_crm_deliveries.owner_user_id` is a reviewed cleanup-receipt
+exception. Full account erasure first records the canonical tombstone, then
+scrubs the activity payload and epoch, detaches the raw owner identity, and
+requests removal of One-owned HubSpot fields and notes in the same transaction.
+Only temporary pseudonymous lookup hashes and provider receipt identifiers
+remain until remote cleanup is confirmed; they are not anonymous information.
+Reset retains the owner identity and requests cleanup of the old epoch's notes.
+Ordinary runtime writes cannot detach/re-parent ownership. Uncertain provider
+outcomes remain cleanup obligations, including beyond the 90-day activity TTL.
+
 Migration 201 also installs a DDL event trigger that reruns
 `install_account_deletion_write_guards()` after relevant `CREATE TABLE` and
 `ALTER TABLE` commands, including legacy runtime table bootstraps. Later

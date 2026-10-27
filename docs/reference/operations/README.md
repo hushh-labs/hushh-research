@@ -149,6 +149,7 @@ the calendar is an event record, never a timekeeping or performance measure.
 - [subtree-maintainers.md](./subtree-maintainers.md): maintainer-only subtree sync and upstream coordination.
 - [dev-fast-lane.md](./dev-fast-lane.md): the hosted dev environment agentic lane.
 - [crm-registry-operations.md](./crm-registry-operations.md): CRM registry check, probe, apply, and deactivate operations.
+- [one-company-hubspot-sync.md](./one-company-hubspot-sync.md): company-owned user roster, authentication timestamps, activity retention and erasure.
 - [hussh-mcp-partner-integration-guide.md](./hussh-mcp-partner-integration-guide.md): partner-facing MCP integration guide.
 - [hussh-rebrand-classification.md](./hussh-rebrand-classification.md): non-breaking rebrand bucket model.
 - [android-bundle-id-migration.md](./android-bundle-id-migration.md): the com.hushh.app -> com.hussh.app Android-only bundle ID migration plan, including still-open sign-in items.

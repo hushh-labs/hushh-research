@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 432,
+  "expected_migration_version": 433,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -4694,6 +4694,31 @@
       "rp_id",
       "sign_count",
       "user_id"
+    ],
+    "one_company_crm_deliveries": [
+      "item_id",
+      "owner_user_id",
+      "owner_hash",
+      "kind",
+      "generation",
+      "payload",
+      "portal_id",
+      "remote_contact_id",
+      "remote_note_id",
+      "owned_email_hash",
+      "state",
+      "cleanup_requested",
+      "remote_outcome_unknown",
+      "attempts",
+      "next_attempt_at",
+      "observed_at",
+      "expires_at",
+      "updated_at"
+    ],
+    "one_company_crm_cursor": [
+      "destination",
+      "owner_cursor",
+      "updated_at"
     ]
   },
   "expected_schema_head": 432

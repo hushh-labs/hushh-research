@@ -55,6 +55,11 @@ on:
         options:
           - "false"
           - "true"
+      enable_company_crm_sync:
+        description: "Activate the company HubSpot roster, login timestamps and 90-day metadata timeline"
+        required: false
+        type: boolean
+        default: false
       drive_live_mode:
         description: "Preserve current Drive state; explicitly enable after provider verification or disable with rollback"
         required: true
@@ -295,6 +300,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools/plg"
           cp deploy/plg/bind_secrets.sh \
             "${RUNNER_TEMP}/release-tools/plg/bind_secrets.sh"
+          cp deploy/plg/deploy_hubspot_company_job.sh "${RUNNER_TEMP}/release-tools/plg/"
           cp scripts/ci/assert_one_voice_live_probe.py \
             "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py"
           # Current Cloud Build records and evaluates provider readiness through
@@ -382,6 +388,7 @@ jobs:
           mkdir -p deploy/plg
           cp "${RUNNER_TEMP}/release-tools/plg/bind_secrets.sh" \
             deploy/plg/bind_secrets.sh
+          cp "${RUNNER_TEMP}/release-tools/plg/deploy_hubspot_company_job.sh" deploy/plg/
           cp "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py" \
             scripts/ci/assert_one_voice_live_probe.py
           cp "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py" \
@@ -2915,6 +2922,15 @@ jobs:
             echo "- Native passkey domain associations: \`${{ steps.verify-passkey-associations.outcome }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Deploy the company CRM worker after a healthy backend release
+        if: success() && env.PHONE_DEPLOY_PHASE != 'cold' && steps.release-status.outputs.status == 'healthy' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
+          DEPLOY_SHA: ${{ github.event.inputs.sha }}
+          ENABLE_COMPANY_CRM_SYNC: ${{ inputs.enable_company_crm_sync && 'true' || 'false' }}
+        run: bash deploy/plg/deploy_hubspot_company_job.sh
+
       - name: Tag this release as last known good
         id: tag-last-known-good
         if: always() && env.PHONE_DEPLOY_PHASE != 'cold' && steps.release-status.outputs.status == 'healthy'
@@ -3886,6 +3902,14 @@ jobs:
             /tmp/db-migration-guard-report.json
             /tmp/prod-predecessor-acceptance.json
 
+      - name: Deploy the company CRM worker after qualified activation
+        if: success() && steps.release-status.outputs.status == 'healthy'
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ inputs.sha }}
+          ENABLE_COMPANY_CRM_SYNC: ${{ inputs.enable_company_crm_sync && 'true' || 'false' }}
+        run: bash deploy/plg/deploy_hubspot_company_job.sh
+
       - name: Tag this release as last known good
         id: tag-last-known-good
         if: success() && steps.release-status.outputs.status == 'healthy'
@@ -4131,6 +4155,14 @@ jobs:
           name: prod-release-${{ github.run_id }}
           if-no-files-found: error
           path: /tmp/restoration-continuation/
+
+      - name: Deploy the company CRM worker after qualified activation
+        if: success() && steps.release-status.outputs.status == 'healthy'
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ inputs.sha }}
+          ENABLE_COMPANY_CRM_SYNC: ${{ inputs.enable_company_crm_sync && 'true' || 'false' }}
+        run: bash deploy/plg/deploy_hubspot_company_job.sh
 
       - name: Tag this release as last known good
         if: success() && steps.release-status.outputs.status == 'healthy'

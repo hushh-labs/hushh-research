@@ -42,6 +42,13 @@ RETAINED_ON_ACCOUNT_DELETION: Mapping[str, str] = MappingProxyType(
 # Kept only in a form that no longer carries the raw account UID.
 ANONYMIZED_ON_ACCOUNT_DELETION: Mapping[str, str] = MappingProxyType(
     {
+        "one_company_crm_deliveries": (
+            "Account erasure detaches the owner only after its tombstone, scrubs "
+            "all activity payload and epoch, and requests remote cleanup. Only "
+            "opaque account digest, provider receipt IDs and delivery state survive "
+            "until One-owned HubSpot information is confirmed removed. Unknown "
+            "remote outcomes remain visible cleanup obligations, never a new grant."
+        ),
         "account_deletion_tombstones": (
             "Created by deletion. Keeps a SHA-256 UID digest indefinitely to stop the "
             "account being recreated; the raw firebase_uid exists only until Firebase "

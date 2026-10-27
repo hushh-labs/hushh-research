@@ -426,7 +426,10 @@ def test_intentional_retention_is_not_silently_changed():
     """Retention is a legal decision; changing it must be deliberate."""
     if set(RETAINED_ON_ACCOUNT_DELETION) != {"fabric_receipts", "hushh_tech_link_events"}:
         report(f"retained set changed: {sorted(RETAINED_ON_ACCOUNT_DELETION)}")
-    if set(ANONYMIZED_ON_ACCOUNT_DELETION) != {"account_deletion_tombstones"}:
+    if set(ANONYMIZED_ON_ACCOUNT_DELETION) != {
+        "account_deletion_tombstones",
+        "one_company_crm_deliveries",
+    }:
         report(f"anonymized set changed: {sorted(ANONYMIZED_ON_ACCOUNT_DELETION)}")
 
 

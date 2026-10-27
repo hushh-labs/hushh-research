@@ -8,6 +8,8 @@ tests/test_server_startup_guards.py
 # PLG exports are signed, production-only and limited to enrolled task metadata.
 tests/services/test_plg_evidence.py
 tests/services/test_product_activity_postgres.py
+tests/services/test_hubspot_company_sync.py
+tests/services/test_hubspot_company_postgres.py
 tests/test_plg_deploy_bindings.py
 
 # Store releases must retain the selected track, exact source and private binaries.

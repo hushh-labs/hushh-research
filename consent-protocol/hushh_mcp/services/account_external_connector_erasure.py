@@ -8,6 +8,7 @@ from typing import Any, Callable
 from sqlalchemy import text
 
 from hushh_mcp.services.account_answer_erasure import erase_unpaid_answer_content
+from hushh_mcp.services.hubspot_company_store import erase_in_transaction as erase_company_crm
 
 SCOPE_COMMERCE_RETAINED_TABLES: dict[str, str] = {
     "scope_commerce_wallets": "Human identity is detached; funded-balance liabilities remain for original-source refunds and verified retention.",
@@ -50,6 +51,7 @@ def clear_external_connector_data(
     from hushh_mcp.services.scope_commerce.sync_bridge import erase_account_in_transaction
 
     erase_unpaid_answer_content(conn, user_id=user_id)
+    erase_company_crm(conn, user_id, permanent=permanent)
     # Acquire the financial gate before the graph/domain locks used by other
     # account cleanup. Both ports use this connection and its outer transaction.
     if conn.execute(text("SELECT to_regclass('scope_commerce_wallets')")).scalar():

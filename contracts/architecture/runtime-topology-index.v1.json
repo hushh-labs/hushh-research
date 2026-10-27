@@ -1551,6 +1551,17 @@
       "primary_access_path": "Authenticated Agent One Capability Runtime start, resume, compare-and-set transition, and verified-settlement services shared by typed input, command voice, Siri handoff, web, and iOS. Browser and mobile callers reach it only through the authenticated backend API; they have no direct database role or row policy."
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_company_crm_deliveries",
+        "one_company_crm_cursor"
+      ],
+      "id": "one_company_crm_delivery",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Production-only finite company worker scans canonical active application owners, reads each exact owner Firebase identity, and polls accepted product observations off the login path. CRM summaries and timeline notes use the verified company portal service key."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "one_email_mailbox_state",
@@ -7162,7 +7173,7 @@
     "action_gateway": "00ac4947aa27ed716ee138f157743066fa0f59af3dc52b225e441ddfa48bd79e",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "ba5ccda8ef76d67e41ad8922705b3fe4cb5ef3eda0a4fbc95c57bbb160822200",
-    "data_plane": "412ceeec089c6e8ef81a0d500b015972e9cb2c181cd5d087a9286a82b126168d",
+    "data_plane": "a52f0f88c0dcc7b06eac893b897336c1f71d801bb2c12d54bd7e5947e01ccbb5",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "9f36cb5a752042829d3497d7ed9dcbc97d6f8481dce542b45842871a3d7a7158",
@@ -7181,6 +7192,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 161,
     "semantic_routes": 17,
-    "table_families": 138
+    "table_families": 139
   }
 }

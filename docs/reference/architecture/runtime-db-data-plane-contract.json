@@ -2394,6 +2394,22 @@
       "plaintext_posture": "metadata_and_hashes_only",
       "expected_row_growth": "One immutable row per uniquely captured Directory Sync membership/profile; duplicate exchanges reuse the exact binding. No per-notification row growth.",
       "trust_boundary": "No passwords, emails, names, provider tokens, vault keys or content. Only verified exchange may capture attribution. Offboarding is monotonic; missing, conflicting or unavailable evidence refuses access. SSO-only generation-zero profiles do not establish Directory Sync coverage."
+    },
+    {
+      "id": "one_company_crm_delivery",
+      "owner": "backend-runtime-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_company_crm_deliveries",
+        "one_company_crm_cursor"
+      ],
+      "primary_access_path": "Production-only finite company worker scans canonical active application owners, reads each exact owner Firebase identity, and polls accepted product observations off the login path. CRM summaries and timeline notes use the verified company portal service key.",
+      "retention_policy": "Retain fixed activity metadata for 90 days from the observation timestamp. Source ledger remains seven days. Remove expired remote notes and receipts after confirmed cleanup. Contacts refresh while the owner exists. Scrubbed uncertain cleanup receipts remain until reconciliation.",
+      "deletion_behavior": "Full account erasure atomically scrubs raw owner, payload and epoch and retains only pseudonymous owner/email hashes and provider receipts until remote cleanup is proven. Reset scrubs old-epoch activity/summary and preserves the contact. Personal OAuth cleanup remains independently governed.",
+      "trust_boundary": "Canonical source observations contain no provider IDs, personal content or action authority. The service-only company delivery projection separately stores only fixed catalog metadata and HubSpot contact/note receipt IDs. A production-only company grant must verify its configured portal. Personal OAuth is never used. Temporary owner/email hashes are pseudonymous cleanup identifiers, not anonymous information; erasure scrubs payload/raw UID and removes receipts only after remote cleanup proof.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "One contact per registered owner, one summary per epoch and at most 45000 observations per active owner over 90 days. One traversal cursor. Uncertain receipts require bounded retry and reconciliation; monitor due age."
     }
   ]
 }
