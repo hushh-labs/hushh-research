@@ -16,6 +16,19 @@ CLASSIFICATIONS = frozenset(
         "application_broken",
     }
 )
+FAILURE_REASONS = frozenset(
+    {
+        "unlisted",
+        "live.binding_unavailable",
+        "live.transcription_failed",
+        "live.response_incomplete",
+        "live.provider_operation_failed",
+        "root.model_contract",
+        "root.tool_roster",
+        "root.clock_selection",
+        "root.roundtrip_failed",
+    }
+)
 ERROR_TYPES = frozenset(
     {
         "ClientError",
@@ -27,6 +40,8 @@ ERROR_TYPES = frozenset(
         "ConnectionError",
         "RuntimeError",
         "ValueError",
+        "TypeError",
+        "PermissionError",
         "KeyError",
         "LookupError",
         "AttributeError",
@@ -50,22 +65,45 @@ ERROR_TYPES = frozenset(
         "ReadinessResponseError",
         "JSONDecodeError",
         "UnknownException",
+        "LocationBrainEmbeddingUnavailable",
+        "SpecialistAdkTurnError",
     }
 )
 PROBE_NAME = re.compile(
     r"(?:text|adk|one_chat|one_voice_live):gemini-[a-z0-9][a-z0-9._-]{0,95}"
     r"@[a-z][a-z0-9-]{0,39}(?:,[a-z][a-z0-9-]{0,39}){0,7}\Z"
 )
-FIXED_PROBES = frozenset(
-    {"embedding", "location_command:audio", "location_command:semantics"}
+FIXED_PROBES = frozenset({"embedding", "location_command:audio", "location_command:semantics"})
+CAPABILITY_PROBES = frozenset(
+    "capability:" + name
+    for name in (
+        "structured_text",
+        "image_input",
+        "pdf_input",
+        "public_search",
+        "public_source",
+        "narration",
+        "location_transcription",
+        "location_semantics",
+        "embeddings",
+        "live_audio",
+        "compact_public_search",
+        "one_text_root",
+    )
 )
 
 
+def _valid_failure_reason(probe: str, reason: str) -> bool:
+    return reason == "unlisted" or (
+        probe == "capability:live_audio"
+        and reason.startswith("live.")
+        or probe == "capability:one_text_root"
+        and reason.startswith("root.")
+    )
+
+
 def _decision_fields(value: dict[str, Any]) -> dict[str, Any]:
-    if (
-        type(value.get("ok")) is not bool
-        or value.get("classification") not in CLASSIFICATIONS
-    ):
+    if type(value.get("ok")) is not bool or value.get("classification") not in CLASSIFICATIONS:
         raise ValueError("Invalid decision fields")
     return {"ok": value["ok"], "classification": value["classification"]}
 
@@ -81,6 +119,11 @@ def _attempt_receipts(value: Any) -> list[dict[str, Any]]:
         if type(elapsed) is not int or not 0 <= elapsed <= 420000:
             raise ValueError("Invalid probe duration")
         clean = {**_decision_fields(attempt), "elapsed_ms": elapsed}
+        if "failure_reason" in attempt:
+            reason = attempt["failure_reason"]
+            if not isinstance(reason, str) or reason not in FAILURE_REASONS:
+                raise ValueError("Invalid capability failure reason")
+            clean["failure_reason"] = reason
         if "dispatched" in attempt:
             if type(attempt["dispatched"]) is not bool:
                 raise ValueError("Invalid dispatch flag")
@@ -122,18 +165,27 @@ def sanitize_probe_history(value: Any, *, provider: str) -> list[dict]:
         if (
             not isinstance(name, str)
             or name in seen
-            or name not in FIXED_PROBES | {"primary_http"}
+            or name not in FIXED_PROBES | CAPABILITY_PROBES | {"primary_http"}
             and not PROBE_NAME.fullmatch(name)
         ):
             raise ValueError("Invalid probe history name")
         seen.add(name)
         attempts = _attempt_receipts(row.get("attempts"))
+        if name not in CAPABILITY_PROBES and any("failure_reason" in item for item in attempts):
+            raise ValueError("Capability failure reason outside a failed capability")
+        if any(
+            "failure_reason" in item and not _valid_failure_reason(name, item["failure_reason"])
+            for item in attempts
+        ):
+            raise ValueError("Capability failure reason owner mismatch")
         if provider == "azure_openai" and (
-            name != "primary_http" or len(attempts) != 1
+            name not in CAPABILITY_PROBES | {"primary_http"} or len(attempts) != 1
         ):
             raise ValueError("Azure readiness has no retry")
-        if provider == "vertex" and name == "primary_http":
+        if provider == "vertex" and name in CAPABILITY_PROBES | {"primary_http"}:
             raise ValueError("Probe history provider mismatch")
+        if name in CAPABILITY_PROBES and attempts[0]["ok"]:
+            raise ValueError("Capability failure history cannot assert success")
         if any(a["ok"] != (a["classification"] == "dependency_ok") for a in attempts):
             raise ValueError("Inconsistent probe history outcome")
         if len(attempts) == 2 and (
@@ -141,16 +193,56 @@ def sanitize_probe_history(value: Any, *, provider: str) -> list[dict]:
         ):
             raise ValueError("Invalid probe retry lineage")
         recovered = len(attempts) == 2 and attempts[-1]["ok"]
-        if (
-            "recovered_after_retry" in row
-            and row["recovered_after_retry"] is not recovered
-        ):
+        if "recovered_after_retry" in row and row["recovered_after_retry"] is not recovered:
             raise ValueError("Unproven probe recovery")
         clean = {"probe": name, "attempts": attempts}
         if recovered:
             clean["recovered_after_retry"] = True
         result.append(clean)
     return result
+
+
+def _azure_capability_failures(values: list[dict]) -> list[dict]:
+    terminals = [value for value in values if "capability_failures" in value]
+    if not terminals:
+        return []
+    if (
+        len(terminals) != 1
+        or terminals[0].get("azure_pwm_runtime_probe_result") != "failed"
+        or type(terminals[0].get("attempt")) is not int
+        or terminals[0]["attempt"] != 1
+    ):
+        raise ValueError("Ambiguous Azure capability failure history")
+    failures = terminals[0]["capability_failures"]
+    if not isinstance(failures, list) or not 1 <= len(failures) <= len(CAPABILITY_PROBES):
+        raise ValueError("Invalid Azure capability failures")
+    history = []
+    for failure in failures:
+        if not isinstance(failure, dict):
+            raise ValueError("Invalid Azure capability failure")
+        name = failure.get("capability")
+        if not isinstance(name, str) or "capability:" + name not in CAPABILITY_PROBES:
+            raise ValueError("Invalid Azure failure capability")
+        history.append(
+            {
+                "probe": "capability:" + name,
+                "attempts": [
+                    {
+                        "ok": False,
+                        **{
+                            key: failure.get(key)
+                            for key in ("classification", "error_type", "elapsed_ms")
+                        },
+                        **(
+                            {"failure_reason": failure["failure_reason"]}
+                            if "failure_reason" in failure
+                            else {}
+                        ),
+                    }
+                ],
+            }
+        )
+    return history
 
 
 def execution_diagnostics(provider: str, values: list[dict]) -> dict:
@@ -167,24 +259,16 @@ def execution_diagnostics(provider: str, values: list[dict]) -> dict:
             if isinstance(p.get("probe"), str)
         }
         result["capabilities"] = {
-            p["probe"]: p.get("ok") is True
-            for p in probes
-            if isinstance(p.get("probe"), str)
+            p["probe"]: p.get("ok") is True for p in probes if isinstance(p.get("probe"), str)
         }
         for p in probes:
             if "attempts" in p:
                 attempts = _attempt_receipts(p["attempts"])
                 if _decision_fields(p) != _decision_fields(attempts[-1]):
-                    raise ValueError(
-                        "Probe terminal outcome differs from its last attempt"
-                    )
+                    raise ValueError("Probe terminal outcome differs from its last attempt")
                 history.append({"probe": p["probe"], "attempts": attempts})
     else:
-        stages = [
-            v
-            for v in values
-            if v.get("azure_pwm_runtime_probe_stage") == "primary_http"
-        ]
+        stages = [v for v in values if v.get("azure_pwm_runtime_probe_stage") == "primary_http"]
         if len(stages) > 1:
             raise ValueError("Ambiguous Azure readiness history")
         if len(stages) == 1 and "elapsed_ms" in stages[0]:
@@ -198,6 +282,7 @@ def execution_diagnostics(provider: str, values: list[dict]) -> dict:
                 if key in stage:
                     attempt[key] = stage[key]
             history.append({"probe": "primary_http", "attempts": [attempt]})
+        history.extend(_azure_capability_failures(values))
     if history:
         result["probe_history"] = sanitize_probe_history(history, provider=provider)
     return result
@@ -206,16 +291,10 @@ def execution_diagnostics(provider: str, values: list[dict]) -> dict:
 def verified_diagnostics(value: dict, *, provider: str) -> dict:
     if "probe_history" not in value:
         return {}
-    return {
-        "probe_history": sanitize_probe_history(
-            value["probe_history"], provider=provider
-        )
-    }
+    return {"probe_history": sanitize_probe_history(value["probe_history"], provider=provider)}
 
 
-def readiness_diagnostics(
-    value: dict, *, provider: str, valid: bool, ready: bool
-) -> dict:
+def readiness_diagnostics(value: dict, *, provider: str, valid: bool, ready: bool) -> dict:
     return {
         "ready": ready,
         "reason": value.get("reason", "unverified") if valid else "missing_or_misbound",
@@ -331,8 +410,7 @@ def valid_capabilities(
             )
         )
         and capabilities["public_source"].get("http_receipts") == 1
-        and capabilities["location_transcription"].get("synthetic_phrase_verified")
-        is True
+        and capabilities["location_transcription"].get("synthetic_phrase_verified") is True
         and capabilities["location_semantics"].get("steps") == 1
         and capabilities["narration"].get("audio_bytes", 0) > 0
         and capabilities["narration"].get("chunks", 0) > 0

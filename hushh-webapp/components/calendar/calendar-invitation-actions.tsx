@@ -26,6 +26,7 @@ export function attendanceResultMessage(result: CalendarAttendanceResult) {
 
 type Props = {
   event: CalendarInvitation; userId: string; token: string | null; zone: string; getIdToken: () => Promise<string>;
+  workspaceLayout?: boolean;
   accountId?: string;
   expectedAccountEmail?: string | null; onBusyChange?: (busy: boolean) => void;
   onSend?: (handoff: CalendarAttendanceHandoff) => void;
@@ -34,7 +35,7 @@ type Props = {
 };
 
 /** Page and Chat use this exact review/confirmation flow. Tokens stay in React memory. */
-export function CalendarInvitationActions({ event, userId, token, zone, getIdToken, accountId = "default", initialDecision = "view", initialTerms, expectedAccountEmail, onBusyChange, onOfferTimes, onSend, onResult, onConnect, onMailConnect }: Props) {
+export function CalendarInvitationActions({ event, userId, token, zone, getIdToken, workspaceLayout = false, accountId = "default", initialDecision = "view", initialTerms, expectedAccountEmail, onBusyChange, onOfferTimes, onSend, onResult, onConnect, onMailConnect }: Props) {
   const [decision, setDecision] = useState<InvitationDecision>(initialDecision);
   const [date, setDate] = useState(() => initialTerms?.date || shiftCalendarDate(calendarDate(Date.now(), zone), 1));
   const [startTime, setStartTime] = useState(initialTerms?.startTime || "09:00"), [endTime, setEndTime] = useState(initialTerms?.endTime || "17:00");
@@ -123,7 +124,7 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
   };
   const confirm = () => run(async current => { if (review) await execute(review, current); });
   const edit = () => { setReview(null); setResult(null); };
-  return <div className={styles.actions} aria-label="Invitation actions" aria-busy={busy}>
+  return <div className={styles.actions} data-workspace={workspaceLayout} aria-label="Invitation actions" aria-busy={busy}>
     {result ? <div className={styles.review} role="status"><p>{attendanceResultMessage(result)}</p><Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => { setResult(null); setDecision("view"); }}>Done</Button></div> : review ? <div className={styles.review}>
       <h3>{review.response_status === "accepted" ? "Accept invitation?" : "Decline invitation?"}</h3><p>{review.title}</p><p className={styles.muted}>{eventTime(event, zone)}</p>
       {review.conflicts?.length ? <div className={styles.conflict} role="alert"><AlertTriangle aria-hidden className="size-4 shrink-0" /><div><strong>This time is already booked</strong>{review.conflicts.map((conflict, index) => <p key={index}>{conflict.title} · {eventTime(conflict, zone)}</p>)}</div></div> : null}
@@ -143,7 +144,7 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
     </div> : <>
       {initialDecision !== "view" ? <p className={styles.muted}>Review your {initialDecision === "accepted" ? "accept" : "decline"} response before confirming.</p> : null}
       <div className={styles.actionPair}><CalendarCompactAction data-voice-control-id="calendar_invitation_accept" disabled={busy || !token || !event.can_respond || event.response_status === "accepted"} onClick={() => void prepare("accepted")}><CheckCircle aria-hidden className="size-4" />Accept</CalendarCompactAction><CalendarCompactAction data-voice-control-id="calendar_invitation_decline" disabled={busy || !token || !event.can_respond || event.response_status === "declined"} onClick={() => { setDecision("declined"); edit(); }}><X aria-hidden className="size-4" />Decline</CalendarCompactAction></div>
-      <CalendarCompactAction data-voice-control-id="calendar_invitation_offer" disabled={busy || !token || !event.can_respond} className={styles.offerButton} onClick={() => { if (onOfferTimes) onOfferTimes(); else { setDecision("offer_times"); edit(); } }}><CalendarClock aria-hidden className="size-4 shrink-0" />Decline & offer another time</CalendarCompactAction>
+      <CalendarCompactAction data-voice-control-id="calendar_invitation_offer" className={styles.offerButton} disabled={busy || !token || !event.can_respond} onClick={() => { if (onOfferTimes) onOfferTimes(); else { setDecision("offer_times"); edit(); } }}><CalendarClock aria-hidden className="size-4 shrink-0" />Decline & offer another time</CalendarCompactAction>
     </>}
     {failure ? <p role="alert">{failure.message}</p> : null}
     {!event.can_respond ? <p className={styles.muted}>This calendar only allows viewing. Respond from your own Calendar invitation.</p> : null}

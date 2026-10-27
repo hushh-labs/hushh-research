@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mock = vi.hoisted(() => ({ apiFetch: vi.fn(), token: "synthetic-owner" as string | null }));
@@ -53,6 +53,57 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(screen.getByRole("button", { name: "Open invitation: Client Sync" })).toBeInTheDocument();
     expect(mock.apiFetch.mock.calls[0]?.[1].headers.Authorization).toBe("Bearer synthetic-firebase");
     expect(mutations()).toHaveLength(0); expect(onConnect).not.toHaveBeenCalled();
+  });
+
+  it("lists guests in readable response order without duplicating the organizer", async () => {
+    invitations[0]!.attendees = [
+      { email: "owner@example.test", self: true, response_status: "needsAction" },
+      { email: "long-name-for-a-guest@example.test", response_status: "needsAction" },
+      { email: "priya@example.test", display_name: "Organizer", response_status: "accepted" },
+      { email: "manish@example.test", display_name: "Manish", response_status: "accepted" },
+    ];
+    render(view({ workspaceLayout: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
+    const guests = within(screen.getByRole("list", { name: "Guests" })).getAllByRole("listitem");
+    expect(guests).toHaveLength(4);
+    expect(guests[0]).toHaveTextContent("Priya Mehta");
+    expect(guests[0]).toHaveTextContent("Organiser · Accepted");
+    expect(guests[1]).toHaveTextContent("Manish");
+    expect(guests[2]).toHaveTextContent("Awaiting reply");
+    expect(screen.getByText("2 yes, 2 awaiting")).toBeInTheDocument();
+  });
+
+  it("does not invent an organizer response when the organizer is absent from attendees", async () => {
+    invitations[0]!.attendees = [
+      { email: "owner@example.test", self: true, response_status: "needsAction" },
+      { email: "manish@example.test", display_name: "Manish", response_status: "accepted" },
+    ];
+    render(view({ workspaceLayout: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
+    const guests = within(screen.getByRole("list", { name: "Guests" })).getAllByRole("listitem");
+    expect(guests).toHaveLength(3);
+    expect(guests[0]).toHaveTextContent("Priya Mehta");
+    expect(guests[0]).toHaveTextContent("Organiser · Response unavailable");
+    expect(screen.getByText("1 yes, 1 awaiting, 1 unknown")).toBeInTheDocument();
+  });
+
+  it("keeps a named organizer visible when Google omits the organizer email", async () => {
+    invitations[0]!.organizer = { displayName: "Priya Mehta" };
+    invitations[0]!.attendees = [{ email: "owner@example.test", self: true, response_status: "needsAction" }];
+    render(view({ workspaceLayout: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
+    const guests = within(screen.getByRole("list", { name: "Guests" })).getAllByRole("listitem");
+    expect(guests).toHaveLength(2);
+    expect(guests[0]).toHaveTextContent("Priya Mehta");
+    expect(guests[0]).toHaveTextContent("Organiser · Response unavailable");
+  });
+
+  it("keeps the existing chat presentation for invitations", async () => {
+    render(view());
+    fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
+    expect(screen.getByText("Organiser")).toBeInTheDocument();
+    expect(screen.getByText("Attendees (2)")).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Guests" })).not.toBeInTheDocument();
   });
 
   it("reviews exact selected calendar, warns of overlap, and confirms once without a second OAuth", async () => {

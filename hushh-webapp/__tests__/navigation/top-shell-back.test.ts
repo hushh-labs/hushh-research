@@ -7,9 +7,21 @@ import {
   resolveTopShellBackAction,
 } from "@/lib/navigation/top-shell-back";
 import { registerBackLayer } from "@/lib/navigation/back-layers";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiImportRoute, ROUTES } from "@/lib/navigation/routes";
 
 describe("top shell back action", () => {
+  it.each(["debate", "summary", "detailed"])("closes the Finance %s selection before leaving Stocks", (view) => {
+    expect(resolveTopShellBackAction({
+      pathname: "/one/kai", searchParams: new URLSearchParams({ tab: "analysis", view }),
+      sectionOrigin: null,
+    })).toEqual({ href: ROUTES.KAI_ANALYSIS, mode: "replace", transitionMode: "contextual" });
+  });
+
+  it.each([ROUTES.KAI_PORTFOLIO, "/one/kai/portfolio/sources"])("returns a Finance import to its opening screen %s", (from) => {
+    const url = new URL(buildKaiImportRoute(from), "https://app.test");
+    expect(resolveTopShellBackAction({ pathname: url.pathname, searchParams: url.searchParams })?.href).toBe(from);
+    expect(buildKaiImportRoute("https://outside.invalid")).toBe(ROUTES.KAI_IMPORT);
+  });
   it("returns from the Messages inbox to One after local Back layers unwind", () => {
     const navigate = vi.fn();
     const closeThread = vi.fn(() => true);

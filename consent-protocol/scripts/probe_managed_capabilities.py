@@ -1,8 +1,7 @@
 """Synthetic qualification of the selected application capability adapters.
 
 No routes, owner records, persistence or executable product tools are used.
-Only closed receipts leave this process. This is stronger than model-list or
-socket-only checks, but does not stand in for the authenticated owner rehearsal.
+Closed receipts and static failure reasons cannot replace an authenticated owner rehearsal.
 """
 
 from __future__ import annotations
@@ -18,6 +17,8 @@ import wave
 import zlib
 
 from google.genai import types
+
+from scripts.capability_probe_failure import failure_reason, settle_recording
 
 
 def _synthetic_public_search_agent(root, *, compact: bool = False):
@@ -219,6 +220,7 @@ async def probe_managed_capabilities(provider: str) -> dict:
                 "elapsed_ms": round((time.monotonic() - at) * 1000),
                 "error_type": type(error).__name__,
                 "classification": classify_provider_error(error),
+                "failure_reason": failure_reason(name, error),
             }
         print(
             json.dumps({"managed_capability_check": name, **report["capabilities"][name]}),
@@ -464,9 +466,7 @@ async def probe_managed_capabilities(provider: str) -> dict:
                                 "input_transcription_verified": True,
                             }
             finally:
-                if producer is not None and not producer.done():
-                    producer.cancel()
-                    await asyncio.gather(producer, return_exceptions=True)
+                await settle_recording(producer)
         raise ValueError(
             "The Live adapter did not complete synthetic input, function result and speech"
         )

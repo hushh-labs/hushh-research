@@ -1,6 +1,13 @@
 """Production activation preserves incompatible readers until governed retirement."""
 
+import copy
+import importlib
 import json
+import os
+import re
+import shutil
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,9 +18,11 @@ from tests.test_account_deletion_release_workflow import (
     _assert_no_uat_target,
     _production_step,
     _production_workflow,
+    _step,
 )
 
 pytestmark = [pytest.mark.feature_account_deletion, pytest.mark.trace_loop]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_production_activation_uses_the_same_qualified_lifecycle_owner() -> None:
@@ -22,7 +31,11 @@ def test_production_activation_uses_the_same_qualified_lifecycle_owner() -> None
         "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.classify.outputs.release_failed == 'false' && "
         "steps.scope.outputs.deploy_backend == 'true')"
     )
-    assert "python3 deploy/account-deletion/activate_release.py" in activation["run"]
+    # The recovery schema driver belongs to the verified project environment.
+    assert (
+        '"${{ env.PROTOCOL_PYTHON }}" deploy/account-deletion/activate_release.py'
+        in activation["run"]
+    )
     assert '--expected-sha "${{ github.event.inputs.sha }}"' in activation["run"]
     assert '--cloudsql-instance "${{ env.PROD_CLOUDSQL_INSTANCE }}"' in activation["run"]
     assert _production_workflow()["env"]["CONSENT_API_PUBLIC_ORIGIN"] == "https://api.hushh.ai"
@@ -195,3 +208,166 @@ def test_explicit_restoration_cannot_satisfy_phone_reader_floor(monkeypatch):
     assert module.legacy_inventory(
         service, revisions, "current", restoration=True, phone_floor=True
     ) == (["historical"], ["rollback"])
+
+
+@pytest.fixture
+def uat_retirement(activation_case):
+    module, args, _calls, deleted = activation_case
+    args.project = "hushh-pda-uat"
+    args.backend_url = args.oidc_audience = "https://api.uat.hushh.ai"
+    evidence = {"status": "blocked"}
+    module.activate(args, evidence)
+    assert evidence["retirement"]["retired_revisions"] == deleted
+    return module.retirement_owner(), args, evidence
+
+
+def _tags_binding(args):
+    return {
+        "activation_succeeded": True,
+        "project": args.project,
+        "region": args.region,
+        "service": args.backend_service,
+        "candidate": "consent-protocol-current",
+        "source": args.expected_sha,
+        "run_id": args.expected_run_id,
+        "rollback": "consent-protocol-legacy",
+    }
+
+
+@pytest.mark.parametrize("changed", [None, "absent", "skipped", "unrecorded"])
+def test_uat_cleanup_keeps_missing_rollback_strict_except_proven_own_retirement(
+    uat_retirement, monkeypatch, changed
+):
+    owner, args, evidence = uat_retirement
+    binding = _tags_binding(args)
+    if changed == "absent":
+        evidence = None
+    elif changed == "skipped":
+        binding["activation_succeeded"] = False
+    elif changed == "unrecorded":
+        evidence["retirement"].update(retired_revisions=[], retired_count=0)
+    rollback = owner.uat_tags_rollback(evidence, **binding)
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+    retention = importlib.import_module("cloudrun-retention")
+    service = {"status": {"traffic": [{"revisionName": binding["candidate"], "percent": 100}]}}
+    revisions = [
+        {"metadata": {"name": binding["candidate"], "creationTimestamp": "2026-10-27T01:00:00Z"}}
+    ]
+    protected = {binding["candidate"]} | ({rollback} if rollback else set())
+    if changed:
+        assert rollback == binding["rollback"]
+        with pytest.raises(retention.UnsafeState, match="protected revision absent"):
+            retention.plan_cleanup(service, revisions, 2, protected)
+    else:
+        plan = retention.plan_cleanup(service, revisions, 2, protected)
+        assert rollback == ""
+        assert binding["candidate"] in plan.protected
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        "run_id",
+        "sha",
+        "project",
+        "region",
+        "service",
+        "candidate_revision",
+        "candidate_uid",
+        "service_uid",
+        "status",
+        "retired_revisions",
+        "retired_count",
+    ],
+)
+def test_uat_retirement_cannot_omit_rollback_from_foreign_or_incomplete_proof(
+    uat_retirement, changed
+):
+    owner, args, evidence = uat_retirement
+    evidence = copy.deepcopy(evidence)
+    if changed == "retired_revisions":
+        evidence["retirement"].pop(changed)
+    elif changed == "retired_count":
+        evidence["retirement"][changed] += 1
+    elif changed in {"candidate_uid", "service_uid"}:
+        evidence.pop(changed)
+    else:
+        evidence[changed] = "different"
+    with pytest.raises(ValueError, match="unqualified"):
+        owner.uat_tags_rollback(evidence, **_tags_binding(args))
+
+
+def test_uat_tag_cleanup_executes_bound_retirement_projection_and_preserves_frontend(
+    uat_retirement, tmp_path
+):
+    _owner, args, evidence = uat_retirement
+    step = _step("Retire old UAT revision tags after a healthy release")
+    script = step["run"]
+    for name, document in (
+        ("uat-release-status", {"status": "healthy"}),
+        ("uat-account-deletion-activation", evidence),
+    ):
+        path = tmp_path / (name + ".json")
+        path.write_text(json.dumps(document))
+        script = script.replace("/tmp/" + name + ".json", str(path))  # noqa: S108 -- workflow literal replaced by pytest-owned path.
+    script = script.replace("${{ inputs.preserve_paused_drive_worker }}", "true")
+    capture = tmp_path / "retention.jsonl"
+    fake = tmp_path / "bash"
+    fake.write_text(
+        "#!/usr/bin/env python3\nimport json,sys\n"
+        f"with open({str(capture)!r},'a') as stream: stream.write(json.dumps(sys.argv[1:])+'\\n')\n"
+    )
+    fake.chmod(0o755)
+    bash = shutil.which("bash")
+    environment = {
+        **os.environ,
+        "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+        "GCP_PROJECT_ID": args.project,
+        "GCP_REGION": args.region,
+        "BACKEND_SERVICE": args.backend_service,
+        "FRONTEND_SERVICE": "hushh-webapp",
+        "BACKEND_REVISION_RETENTION": "2",
+        "FRONTEND_REVISION_RETENTION": "2",
+        "BACKEND_CURRENT": "consent-protocol-current",
+        "BACKEND_ROLLBACK": "consent-protocol-legacy",
+        "FRONTEND_CURRENT": "hushh-webapp-current",
+        "FRONTEND_ROLLBACK": "hushh-webapp-previous",
+        "DEPLOY_SHA": args.expected_sha,
+        "GITHUB_RUN_ID": args.expected_run_id,
+        "ACTIVATION_RESULT": "success",
+    }
+    subprocess.run([bash, "-euc", script], env=environment, cwd=ROOT, check=True)  # noqa: S603
+    backend, frontend = [json.loads(row) for row in capture.read_text().splitlines()]
+    assert backend[backend.index("--rollback-revision") + 1] == ""
+    assert frontend[frontend.index("--rollback-revision") + 1] == "hushh-webapp-previous"
+    assert backend[-3:] == frontend[-3:] == ["--apply", "--healthy", "--tags-only"]
+
+
+def test_uat_retirement_owner_survives_checkout_without_the_new_helper(tmp_path):
+    preserved = _step("Preserve current release tooling")["run"]
+    copy = re.search(
+        r"(?ms)^cp deploy/account-deletion/\{install,remove\}_release_fence.sql \\\n"
+        r'.*?"\$\{RUNNER_TEMP\}/release-tools/account-deletion/"',
+        preserved,
+    ).group(0)
+    runner = tmp_path / "runner"
+    (runner / "release-tools/account-deletion").mkdir(parents=True)
+    environment = {**os.environ, "RUNNER_TEMP": str(runner)}
+    subprocess.run([shutil.which("bash"), "-euc", copy], cwd=ROOT, env=environment, check=True)  # noqa: S603
+    historical = tmp_path / "checkout"
+    target = historical / "deploy/account-deletion"
+    target.mkdir(parents=True)
+    (target / "activate_release.py").write_text(
+        "# historical candidate without retirement helper\n"
+    )
+    restore = 'cp "${RUNNER_TEMP}/release-tools/account-deletion/"* deploy/account-deletion/'
+    assert restore in _step("Checkout deployment SHA")["run"]
+    subprocess.run(  # noqa: S603 -- exact authored restoration command, isolated synthetic checkout.
+        [shutil.which("bash"), "-euc", restore], cwd=historical, env=environment, check=True
+    )
+    assert (target / "activation_retirement.py").read_bytes() == (
+        ROOT / "deploy/account-deletion/activation_retirement.py"
+    ).read_bytes()
+    assert (target / "activate_release.py").read_bytes() == (
+        ROOT / "deploy/account-deletion/activate_release.py"
+    ).read_bytes()

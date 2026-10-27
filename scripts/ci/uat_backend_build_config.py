@@ -283,8 +283,10 @@ if [[ "$PROJECT_ID" != "hushh-pda-uat" || "$_DEPLOY_ENV" != "uat" ||
   echo "Parallel candidate deployment requires the canonical UAT lane." >&2; exit 1
 fi
 source scripts/deploy/backend-capacity-settings.sh
-IFS='|' read -r prebuilt image tag pod prefix extra <<< "$_IMAGE_SETTINGS"
-if [[ "$prebuilt" != "true" || "$pod" != "false" || -n "$prefix$extra" ||
+IFS='|' read -r prebuilt image tag pod prefix rollback_sha rollback_image phase extra <<< "$_IMAGE_SETTINGS"
+phase="${phase:-standard}"
+if [[ "$prebuilt" != "true" || "$pod" != "false" ||
+      -n "$prefix$rollback_sha$rollback_image$extra" || "$phase" != "standard" ||
       ! "$image" =~ ^gcr[.]io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}$ ||
       ! "$_GITHUB_RUN_ID" =~ ^[0-9]+$ || "$tag" != "account-deletion-${_GITHUB_RUN_ID}" ||
       "${_CLOUD_RUN_NO_TRAFFIC:-}" != "true" ]]; then

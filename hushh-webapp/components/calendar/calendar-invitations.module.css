@@ -56,6 +56,11 @@
 .attendees { display: flex; flex-wrap: wrap; align-items: start; gap: 16px; margin: 0; padding: 0; list-style: none; }
 .attendees > li { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 48px; max-width: 100px; text-align: center; font-size: 14px; line-height: 21px; font-weight: 550; overflow-wrap: anywhere; }
 .attendees small { color: var(--app-secondary-label); font-size: 13px; line-height: 18px; font-weight: 600; }
+.guestList { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.detailSection .attendeeSummary { margin: -6px 0 16px; color: var(--app-secondary-label); font-size: 12px; line-height: 18px; }
+.guestList > li { display: flex; align-items: center; gap: 12px; min-width: 0; font-size: 14px; line-height: 21px; font-weight: 550; }
+.guestCopy { display: grid; gap: 1px; min-width: 0; overflow-wrap: anywhere; }
+.guestList small { color: var(--app-secondary-label); font-size: 12px; line-height: 18px; font-weight: 400; }
 .calendarLink { border-top: 1px solid var(--app-separator); }
 .calendarLink > svg { color: var(--app-accent); }
 .back { display: inline-flex; min-height: 44px; margin-bottom: 12px; padding-left: 0; color: var(--app-secondary-label); }
@@ -64,6 +69,10 @@
 .actionPair > button { width: 100%; }
 .actionPair > button > span, .offerButton > span { width: 100%; }
 .offerButton { width: 100%; }
+.actions[data-workspace="true"] > button { justify-self: center; width: fit-content; max-width: 100%; }
+.actions[data-workspace="true"] .actionPair { display: flex; align-items: flex-start; justify-content: space-around; flex-wrap: wrap; gap: 10px; }
+.actions[data-workspace="true"] .actionPair > button { width: fit-content; max-width: 100%; }
+.actions[data-workspace="true"] .actionPair > button > span, .actions[data-workspace="true"] .offerButton > span { width: auto; max-width: 100%; }
 .review { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--app-separator); border-radius: var(--app-card-radius-standard); background: var(--app-card-surface-default-solid); font-size: 14px; line-height: 21px; overflow-wrap: anywhere; }
 .review h3 { --foundation-headline-size: 14px; --foundation-headline-line: 22px; --foundation-headline-weight: 600; }
 .review .message { font-size: 13px; max-height: 260px; overflow-y: auto; }

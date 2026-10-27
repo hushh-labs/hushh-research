@@ -30,16 +30,34 @@ if str(ROOT) not in sys.path:
 
 from openai import AsyncOpenAI  # noqa: E402
 
-from hushh_mcp.managed_ai_config import load_pwm_policy  # noqa: E402
+from hushh_mcp.managed_ai_config import load_managed_runtime_policy, load_pwm_policy  # noqa: E402
 from hushh_mcp.runtime_providers.dependency_health import (  # noqa: E402
+    APPLICATION_BROKEN,
     CANDIDATE_MISCONFIGURED,
     DEPENDENCY_OK,
+    PROVIDER_UNAVAILABLE,
     classify_provider_error,
+    summarize,
 )
+from scripts.capability_probe_failure import FAILURE_REASONS  # noqa: E402
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 MAX_OUTPUT_TOKENS = 256
 STAGES = {"configuration", "federation", "primary_http", "response_validation"}
+
+
+def valid_failure_reason(capability: str, reason: object) -> bool:
+    return (
+        isinstance(reason, str)
+        and reason in FAILURE_REASONS
+        and (
+            reason == "unlisted"
+            or capability == "live_audio"
+            and reason.startswith("live.")
+            or capability == "one_text_root"
+            and reason.startswith("root.")
+        )
+    )
 
 
 class ReadinessConfigurationError(ValueError):
@@ -59,12 +77,80 @@ class ReadinessProbeError(RuntimeError):
             key: event[key]
             for key in ("classification", "error_type", "failure_stage", "elapsed_ms", "attempt")
         }
+        if "capability_failures" in event:
+            self.diagnostic["capability_failures"] = event["capability_failures"]
 
 
 def failure_fields(error: Exception) -> dict:
     if isinstance(error, ReadinessProbeError):
         return error.diagnostic
     return {"classification": classify_provider_error(error), "error_type": type(error).__name__}
+
+
+def capability_failure_event(report: dict) -> dict:
+    """Retain closed child failures without changing the strict readiness result."""
+    policy = load_managed_runtime_policy()
+    rows = report.get("capabilities")
+    if (
+        policy is None
+        or policy["provider"] != "azure_openai"
+        or report.get("provider") != policy["provider"]
+        or report.get("policy_generation") != policy["generation"]
+        or report.get("ready") is not False
+        or not isinstance(rows, dict)
+        or set(rows) != set(policy["required_capabilities"])
+    ):
+        raise ReadinessResponseError("Invalid managed capability failure inventory")
+    failures = []
+    for name, row in rows.items():
+        if (
+            not isinstance(row, dict)
+            or type(row.get("ready")) is not bool
+            or type(row.get("elapsed_ms")) is not int
+            or not 0 <= row["elapsed_ms"] <= 420_000
+        ):
+            raise ReadinessResponseError("Invalid managed capability result")
+        if row["ready"]:
+            continue
+        classification, error_type = row.get("classification"), row.get("error_type")
+        if (
+            classification
+            not in {PROVIDER_UNAVAILABLE, CANDIDATE_MISCONFIGURED, APPLICATION_BROKEN}
+            or not isinstance(error_type, str)
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,95}", error_type)
+            or ("failure_reason" in row and not valid_failure_reason(name, row["failure_reason"]))
+        ):
+            raise ReadinessResponseError("Invalid managed capability failure metadata")
+        failure = {
+            "capability": name,
+            "classification": classification,
+            "error_type": error_type,
+            "elapsed_ms": row["elapsed_ms"],
+        }
+        if "failure_reason" in row:
+            failure["failure_reason"] = row["failure_reason"]
+        failures.append(failure)
+    if not failures:
+        raise ReadinessResponseError("Managed capability failure has no failed child")
+    classification = summarize([row["classification"] for row in failures])
+    decisive = [row for row in failures if row["classification"] == classification]
+    representative = next(
+        (
+            row
+            for row in decisive
+            if classification == PROVIDER_UNAVAILABLE
+            and row["error_type"] in {"TimeoutError", "APITimeoutError"}
+        ),
+        decisive[0],
+    )
+    return {
+        "classification": classification,
+        "error_type": representative["error_type"],
+        "failure_stage": representative["capability"],
+        "elapsed_ms": representative["elapsed_ms"],
+        "attempt": 1,
+        "capability_failures": failures,
+    }
 
 
 def readiness_event(report: dict, deployment: str) -> dict:

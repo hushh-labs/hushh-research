@@ -22,6 +22,7 @@ from production_phone_lease_cases import (
     ProductionPhoneSkippedLeaseCases,
 )
 from production_phone_receipt_cases import ProductionPhoneReceiptCases
+from production_restoration_receipt_cases import RestorationServingReceiptCases
 from production_staged_worker_cases import (
     ProductionHealthyStagedWorkerCases as ProductionHealthyStagedWorkerCases,
 )
@@ -296,6 +297,7 @@ class ReplayedUatReleaseArtifactTest(ReplayedReleaseFixture, unittest.TestCase):
 
 
 class ReplayedProductionReleaseArtifactTest(
+    RestorationServingReceiptCases,
     BackendInheritanceCases,
     PendingActivationCases,
     ActivationContinuationCases,

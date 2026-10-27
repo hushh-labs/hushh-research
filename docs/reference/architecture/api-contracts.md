@@ -1030,6 +1030,7 @@ See [Wallet](../one/wallet.md) and the
 | Method | Path                                      | Description                                                                                             |
 | ------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | GET    | `/health`                                 | Detailed health check with agent list                                                                   |
+| GET    | `/health/ready`                           | Dependency readiness with bounded advisory signals                                                     |
 | GET    | `/api/kai/health`                         | Kai subsystem health                                                                                    |
 | GET    | `/api/investors/search?q={name}`          | Fuzzy search investors by name                                                                          |
 | GET    | `/api/investors/{investor_id}`            | Full investor profile by ID                                                                             |
@@ -1040,6 +1041,16 @@ See [Wallet](../one/wallet.md) and the
 | POST   | `/api/validate-token`                     | Validate a consent token                                                                                |
 | GET    | `/api/app-config/review-mode`             | Review mode toggle (enabled only)                                                                       |
 | POST   | `/api/app-config/review-mode/session`     | Non-production reviewer mint: a supplied `reviewer_uid` must name the configured reviewer paired with its passphrase; unknown or mismatched identities fail closed. Legacy callers may omit the UID and authenticate by configured passphrase. |
+
+`GET /health/ready` gates shared-runtime readiness on the database and production
+Firebase Admin configuration. In UAT and production only, its
+`checks.phone_test_transport` is `healthy` or `unavailable`, using the recorded
+phone transport's canonical configuration prerequisites. This advisory value
+never changes HTTP readiness or removes ordinary authentication traffic. It
+exposes no configured values, counts, or identifiers and issues no challenge or
+SMS. `healthy` establishes configuration availability, not phone ownership,
+successful confirmation, identity persistence, or real SMS delivery. The field
+is absent outside those environments and on private pods; `/health` is unchanged.
 
 ### Developer API (Developer Token / Developer API Enabled)
 

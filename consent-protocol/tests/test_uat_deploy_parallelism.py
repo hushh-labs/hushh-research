@@ -17,6 +17,7 @@ from tests.helpers.deployment_cli import frontend_release as _frontend_release
 from tests.helpers.deployment_cli import uat_build_module as _uat_build_module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+UAT_BACKEND_IMAGE = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64
 
 
 def test_ready_frontend_overlaps_providers_without_replacing_any_gate_or_backend_setting():
@@ -266,6 +267,7 @@ def test_uat_candidate_warms_in_parallel_and_aggregate_still_joins_every_gate():
     "override,allowed",
     [
         ({}, True),
+        ({"_IMAGE_SETTINGS": f"true|{UAT_BACKEND_IMAGE}|account-deletion-42|false|"}, True),
         ({"PROJECT_ID": "hushh-pda"}, False),
         ({"_DEPLOY_ENV": "production"}, False),
         ({"_DEPLOY_SOURCE": "manual"}, False),
@@ -278,19 +280,16 @@ def test_uat_candidate_warms_in_parallel_and_aggregate_still_joins_every_gate():
             },
             False,
         ),
-        (
-            {
-                "_IMAGE_SETTINGS": "true|gcr.io/hushh-pda-uat/consent-protocol:latest|account-deletion-42|false|"
-            },
-            False,
-        ),
-        (
-            {
-                "_IMAGE_SETTINGS": "true|gcr.io/hushh-pda-uat/consent-protocol@sha256:"
-                + "a" * 64
-                + "|foreign-tag|false|"
-            },
-            False,
+        ({"_IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/consent-protocol:latest"}, False),
+        ({"_CLOUD_RUN_TAG": "foreign-tag"}, False),
+        ({"_SKIP_IMAGE_BUILD": "false"}, False),
+        ({"_BUILD_POD_IMAGE": "true"}, False),
+        ({"_SECRET_PREFIX": "foreign"}, False),
+        ({"_PHONE_ROLLBACK_SHA": "b" * 40}, False),
+        ({"_PHONE_ROLLBACK_IMAGE_REFERENCE": "nonempty"}, False),
+        *(
+            ({"_PHONE_DEPLOY_PHASE": phase}, False)
+            for phase in ("cold", "worker", "activate", "unknown", "standard|overflow")
         ),
     ],
 )
@@ -302,25 +301,32 @@ def test_parallel_candidate_refuses_other_environments_or_traffic(tmp_path, over
         _read("scripts/deploy/backend-capacity-settings.sh")
     )
     marker = tmp_path / "admitted"
-    environment = {
-        **os.environ,
-        "PROJECT_ID": "hushh-pda-uat",
+    module = _uat_build_module()
+    source = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    config = module.candidate_parallel_config(source)
+    step = next(step for step in config["steps"] if step["id"] == "deploy-backend")
+    values = {
+        **source["substitutions"],
         "_DEPLOY_ENV": "uat",
         "_DEPLOY_SOURCE": "deploy-uat",
-        "_BACKEND_SERVICE": "consent-protocol",
         "_GITHUB_RUN_ID": "42",
-        "_IMAGE_SETTINGS": "true|gcr.io/hushh-pda-uat/consent-protocol@sha256:"
-        + "a" * 64
-        + "|account-deletion-42|false|",
-        "_CLOUD_RUN_CAPACITY": "max=5,min=2,no_traffic=true,cpu=2,concurrency=20",
+        "_SKIP_IMAGE_BUILD": "true",
+        "_CLOUD_RUN_TAG": "account-deletion-42",
+        "_IMAGE_REFERENCE": UAT_BACKEND_IMAGE,
+        "_CLOUD_RUN_NO_TRAFFIC": "true",
+        **override,
+    }
+    environment = {
+        **os.environ,
+        **{
+            key: re.sub(r"\$\{(_[A-Z0-9_]+)\}", lambda match: values[match[1]], value)
+            for key, value in (entry.split("=", 1) for entry in step["env"])
+        },
+        "PROJECT_ID": "hushh-pda-uat",
         "MARKER": str(marker),
         **override,
     }
-    module = _uat_build_module()
-    config = module.candidate_parallel_config(
-        yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
-    )
-    command = next(step for step in config["steps"] if step["id"] == "deploy-backend")["args"][1]
+    command = step["args"][1]
     assert command == module.UAT_CANDIDATE_COMMAND.replace("$", "$$")
     result = subprocess.run(  # noqa: S603 - generated guard with synthetic deploy stub.
         [shutil.which("bash") or "bash", "-c", command.replace("$$", "$")],
