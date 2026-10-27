@@ -232,6 +232,7 @@ def hosted_runtime(monkeypatch):
     from dataclasses import replace
 
     from hushh_mcp.managed_ai_config import load_profile, profile_hash
+    from hushh_mcp.services.agent_chat_service import load_one_agent_runtime_manifest
     from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV
 
     profile = load_profile("dev")
@@ -275,7 +276,13 @@ def hosted_runtime(monkeypatch):
         monkeypatch.delenv(key, raising=False)
     for key, value in values.items():
         monkeypatch.setenv(key, value)
-    return deployment
+    # A real pod loads its manifest after installing this environment. Other
+    # tests may have warmed the process cache under their own model settings.
+    load_one_agent_runtime_manifest.cache_clear()
+    try:
+        yield deployment
+    finally:
+        load_one_agent_runtime_manifest.cache_clear()
 
 
 def test_hosted_model_selection_is_versioned_and_cannot_drift(monkeypatch, hosted_runtime):
