@@ -23,7 +23,7 @@ environment acceptance, dispatches email, or promotes production traffic.
 | Resource | Dev | UAT |
 | --- | --- | --- |
 | Project | `hushh-pda-dev` | `hushh-pda-uat` |
-| Instance | `hushh-pda-dev:us-central1:hushh-dev-pg` | `hushh-pda-uat:us-central1:hushh-uat-pg` |
+| Instance | `hushh-pda-dev:us-central1:plg-qualification-pg` | `hushh-pda-uat:us-central1:hushh-uat-pg` |
 | Service | `consent-protocol-plg-qual` | `consent-protocol-plg-qual` |
 | Database | `plg_qualification` | `plg_qualification` |
 | Owned proxy port | 6546 | 6547 |
@@ -35,6 +35,11 @@ no arbitrary project, instance, service, database, SQL file or secret-name input
 The roles have no superuser, role creation, database creation, replication,
 bypass-RLS or inherited-role authority. Runtime connections are capped at eight;
 migration connections at two. Runtime receives no migration credential mount.
+The single worker uses asyncpg maximum four and SQLAlchemy size one with zero
+overflow: five declared pooled connections. S starts two persistent listeners
+that acquire from the asyncpg pool; a maximum of two could leave no request
+connection available. These listeners are included in the four, not additional
+dedicated consumers. The role ceiling remains eight.
 
 The fixed source is `5de6ee29abe3b00642bd6b745c608279091810b3`, based on
 `d8a5fa4858741e611d39fd4f1f28b1ab930d057c`. Source admission, provider cleanup
@@ -108,7 +113,15 @@ additional overlay is accepted from the caller. The real initializer remains
 `python db/migrate.py --init --release-environment production`.
 Here `production` selects the source's production-compatible migration lane;
 the connection remains pinned to the dedicated nonproduction database.
-`run_init_migration` creates the base tables and runs the real release migrations.
+After the existing fresh-database admission, the fixed `qualification_base.py`
+seam first invokes S's canonical `--table vault_keys`. It verifies the immutable
+legacy source blob and all three statement hashes before any DDL, then executes
+only its `CREATE TABLE` definitions for `kai_gmail_connections`,
+`kai_gmail_sync_runs` and `kai_gmail_receipts`, in that order. No legacy indexes,
+rows, extensions, full legacy script or local bootstrap are included.
+S's `--init` then creates the remaining base tables and runs the real release
+migrations. Its migration 039 assumes the Gmail connection table exists, and
+046 reads the receipt table; `--init` alone does not supply these foundations.
 Source `prod_core_schema.json` does not require legacy `public.users`, and that
 table is absent in the reviewed UAT metadata. Do not invent it as a prerequisite.
 The source initializer's `request_id VARCHAR(32)` is changed to `TEXT` by actual
@@ -147,10 +160,11 @@ configuration are disabled. Install the source's pinned Python dependencies,
 including `python-dotenv==1.2.2`, before execution.
 The isolated child verifies its own installed dotenv version and disabled flag
 before importing source, so a different parent/user-site package cannot admit
-inherited `.env` or `.env.local` values. Cluster pins bind the read-only
-2026-10-27 18:52:29 UTC observation: DEV `7660699789822283792`, UAT
-`7612942862467162128`, both observed at PostgreSQL `150018`. Runtime admission
-requires the same cluster identifier and major version; the observed minor
+inherited `.env` or `.env.local` values. The canonical foundation record binds
+the server-derived cluster identifiers and their read-only evidence. The new
+dedicated DEV instance requires its own actual identifier; evidence for the
+retained `hushh-dev-pg` instance remains historical provenance. Runtime admission
+requires the recorded cluster identifier and major version; the observed minor
 version remains provenance rather than a routing override.
 
 ```bash
@@ -161,7 +175,7 @@ python deploy/plg/qualification_schema.py --environment dev --action preflight -
 ```
 
 Initialization acquires the dedicated schema advisory lock and records exclusive
-intent before mutations. It runs S's real initializer and only the five pinned
+intent before mutations. It installs the fixed base seam, runs S's real initializer and only the five pinned
 overlays. Migration 407 runs with autocommit outside a transaction; the remaining
 SQL retains its authored transactions. No overlay migration-ledger rows are
 invented. Existing tables or an existing attempt file refuse replay. Any failed
@@ -188,10 +202,16 @@ python deploy/plg/qualification_bootstrap.py --environment dev --phase preflight
 
 This uses a fresh read-only connection and checks the database ownership marker,
 provider contract/trigger, absent phone relations, foundational Memory tables
-and empty owner/event/credential/outbox relations. Only `schema_migrations` and
-three pinned source-seeded global catalogs are exempt. Catalog identity rows
+and empty owner/event/credential/outbox relations. Only `schema_migrations`,
+three pinned source-seeded global catalogs and one public discovery catalog are exempt. Catalog identity rows
 must exactly match `qualification_foundation.py`: the three authored consent
 templates, referral policy versions 1–2 and program settings versions 1–5.
+Source migrations 056 and 057 author 24 public SEC discovery profiles. These
+are separately classified as public source catalog information, with exact CIK,
+name, firm, normalized name and admission/quality values checked; they are not
+owner rows or copied UAT profiles. Unknown identities, duplicates or changed
+stable values refuse. All other owner/event/credential/outbox tables remain
+subject to the empty-state requirement.
 The initializer, schema contract, manifest and seed/transition SQL hashes are
 bound in the canonical foundation record. No arbitrary catalog list is accepted.
 It is deliberately a
@@ -242,5 +262,20 @@ actual image/revision, exact run/attempt, schema proof and previous environment
 evidence. A private isolated service is not the existing shared service at 100%
 traffic. Do not relabel it as `shared-dev` or ordinary `uat` acceptance, reuse
 another source's receipts, or reuse D8's production-restoration identity.
+`deploy/plg/qualification_acceptance.py` exposes `verify(environment, run_id)`
+for the exact latest hosted attempt and its digest-bound isolated artifact;
+it accepts no local receipt path. Its exported `GATES`, `STEPS` and `IMAGE_STEPS`
+bind the required producer execution, while `qualification_acceptance_contract.py`
+checks source-build, schema, private IAM, capacity and authenticated health evidence.
+The producer definitions must match the reviewed committed Git blobs, and source
+checks reuse `deploy/plg/validation.py`. UAT requires the exact verified isolated
+Dev artifact and executable digest. The consumer refuses until the deployment
+workflow implements the required isolated gate; synthetic contract tests confer
+no environment acceptance. Its typed pin always sets `sharedEnvironmentAccepted`
+and `productionTrafficAuthorized` to false.
+Capacity keeps the canonical declared-pool report intact. The consumer also
+requires headroom for the verified runtime role's aggregate connection ceiling
+of eight, without reducing any larger retained-revision reservation or claiming
+a fixed number of separate lock connections.
 Production promotion, rollback and each business journey/email-to-metrics
 proof remain the release owner's separate governed operations.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 
+import qualification_base as base
 import release_source
 from qualification_target import ABSENT_TABLES, BASELINE, POLICY_SHA256, SOURCE, require
 
@@ -13,9 +14,9 @@ METADATA_SHA256 = "f066ad015aba75836ab614b53e4b66d0cb9de3b98b83e25ef3b50a8b13bff
 OVERLAY_REF = "34401b86f3eb51816a58a55d93c5ae64670e09be"
 CLUSTERS = {
     "dev": {
-        "systemIdentifier": "7660699789822283792",
+        "systemIdentifier": "7701442072798232593",
         "postgresMajor": 15,
-        "observedServerVersionNum": 150018,
+        "observedServerVersionNum": 150019,
     },
     "uat": {
         "systemIdentifier": "7612942862467162128",
@@ -24,8 +25,8 @@ CLUSTERS = {
     },
 }
 CLUSTER_EVIDENCE = {
-    "sha256": "53b1e0e9fa20c861a4c1001a0b2cad346e637cd02f37b8dd2bc457db6516d855",
-    "observedAt": "2026-10-27T18:52:29.002626+00:00",
+    "sha256": "de0784ecc80d631c1e21b14786dfbdf11213170adc99a1f16fb8e1d6f13a31cb",
+    "observedAt": "2026-10-27T20:18:53.569435+00:00",
     "readOnly": True,
     "ownerRowsRead": False,
 }
@@ -52,10 +53,13 @@ OVERLAYS = (
     ),
 )
 SOURCE_FILES = {
+    base.PATH: base.SHA256,
     "consent-protocol/db/migrate.py": "c31971b76b961ac38e467c08a0223ef91324bfb9a4f30168731a08eef09f25db",
     "consent-protocol/db/contracts/prod_core_schema.json": "8930b0719db1e1e36254bcf99273164e204edc6955c66c0d6244e8ee7157b333",
     "consent-protocol/db/release_migration_manifest.json": "72429170876f4e54185def17dfe35e5742b51eeb8d0ebf52f06c6da9826335ff",
     "consent-protocol/db/migrations/020_ria_iam_foundation.sql": "2b21598fbd6ec82e0ee8f866f175d2af2998e345a443c44bd72f961f324004b1",
+    "consent-protocol/db/migrations/056_public_investor_profiles.sql": "2a876071973a7f7b534bb0cbfd32fc00e0179f8fa568cee8bb4ccefb2a74e4fb",
+    "consent-protocol/db/migrations/057_marketplace_investor_admission.sql": "1978035d5f4e5cc353ff8ac7aba3572b2f06535e55f3d1017ebe028ebe26ee43",
     "consent-protocol/db/migrations/165_one_referral_program.sql": "9c0b1a5d597064abb6968e9aaf5ed14ed490691834de49c94c4bc7e4c0bf6119",
     "consent-protocol/db/migrations/270_one_referral_gamification_settings.sql": "18335daf3d8d87c1da83416710554314fc9b6c262eac709b25024b40ecc1fb09",
     "consent-protocol/db/migrations/093_consent_audit_request_id_text.sql": "a672bb40d081d2d3c2ce6d810d7e9f047321ad989f69724d027832d9ac2af592",
@@ -68,12 +72,7 @@ SOURCE_FILES = {
 }
 CATALOGS = {
     "consent_scope_templates": {
-        "columns": [
-            "template_id",
-            "version",
-            "requester_actor_type",
-            "subject_actor_type",
-        ],
+        "columns": ["template_id", "version", "requester_actor_type", "subject_actor_type"],
         "rows": [
             ["investor_advisor_disclosure_v1", 1, "investor", "ria"],
             ["ria_financial_summary_v1", 1, "ria", "investor"],
@@ -84,6 +83,251 @@ CATALOGS = {
     "one_referral_program_settings": {
         "columns": ["version", "qualification_policy_version"],
         "rows": [[1, 1], [2, 1], [3, 1], [4, 2], [5, 2]],
+    },
+    "investor_profiles": {
+        "columns": [
+            "cik",
+            "name",
+            "firm",
+            "name_normalized",
+            "marketplace_eligible",
+            "curation_tier",
+            "admission_status",
+            "quality_score",
+        ],
+        "rows": [
+            ["0000315066", "FMR LLC", "FMR LLC", "fmrllc", True, "qualified", "qualified", 91],
+            [
+                "0000902219",
+                "WELLINGTON MANAGEMENT GROUP LLP",
+                "WELLINGTON MANAGEMENT GROUP LLP",
+                "wellingtonmanagementgroupllp",
+                True,
+                "qualified",
+                "qualified",
+                91,
+            ],
+            [
+                "0001037389",
+                "RENAISSANCE TECHNOLOGIES LLC",
+                "RENAISSANCE TECHNOLOGIES LLC",
+                "renaissancetechnologiesllc",
+                True,
+                "showcase",
+                "qualified",
+                95,
+            ],
+            [
+                "0001061768",
+                "BAUPOST GROUP LLC/MA",
+                "BAUPOST GROUP LLC/MA",
+                "baupostgroupllcma",
+                True,
+                "qualified",
+                "qualified",
+                90,
+            ],
+            [
+                "0001067983",
+                "BERKSHIRE HATHAWAY INC",
+                "Berkshire Hathaway Inc",
+                "berkshirehathawayinc",
+                True,
+                "showcase",
+                "qualified",
+                98,
+            ],
+            [
+                "0001081019",
+                "CALIFORNIA STATE TEACHERS RETIREMENT SYSTEM",
+                "CALIFORNIA STATE TEACHERS RETIREMENT SYSTEM",
+                "californiastateteachersretirementsystem",
+                True,
+                "qualified",
+                "qualified",
+                92,
+            ],
+            [
+                "0001166559",
+                "GATES FOUNDATION TRUST",
+                "Gates Foundation Trust",
+                "gatesfoundationtrust",
+                True,
+                "showcase",
+                "qualified",
+                98,
+            ],
+            [
+                "0001167483",
+                "TIGER GLOBAL MANAGEMENT LLC",
+                "TIGER GLOBAL MANAGEMENT LLC",
+                "tigerglobalmanagementllc",
+                True,
+                "qualified",
+                "qualified",
+                90,
+            ],
+            [
+                "0001214717",
+                "GEODE CAPITAL MANAGEMENT, LLC",
+                "GEODE CAPITAL MANAGEMENT, LLC",
+                "geodecapitalmanagementllc",
+                True,
+                "qualified",
+                "qualified",
+                87,
+            ],
+            [
+                "0001273087",
+                "MILLENNIUM MANAGEMENT LLC",
+                "MILLENNIUM MANAGEMENT LLC",
+                "millenniummanagementllc",
+                True,
+                "showcase",
+                "qualified",
+                94,
+            ],
+            [
+                "0001336528",
+                "Pershing Square Capital Management, L.P.",
+                "Pershing Square Capital Management, L.P.",
+                "pershingsquarecapitalmanagementlp",
+                True,
+                "showcase",
+                "qualified",
+                94,
+            ],
+            [
+                "0001350694",
+                "Bridgewater Associates, LP",
+                "Bridgewater Associates, LP",
+                "bridgewaterassociateslp",
+                True,
+                "showcase",
+                "qualified",
+                96,
+            ],
+            [
+                "0001352851",
+                "Magnetar Financial LLC",
+                "Magnetar Financial LLC",
+                "magnetarfinancialllc",
+                True,
+                "qualified",
+                "qualified",
+                86,
+            ],
+            [
+                "0001423053",
+                "CITADEL ADVISORS LLC",
+                "CITADEL ADVISORS LLC",
+                "citadeladvisorsllc",
+                True,
+                "showcase",
+                "qualified",
+                95,
+            ],
+            [
+                "0001510281",
+                "Saba Capital Management, L.P.",
+                "Saba Capital Management, L.P.",
+                "sabacapitalmanagementlp",
+                True,
+                "qualified",
+                "qualified",
+                85,
+            ],
+            [
+                "0001535630",
+                "ELEMENT CAPITAL MANAGEMENT LLC",
+                "ELEMENT CAPITAL MANAGEMENT LLC",
+                "elementcapitalmanagementllc",
+                True,
+                "qualified",
+                "qualified",
+                86,
+            ],
+            [
+                "0001536411",
+                "Duquesne Family Office LLC",
+                "Duquesne Family Office LLC",
+                "duquesnefamilyofficellc",
+                True,
+                "qualified",
+                "qualified",
+                90,
+            ],
+            [
+                "0001541617",
+                "Altimeter Capital Management, LP",
+                "Altimeter Capital Management, LP",
+                "altimetercapitalmanagementlp",
+                True,
+                "qualified",
+                "qualified",
+                88,
+            ],
+            [
+                "0001595082",
+                "DAVIDSON KEMPNER CAPITAL MANAGEMENT LP",
+                "DAVIDSON KEMPNER CAPITAL MANAGEMENT LP",
+                "davidsonkempnercapitalmanagementlp",
+                True,
+                "qualified",
+                "qualified",
+                86,
+            ],
+            [
+                "0001603466",
+                "Point72 Asset Management, L.P.",
+                "Point72 Asset Management, L.P.",
+                "point72assetmanagementlp",
+                True,
+                "showcase",
+                "qualified",
+                93,
+            ],
+            [
+                "0001647251",
+                "TCI Fund Management Ltd",
+                "TCI Fund Management Ltd",
+                "tcifundmanagementltd",
+                True,
+                "qualified",
+                "qualified",
+                89,
+            ],
+            [
+                "0001649339",
+                "Scion Asset Management, LLC",
+                "Scion Asset Management, LLC",
+                "scionassetmanagementllc",
+                True,
+                "qualified",
+                "qualified",
+                82,
+            ],
+            [
+                "0001656456",
+                "Appaloosa LP",
+                "Appaloosa LP",
+                "appaloosalp",
+                True,
+                "qualified",
+                "qualified",
+                89,
+            ],
+            [
+                "0001697748",
+                "ARK Investment Management LLC",
+                "ARK Investment Management LLC",
+                "arkinvestmentmanagementllc",
+                True,
+                "qualified",
+                "qualified",
+                87,
+            ],
+        ],
     },
 }
 
@@ -99,6 +343,7 @@ def binding() -> dict:
         "requiredAbsentTables": list(ABSENT_TABLES),
         "foundationRelations": ["consent_audit"],
         "legacyUsersRequired": False,
+        "legacyFoundation": base.binding(),
         "initializer": {
             "path": "consent-protocol/db/migrate.py",
             "arguments": ["--init", "--release-environment", "production"],
@@ -119,6 +364,15 @@ def binding() -> dict:
         ],
         "sourceFiles": SOURCE_FILES,
         "sourceSeededCatalogs": CATALOGS,
+        "sourceCatalogClassification": {
+            "globalConfiguration": [
+                "consent_scope_templates",
+                "one_referral_policies",
+                "one_referral_program_settings",
+            ],
+            "publicSourceDiscovery": ["investor_profiles"],
+            "ownerRowsAdmitted": False,
+        },
         "metadataEvidenceSha256": METADATA_SHA256,
     }
 
@@ -154,6 +408,7 @@ def load_contract() -> tuple[dict, str]:
             hashlib.sha256(content).hexdigest() == digest,
             "qualification_initializer_source_changed",
         )
+    base.fragments()
     overlay_sql()
     return record, hashlib.sha256(committed).hexdigest()
 
@@ -186,6 +441,7 @@ def inspect_catalog(cursor, relation: str) -> None:
         )
     )
     require(
-        [list(row) for row in cursor.fetchall()] == definition["rows"],
+        json.dumps([list(row) for row in cursor.fetchall()], sort_keys=True)
+        == json.dumps(definition["rows"], sort_keys=True),
         "qualification_source_catalog_changed",
     )

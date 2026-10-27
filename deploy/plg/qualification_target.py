@@ -35,7 +35,7 @@ RUNTIME_SECRETS = (
 )
 MIGRATOR_SECRETS = ("MIGRATOR_DB_USER", "MIGRATOR_DB_PASSWORD")
 TARGETS = {
-    "dev": ("hushh-pda-dev", "hushh-dev-pg", 6546),
+    "dev": ("hushh-pda-dev", "plg-qualification-pg", 6546),
     "uat": ("hushh-pda-uat", "hushh-uat-pg", 6547),
 }
 
@@ -208,7 +208,7 @@ class Target:
             "DB_UNIX_SOCKET": "/cloudsql/" + self.instance,
             "WEB_CONCURRENCY": "1",
             "DB_POOL_MIN_SIZE": "1",
-            "DB_POOL_MAX_SIZE": "2",
+            "DB_POOL_MAX_SIZE": "4",
             "DB_SQLALCHEMY_POOL_SIZE": "1",
             "DB_SQLALCHEMY_MAX_OVERFLOW": "0",
             "REQUIRE_DATABASE_ON_STARTUP": "true",

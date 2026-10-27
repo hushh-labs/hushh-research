@@ -3,6 +3,7 @@
 import copy
 import importlib
 import json
+import re
 import subprocess
 import sys
 from contextlib import nullcontext
@@ -98,15 +99,17 @@ def test_immutable_overlay_blob_change_is_refused(schema, monkeypatch):
         schema.foundation.overlay_sql()
 
 
-def test_foundation_rejects_an_extra_or_reordered_overlay(schema):
+def test_foundation_rejects_changed_base_or_overlay_sequence(schema):
     foundation = schema.foundation
     original = foundation.binding() | {"observedConsentAudit": {}, "compatibilityNotes": []}
-    for change in ("reorder", "extra", "transaction"):
+    for change in ("reorder", "extra", "transaction", "base-order"):
         record = copy.deepcopy(original)
         if change == "reorder":
             record["compatibleOverlays"].reverse()
         elif change == "extra":
             record["compatibleOverlays"].append({"path": "arbitrary.sql"})
+        elif change == "base-order":
+            record["legacyFoundation"]["fragments"].reverse()
         else:
             record["compatibleOverlays"][0]["transactional"] = True
         with pytest.raises(ValueError, match="qualification_foundation_contract_mismatch"):
@@ -140,8 +143,8 @@ def test_unrecorded_cluster_fails_before_server_inspection(schema, monkeypatch):
     assert connection.calls == []
 
 
-@pytest.mark.parametrize("environment", ["dev", "uat"])
-def test_recorded_cluster_binds_each_fixed_socket(schema, environment):
+@pytest.mark.parametrize("environment,version", [("dev", 150019), ("uat", 150018)])
+def test_recorded_cluster_binds_each_fixed_socket(schema, environment, version):
     target = schema.Target(environment)
     entry = schema.foundation.CLUSTERS[environment]
     connection = Connection(system_id=entry["systemIdentifier"])
@@ -152,7 +155,7 @@ def test_recorded_cluster_binds_each_fixed_socket(schema, environment):
         "user": "synthetic_admin",
     }
     schema.identity(connection, target, "synthetic_admin")
-    assert entry["postgresMajor"] == 15 and entry["observedServerVersionNum"] == 150018
+    assert entry["postgresMajor"] == 15 and entry["observedServerVersionNum"] == version
     assert all(query.startswith("SELECT") for query, _ in connection.calls)
 
 
@@ -212,7 +215,16 @@ def test_initializer_precedes_only_reviewed_overlays_without_fabricated_ledger(
     connection, order = Connection(), []
     monkeypatch.setattr(schema, "reviewed_source", lambda *_a: ({}, "digest"))
     monkeypatch.setattr(schema, "schema_lock", lambda *_a: nullcontext())
-    monkeypatch.setattr(schema, "run_source", lambda *_a, **_k: order.append("initializer"))
+    monkeypatch.setattr(
+        schema,
+        "run_source",
+        lambda *_a, **k: order.append("vault" if k["vault"] else "initializer"),
+    )
+    monkeypatch.setattr(
+        schema.base,
+        "fragments",
+        lambda: tuple((name, name.encode()) for name, _ in schema.base.FRAGMENTS),
+    )
     monkeypatch.setattr(
         schema.foundation,
         "overlay_sql",
@@ -221,6 +233,8 @@ def test_initializer_precedes_only_reviewed_overlays_without_fabricated_ledger(
     execute = connection.execute
 
     def record(query, parameters=None):
+        if str(query).startswith("kai_gmail_"):
+            order.append(str(query))
         if str(query).endswith(".sql"):
             assert connection.autocommit is True
             order.append(query[:3])
@@ -230,7 +244,18 @@ def test_initializer_precedes_only_reviewed_overlays_without_fabricated_ledger(
     monkeypatch.setattr(schema, "runtime_grants", lambda *_a: order.append("grants"))
     monkeypatch.setattr(schema, "preflight", lambda *_a: order.append("preflight"))
     schema.initialize(connection, schema.Target("uat"), tmp_path, "synthetic_admin", "synthetic")
-    assert order == ["initializer", "407", "408", "418", "419", "423", "grants", "preflight"]
+    assert order == [
+        "vault",
+        *(name for name, _ in schema.base.FRAGMENTS),
+        "initializer",
+        "407",
+        "408",
+        "418",
+        "419",
+        "423",
+        "grants",
+        "preflight",
+    ]
     assert not any("INSERT" in query or "DELETE" in query for query, _ in connection.calls)
 
 
@@ -294,16 +319,26 @@ def test_isolated_child_refuses_dotenv_admission_before_loading_any_source(schem
     assert "qualification_source_dotenv_version_required" in result.stderr
 
 
-def test_canonical_child_handles_unicode_under_isolated_redirected_execution(schema, tmp_path):
+@pytest.mark.parametrize("vault", [False, True])
+def test_canonical_child_handles_unicode_under_isolated_redirected_execution(
+    schema, tmp_path, vault
+):
     """Windows cp1252 failed before DDL even though the parent used UTF-8."""
     script = tmp_path / "consent-protocol/db/migrate.py"
     script.parent.mkdir(parents=True)
     script.write_text(
-        "import sys\nassert sys.flags.utf8_mode == 1\nprint('\\u2705')\n",
+        "import sys\nassert sys.flags.utf8_mode == 1\n"
+        'assert sys.argv[1:] in (["--init","--release-environment","production"],'
+        '["--table","vault_keys","--release-environment","production"])\nprint(\'\\u2705\')\n',
         encoding="utf-8",
     )
     schema.run_source(
-        tmp_path, schema.Target("dev"), "synthetic_admin", "synthetic", initializer=True
+        tmp_path,
+        schema.Target("dev"),
+        "synthetic_admin",
+        "synthetic",
+        initializer=True,
+        vault=vault,
     )
 
 
@@ -397,3 +432,59 @@ def test_runtime_verification_refuses_ddl_ledger_writes_or_missing_sequence_perm
     ):
         schema.verify_runtime_grants(connection)
     assert all(query.startswith("SELECT") for query, _ in connection.calls)
+
+
+@pytest.mark.parametrize("case", ["valid", "blob", "fragment", "order"])
+def test_base_statements_are_all_verified_before_any_write(schema, monkeypatch, case):
+    content = (ROOT / schema.base.PATH).read_text(encoding="utf-8").encode()
+    if case == "blob":
+        content += b"\nCREATE TABLE extra();\n"
+    elif case == "fragment":
+        content = content.replace(b"google_sub TEXT,", b"google_sub INTEGER,", 1)
+        monkeypatch.setattr(schema.base, "SHA256", schema.hashlib.sha256(content).hexdigest())
+    elif case == "order":
+        monkeypatch.setattr(schema.base, "FRAGMENTS", tuple(reversed(schema.base.FRAGMENTS)))
+    monkeypatch.setattr(schema.base.release_source, "_git", lambda *_: content)
+    connection, phases = Connection(), []
+    if case == "valid":
+        schema.base.install(connection, lambda **kwargs: phases.append(kwargs["vault"]))
+        assert phases == [True, False] and len(connection.calls) == 3
+        assert all(
+            query.startswith("CREATE TABLE IF NOT EXISTS kai_gmail_")
+            for query, _ in connection.calls
+        )
+    else:
+        with pytest.raises(ValueError, match="qualification_base_"):
+            schema.base.install(connection, lambda **kwargs: phases.append(kwargs["vault"]))
+        assert phases == [] and connection.calls == []
+
+
+@pytest.mark.parametrize("case", ["valid", "extra", "identity", "value", "boolean"])
+def test_public_source_catalog_accepts_only_fixed_stable_identities_and_values(schema, case):
+    definition = schema.foundation.CATALOGS["investor_profiles"]
+    rows = copy.deepcopy(definition["rows"])
+    assert len(rows) == 24
+    source = (
+        ROOT / "consent-protocol/db/migrations/057_marketplace_investor_admission.sql"
+    ).read_text(encoding="utf-8")
+    assert {row[0] for row in rows} == set(re.findall(r"^\s*'([0-9]{10})',\s*$", source, re.M))
+    if case == "extra":
+        rows.append(rows[0])
+    elif case == "identity":
+        rows[0][0] = "synthetic-unknown-public-profile"
+    elif case == "value":
+        rows[0][-1] += 1
+    elif case == "boolean":
+        rows[0][4] = 1
+    cursor = SimpleNamespace(execute=lambda *_: None, fetchall=lambda: rows)
+    if case == "valid":
+        schema.foundation.inspect_catalog(cursor, "investor_profiles")
+    else:
+        with pytest.raises(ValueError, match="qualification_source_catalog_changed"):
+            schema.foundation.inspect_catalog(cursor, "investor_profiles")
+
+
+@pytest.mark.parametrize("arguments", [(False, True), ("--full", False), (True, "arbitrary")])
+def test_base_child_cannot_select_a_noncanonical_phase(schema, arguments):
+    with pytest.raises(ValueError, match="qualification_source_phase_invalid"):
+        schema.base.arguments(*arguments)
