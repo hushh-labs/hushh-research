@@ -1,5 +1,18 @@
 """Reviewed schema-only adoption fixtures; no owner rows or runtime authority."""
 
+import asyncio
+import hashlib
+from pathlib import Path
+
+import asyncpg
+import psycopg2
+
+from db import migrate
+from db.hosted_custody_adoption import QUALIFIED
+from db.migration_authority import MigrationMode, apply_manifest_entries, manifest_checksum
+
+_ROOT = Path(__file__).resolve().parents[2]
+
 RECEIPT_PREDECESSORS = (
     (
         "904_consent_audit_receipts.sql",
@@ -222,3 +235,146 @@ def receipt_state(connection):
         cursor.execute("""SELECT to_jsonb(r),ctid::text FROM public.consent_audit_receipts r
           WHERE subject_id='synthetic-retained' ORDER BY id""")
         return cursor.fetchall()
+
+
+def custody_catalog(connection):
+    """Return bounded fingerprints and authority metadata, never function bodies."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT p.oid::regprocedure::text,p.oid,pg_get_functiondef(p.oid),
+              p.proowner,p.proacl::text,p.prosecdef,p.proconfig FROM pg_proc p
+              JOIN pg_namespace n ON n.oid=p.pronamespace
+              WHERE n.nspname='public' AND p.proname=ANY(%s)""",
+            ([s.partition("(")[0] for s in QUALIFIED],),
+        )
+        return {
+            row[0].removeprefix("public."): (
+                row[1],
+                hashlib.sha256(row[2].encode()).hexdigest(),
+                *row[3:],
+            )
+            for row in cursor.fetchall()
+        }
+
+
+def install_custody_fixture(connection):
+    """Load only the reviewed catalog; omit pilot schema, policy and owner rows."""
+    fixture = Path(__file__).resolve().parents[1] / "fixtures/managed_custody_successor.sql"
+    with connection.cursor() as cursor:
+        cursor.execute("SET check_function_bodies=off")
+        try:
+            cursor.execute(fixture.read_text())
+        finally:
+            cursor.execute("SET check_function_bodies=on")
+        # pg_get_functiondef omits ACLs. Establish the already-restricted state
+        # whose definitions, OIDs and authority must survive historical replay.
+        for signature in QUALIFIED:
+            cursor.execute(
+                "REVOKE ALL ON FUNCTION public." + signature + " FROM PUBLIC,anon,authenticated"
+            )
+    observed = custody_catalog(connection)
+    assert len(observed) == 60
+    assert {s: row[1] if row else None for s, row in observed.items()} == QUALIFIED
+    return observed
+
+
+def canonical_database(server, monkeypatch):
+    database = "synthetic_consent_adoption"
+    server.execute("CREATE DATABASE " + database)
+    server.execute(
+        "CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN"
+    )
+    monkeypatch.setattr(
+        migrate,
+        "release_migration_files",
+        lambda _environment: tuple(
+            name for name in migrate.RELEASE_MIGRATION_FILES if int(name[:3]) < 420
+        ),
+    )
+    for key, value in {
+        "DB_USER": "hushh",
+        "DB_PASSWORD": "synthetic",
+        "DB_HOST": "127.0.0.1",
+        "DB_PORT": str(server.port),
+        "DB_NAME": database,
+        "DB_UNIX_SOCKET": server.dir,
+        "GCP_PROJECT_ID": "local-schema-qualification",
+        "ENVIRONMENT": "test",
+        "HUSHH_RELEASE_ENVIRONMENT": "production",
+        "HUSHH_MIGRATION_MODE": "replay",
+    }.items():
+        monkeypatch.setenv(key, value)
+    connection = psycopg2.connect(host=server.dir, port=server.port, user="hushh", dbname=database)
+    connection.autocommit = True
+    with connection.cursor() as cursor:
+        cursor.execute((_ROOT / "db/legacy/init_legacy_schema.sql").read_text())
+
+    async def initialize():
+        pool = await asyncpg.create_pool(
+            host=server.dir,
+            port=server.port,
+            user="hushh",
+            database=database,
+            min_size=1,
+            max_size=2,
+            command_timeout=60,
+        )
+        try:
+            await migrate.run_init_migration(pool)
+        finally:
+            await pool.close()
+
+    try:
+        asyncio.run(initialize())
+    except BaseException:
+        connection.close()
+        raise
+    return connection, database
+
+
+def install_legacy_guards(connection, *, triggers=True):
+    with connection.cursor() as cursor:
+        cursor.execute("""CREATE TABLE public.consumer_mcp_connections(
+          connection_id TEXT PRIMARY KEY,user_id TEXT,generation BIGINT,authorization_floor_id BIGINT)""")
+        cursor.execute(LEGACY_FUNCTIONS)
+        if triggers:
+            cursor.execute(LEGACY_TRIGGERS)
+
+
+async def execute_mode(server, database, entry, mode, *, following=()):
+    connection = await asyncpg.connect(
+        host=server.dir, port=server.port, user="hushh", database=database
+    )
+    try:
+        return await apply_manifest_entries(
+            connection, (entry, *following), mode=mode, deploy_sha="synthetic-adoption-head"
+        )
+    finally:
+        await connection.close()
+
+
+def assert_pending_ledger_receipt(server, database, connection, entry):
+    with connection.cursor() as cursor:
+        cursor.execute((_ROOT / "db/foundations/schema_migrations_v2.sql").read_text())
+        # Established operational baseline is a fixture prerequisite; baseline/backup authorization is separate.
+        cursor.execute(
+            """INSERT INTO schema_migrations(migration_id,filename,checksum_sha256,status,baseline_through)
+          VALUES('baseline:419','synthetic-baseline-419',%s,'baseline',419)""",
+            (manifest_checksum(()),),
+        )
+    before = guard_catalog(connection)
+    assert asyncio.run(execute_mode(server, database, entry, MigrationMode.LEDGER)) == (
+        entry.filename,
+    )
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM schema_migrations WHERE migration_id='420'")
+        receipt = cursor.fetchone()
+        assert receipt[1:4] == (entry.filename, entry.checksum_sha256, "applied")
+        assert receipt[6] == "synthetic-adoption-head" and receipt[7] is None
+    normalized = authorization_state(connection)
+    assert asyncio.run(execute_mode(server, database, entry, MigrationMode.LEDGER)) == ()
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM schema_migrations WHERE migration_id='420'")
+        assert cursor.fetchone() == receipt
+    assert guard_catalog(connection) == before
+    assert authorization_state(connection) == normalized
