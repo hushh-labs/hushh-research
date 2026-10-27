@@ -357,6 +357,7 @@ jobs:
               - 'hushh-webapp/lib/auth/use-session-chrome-suppression.ts'
               - 'hushh-webapp/lib/capacitor/app-haptics.ts'
               - 'hushh-webapp/lib/capacitor/native-base-apertures.ts'
+              - 'hushh-webapp/lib/capacitor/native-chrome-controls.ts'
               - 'hushh-webapp/lib/capacitor/native-chrome.ts'
               - 'hushh-webapp/lib/capacitor/native-drawers.ts'
               - 'hushh-webapp/lib/capacitor/native-feedback.ts'
