@@ -16,6 +16,7 @@ from uuid import uuid4
 from sqlalchemy import text
 
 from db.db_client import get_db_connection
+from hushh_mcp.services.account_deletion_cleanup_stall import CLEANUP_STALL_ALERT_SECONDS
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     account_deletion_user_hash,
@@ -55,7 +56,11 @@ def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) 
             conn.execute(
                 text("""SELECT provider_cleanup_id,erasure_phase,cleanup_status,
               provider_cleanup_inventory,provider_cleanup_receipt,
-              provider_cleanup_next_attempt_at
+              provider_cleanup_next_attempt_at,
+              (erasure_phase='provider_cleanup' AND (cleanup_status IN ('pending','retry_pending')
+                OR (cleanup_status='running' AND cleanup_claimed_at<now()-interval '5 minutes'))
+                AND provider_cleanup_next_attempt_at<now()-make_interval(secs=>:stall_seconds))
+                IS TRUE AS delayed
             FROM account_deletion_tombstones
             WHERE firebase_identity_hash=:identity_hash AND cleanup_intent_kind='full_account'
               AND provider_cleanup_id IS NOT NULL
@@ -64,6 +69,7 @@ def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) 
                 {
                     "identity_hash": account_deletion_user_hash(firebase_uid),
                     "operation_id": operation_id,
+                    "stall_seconds": CLEANUP_STALL_ALERT_SECONDS,
                 },
             )
             .mappings()
@@ -91,6 +97,9 @@ def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) 
             "external_validity_unconfirmed_count": unsupported,
             "inventory_sha256": receipt.get("inventorySha256"),
             "retry_after_seconds": 3 if state in {"cleaning_up", "waiting_for_provider"} else None,
+            # Additive and cause-free: due work has waited past the stall alert
+            # window, so the owner is told plainly instead of seeing progress.
+            "delayed": bool(row["delayed"]),
         }
 
 
