@@ -39,6 +39,49 @@ def _creation_receipt(reservation):
     }
 
 
+def test_normal_hosted_erasure_requires_destroyed_keys_and_owner_bound_retirement(pg, monkeypatch):
+    from tests.fixtures.hosted_erasure import admitted_erasure
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+
+    async def scenario():
+        async for fixture, client in admitted_erasure(pg):
+
+            def complete(fixture=fixture):
+                return pg.execute("SELECT personal_agent_erasure_complete(%s)", (fixture.owner,))[
+                    0
+                ][0]
+
+            assert not complete()
+            fixture.memory_compute_writer()
+            await fixture.model_grants(client)
+            fixture.destroy_owner_resources()
+            fixture.release_project_grants()
+            fixture.release_bootstrap()
+            assert not complete()  # Grant release is not project retirement evidence.
+            await fixture.retire(client)
+            assert complete()
+            reservation = fixture.reservation()
+            assert reservation["memoryDeletion"]["status"] == "provider_deleted"
+            assert reservation["kmsErasure"]["inventory"]["versionNames"]
+            assert reservation["kmsErasure"]["completion"]["status"] == "destroyed"
+            assert reservation["managedProjectRetirement"]["deletion"]["status"] == (
+                "retirement_pending_provider_purge"
+            )
+            assert pg.execute("SELECT count(*) FROM byoc_setup_jobs")[0][0] == 0
+            archive = pg.execute(
+                "SELECT personal_agent_erasure_archive(%s::jsonb,NULL)",
+                (json.dumps(reservation),),
+            )[0][0]
+            assert archive["receipts"]["hostingMode"] == "hussh_hosted"
+            assert (
+                archive["receipts"]["managedModelGrantErasure"]
+                == (reservation["managedModelGrantErasure"])
+            )
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("expire_after_ack", [False, True])
 def test_project_preparation_has_one_intent_winner_and_refuses_foreign_readback(
     pg, expire_after_ack

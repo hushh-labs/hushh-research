@@ -738,6 +738,19 @@ Hosted notification work requires both general and notification-specific intent
 acknowledgments; its specialized observation must persist before general progress
 can be reused. Existing notification SQL remains BYOC-only, so this composition
 alone does not enable hosted Gmail or establish live connector acceptance.
+The hosted pilot renderer explicitly declares Gmail notifications unqualified and
+omits their topics, subscriptions, watch job and solely-mail IAM before freezing
+the bootstrap contract. It preserves core custody and optional Files resources;
+BYOC rendering is unchanged. An empty mail inventory alone never permits key
+destruction: SQL requires the exact admitted managed plan, a valid matching
+inventory, and no declared mail resource, including legacy resources. Any
+declared mail resource still requires its own deletion evidence.
+
+Synthetic hosted pilot keys explicitly use a 24-hour destruction delay at creation;
+existing BYOC keys retain their existing policy. Native readback must confirm the
+admitted setting, and an organization-policy refusal remains blocking. Scheduled
+destruction is pending erasure until Google reports `DESTROYED`; neither revocation
+nor project retirement substitutes for that observation.
 These ceilings are not usage metering or provider spending enforcement.
 Completing live operations still needs exact image/model admission, bounded cost
 checks, retained project creation outcomes, per-owner custody and verified cleanup. A deployment marker,

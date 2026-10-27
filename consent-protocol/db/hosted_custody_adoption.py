@@ -29,7 +29,7 @@ QUALIFIED = {
     "valid_erasure_files_receipt(jsonb,text,text,jsonb)": "e253b257558adc05bd7c5170f5da9f67dca039800aba75234180a03ea27f964a",
     "valid_erasure_gcp_files_upgrade_observation(jsonb,jsonb)": "96d97d4f2f66d3bcd2555805b21bd712f1b973daae20657053f17652856d0742",
     "valid_erasure_grant_release(jsonb,jsonb)": "4100815e7449e23a730dbb3bedd45c9e8fd736363ef725e956e881183fdb5b6f",
-    "valid_erasure_kms_receipt(jsonb,text,jsonb)": "0de93e902fcf50d4464a7c764808dd32912d35b37a1077615616aa4ee55e5234",
+    "valid_erasure_kms_receipt(jsonb,text,jsonb)": "cf50b8fabc20ded749e2094183f484d2e9ab0f710fe9f331999756d6a8e783af",
     "valid_erasure_mail_receipt(jsonb,text,text,jsonb)": "4d4b33ec24b3fff696c7bcc52aa17a8479e0ec4100bff80a58bb226883656ed8",
     "valid_erasure_managed_model_grant_append(jsonb,jsonb)": "c6806e3be69d9420f6a57044cadd68ff698be50d5ed2c3c2f5ed50295ad9e0ff",
     "valid_erasure_managed_model_grant_receipt(jsonb,text,text,jsonb)": "072534ad1f221b060b490dc330e0bf2db061502b5d3186f257c78ae85226a749",
@@ -94,7 +94,7 @@ REFINED = {
     ),
     "valid_erasure_kms_receipt": (
         "'d0aa90c25eee793106f325983887305a032202012fe02ca74a55b4bb11b2eac2'",
-        "0de93e902fcf50d4464a7c764808dd32912d35b37a1077615616aa4ee55e5234",
+        "cf50b8fabc20ded749e2094183f484d2e9ab0f710fe9f331999756d6a8e783af",
     ),
     "valid_erasure_mail_receipt": (
         "'e11aa98f323fb42d4b5724f23e20e5b86f26dc77a4f5d2506266e31cdfd84fc2'",

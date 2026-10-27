@@ -793,6 +793,11 @@ class UserGcpBootstrap:
         """
         project, region = self._project, self._region
         by_type = {r["type"]: r for r in plan.get("resources", [])}
+        destruction_delay = by_type.get("kms_key", {}).get("destroyScheduledDuration")
+        if destruction_delay is not None and (
+            plan.get("tenancy") != "hussh-hosted" or destruction_delay != "86400s"
+        ):
+            raise BootstrapError("Disposable key destruction policy is not admitted")
         keyring = "hushh-one"
         kms_key = by_type.get("kms_key", {}).get("id", "")
         bucket = by_type.get("gcs_bucket", {}).get("id", "")
@@ -979,7 +984,8 @@ class UserGcpBootstrap:
                     f"{region}/keyRings/{keyring}/cryptoKeys"
                 ),
                 "params": {"cryptoKeyId": kms_key},
-                "body": {"purpose": "ENCRYPT_DECRYPT"},
+                "body": {"purpose": "ENCRYPT_DECRYPT"}
+                | ({"destroyScheduledDuration": destruction_delay} if destruction_delay else {}),
                 "tolerate": [409],
             },
             {

@@ -32,7 +32,7 @@ BEGIN
  ('valid_erasure_files_receipt(jsonb,text,text,jsonb)',ARRAY['dc0122b80000b4c4698f132b11377676b6cb18a31efd5c7e49fd8137428f9ab5','e253b257558adc05bd7c5170f5da9f67dca039800aba75234180a03ea27f964a']::text[]),
  ('valid_erasure_gcp_files_upgrade_observation(jsonb,jsonb)',ARRAY['38a8ec11f7099b60c25ed7380f74144d5a14e0f8c42fca42e56ca58689eefa46','96d97d4f2f66d3bcd2555805b21bd712f1b973daae20657053f17652856d0742']::text[]),
  ('valid_erasure_grant_release(jsonb,jsonb)',ARRAY['11b5843638035e5e4ac935d43e74b143f4e653a27ed8b19332570307afe4a9a9','4100815e7449e23a730dbb3bedd45c9e8fd736363ef725e956e881183fdb5b6f']::text[]),
- ('valid_erasure_kms_receipt(jsonb,text,jsonb)',ARRAY['0de93e902fcf50d4464a7c764808dd32912d35b37a1077615616aa4ee55e5234','219024beeb264de779933d7f66adb11c6f5a5db010822ef7226e6fd3ec2b4766','d0aa90c25eee793106f325983887305a032202012fe02ca74a55b4bb11b2eac2']::text[]),
+ ('valid_erasure_kms_receipt(jsonb,text,jsonb)',ARRAY['0de93e902fcf50d4464a7c764808dd32912d35b37a1077615616aa4ee55e5234','cf50b8fabc20ded749e2094183f484d2e9ab0f710fe9f331999756d6a8e783af','219024beeb264de779933d7f66adb11c6f5a5db010822ef7226e6fd3ec2b4766','d0aa90c25eee793106f325983887305a032202012fe02ca74a55b4bb11b2eac2']::text[]),
  ('valid_erasure_mail_receipt(jsonb,text,text,jsonb)',ARRAY['4d4b33ec24b3fff696c7bcc52aa17a8479e0ec4100bff80a58bb226883656ed8','c45434340e8580324d55116242f70e569f426288c2c6e4350c3dde9bd168804f','e11aa98f323fb42d4b5724f23e20e5b86f26dc77a4f5d2506266e31cdfd84fc2']::text[]),
  ('valid_erasure_managed_model_grant_append(jsonb,jsonb)',ARRAY['c6806e3be69d9420f6a57044cadd68ff698be50d5ed2c3c2f5ed50295ad9e0ff']::text[]),
  ('valid_erasure_managed_model_grant_receipt(jsonb,text,text,jsonb)',ARRAY['072534ad1f221b060b490dc330e0bf2db061502b5d3186f257c78ae85226a749']::text[]),
@@ -440,7 +440,26 @@ BEGIN
  OR jsonb_typeof(receipt) IS DISTINCT FROM 'object'
  OR public.valid_erasure_bucket_receipt(r,'bucketDeletion',r->'bucketDeletion') IS DISTINCT FROM true THEN RETURN false; END IF;
  -- 956: every independently named mail resource must be deleted before key destruction.
- IF public.erasure_mail_resources_deleted(r) IS DISTINCT FROM true THEN RETURN false; END IF;
+ IF public.erasure_mail_resources_deleted(r) IS DISTINCT FROM true THEN
+  -- The hosted pilot explicitly excludes unqualified notifications before admission.
+  -- Missing inventory or removing a declared resource can never discharge this gate.
+  IF r->'registrySnapshot'->>'deployment_target' IS DISTINCT FROM 'gcp'
+  OR public.erasure_private_coordinates(r) IS NULL
+  OR public.valid_erasure_substrate_inventory(r,r->'substrateInventory') IS NOT TRUE
+  OR r->'registrySnapshot'->'backend_metadata'->'provisionAttempt'->'hostedAdmission'->'assignment'->'bootstrapContract'->'plan'->'capabilityReadiness'
+     IS DISTINCT FROM '{"gmailNotifications":"unqualified"}'::jsonb
+  OR (r->'registrySnapshot'->'backend_metadata'->'provisionAttempt'->'hostedAdmission'->'assignment'->'bootstrapContract'->'plan') ?| ARRAY['gmailNotifications','mail_trigger']
+  OR jsonb_typeof(r->'registrySnapshot'->'backend_metadata'->'provisionAttempt'->'hostedAdmission'->'assignment'->'bootstrapContract'->'plan'->'resources') IS DISTINCT FROM 'array'
+  OR (SELECT jsonb_agg(jsonb_build_object('type',x->>'type','id',x->>'id') ORDER BY x->>'type',x->>'id')
+      FROM jsonb_array_elements(r->'registrySnapshot'->'backend_metadata'->'provisionAttempt'->'hostedAdmission'->'assignment'->'bootstrapContract'->'plan'->'resources') x
+      WHERE x->'legacyOnly' IS DISTINCT FROM 'true'::jsonb)
+     IS DISTINCT FROM (SELECT jsonb_agg(x ORDER BY x->>'type',x->>'id') FROM jsonb_array_elements(r->'substrateInventory'->'plannedResources') x)
+  OR EXISTS(SELECT 1 FROM jsonb_array_elements(r->'substrateInventory'->'plannedResources') x
+      WHERE x->>'type' IN ('pubsub_topic','pubsub_subscription','cloud_scheduler_job'))
+  OR EXISTS(SELECT 1 FROM jsonb_array_elements(r->'registrySnapshot'->'backend_metadata'->'provisionAttempt'->'hostedAdmission'->'assignment'->'bootstrapContract'->'plan'->'resources') x
+      WHERE x->>'type' IN ('pubsub_topic','pubsub_subscription','cloud_scheduler_job'))
+  THEN RETURN false; END IF;
+ END IF;
  inv:=r->'substrateInventory'; obs:=receipt->'resourceObservation'; ident:=obs->'identity';
  key_name:='projects/' || ((public.erasure_private_coordinates(r)->>'project')) || '/locations/' || ((public.erasure_private_coordinates(r)->>'region')) || '/keyRings/hushh-one/cryptoKeys/' || (obs->>'id');
  IF receipt->>'ownerId' IS DISTINCT FROM r->>'ownerId' OR receipt->>'attemptId' IS DISTINCT FROM r->>'attemptId'

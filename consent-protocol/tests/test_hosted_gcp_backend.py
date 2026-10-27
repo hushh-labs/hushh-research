@@ -43,6 +43,28 @@ def test_hosted_bootstrap_is_pure_and_retains_managed_custody(monkeypatch):
     assert plan["tenancy"] == "hussh-hosted"
     assert plan["target"]["project"] == deployment.project
     assert "Hussh retains infrastructure administration" in plan["authorization"]
+    assert plan["capabilityReadiness"] == {"gmailNotifications": "unqualified"}
+    assert "gmailNotifications" not in plan and "mail_trigger" not in plan
+    mail_kinds = {"pubsub_topic", "pubsub_subscription", "cloud_scheduler_job"}
+    assert not any(item["type"] in mail_kinds for item in plan["resources"])
+    from hushh_mcp.services.user_gcp_bootstrap import UserGcpBootstrap
+
+    calls = UserGcpBootstrap(project=deployment.project).plan_calls(plan)
+    assert not any(call.get("capability") == "gmail_notifications" for call in calls)
+    assert (
+        next(call for call in calls if call["step"] == "kms_key")["body"][
+            "destroyScheduledDuration"
+        ]
+        == "86400s"
+    )
+    byoc = UserGcpBackend(user_project="customer-project").render_bootstrap_plan(
+        replace(spec, deployment_target="user_gcp")
+    )
+    assert byoc["gmailNotifications"] and byoc["mail_trigger"]
+    assert any(item["type"] in mail_kinds for item in byoc["resources"])
+    assert "destroyScheduledDuration" not in next(
+        item for item in byoc["resources"] if item["type"] == "kms_key"
+    )
     with pytest.raises(RuntimeError, match="admission is unavailable"):
         adapter._client()
     with pytest.raises(ValueError, match="assigned authority"):

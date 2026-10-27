@@ -71,6 +71,33 @@ class HostedGcpBackend(UserGcpBackend):
             external_agent_id=external_agent_id, status="unqualified", healthy=False
         )
 
+    def render_bootstrap_plan(self, spec: PodSpec) -> dict[str, Any]:
+        """Freeze core hosting without advertising unqualified notification authority."""
+        plan = super().render_bootstrap_plan(spec)
+        mail_kinds = {"pubsub_topic", "pubsub_subscription", "cloud_scheduler_job"}
+        mail_ids = {item["id"] for item in plan["resources"] if item["type"] in mail_kinds}
+        plan["resources"] = [item for item in plan["resources"] if item["type"] not in mail_kinds]
+        mail_agents = {
+            "the project's Pub/Sub service agent",
+            "the project's Cloud Scheduler service agent",
+        }
+        plan["iam"] = [
+            item
+            for item in plan["iam"]
+            if item.get("on") not in mail_ids and item.get("member") not in mail_agents
+        ]
+        plan.pop("gmailNotifications", None)
+        plan.pop("mail_trigger", None)
+        plan["capabilityReadiness"] = {"gmailNotifications": "unqualified"}
+        for resource in plan["resources"]:
+            if resource["type"] == "kms_key":
+                # Disposable synthetic pilot only; existing BYOC recovery is unchanged.
+                resource["destroyScheduledDuration"] = "86400s"
+        return plan
+
+    def _gmail_notification_blocker(self, spec: PodSpec) -> str | None:
+        return "hosted_notifications_unqualified"
+
     def render_deploy_config(
         self, spec: PodSpec, *, image_digest: str | None = None
     ) -> dict[str, Any]:

@@ -21,6 +21,8 @@ def bootstrap_contract(plan: dict[str, Any]) -> dict[str, Any]:
     """Freeze the authored plan and executor order, not a caller-selected digest."""
     from hushh_mcp.services.user_gcp_bootstrap import UserGcpBootstrap
 
+    if plan.get("tenancy") != "hussh-hosted":
+        raise ValueError("Hosted bootstrap contract is unavailable")
     target = plan["target"]
     bootstrap_sa = plan["federation"]["impersonation"]["bootstrap_service_account"]
     if not isinstance(bootstrap_sa, str) or not bootstrap_sa.endswith(
@@ -33,7 +35,7 @@ def bootstrap_contract(plan: dict[str, Any]) -> dict[str, Any]:
             project=target["project"], region=target["region"], bootstrap_sa=bootstrap_sa
         ).plan_calls(plan)
     ]
-    if plan.get("tenancy") != "hussh-hosted" or not 1 <= len(steps) <= 64:
+    if not 1 <= len(steps) <= 64:
         raise ValueError("Hosted bootstrap contract is unavailable")
     if len(set(steps)) != len(steps):
         raise ValueError("Hosted bootstrap step identities are ambiguous")
