@@ -23,7 +23,6 @@ from google.adk.models.base_llm import BaseLlm  # noqa: E402
 from google.adk.models.llm_request import LlmRequest  # noqa: E402
 from google.adk.models.llm_response import LlmResponse  # noqa: E402
 from google.genai import types  # noqa: E402
-from httpx import TimeoutException  # noqa: E402
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader  # noqa: E402
 from hushh_mcp.runtime_providers import (  # noqa: E402
@@ -34,45 +33,26 @@ from hushh_mcp.runtime_providers import (  # noqa: E402
 from hushh_mcp.runtime_providers.dependency_health import (  # noqa: E402
     DEPENDENCY_OK,
     PROVIDER_UNAVAILABLE,
-    classify_provider_error,
     is_advisory,
     is_resource_exhausted,
     summarize,
 )
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name  # noqa: E402
-from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_error  # noqa: E402
 from hushh_mcp.runtime_settings import managed_ai_settings  # noqa: E402
-from scripts._managed_probe_verdicts import text_probe_verdicts  # noqa: E402
+from scripts._managed_probe_verdicts import (  # noqa: E402
+    classify_provider_error,
+    require_probe_locations,
+    stop_after_quota,
+    text_probe_verdicts,
+)
+from scripts._managed_probe_verdicts import (  # noqa: E402
+    is_transient_probe_error as _is_transient_probe_error,
+)
 
 PROBE_TIMEOUT_SECONDS = 25
 PROBE_START_INTERVAL_SECONDS = 30
 MAX_PROBE_ATTEMPTS = 2
 PROBE_SEQUENCE_SECONDS = 330
-
-
-def _is_transient_probe_error(error: Exception) -> bool:
-    """Retry only an observed transport deadline or retryable provider status.
-
-    Availability classification alone also includes billing denials. A sanitized
-    TimeoutError can wrap a permission/schema failure, so inspect its real cause.
-    """
-    if classify_provider_error(error) != PROVIDER_UNAVAILABLE:
-        return False
-    if is_retryable_vertex_error(error):
-        return True
-    current: BaseException = error
-    seen: set[int] = set()
-    while id(current) not in seen:
-        seen.add(id(current))
-        # A gateway deadline may recover on the same target. This readiness-only
-        # retry does not broaden regional failover or turn a failed reply green.
-        if 504 in (getattr(current, "code", None), getattr(current, "status_code", None)):
-            return True
-        cause = current.__cause__ or current.__context__
-        if cause is None or isinstance(cause, asyncio.CancelledError):
-            return isinstance(current, (TimeoutError, TimeoutException, ConnectionError))
-        current = cause
-    return False
 
 
 async def _run_paced_probes(
@@ -81,7 +61,7 @@ async def _run_paced_probes(
     attempts: dict[str, list[dict[str, object]]] | None = None,
     deadline: float | None = None,
 ) -> list[Exception | None]:
-    """Exercise every target before optional, paced transient recovery.
+    """Stop on quota refusal; otherwise use bounded, paced transient recovery.
 
     The same lazy factory retains its model, project, identity and own deadline.
     The sequence budget leaves startup/receipt headroom inside the unchanged
@@ -140,6 +120,8 @@ async def _run_paced_probes(
                 receipt["error_type"] = type(error).__name__
                 receipt["resource_exhausted"] = is_resource_exhausted(error)
             receipts[name].append(receipt)
+            if stop_after_quota(error, labelled, outcomes, receipts):
+                return outcomes
     return outcomes
 
 
@@ -268,6 +250,7 @@ def _one_chat_target() -> tuple[str, str, ManagedGeminiRuntimeBinding]:
     if not project:
         raise RuntimeError("One chat Vertex project is required for its readiness probe")
     binding = ManagedGeminiRuntimeBinding.from_environment(vertex_project=project)
+    require_probe_locations(binding.locations, os.getenv("ENVIRONMENT", ""))
     model = resolve_fleet_model_name("gemini-default")
     binding.locations_for_model(model)
     return project, model, binding
@@ -365,6 +348,23 @@ async def _probe_scoped_projects() -> dict[str, object]:
     }
 
 
+def _readiness_bindings() -> tuple[
+    ManagedGeminiRuntimeBinding, str, ManagedGeminiRuntimeBinding | None
+]:
+    binding = ManagedGeminiRuntimeBinding.from_environment()
+    chat_project = managed_ai_settings().project
+    chat_binding = (
+        ManagedGeminiRuntimeBinding.from_environment(vertex_project=chat_project)
+        if chat_project
+        else None
+    )
+
+    for target in (binding, chat_binding):
+        if target is not None:
+            require_probe_locations(target.locations, os.getenv("ENVIRONMENT", ""))
+    return binding, chat_project, chat_binding
+
+
 async def main() -> dict[str, object]:
     deadline = monotonic() + PROBE_SEQUENCE_SECONDS
     probe_mode = (os.getenv("HUSHH_MANAGED_VERTEX_PROBE_MODE") or "full").strip().lower()
@@ -372,14 +372,8 @@ async def main() -> dict[str, object]:
         return await _probe_scoped_projects()
     if probe_mode != "full":
         raise RuntimeError("Managed Vertex probe mode is invalid")
-    binding = ManagedGeminiRuntimeBinding.from_environment()
+    binding, chat_project, chat_binding = _readiness_bindings()
     models = _managed_manifest_models()
-    chat_project = managed_ai_settings().project
-    chat_binding = (
-        ManagedGeminiRuntimeBinding.from_environment(vertex_project=chat_project)
-        if chat_project
-        else None
-    )
 
     def binding_for(location: str) -> ManagedGeminiRuntimeBinding:
         return ManagedGeminiRuntimeBinding(

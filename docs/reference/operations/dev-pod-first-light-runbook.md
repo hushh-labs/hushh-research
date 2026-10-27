@@ -812,6 +812,11 @@ The owner authorized the existing Gemini bridge as the dev-pilot fallback when
 the Azure connection cannot be reused with separate pod identities. This is an
 explicit pilot processing choice, not a claim that shared One currently uses Vertex.
 
+Keep verification calls serial. The managed readiness sequence stops on its first
+429, preserves earlier results and marks unstarted targets unsuccessful and
+undispatched. Dev readiness refuses multiple configured text locations before
+dispatch so regional failover cannot make another request after that refusal.
+
 For this authorized dev fallback, pin `inferenceProject` to the dev Vertex profile.
 Runtime mode `hosted_pod_adc` uses the hosted pod's own attached
 service account and verifies the metadata principal before releasing a token to

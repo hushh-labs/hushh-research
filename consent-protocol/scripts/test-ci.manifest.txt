@@ -324,6 +324,7 @@ tests/test_contacts_never_reach_the_server.py
 tests/test_dependency_health_classifier.py
 tests/test_capability_health.py
 tests/test_managed_vertex_readiness_script.py
+tests/test_managed_probe_pacing.py
 tests/test_verify_uat_release.py
 
 # Contact matching correctness.

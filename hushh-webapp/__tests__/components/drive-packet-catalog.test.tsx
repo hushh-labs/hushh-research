@@ -41,7 +41,12 @@ beforeEach(() => {
   state.preview.mockResolvedValue(preview); state.preparePreview.mockResolvedValue(preview);
   state.collection.mockImplementation(async (_token, guard) => { guard(); return status; });
 });
-afterEach(() => { cleanup(); advanceVaultSessionEpoch(); publishValidatedAuthSessionPrincipal(null); });
+afterEach(async () => {
+  cleanup();
+  // Radix defers unmount autofocus; settle it before jsdom releases this realm.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  advanceVaultSessionEpoch(); publishValidatedAuthSessionPrincipal(null);
+});
 describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
   it("shows four owner category entrypoints before packets exist without starting preparation", async () => {
     state.packets.mockResolvedValue({ packets: [], nextCursor: null });
