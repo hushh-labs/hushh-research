@@ -9,7 +9,7 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # hook for a merge that completed WITHOUT conflicts. This is the exact case
 # the 2026-08-19 incident review found most likely to hide a silently
 # dropped fix, so it gets checked here instead. See
-# ~/.claude/skills/merge-regression-guard and .githooks/pre-merge-commit,
+# scripts/git/check-merge-regression.sh and .githooks/pre-merge-commit,
 # which shares this same advisory-by-default / HUSHH_MERGE_REGRESSION_BLOCK
 # behavior.
 CHECKER="$REPO_ROOT/scripts/git/check-merge-regression.sh"
