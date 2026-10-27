@@ -379,8 +379,27 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByRole("link", { name: "Join meeting", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
     const dialog = page.getByRole("dialog", { name: "Invitation details", exact: true });
     await expect(dialog).toBeVisible();
+    await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
     const bounds = (await dialog.boundingBox())!;
     expect(Math.abs(bounds.x + bounds.width / 2 - width / 2)).toBeLessThanOrEqual(2);
+    const guests = dialog.getByRole("list", { name: "Guests" }).getByRole("listitem");
+    await expect(guests).toHaveCount(9);
+    await expect(dialog.getByText("3 yes, 6 awaiting")).toBeVisible();
+    await expect(guests.filter({ hasText: "Manish" }).locator("img")).toHaveAttribute("src", "https://calendar-fixture.test/avatars/manish.png");
+    const guestBounds = await guests.evaluateAll(items => items.map(item => {
+      const { x, y, width: rowWidth } = item.getBoundingClientRect();
+      return { x, y, rowWidth };
+    }));
+    expect(guestBounds.every((row, index) => row.rowWidth > 0 && row.x === guestBounds[0]?.x && (index === 0 || row.y > guestBounds[index - 1]!.y))).toBe(true);
+    expect(guestBounds.every(row => row.x + row.rowWidth <= bounds.x + bounds.width + 1)).toBe(true);
+    const actionButtons = dialog.getByRole("button", { name: /^(Accept|Decline|Decline & offer another time)$/ });
+    for (const button of await actionButtons.all()) {
+      const buttonBounds = (await button.boundingBox())!;
+      const pillBounds = (await button.locator(":scope > span > span").boundingBox())!;
+      expect(Math.abs(buttonBounds.x - pillBounds.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(buttonBounds.width - pillBounds.width)).toBeLessThanOrEqual(1);
+      expect(buttonBounds.height).toBeGreaterThanOrEqual(44);
+    }
     await expect(page.locator('[data-slot="dialog-overlay"]')).toBeVisible();
     expect(await page.locator('[data-slot="dialog-overlay"]').evaluate(node => getComputedStyle(node).backdropFilter)).not.toBe("none");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

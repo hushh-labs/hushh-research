@@ -148,6 +148,12 @@ export async function openFixture(page: Page, width: number, locked = false, var
       contentType: "image/png", body: fs.readFileSync(path.join(process.cwd(), `public/one-calendar/providers/${provider}.png`)),
     }));
   }
+  await page.route("https://calendar-fixture.test/avatars/manish.png", route => route.fulfill({
+    contentType: "image/png", body: fs.readFileSync(path.join(process.cwd(), "public/one-calendar/providers/google-meet-reference.png")),
+  }));
+  await page.route("**/api/one/connections", route => route.fulfill({ json: { items: [
+    { connectionId: "qa-manish", userId: "qa-manish", email: "manish@example.test", displayName: "Manish", photoUrl: "https://calendar-fixture.test/avatars/manish.png", createdAt: null },
+  ] } }));
   await page.route("https://calendar-fixture.test/calendar-fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
   await page.route("https://calendar-fixture.test/calendar-connected-fixture**", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connected Calendar QA</title><style>${css}</style><style>:root{--app-bottom-content-clearance:164px}body{margin:0}</style></head><body><div id="root"></div><script src="/calendar-fixture.js"></script></body></html>` }));
   let failAvailability = false;
@@ -192,7 +198,19 @@ export async function openFixture(page: Page, width: number, locked = false, var
         response_status: invitationResponses.get(event.id) || (index === 2 ? "declined" : "needsAction"),
         can_respond: true, conflicts: index === 0 ? [{ title: "QA Existing meeting", start: event.start, end: event.end }] : [],
         organizer: { displayName: ["Priya Mehta", "Rohan Kapoor", "Alex Chen"][index], email: `qa-organizer-${index}@example.test` },
-        attendees: [{ email: "qa-owner@example.com", self: true, response_status: invitationResponses.get(event.id) || "needsAction" }, { email: `qa-organizer-${index}@example.test`, display_name: "Organizer", response_status: "accepted" }],
+        attendees: [
+          { email: "qa-owner@example.com", self: true, response_status: invitationResponses.get(event.id) || "needsAction" },
+          { email: `qa-organizer-${index}@example.test`, display_name: "Organizer", response_status: "accepted" },
+          ...(index === 0 ? [
+            { email: "anoushka@example.test", display_name: "Anoushka", response_status: "accepted" },
+            { email: "manish@example.test", display_name: "Manish", response_status: "accepted" },
+            { email: "long-calendar-attendee-for-responsive-verification@example.test", response_status: "needsAction" },
+            { email: "ankit@example.test", response_status: "needsAction" },
+            { email: "divya@example.test", response_status: "needsAction" },
+            { email: "roopmann@example.test", response_status: "needsAction" },
+            { email: "smirthika@example.test", response_status: "needsAction" },
+          ] : []),
+        ],
       })),
       pending_count: ["shared-id", "design"].filter(id => !invitationResponses.has(id)).length,
       unreadable_calendars: [], time_zone: body.time_zone, complete: true,
