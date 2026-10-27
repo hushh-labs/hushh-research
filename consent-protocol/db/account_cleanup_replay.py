@@ -71,6 +71,10 @@ _BOOTSTRAP_SOURCES.update(
             "087_scope_policy_v2.sql",
         ): "9bbaa6653f55b33c4d80b2b753b65e06e3ac2087db4f4513d969a9b52a55efbc",
         (
+            "135",
+            "135_one_location_circle_connection_origins.sql",
+        ): "1d876753e329bf7da3dcc40d7fbef6ea7810d0a191d6b62c8ef5322dcb581e26",
+        (
             "142",
             "142_source_library_scope_retirement.sql",
         ): "d8561eaa69132078943e00a256e9fc8b7655a079a764505f59d2bfac2a384359",
@@ -224,6 +228,18 @@ def _bootstrap(sql: str, version: str) -> str:
                 "FROM retired_live_grants;",
                 "FROM retired_live_grants WHERE " + _eligible("user_id") + ";",
                 1,
+            )
+        ],
+        # Replay can encounter retained Circle memberships after erasure. Filter
+        # both backfills before INSERT triggers run, including ON CONFLICT paths.
+        "135": [
+            (
+                "AND to_jsonb(circle) ->> 'system_kind' IS DISTINCT FROM 'trusted'",
+                "AND to_jsonb(circle) ->> 'system_kind' IS DISTINCT FROM 'trusted' AND "
+                + _eligible("first_member.user_id")
+                + " AND "
+                + _eligible("second_member.user_id"),
+                2,
             )
         ],
         "142": [
