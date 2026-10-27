@@ -334,3 +334,32 @@ def test_pinned_vertex_sdk_without_retry_options_makes_one_http_attempt(monkeypa
     finally:
         client.close()
         transport.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exhausted", [False, True])
+async def test_adk_readiness_leaves_answer_budget_and_rejects_truncation(exhausted):
+    """Live regression: minimal thinking exhausted 64 tokens before any answer."""
+    spec = importlib.util.spec_from_file_location("adk_answer_budget_test", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    requests = []
+
+    class NativeAdk:
+        async def generate_content_async(self, request, *, stream):
+            requests.append(request)
+            assert stream is False
+            if exhausted or request.config.max_output_tokens <= 64:
+                yield module.LlmResponse(error_code="MAX_TOKENS", error_message="")
+            else:
+                yield module.LlmResponse(
+                    content=module.types.Content(parts=[module.types.Part(text="OK")])
+                )
+
+    if exhausted:
+        with pytest.raises(RuntimeError, match="MAX_TOKENS"):
+            await module._probe_adk_response(NativeAdk(), "gemini-3.7-flash")
+    else:
+        await module._probe_adk_response(NativeAdk(), "gemini-3.7-flash")
+    assert len(requests) == 1
+    assert 256 <= requests[0].config.max_output_tokens <= 1024

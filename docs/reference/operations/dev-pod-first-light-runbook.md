@@ -666,9 +666,10 @@ establish installed owner acceptance.
 
 ### Hosted private-pod pilot
 
-Phone verification reserves the owner's pending identity. The automatic
-continuation requires an already authorized BYOC placement; unselected, Shared,
-managed and unreadable placements remain pending. A managed pilot owner selects
+A verified phone establishes the owner's identity. If pending reservation is
+deferred until AI selection, the qualified hosted selector reserves it after
+fixed-cohort admission. Automatic continuation requires an already authorized
+BYOC placement; unselected, Shared, managed and unreadable placements remain pending. A managed pilot owner selects
 hosting, then invokes the existing owner-authorized provision route. Keep the
 existing automation flag; do not use it to bypass fixed-cohort admission.
 
@@ -692,7 +693,8 @@ Resource Manager readback on the same reserved attempt. Repeated matching reads
 are idempotent; changed numbers, owners or attempts refuse. It preserves the
 original assignment and spend slot. A fresh admission check compares that exact
 record before worker-side provider operations, without holding SQL connections
-across cloud work. This port is not yet connected to a live project creator.
+across cloud work. The operator preparation adapter connects this port to native project creation;
+October 27 readback retained both synthetic projects and their actual numbers.
 The optional hosted `bootstrapContract` retains the full authored plan and exact
 executor order on the original assignment. Its checkpoint uses the existing
 `provisionAttempt`: one generation CAS admits intent, then retains sanitized
@@ -728,7 +730,7 @@ including the inherited bucket/key/account/grant paths and operator mail cleanup
 Provisioning authority cannot mint deletion credentials. Candidate migration 974
 refines the existing erasure validators through frozen managed coordinates and
 the actual retained bootstrap authorization. It is registered in the dev migration
-manifest; it has not been applied to the live pilot database.
+manifest; migrations 973 and 974 were applied and read back in Dev on October 27.
 Managed model-grant cleanup uses the exact retained bridge policy/member and
 preserves pre-existing grants. Project retirement uses the retained operator;
 it disables billing only after independently proved resource erasure and bootstrap
@@ -853,6 +855,36 @@ exact pod model identity, restart and interrupted-create recovery, single-writer
 fencing, owner-approved update/rollback and complete erasure. Record source SHA,
 image digest, serving incarnation, configuration, usage and cleanup receipts.
 Until then, keep enrollment disabled and report each unmet acceptance separately.
+
+### Reconciling a failed hosted bucket create
+
+Keep the original provision attempt, assignment, source image and cost slot.
+A failed provider response is not proof of absence. Dev migration 975 adds one
+operator reconciliation port for a last-step `cmek_bucket` HTTP 503. It does not
+reconcile arbitrary failed steps or authorize deletion.
+
+Use `reconcile_failed_bucket_absence` with the verified operator named by the
+retained preparation contract. It checks current bootstrap admission, reads the
+exact project identity and deterministic bucket name outside SQL, then requires
+a fresh native HTTP 404. Existing, inaccessible or uncertain buckets remain
+blocked. SQL compares the complete failed checkpoint under the existing owner
+locks, retains it in `hostedCheckpointReconciliations`, and advances its generation
+while restoring only the successful prefix. The existing executor may then issue
+one new intent for that same bucket name. A competing or stale recovery loses the
+CAS; completed effects and spend reservations are not repeated or replenished.
+The existing 409 path must still verify project and CMEK identity. No raw journal
+edits, fabricated successful create receipts or unchecked retries are permitted.
+Rollback removes the new function while retaining recovery history and resources.
+Activation requires the verified migration receipt; local SQL tests alone do not
+prove a live recovery.
+
+The October 27 backend-only activation also exposed an ADK readiness probe with
+no answer after exhausting its 64-token cap. Both synthetic text probes now allow
+512 output tokens, including minimal thinking, while retaining the same timeout,
+first-quota-stop rule and requirement for an actual nonempty, non-truncated reply.
+This is a probe budget correction, not a claim that private model or memory
+acceptance has passed.
+
 
 ### One-time legacy bootstrap exception
 

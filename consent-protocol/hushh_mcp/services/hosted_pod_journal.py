@@ -74,6 +74,23 @@ class HostedPodJournal:
         )
         return bool(result.data and result.data[0].get("admitted") is True)
 
+    async def reconcile_bucket_absence(
+        self, *, owner_id: str, attempt_id: str, checkpoint: dict, observation: dict
+    ) -> bool:
+        """CAS one failed create after native absence; retain its full history."""
+        result = await asyncio.to_thread(
+            self._database.execute_raw,
+            "SELECT public.reconcile_hosted_bucket_absence(:owner,:attempt,"
+            "CAST(:checkpoint AS jsonb),CAST(:observation AS jsonb)) AS admitted",
+            {
+                "owner": owner_id,
+                "attempt": attempt_id,
+                "checkpoint": json.dumps(checkpoint),
+                "observation": json.dumps(observation),
+            },
+        )
+        return bool(result.data and result.data[0].get("admitted") is True)
+
     async def retain_authorization(self, *, owner_id: str, attempt_id: str) -> bool:
         result = await asyncio.to_thread(
             self._database.execute_raw,

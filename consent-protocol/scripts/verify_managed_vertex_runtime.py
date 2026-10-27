@@ -219,7 +219,7 @@ async def _probe_adk_response(adk_model: Any, model: str) -> None:
             types,
             model,
             temperature=0,
-            max_output_tokens=64,
+            max_output_tokens=512,  # Includes thinking and answer.
             thinking_config=types.ThinkingConfig(
                 include_thoughts=False,
                 thinking_level=types.ThinkingLevel.MINIMAL,
@@ -392,7 +392,7 @@ async def main() -> dict[str, object]:
                     types,
                     model,
                     temperature=0,
-                    max_output_tokens=64,
+                    max_output_tokens=512,  # Includes thinking and answer.
                     thinking_config=types.ThinkingConfig(
                         include_thoughts=False,
                         thinking_level=types.ThinkingLevel.MINIMAL,
