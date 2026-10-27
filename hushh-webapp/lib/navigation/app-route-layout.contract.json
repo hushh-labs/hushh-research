@@ -2988,6 +2988,22 @@
             "mode": "replace",
             "transitionMode": "contextual"
           }
+        },
+        {
+          "href": "/one/kai?tab=analysis&view=summary",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis&view=detailed",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
         }
       ],
       "kind": "parent",
@@ -3318,6 +3334,22 @@
           "href": "/one/kai/import",
           "expected": {
             "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/kai/import?from=%2Fone%2Fkai%3Ftab%3Dportfolio",
+          "expected": {
+            "href": "/one/kai?tab=portfolio",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/kai/import?from=%2Fone%2Fkai%2Fportfolio%2Fsources",
+          "expected": {
+            "href": "/one/kai/portfolio/sources",
             "mode": "push",
             "transitionMode": "full"
           }

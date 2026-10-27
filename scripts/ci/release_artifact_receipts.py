@@ -22,6 +22,50 @@ Document = dict[str, Any]
 Timestamp = Callable[[object], datetime | None]
 
 
+def artifact_exists(repository, run_id, name, *, api):
+    result = api(repository, f"runs/{run_id}/artifacts?per_page=100")
+    artifacts = result["artifacts"]
+    if result.get("total_count", len(artifacts)) != len(artifacts):
+        raise retention.UnsafeState("release artifact inventory is incomplete")
+    matches = [item for item in artifacts if item.get("name") == name]
+    if not matches:
+        return False
+    if len(matches) != 1 or matches[0].get("expired") is not False:
+        raise retention.UnsafeState("release artifact is expired or ambiguous")
+    return True
+
+
+def validate_revision_names(release):
+    for lane, service in (
+        ("backend", "consent-protocol"),
+        ("frontend", "hushh-webapp"),
+    ):
+        revision = release.get("final", {}).get(f"{lane}_revision", "")
+        pattern = rf"{service}-[a-z0-9-]+"
+        if not isinstance(revision, str) or not re.fullmatch(pattern, revision):
+            raise retention.UnsafeState(f"source release lacks a valid {lane} revision")
+        rollback = release.get("predeploy", {}).get(f"{lane}_revision") or ""
+        if rollback and (
+            not isinstance(rollback, str) or not re.fullmatch(pattern, rollback)
+        ):
+            raise retention.UnsafeState(f"source release has invalid {lane} rollback")
+
+
+def download(repository, run_id, name, directory, *, command):
+    command(
+        "gh",
+        "run",
+        "download",
+        str(run_id),
+        "--repo",
+        repository,
+        "--name",
+        name,
+        "--dir",
+        str(directory),
+    )
+
+
 def _replayed_run(
     run: Document, run_id: int, name: str, lane: Document, governed: Callable[[], bool]
 ) -> int:
@@ -152,6 +196,36 @@ def resolve_replayed_artifact(
     return selected[0]
 
 
+def current_attempt_artifact(repository, run, lane, *, api, timestamp):
+    """Resolve first and later uploads by origin and window, never by greatest ID."""
+    attempt = run.get("run_attempt")
+    if type(attempt) is not int or attempt < 1:
+        raise retention.UnsafeState("release attempt is invalid")
+    result = api(repository, f"runs/{run['id']}/artifacts?per_page=100")
+    artifacts = result.get("artifacts")
+    if (
+        not isinstance(artifacts, list)
+        or result.get("total_count") != len(artifacts)
+        or len(artifacts) > 100
+        or any(not isinstance(row, dict) for row in artifacts)
+    ):
+        raise retention.UnsafeState("release artifact inventory is incomplete")
+    jobs = api(repository, f"runs/{run['id']}/attempts/{attempt}/jobs?per_page=100")
+    started, ended = _upload_window(jobs, run, attempt, lane, timestamp)
+    selected = []
+    for artifact in artifacts:
+        if artifact.get("name") != f"{lane['prefix']}-release-{run['id']}":
+            continue
+        created = _artifact_created(artifact, run, timestamp)
+        if started - timedelta(seconds=5) <= created <= ended + timedelta(seconds=30):
+            selected.append(artifact)
+    if len(selected) != 1 or selected[0].get("expired") is not False:
+        raise retention.UnsafeState("release attempt artifact is expired or ambiguous")
+    return selected[0], next(
+        j for j in jobs["jobs"] if j.get("name") == lane["deploy_job"]
+    )
+
+
 def _status_bytes(archive: bytes, status_name: str) -> bytes:
     try:
         with ZipFile(BytesIO(archive)) as bundle:
@@ -180,16 +254,14 @@ def _status_bytes(archive: bytes, status_name: str) -> bytes:
         raise retention.UnsafeState("release artifact is not a ZIP") from exc
 
 
-def download_replayed_artifact(
+def immutable_archive(
     repository: str,
     artifact: Document,
-    directory: Path,
-    status_name: str,
     *,
     run_command: Callable[..., Any],
     timeout: float,
-) -> None:
-    """Download an immutable digest-verified archive and create only its status."""
+) -> bytes:
+    """Download only the bounded immutable artifact identified by its digest."""
     if (
         type(artifact.get("id")) is not int
         or artifact["id"] < 1
@@ -209,6 +281,22 @@ def download_replayed_artifact(
         archive
     ).hexdigest() != artifact["digest"].removeprefix("sha256:"):
         raise retention.UnsafeState("release artifact digest changed")
+    return archive
+
+
+def download_replayed_artifact(
+    repository: str,
+    artifact: Document,
+    directory: Path,
+    status_name: str,
+    *,
+    run_command: Callable[..., Any],
+    timeout: float,
+) -> None:
+    """Download an immutable digest-verified archive and create only its status."""
+    archive = immutable_archive(
+        repository, artifact, run_command=run_command, timeout=timeout
+    )
     status = _status_bytes(archive, status_name)
     if directory.is_symlink():
         raise retention.UnsafeState("release artifact directory is a symlink")
@@ -217,3 +305,82 @@ def download_replayed_artifact(
     with target.open("xb") as output:
         output.write(status)
     target.chmod(0o600)
+
+
+_CHECKPOINT_LIMIT = 1024 * 1024
+
+
+def _checkpoint_names(services) -> set[str]:
+    if isinstance(services, (str, bytes)):
+        raise retention.UnsafeState("checkpoint services are invalid")
+    names = tuple(services)
+    if (
+        not 1 <= len(names) <= 100
+        or len(names) != len(set(names))
+        or any(
+            not isinstance(name, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,127}", name) is None
+            for name in names
+        )
+    ):
+        raise retention.UnsafeState("checkpoint services are invalid")
+    return {"completed.json", *(f"{name}.json" for name in names)}
+
+
+def _checkpoint_shape(members, services, allow_missing_readme=False):
+    allowed = _checkpoint_names(services) | {"README.txt"}
+    required = (
+        {"completed.json"} if allow_missing_readme else {"completed.json", "README.txt"}
+    )
+    if (
+        not isinstance(members, dict)
+        or not required.issubset(members)
+        or not set(members).issubset(allowed)
+        or any(
+            not isinstance(value, bytes) or len(value) > _CHECKPOINT_LIMIT
+            for value in members.values()
+        )
+    ):
+        raise retention.UnsafeState("checkpoint file set is invalid")
+    return members
+
+
+def checkpoint_archive(
+    archive: bytes, services, *, allow_missing_readme: bool = False
+) -> dict[str, bytes]:
+    """Decode a closed in-memory ZIP; the explicit missing marker grants no authority."""
+    if type(allow_missing_readme) is not bool:
+        raise retention.UnsafeState("checkpoint compatibility flag must be boolean")
+    allowed = _checkpoint_names(services) | {"README.txt"}
+    try:
+        with ZipFile(BytesIO(archive)) as bundle:
+            entries = bundle.infolist()
+            if (
+                len(entries) > len(allowed)
+                or len({entry.filename for entry in entries}) != len(entries)
+                or any(
+                    entry.filename not in allowed
+                    or entry.is_dir()
+                    or bool(entry.external_attr & 0x10)
+                    or stat.S_IFMT(entry.external_attr >> 16) not in {0, stat.S_IFREG}
+                    or entry.file_size > _CHECKPOINT_LIMIT
+                    for entry in entries
+                )
+            ):
+                raise retention.UnsafeState("checkpoint ZIP has unsafe files")
+            members = {}
+            for entry in entries:
+                with bundle.open(entry) as stream:
+                    value = stream.read(_CHECKPOINT_LIMIT + 1)
+                if len(value) != entry.file_size or len(value) > _CHECKPOINT_LIMIT:
+                    raise retention.UnsafeState("checkpoint ZIP member changed")
+                members[entry.filename] = value
+    except (
+        BadZipFile,
+        OSError,
+        ValueError,
+        RuntimeError,
+        NotImplementedError,
+    ) as error:
+        raise retention.UnsafeState("checkpoint ZIP is invalid") from error
+    return _checkpoint_shape(members, services, allow_missing_readme)

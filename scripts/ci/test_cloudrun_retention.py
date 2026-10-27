@@ -14,11 +14,17 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+from retention_publication_cases import ExistingPublicationCases, LegacyPublicationCases
 
 from test_release_artifact_receipts import (
+    CheckpointArchiveCopyTest as CheckpointArchiveCopyTest,
     ReplayedProductionReleaseArtifactTest as ReplayedProductionReleaseArtifactTest,
     ReplayedUatReleaseArtifactTest as ReplayedUatReleaseArtifactTest,
+    ProductionStagedWorkerCases as ProductionStagedWorkerCases,
+    ProductionHealthyStagedWorkerCases as ProductionHealthyStagedWorkerCases,
 )
+from test_production_operational_retention import OperationalRetentionCases as OperationalRetentionCases
+from test_production_operational_retention import PendingRetirementCases as PendingRetirementCases
 
 SCRIPT = pathlib.Path(__file__).with_name("cloudrun-retention.py")
 SPEC = importlib.util.spec_from_file_location("cloudrun_retention", SCRIPT)
@@ -425,7 +431,7 @@ class RetentionSafetyTest(unittest.TestCase):
         )
 
 
-class MaintenanceAuthorityTest(unittest.TestCase):
+class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases, unittest.TestCase):
     def production_cleanup_failure(self):
         run = {
             **self.trusted_source(123, "deploy-production.yml"),
@@ -1899,7 +1905,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
 
         run = {
             **self.trusted_source(123, "capacity-maintenance.yml"),
-            "status": "in_progress",
+            "status": "in_progress", "updated_at": "2026-10-14T20:00:01Z",
             "conclusion": None,
         }
         steps = [
@@ -1921,7 +1927,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             "jobs": [
                 {
                     "name": "UAT bounded revision cleanup",
-                    "status": "completed",
+                    "status": "completed", "completed_at": "2026-10-14T20:00:01Z",
                     "conclusion": "success",
                     "steps": steps,
                 },
@@ -1934,7 +1940,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
         }
         stream = io.BytesIO()
         with ZipFile(stream, "w") as bundle:
-            bundle.writestr("README.txt", "checkpoint")
+            # Preflight may republish restored JSONs before the README writer.
             bundle.writestr(
                 "completed.json",
                 json.dumps(
@@ -1967,7 +1973,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
 
         def api(_repository, endpoint):
             if endpoint.startswith("workflows/"):
-                return {"workflow_runs": [run]}
+                return {"workflow_runs": [run], "total_count": 1}
             if endpoint.startswith("artifacts?"):
                 return {"artifacts": [artifact]}
             if "/attempts/1/jobs?" in endpoint:
@@ -1995,7 +2001,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     return_value=subprocess.CompletedProcess([], 0, archive, b""),
                 ),
             ):
-                with self.assertRaisesRegex(MAINTENANCE.retention.UnsafeState, "unresolved"):
+                with self.assertRaisesRegex(MAINTENANCE.retention.UnsafeState, "unresolved" if attempt == 1 else "cleanup invocation is missing"):
                     MAINTENANCE.assert_no_pending_mutations(
                         "org/repo", pathlib.Path(temporary), "uat"
                     )
@@ -2026,83 +2032,6 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             with self.subTest(event=event), mock.patch.object(MAINTENANCE, "api", return_value=jobs):
                 self.assertIs(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "production", artifact), trusted)
 
-    def test_publication_guard_accepts_newer_checkpoint_but_rejects_missing_upload(
-        self,
-    ):
-        run = self.trusted_source(123, "capacity-maintenance.yml")
-
-        def inventory(saved):
-            return {
-                "total_count": 1,
-                "jobs": [
-                    {
-                        "name": "UAT bounded revision cleanup",
-                        "status": "completed",
-                        "steps": [
-                            {
-                                "name": "Prepare or finish eligible uat revision cleanup",
-                                "conclusion": "failure",
-                            },
-                            {
-                                "name": "Save uat cleanup checkpoint",
-                                "conclusion": saved,
-                            },
-                        ],
-                    }
-                ],
-            }
-
-        for saved in ("success", "failure"):
-            with (
-                self.subTest(saved=saved),
-                mock.patch.object(
-                    MAINTENANCE,
-                    "api",
-                    side_effect=[{"workflow_runs": [run]}, inventory(saved)],
-                ),
-                mock.patch.object(
-                    MAINTENANCE, "trusted_checkpoint_run", return_value=True
-                ),
-            ):
-                if saved == "success":
-                    MAINTENANCE.assert_checkpoint_publication("org/repo", "uat")
-                else:
-                    with self.assertRaises(MAINTENANCE.retention.UnsafeState):
-                        MAINTENANCE.assert_checkpoint_publication("org/repo", "uat")
-
-    def test_production_guard_skips_uat_scoped_ticks_without_fetching_jobs(self):
-        # The clock sends about 13 UAT-only ticks a day. Walking each one (a jobs
-        # call at about 0.5 s) pushed production's guard past its 90 s budget
-        # after a week without a production cleanup.
-        def tick(run_id, title):
-            return {**self.trusted_source(run_id, "capacity-maintenance.yml"),
-                    "event": "repository_dispatch", "display_title": title}
-
-        checkpoint = tick(999, "Capacity Maintenance tick (production)")
-        saved = {"total_count": 1, "jobs": [{"name": "Production bounded revision cleanup", "status": "completed", "steps": [
-            {"name": "Prepare or finish eligible production revision cleanup", "conclusion": "success"},
-            {"name": "Save production cleanup checkpoint", "conclusion": "success"}]}]}
-        skipped = {"total_count": 1, "jobs": [{"name": "Production bounded revision cleanup", "status": "completed",
-                                               "conclusion": "skipped", "steps": []}]}
-        for title, expected_job_calls in (("Capacity Maintenance tick (uat)", 1), ("Capacity Maintenance tick", 151)):
-            runs = [tick(1000 + n, title) for n in range(150)] + [checkpoint]
-            job_calls = []
-
-            def api(_repository, endpoint, runs=runs, job_calls=job_calls):
-                if endpoint.startswith("workflows/capacity-maintenance.yml/runs"):
-                    return {"workflow_runs": runs}
-                job_calls.append(endpoint)
-                return saved if endpoint.startswith("runs/999/") else skipped
-
-            with (
-                self.subTest(title=title),
-                mock.patch.object(MAINTENANCE, "api", side_effect=api),
-                mock.patch.object(MAINTENANCE, "trusted_checkpoint_run", return_value=True),
-            ):
-                MAINTENANCE.assert_checkpoint_publication("org/repo", "production")
-                # The negative control (an unscoped tick) is still walked run by run.
-                self.assertEqual(len(job_calls), expected_job_calls)
-
     def test_maintenance_is_hourly_and_independent_of_deployments(self):
         workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
         source = (workflows / "capacity-maintenance.yml").read_text()
@@ -2119,11 +2048,12 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             self.assertNotIn("uat-drain-wait:", text)
             self.assertNotIn("uat-drain-recheck:", text)
             self.assertNotIn('sleep "$wait_seconds"', text)
-            # Only the explicit, separately authorized production bridge may
-            # force inspection. Ordinary ticks must retain the quiet due check.
+            # Explicit proof inputs request inspection, never infer mutation
+            # authority. Ordinary ticks retain the quiet due check.
             for line in text.splitlines():
                 if "--force-inspection" in line:
-                    self.assertRegex(line.strip(), r'^if \[\[ "\$CAPACITY_BRIDGE" = true \]\]; then flags(?:=|\+=)\(--force-inspection(?: --production-capacity-bridge)?\); fi$')
+                    self.assertRegex(line.strip(), r'^if \[\[ "\$CAPACITY_BRIDGE" = true(?: \|\| -n "\$\{OPERATIONAL_RUN_ID:-\}\$\{STAGED_WORKER_RUN_ID:-\}")? \]\]; then flags(?:=|\+=)\(--force-inspection(?: --production-capacity-bridge)?\); fi$')
+            self.assertIn('"$OPERATIONAL_RUN_ID" =~ ^[1-9][0-9]*$ && "$OPERATIONAL_ATTEMPT" =~ ^[1-9][0-9]*$', text)
             self.assertIn('[[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$APPLY" = true ]] || exit 1', text)
             concurrency = text.split("\nconcurrency:\n", 1)[1].split(
                 "\npermissions:", 1
@@ -2765,7 +2695,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     MAINTENANCE.find_release("org/repo", "123", pathlib.Path("unused"))
                 download.assert_not_called()
 
-    def test_noop_or_superseded_release_never_runs_cleanup_or_replaces_drain_state(
+    def test_noop_or_superseded_release_never_runs_cleanup(
         self,
     ):
         for release in (None, (123, {"status": "healthy"})):
@@ -2798,15 +2728,20 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     ),
                     mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                     mock.patch.object(MAINTENANCE, "restore_state") as restore,
+                    mock.patch.object(MAINTENANCE, "latest_deploy_observation", return_value=123),
                     mock.patch.object(MAINTENANCE, "run_retention") as run,
                     contextlib.redirect_stdout(io.StringIO()),
                 ):
                     self.assertEqual(MAINTENANCE.main(), 0)
                     restore.assert_called_once()
                     run.assert_not_called()
-                    self.assertEqual(list(state_dir.iterdir()), [])
+                    if release is None:
+                        self.assertEqual(list(state_dir.iterdir()), [])
+                    else:
+                        checkpoint = json.loads((state_dir / "completed.json").read_text())
+                        self.assertEqual(checkpoint["pass_status"], "in_progress")
                     self.assertEqual(
-                        output.read_text(), "cleanup_outcome=no_live_source\n"
+                        output.read_text(), ("checkpoint_ready=true\n" if release else "") + "cleanup_outcome=no_live_source\n"
                     )
 
     def test_release_workflow_cannot_reintroduce_inline_retention(self):
@@ -3231,8 +3166,6 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             )
 
     def test_queued_settled_pass_checks_inside_lock_before_cloud_steps(self):
-        import re
-
         source = (
             pathlib.Path(__file__).resolve().parents[2]
             / ".github/workflows/capacity-maintenance.yml"
@@ -3252,8 +3185,10 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             self.assertIn("--release-run-id", check)
             if "--force-inspection" in check:
                 self.assertIn("CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}", check)
-                self.assertIn('if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi', check)
-                self.assertNotIn("--force-inspection", check.replace('if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi', ""))
+                inspected = 'if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags=(--force-inspection); fi'
+                self.assertIn(inspected, check)
+                self.assertNotIn("--force-inspection", check.replace(inspected, ""))
+                self.assertIn('OPERATIONAL_ATTEMPT: ${{ inputs.operational_backend_proof_attempt }}', check)
             self.assertNotIn("--apply", check)
             for i, step in enumerate(steps):
                 protected = any(
@@ -3288,7 +3223,10 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 assert_guarded(broken)
             if "--force-inspection" in job:
-                broken = job.replace('if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi', 'if true; then flags=(--force-inspection); fi')
+                broken = job.replace(
+                    'if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags=(--force-inspection); fi',
+                    'if true; then flags=(--force-inspection); fi',
+                )
                 with self.assertRaises(AssertionError):
                     assert_guarded(broken)
 
@@ -3460,7 +3398,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         self.assertEqual(MAINTENANCE.main(), 0)
                         find_release.assert_not_called()
                         self.assertEqual(run.call_count, 0)
-                    self.assertEqual(output.read_text(), "cleanup_ready=false\n")
+                    self.assertEqual(output.read_text(), ("checkpoint_ready=true\n" if apply else "") + "cleanup_ready=false\n")
                     self.assertEqual(
                         json.loads((state_dir / "consent-protocol.json").read_text())[
                             "not_before"

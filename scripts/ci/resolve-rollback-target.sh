@@ -26,6 +26,9 @@ fi
 
 TAG="deployed/${ENVIRONMENT}-latest"
 
+if [ "$ENVIRONMENT" = production ] && [ "$LANE" = backend ]; then
+  REVISION="$(python3 scripts/ci/production_backend_successor_control.py resolve)"
+else
 if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
   echo "[resolve-rollback-target] No explicit ${LANE} revision given and refs/tags/${TAG} does not exist yet (no healthy deploy has been tagged for ${ENVIRONMENT})." >&2
   echo "[resolve-rollback-target] Pass the revision explicitly — read it with:" >&2
@@ -34,6 +37,7 @@ if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
 fi
 
 REVISION="$(git for-each-ref --format='%(contents)' "refs/tags/${TAG}" | grep -E "^${LANE}_revision:" | head -1 | sed -E "s/^${LANE}_revision:[[:space:]]*//")"
+fi
 
 if [ -z "$REVISION" ]; then
   echo "[resolve-rollback-target] refs/tags/${TAG} exists but has no ${LANE}_revision line — pass the revision explicitly." >&2

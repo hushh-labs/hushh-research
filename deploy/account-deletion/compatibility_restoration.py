@@ -14,6 +14,12 @@ from pathlib import Path
 
 RECORD = Path(__file__).with_name("production-restoration.json")
 POLICY = "consent-protocol/config/account-deletion-authority.json"
+PHONE_RELATIONS = (
+    "account_phone_transfers",
+    "account_phone_auth_fences",
+    "account_phone_recovery_continuations",
+    "account_device_actions",
+)
 
 
 class Refused(ValueError):
@@ -55,10 +61,49 @@ def qualify_source(sha: str) -> dict:
     git("merge-base", "--is-ancestor", record["baselineSha"], sha)
     policy = git("show", f"{sha}:{POLICY}")
     require(
-        hashlib.sha256(policy.encode()).hexdigest()
-        == record.get("authorityPolicySha256")
+        hashlib.sha256(policy.encode()).hexdigest() == record.get("authorityPolicySha256")
         and json.loads(policy).get("version") == 1,
         "Restoration authority policy changed",
+    )
+    return record
+
+
+def qualify_recorded_source() -> dict:
+    """Resolve only the current canonical record, never a caller's history pin."""
+    return qualify_source(json.loads(RECORD.read_text())["sourceSha"])
+
+
+def qualify_phone_history_source(sha: str, *, project: str) -> dict:
+    """Admit the exact audited non-producer as history, never as a phone reader."""
+    require(project == "hushh-pda", "Phone history restoration requires production")
+    record = qualify_source(sha)
+    require(
+        record.get("requiredAbsentTables") == list(PHONE_RELATIONS),
+        "Phone history source boundary changed",
+    )
+    # The immutable reviewed source must also retain its audited absence of the
+    # new authority. A manifest or an empty live database alone cannot prove it.
+    result = subprocess.run(  # noqa: S603 -- fixed Git read and qualified immutable SHA.
+        [
+            "git",
+            "grep",
+            "-IlE",
+            "|".join((*PHONE_RELATIONS, "phone_unlink")),
+            sha,
+            "--",
+            "consent-protocol/api",
+            "consent-protocol/hushh_mcp",
+            "consent-protocol/db",
+            "consent-protocol/server.py",
+            "consent-protocol/server_drive_worker.py",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    require(
+        result.returncode == 1 and not result.stdout and not result.stderr,
+        "Restoration phone producer absence could not be verified",
     )
     return record
 
@@ -107,13 +152,7 @@ def qualify_schema(connection, record: dict, *, require_empty_documents: bool) -
             "Cleanup authority changed",
         )
         require(
-            record.get("requiredAbsentTables")
-            == [
-                "account_phone_transfers",
-                "account_phone_auth_fences",
-                "account_phone_recovery_continuations",
-                "account_device_actions",
-            ],
+            record.get("requiredAbsentTables") == list(PHONE_RELATIONS),
             "Phone compatibility boundary changed",
         )
         for table in record["requiredAbsentTables"]:
@@ -141,9 +180,7 @@ def qualify_schema(connection, record: dict, *, require_empty_documents: bool) -
         if require_empty_documents:
             for table in documents:
                 cursor.execute(
-                    sql.SQL("SELECT EXISTS(SELECT 1 FROM public.{})").format(
-                        sql.Identifier(table)
-                    )
+                    sql.SQL("SELECT EXISTS(SELECT 1 FROM public.{})").format(sql.Identifier(table))
                 )
                 require(
                     cursor.fetchone()[0] is False,

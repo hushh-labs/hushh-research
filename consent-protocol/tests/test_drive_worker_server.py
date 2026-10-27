@@ -13,6 +13,7 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError
 def enable_selected_indexing_for_worker_readiness(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("PROTECTED_DOCUMENT_DELIVERY_ENABLED", "false")
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
 
 
@@ -31,6 +32,38 @@ async def test_worker_without_indexing_needs_no_model_or_scanner(monkeypatch, tm
         assert await worker.ready() == {"status": "ready"}
     query.assert_not_awaited()
     check_ready.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scanner_fails", [False, True])
+async def test_protected_intake_requires_scanner_without_enabling_indexing(
+    monkeypatch, tmp_path, scanner_fails
+):
+    import server_drive_worker as worker
+
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "false")
+    monkeypatch.setenv("PROTECTED_DOCUMENT_DELIVERY_ENABLED", "true")
+    monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path / "missing"))
+    monkeypatch.setattr(worker, "STARTUP_TIMEOUT_SECONDS", 0.01)
+    embedding = AsyncMock()
+    scanner = AsyncMock(
+        side_effect=DriveReadError("scanner_unavailable") if scanner_fails else None
+    )
+    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "admit", embedding)
+    monkeypatch.setattr(worker.ClamAvScanner, "check_ready", scanner)
+    if scanner_fails:
+        with pytest.raises(RuntimeError, match="startup readiness budget"):
+            async with worker.lifespan(worker.app):
+                pytest.fail("Protected intake admitted an unavailable scanner")
+        with pytest.raises(HTTPException) as error:
+            await worker.ready()
+        assert error.value.status_code == 503
+    else:
+        async with worker.lifespan(worker.app):
+            assert await worker.ready() == {"status": "ready"}
+        assert scanner.await_count == 2
+    embedding.assert_not_awaited()
+    assert scanner.await_count > 0
 
 
 @pytest.mark.asyncio

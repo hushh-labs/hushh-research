@@ -65,6 +65,7 @@ import { getStockContext } from "@/lib/services/kai-service";
 import {
   buildKaiAnalysisPreviewRoute,
   buildKaiMarketRoute,
+  KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { isLocalAnalysisPreviewRequest } from "@/components/kai/shared/local-market-preview";
@@ -172,6 +173,13 @@ export function KaiAnalysisPageContent() {
 
   const debateId = searchParams.get("debate_id");
   const analysisEntryId = searchParams.get("analysis_id");
+  const stocksActive = pathname === KAI_MARKET_PATH && searchParams.get("tab") === "analysis";
+  const workspaceSelected = Boolean(
+    analysisEntryId || debateId || searchParams.get("focus") === "active" ||
+    searchParams.get("run_id") ||
+    ["debate", "summary", "detailed"].includes(searchParams.get("view") || ""),
+  );
+  const stocksLanding = stocksActive && !workspaceSelected && !searchParams.get("ticker");
 
   const [resolvedEntry, setResolvedEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [resolvingEntry, setResolvingEntry] = useState(false);
@@ -211,6 +219,12 @@ export function KaiAnalysisPageContent() {
   // reopen the stock preview. Cleared as soon as the URL moves on.
   const [closingRouteKey, setClosingRouteKey] = useState<string | null>(null);
   const closeNavigationRef = useRef(0);
+  const previewStartRef = useRef(0);
+
+  useEffect(() => {
+    setStartingPreviewDebate(false);
+    return () => { previewStartRef.current += 1; };
+  }, [pathname, searchParams]);
 
   const hasFreshAnalysisIntent =
     Boolean(analysisParams) &&
@@ -223,12 +237,26 @@ export function KaiAnalysisPageContent() {
     Boolean(analysisParams?.userId) &&
     analysisParams?.userId !== "__pending__";
   const canStartNewRun =
+    stocksActive && workspaceSelected &&
     localIntentReady &&
     !activeRunTask &&
     !focusedRunTask &&
     !liveEntry &&
     !resolvedEntry;
   const liveIntentReady = Boolean(activeRunTask) || canStartNewRun;
+
+  useEffect(() => {
+    // Back returns to the Stocks browser while this pane stays mounted. A
+    // retained result or background task must not reopen the workspace there.
+    // The task manager keeps running; only its presentation is released.
+    if (!stocksLanding) return;
+    setAnalysisParams(null);
+    setLiveEntry(null);
+    setResolvedEntry(null);
+    setFocusedRunId(null);
+    setFocusedRunTask(null);
+    setHistoryFallbackEntry(null);
+  }, [stocksLanding, setAnalysisParams]);
 
   const setDebateIdParam = useCallback(
     (nextDebateId?: string | null) => {
@@ -676,6 +704,7 @@ export function KaiAnalysisPageContent() {
       closingRouteKey !== null && closingRouteKey === searchParams.toString(),
   });
   const showWorkspace =
+    stocksActive && workspaceSelected &&
     !showHistoryWhileActive &&
     !shouldShowPreview &&
     Boolean(liveIntentReady || liveEntry || resolvedEntry || hasFocusedRun);
@@ -697,7 +726,7 @@ export function KaiAnalysisPageContent() {
     if (showWorkspace) return "";
     return rawTicker;
   }, [searchParams, showWorkspace]);
-  const showStockBrowser = !showWorkspace && !previewTickerFromQuery && !analysisEntryId && !debateId && !activeRunTask && !resolvingEntry;
+  const showStockBrowser = !showWorkspace && !previewTickerFromQuery && !analysisEntryId && !debateId && !resolvingEntry;
 
   useEffect(() => {
     if (!shouldShowPreview || !hasActiveRouteIntent || !previewTickerRaw) return;
@@ -906,9 +935,13 @@ export function KaiAnalysisPageContent() {
       router.replace(buildKaiMarketRoute("analysis", { focus: "active" }));
       return;
     }
+    const attempt = ++previewStartRef.current;
     setStartingPreviewDebate(true);
     void getStockContext(currentPreviewTicker, vaultOwnerToken)
       .then((context) => {
+        // Back, a different stock or a tab change revokes this presentation's
+        // pending launch. A late context response must not navigate back into it.
+        if (previewStartRef.current !== attempt) return;
         setResolvedEntry(null);
         setLiveEntry(null);
         setFocusedRunId(null);
@@ -931,10 +964,10 @@ export function KaiAnalysisPageContent() {
         );
       })
       .catch(() => {
-        toast.error("Could not start debate.");
+        if (previewStartRef.current === attempt) toast.error("Could not start debate.");
       })
       .finally(() => {
-        setStartingPreviewDebate(false);
+        if (previewStartRef.current === attempt) setStartingPreviewDebate(false);
       });
   }, [
     previewPickSource,
@@ -952,6 +985,15 @@ export function KaiAnalysisPageContent() {
     setShowHistoryWhileActive(false);
     router.replace(buildKaiMarketRoute("analysis"), { scroll: false });
   }, [router, setAnalysisParams]);
+  const handleOpenActiveAnalysis = useCallback(() => {
+    if (!activeRunTask) return;
+    setFocusedRunId(activeRunTask.runId);
+    setShowHistoryWhileActive(false);
+    setWorkspaceTab("debate");
+    router.push(buildKaiMarketRoute("analysis", {
+      focus: "active", run_id: activeRunTask.runId, view: "debate",
+    }), { scroll: false });
+  }, [activeRunTask, router]);
   useLocalOnboardingActionHandler("analysis.back_to_history", () => {
     setAnalysisParams(null);
     setFocusedRunId(null);
@@ -979,9 +1021,7 @@ export function KaiAnalysisPageContent() {
   });
   useLocalOnboardingActionHandler("analysis.resume_active", () => {
     if (!activeRunTask) return { status: "blocked", summary: "There is no active analysis to resume." };
-    setFocusedRunId(activeRunTask.runId);
-    setShowHistoryWhileActive(false);
-    setWorkspaceTab("debate");
+    handleOpenActiveAnalysis();
     return { status: "succeeded", summary: "Active analysis opened." };
   });
   useLocalOnboardingActionHandler("analysis.confirm_preview", () => {
@@ -1515,13 +1555,7 @@ export function KaiAnalysisPageContent() {
                 size="sm"
                 className="ml-2 h-7 px-2 text-xs"
                 data-voice-control-id="analysis_open_active"
-                onClick={() => {
-                  if (activeRunTask?.runId) {
-                    setFocusedRunId(activeRunTask.runId);
-                  }
-                  setShowHistoryWhileActive(false);
-                  setWorkspaceTab("debate");
-                }}
+                onClick={handleOpenActiveAnalysis}
               >
                 Open active analysis
               </MorphyButton>
