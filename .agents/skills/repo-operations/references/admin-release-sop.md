@@ -127,14 +127,10 @@ a normal UAT catch-up before retrying this service-only lane.
 
 ### 5. Dispatch only the requested environment
 
-An explicit curated UAT application may precede its Main approval. Require the
-existing source gate for that protected UAT history and exact-application Dev
-acceptance. For production, keep `sha` equal to the UAT-accepted application;
-if its approved Main merge has a distinct SHA, supply `main_approval_sha`.
-The workflow requires that merge's smoke, application incorporation and exact
-complete-tree equivalence, then checks the original application's UAT receipt.
-This is selective promotion, not an emergency or predecessor bypass. Default
-Main selection and ordinary same-SHA promotion retain their existing gates.
+Curated UAT requires protected source history and exact-application Dev acceptance.
+Production retains that application's UAT receipt. A distinct `main_approval_sha`
+must incorporate the application with an identical Git tree and Main smoke;
+see the [promotion contract](../../../../docs/reference/operations/branch-governance.md#dev--uat-branch-preparation).
 
 UAT:
 
@@ -151,29 +147,8 @@ gh workflow run deploy-production.yml --ref main -f scope=<frontend|backend|all>
 Production requires an explicit production request and an actor in
 `production.manual_dispatch_users`. UAT success does not authorize production.
 
-#### Explicit emergency production
-
-The manual incident route waives Dev/UAT deployment acceptance only. It is not
-an automatic deployment and cannot certify an ordinary promotion. Require an
-explicit production incident request, both governed original/triggering actors,
-an exact CI-qualified application SHA on a `hotfix/` or `fix/` branch and an
-incident reference with a meaningful reason. Execute the existing production
-workflow from Main; preserve its release helpers, policy and serving parser
-before checking out application sources.
-
-Supply `emergency_source_ref` and `emergency_reason` together. The application
-must descend from both sources actually serving production. The workflow seals
-the serving revisions, UIDs, configuration generations, images and workload
-identities, then rechecks source CI and that baseline before runtime mutation.
-It retains current-schema compatibility, backup, qualified rollback, health,
-account-cleanup and provenance gates. A historical patch that fails those gates
-is incompatible; the incident route cannot waive them.
-
-Do not combine this route with cadence, a curated Main approval, restoration,
-phone transitions, image promotion or capability activation. Record its separate
-`predecessor_exception` in release status, never a fabricated UAT receipt. After
-acceptance, forward-port the patch by behavior into Main, Dev and the selected
-UAT history. A Main merge does not itself authorize another application rollout.
+Approved manual incidents follow the [incident contract](../../../../docs/reference/operations/branch-governance.md#manual-emergency-production).
+Only Dev/UAT deployment acceptance is waived; all other release gates remain.
 
 ### 6. Monitor and prove
 
@@ -238,9 +213,8 @@ UAT history. A Main merge does not itself authorize another application rollout.
 Stop rather than improvise when the exact head changes, required checks are not
 terminal green, actor authority is absent, environment identity is ambiguous,
 provenance does not match, or a rollback target cannot be proved. Ordinary Main
-promotion requires reachability from `main` and successful post-merge smoke.
-Curated UAT and explicit incident candidates use only their documented source
-authority; neither changes compatibility or rollback admission. Dev follows
+promotion requires reachability from `main` and successful post-merge smoke;
+curated/incident source exceptions follow section 5. Dev follows
 [Dev Fast Lane](../../../../docs/reference/operations/dev-fast-lane.md): its exact
 CI-green SHA must be reachable from the requested branch, while the workflow
 definition runs from `main`. Dev does not require an application merge to `main`.

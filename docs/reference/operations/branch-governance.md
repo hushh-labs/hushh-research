@@ -71,6 +71,30 @@ The following batches must complete before activation:
 This preparation changes no application content, deployed traffic, image
 selection, WIF authority, scheduled cadence or capacity-maintenance behavior.
 
+## Manual emergency production
+
+The manual incident route waives Dev/UAT deployment acceptance only. It is not
+an automatic deployment and cannot certify an ordinary promotion. Require an
+explicit production incident request, both governed original/triggering actors,
+an exact CI-qualified application SHA on a `hotfix/` or `fix/` branch and an
+incident reference with a meaningful reason. Execute the existing production
+workflow from Main; preserve its release helpers, policy and serving parser
+before checking out application sources.
+
+Supply `emergency_source_ref` and `emergency_reason` together. The application
+must descend from both sources actually serving production. The workflow seals
+the serving revisions, UIDs, configuration generations, images and workload
+identities, then rechecks source CI and that baseline before runtime mutation.
+It retains current-schema compatibility, backup, qualified rollback, health,
+account-cleanup and provenance gates. A historical patch that fails those gates
+is incompatible; the incident route cannot waive them.
+
+Do not combine this route with cadence, a curated Main approval, restoration,
+phone transitions, image promotion or capability activation. Record its separate
+`predecessor_exception` in release status, never a fabricated UAT receipt. After
+acceptance, forward-port the patch by behavior into Main, Dev and the selected
+UAT history. A Main merge does not itself authorize another application rollout.
+
 ## Lane decision: WHO authored the code (the one rule that prevents drift)
 
 The deciding question for how code reaches `main` is **who wrote it**, never the
