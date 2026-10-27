@@ -24,11 +24,25 @@ export function SessionVerificationRecovery({
   current.current = { user, cleanup };
   const continuing = Boolean(cleanup && continuingId === cleanup.id);
   const continuationError = cleanup && continuationFailure?.operationId === cleanup.id ? continuationFailure.message : null;
+  // Only work the backend owns keeps going without the person. "Delayed" is the
+  // backend's stall signal, never a client guess from elapsed time.
+  const runsWithoutYou = Boolean(cleanup && !cleanup.local_erasure_confirmation_required &&
+    (cleanup.state === "cleaning_up" || cleanup.state === "waiting_for_provider"));
+  const delayed = runsWithoutYou && cleanup?.delayed === true;
   const title = cleanup?.state === "action_required"
     ? "Your cleanup needs attention"
-    : cleanup?.state === "waiting_for_provider"
-      ? "Waiting for your provider"
-      : cleanup ? "Deleting your account" : deletionPending ? "Checking your account deletion" : "Reconnect to continue securely";
+    : delayed
+      ? "Deletion is taking longer than usual"
+      : cleanup?.state === "waiting_for_provider"
+        ? "Waiting for your provider"
+        : cleanup ? "Deleting your account" : deletionPending ? "Checking your account deletion" : "Reconnect to continue securely";
+  const cleanupMessage = !cleanup
+    ? null
+    : !runsWithoutYou
+      ? "Your private agent stays paused until this step is done."
+      : delayed
+        ? "Your information stays hidden. Deletion is queued on our side and finishes without you. You can sign out and check back later."
+        : "Your private agent is paused while we delete your account. This usually takes a few minutes. You can close this window or sign out; deletion keeps going.";
 
   async function continueCleanup() {
     const owner = snapshotAuthSessionGeneration();
@@ -78,8 +92,8 @@ export function SessionVerificationRecovery({
           {title}
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          {cleanup
-            ? "Your private agent is paused while cleanup finishes. You can close this window; cleanup will continue."
+          {cleanupMessage
+            ? cleanupMessage
             : deletionPending ? "Your account deletion is still being checked. Your private information stays hidden until we confirm the result." : "We couldn’t verify this account, so your private information stayed hidden. Check your connection and try again."}
         </p>
         {cleanup?.local_erasure_confirmation_required && <p className="mt-3 text-sm leading-6 text-muted-foreground">

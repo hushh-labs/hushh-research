@@ -158,6 +158,18 @@ export function registerHoldingEntryChecks(mount: (page: Page, width?: number) =
         const editor = page.getByRole("dialog", { name: "Edit Holding", exact: true });
         await expect(editor).toBeVisible();
         await expect(page.getByRole("dialog")).toHaveCount(1);
+        const quantity = editor.getByLabel(/^quantity/i);
+        await quantity.fill("0");
+        await editor.getByRole("button", { name: /save/i }).click();
+        await expect(quantity).toBeFocused();
+        await expect(quantity).toHaveAttribute("aria-invalid", "true");
+        await expect(quantity).toHaveAccessibleDescription("Enter a quantity other than 0.");
+        expect(await quantity.evaluate(element => {
+          const field = element.getBoundingClientRect();
+          const viewport = element.closest(".overflow-y-auto")!.getBoundingClientRect();
+          return field.top >= viewport.top && field.bottom <= viewport.bottom;
+        })).toBe(true);
+        await editor.screenshot({ path: test.info().outputPath(`holding-validation-${width}-${theme}.png`) });
         await editor.getByLabel(/quantity/i).fill("7");
         await editor.getByLabel(/cost basis/i).fill("840");
         await editor.getByRole("button", { name: /save/i }).click();

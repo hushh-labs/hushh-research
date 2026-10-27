@@ -309,26 +309,34 @@ class WorkerBasisCases:
                 basis.load("f" * 40)
 
     def test_healthy_basis_joins_actual_continuation_runtime_and_accepted_image(self):
-        with _basis_case(self) as ports:
-            result = basis.load("f" * 40, release_run_id="500")
-            self.assertEqual(result["kind"], basis.KIND)
-            self.assertNotIn("sealed_boundary", result)
-            self.assertEqual(result["healthy"]["artifact_id"], 600)
-            self.assertEqual(result["backend"]["runtime_run_id"], "400")
-            self.assertEqual(result["worker"]["uid"], "worker-revision-uid")
-            self.assertEqual(
-                result["candidate"]["image"],
-                "gcr.io/hushh-pda/consent-protocol@sha256:" + "b" * 64,
-            )
-            self.assertEqual(basis.revalidate(result), result)
-            self.assertEqual(basis.current_release_run_id(), "500")
-            self.assertIn("runs/400/artifacts?per_page=100", ports.case.original.calls)
-            with mock.patch.object(
-                ports.owner.retention,
-                "service_state",
-                side_effect=AssertionError("source-only must not read runtime"),
-            ):
-                self.assertEqual(basis.qualify_source(result), result)
+        for empty_url in (False, True):
+            with self.subTest(empty_url=empty_url), _basis_case(self) as ports:
+                if empty_url:
+                    raw = ports.tag["tag_object"].replace(
+                        "frontend_url: https://app.example.test\n", "frontend_url:\n"
+                    )
+                    ports.tag.update(basis.proof.reference.tag_identity(raw))
+                result = basis.load("f" * 40, release_run_id="500")
+                self.assertEqual(result["kind"], basis.KIND)
+                self.assertNotIn("sealed_boundary", result)
+                self.assertEqual(result["healthy"]["artifact_id"], 600)
+                self.assertEqual(result["backend"]["runtime_run_id"], "400")
+                self.assertEqual(result["worker"]["uid"], "worker-revision-uid")
+                self.assertEqual(
+                    result["candidate"]["image"],
+                    "gcr.io/hushh-pda/consent-protocol@sha256:" + "b" * 64,
+                )
+                self.assertEqual(basis.revalidate(result), result)
+                self.assertEqual(basis.current_release_run_id(), "500")
+                self.assertIn(
+                    "runs/400/artifacts?per_page=100", ports.case.original.calls
+                )
+                with mock.patch.object(
+                    ports.owner.retention,
+                    "service_state",
+                    side_effect=AssertionError("source-only must not read runtime"),
+                ):
+                    self.assertEqual(basis.qualify_source(result), result)
 
     def test_healthy_basis_rejects_current_tag_candidate_and_worker_drift(self):
         for defect in (

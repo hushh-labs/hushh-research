@@ -1,6 +1,12 @@
-"""Qualify the complete reviewed managed-custody successor without rewriting420."""
+"""Preserve the reviewed installed custody family without installing pilot authority."""
 
 from __future__ import annotations
+
+import hashlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from db.migration_authority import MigrationManifestEntryV2
 
 QUALIFIED = {
     "erasure_authorization_history(jsonb,jsonb)": "229ae3dadf31ae73f9c84e55ad4be9c57da79e8dece62838fc6b663c07ab2bad",
@@ -156,28 +162,32 @@ def hosted_custody_adoption(sql: str) -> str:
             anchor.replace(f"NOT IN ({predecessors})", f"NOT IN ({predecessors},'{successor}')"),
             1,
         )
-    return sql.replace("BEGIN;", "BEGIN;\n" + qualification, 1)
+    return _qualified_transaction(sql, qualification)
 
 
 RECOVERY_SOURCE_SHA256 = "f637ba12f5eb6fc0b79ad3a1244b65cd972a33fd589c8ffa2425157d6ddcc4f6"
 
 
-def hosted_custody_recovery_replay(entry, sql: str) -> str:
+def hosted_custody_recovery_replay(entry: MigrationManifestEntryV2, sql: str) -> str:
     """421 must retain a complete qualified974 guard rather than downgrade it."""
-    import hashlib
-
     from db.migration_authority import MigrationAuthorityError
 
     checksum = hashlib.sha256(entry.sql.encode()).hexdigest()
     if (
-        entry.filename != "421_cloud_removal_recovery.sql"
+        entry.migration_id != "421"
+        or entry.filename != "421_cloud_removal_recovery.sql"
         or checksum != RECOVERY_SOURCE_SHA256
         or entry.checksum_sha256 != checksum
     ):
         raise MigrationAuthorityError("Managed custody recovery source checksum changed")
     anchor = "CREATE OR REPLACE FUNCTION public.guard_personal_agent_erasure_registry()"
+    if sql.count(anchor) != 1:
+        raise MigrationAuthorityError("Managed custody recovery guard shape changed")
     start = sql.index(anchor)
-    end = sql.index("$$;", start) + 3
+    terminator = sql.find("$$;", start)
+    if terminator < 0:
+        raise MigrationAuthorityError("Managed custody recovery guard terminator changed")
+    end = terminator + 3
     body = sql[start:end]
     if sql.count(body) != 1:
         raise MigrationAuthorityError("Managed custody recovery guard shape changed")
@@ -199,16 +209,49 @@ $retain_managed_custody$;
     adapted = sql[:start] + wrapped + sql[end:]
     # Reuse the same complete-vector check as immutable420, without its hash-list adaptation.
     qualification = _successor_qualification()
-    return adapted.replace("BEGIN;", "BEGIN;\n" + qualification, 1)
+    return _qualified_transaction(adapted, qualification)
+
+
+def _qualified_transaction(sql: str, qualification: str) -> str:
+    from db.migration_authority import MigrationAuthorityError
+
+    if sql.count("BEGIN;") != 1 or not sql.rstrip().endswith("COMMIT;"):
+        raise MigrationAuthorityError("Managed custody adoption transaction shape changed")
+    sql = sql.replace("BEGIN;", "BEGIN;\n" + qualification, 1)
+    before_commit, trailing = sql.rsplit("COMMIT;", 1)
+    return before_commit + qualification + "COMMIT;" + trailing
 
 
 def _successor_qualification() -> str:
-    values = ",".join(f"('{signature}','{digest}')" for signature, digest in QUALIFIED.items())
+    values = ",".join(
+        f"('{signature}','{digest}',{'true' if signature.partition('(')[0] in REFINED else 'false'})"
+        for signature, digest in QUALIFIED.items()
+    )
     qualification = f"""DO $hosted_custody_successor$
-DECLARE spec record; definition text; client_role text;
+DECLARE spec record; definition text; client_role text; footprint boolean := false;
 BEGIN
- IF to_regprocedure('public.private_gcp_coordinates(jsonb)') IS NULL THEN RETURN; END IF;
- FOR spec IN SELECT * FROM (VALUES {values}) AS expected(signature,digest) LOOP
+ -- Any new helper or refined successor is a footprint. A missing sentinel
+ -- must not make a partial successor look like the legacy family.
+ SELECT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname='public' AND p.proname IN
+   (SELECT split_part(signature,'(',1) FROM (VALUES {values}) AS expected(signature,digest,refined)
+    WHERE NOT refined)) INTO footprint;
+ FOR spec IN SELECT * FROM (VALUES {values}) AS expected(signature,digest,refined) LOOP
+  SELECT pg_get_functiondef(to_regprocedure('public.'||spec.signature)) INTO definition;
+  IF definition IS NOT NULL AND (NOT spec.refined OR encode(sha256(convert_to(definition,'UTF8')),'hex')=spec.digest) THEN
+   footprint := true;
+   EXIT;
+  END IF;
+ END LOOP;
+ IF NOT footprint THEN RETURN; END IF;
+ IF EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname='public' AND p.proname IN
+   (SELECT split_part(signature,'(',1) FROM (VALUES {values}) AS expected(signature,digest,refined))
+  AND NOT EXISTS(SELECT 1 FROM (VALUES {values}) AS expected(signature,digest,refined)
+   WHERE to_regprocedure('public.'||expected.signature)=p.oid)) THEN
+  RAISE EXCEPTION 'Unqualified managed custody function overload';
+ END IF;
+ FOR spec IN SELECT * FROM (VALUES {values}) AS expected(signature,digest,refined) LOOP
   SELECT pg_get_functiondef(to_regprocedure('public.'||spec.signature)) INTO definition;
   IF definition IS NULL OR encode(sha256(convert_to(definition,'UTF8')),'hex')<>spec.digest THEN
    RAISE EXCEPTION 'Unqualified managed custody successor: %',spec.signature;
