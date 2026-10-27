@@ -70,7 +70,7 @@ ERROR_TYPES = frozenset(
     }
 )
 PROBE_NAME = re.compile(
-    r"(?:text|adk|one_chat|one_voice_live):gemini-[a-z0-9][a-z0-9._-]{0,95}"
+    r"(?:text|adk|one_chat|drive_document_requests|one_voice_live):gemini-[a-z0-9][a-z0-9._-]{0,95}"
     r"@[a-z][a-z0-9-]{0,39}(?:,[a-z][a-z0-9-]{0,39}){0,7}\Z"
 )
 FIXED_PROBES = frozenset({"embedding", "location_command:audio", "location_command:semantics"})

@@ -544,25 +544,41 @@ def test_account_deletion_cleanup_oidc_certificate_request_has_hard_timeout(monk
     assert observed["timeout"] == account._CLEANUP_OIDC_HTTP_TIMEOUT_SECONDS
 
 
-def test_account_deletion_cleanup_drain_is_bounded_and_no_store(monkeypatch):
+@pytest.mark.parametrize("paused_reason", [None, "release_fence_installed"])
+def test_account_deletion_cleanup_drain_is_bounded_and_no_store(monkeypatch, paused_reason):
     calls = []
+    reported = []
 
     async def _drain(*, limit: int):
         calls.append(limit)
-        return 3
+        return lifecycle_module.AccountDeletionDrainReport(3, paused_reason)
+
+    async def _report(reason: str):
+        reported.append(reason)
 
     _configure_account_deletion_cleanup_oidc(monkeypatch)
-    monkeypatch.setattr(account, "drain_account_deletion_cleanup_intents", _drain)
+    monkeypatch.setattr(account, "drain_account_deletion_cleanup_with_report", _drain)
+    monkeypatch.setattr(account, "report_paused_drain", _report)
 
     response = TestClient(_build_app()).post(
         "/api/account/deletion-cleanup/drain?limit=17",
         headers={"Authorization": "Bearer scheduler-oidc-token"},
     )
 
+    # A release pause stays 2xx (activation requires a 2xx scheduler attempt)
+    # but is reported; a stale fence once hid a due deletion behind settled=0.
     assert response.status_code == 200
-    assert response.json() == {"success": True, "settled": 3, "limit": 17}
+    assert response.json() == {
+        "success": True,
+        "settled": 3,
+        "limit": 17,
+        "paused": paused_reason is not None,
+        "paused_reason": paused_reason,
+    }
     assert response.headers["cache-control"] == "private, no-store"
     assert calls == [17]
+    # The scheduler delivery is the single stall observer, never an idle drain.
+    assert reported == ([paused_reason] if paused_reason else [])
 
 
 def test_refresh_account_identity_returns_synced_identity(monkeypatch):
