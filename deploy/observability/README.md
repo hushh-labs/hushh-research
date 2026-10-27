@@ -105,6 +105,22 @@ unrelated jobs do not count. Two terminal failures in ten minutes trigger one
 aggregated incident with opening/recovery notices. No model prompts, owner
 identifiers or custom metric labels are retained.
 
+When the primary HTTP probe succeeds but a required capability fails, the single
+terminal diagnostic preserves the failed child's classification, error class and
+observed duration instead of replacing them with a generic runtime error. A
+provider-only timeout remains visible to this terminal-only metric; mixed
+application/configuration failures remain blocking and do not masquerade as a
+provider-only timeout. Child rows do not increment the timeout counter themselves.
+
+The existing execution-bound `probe_history` keeps `primary_http` alongside
+Azure-only `capability:<name>` failure rows. Each child has one failed attempt;
+the closed capability/error vocabulary and duration bounds exclude raw provider
+payloads, and no retry or recovery is inferred. Observed cancellation latency
+may exceed the configured child deadline and is retained as measured. This
+history is diagnostic evidence in the failed aggregate, not a passing capability
+proof. The success-only uploaded release receipt still refuses failed builds,
+failed aggregate steps and missing/failed provider selections.
+
 Use the existing reconciler's narrow mode and repeat `--email` for each
 already-enabled, verified notification channel recipient:
 
