@@ -68,6 +68,91 @@ def _identity(metadata: dict) -> dict:
     return {"revision": metadata["name"], "uid": uid, "source": source}
 
 
+def activation_identity(args, service: dict, revisions: list[dict], candidate: str) -> dict:
+    """Bind successful retirement evidence to the exact observed activation."""
+    matches = [row for row in revisions if row.get("metadata", {}).get("name") == candidate]
+    if len(matches) != 1:
+        raise ValueError("activation_revision_inventory_ambiguous")
+    identity = _identity(matches[0]["metadata"])
+    service_uid = service.get("metadata", {}).get("uid")
+    if (
+        identity["source"] != args.expected_sha
+        or not isinstance(service_uid, str)
+        or not 0 < len(service_uid) <= 256
+    ):
+        raise ValueError("activation_service_identity_unknown")
+    return {
+        "schema_version": 1,
+        "kind": "account-lifecycle-activation",
+        "project": args.project,
+        "region": args.region,
+        "service": args.backend_service,
+        "sha": args.expected_sha,
+        "run_id": args.expected_run_id,
+        "required_provider_contract": 2,
+        "service_uid": service_uid,
+        "candidate_revision": candidate,
+        "candidate_uid": identity["uid"],
+    }
+
+
+def uat_tags_rollback(
+    evidence, *, activation_succeeded, project, region, service, candidate, source, run_id, rollback
+) -> str:
+    """Omit only a rollback deleted by this run's successful canonical activation."""
+    if activation_succeeded is not True or evidence is None:
+        return rollback
+    expected = {
+        "schema_version": 1,
+        "kind": "account-lifecycle-activation",
+        "status": "activated",
+        "project": project,
+        "region": region,
+        "service": service,
+        "sha": source,
+        "run_id": run_id,
+        "required_provider_contract": 2,
+        "candidate_revision": candidate,
+        "database_preflight": "qualified",
+        "fence_removal": "confirmed_absent",
+    }
+    if (
+        project != "hushh-pda-uat"
+        or region != "us-central1"
+        or service != "consent-protocol"
+        or not isinstance(source, str)
+        or not re.fullmatch(r"[0-9a-f]{40}", source)
+        or not isinstance(run_id, str)
+        or not re.fullmatch(r"[1-9][0-9]*", run_id)
+        or not isinstance(candidate, str)
+        or not re.fullmatch(r"consent-protocol-[a-z0-9-]+", candidate)
+        or not isinstance(evidence, dict)
+        or type(evidence.get("schema_version")) is not int
+        or any(evidence.get(key) != value for key, value in expected.items())
+        or any(
+            not isinstance(evidence.get(key), str) or not 0 < len(evidence[key]) <= 256
+            for key in ("service_uid", "candidate_uid")
+        )
+    ):
+        raise ValueError("uat_activation_retirement_origin_unqualified")
+    retirement = evidence.get("retirement")
+    retired = retirement.get("retired_revisions") if isinstance(retirement, dict) else None
+    if (
+        not isinstance(retired, list)
+        or any(
+            not isinstance(name, str) or not re.fullmatch(r"consent-protocol-[a-z0-9-]+", name)
+            for name in retired
+        )
+        or len(set(retired)) != len(retired)
+        or candidate in retired
+        or retirement.get("status") != "retired"
+        or type(retirement.get("retired_count")) is not int
+        or retirement["retired_count"] != len(retired)
+    ):
+        raise ValueError("uat_activation_retired_inventory_unqualified")
+    return "" if rollback in retired else rollback
+
+
 def production_boundary(
     service: dict,
     revisions: list[dict],

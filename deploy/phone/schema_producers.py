@@ -18,10 +18,12 @@ from runpy import run_path
 import workos_rollout as closed
 from bootstrap_ports import (
     REPOSITORY,
-    Runtime as LockRuntime,
     _authorities,
     controls,
     iam_fingerprint,
+)
+from bootstrap_ports import (
+    Runtime as LockRuntime,
 )
 from consumer_compatibility import qualify_consumers
 from qualify_image import run
@@ -42,7 +44,15 @@ def fingerprint(value) -> str:
 def source_capable(sha: str) -> bool:
     if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ValueError("phone_schema_source_unknown")
-    run(["git", "merge-base", "--is-ancestor", sha, "origin/main"])
+    try:
+        run(["git", "merge-base", "--is-ancestor", sha, "origin/main"])
+    except subprocess.CalledProcessError as error:
+        if error.returncode != 1:
+            raise
+        run_path(str(ROOT / "deploy/account-deletion/compatibility_restoration.py"))[
+            "qualify_phone_history_source"
+        ](sha, project=PROJECT)
+        return False
     run(["git", "cat-file", "-e", SOURCE_ANCHOR])
     try:
         run(["git", "merge-base", "--is-ancestor", sha, SOURCE_ANCHOR + "^"])
@@ -84,9 +94,7 @@ def _launcher(container: dict, service: str) -> str:
 def _scanner(container: dict) -> bool:
     source = (ROOT / "deploy/drive/deploy_worker_service_prod.sh").read_text()
     values = dict(
-        re.findall(
-            r'^readonly (CLAMAV_IMAGE|CLAMAV_AMD64_DIGEST)="([^"]+)"$', source, re.M
-        )
+        re.findall(r'^readonly (CLAMAV_IMAGE|CLAMAV_AMD64_DIGEST)="([^"]+)"$', source, re.M)
     )
     verifier = run_path(str(ROOT / "deploy/drive/verify_worker_revision.py"))
     return verifier["_digest"](container.get("image")) in {
@@ -98,12 +106,8 @@ def _scanner(container: dict) -> bool:
 def _revision(row: dict, service: str, primary: str) -> dict:
     metadata, spec = row["metadata"], row["spec"]
     name, uid = metadata["name"], metadata.get("uid")
-    name_hint = (
-        "drive-worker" if service.endswith("-drive-worker") else "consent-protocol"
-    )
-    container = _authorities().capacity_bridge.budget.named_container(
-        spec, name_hint, name
-    )
+    name_hint = "drive-worker" if service.endswith("-drive-worker") else "consent-protocol"
+    container = _authorities().capacity_bridge.budget.named_container(spec, name_hint, name)
     for extra in spec["containers"]:
         if extra is not container and (
             extra.get("name") != "clamav"
@@ -119,9 +123,7 @@ def _revision(row: dict, service: str, primary: str) -> dict:
             raise ValueError("phone_schema_sidecar_issuer_unknown")
     image = row.get("status", {}).get("imageDigest") or container.get("image", "")
     sha = metadata["labels"]["deploy-sha"]
-    if not uid or not re.fullmatch(
-        r"gcr\.io/hushh-pda/[^@]+@sha256:[0-9a-f]{64}", image
-    ):
+    if not uid or not re.fullmatch(r"gcr\.io/hushh-pda/[^@]+@sha256:[0-9a-f]{64}", image):
         raise ValueError("phone_schema_revision_identity_unknown")
     if source_capable(sha):
         qualify_consumers(sha, primary)
@@ -185,8 +187,7 @@ def _service_history(services: set[str], non_database: set[str], until: str) -> 
         payload = event.get("protoPayload", {})
         name = event.get("resource", {}).get("labels", {}).get("service_name")
         if (
-            event.get("logName")
-            != f"projects/{PROJECT}/logs/cloudaudit.googleapis.com%2Factivity"
+            event.get("logName") != f"projects/{PROJECT}/logs/cloudaudit.googleapis.com%2Factivity"
             or payload.get("serviceName") != "run.googleapis.com"
             or not closed._instant(HISTORY_START)
             <= closed._instant(event["timestamp"])
@@ -205,9 +206,7 @@ def _job(job: dict, images: dict) -> dict:
     task = template.get("spec", {}).get("template", {}).get("spec", {})
     containers = task.get("containers", [])
     if (
-        not re.fullmatch(
-            r"(?:consent-protocol-genai-readiness|genai-ready-[a-z0-9-]+)", name
-        )
+        not re.fullmatch(r"(?:consent-protocol-genai-readiness|genai-ready-[a-z0-9-]+)", name)
         or len(containers) != 1
         or not metadata.get("uid")
     ):
@@ -230,9 +229,7 @@ def _job(job: dict, images: dict) -> dict:
                 f"{sha}:consent-protocol/scripts/verify_managed_vertex_runtime.py",
             ]
         )
-        != (
-            ROOT / "consent-protocol/scripts/verify_managed_vertex_runtime.py"
-        ).read_bytes()
+        != (ROOT / "consent-protocol/scripts/verify_managed_vertex_runtime.py").read_bytes()
     ):
         raise ValueError("phone_schema_job_probe_changed")
     return {
@@ -269,8 +266,7 @@ def _job_history(jobs: dict, images: dict, until: str) -> int:
     for event in events:
         payload = event.get("protoPayload", {})
         if (
-            event.get("logName")
-            != f"projects/{PROJECT}/logs/cloudaudit.googleapis.com%2Factivity"
+            event.get("logName") != f"projects/{PROJECT}/logs/cloudaudit.googleapis.com%2Factivity"
             or payload.get("serviceName") != "run.googleapis.com"
             or not closed._instant(HISTORY_START)
             <= closed._instant(event["timestamp"])
@@ -336,9 +332,7 @@ class Runtime:
     def submissions(self) -> dict:
         from schema_origin import closed_submissions
 
-        return closed_submissions(
-            self.owner(), start=HISTORY_START, source_anchor=SOURCE_ANCHOR
-        )
+        return closed_submissions(self.owner(), start=HISTORY_START, source_anchor=SOURCE_ANCHOR)
 
     def snapshot(self) -> dict:
         _authorities()

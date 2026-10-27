@@ -360,6 +360,7 @@ def retire_incompatible_revisions(args, evidence, service, revisions, candidate)
     evidence["retirement"] = {
         "status": "retired",
         "retired_count": len(legacy),
+        "retired_revisions": legacy,
         "remaining_pre_v201_count": 0,
         "remaining_pre_provider_v2_count": 0,
         "phone_admission_floor_required": phone_floor,
@@ -415,9 +416,8 @@ def activate(args, evidence):
     service, revisions, candidate = observe(args)
     qualify_database(args, save)
     evidence["database_preflight"] = "qualified"
-    if args.project == "hushh-pda" and supports_current_contract(
-        args.expected_sha, rollback=True
-    ):
+    evidence.update(retirement_owner().activation_identity(args, service, revisions, candidate))
+    if args.project == "hushh-pda" and supports_current_contract(args.expected_sha, rollback=True):
         service, revisions, candidate = observe(args)
         evidence.update(
             schema_version=1,
@@ -454,9 +454,7 @@ def parse_arguments():
 
 
 def main():
-    if SOURCE["qualify_cli"](
-        sys.argv, supports_current_contract, supports_restoration_source
-    ):
+    if SOURCE["qualify_cli"](sys.argv, supports_current_contract, supports_restoration_source):
         return 0
     args = parse_arguments()
     evidence = {

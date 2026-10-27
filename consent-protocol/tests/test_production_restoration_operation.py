@@ -360,52 +360,95 @@ def test_recovery_reserves_only_its_real_candidate(tmp_path, restoration, fallba
     ]
 
 
-@pytest.mark.parametrize("flag", ["false", "true", None, "secret"])
-def test_workos_retry_admits_only_exact_closed_restoration(operation, monkeypatch, flag):
+def _history_authority(monkeypatch, tmp_path):
+    authority = runpy.run_path(str(ROOT / "deploy/account-deletion/compatibility_restoration.py"))
+    record = json.loads((ROOT / "deploy/account-deletion/production-restoration.json").read_text())
+    policy = '{"version": 1}\n'
+    record["authorityPolicySha256"] = hashlib.sha256(policy.encode()).hexdigest()
+    selected = tmp_path / "restoration.json"
+    selected.write_text(json.dumps(record))
+    globals_ = authority["qualify_source"].__globals__
+    monkeypatch.setitem(globals_, "RECORD", selected)
+
+    def git(*args):
+        assert args in (
+            ("merge-base", "--is-ancestor", record["baselineSha"], record["sourceSha"]),
+            ("show", f"{record['sourceSha']}:{authority['POLICY']}"),
+        )
+        return policy if args[0] == "show" else ""
+
+    monkeypatch.setitem(globals_, "git", git)
+    return authority, record
+
+
+@pytest.mark.parametrize(
+    "changed", [None, "enabled", "missing", "secret", "birth-enabled", "unknown", "dev", "uat"]
+)
+def test_workos_default_history_admits_only_production_exact_closed_restoration(
+    operation, monkeypatch, tmp_path, changed
+):
     import subprocess
 
     monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
-    import workos_rollout as closed_workos
+    import workos_rollout as closed
 
-    source = operation.record["sourceSha"]
-    original = operation.record["previousServices"]["consent-protocol"]
-
-    def main_only(sha):
-        if sha != original["sha"]:
-            raise subprocess.CalledProcessError(1, ["git", "merge-base"])
-        return True
-
-    def authority(path):
-        assert Path(path) == ROOT / "deploy/account-deletion/compatibility_restoration.py"
-
-        def qualify(sha):
-            if sha != source:
-                raise ValueError("unreviewed_restoration_source")
-
-        return {"qualify_source": qualify}
-
-    monkeypatch.setattr(closed_workos, "source_capable", main_only)
-    monkeypatch.setattr(closed_workos, "run_path", authority)
-    with pytest.raises(ValueError, match="unreviewed_restoration_source"):
-        closed_workos._capable("e" * 40, "e" * 40)
-    with pytest.raises(ValueError, match="restoration_project_invalid"):
-        closed_workos.qualify("hushh-pda-dev", source)
-    revision = copy.deepcopy(operation.revisions[original["revision"]])
+    authority, record = _history_authority(monkeypatch, tmp_path)
+    source = record["sourceSha"]
+    revision = copy.deepcopy(next(iter(operation.revisions.values())))
     revision["metadata"].update(creationTimestamp="2026-10-26T06:00:00Z")
-    revision["metadata"]["labels"]["deploy-sha"] = source
-    if flag is not None:
-        row = {"name": "WORKOS_SSO_ENABLED", "value": flag}
-        if flag == "secret":
-            row = {"name": "WORKOS_SSO_ENABLED", "valueFrom": {"secretKeyRef": {"name": "flag"}}}
-        revision["spec"]["containers"][0]["env"].append(row)
-    with pytest.raises(subprocess.CalledProcessError):
-        closed_workos.revision_inventory([revision])
-    with pytest.raises(subprocess.CalledProcessError):
-        closed_workos.revision_inventory([revision], "e" * 40)
-    if flag == "false":
-        assert closed_workos.revision_inventory([revision], source)[original["revision"]][
-            "direct_sso_false"
-        ]
+    revision["metadata"]["labels"]["deploy-sha"] = "e" * 40 if changed == "unknown" else source
+    env = revision["spec"]["containers"][0]["env"]
+    flag = {"name": "WORKOS_SSO_ENABLED", "value": "true" if changed == "enabled" else "false"}
+    if changed == "secret":
+        flag = {"name": "WORKOS_SSO_ENABLED", "valueFrom": {"secretKeyRef": {"name": "flag"}}}
+    if changed != "missing":
+        env.append(flag)
+    birth = copy.deepcopy(revision)
+    if changed == "birth-enabled":
+        birth["spec"]["containers"][0]["env"][-1]["value"] = "true"
+    event = {
+        "resource": {"labels": {"service_name": closed.SERVICE}},
+        "timestamp": birth["metadata"]["creationTimestamp"],
+        "logName": "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Factivity",
+        "protoPayload": {
+            "serviceName": "run.googleapis.com",
+            "methodName": "/Services.ReplaceService",
+            "response": {
+                "kind": "Service",
+                "spec": {"template": birth},
+                "status": {"latestCreatedRevisionName": birth["metadata"]["name"]},
+            },
+        },
+    }
+    monkeypatch.setattr(closed, "run_path", lambda _path: authority)
+
+    def main_only(_sha):
+        raise subprocess.CalledProcessError(1, ["git", "merge-base"])
+
+    monkeypatch.setattr(closed, "source_capable", main_only)
+    monkeypatch.setattr(
+        closed,
+        "_document",
+        lambda command: [event] if command[1:3] == ["logging", "read"] else [revision],
+    )
+    databases = []
+    monkeypatch.setattr(
+        closed, "database_evidence", lambda project: databases.append(project) or {}
+    )
+    project = "hushh-pda-" + changed if changed in {"dev", "uat"} else "hushh-pda"
+    with pytest.raises(ValueError, match="reviewed production restoration"):
+        closed._capable("e" * 40, "e" * 40)
+    if changed in {"dev", "uat"}:
+        with pytest.raises(ValueError, match="restoration_project_invalid"):
+            closed.qualify(project, source)
+    if changed:
+        with pytest.raises((ValueError, subprocess.CalledProcessError)):
+            closed.qualify(project)
+        assert databases == []
     else:
-        with pytest.raises(ValueError, match="not_directly_closed"):
-            closed_workos.revision_inventory([revision], source)
+        result = closed.qualify(project)
+        assert result["restoration_source"] == source
+        assert result["revisions"][0]["capable"] is True
+        assert result["revisions"][0]["direct_sso_false"] is True
+        assert databases == ["hushh-pda"]
+        assert result["sso_activation_qualified"] is False
