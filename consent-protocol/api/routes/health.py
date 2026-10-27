@@ -17,6 +17,7 @@ from api.middlewares.rate_limit import limiter
 from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
 from api.utils.firebase_auth import review_mint_developer_claims
 from db.connection import get_pool
+from hushh_mcp.services.phone_test_transport import phone_test_transport_readiness
 
 logger = logging.getLogger(__name__)
 
@@ -297,15 +298,10 @@ _REPORTED_CAPABILITIES = ("vertex_ai", "voice", "maps")
 
 @router.get("/health/ready")
 async def health_ready(request: Request):
-    """Readiness probe: checks real dependencies; 503 if the service can't serve.
+    """Check DB and production Firebase; private pods report process readiness.
 
-    Wire this (not ``/health``) as the deploy/load-balancer readiness gate so a
-    DB-down instance is pulled from rotation instead of accepting traffic it
-    cannot honor. The shared runtime gates on its DB and, in production, Firebase
-    Admin. A private pod reports process readiness without hub dependencies.
-    The optional pod-fleet signal is reported for the shared runtime but does
-    not gate readiness (see :func:`_pod_fleet_check`); it is absent unless
-    ``POD_FLEET_HEALTH_SIGNAL_ENABLED`` is on.
+    Optional pod-fleet and governed phone transport signals are advisory only.
+    They never change readiness or remove ordinary authentication traffic.
     """
     # A private pod has no database credential or fleet registry. Its deploy
     # liveness probe is /health; this endpoint reports process readiness only.
@@ -351,6 +347,10 @@ async def health_ready(request: Request):
     pod_fleet = await _pod_fleet_check()
     if pod_fleet is not None:
         checks["pod_fleet"] = pod_fleet
+
+    phone_test_transport = phone_test_transport_readiness()
+    if phone_test_transport is not None:
+        checks["phone_test_transport"] = phone_test_transport
 
     body = {"status": "ready" if ready else "not_ready", "checks": checks}
     return JSONResponse(

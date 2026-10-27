@@ -35,6 +35,7 @@ CI_PRODUCTION_TOOLS = (
     "production_worker_basis.py",
     "production_backend_inheritance.py",
     "production_retention_context.py",
+    "production_restoration_receipt.py",
     "retention_admission.py",
     "tag-last-known-good.sh",
     "resolve-rollback-target.sh",

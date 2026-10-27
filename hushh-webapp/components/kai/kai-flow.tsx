@@ -47,6 +47,7 @@ import { AppBackgroundTaskService } from "@/lib/services/app-background-task-ser
 import { setOnboardingFlowActiveCookie } from "@/lib/services/onboarding-route-cookie";
 import {
   buildKaiAnalysisPreviewRoute,
+  buildKaiImportRoute,
   buildOneSetupRoute,
   resolveOneSetupReturnTo,
   ROUTES,
@@ -3666,11 +3667,12 @@ export function KaiFlow({
   const handleReimport = useCallback(() => {
     discardImportResult();
     if (mode === "dashboard") {
-      router.push(ROUTES.KAI_IMPORT);
+      const from = pathname === "/one/kai" ? ROUTES.KAI_PORTFOLIO : pathname;
+      router.push(buildKaiImportRoute(from));
       return;
     }
     setState("import_required");
-  }, [discardImportResult, mode, router, setState]);
+  }, [discardImportResult, mode, pathname, router, setState]);
 
   const handlePreloadSchema = useCallback(async () => {
     if (isPreloadingSchema) return;

@@ -30,6 +30,13 @@ export function buildKaiMarketRoute(
   return withQuery(KAI_MARKET_PATH, { tab, ...safeEntries });
 }
 
+/** Retain the Finance screen that opened the statement import flow. */
+export function buildKaiImportRoute(from: string) {
+  return withQuery(ROUTES.KAI_IMPORT, {
+    from: normalizeInternalRouteHref(from),
+  });
+}
+
 export function buildKaiPortfolioSectionRoute(
   section: KaiPortfolioSection,
 ): string {

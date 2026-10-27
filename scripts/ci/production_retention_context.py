@@ -132,7 +132,25 @@ def find_source(owner, args, repository, *, require_live=None):
     return found
 
 
+def _receipt_ports(owner):
+    return {
+        "api": owner.api,
+        "governed": owner.governed_dispatch,
+        "timestamp": owner._github_timestamp,
+        "run_command": owner.retention.run_command,
+        "timeout": min(
+            owner.retention.remaining_seconds(owner.GITHUB_LOOKUP_SECONDS),
+            (owner._LOOKUP_DEADLINE.get() or math.inf) - owner.time.monotonic(),
+        ),
+    }
+
+
 def healthy_phone(owner, repository, run, release, lane, callback):
+    if lane["project"] == "hushh-pda" and release.get("production_restoration") is not None:
+        importlib.import_module("production_restoration_receipt").serving_reference(
+            repository, run, release, lane, **_receipt_ports(owner)
+        )
+        return
     if (
         lane["project"] == "hushh-pda"
         and release.get("scope") == "frontend"
@@ -161,14 +179,7 @@ def healthy_phone(owner, repository, run, release, lane, callback):
         run,
         original,
         lane,
-        api=owner.api,
-        governed=owner.governed_dispatch,
-        timestamp=owner._github_timestamp,
-        run_command=owner.retention.run_command,
-        timeout=min(
-            owner.retention.remaining_seconds(owner.GITHUB_LOOKUP_SECONDS),
-            (owner._LOOKUP_DEADLINE.get() or math.inf) - owner.time.monotonic(),
-        ),
+        **_receipt_ports(owner),
     )
     if continuation is not None:
         backend = continuation["backend"]
@@ -195,14 +206,7 @@ def healthy_phone(owner, repository, run, release, lane, callback):
         run,
         original,
         lane,
-        api=owner.api,
-        governed=owner.governed_dispatch,
-        timestamp=owner._github_timestamp,
-        run_command=owner.retention.run_command,
-        timeout=min(
-            owner.retention.remaining_seconds(owner.GITHUB_LOOKUP_SECONDS),
-            (owner._LOOKUP_DEADLINE.get() or math.inf) - owner.time.monotonic(),
-        ),
+        **_receipt_ports(owner),
     )
     if callback is not None:
         callback(anchor)

@@ -105,6 +105,32 @@ unrelated jobs do not count. Two terminal failures in ten minutes trigger one
 aggregated incident with opening/recovery notices. No model prompts, owner
 identifiers or custom metric labels are retained.
 
+When the primary HTTP probe succeeds but a required capability fails, the single
+terminal diagnostic preserves the failed child's classification, error class and
+observed duration instead of replacing them with a generic runtime error. A
+provider-only timeout remains visible to this terminal-only metric; mixed
+application/configuration failures remain blocking and do not masquerade as a
+provider-only timeout. Child rows do not increment the timeout counter themselves.
+
+Failed capability rows may also carry a closed `failure_reason` for the authored
+Live binding, transcription, response or provider-operation guards, or the One
+root model, tool roster, clock selection or synthetic round trip. Exact built-in
+exception types and static arguments select these codes; unknown failures use
+`unlisted`. Raw exception text and provider/model content are never retained.
+These codes distinguish failed checks; they do not establish the provider's
+underlying cause or change release admission. The Live probe always settles its
+recording task, including an already-completed failure, without replacing the
+primary failure or extending its deadline.
+
+The existing execution-bound `probe_history` keeps `primary_http` alongside
+Azure-only `capability:<name>` failure rows. Each child has one failed attempt;
+the closed capability/error vocabulary and duration bounds exclude raw provider
+payloads, and no retry or recovery is inferred. Observed cancellation latency
+may exceed the configured child deadline and is retained as measured. This
+history is diagnostic evidence in the failed aggregate, not a passing capability
+proof. The success-only uploaded release receipt still refuses failed builds,
+failed aggregate steps and missing/failed provider selections.
+
 Use the existing reconciler's narrow mode and repeat `--email` for each
 already-enabled, verified notification channel recipient:
 
@@ -250,6 +276,42 @@ and a wiped list cannot produce a healthy status. Each gcloud operation has a
 45-second deadline. Publication failure returns a failed verification outcome,
 without copying provider diagnostics. Normal deploy checks remain read-only
 unless this flag is supplied.
+
+`--check-phone-runtime` also observes `/health/ready` on the authenticated
+Cloud Run service origin for `consent-protocol` in the selected governed project
+and `us-central1`. It requires one explicit revision serving 100% of traffic,
+accepts canonical legacy or regional Run URLs, disables redirects and bounds
+the response to 16 KiB and the HTTP request to ten seconds. A fresh service
+read must retain the same origin and revision. No caller URL, owner token,
+phone number, OTP, challenge issuance or SMS request is involved.
+
+When requested, `checks.phone_test_transport` must be `healthy`; this is computed
+by the serving process's actual transport configuration rules, including the
+existing UAT challenge-key fallback. Missing fields on older revisions,
+malformed or failed HTTP responses and ambiguous or changed serving authority
+produce `unavailable`. The same publication adds only `runtime_status`; its
+overall `status` cannot be healthy unless both the protected lists and runtime
+observation are healthy. This samples the responding process's prerequisites,
+not every instance or a complete verification journey.
+
+Runtime observation is staged independently in each GitHub environment through
+`AUTH_PHONE_RUNTIME_HEALTH_ENABLED`, which defaults to `false`. While unset or
+false, hourly and manual runs continue list-only checks and omit
+`runtime_status`; they do not claim runtime coverage. First deploy the new
+runtime response, then perform the bounded read-only check:
+
+```bash
+python3 scripts/ops/verify_secret_list_invariants.py \
+  --project hushh-pda-uat --check-phone-runtime
+```
+
+After observing a healthy result, the release operator can set that environment's
+variable to `true` and dispatch **Verify Protected Configuration**. Read back
+only `message`, `status`, `checked_lists` and `runtime_status` from
+`obs-auth-health`; require a healthy runtime observation before claiming it is
+active. Repeat separately for production. Setting the environment variable back
+to `false` restores list-only monitoring without removing its alerts. No second
+dispatch control, scheduled workflow or notification channel is introduced.
 
 The existing **Verify Protected Configuration** workflow runs hourly and publishes
 the content-free health result. Its selected WIF identity requires

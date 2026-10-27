@@ -4,7 +4,9 @@
 
 import copy
 import importlib
+import subprocess
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -12,6 +14,68 @@ import yaml
 from tests.test_phone_rollback_release import FALLBACK, IMAGE, PRIMARY, ROOT, _revision
 
 pytestmark = pytest.mark.feature_auth_reliability
+
+
+@pytest.mark.parametrize(
+    "changed", [None, "unknown", "missing-object", "producer", "grep-error", "record", "project"]
+)
+def test_only_canonical_non_phone_restoration_can_cross_main_history_boundary(
+    monkeypatch, tmp_path, request, changed
+):
+    from tests.test_production_restoration_operation import _history_authority
+
+    monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
+    module = importlib.import_module("schema_producers")
+    module.source_capable.cache_clear()
+    request.addfinalizer(module.source_capable.cache_clear)
+    authority, record = _history_authority(monkeypatch, tmp_path)
+    source = "e" * 40 if changed == "unknown" else record["sourceSha"]
+    reads, scans = [], []
+
+    def run(command):
+        reads.append(command)
+        assert command == ["git", "merge-base", "--is-ancestor", source, "origin/main"]
+        raise subprocess.CalledProcessError(128 if changed == "missing-object" else 1, command)
+
+    def scan(command, **kwargs):
+        scans.append(command)
+        assert command[:3] == ["git", "grep", "-IlE"]
+        assert command[4] == record["sourceSha"]
+        assert set(authority["PHONE_RELATIONS"]) <= set(command[3].split("|"))
+        assert "phone_unlink" in command[3]
+        assert command[5:] == [
+            "--",
+            "consent-protocol/api",
+            "consent-protocol/hushh_mcp",
+            "consent-protocol/db",
+            "consent-protocol/server.py",
+            "consent-protocol/server_drive_worker.py",
+        ]
+        assert kwargs == {"capture_output": True, "text": True, "timeout": 30}
+        return SimpleNamespace(
+            returncode=0 if changed == "producer" else 128 if changed == "grep-error" else 1,
+            stdout="phone-writer.py" if changed == "producer" else "",
+            stderr="",
+        )
+
+    globals_ = authority["qualify_phone_history_source"].__globals__
+    monkeypatch.setitem(globals_, "subprocess", SimpleNamespace(run=scan))
+    monkeypatch.setattr(module, "run", run)
+    monkeypatch.setattr(module, "run_path", lambda _path: authority)
+    if changed == "record":
+        record["requiredAbsentTables"].pop()
+        globals_["RECORD"].write_text(authority["json"].dumps(record))
+    if changed == "project":
+        monkeypatch.setattr(module, "PROJECT", "hushh-pda-uat")
+    if changed:
+        with pytest.raises((ValueError, subprocess.CalledProcessError)):
+            module.source_capable(source)
+        if changed in {"unknown", "missing-object", "record", "project"}:
+            assert scans == []
+    else:
+        assert module.source_capable(source) is False
+        assert len(scans) == 1
+    assert len(reads) == 1
 
 
 @pytest.fixture

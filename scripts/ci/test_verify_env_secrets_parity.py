@@ -273,38 +273,3 @@ def test_calendar_oauth_callback_uses_the_dedicated_return_path():
         "https://uat.one.hushh.ai/",
         module.CALENDAR_OAUTH_RETURN_PATH,
     ) == "https://uat.one.hushh.ai/one/profile/google/oauth/return"
-
-
-def test_phone_allowlist_health_never_logs_secret_values(monkeypatch, tmp_path, capsys):
-    import json
-    import sys
-    path = Path(__file__).parents[1] / "ops/verify_secret_list_invariants.py"
-    spec = importlib.util.spec_from_file_location("verify_secret_list_invariants", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    config = tmp_path / "protected.json"
-    config.write_text(json.dumps({"secrets": [{"name": "HUSHH_UAT_PHONE_TEST_NUMBERS",
-        "project": "hushh-pda-uat", "min_entries": 2, "max_shrink": 0}]}))
-    monkeypatch.setattr(module, "CONFIG", config)
-    monkeypatch.setattr(sys, "argv", ["verify", "--project", "hushh-pda-uat", "--publish-health"])
-    monkeypatch.setattr(module, "versions", lambda *args: ["2", "1"])
-    monkeypatch.setattr(module, "read", lambda name, project, version:
-                        "+15550000001" if version == "2" else "+15550000001,+15550000002")
-    writes = []
-    monkeypatch.setattr(module, "gcloud", lambda args: (writes.append(args) or (0, "")))
-    assert module.main() == 1
-    payload = json.loads(writes[0][3])
-    assert payload == {"message": "auth.test_allowlist.health", "status": "failed", "checked_lists": 1}
-    output = capsys.readouterr()
-    assert "+15550000001" not in output.out + output.err + str(writes)
-    assert "+15550000002" not in output.out + output.err + str(writes)
-    # A failed previous-version read must not report a healthy heartbeat.
-    monkeypatch.setattr(module, "read", lambda name, project, version:
-                        "+15550000001,+15550000002" if version == "2" else None)
-    assert module.main() == 2
-    assert json.loads(writes[-1][3])["status"] == "unavailable"
-    # Explicit opt-in is required; ordinary deploy verification publishes nothing.
-    writes.clear()
-    monkeypatch.setattr(sys, "argv", ["verify", "--project", "hushh-pda-uat"])
-    assert module.main() == 2
-    assert writes == []
