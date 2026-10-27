@@ -342,6 +342,8 @@ def test_recovery_reserves_only_its_real_candidate(tmp_path, restoration, fallba
             **os.environ,
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
             "RESTORATION_RUN": restoration,
+            "PHONE_DEPLOY_PHASE": "standard",
+            "STAGED_WORKER_LOADED": "false",
             "PHONE_ROLLBACK_SHA": fallback,
             "CAPTURE": str(capture),
         },

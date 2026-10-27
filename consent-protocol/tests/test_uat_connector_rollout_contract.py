@@ -97,6 +97,11 @@ def test_period_packets_are_independent_and_refuse_non_uat_activation():
 def test_four_group_hosted_compilers_default_off_and_require_explicit_uat_activation():
     for lane in ("dev", "uat", "production"):
         workflow = (ROOT / f".github/workflows/deploy-{lane}.yml").read_text(encoding="utf-8")
+        if lane == "production":
+            assert "deploy/drive/sync_runtime_config_prod.sh" in workflow
+            workflow = (ROOT / "deploy/drive/sync_runtime_config_prod.sh").read_text(
+                encoding="utf-8"
+            )
         argument = (
             "--drive-four-group-index \"${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}\""
             if lane == "uat"
@@ -354,3 +359,28 @@ def test_uat_backend_deploy_reconciles_drive_redirects_after_migrations():
     verification = step.index("reconcile_google_drive_uat_connector.py\n")
     release_guard = step.index("db_migration_release_guard.py")
     assert migration < activation < verification < release_guard
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"environment": "uat"},
+        {"environment": "dev"},
+        {"project": "hushh-pda-uat"},
+        {"candidate_secret": ""},
+        {"candidate_secret": "BACKEND_RUNTIME_CONFIG_JSON"},
+        {"candidate_secret": "BACKEND_RUNTIME_CONFIG_JSON_DRIVE_0_1"},
+    ],
+)
+def test_candidate_only_refuses_wrong_lane_project_or_shared_target(overrides):
+    args = _args(
+        environment="production",
+        candidate_secret=CANDIDATE_SECRET_NAME,
+        production_drive_candidate_only=True,
+    )
+    for key, value in overrides.items():
+        setattr(
+            args, "production_drive_candidate_secret" if key == "candidate_secret" else key, value
+        )
+    with pytest.raises(ValueError, match="Candidate-only mode requires"):
+        _module()._validate_connector_rollout(args)

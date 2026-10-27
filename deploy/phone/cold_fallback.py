@@ -27,7 +27,9 @@ def _pairs(value: str, separator: str) -> dict[str, str]:
     return result
 
 
-def cold_command(command: list[str], *, sha: str, image: str) -> list[str]:
+def cold_command(
+    command: list[str], *, sha: str, image: str, qualification_only: bool = False
+) -> list[str]:
     """Keep production credentials/capacity intact; pin the cold reader's identity."""
     if (
         not re.fullmatch(r"[0-9a-f]{40}", sha)
@@ -91,6 +93,10 @@ def cold_command(command: list[str], *, sha: str, image: str) -> list[str]:
         if arg.split("=", 1)[0] in replacements
         else arg
         for arg in command
+        if not (
+            qualification_only
+            and arg.split("=", 1)[0] in {"--max", "--min", "--allow-unauthenticated"}
+        )
     ] + ["--project=hushh-pda", "--quiet"]
 
 
@@ -106,7 +112,15 @@ def main() -> int:
             isinstance(arg, str) for arg in command
         ):
             raise ValueError("phone_fallback_template_invalid")
-        prepared = cold_command(command, sha=sys.argv[1], image=sys.argv[2])
+        phase = sys.argv[3] if len(sys.argv) > 3 else "standard"
+        if phase not in {"standard", "cold"}:
+            raise ValueError("phone_fallback_phase_invalid")
+        prepared = cold_command(
+            command,
+            sha=sys.argv[1],
+            image=sys.argv[2],
+            qualification_only=phase == "cold",
+        )
         subprocess.run(prepared, check=True, timeout=480)  # noqa: S603
         # Qualify the actual immutable revision before creating any enabled
         # primary instance, whose public candidate tag can already receive calls.

@@ -797,7 +797,10 @@ def test_lane_overlaps_the_web_build_and_keeps_the_deploy_position(lane: str) ->
 
     start = _lane_step(lane, "Start frontend image build in parallel")
     assert start["id"] == "start-frontend-image-build"
-    assert start["if"] == "steps.scope.outputs.deploy_frontend == 'true'"
+    condition = "steps.scope.outputs.deploy_frontend == 'true'"
+    if lane == "production":
+        condition = f"env.PHONE_DEPLOY_PHASE != 'cold' && ({condition})"
+    assert start["if"] == condition
     assert "--async" in start["run"]
     assert "--config=deploy/frontend-image.cloudbuild.yaml" in start["run"]
 

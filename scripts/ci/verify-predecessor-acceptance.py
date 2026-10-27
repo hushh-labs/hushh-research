@@ -39,6 +39,7 @@ _provenance = importlib.util.module_from_spec(_PROVENANCE_SPEC)
 _PROVENANCE_SPEC.loader.exec_module(_provenance)
 Refused = _provenance.Refused
 require = _provenance.require
+_required_checks = _provenance.required_checks
 
 
 class MissingAcceptance(Refused):
@@ -292,10 +293,30 @@ class GitHub:
         return [pins[attempt] for attempt in sorted(pins, reverse=True)]
 
 
-def bounded_github_read(path: str, timeout: float) -> bytes:
-    """Bound both buffered bytes and lifetime; always reap the owned gh child."""
+def bounded_github_read(
+    path: str, timeout: float, *, allow_escape_sequences: bool = False
+) -> bytes:
+    """Bound CLI capability discovery and the read within one total deadline."""
+    end = time.monotonic() + timeout
+    arguments = ["gh", "api"]
+    if allow_escape_sequences:
+        require(
+            bool(re.fullmatch(r"jobs/[1-9][0-9]*/logs", path)),
+            "Raw escapes require an exact job log",
+        )
+        help_text = _bounded_process_read(["gh", "api", "--help"], min(timeout, 5))
+        if b"--allow-escape-sequences" in help_text:
+            arguments.append("--allow-escape-sequences")
+    arguments.append(f"repos/{REPOSITORY}/actions/{path}")
+    remaining = end - time.monotonic()
+    require(remaining > 0, "GitHub response timed out")
+    return _bounded_process_read(arguments, remaining)
+
+
+def _bounded_process_read(arguments: list[str], timeout: float) -> bytes:
+    """Bound bytes and lifetime and always reap this owned CLI child."""
     with subprocess.Popen(
-        ["gh", "api", f"repos/{REPOSITORY}/actions/{path}"],
+        arguments,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     ) as process:
@@ -328,37 +349,6 @@ def bounded_github_read(path: str, timeout: float) -> bytes:
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=2)
-
-
-def _required_checks(release: dict, environment: str) -> dict:
-    source = (
-        release.get("verification_plan")
-        if environment == "dev"
-        else release.get("verification")
-    )
-    source = source or {}
-    pkm_required = source.get(
-        "pkm_preservation_required"
-        if environment == "dev"
-        else "pkm_upgrade_gate_required"
-    )
-    reviewer_required = source.get("reviewer_byok_required")
-    require(
-        pkm_required in {"true", "false"} and reviewer_required in {"true", "false"},
-        "Required verification declarations are missing",
-    )
-    return {
-        "pkm": {
-            "required": pkm_required == "true",
-            "outcome": source.get("pkm_preservation_outcome"),
-        },
-        "reviewer": {
-            "required": reviewer_required == "true",
-            "outcome": source.get(
-                "reviewer_byok_outcome" if environment == "dev" else "reviewer_byok"
-            ),
-        },
-    }
 
 
 def create(args) -> None:

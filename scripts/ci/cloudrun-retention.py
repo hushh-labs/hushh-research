@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safely retire tagged Cloud Run revisions after a healthy release."""
+"""Retire revisions after verified health or qualified pending retirement."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from process_group import command_group
+import retention_admission
 
 REVISION_RE = re.compile(r"^[a-z][a-z0-9-]*-[a-z0-9]+$")
 TAG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
@@ -656,9 +657,12 @@ def main() -> int:
     mode.add_argument(
         "--dry-run", action="store_true", help="show cleanup plan (the default)"
     )
-    parser.add_argument(
+    admission = parser.add_mutually_exclusive_group()
+    admission.add_argument(
         "--healthy", action="store_true", help="assert release health gate passed"
     )
+    admission.add_argument("--qualified-pending-retirement", type=Path)
+    parser.add_argument("--qualified-pending-retirement-sha256", default="")
     parser.add_argument("--drain-seconds", type=int, default=120)
     parser.add_argument(
         "--tags-only",
@@ -677,18 +681,7 @@ def main() -> int:
         help="drain each UAT revision on its own clock while it provably stays unrouted",
     )
     args = parser.parse_args()
-    if args.keep_count < 1 or args.drain_seconds < 0:
-        parser.error("keep_count must be positive and drain-seconds nonnegative")
-    if args.apply and not args.healthy:
-        parser.error("--apply requires --healthy after the release health gate")
-    if args.tags_only and args.defer_state:
-        parser.error("--tags-only and --defer-state cannot be combined")
-    if args.defer_state and (not args.apply or not args.release_run_id.isdigit()):
-        parser.error("--defer-state requires --apply and a numeric --release-run-id")
-    if args.carry_uat_clock and (
-        not args.defer_state or args.project != "hushh-pda-uat"
-    ):
-        parser.error("--carry-uat-clock requires deferred cleanup in the UAT project")
+    pending_context = retention_admission.cleanup_arguments(args, parser)
     protected = {
         name
         for name in (
@@ -708,6 +701,8 @@ def main() -> int:
     expected = traffic_fingerprint(before)
     revisions = revision_state(args.service, args.project, args.region)
     plan = plan_cleanup(before, revisions, args.keep_count, protected)
+    if pending_context is not None:
+        retention_admission.pending_plan(sys.modules[__name__], pending_context, before, revisions, plan)
     drain_seconds = (
         0
         if args.tags_only
@@ -802,12 +797,15 @@ def main() -> int:
             (item.get("metadata") or {}).get("name") for item in current
         }:
             raise UnsafeState(f"revision disappeared during cleanup: {revision}")
+        current_service = service_state(args.service, args.project, args.region)
         current_plan = plan_cleanup(
-            service_state(args.service, args.project, args.region),
+            current_service,
             current,
             args.keep_count,
             protected,
         )
+        if pending_context is not None:
+            retention_admission.pending_plan(sys.modules[__name__], pending_context, current_service, current, current_plan)
         if revision not in current_plan.delete_revisions:
             raise UnsafeState(f"revision became protected during cleanup: {revision}")
         remaining_seconds()
