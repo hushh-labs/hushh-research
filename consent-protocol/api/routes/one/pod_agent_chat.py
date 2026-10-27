@@ -212,10 +212,9 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
         )
     except (ValueError, KeyError, TypeError):
         raise HTTPException(403, detail={"code": "POD_CHAT_RECEIPT_NOT_ADMITTED"}) from None
-    if forwarded.get("consentContinuation") is not None:
-        from api.routes.one.pod_consent_chat import admit_continuation
+    from api.routes.one.pod_consent_chat import admit_continuation
 
-        state.update(await admit_continuation(forwarded, input, owner, ONE_APP_NAME))
+    state.update(await admit_continuation(forwarded, input, owner, ONE_APP_NAME))
     await owner.require_access()
     agent = await owner.build_agent(options)
     # Never merge client state or forward credentials into SDK/session state.
