@@ -4,7 +4,8 @@ import { MapPin } from "@/components/icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import type { CalendarInvitation } from "@/lib/services/google-calendar-service";
-import { invitationPhotoUrl, type InvitationPerson } from "@/lib/calendar/invitation-people";
+import { invitationGooglePhoto, type InvitationPerson } from "@/lib/calendar/invitation-people";
+import type { GoogleInvitationPhoto } from "@/lib/services/google-invitation-photos";
 import { CalendarMeetingIcon, eventTime } from "./calendar-schedule-presentation";
 import styles from "./calendar-invitations.module.css";
 
@@ -31,12 +32,13 @@ export function invitationPerson(people: InvitationPeople, email?: string | null
   return people.get(email?.trim().toLowerCase() || "");
 }
 
-export function InvitationAvatar({ name, email, photoUrl }: { name: string; email?: string | null; photoUrl?: string | null }) {
+export function InvitationAvatar({ name, email, photoUrl, photoSource }: { name: string; email?: string | null; photoUrl?: string | null; photoSource?: GoogleInvitationPhoto["source"] }) {
   const identity = (email?.trim().toLowerCase() || name.trim().toLowerCase());
   const tone = [...identity].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 4;
   const cleanPhoto = photoUrl?.trim() || "";
   const safePhoto = cleanPhoto.startsWith("https://") || (cleanPhoto.startsWith("/") && !cleanPhoto.startsWith("//")) ? cleanPhoto : null;
-  return <Avatar aria-hidden className={styles.avatar} data-tone={tone}>
+  const sourceTitle = photoSource === "google_contact" || photoSource === "workspace_contact" ? "Saved Google contact photo" : photoSource ? "Google profile photo" : undefined;
+  return <Avatar aria-hidden className={styles.avatar} data-tone={tone} data-photo-source={photoSource} title={sourceTitle}>
     {safePhoto ? <AvatarImage src={safePhoto} alt="" referrerPolicy="no-referrer" /> : null}
     <AvatarFallback className={styles.avatarFallback}>{name.trim().slice(0, 1).toUpperCase() || "?"}</AvatarFallback>
   </Avatar>;
@@ -50,7 +52,7 @@ function guestStatus(status?: string | null) {
   return "Response unavailable";
 }
 
-export function CalendarInvitationDetail({ event, zone, people = new Map(), workspaceLayout = false, accountEmail, accountPhotoUrl }: { event: CalendarInvitation; zone: string; people?: InvitationPeople; workspaceLayout?: boolean; accountEmail?: string | null; accountPhotoUrl?: string | null }) {
+export function CalendarInvitationDetail({ event, zone, people = new Map(), workspaceLayout = false, accountEmail, accountPhotoUrl, googlePhotos = new Map() }: { event: CalendarInvitation; zone: string; people?: InvitationPeople; workspaceLayout?: boolean; accountEmail?: string | null; accountPhotoUrl?: string | null; googlePhotos?: ReadonlyMap<string, GoogleInvitationPhoto> }) {
   const organizerEmail = event.organizer?.email?.trim().toLowerCase();
   const organizerPerson = invitationPerson(people, event.organizer?.email);
   const organizerName = event.organizer?.displayName || organizerPerson?.displayName || event.organizer?.email || "Organizer";
@@ -90,9 +92,10 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), work
         const person = invitationPerson(people, attendee.email);
         const organizer = isOrganizer(attendee);
         const name = attendee.self ? "You" : (organizer ? event.organizer?.displayName : null) || attendee.display_name || person?.displayName || attendee.email || "Guest";
+        const photo = invitationGooglePhoto(attendee.email, accountEmail, accountPhotoUrl, googlePhotos);
         return <li key={`${attendee.email || "guest"}:${index}`} title={attendee.email || undefined}>
-          <InvitationAvatar name={name} email={attendee.email} photoUrl={invitationPhotoUrl(people, attendee.email, accountEmail, accountPhotoUrl)} />
-          <span className={styles.guestCopy}><span>{name}</span>{organizer && attendee.email && name !== attendee.email ? <small>{attendee.email}</small> : null}<small>{organizer ? `Organiser · ${guestStatus(attendee.response_status)}` : guestStatus(attendee.response_status)}</small></span>
+          <InvitationAvatar name={name} email={attendee.email} photoUrl={photo?.url} photoSource={photo?.source} />
+          <span className={styles.guestCopy}><span>{name}</span>{photo ? <span className="sr-only">{photo.source === "google_contact" || photo.source === "workspace_contact" ? "Saved Google contact photo" : "Google profile photo"}</span> : null}{organizer && attendee.email && name !== attendee.email ? <small>{attendee.email}</small> : null}<small>{organizer ? `Organiser · ${guestStatus(attendee.response_status)}` : guestStatus(attendee.response_status)}</small></span>
         </li>;
       })}</ul>
     </div></> : <>

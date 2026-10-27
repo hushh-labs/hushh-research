@@ -385,7 +385,8 @@ for (const width of [320, 390, 1440]) {
     const guests = dialog.getByRole("list", { name: "Guests" }).getByRole("listitem");
     await expect(guests).toHaveCount(9);
     await expect(dialog.getByText("3 yes, 6 awaiting")).toBeVisible();
-    await expect(guests.filter({ hasText: "Manish" }).locator("img")).toHaveAttribute("src", "https://calendar-fixture.test/avatars/manish.png");
+    // A Hussh connection photo must not be presented as the guest's Google photo.
+    await expect(guests.filter({ hasText: "Manish" }).locator("img")).toHaveCount(0);
     const guestBounds = await guests.evaluateAll(items => items.map(item => {
       const { x, y, width: rowWidth } = item.getBoundingClientRect();
       return { x, y, rowWidth };

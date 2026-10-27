@@ -1,5 +1,6 @@
 import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
 import { googleAvatarSource } from "@/lib/profile/provider-avatar";
+import type { GoogleInvitationPhoto } from "@/lib/services/google-invitation-photos";
 
 export type InvitationPerson = { displayName: string | null; photoUrl: string | null };
 
@@ -22,9 +23,24 @@ export function connectedInvitationPeople(connections: readonly ConnectionSummar
   }
   return people;
 }
+/** Calendar workspace photos come only from the selected account's Google sources. */
+export function invitationGooglePhoto(
+  email: string | null | undefined,
+  accountEmail: string | null | undefined,
+  accountPhotoUrl: string | null | undefined,
+  googlePhotos: ReadonlyMap<string, GoogleInvitationPhoto> = new Map(),
+): GoogleInvitationPhoto | null {
+  const key = email?.trim().toLowerCase();
+  if (!key) return null;
+  if (key === accountEmail?.trim().toLowerCase() && accountPhotoUrl) {
+    const accountPhoto = googleAvatarSource(accountPhotoUrl)?.href;
+    if (accountPhoto) return { url: accountPhoto, source: "google_profile" };
+  }
+  return googlePhotos.get(key) || null;
+}
 
-/** Keep the selected Calendar account's photo bound to its own attendee email. */
-export function invitationPhotoUrl(
+/** Chat with One retains its existing connected-person photo presentation. */
+export function connectedInvitationPhotoUrl(
   people: ReadonlyMap<string, InvitationPerson>,
   email: string | null | undefined,
   accountEmail: string | null | undefined,
