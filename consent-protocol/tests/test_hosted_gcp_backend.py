@@ -213,6 +213,14 @@ def hosted_runtime(monkeypatch):
     from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV
 
     profile = load_profile("dev")
+    # Production imports these after the pod's admitted environment is installed.
+    # Collection imports them earlier; emulate that same cold-start binding.
+    for module in (
+        "hushh_mcp.constants",
+        "hushh_mcp.hushh_adk.manifest",
+        "hushh_mcp.one_adk.text_runtime",
+    ):
+        monkeypatch.setattr(module + ".GEMINI_MODEL", profile["text_model"])
     deployment = replace(
         _hosted_deployment(),
         inference_project=profile["project"],
