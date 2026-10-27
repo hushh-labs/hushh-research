@@ -472,6 +472,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         # Main-owned helpers are consumed directly from RUNNER_TEMP.
         if path.endswith(
             (
+                "tag-last-known-good.sh",
                 "resolve-cloud-run-deploy-revision.py",
                 "resolve-uat-verified-image.py",
                 "verify-predecessor-acceptance.py",

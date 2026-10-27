@@ -793,7 +793,7 @@ def test_backend_rollback_requires_both_reader_and_provider_authority(tmp_path, 
     start = source.index(
         'if [[ -n "${HUSHH_DOCUMENT_READER_GUARD_REPORT:-}" ]]; then'
         if denied == "reader"
-        else 'if [[ "$SERVICE" == "consent-protocol" ]]; then'
+        else 'if [[ "$SERVICE" == "consent-protocol" && -z "$restoration_plan" ]]; then'
     )
     end = source.index("manual_reader_guard=" if denied == "reader" else "cmd=(", start)
     broken = tmp_path / "one-guard-removed.sh"

@@ -214,10 +214,17 @@ def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation(
     assert "_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}" in uat
     steps = yaml.safe_load(production)["jobs"]["deploy"]["steps"]
     deploy = next(step["run"] for step in steps if step.get("id") == "deploy-backend")
-    for active, hosted in (("false", "false"), ("true", "false"), ("false", "true")):
-        result = run_production_backend_build(deploy, drive_active=active, hosted_documents=hosted)
+    for active, hosted, recovery in (
+        ("false", "false", ""),
+        ("true", "false", ""),
+        ("false", "true", ""),
+        ("false", "true", "42"),
+    ):
+        result = run_production_backend_build(
+            deploy, drive_active=active, hosted_documents=hosted, restoration_run=recovery
+        )
         assert ("_DRIVE_WORK_DRAIN_ENABLED=true" in result.stdout) == (
-            active == "true" or hosted == "true"
+            not recovery and (active == "true" or hosted == "true")
         )
         if active == "true" or hosted == "true":
             assert "_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda," in result.stdout

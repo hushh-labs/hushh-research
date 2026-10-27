@@ -23,11 +23,12 @@ def production_runtime_profile(workflow: str) -> str:
 
 
 def run_production_backend_build(
-    deploy: str, *, drive_active: str, hosted_documents: str
+    deploy: str, *, drive_active: str, hosted_documents: str, restoration_run: str = ""
 ) -> subprocess.CompletedProcess[str]:
     script = deploy.replace("${{ github.event.inputs.enable_one_email_kyc }}", "false")
     script = script.replace("${{ steps.drive-mode.outputs.active }}", drive_active)
     script = script.replace("${{ steps.document-mode.outputs.configured }}", hosted_documents)
+    script = script.replace("${{ inputs.restoration_validation_run }}", restoration_run)
     script = re.sub(r"\$\{\{.*?\}\}", "fixture", script)
     return subprocess.run(  # noqa: S603 - actual build command with cloud writes intercepted
         ["bash", "-c", "gcloud() { printf '%s\\n' \"$@\"; };\n" + script],

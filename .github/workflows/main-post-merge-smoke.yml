@@ -15,9 +15,13 @@ on:
   workflow_dispatch:
     inputs:
       sha:
-        description: "Exact main SHA to smoke-test (blank = current main)"
+        description: "Must match dispatch SHA; recorded recovery SHA only with production_restoration"
         required: false
         type: string
+      production_restoration:
+        description: "Validate only the recorded production recovery candidate; does not deploy"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,30 +39,86 @@ env:
 
 jobs:
   smoke-gate:
-    name: "Main Post-Merge Smoke Gate"
+    name: ${{ inputs.production_restoration && 'Production Recovery Validation Gate' || 'Main Post-Merge Smoke Gate' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout trusted validation authority
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          # On a dispatch this MUST be the requested SHA. Checking out the ref
-          # would publish a "Main Post-Merge Smoke Gate" result attributed to a
-          # different commit than the one actually tested, which is worse than
-          # no result at all.
-          ref: ${{ github.event.inputs.sha || github.sha }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
-      - name: Assert the dispatched SHA is on main
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.sha != ''
+      - name: Verify smoke source identity
+        if: ${{ !inputs.production_restoration }}
         shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha || github.sha }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main
-          if ! git merge-base --is-ancestor "${{ github.event.inputs.sha }}" origin/main; then
-            echo "Refusing: ${{ github.event.inputs.sha }} is not an ancestor of origin/main." >&2
+          [[ "$REQUESTED_SHA" == "$GITHUB_SHA" && "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || {
+            echo "Refusing smoke: dispatch/check identity differs from the tested checkout. Retry the original run for an older main SHA." >&2
             exit 1
+          }
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Admit exact validation source
+        id: source
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha || github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          RESTORATION: ${{ inputs.production_restoration && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "$RESTORATION" = true ]; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$GITHUB_REF" = refs/heads/main
+            python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
           fi
-          echo "Confirmed ${{ github.event.inputs.sha }} is on main."
+          python3 - <<'PYTHON'
+          import hashlib, os, re, runpy, subprocess
+          sha = os.environ["REQUESTED_SHA"]
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("An exact source SHA is required")
+          recovery = os.environ["RESTORATION"] == "true"
+          baseline = os.environ.get("BEFORE_SHA", "")
+          record_digest = ""
+          if recovery:
+              authority = runpy.run_path("deploy/account-deletion/compatibility_restoration.py")
+              record = authority["qualify_source"](sha)
+              baseline = record["baselineSha"]
+              record_digest = hashlib.sha256(authority["RECORD"].read_bytes()).hexdigest()
+          else:
+              subprocess.run(["git", "merge-base", "--is-ancestor", sha, "origin/main"], check=True)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
+              stream.write(f"sha={sha}\nbaseline={baseline}\nrecord_digest={record_digest}\n")
+          PYTHON
+
+      - name: Checkout admitted candidate
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.source.outputs.sha }}
+          persist-credentials: false
+
+      - name: Scan exact recovery changes for secrets
+        if: inputs.production_restoration
+        shell: bash
+        env:
+          RECOVERY_SHA: ${{ steps.source.outputs.sha }}
+          RECOVERY_BASELINE: ${{ steps.source.outputs.baseline }}
+        run: |
+          set -euo pipefail
+          directory="$(mktemp -d)"
+          trap 'rm -rf "$directory"' EXIT
+          curl --fail --silent --show-error --location \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.24.2/gitleaks_8.24.2_linux_x64.tar.gz \
+            --output "$directory/gitleaks.tar.gz"
+          tar -xzf "$directory/gitleaks.tar.gz" -C "$directory" gitleaks
+          "$directory/gitleaks" git --redact --no-banner \
+            --log-opts="${RECOVERY_BASELINE}..${RECOVERY_SHA}" .
 
       - uses: actions/setup-node@v6
         with:
@@ -103,8 +163,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/ci/resolve-uat-verification-plan.py \
-            --target-sha "${{ github.sha }}" \
-            --base-sha "${{ github.event.before }}" \
+            --target-sha "${{ steps.source.outputs.sha }}" \
+            --base-sha "${{ steps.source.outputs.baseline }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json-output "$RUNNER_TEMP/main-smoke-verification-plan.json"
 
@@ -132,7 +192,7 @@ jobs:
       # key is new. The key is the one the restore step resolved before the
       # build, so the saved entry is exactly what PRs look up.
       - name: Save Next.js build cache
-        if: github.ref == 'refs/heads/main' && steps.nextjs-cache.outputs.cache-hit != 'true'
+        if: github.ref == 'refs/heads/main' && !inputs.production_restoration && steps.nextjs-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
           path: hushh-webapp/.next/cache
@@ -144,4 +204,71 @@ jobs:
         with:
           name: main-smoke-verification-plan
           path: ${{ runner.temp }}/main-smoke-verification-plan.json
+          if-no-files-found: error
+
+      - name: Verify recovery lifecycle and frontend contracts
+        if: inputs.production_restoration
+        shell: bash
+        env:
+          TESTING: "true"
+          DB_OFFLINE: "1"
+          GOOGLE_CLOUD_PROJECT: hushh-ci-test
+          APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
+          VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          REQUIRE_ACCOUNT_DELETION_POSTGRES: "1"
+        run: |
+          set -euo pipefail
+          (
+            cd consent-protocol
+            .venv/bin/python -m pytest -q \
+              tests/services/test_account_deletion_provider_cleanup.py \
+              tests/services/test_account_deletion_lifecycle_service.py \
+              tests/test_account_delete_error_detail.py \
+              tests/test_account_erasure_lock_timeout_postgres.py
+          )
+          (
+            cd hushh-webapp
+            ./node_modules/.bin/vitest run --maxWorkers=2 \
+              __tests__/lib/flows/delete-account.test.ts \
+              __tests__/app/api/account-delete-proxy.test.ts \
+              __tests__/lib/firebase/auth-context-session-invalidation.test.tsx \
+              __tests__/components/account-cleanup-recovery.test.tsx
+          )
+
+      - name: Record exact recovery validation
+        if: inputs.production_restoration
+        shell: bash
+        env:
+          ADMITTED_SHA: ${{ steps.source.outputs.sha }}
+          ADMITTED_BASELINE: ${{ steps.source.outputs.baseline }}
+          ADMITTED_RECORD: ${{ steps.source.outputs.record_digest }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          import json, os, subprocess
+          from pathlib import Path
+          sha = os.environ["ADMITTED_SHA"]
+          if subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() != sha:
+              raise SystemExit("Validated source changed")
+          receipt = {
+              "schemaVersion": 1, "status": "passed", "candidateSha": sha,
+              "baselineSha": os.environ["ADMITTED_BASELINE"],
+              "workflowSha": os.environ["GITHUB_SHA"],
+              "recordSha256": os.environ["ADMITTED_RECORD"],
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "runId": int(os.environ["GITHUB_RUN_ID"]),
+              "runAttempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "checks": ["source-secret-scan", "smoke", "account-lifecycle", "frontend-continuity"],
+          }
+          path = Path(os.environ["RUNNER_TEMP"]) / "production-restoration-validation" / "acceptance.json"
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps(receipt, indent=2) + "\n")
+          PYTHON
+
+      - name: Upload exact recovery validation
+        if: inputs.production_restoration
+        uses: actions/upload-artifact@v6
+        with:
+          name: production-restoration-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/production-restoration-validation/acceptance.json
           if-no-files-found: error

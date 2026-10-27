@@ -2,40 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Callable
-
-
-def supports_current_contract(
-    sha: str,
-    *,
-    read: Callable,
-    policy_path: str,
-    migrations: tuple[str, ...],
-    rollback: bool,
-) -> bool:
-    if not re.fullmatch(r"[0-9a-f]{40}", sha):
-        return False
-    try:
-        policy = json.loads(read(["git", "show", f"{sha}:{policy_path}"]))
-        manifest = json.loads(
-            read(
-                [
-                    "git",
-                    "show",
-                    f"{sha}:consent-protocol/db/release_migration_manifest.json",
-                ]
-            )
-        )
-        installed = manifest.get("ordered_migrations", [])
-        return (
-            policy.get("version") == 1
-            and migrations[0] in installed
-            and (not rollback or all(name in installed for name in migrations[1:]))
-        )
-    except (RuntimeError, ValueError):
-        return False
 
 
 def serving_candidate(service, revisions, *, expected_sha, expected_run, supports):

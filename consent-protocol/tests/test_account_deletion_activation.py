@@ -164,3 +164,34 @@ def test_production_pending_refuses_unknown_identity_or_unqualified_database(
     assert evidence["status"] == "blocked"
     assert all(call[0] != "bash" and "scheduler" not in call for call in calls)
     assert not any("update-traffic" in call or "delete" in call for call in calls)
+
+
+def test_explicit_restoration_cannot_satisfy_phone_reader_floor(monkeypatch):
+    module = _activation_module()
+    current, historical = "a" * 40, "c" * 40
+    monkeypatch.setattr(module, "supports_current_contract", lambda sha, **_: sha == current)
+    monkeypatch.setattr(module, "supports_restoration_source", lambda sha: sha == historical)
+    service = {
+        "status": {
+            "traffic": [
+                {"revisionName": "current", "percent": 100},
+                {"revisionName": "historical", "percent": 0, "tag": "rollback"},
+            ]
+        }
+    }
+    revisions = [
+        {
+            "metadata": {
+                "name": name,
+                "labels": {
+                    "deploy-sha": sha,
+                    "account-deletion-contract": "v201",
+                },
+            }
+        }
+        for name, sha in (("current", current), ("historical", historical))
+    ]
+    assert module.legacy_inventory(service, revisions, "current", restoration=True) == ([], [])
+    assert module.legacy_inventory(
+        service, revisions, "current", restoration=True, phone_floor=True
+    ) == (["historical"], ["rollback"])

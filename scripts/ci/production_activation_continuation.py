@@ -186,8 +186,8 @@ def load_original(
 
 
 def _floor_key() -> str:
-    """The existing activation executor owns the required migration floor."""
-    source = proof.ROOT / "deploy/account-deletion/activate_release.py"
+    """The lifecycle source contract owns the required migration floor."""
+    source = proof.ROOT / "deploy/account-deletion/release_source.py"
     for node in ast.parse(source.read_text()).body:
         if isinstance(node, ast.Assign) and any(
             isinstance(target, ast.Name) and target.id == "PHONE_ACTION_MIGRATION"

@@ -101,6 +101,7 @@ assets/
 # last-match-wins -- so do not move this above that line.
 !scripts/deploy/backend-deploy.sh
 !scripts/deploy/backend-capacity-settings.sh
+!scripts/deploy/backend-app-surface-settings.sh
 !scripts/deploy/backend-phone-rollback.sh
 !scripts/deploy/verify-managed-vertex-runtime.sh
 !scripts/deploy/frontend-google-native-config.sh

@@ -248,7 +248,22 @@ def test_every_release_image_mode_requires_predecessor_before_mutation(environme
     workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
     steps = workflow["jobs"]["deploy"]["steps"]
     gate = next(step for step in steps if step.get("id") == "predecessor-acceptance")
-    assert "if" not in gate  # Includes source-build and promoted-image production.
+    if environment == "production":
+        # The exact recorded recovery has a distinct artifact; it must never
+        # masquerade as UAT acceptance or relax ordinary image-mode promotion.
+        assert gate["if"] == "inputs.restoration_validation_run == ''"
+        recovery = next(step for step in steps if step.get("id") == "restoration-admission")
+        assert recovery["if"] == "inputs.restoration_validation_run != ''"
+        assert "deploy/account-deletion/restoration_validation.py" in recovery["run"]
+        assert '--scope "$REQUESTED_SCOPE"' in recovery["run"]
+        assert '--image-source "$IMAGE_SOURCE"' in recovery["run"]
+        assert '--actor "$GITHUB_TRIGGERING_ACTOR"' in recovery["run"]
+        first_cloud = next(
+            i for i, step in enumerate(steps) if step.get("name") == "Authenticate to Google Cloud"
+        )
+        assert steps.index(recovery) < first_cloud
+    else:
+        assert "if" not in gate
     scoped = environment == "uat-one-chat"
     expected_scope = "--scope backend" if scoped else '--scope "${{ steps.scope.outputs.scope }}"'
     assert expected_scope in gate["run"]

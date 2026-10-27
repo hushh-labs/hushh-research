@@ -7,20 +7,20 @@ import importlib.util
 import json
 import os
 import re
+import runpy
 import socket
 import subprocess
 import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-POLICY = "consent-protocol/config/account-deletion-authority.json"
-MIGRATION = "423_account_shared_provider_authority.sql"
-PHONE_MIGRATION = "425_account_phone_transfers.sql"
-PHONE_ACTION_MIGRATION = "431_phone_recovery_actions.sql"
+SOURCE = runpy.run_path(str(Path(__file__).with_name("release_source.py")))
+supports_restoration_source = SOURCE["supports_restoration_source"]
+qualify_restoration_database = SOURCE["qualify_restoration_database"]
 CONTRACT_SQL = """SELECT CASE WHEN EXISTS(SELECT 1 FROM pg_trigger
  WHERE tgrelid='public.account_deletion_tombstones'::regclass
  AND tgname='account_shared_provider_authority' AND tgenabled='O' AND NOT tgisinternal)
@@ -41,22 +41,22 @@ def run(argv, *, env=None, timeout=120):
 
 @lru_cache(maxsize=256)
 def supports_current_contract(sha: str, *, rollback: bool = False) -> bool:
-    return retirement_owner().supports_current_contract(
-        sha,
-        read=run,
-        policy_path=POLICY,
-        migrations=(MIGRATION, PHONE_MIGRATION, PHONE_ACTION_MIGRATION),
-        rollback=rollback,
+    return SOURCE["supports_current_contract"](sha, run=run, rollback=rollback)
+
+
+def _supports_activation_source(sha, *, rollback=False, restoration=False):
+    return supports_current_contract(sha, rollback=rollback) or (
+        restoration and not rollback and supports_restoration_source(sha)
     )
 
 
-def serving_candidate(service, revisions, *, expected_sha, expected_run):
+def serving_candidate(service, revisions, *, expected_sha, expected_run, restoration=False):
     return retirement_owner().serving_candidate(
         service,
         revisions,
         expected_sha=expected_sha,
         expected_run=expected_run,
-        supports=supports_current_contract,
+        supports=partial(_supports_activation_source, restoration=restoration),
     )
 
 
@@ -70,12 +70,12 @@ def retirement_owner():
     return module
 
 
-def legacy_inventory(service, revisions, candidate, *, phone_floor=False):
+def legacy_inventory(service, revisions, candidate, *, phone_floor=False, restoration=False):
     return retirement_owner().legacy_inventory(
         service,
         revisions,
         candidate,
-        supports=supports_current_contract,
+        supports=partial(_supports_activation_source, restoration=restoration),
         phone_floor=phone_floor,
     )
 
@@ -173,6 +173,7 @@ def observe(args):
         revisions,
         expected_sha=args.expected_sha,
         expected_run=args.expected_run_id,
+        restoration=getattr(args, "production_restoration", False),
     )
     return service, revisions, candidate
 
@@ -217,6 +218,9 @@ def qualify_database(args, retain):
     # Installed authority is qualified before Scheduler or revision mutations.
     with database(args) as pg:
         require_installed_contract(pg)
+        restoration = qualify_restoration_database(args, pg)
+        if restoration is not None:
+            retain("restoration-qualification.json", json.dumps(restoration, indent=2))
         retain(
             "boundary-preactivation.log",
             verify_boundary(pg, 2 if args.fence_required else 0),
@@ -311,7 +315,11 @@ def verify_scheduler_delivery(args, evidence, retain, triggered):
 def retire_incompatible_revisions(args, evidence, service, revisions, candidate):
     phone_floor = supports_current_contract(args.expected_sha, rollback=True)
     legacy, tags = legacy_inventory(
-        service, revisions, candidate, phone_floor=phone_floor
+        service,
+        revisions,
+        candidate,
+        phone_floor=phone_floor,
+        restoration=getattr(args, "production_restoration", False),
     )
     if tags:
         run(
@@ -341,7 +349,11 @@ def retire_incompatible_revisions(args, evidence, service, revisions, candidate)
         )
     service, revisions, candidate = observe(args)
     remaining, _ = legacy_inventory(
-        service, revisions, candidate, phone_floor=phone_floor
+        service,
+        revisions,
+        candidate,
+        phone_floor=phone_floor,
+        restoration=getattr(args, "production_restoration", False),
     )
     if remaining:
         raise RuntimeError("legacy_provider_revisions_remain")
@@ -361,6 +373,9 @@ def reopen_deletion(args, evidence, retain):
     with database(args) as pg:
         psql = ["psql", "--no-psqlrc", "--set=ON_ERROR_STOP=1"]
         require_installed_contract(pg)
+        restoration = qualify_restoration_database(args, pg)
+        if restoration is not None:
+            evidence["production_restoration"] = restoration
         verify_boundary(pg, 2 if args.fence_required else 0)
         health = sql_value(
             pg,
@@ -439,17 +454,9 @@ def parse_arguments():
 
 
 def main():
-    if len(sys.argv) == 3 and sys.argv[1] in (
-        "--qualify-source",
-        "--qualify-rollback-source",
+    if SOURCE["qualify_cli"](
+        sys.argv, supports_current_contract, supports_restoration_source
     ):
-        rollback = sys.argv[1] == "--qualify-rollback-source"
-        if not supports_current_contract(sys.argv[2], rollback=rollback):
-            raise SystemExit(
-                "Target lacks the phone/device admission rollback contract (migration 430)"
-                if rollback
-                else "Target lacks the current account lifecycle producer contract"
-            )
         return 0
     args = parse_arguments()
     evidence = {
