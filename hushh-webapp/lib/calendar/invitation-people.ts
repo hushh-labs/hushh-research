@@ -1,4 +1,5 @@
 import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
+import { googleAvatarSource } from "@/lib/profile/provider-avatar";
 
 export type InvitationPerson = { displayName: string | null; photoUrl: string | null };
 
@@ -20,4 +21,20 @@ export function connectedInvitationPeople(connections: readonly ConnectionSummar
     });
   }
   return people;
+}
+
+/** Keep the selected Calendar account's photo bound to its own attendee email. */
+export function invitationPhotoUrl(
+  people: ReadonlyMap<string, InvitationPerson>,
+  email: string | null | undefined,
+  accountEmail: string | null | undefined,
+  accountPhotoUrl: string | null | undefined,
+): string | null {
+  const key = email?.trim().toLowerCase();
+  if (!key) return null;
+  if (key === accountEmail?.trim().toLowerCase() && accountPhotoUrl) {
+    const accountPhoto = googleAvatarSource(accountPhotoUrl)?.href;
+    if (accountPhoto) return accountPhoto;
+  }
+  return people.get(key)?.photoUrl ?? null;
 }
