@@ -141,15 +141,13 @@ def resolve() -> str:
         live(anchor)
         return anchor["revision"]
     healthy, _ = reference.split(current["message"], current["commit"])
-    return dict(line.split(": ", 1) for line in healthy.splitlines()[1:])[
-        "backend_revision"
-    ]
+    return reference.healthy_fields(healthy, current["commit"])["backend_revision"]
 
 
 def _continuation_source(current: dict) -> str | None:
     """Keep the exact activation basis until a standard backend release owns it."""
     healthy, _ = reference.split(current["message"], current["commit"])
-    fields = dict(line.split(": ", 1) for line in healthy.splitlines()[1:])
+    fields = reference.healthy_fields(healthy, current["commit"])
     match = re.fullmatch(
         rf"https://github\.com/{re.escape(proof.REPOSITORY)}/actions/runs/([1-9][0-9]*)",
         fields["run"],
