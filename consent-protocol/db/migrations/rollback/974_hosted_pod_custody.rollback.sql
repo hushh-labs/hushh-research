@@ -1089,6 +1089,8 @@ DROP FUNCTION IF EXISTS public.managed_prefix_abort_complete(jsonb);
 DROP FUNCTION IF EXISTS public.retain_managed_prefix_abort(text,text,jsonb,text,text,text,jsonb);
 DROP FUNCTION IF EXISTS public.valid_managed_prefix_abort_append(jsonb,jsonb);
 DROP FUNCTION IF EXISTS public.valid_managed_prefix_abort_receipt(jsonb,text,text,text,jsonb);
+DROP FUNCTION IF EXISTS public.managed_prefix_item_admission(jsonb,text,text,jsonb);
+DROP FUNCTION IF EXISTS public.valid_managed_prefix_item_result(jsonb,text,text,jsonb);
 DROP FUNCTION IF EXISTS public.managed_prefix_nonkey_complete(jsonb);
 DROP FUNCTION IF EXISTS public.valid_managed_prefix_resource_result(jsonb,jsonb,jsonb,jsonb);
 DROP FUNCTION IF EXISTS public.managed_prefix_items_complete(jsonb,text);

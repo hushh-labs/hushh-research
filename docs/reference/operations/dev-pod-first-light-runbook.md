@@ -707,6 +707,13 @@ cannot assert a dedicated hosted owner. Direct endpoint publication still needs
 the pod wall, app preflight and live Google IAM/incarnation checks, then compares
 the full observed metadata under the registry write. An appended authority field
 invalidates that comparison. These changes do not widen BYOC-only Puppy admission.
+Managed app admission additionally requires the signed `hosting_mode=hussh_hosted`
+marker with exact `gcp` / `dev` placement. The hub derives it from retained
+placement and rechecks authority under the binding-publication lock; the pod
+requires the matching validated runtime configuration. Existing BYOC bindings
+omit the marker. Hosted chat uses direct admission, never a Shared fallback or
+pre-unlock hub processing.
+
 The initial deployment marker may omit Google's not-yet-assigned UID; later
 readback accepts that exact initial marker only for the independently recorded UID.
 
@@ -774,6 +781,12 @@ BYOC rendering is unchanged. An empty mail inventory alone never permits key
 destruction: SQL requires the exact admitted managed plan, a valid matching
 inventory, and no declared mail resource, including legacy resources. Any
 declared mail resource still requires its own deletion evidence.
+
+Cleanup receipt payload checks are separate from dependency ordering: validate
+inventory and IAM dependencies once per completion pass, then each exact pair.
+The mutation wrapper still enforces IAM before resources, other resources before
+KMS, then bootstrap and project retirement. Repeated checks cannot authorize
+new deletion or replace native observations.
 
 Synthetic hosted pilot keys explicitly use a 24-hour destruction delay at creation;
 existing BYOC keys retain their existing policy. Native readback must confirm the

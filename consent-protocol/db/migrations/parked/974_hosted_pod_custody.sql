@@ -50,20 +50,22 @@ BEGIN
  ('managed_prefix_base(jsonb)',ARRAY['e1a538e3f5b421ec335d5cedf31a5dd4f2eb3b900bd0f71ca94f85c90b90ba80']::text[]),
  ('managed_prefix_bindings(jsonb)',ARRAY['a2b7b62d3e679584263a07da7ddbe46a4ba54e57c5d11df1cede2cda3ecf3930','9524a16f3de16d3c348f72b609704b85a8ba4ce3b3dfe26de8d6c11c2446fb1b']::text[]),
  ('managed_prefix_failed_binding_checks(jsonb)',ARRAY['13810bc43590edf448e9de5a3139110c8cf106de6d910ed976b4dcdea564a22f','2a0a91ae45c72d8f7e4cdf364ab712f3fd276e59ea85d7bb363b87e6d691f110']::text[]),
- ('managed_prefix_items_complete(jsonb,text)',ARRAY['f7e0a60ef59d53d4d3dd5152e42982610ff5f1c17c47710083bd5f13b6db632d']::text[]),
- ('managed_prefix_nonkey_complete(jsonb)',ARRAY['8ed028c03c5779842a4f5d5a2843ea4f60ae8dca809ebe08a1677ceaf6409819']::text[]),
+ ('managed_prefix_items_complete(jsonb,text)',ARRAY['f7e0a60ef59d53d4d3dd5152e42982610ff5f1c17c47710083bd5f13b6db632d','f9045b96b23494155262ba6a8e65e0f144858815b5f76ba05dea0f438c380c1d']::text[]),
+ ('managed_prefix_nonkey_complete(jsonb)',ARRAY['8ed028c03c5779842a4f5d5a2843ea4f60ae8dca809ebe08a1677ceaf6409819','8946501ad98378562c5c1f494a429755c4b4d4442853da4d8d56dc0e84a434d5']::text[]),
  ('managed_prefix_resource_name(jsonb,jsonb)',ARRAY['deb6064753f49150ff1203696ff389df7bee108a0df903577f8965f040139de6']::text[]),
  ('managed_prefix_resource_step(text)',ARRAY['b2e0027531cc18ada63b213fc5150272c5b6f1590b24b1c1730709bfb43e2184']::text[]),
  ('managed_prefix_terminal_failure(jsonb)',ARRAY['b7eaaec9175bcd93b2bc813f1d28a65511ec0ad90556528ba96874f423913cbc']::text[]),
  ('retain_managed_prefix_abort(text,text,jsonb,text,text,text,jsonb)',ARRAY['992cc805c1b0190176213c2432043d9af2f938cdb10a585e0ffe8eadb69c21a3']::text[]),
  ('valid_managed_prefix_abort_append(jsonb,jsonb)',ARRAY['26c6b0e4b17c15c383d2a00e6af7f872fe16eea8c24f65f0c93b249739cc9ab4']::text[]),
- ('valid_managed_prefix_abort_receipt(jsonb,text,text,text,jsonb)',ARRAY['2a631b9ead61db799383d2263071a27e0603ab692eb8f8cf1a16773a1191aecc']::text[]),
+ ('valid_managed_prefix_abort_receipt(jsonb,text,text,text,jsonb)',ARRAY['2a631b9ead61db799383d2263071a27e0603ab692eb8f8cf1a16773a1191aecc','1e07021aa73ce4174e6ce6e260fd92037eb585daebcfe999f9cbdc5b88c62be6']::text[]),
  ('valid_managed_prefix_created_identity(jsonb,jsonb,jsonb)',ARRAY['c9e08edf80dbabb0c3a332d75750d24b00e9a128e4f499d65ee0c6a6374f3eb7']::text[]),
  ('valid_managed_prefix_inventory(jsonb,jsonb)',ARRAY['9c4d219b79341445768debe3e749c89f539fca7754b84b7c7ed292ed2f18426c']::text[]),
  ('valid_managed_prefix_inventory_admission(jsonb,jsonb)',ARRAY['2d08b62c03499f51b8a17c4c9a5e4b539ddbea1f1de965ae27181301ac564e11']::text[]),
  ('valid_managed_prefix_memory_absence(jsonb,jsonb)',ARRAY['7a3b70f0ce6ea077c51e1c7f3306ef9edba016d083a21ef02869371613108bf3','14f7ee9eafa2c6cff37e089e58e1bd2f0f0f28426fd9344bf2a036e18d03b3c7']::text[]),
  ('valid_managed_prefix_resource_result(jsonb,jsonb,jsonb,jsonb)',ARRAY['4f0cdf06677eba2a3167fa3244c45333f754ddcc195114779432c482299e00cd']::text[]),
- ('managed_prefix_binding_contract(jsonb,text,text)',ARRAY['659d1a4a44cf64fc8aae0b884c651cb4e6a9cfb47cdb2d51a79cefed6e32d4e6']::text[])) AS expected(signature,allowed) LOOP
+ ('managed_prefix_binding_contract(jsonb,text,text)',ARRAY['659d1a4a44cf64fc8aae0b884c651cb4e6a9cfb47cdb2d51a79cefed6e32d4e6']::text[]),
+ ('managed_prefix_item_admission(jsonb,text,text,jsonb)',ARRAY['e053b4c85a535a858bb44b04608645dbc14ac2b4e2e104ff5f824a45c9714a88']::text[]),
+ ('valid_managed_prefix_item_result(jsonb,text,text,jsonb)',ARRAY['aacbe09dae8ae55a75a67e406fac2c703441be54169c6ea536e40287d5f59ffa']::text[])) AS expected(signature,allowed) LOOP
   SELECT pg_get_functiondef(to_regprocedure('public.'||spec.signature)) INTO definition;
   IF definition IS NOT NULL AND NOT encode(sha256(convert_to(definition,'UTF8')),'hex')=ANY(spec.allowed) THEN
    RAISE EXCEPTION 'Unqualified managed custody predecessor: %',spec.signature;
@@ -1465,6 +1467,42 @@ RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=public AS $$
   'inventoryHash',encode(digest((r->'managedPrefixAbort'->'inventory')::text,'sha256'),'hex'));
 $$;
 
+-- Payload checks and dependency ordering remain separate. Validate each pair
+-- once per completion pass; never accept a caller-supplied validation flag.
+CREATE OR REPLACE FUNCTION public.managed_prefix_item_admission(r jsonb,kind text,key text,versions jsonb)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE item jsonb; expected jsonb; name text;
+BEGIN
+ IF (kind IN ('resources','bindings')) IS NOT TRUE THEN RETURN NULL; END IF;
+ SELECT x INTO item FROM jsonb_array_elements(r->'managedPrefixAbort'->'inventory'->kind) x
+ WHERE key=CASE WHEN kind='resources' THEN x->>'type'||':'||(x->>'id') ELSE encode(digest(x::text,'sha256'),'hex') END;
+ IF item IS NULL THEN RETURN NULL; END IF;
+ expected:=public.managed_prefix_base(r)||jsonb_build_object(CASE WHEN kind='resources' THEN 'resource' ELSE 'binding' END,item,'status','admitted');
+ IF kind='resources' AND item->>'disposition'='created' AND item->>'type'='kms_key' THEN
+  name:=item->'identity'->>'name';
+  IF jsonb_typeof(versions) IS DISTINCT FROM 'array' OR jsonb_array_length(versions) NOT BETWEEN 1 AND 32000
+   OR EXISTS(SELECT 1 FROM jsonb_array_elements(versions) x WHERE jsonb_typeof(x)<>'string'
+    OR left(x#>>'{}',length(name||'/cryptoKeyVersions/'))<>name||'/cryptoKeyVersions/'
+    OR substring(x#>>'{}' FROM length(name||'/cryptoKeyVersions/')+1)!~'^[1-9][0-9]{0,19}$')
+   OR (SELECT count(*)<>count(DISTINCT x) FROM jsonb_array_elements(versions) x) THEN RETURN NULL; END IF;
+  expected:=expected||jsonb_build_object('versionNames',versions,'paginationComplete',true);
+ END IF;
+ RETURN expected;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.valid_managed_prefix_item_result(r jsonb,kind text,key text,receipt jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE admitted jsonb:=r->'managedPrefixAbort'->kind->key->'admission'; expected jsonb; item jsonb;
+BEGIN
+ expected:=public.managed_prefix_item_admission(r,kind,key,admitted->'versionNames');
+ IF expected IS NULL OR admitted IS DISTINCT FROM expected OR jsonb_typeof(receipt) IS DISTINCT FROM 'object' THEN RETURN false; END IF;
+ item:=expected->CASE WHEN kind='resources' THEN 'resource' ELSE 'binding' END;
+ IF kind='resources' THEN RETURN public.valid_managed_prefix_resource_result(r,item,admitted,receipt); END IF;
+ RETURN receipt=admitted-'status'||jsonb_build_object('status',CASE item->>'disposition' WHEN 'added' THEN 'observed_absent' ELSE 'preserved_preexisting' END);
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.managed_prefix_items_complete(r jsonb,kind text)
 RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
 DECLARE inventory jsonb:=r->'managedPrefixAbort'->'inventory'; item jsonb; key text; wanted text[]:='{}';
@@ -1472,10 +1510,11 @@ DECLARE inventory jsonb:=r->'managedPrefixAbort'->'inventory'; item jsonb; key t
 BEGIN
  IF public.valid_managed_prefix_inventory(r,inventory) IS NOT TRUE
  OR kind NOT IN ('resources','bindings') OR kind IS NULL OR jsonb_typeof(states) IS DISTINCT FROM 'object' THEN RETURN false; END IF;
+ IF kind='resources' AND public.managed_prefix_items_complete(r,'bindings') IS NOT TRUE THEN RETURN false; END IF;
  FOR item IN SELECT value FROM jsonb_array_elements(inventory->kind) LOOP
   key:=CASE WHEN kind='resources' THEN item->>'type'||':'||(item->>'id') ELSE encode(digest(item::text,'sha256'),'hex') END;
   wanted:=array_append(wanted,key);
-  IF public.valid_managed_prefix_abort_receipt(r,kind,key,'deletion',states->key->'deletion') IS NOT TRUE THEN RETURN false; END IF;
+  IF public.valid_managed_prefix_item_result(r,kind,key,states->key->'deletion') IS NOT TRUE THEN RETURN false; END IF;
  END LOOP;
  RETURN (SELECT coalesce(array_agg(x ORDER BY x),'{}'::text[]) FROM jsonb_object_keys(states) x)=
         (SELECT coalesce(array_agg(x ORDER BY x),'{}'::text[]) FROM unnest(wanted) x);
@@ -1486,10 +1525,12 @@ CREATE OR REPLACE FUNCTION public.managed_prefix_nonkey_complete(r jsonb)
 RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
 DECLARE item jsonb; key text;
 BEGIN
+ IF public.valid_managed_prefix_inventory(r,r->'managedPrefixAbort'->'inventory') IS NOT TRUE
+ OR public.managed_prefix_items_complete(r,'bindings') IS NOT TRUE THEN RETURN false; END IF;
  FOR item IN SELECT value FROM jsonb_array_elements(r->'managedPrefixAbort'->'inventory'->'resources') LOOP
   IF item->>'type'='kms_key' THEN CONTINUE; END IF;
   key:=item->>'type'||':'||(item->>'id');
-  IF public.valid_managed_prefix_abort_receipt(r,'resources',key,'deletion',
+  IF public.valid_managed_prefix_item_result(r,'resources',key,
     r->'managedPrefixAbort'->'resources'->key->'deletion') IS NOT TRUE THEN RETURN false; END IF;
  END LOOP;
  RETURN true;
@@ -1514,7 +1555,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.valid_managed_prefix_abort_receipt(r jsonb,kind text,key text,stage text,receipt jsonb)
 RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
 DECLARE inventory jsonb:=r->'managedPrefixAbort'->'inventory'; c jsonb:=public.managed_prefix_abort_context(r);
- base jsonb:=public.managed_prefix_base(r); item jsonb; admitted jsonb; expected jsonb; creation jsonb; versions jsonb; name text;
+ base jsonb:=public.managed_prefix_base(r); item jsonb; admitted jsonb; expected jsonb; creation jsonb;
 BEGIN
  IF kind='inventory' THEN
   IF key<>'' THEN RETURN false; END IF;
@@ -1530,25 +1571,14 @@ BEGIN
   SELECT x INTO item FROM jsonb_array_elements(inventory->kind) x WHERE key=CASE WHEN kind='resources'
    THEN x->>'type'||':'||(x->>'id') ELSE encode(digest(x::text,'sha256'),'hex') END;
   IF item IS NULL THEN RETURN false; END IF;
-  expected:=base||jsonb_build_object(CASE WHEN kind='resources' THEN 'resource' ELSE 'binding' END,item,'status','admitted');
-  IF kind='resources' AND item->>'disposition'='created' AND item->>'type'='kms_key' THEN
-   versions:=receipt->'versionNames'; name:=item->'identity'->>'name';
-   IF jsonb_typeof(versions) IS DISTINCT FROM 'array' OR jsonb_array_length(versions) NOT BETWEEN 1 AND 32000
-    OR EXISTS(SELECT 1 FROM jsonb_array_elements(versions) x WHERE jsonb_typeof(x)<>'string'
-      OR left(x#>>'{}',length(name||'/cryptoKeyVersions/'))<>name||'/cryptoKeyVersions/'
-      OR substring(x#>>'{}' FROM length(name||'/cryptoKeyVersions/')+1)!~'^[1-9][0-9]{0,19}$')
-    OR (SELECT count(*)<>count(DISTINCT x) FROM jsonb_array_elements(versions) x) THEN RETURN false; END IF;
-   expected:=expected||jsonb_build_object('versionNames',versions,'paginationComplete',true);
-  END IF;
+  IF (kind='resources' AND public.managed_prefix_items_complete(r,'bindings') IS NOT TRUE)
+   OR (kind='resources' AND item->>'type'='kms_key' AND item->>'disposition'='created'
+     AND public.managed_prefix_nonkey_complete(r) IS NOT TRUE) THEN RETURN false; END IF;
   IF stage='admission' THEN
-   RETURN receipt=expected AND (kind='bindings' OR public.managed_prefix_items_complete(r,'bindings'))
-    AND (kind<>'resources' OR item->>'type'<>'kms_key' OR item->>'disposition'<>'created'
-      OR public.managed_prefix_nonkey_complete(r));
+   expected:=public.managed_prefix_item_admission(r,kind,key,receipt->'versionNames');
+   RETURN expected IS NOT NULL AND receipt=expected;
   END IF;
-  admitted:=r->'managedPrefixAbort'->kind->key->'admission';
-  IF admitted IS NULL OR public.valid_managed_prefix_abort_receipt(r,kind,key,'admission',admitted) IS NOT TRUE THEN RETURN false; END IF;
-  IF kind='resources' THEN RETURN public.valid_managed_prefix_resource_result(r,item,admitted,receipt); END IF;
-  RETURN receipt=admitted-'status'||jsonb_build_object('status',CASE item->>'disposition' WHEN 'added' THEN 'observed_absent' ELSE 'preserved_preexisting' END);
+  RETURN public.valid_managed_prefix_item_result(r,kind,key,receipt);
  ELSIF kind='bootstrap' THEN
   IF key<>'bootstrap' OR public.managed_prefix_items_complete(r,'resources') IS NOT TRUE
    OR public.managed_prefix_items_complete(r,'bindings') IS NOT TRUE THEN RETURN false; END IF;
@@ -2478,7 +2508,7 @@ $hosted_custody_acl$;
 DO $managed_prefix_acl$
 DECLARE signature text; client_role text;
 BEGIN
- FOREACH signature IN ARRAY ARRAY['managed_prefix_binding_contract(jsonb,text,text)','managed_prefix_terminal_failure(jsonb)','managed_prefix_abort_context(jsonb)','hosted_prefix_abort_admitted(text,text,jsonb)','managed_prefix_resource_step(text)','managed_prefix_resource_name(jsonb,jsonb)','valid_managed_prefix_created_identity(jsonb,jsonb,jsonb)','managed_prefix_bindings(jsonb)','managed_prefix_failed_binding_checks(jsonb)','valid_managed_prefix_memory_absence(jsonb,jsonb)','valid_managed_prefix_inventory(jsonb,jsonb)','valid_managed_prefix_inventory_admission(jsonb,jsonb)','managed_prefix_base(jsonb)','managed_prefix_items_complete(jsonb,text)','managed_prefix_nonkey_complete(jsonb)','valid_managed_prefix_resource_result(jsonb,jsonb,jsonb,jsonb)','valid_managed_prefix_abort_receipt(jsonb,text,text,text,jsonb)','valid_managed_prefix_abort_append(jsonb,jsonb)','retain_managed_prefix_abort(text,text,jsonb,text,text,text,jsonb)','managed_prefix_abort_complete(jsonb)'] LOOP
+ FOREACH signature IN ARRAY ARRAY['managed_prefix_binding_contract(jsonb,text,text)','managed_prefix_terminal_failure(jsonb)','managed_prefix_abort_context(jsonb)','hosted_prefix_abort_admitted(text,text,jsonb)','managed_prefix_resource_step(text)','managed_prefix_resource_name(jsonb,jsonb)','valid_managed_prefix_created_identity(jsonb,jsonb,jsonb)','managed_prefix_bindings(jsonb)','managed_prefix_failed_binding_checks(jsonb)','valid_managed_prefix_memory_absence(jsonb,jsonb)','valid_managed_prefix_inventory(jsonb,jsonb)','valid_managed_prefix_inventory_admission(jsonb,jsonb)','managed_prefix_base(jsonb)','managed_prefix_item_admission(jsonb,text,text,jsonb)','valid_managed_prefix_item_result(jsonb,text,text,jsonb)','managed_prefix_items_complete(jsonb,text)','managed_prefix_nonkey_complete(jsonb)','valid_managed_prefix_resource_result(jsonb,jsonb,jsonb,jsonb)','valid_managed_prefix_abort_receipt(jsonb,text,text,text,jsonb)','valid_managed_prefix_abort_append(jsonb,jsonb)','retain_managed_prefix_abort(text,text,jsonb,text,text,text,jsonb)','managed_prefix_abort_complete(jsonb)'] LOOP
   EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM PUBLIC',signature);
   FOREACH client_role IN ARRAY ARRAY['anon','authenticated'] LOOP
    IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=client_role) THEN

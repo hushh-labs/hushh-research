@@ -1,4 +1,4 @@
-"""Registry CAS writes for the explicitly BYOC-only direct-admission contract.
+"""Registry CAS writes for the explicitly admitted private-pod contract.
 
 The fleet repository delegates here without cloud SDK calls. These predicates bind
 receipts to the exact owner, provider and pod incarnation; never weaken them to make
@@ -152,6 +152,36 @@ async def record_endpoint(
         ) from None
 
 
+def _binding_matches_locked_owner(
+    owner: Any, device: Any, binding: dict, record: dict, *, user_id: str, device_id: str
+) -> bool:
+    """Recheck retained placement with the exact rows locked for publication."""
+    from hushh_mcp.services.pod_binding_contract import hosting_mode_for_row
+
+    metadata = owner["backend_metadata"] or {}
+    marker = hosting_mode_for_row(owner)
+    if not is_private_pod_row(dict(owner)) or binding.get("hosting_mode") != marker:
+        return False
+    if marker is not None and binding.get("environment") != "dev":
+        return False
+    return not (
+        device is None
+        or device["status"] != "active"
+        or owner["status"] != "provisioned"
+        or "erasure" in metadata
+        or binding.get("user_id") != user_id
+        or binding.get("subject_id") != device_id
+        or binding.get("subject_public_key") != str(device["device_public_key"] or "").strip()
+        or binding.get("platform") != str(device["platform"] or "").strip().lower()
+        or binding.get("hushh_id") != str(owner["hushh_id"] or "").strip()
+        or binding.get("deployment_target") != owner["deployment_target"]
+        or binding.get("pod_key_id") != str(owner["pod_key_id"] or "").strip()
+        or binding.get("pod_public_key") != str(owner["pod_pubkey"] or "").strip()
+        or binding.get("url") != str(metadata.get("url") or "").strip().rstrip("/")
+        or record.get("serviceUid") != metadata.get("serviceUid")
+    )
+
+
 async def record_binding(
     db: Any,
     *,
@@ -201,22 +231,8 @@ async def record_binding(
                 .mappings()
                 .one_or_none()
             )
-            if (
-                device is None
-                or device["status"] != "active"
-                or owner["status"] != "provisioned"
-                or "erasure" in metadata
-                or binding.get("user_id") != user_id
-                or binding.get("subject_id") != device_id
-                or binding.get("subject_public_key")
-                != str(device["device_public_key"] or "").strip()
-                or binding.get("platform") != str(device["platform"] or "").strip().lower()
-                or binding.get("hushh_id") != str(owner["hushh_id"] or "").strip()
-                or binding.get("deployment_target") != owner["deployment_target"]
-                or binding.get("pod_key_id") != str(owner["pod_key_id"] or "").strip()
-                or binding.get("pod_public_key") != str(owner["pod_pubkey"] or "").strip()
-                or binding.get("url") != str(metadata.get("url") or "").strip().rstrip("/")
-                or record.get("serviceUid") != metadata.get("serviceUid")
+            if not _binding_matches_locked_owner(
+                owner, device, binding, record, user_id=user_id, device_id=device_id
             ):
                 return False
             previous = (metadata.get("bindings") or {}).get(device_id) or {}

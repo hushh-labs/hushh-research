@@ -84,7 +84,7 @@ describe("introMayReachHub", () => {
     ["unknown", false],
     [undefined, false],
     ["shared", true],
-    ["hussh_pods", true],
+    ["hussh_pods", false],
   ])("hosting %s may reach the hub: %s", async (hostingMode, expected) => {
     state.hosting.mockResolvedValue({ hostingMode });
     await expect(introMayReachHub(state.hosting)).resolves.toBe(expected);

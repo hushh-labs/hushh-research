@@ -463,17 +463,20 @@ def test_frozen_managed_cleanup_coordinates_preserve_real_authorization_history(
         assert coordinates(invalid) is None
 
 
-@pytest.mark.parametrize("helper", ["placement", "prefix_memory"])
+@pytest.mark.parametrize(
+    "helper", ["placement", "prefix_memory", "item_payload", "dependency_order"]
+)
 def test_managed_custody_replay_refuses_unknown_helper_drift(pg, helper):
     from db.hosted_custody_adoption import _successor_qualification
 
     pg.apply_file(ROOT / "db/migrations/parked/974_hosted_pod_custody.sql")
     pg.execute(_successor_qualification())
-    changed = (
-        "private_gcp_coordinates(snapshot jsonb) RETURNS jsonb AS $$ BEGIN RETURN '{}'::jsonb; END; $$"
-        if helper == "placement"
-        else "valid_managed_prefix_memory_absence(c jsonb,observation jsonb) RETURNS boolean AS $$ BEGIN RETURN true; END; $$"
-    )
+    changed = {
+        "placement": "private_gcp_coordinates(snapshot jsonb) RETURNS jsonb AS $$ BEGIN RETURN '{}'::jsonb; END; $$",
+        "prefix_memory": "valid_managed_prefix_memory_absence(c jsonb,observation jsonb) RETURNS boolean AS $$ BEGIN RETURN true; END; $$",
+        "item_payload": "valid_managed_prefix_item_result(r jsonb,kind text,key text,receipt jsonb) RETURNS boolean AS $$ BEGIN RETURN true; END; $$",
+        "dependency_order": "managed_prefix_items_complete(r jsonb,kind text) RETURNS boolean AS $$ BEGIN RETURN true; END; $$",
+    }[helper]
     pg.execute(
         "CREATE OR REPLACE FUNCTION public."
         + changed

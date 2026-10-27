@@ -7,7 +7,7 @@ import { requestPkmMemoryPreparation } from "@/lib/agent/agent-pkm-memory-prepar
 import { canonical, openAsAgent } from "../lib/one/open-ai-selection";
 import { RECEIPT_TOOL_DECLARATIONS } from "@/lib/mail/receipt-analysis";
 
-const pod = vi.hoisted(() => ({ currentPodConnection: vi.fn() }));
+const pod = vi.hoisted(() => ({ currentPodConnection: vi.fn(), pin: vi.fn(async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app" })) }));
 const memory = vi.hoisted(() => ({ fetch: vi.fn(), shared: vi.fn() }));
 
 const legacyChatCapabilities = {
@@ -92,7 +92,7 @@ vi.mock("@/lib/services/api-service", () => ({ ApiService: {
 } }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({ uid: "owner" }) } }));
 vi.mock("@/lib/services/owner-pod-endpoint", () => ({
-  loadPinnedEndpoint: async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app" }),
+  loadPinnedEndpoint: pod.pin,
   currentPodConnection: pod.currentPodConnection,
 }));
 
@@ -275,3 +275,14 @@ it("seals an AI selection to the hub-signed key of the addressed pod, and refuse
 
 // Fixtures represent an admitted application owner, not merely an SDK identity.
 beforeEach(() => publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 }));
+
+it("routes unpinned managed chat directly and never retries the hub on failure", async () => {
+  pod.pin.mockResolvedValueOnce(null as never);
+  const hub = vi.fn();
+  const direct = vi.fn().mockRejectedValue(new Error("POD_UNAVAILABLE"));
+  await expect(agentChatRequest("/api/one/agent-chat", { method: "POST", body: "synthetic" }, {
+    hosting: async () => ({ hostingMode: "hussh_pods" }), fetch: hub, direct,
+  })).rejects.toThrow("POD_UNAVAILABLE");
+  expect(direct).toHaveBeenCalledOnce();
+  expect(hub).not.toHaveBeenCalled();
+});

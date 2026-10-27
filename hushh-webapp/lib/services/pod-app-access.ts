@@ -1,3 +1,4 @@
+import { isPrivateHostingMode } from "@/lib/one/owner-cloud";
 import { AuthService } from "./auth-service";
 import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { markAgentAnswered, sendChatTurn } from "./pod-chat-turn-transport";
@@ -479,8 +480,8 @@ export async function reconnectOwnerPod(
   const uid = admittedOwner.ownerId;
   const status = await ports.hosting();
   if (!podOwnerIsCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
-  if (status.hostingMode !== "byoc" || status.state !== "active") {
-    throw new Error("POD_DIRECT_BYOC_REQUIRED");
+  if (!isPrivateHostingMode(status.hostingMode) || status.state !== "active") {
+    throw new Error("POD_DIRECT_PRIVATE_REQUIRED");
   }
   const ownerPod = await import("./owner-pod-endpoint");
   const endpoint = await ownerPod.refreshEndpointFromHub(
@@ -528,7 +529,7 @@ export async function agentChatRequest(
 
 /**
  * Pre-unlock words may reach the hub's public tier only when no private agent owns them:
- * an anonymous visitor, or confirmed Shared / Hussh-hosted. A pinned agent, own-cloud,
+ * an anonymous visitor, or confirmed Shared. A pinned agent, own-cloud,
  * setup in progress or an unreadable status keeps them on this device.
  */
 export async function introMayReachHub(
@@ -544,7 +545,7 @@ export async function introMayReachHub(
     (status) => status.hostingMode,
     () => undefined,
   );
-  return podOwnerIsCurrent(admittedOwner) && (mode === "shared" || mode === "hussh_pods");
+  return podOwnerIsCurrent(admittedOwner) && mode === "shared";
 }
 
 /** Shared by chat and review; a direct failure must never fall back to the hub. */
@@ -557,7 +558,7 @@ export async function usesOwnerPod(
   let usePod = Boolean(await ownerPod.loadPinnedEndpoint(uid));
   if (!usePod) {
     const status = await hosting();
-    if (status.hostingMode === "byoc") usePod = true;
+    if (isPrivateHostingMode(status.hostingMode)) usePod = true;
     else if (status.hostingMode !== "shared") {
       // The placement travels with the refusal so the copy can name the next step.
       const mode = /^[a-z_]{1,32}$/.test(String(status.hostingMode ?? ""))
