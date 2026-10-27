@@ -176,7 +176,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
         now: qaNow, busy: variant === "busy", instant,
       }) });
     }
-    if (boardMode && routePath.endsWith("/conflicts/review")) {
+    if (boardMode && routePath.endsWith("/conflicts/workspace/review")) {
       const keep = body.keep as Record<string, string>;
       const decline = (body.decline as Record<string, string>[])[0];
       const title = (ref: Record<string, string>) => ref.event_id === "client" ? "QA Client Call" : "QA Design Review";
@@ -185,7 +185,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
         { kind: "decline", ref: decline, title: title(decline), account_email: decline.account_id === "work" ? "qa-work@example.com" : "qa-owner@example.com", action: "decline and send note", start: { dateTime: "2026-10-14T04:30:00Z" }, end: { dateTime: "2026-10-14T05:30:00Z" }, recipient: "organizer-design@example.test", sender_label: "QA Owner", subject: "Unable to attend", message: decline.message },
       ] } });
     }
-    if (boardMode && routePath.endsWith("/conflicts/confirm")) return route.fulfill({ json: { complete: true, results: [
+    if (boardMode && routePath.endsWith("/conflicts/workspace/confirm")) return route.fulfill({ json: { complete: true, results: [
       { kind: "keep", ref: { account_id: "work", calendar_id: "primary", event_id: "client" }, calendar: "accepted", email: "not_sent" },
       { kind: "decline", ref: { account_id: "default", calendar_id: "primary", event_id: "design" }, calendar: "declined", email: "sent" },
     ] } });
@@ -216,7 +216,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
       unreadable_calendars: [], time_zone: body.time_zone, complete: true,
       start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z",
     } });
-    if (routePath.endsWith("/attendance/review")) {
+    if (routePath.includes("/attendance/") && routePath.endsWith("/review")) {
       const reviewId = `review-${attendanceReviews.size}`;
       attendanceReviews.set(reviewId, body);
       const event = dayEvents("2026-10-14").find(item => item.id === body.event_id && item.calendar_id === body.calendar_id) || dayEvents("2026-10-14")[0];
@@ -230,7 +230,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
         rescheduling_link: body.offer_times ? "https://one.example.test/calendar/reschedule#synthetic-capability" : null,
       } });
     }
-    if (routePath.endsWith("/attendance/confirm")) {
+    if (routePath.includes("/attendance/") && routePath.endsWith("/confirm")) {
       const review = attendanceReviews.get(String(body.review_id))!;
       invitationResponses.set(String(review.event_id), String(review.response_status || "declined"));
       return route.fulfill({ json: { calendar: review.response_status || "declined", email: (review.offer_times || review.send_message) ? mailFailure ? "failed" : "sent" : "not_sent", calendar_error: null, email_error: mailFailure ? "Synthetic Mail failure. Your RSVP is saved." : null } });

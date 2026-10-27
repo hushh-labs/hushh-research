@@ -83,9 +83,11 @@ vault-owner token. `F`-only sends `Authorization: Bearer F`; dual `F+V` sends
 `Authorization: Bearer F` plus `X-Hushh-Consent: Bearer V`; `V`-only legacy and
 proposal routes send `Authorization: Bearer V`. Connected schedule, invitation, insight
 and artifact reads use `F` plus the server's owner-bound Google authorization.
-Attendance review/confirmation and conversation meeting context have additional
-vault-owner boundaries. A connected badge, remembered state or loaded row does
-not grant a mutation. Each wire below specifies its own requirement.
+Direct Calendar workspace responses use explicit `F` routes plus live,
+owner-bound Google grants and sealed one-time reviews. Chat, pod connector and
+conversation meeting context retain their separate vault-owner boundaries. A
+connected badge, remembered state or loaded row does not grant a mutation.
+Each wire below specifies its own requirement.
 
 All widths and font sizes are CSS pixels unless stated otherwise. Geometry
 is derived from current source and existing fixture assertions; it is not a
@@ -117,7 +119,7 @@ does not treat an older default grant as proof that the new account connected.
 | Free time | Each account has its own full-day free windows, using the provider's busy response and the existing default calendar inclusion policy with a fixed 15-minute minimum opening. The server intersects all sets and returns shared openings only when every account check is complete. Free/busy failure, reauthorization or an account change leaves shared availability incomplete. Visible events may not block time when declined, transparent or from a calendar excluded by the default availability policy; those cases are labeled on event cards. The existing One slot handoff remains available for a single default account. With multiple accounts, shared openings are a comparison snapshot only: One's current proposal rechecks the default grant, so the board does not offer a booking handoff that could miss a newly busy secondary account. Nothing is reserved by a displayed opening. |
 | Overlaps | A warning icon appears on affected event rows; a zero-overlap board uses a success icon. The server compares busy events across different accounts, excludes transparent/cancelled/declined events and suppresses mirrored occurrences. Conflict coverage is marked incomplete when any calendar's event details are unreadable. |
 | Event detail | Opens and closes on the Calendar page, shows the event title, source account and time once, then the organizer when known. Location and description remain available; a validated HTTPS conference URL provides Join meeting. The detail dialog omits the separate Google Calendar link. An event row with a validated conference URL retains its direct Join link and provider icon/name. The existing invitation response component remains mounted for actionable invitations. |
-| Conflict choice | The person chooses one meeting to keep and up to two overlapping invitations to decline, writes a separate note to each organizer and reviews the exact Calendar and Mail steps before confirmation. `POST /api/one/calendar/conflicts/review` prepares a sealed, ten-minute plan; it makes no provider change. `POST /api/one/calendar/conflicts/confirm` checks the account, event, conflict and kept-meeting state again before each decline. The dialog remains on Calendar. |
+| Conflict choice | The person chooses one meeting to keep and up to two overlapping invitations to decline, writes a separate note to each organizer and reviews the exact Calendar and Mail steps before confirmation. `POST /api/one/calendar/conflicts/workspace/review` prepares a sealed, ten-minute plan; it makes no provider change. `POST /api/one/calendar/conflicts/workspace/confirm` checks the account, event, conflict and kept-meeting state again before each decline. The dialog remains on Calendar. |
 | Partial outcome | Calendar RSVP and organizer email have independent results. A definitely failed Mail send can be reviewed for a manual email-only retry while the invitation remains declined; a sent or unknown retry is not offered again. The account board refreshes after a confirmed result when the dialog closes. Draft choices/notes survive an in-place board refresh, while a fresh provider review is required after authority changes. |
 | Recipient copy | For a new event without a user-provided title, Calendar's model instruction uses a recipient-facing title based on the verified inviter name, or a neutral title when no name is available. An explicit user title remains intact. Google owns the invitation email wrapper; the reviewed event title and description are the fields Calendar controls. On the board, decline reasons become professional, occurrence-specific Mail copy before review. The owner's reason remains intact; the final body is shown before confirmation. A changed title, time or organizer invalidates that review and requires a refresh. Chat's existing Calendar send handoff remains unchanged. |
 
@@ -165,8 +167,8 @@ not separate shipped files.
 | Utility/helper | Shared or local, role dependent | Utility13/21/550,12px≤620; genuine helper13/18/400 | Existing Back/Cancel/Edit/Done/copy/source controls remain utility or links. |
 
 The ordinary Calendar action uses the same scoped recipe as Connect's person
-row: transparent Morphy target with existing ripple/focus/disabled handling,
-44px minimum hit area, an inner 44px fully rounded neutral pill, accent ink,
+row: Morphy button with existing ripple/focus/disabled handling; the visible
+44px minimum neutral pill is the button's own hit and hover area, with accent ink
 and a 1px border mixing 32% accent with the solid card surface. The pill is
 minimum88px/padding15 on wide screens,78/11 at≤620 and72/9 at≤350; long
 labels may grow/wrap. The Board and fallback Join anchors keep validated URLs,
@@ -455,8 +457,8 @@ Owners: [workspace](../../components/calendar/calendar-connected-workspace.tsx),
 
 ### Read refresh, failure and retry
 
-Event/availability keys include owner account, connection revision/access,
-vault session epoch, selected date/zone; availability adds full-day version,
+Event/availability keys include owner account, auth generation, connection revision/access,
+selected date/zone; availability adds full-day version,
 calendar-selection JSON and duration. Mismatched old snapshots are hidden
 before effects. Matching in-flight requests deduplicate; replacement aborts old
 flight. Unmount aborts lifetime. Calendar refresh notifications are owner keyed.
@@ -512,7 +514,7 @@ Owner: [settings/read state](../../components/calendar/calendar-connected-worksp
 ## Schedule event detail: attendance and checked alternatives
 
 This modal is independently mounted from the Invitations tab's richer response
-form. Opening captures event/token/account/epoch and trigger; resets step to
+form. Opening captures event/account and trigger; resets step to
 details, offer=false, alternative date to selected Schedule day and message to
 **I can't attend our meeting. Please choose another time using the link below
 and update the invitation.** It clears former review/result/error.
@@ -525,14 +527,14 @@ and update the invitation.** It clears former review/result/error.
 | Offer fields | **Message to organizer**, textarea rows4/no authored maxLength; **Date**, **From**, **Until**, accessible **Alternative date**, **Alternative window start**, **Alternative window end**; **Alternative duration**15/30/60 minutes. Unlike shared Invitations, these are a search window and duration, not one exact proposal interval. |
 | Offer helper | **{zone}. A recipient-accessible link to checked alternatives will be included for review. The organizer chooses a time and updates the invitation.** |
 | Read-only connection | **Allow attendance changes** → manage authorization only; no review yet. |
-| **Review** / **Preparing review…** | `F+V`, selected event/calendar (fallback primary), alternative window/date/zone/duration, offer/message. Defaults declined, `send_message:false`, `exact_time:false`. Always stops at review. |
+| **Review** / **Preparing review…** | `F` plus the owner-bound Google grant. Decline-only uses `/attendance/rsvp/review` with the selected event/calendar (fallback primary); an alternative window uses `/attendance/workspace/review` with owner-reviewed Mail. Always stops at review. |
 | Missing authority/token | **Calendar access changed. Reload this invitation.** / **Sign in again to review attendance changes.** |
 | Review header | **Review your response**; **Decline your attendance at {title}.** |
 | Reviewed message | **From: {sender_label}**, **To: {recipient}**, subject/body. Remove link text from displayed message body and expose **Review recipient rescheduling link** externally. |
 | Link helper | **Link expires in 3 days. The organizer can view the offered times without signing in to One and reply with a choice.** |
 | No message | **Google Calendar will record your declined attendance.** |
 | **Edit** | Clears review → choice; no API. |
-| **Confirm** / **Confirming…** | Sends signed review ID/token under `F+V`, once. Missing Firebase **Sign in again to confirm attendance changes.** Missing review/owner token returns without request. No automatic mutation retry. |
+| **Confirm** / **Confirming…** | Sends signed review ID/token under `F` plus the selected Google grant, once, to the matching RSVP or workspace confirmation endpoint. Missing Firebase **Sign in again to confirm attendance changes.** Missing review returns without request. No automatic mutation retry. |
 | Result header | **Your response**. Declined **Your attendance was declined.** Unknown **Calendar response could not be confirmed. Check the invitation before trying again.** Other **Your attendance could not be declined.** Optional `calendar_error`. |
 | Mail result | Sent **The organizer's email was sent.** Failed/unknown supplied `email_error` or **Organizer email delivery could not be confirmed. Check Sent Mail before trying again.** Otherwise offer branch **The organizer's email was not sent.** |
 | **Done** | Closes result. Confirmed declined notifies Calendar refresh and reloads events; never cancels organizer's meeting. |
@@ -544,10 +546,9 @@ and feature Back are blocked. Parent OAuth busy disables authored controls but
 is not itself a modal-dismissal fence. Idle Back:
 review→choice (clear review), choice→details, details/result→close. X/ordinary
 close closes detail. Focus returns to originating title button or Today button.
-Lock clears selection/review/result/error. Epoch/email changes hide old
-selection; same-owner token renewal can restore editable draft only after a
-fresh authorized event read, always dropping prepared review and returning
-review to choice. Other account selection is cleared.
+Google account changes hide and clear old selection. A fresh authorized event
+read rebinds an open draft to the current event and drops a prepared review.
+Auth owner changes remount the workspace.
 
 Owner: [Schedule attendance state and dialog](../../components/calendar/calendar-connected-workspace.tsx).
 
@@ -605,7 +606,7 @@ Sources: [detail](../../components/calendar/calendar-invitation-detail.tsx),
 | Organizer | In the Calendar workspace, listed first in **Guests** with **Organiser**, its response and a visible email when the name differs. If missing from Google's attendee array, the organizer is included once from the event's organizer name or email, with an unknown response rather than an invented acceptance. Chat retains its separate **Organiser** section. |
 | Description | Optional **Description**; `<br>`/closing paragraph become newlines, HTML tags stripped, bounded entity decoding. Provider HTML is text, never mounted DOM or synthesized links. |
 | Location | Optional source `location` with decorative map icon; no invented map CTA. |
-| Guests | Calendar workspace shows **Guests ({n})** and a count summary such as **3 yes, 6 awaiting**. One full-width row per guest, with avatar, name and response; organizer first, then accepted guests, then the remaining provider order. Self is **You**; email is a tooltip, and the organizer's email is also visible when a separate name exists. `needsAction` → **Awaiting reply**; known responses use **Accepted**, **Declined** or **Maybe**; missing responses show **Response unavailable** and count as unknown. The selected account photo and unique exact Hussh connection photos may appear; Google Calendar event data does not supply arbitrary guest photo URLs, so other guests keep initials. Chat retains its existing attendee grid. |
+| Guests | Calendar workspace shows **Guests ({n})** and a count summary such as **3 yes, 6 awaiting**. One full-width row per guest, with avatar, name and response; organizer first, then accepted guests, then the remaining provider order. Only a provider-reported accepted response shows a small green check at the trailing edge of its row. Self is **You**; email is a tooltip, and the organizer's email is also visible when a separate name exists. `needsAction` → **Awaiting reply**; known responses use **Accepted**, **Declined** or **Maybe**; missing responses show **Response unavailable** and count as unknown. The selected account photo and unique exact Hussh connection photos may appear; Google Calendar event data does not supply arbitrary guest photo URLs, so other guests keep initials. Chat retains its existing attendee grid. |
 
 ### Shared RSVP controls and draft forms
 
@@ -617,27 +618,29 @@ duration from exact times; there is no duration picker in this shared form.
 
 | Path | Guard, content, call and effect |
 | --- | --- |
-| **Accept** | Voice control `calendar_invitation_accept`. Disabled busy/no `V`/`!can_respond`/already accepted. Calls `reviewAttendance` for accepted status; always stops at a visible review. No provider change yet. |
-| **Decline** | `calendar_invitation_decline`; same guards, with already declined disabled. Locally enters decline form and clears review/result. No API call. |
-| **Decline & offer another time** | `calendar_invitation_offer`; disabled busy/no `V`/cannot respond. Mounted workspace enters exact-time form. Only callers that explicitly supply `onOfferTimes` use that callback instead. |
+| **Accept** | Voice control `calendar_invitation_accept`. Disabled busy/`!can_respond`/already accepted. Calls `reviewRsvp` for accepted status; always stops at a visible review. No provider change yet. |
+| **Decline** | `calendar_invitation_decline`; disabled busy/cannot respond/already declined. Locally enters decline form and clears review/result. No API call. |
+| **Decline & offer another time** | `calendar_invitation_offer`; disabled busy/cannot respond. Mounted workspace enters exact-time form using its own Google grants. Chat requires its vault token for the existing Mail path. Only callers that explicitly supply `onOfferTimes` use that callback instead. |
 | Cannot respond | **This calendar only allows viewing. Respond from your own Calendar invitation.** |
-| Locked | **Unlock your vault to respond to this invitation.**; this form does not automatically open a credential dialog. |
 | Initial decision cue | **Review your accept response before confirming.** or **Review your decline response before confirming.** Initial accepted does not automatically prepare/execute. |
-| Decline heading/help | **Why can’t you attend?**; **Your reason will be emailed to {organizer email or "the organizer"} when you choose Decline & send email.** |
+| Decline heading/help | **Why can’t you attend?**; a Calendar-only decline is available without a reason. An optional reason can accompany an explicitly reviewed organizer email. |
 | Decline input | Visible/accessibility **Reason for declining**, textarea max8000 characters, no authored placeholder. Changing draft clears review/result. |
-| Decline send | **Decline & send email**; busy **Preparing…**; expired-review recovery **Review again**. Disabled busy/no `V`/trimmed-empty message. Prepares and can execute under the conditions below. This is an explicit send action. |
+| Decline review | **Review decline** prepares a mail-free RSVP, then **Confirm decline** performs only the Calendar response. No vault unlock or organizer message is required. |
+| Decline send | **Review decline email** in workspace (or **Decline & send email** in Chat); busy **Preparing…**; expired-review recovery **Review email again**. Disabled busy/trimmed-empty message; Chat additionally requires its existing vault token. This is an explicit send action. |
 | Offer heading/help | **Offer another time**; **Choose the exact time to propose. The duration is calculated automatically.** |
 | Offer inputs | Labels **Date**, **From**, **Until**. Accessible **Alternative date**, **Alternative start time**, **Alternative end time**. Native date/time fields; no authored placeholder. End `00:00` becomes exclusive `24:00`. |
 | Offer message | Label **Reason and message to organiser**, accessible **Message to organiser**, max8000, no placeholder. |
-| Offer send | **Check time & send email**; busy **Checking availability…**; expired review **Review again**. Disabled busy/no `V`/missing date/blank message/end≤start except midnight. Calls preparation with exact interval; server derives elapsed duration in zone, including DST. |
+| Offer send | **Check time & send email**; busy **Checking availability…**; expired review **Review again**. Disabled busy/missing date/blank message/end≤start except midnight; Chat additionally requires its existing vault token. Calls preparation with exact interval; server derives elapsed duration in zone, including DST. |
 | Form **Back** | Disabled busy; returns local decision to view. No confirmation or provider write. |
 
 ### Prepare, review and confirmation branches
 
-Preparation binds `event_id,calendar_id,expected_account_email`, response status,
-`offer_times,send_message,exact_time`, draft message and date/zone/start/end/duration.
-Accept prepares accepted/no message; decline and offer prepare declined with
-Mail enabled; offer sets exact-time. The API table below gives the full wire.
+Preparation binds `event_id,calendar_id,expected_account_email` and response
+status. Calendar-only accept/decline uses the strict RSVP route, which rejects
+Mail and alternative-time fields. Explicit organizer Mail and offers use the
+workspace route with reviewed message and date/zone/start/end/duration; offer
+sets exact-time. Chat's Mail handoff keeps its existing vault route. The API
+table below gives the full wire.
 
 An explicit send CTA can prepare **and confirm in the same interaction** when:
 the prepared recipient equals the original organizer email case-insensitively,
@@ -662,14 +665,14 @@ two-click or universal immediate-send claim.
 
 Confirmation sends `review_id,review_token`, not freshly reconstructed editable
 fields. One-flight and handoff guards prevent duplicate local submission;
-epoch/mount fences prevent stale presentation. This does not imply provider
+auth-owner/mount fences prevent stale workspace presentation. This does not imply provider
 writes can be blindly retried.
 
 In the mounted Invitations tab, a review with Mail recipient starts confirmation
 and hands a settlement Promise to the same One conversation. Handoff contains
 owner/epoch/title/recipient/outcome, excludes signed review tokens, and does not
 ask the model to approve or resend. The in-flight operation can settle after
-the page unmounts while remaining bound to the same vault epoch. Without that
+the page unmounts while remaining bound to the same authenticated owner. Without that
 handoff, shared promise feedback is **Updating your invitation…**, followed by
 the actual separate outcomes below. Confirmed accepted/declined/tentative
 invalidates the owner's Calendar resources. No refresh means no fabricated
@@ -698,13 +701,13 @@ Edit/Change time, Invitations, Close and idle outside/Escape/feature Back.
 
 | Trigger | Exact copy and recovery |
 | --- | --- |
-| Missing `V` at preparation | **Unlock your vault before changing your response.** |
+| Missing Chat Mail authority at preparation | **Unlock your vault to send an organizer email.** Direct workspace actions use the signed-in owner's Google grant. |
 | Explicit send lacks prepared recipient | **The organizer email could not be prepared. Nothing was sent. Try again after updating Calendar.** |
 | Unexpected action exception | **Calendar could not complete this request. Please try again.** |
 | Settlement non-Error fallback | **The response could not be confirmed. Check Calendar and Sent Mail before retrying.** |
 | Feedback fallback | **Your response could not be confirmed.** |
 | Malformed confirmation outcome | **Calendar did not confirm the outcome. Check the invitation before retrying.** |
-| `calendar_review_expired` | Clears review, keeps reason/terms, sets `reviewRequired`. Next main action is **Review again**, and a renewed preparation must stop at visible review. |
+| `calendar_review_expired` | Clears review, keeps reason/terms, sets `reviewRequired`. Next email action is **Review email again**, and a renewed preparation must stop at visible review. |
 | Permission/connect/reconnect failure | **Allow Calendar access**; requests read+calendar-list for list permission, otherwise manage. Disabled while action is busy. |
 | `GMAIL*` reason | **Enable Mail sending**, when caller supplies callback. Calendar and Mail scopes remain independent. |
 | Snapshot account mismatch | **The connected Calendar account changed. Load this invitation again.**; discard read. |
@@ -713,9 +716,9 @@ Edit/Change time, Invitations, Close and idle outside/Escape/feature Back.
 
 Failures appear inline with `role="alert"` and shared transient error feedback.
 No generic automatic mutation retry is introduced. The inner invitation owner
-is keyed by user, account, vault epoch, selected event/calendar, decision,
+is keyed by user, account, selected event/calendar, decision,
 window and initial terms; changes reset private draft/review/selection.
-The tab's 60-second snapshot key includes owner/lowercase account/epoch,
+The tab's 60-second snapshot key includes owner/lowercase account/auth generation,
 connection revision, current day/zone/padded window and selected IDs.
 It is memory-only `CacheService`; expired rows can remain during refresh.
 An empty resource key in chat forces a live read for an explicit invitation
@@ -1097,8 +1100,10 @@ linked Python/Pydantic and TypeScript definitions own executable validation.
 | POST `schedule/today` | Today; `{date,time_zone}` | `F` + current Google read/list grants | `events,date,time_zone,calendars,unreadable_calendars,calendar_options`; shared row/catalog read. |
 | POST `schedule/availability` | Free time; `date,time_zone,start_time:"00:00",end_time:"24:00",duration_minutes:15\|30\|60`, optional `calendar_overrides` boolean map | `F` + Google read/list | Top3maximal windows `start_at,end_at,duration_minutes`, `full_count,requested_duration_minutes,date,time_zone,time_min,time_max,calendars,calendar_options`. No reservation. |
 | POST `invitations` | Tab/shared chat; `time_zone`, optional `selected_calendar_id,selected_event_id,start_at,end_at` | `F` + Google read/list | `account_email,events,pending_count,time_zone,start_at,end_at,complete,unreadable_calendars`; backend also catalog. One shared read supplies row, status and conflicts. |
-| POST `attendance/review` | Both mounted response flows; `date,time_zone,start_time,end_time,duration_minutes,event_id,calendar_id` default primary, optional `expected_account_email,response_status`; `offer_times,send_message,exact_time,message` | `F+V`, same owner, Google manage; separate Mail preparation authority when needed | `review_id,review_token,title,calendar_id,response_status,conflicts,unchecked_calendars,openings,exact_time,recipient,subject,message,rescheduling_link,sender_label,expires_at`; prepare sealed10-minute review, no RSVP/send yet. Message≤8000, duration1–1440. |
-| POST `attendance/confirm` | Exact browser confirmation; `{review_id,review_token}` | `F+V`, same owner, sealed review/current manage grant | `calendar:accepted\|declined\|tentative\|failed\|unknown`, `email:not_sent\|sent\|failed\|unknown`, separate safe errors. RSVP patch; optional send only after confirmed decline. |
+| POST `attendance/review`, `attendance/confirm` | Legacy Chat Mail review/confirmation | `F+V`, same owner, Google manage; separate Mail grant when needed | Sealed ten-minute review and separate Calendar/Mail outcomes remain for Chat. |
+| POST `attendance/rsvp/review`, `attendance/rsvp/confirm` | Direct workspace and fallback Calendar-only accept/decline; event/calendar/account/expected email/status/zone then sealed review ID/token | `F` + same owner's Google manage grant; no vault | Strict review excludes Mail, proposed times and unknown fields; confirm rejects any sealed Mail/proposed-time plan. No provider change before review confirmation. |
+| POST `attendance/workspace/review`, `attendance/workspace/confirm` | Direct workspace organizer Mail, exact alternative times and failed-only Mail retry | `F` + owner-bound Calendar and, when sending, Gmail grants; no vault | Bind exact event version, recipient, message, account and owner to ten-minute review; claim once and return separate Calendar/Mail outcomes. |
+| POST `conflicts/workspace/review`, `conflicts/workspace/confirm` | Board keep-one/decline-selected flow | `F` + each selected owner's Calendar and Gmail grants; no vault | Complete conflict coverage, sealed per-account plan, preflight and child ledgers; expose partial/unknown outcomes. |
 | POST `rescheduling/options` | Public reader `{token}` | Purpose-bound expiring capability, no `F/V`;10/min limiter | `openings,time_zone,reply_to,event_link?`; recheck original offered future times only; no event contents/booking. Private no-store/no-referrer. |
 | POST `insights` | `{date,time_zone}` | `F` + Google read/list | `complete,days[].date/minutes/meetings,meeting_count,meeting_minutes,overlaps,back_to_back,recurring[].title/minutes,focus[].start_at/end_at,time_zone`; deterministic live-derived metrics, no model call. |
 | POST `meetings` | `{date,time_zone,page}`; page0–1000 | `F` + Google read/list; independent artifact grants | `complete,window_days:30,next_page,meetings`;6 candidates/page. UI description hardcodes30days; it does not display arbitrary `window_days`. |

@@ -6,7 +6,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from api.middleware import (
     require_firebase_auth,
@@ -17,6 +17,7 @@ from api.middlewares.rate_limit import limiter
 from api.routes.one.calendar import _http
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
 from hushh_mcp.services.owner_placement_guard import (
+    hub_content_firebase,
     hub_content_firebase_read_only,
     hub_content_owner,
 )
@@ -26,7 +27,8 @@ router = APIRouter(prefix="/api/one/calendar", tags=["One Calendar Workspace"])
 
 # First-party Schedule reads use Firebase identity plus the owner-bound Google
 # Calendar OAuth grant enforced by CalendarScheduleService on every provider call.
-# This grants no vault, PKM, delegated-agent or attendance mutation authority.
+# Calendar mutations below have separate, explicit Firebase + Google grant
+# boundaries; read authority alone never grants a mutation.
 class CalendarDay(BaseModel):
     date: str = Field(min_length=10, max_length=10)
     time_zone: str = Field(min_length=1, max_length=128)
@@ -76,6 +78,34 @@ class CalendarAttendanceConfirm(BaseModel):
     review_token: str = Field(min_length=40, max_length=40000)
 
 
+class CalendarRsvpReview(BaseModel):
+    """A calendar-only response; Mail and proposed-time fields are forbidden."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: str = Field(default="default", min_length=1, max_length=128)
+    event_id: str = Field(min_length=1, max_length=2048)
+    calendar_id: str = Field(default="primary", min_length=1, max_length=1024)
+    response_status: Literal["accepted", "declined"]
+    time_zone: str = Field(default="UTC", min_length=1, max_length=128)
+    expected_account_email: str | None = Field(default=None, max_length=512)
+
+
+class CalendarRsvpConfirm(CalendarAttendanceConfirm):
+    model_config = ConfigDict(extra="forbid")
+
+
+class CalendarWorkspaceAttendanceReview(CalendarAttendanceReview):
+    """Explicit first-party Calendar action, including reviewed organizer Mail."""
+
+    model_config = ConfigDict(extra="forbid")
+    response_status: Literal["accepted", "declined"] = "declined"
+
+
+class CalendarWorkspaceAttendanceConfirm(CalendarAttendanceConfirm):
+    model_config = ConfigDict(extra="forbid")
+
+
 class CalendarPublicOptions(BaseModel):
     token: str = Field(min_length=40, max_length=40000)
 
@@ -119,6 +149,14 @@ class CalendarConflictReviewRequest(CalendarDay):
 class CalendarConflictConfirmRequest(BaseModel):
     review_id: str = Field(min_length=16, max_length=128)
     review_token: str = Field(min_length=40, max_length=200000)
+
+
+class CalendarWorkspaceConflictReview(CalendarConflictReviewRequest):
+    model_config = ConfigDict(extra="forbid")
+
+
+class CalendarWorkspaceConflictConfirm(CalendarConflictConfirmRequest):
+    model_config = ConfigDict(extra="forbid")
 
 
 @router.post("/board/day")
@@ -174,6 +212,45 @@ async def calendar_conflict_confirm(
         return await CalendarConflictService().confirm(
             user_id=token["user_id"], **payload.model_dump()
         )
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/conflicts/workspace/review")
+async def calendar_workspace_conflict_review(
+    payload: CalendarWorkspaceConflictReview,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase),
+):
+    """Prepare exact Calendar and organizer Mail terms for direct workspace review."""
+    from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError
+    from hushh_mcp.services.gmail_receipts_service import GmailApiError
+
+    try:
+        from hushh_mcp.services.calendar_conflict_service import CalendarConflictService
+
+        response.headers["Cache-Control"] = "private, no-store"
+        return await CalendarConflictService().review(user_id=firebase_uid, **payload.model_dump())
+    except (GmailDeliveryError, GmailApiError) as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "reason_code": exc.code, "message": str(exc)},
+        ) from exc
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/conflicts/workspace/confirm")
+async def calendar_workspace_conflict_confirm(
+    payload: CalendarWorkspaceConflictConfirm,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase),
+):
+    try:
+        from hushh_mcp.services.calendar_conflict_service import CalendarConflictService
+
+        response.headers["Cache-Control"] = "private, no-store"
+        return await CalendarConflictService().confirm(user_id=firebase_uid, **payload.model_dump())
     except Exception as exc:
         raise _http(exc) from exc
 
@@ -260,6 +337,28 @@ async def attendance_review(
         raise _http(exc) from exc
 
 
+@router.post("/attendance/rsvp/review")
+async def attendance_rsvp_review(
+    payload: CalendarRsvpReview,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase),
+):
+    """Review only the signed-in owner's Calendar RSVP under its Google grant."""
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return await _selected_schedule(payload.account_id).review(
+            user_id=firebase_uid,
+            **payload.model_dump(exclude={"account_id"}, exclude_none=True),
+            offer_times=False,
+            send_message=False,
+            mail_only_retry=False,
+            exact_time=False,
+            message="",
+        )
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
 @router.post("/attendance/confirm")
 async def attendance_confirm(
     payload: CalendarAttendanceConfirm,
@@ -270,6 +369,62 @@ async def attendance_confirm(
     try:
         return await _selected_schedule(payload.account_id).confirm(
             user_id=token["user_id"], **payload.model_dump(exclude={"account_id"})
+        )
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/attendance/rsvp/confirm")
+async def attendance_rsvp_confirm(
+    payload: CalendarRsvpConfirm,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase),
+):
+    """Confirm only a sealed, mail-free RSVP; never consume a Mail review here."""
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return await _selected_schedule(payload.account_id).confirm_rsvp(
+            user_id=firebase_uid,
+            **payload.model_dump(exclude={"account_id"}),
+        )
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/attendance/workspace/review")
+async def attendance_workspace_review(
+    payload: CalendarWorkspaceAttendanceReview,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase),
+):
+    """Prepare a first-party Calendar action with exact owner-reviewed terms."""
+    from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError
+    from hushh_mcp.services.gmail_receipts_service import GmailApiError
+
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return await _selected_schedule(payload.account_id).review(
+            user_id=firebase_uid, **payload.model_dump(exclude={"account_id"})
+        )
+    except (GmailDeliveryError, GmailApiError) as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "reason_code": exc.code, "message": str(exc)},
+        ) from exc
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/attendance/workspace/confirm")
+async def attendance_workspace_confirm(
+    payload: CalendarWorkspaceAttendanceConfirm,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase),
+):
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return await _selected_schedule(payload.account_id).confirm(
+            user_id=firebase_uid, **payload.model_dump(exclude={"account_id"})
         )
     except Exception as exc:
         raise _http(exc) from exc

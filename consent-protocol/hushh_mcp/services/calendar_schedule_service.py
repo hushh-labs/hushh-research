@@ -1036,10 +1036,31 @@ class CalendarScheduleService:
             "expires_at": datetime.fromtimestamp(plan["expires"], UTC).isoformat(),
         }
 
+    async def confirm_rsvp(self, *, user_id: str, review_id: str, review_token: str):
+        """Use Firebase authority only for an exact, mail-free Calendar review."""
+        plan = self._open(review_token, "calendar-review-v1")
+        account_id = getattr(self.calendar.connections, "account_id", "default")
+        if (
+            plan.get("account_id", "default") != account_id
+            or plan.get("review_id") != review_id
+            or plan.get("response_status") not in {"accepted", "declined"}
+            or plan.get("mail")
+            or plan.get("proposed_time")
+            or plan.get("mail_only_retry")
+        ):
+            raise _error("This review cannot be used for a Calendar-only response.", 403)
+        return await self.confirm(user_id=user_id, review_id=review_id, review_token=review_token)
+
     async def confirm(self, *, user_id: str, review_id: str, review_token: str):
         plan = self._open(review_token, "calendar-review-v1")
         if plan["user_id"] != user_id or plan["review_id"] != review_id:
             raise _error("This review belongs to another account.", 403)
+        if plan.get("account_id", "default") != getattr(
+            self.calendar.connections, "account_id", "default"
+        ):
+            raise _error(
+                "The connected Calendar account changed. Review this invitation again.", 409
+            )
         params = {"review_id": review_id, "user_id": user_id}
         claim = await self._sql(
             "UPDATE calendar_attendance_reviews SET state = 'executing' WHERE review_id = :review_id AND user_id = :user_id AND state = 'prepared' AND expires_at > NOW() RETURNING review_id",

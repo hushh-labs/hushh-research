@@ -43,10 +43,14 @@ test("Calendar product font and real action targets survive responsive boundarie
   await expect(invitationJoin).toHaveCSS("background-color", /rgb/);
   for (const name of ["Accept", "Decline", "Decline & offer another time"]) {
     const button = dialog.getByRole("button", { name, exact: true });
-    const outer = (await button.boundingBox())!;
-    const inner = await button.locator(":scope > span > span").first().boundingBox();
-    expect(outer.height, `${name} target`).toBeGreaterThanOrEqual(44);
-    expect(inner?.height, `${name} pill`).toBeGreaterThanOrEqual(44);
+    const normal = (await button.boundingBox())!;
+    expect(normal.height, `${name} target`).toBeGreaterThanOrEqual(44);
+    await button.hover();
+    const hovered = (await button.boundingBox())!;
+    expect(hovered.width, `${name} hover width`).toBe(normal.width);
+    expect(hovered.height, `${name} hover height`).toBe(normal.height);
+    expect(hovered.x, `${name} hover alignment`).toBe(normal.x);
+    expect(await button.evaluate(element => getComputedStyle(element).borderRadius)).toBe("999px");
   }
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
@@ -63,7 +67,7 @@ test("three-account Board keeps its measure, heading roles and account actions a
     const overlap = (await page.getByRole("button", { name: /^Review 1 overlapping meeting for QA Design Review/ }).boundingBox())!;
     expect(overlap.height, `overlap target at ${width}px`).toBeGreaterThanOrEqual(44);
   }
-  const addPill = page.getByRole("button", { name: "Add account" }).locator(":scope > span > span").first();
+  const addPill = page.getByRole("button", { name: "Add account" });
   const lightPill = await addPill.evaluate(element => getComputedStyle(element).backgroundColor);
   await page.evaluate(() => document.documentElement.classList.add("dark"));
   const darkPill = await addPill.evaluate(element => getComputedStyle(element).backgroundColor);
@@ -111,8 +115,8 @@ for (const width of [390, 1440]) {
     await dialog.getByRole("button", { name: "Confirm selected changes" }).click();
     await expect(dialog.getByText("Calendar: declined · Mail: sent")).toBeVisible();
     expect(page.url()).toContain("/calendar-connected-fixture?board=1");
-    expect(calls.some(call => call.path.endsWith("/conflicts/review"))).toBe(true);
-    expect(calls.some(call => call.path.endsWith("/conflicts/confirm"))).toBe(true);
+    expect(calls.some(call => call.path.endsWith("/conflicts/workspace/review"))).toBe(true);
+    expect(calls.some(call => call.path.endsWith("/conflicts/workspace/confirm"))).toBe(true);
     expect(unexpectedRequests).toEqual([]);
     expect(errors).toEqual([]);
   });
@@ -394,11 +398,14 @@ for (const width of [320, 390, 1440]) {
     expect(guestBounds.every(row => row.x + row.rowWidth <= bounds.x + bounds.width + 1)).toBe(true);
     const actionButtons = dialog.getByRole("button", { name: /^(Accept|Decline|Decline & offer another time)$/ });
     for (const button of await actionButtons.all()) {
-      const buttonBounds = (await button.boundingBox())!;
-      const pillBounds = (await button.locator(":scope > span > span").boundingBox())!;
-      expect(Math.abs(buttonBounds.x - pillBounds.x)).toBeLessThanOrEqual(1);
-      expect(Math.abs(buttonBounds.width - pillBounds.width)).toBeLessThanOrEqual(1);
-      expect(buttonBounds.height).toBeGreaterThanOrEqual(44);
+      const normal = (await button.boundingBox())!;
+      expect(normal.height).toBeGreaterThanOrEqual(44);
+      await button.hover();
+      const hovered = (await button.boundingBox())!;
+      expect(hovered.width).toBe(normal.width);
+      expect(hovered.height).toBe(normal.height);
+      expect(hovered.x).toBe(normal.x);
+      expect(await button.evaluate(element => getComputedStyle(element).borderRadius)).toBe("999px");
     }
     await expect(page.locator('[data-slot="dialog-overlay"]')).toBeVisible();
     expect(await page.locator('[data-slot="dialog-overlay"]').evaluate(node => getComputedStyle(node).backdropFilter)).not.toBe("none");
@@ -418,10 +425,10 @@ for (const width of [320, 390, 1440]) {
     await accept.scrollIntoViewIfNeeded();
     await accept.click();
     await expect(page.getByText("This time is already booked")).toBeVisible();
-    expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(0);
+    expect(calls.filter(call => call.path.endsWith("/attendance/rsvp/confirm"))).toHaveLength(0);
     await page.getByRole("button", { name: "Accept anyway" }).click();
     await expect(dialog).toBeHidden();
-    expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(1);
+    expect(calls.filter(call => call.path.endsWith("/attendance/rsvp/confirm"))).toHaveLength(1);
     await page.getByRole("tab", { name: "Responded", exact: true }).click();
     await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" })).toBeVisible();
     await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
@@ -587,11 +594,11 @@ test("decline reason sends once and returns to the same Calendar page", async ({
   await page.getByRole("button", { name: "Review decline email" }).click();
   await expect(page.getByText("To: qa-organizer-0@example.test")).toBeVisible();
   await expect(page.getByText(/I have another commitment\./)).toBeVisible();
-  expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(0);
+  expect(calls.filter(call => call.path.endsWith("/attendance/workspace/confirm"))).toHaveLength(0);
   await page.getByRole("button", { name: "Decline & send email" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByTestId("calendar-action")).toHaveText("");
   expect(page.url()).toContain("/calendar-connected-fixture");
-  expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(1);
+  expect(calls.filter(call => call.path.endsWith("/attendance/workspace/confirm"))).toHaveLength(1);
   expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
 });

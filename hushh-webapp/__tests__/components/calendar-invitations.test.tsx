@@ -18,8 +18,8 @@ let outcome = { calendar: "accepted", email: "not_sent", calendar_error: null, e
 const onConnect = vi.fn(), onMailConnect = vi.fn(), onResult = vi.fn();
 function view(extra: object = {}) { return <CalendarInvitations userId="owner" accountEmail="owner@example.test" zone="UTC" getIdToken={async () => "synthetic-firebase"} onConnect={onConnect} onMailConnect={onMailConnect} onResult={onResult} {...extra} />; }
 function response(body: object, status = 200) { return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }); }
-const mutations = () => mock.apiFetch.mock.calls.filter(([path]) => String(path).endsWith("/attendance/confirm"));
-const preparations = () => mock.apiFetch.mock.calls.filter(([path]) => String(path).endsWith("/attendance/review"));
+const mutations = () => mock.apiFetch.mock.calls.filter(([path]) => String(path).includes("/attendance/") && String(path).endsWith("/confirm"));
+const preparations = () => mock.apiFetch.mock.calls.filter(([path]) => String(path).includes("/attendance/") && String(path).endsWith("/review"));
 
 beforeEach(() => {
   vi.spyOn(Date, "now").mockReturnValue(Date.parse("2030-10-14T09:00:00Z"));
@@ -30,8 +30,8 @@ beforeEach(() => {
   mock.apiFetch.mockImplementation(async (path: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body));
     if (path.endsWith("/invitations")) return response({ events: invitations, pending_count: invitations.filter(e => e.response_status === "needsAction").length, unreadable_calendars: [], start_at: "2030-10-14T00:00:00Z", end_at: "2031-01-12T00:00:00Z", time_zone: "UTC", complete: true });
-    if (path.endsWith("/attendance/review")) return response({ review_id: "review-id", review_token: "memory-only-review", title: pending.title, start: pending.start, end: pending.end, response_status: body.response_status, conflicts: body.response_status === "accepted" ? [{ title: "Existing meeting", start: pending.start, end: pending.end }] : [], recipient: body.offer_times || body.send_message ? "priya@example.test" : null, subject: body.offer_times ? "Another time for Client Sync" : body.send_message ? "Unable to attend: Client Sync" : null, message: body.offer_times ? `${body.message}\n\nhttps://one.example.test/calendar/reschedule#encrypted-capability` : body.send_message ? body.message : null, openings: body.offer_times ? [{ start_at: "2030-10-15T10:00:00Z", end_at: "2030-10-15T10:45:00Z" }] : [], expires_at: "2030-10-14T09:00:00Z" });
-    if (path.endsWith("/attendance/confirm")) {
+    if (path.includes("/attendance/") && path.endsWith("/review")) return response({ review_id: "review-id", review_token: "memory-only-review", title: pending.title, start: pending.start, end: pending.end, response_status: body.response_status, conflicts: body.response_status === "accepted" ? [{ title: "Existing meeting", start: pending.start, end: pending.end }] : [], recipient: body.offer_times || body.send_message ? "priya@example.test" : null, subject: body.offer_times ? "Another time for Client Sync" : body.send_message ? "Unable to attend: Client Sync" : null, message: body.offer_times ? `${body.message}\n\nhttps://one.example.test/calendar/reschedule#encrypted-capability` : body.send_message ? body.message : null, openings: body.offer_times ? [{ start_at: "2030-10-15T10:00:00Z", end_at: "2030-10-15T10:45:00Z" }] : [], expires_at: "2030-10-14T09:00:00Z" });
+    if (path.includes("/attendance/") && path.endsWith("/confirm")) {
       invitations[0] = { ...invitations[0]!, response_status: outcome.calendar as "accepted" | "declined" };
       return response(outcome);
     }
@@ -68,8 +68,11 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(guests).toHaveLength(4);
     expect(guests[0]).toHaveTextContent("Priya Mehta");
     expect(guests[0]).toHaveTextContent("Organiser · Accepted");
+    expect(guests[0].querySelector("[data-accepted-indicator]")).toBeInTheDocument();
     expect(guests[1]).toHaveTextContent("Manish");
+    expect(guests[1].querySelector("[data-accepted-indicator]")).toBeInTheDocument();
     expect(guests[2]).toHaveTextContent("Awaiting reply");
+    expect(guests[2].querySelector("[data-accepted-indicator]")).not.toBeInTheDocument();
     expect(screen.getByText("2 yes, 2 awaiting")).toBeInTheDocument();
   });
 
@@ -84,6 +87,7 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(guests).toHaveLength(3);
     expect(guests[0]).toHaveTextContent("Priya Mehta");
     expect(guests[0]).toHaveTextContent("Organiser · Response unavailable");
+    expect(guests[0].querySelector("[data-accepted-indicator]")).not.toBeInTheDocument();
     expect(screen.getByText("1 yes, 1 awaiting, 1 unknown")).toBeInTheDocument();
   });
 
@@ -114,12 +118,59 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(await screen.findByText("This time is already booked")).toBeInTheDocument();
     expect(mutations()).toHaveLength(0);
     const body = JSON.parse(preparations()[0]?.[1].body);
-    expect(body).toMatchObject({ event_id: pending.id, calendar_id: pending.calendar_id, response_status: "accepted", offer_times: false, duration_minutes: 45 });
+    expect(body).toMatchObject({ event_id: pending.id, calendar_id: pending.calendar_id, response_status: "accepted", offer_times: false, duration_minutes: 45, send_message: false });
+    expect(preparations()[0]?.[0]).toBe("/api/one/calendar/attendance/review");
     const button = screen.getByRole("button", { name: "Accept anyway" });
     fireEvent.click(button); fireEvent.click(button);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(mutations()).toHaveLength(1); expect(onResult).toHaveBeenCalledOnce(); expect(onConnect).not.toHaveBeenCalled();
     expect(JSON.parse(mutations()[0]?.[1].body)).toEqual({ review_id: "review-id", review_token: "memory-only-review" });
+    expect(mutations()[0]?.[0]).toBe("/api/one/calendar/attendance/confirm");
+  });
+
+  it("lets a locked workspace owner accept without a vault capability or Mail authority", async () => {
+    mock.token = null;
+    render(view({ workspaceLayout: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
+    expect(screen.queryByText(/Unlock your vault to respond/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Accept", exact: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "Accept anyway" }));
+    await waitFor(() => expect(mutations()).toHaveLength(1));
+    expect(preparations()[0]?.[0]).toBe("/api/one/calendar/attendance/rsvp/review");
+    expect(mutations()[0]?.[0]).toBe("/api/one/calendar/attendance/rsvp/confirm");
+    for (const [, request] of [...preparations(), ...mutations()]) {
+      expect(request.headers.Authorization).toBe("Bearer synthetic-firebase");
+      expect(request.headers).not.toHaveProperty("X-Hushh-Consent");
+    }
+  });
+
+  it("lets a locked workspace owner review a Calendar-only decline", async () => {
+    mock.token = null;
+    outcome.calendar = "declined";
+    render(view({ workspaceLayout: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
+    fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Review decline" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm decline" }));
+    await waitFor(() => expect(mutations()).toHaveLength(1));
+    expect(preparations()[0]?.[0]).toBe("/api/one/calendar/attendance/rsvp/review");
+    expect(JSON.parse(preparations()[0]?.[1].body)).toMatchObject({ response_status: "declined" });
+    expect(JSON.parse(preparations()[0]?.[1].body)).not.toHaveProperty("message");
+    expect(mutations()[0]?.[1].headers).not.toHaveProperty("X-Hushh-Consent");
+  });
+
+  it("offers a reviewed alternative from the workspace without vault unlock", async () => {
+    mock.token = null;
+    outcome = { calendar: "declined", email: "sent", calendar_error: null, email_error: null };
+    render(view({ workspaceLayout: true, initialFilter: "all", initialEventId: pending.id, initialCalendarId: pending.calendar_id, initialDecision: "offer_times" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Message to organiser" }), { target: { value: "Could we meet tomorrow?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Check time & send email" }));
+    await waitFor(() => expect(mutations()).toHaveLength(1));
+    expect(preparations()[0]?.[0]).toBe("/api/one/calendar/attendance/workspace/review");
+    expect(mutations()[0]?.[0]).toBe("/api/one/calendar/attendance/workspace/confirm");
+    for (const [, request] of [...preparations(), ...mutations()]) {
+      expect(request.headers).not.toHaveProperty("X-Hushh-Consent");
+    }
   });
 
   it("declines only after confirmation and moves the response to Responded", async () => {
@@ -343,9 +394,9 @@ it("discards an expired token, preserves the reason and requires fresh review", 
   fireEvent.change(screen.getByLabelText("Reason for declining"), { target: { value: "Unavailable." } });
   fireEvent.click(screen.getByRole("button", { name: "Review decline email" }));
   fireEvent.click(await screen.findByRole("button", { name: "Decline & send email" }));
-  await screen.findByRole("button", { name: "Review again" });
+  await screen.findByRole("button", { name: "Review email again" });
   expect(screen.getByLabelText("Reason for declining")).toHaveValue("Unavailable.");
-  fireEvent.click(screen.getByRole("button", { name: "Review again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review email again" }));
   await screen.findByText("Decline invitation?");
   expect(mutations()).toHaveLength(1);
 });

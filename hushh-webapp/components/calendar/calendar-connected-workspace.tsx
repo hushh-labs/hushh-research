@@ -22,7 +22,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { useVault } from "@/lib/vault/vault-context";
-import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
@@ -59,18 +60,18 @@ type Props = {
   connectionRevision?: number;
 };
 
-/** Schedule uses signed-in Google consent; attendance retains vault-owner authority. */
+/** First-party Calendar reviews use the signed-in owner's Google grant. */
 export function CalendarConnectedWorkspace(props: Props) {
-  const { vaultOwnerToken, ownerTokenStatus } = useVault();
+  const { vaultOwnerToken } = useVault();
   if (props.status.accounts?.length && props.onAddAccount && props.onDisconnectAccount && props.onReconnectAccount) {
     return <CalendarAccountBoard key={props.userId} {...props} onAddAccount={props.onAddAccount}
       onReconnectAccount={props.onReconnectAccount}
       onDisconnectAccount={props.onDisconnectAccount} token={vaultOwnerToken} />;
   }
-  return <ConnectedSchedule key={props.userId} {...props} token={vaultOwnerToken} ownerTokenStatus={ownerTokenStatus} />;
+  return <ConnectedSchedule key={props.userId} {...props} token={vaultOwnerToken} />;
 }
 
-function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconnect, onMailConnect, connectionNotice, getIdToken, connectionRevision, token, ownerTokenStatus }: Props & { token: string | null; ownerTokenStatus: "locked" | "valid" | "renewing" | "unavailable" }) {
+function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconnect, onMailConnect, connectionNotice, getIdToken, connectionRevision, token }: Props & { token: string | null }) {
   const getIdTokenRef = useRef(getIdToken);
   getIdTokenRef.current = getIdToken;
   const [tab, setTab] = useState("schedule");
@@ -104,6 +105,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
   const [endTime, setEndTime] = useState("17:00");
   const [duration, setDuration] = useState<15 | 30 | 60>(15);
   const epoch = snapshotVaultSessionEpoch();
+  const ownerGeneration = snapshotValidatedAuthSessionOwner()?.generation ?? 0;
   const calendarAccountKey = `${status.google_email}:${connectionRevision || 0}`;
   const [sourceCatalog, setSourceCatalog] = useState<{ key: string; calendars: CalendarSource[] }>({ key: "", calendars: [] });
   const [appliedSelection, setAppliedSelection] = useState<{ key: string; overrides: Record<string, boolean> }>({ key: "", overrides: {} });
@@ -119,8 +121,8 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
   useEffect(() => CacheService.getInstance().subscribe(event => {
     if (event.type === "set" && event.key === calendarRefreshKey(userId)) setCalendarRevision(value => value + 1);
   }), [userId]);
-  const eventKey = `${calendarRevision}:${date}:${zone}:${epoch}:${status.google_email}:${connectionRevision || 0}:${status.access_level}:${status.calendar_list_access}`;
-  const availabilityKey = `full-day-v1:${calendarRevision}:${selectionJson}:${date}:${zone}:${duration}:${epoch}:${status.google_email}:${connectionRevision || 0}:${status.access_level}:${status.calendar_list_access}`;
+  const eventKey = `${calendarRevision}:${date}:${zone}:${ownerGeneration}:${status.google_email}:${connectionRevision || 0}:${status.access_level}:${status.calendar_list_access}`;
+  const availabilityKey = `full-day-v1:${calendarRevision}:${selectionJson}:${date}:${zone}:${duration}:${ownerGeneration}:${status.google_email}:${connectionRevision || 0}:${status.access_level}:${status.calendar_list_access}`;
   const currentReadKeys = useRef({ events: eventKey, availability: availabilityKey });
   currentReadKeys.current = { events: eventKey, availability: availabilityKey };
   const [eventStateKey, setEventStateKey] = useState("");
@@ -145,9 +147,8 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
   if (availabilityError) availabilityPreview.current = null;
   const refreshingAvailability = availabilityLoading && !availabilityError ? availabilityPreview.current?.value : null;
   const [storedSelected, setSelected] = useState<CalendarEventSummary | null>(null);
-  const [selectedEpoch, setSelectedEpoch] = useState(epoch);
   const [selectedEmail, setSelectedEmail] = useState(status.google_email);
-  const selected = selectedEpoch === epoch && selectedEmail === status.google_email ? storedSelected : null;
+  const selected = selectedEmail === status.google_email ? storedSelected : null;
   const [step, setStep] = useState<"details" | "choice" | "review" | "result">("details");
   const [offerTimes, setOfferTimes] = useState(false);
   const [message, setMessage] = useState("I can't attend our meeting. Please choose another time using the link below and update the invitation.");
@@ -160,7 +161,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
   const refreshButton = useRef<HTMLButtonElement | null>(null);
   const accountMenuButton = useRef<HTMLButtonElement | null>(null);
   const settingsTrigger = useRef<HTMLButtonElement | null>(null);
-  const selection = useRef<{ event: CalendarEventSummary; token: string | null; email: string | null | undefined } | null>(null);
+  const selection = useRef<{ event: CalendarEventSummary; email: string | null | undefined } | null>(null);
   const eventRequest = useRef(0), availabilityRequest = useRef(0);
   const lastReadStarted = useRef({ events: 0, availability: 0 });
   const loadedEventKey = useRef<string | null>(null);
@@ -171,7 +172,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
     const controller = new AbortController(); lifetime.current = controller;
     return () => { controller.abort(); eventFlight.current?.controller.abort(); availabilityFlight.current?.controller.abort(); };
   }, []);
-  const windowParams = { vaultOwnerToken: token || "", date: alternativeDate, timeZone: zone, startTime, endTime, durationMinutes: duration };
+  const windowParams = { date: alternativeDate, timeZone: zone, startTime, endTime, durationMinutes: duration };
 
   const loadEvents = useCallback(async () => {
     if (currentReadKeys.current.events !== eventKey) return;
@@ -181,9 +182,9 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
     const controller = new AbortController();
     eventFlight.current = { key: eventKey, controller };
     lastReadStarted.current.events = Date.now();
-    const requestEpoch = snapshotVaultSessionEpoch();
+    const requestOwner = snapshotValidatedAuthSessionOwner();
     const request = ++eventRequest.current;
-    const isCurrent = () => currentReadKeys.current.events === eventKey && !controller.signal.aborted && isVaultSessionEpochCurrent(requestEpoch) && !lifetime.current?.signal.aborted && request === eventRequest.current;
+    const isCurrent = () => currentReadKeys.current.events === eventKey && !controller.signal.aborted && (!requestOwner || isValidatedAuthSessionOwnerCurrent(requestOwner)) && !lifetime.current?.signal.aborted && request === eventRequest.current;
     setEventStateKey(eventKey);
     setEventsLoading(true); setEventsError(null);
 
@@ -196,13 +197,11 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
         rememberCalendars(response.calendar_options || response.calendars);
         loadedEventKey.current = eventKey; setEvents(response.events); setUnreadableCalendars(response.unreadable_calendars);
         const prior = selection.current;
-        // Renewal replaces the token and advances the privacy epoch. Resume
-        // the same owner's editable draft only after a fresh authorized read;
-        // a prepared confirmation must always be reviewed again.
-        if (prior && prior.token !== token && prior.email === status.google_email) {
+        // Rebind an open draft after a fresh read of the same Google account.
+        if (prior && prior.email === status.google_email) {
           const fresh = response.events.find(event => event.id === prior.event.id && event.calendar_id === prior.event.calendar_id);
-          selection.current = fresh ? { event: fresh, token, email: status.google_email } : null;
-          setSelected(fresh || null); setSelectedEpoch(requestEpoch); setSelectedEmail(status.google_email); setReview(null);
+          selection.current = fresh ? { event: fresh, email: status.google_email } : null;
+          setSelected(fresh || null); setSelectedEmail(status.google_email); setReview(null);
           setStep(current => current === "review" ? "choice" : current);
         }
       }
@@ -215,7 +214,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
       }
     }
     finally { if (isCurrent()) setEventsLoading(false); if (eventFlight.current?.controller === controller) eventFlight.current = null; }
-  }, [token, date, zone, eventKey, status.google_email, rememberCalendars]);
+  }, [date, zone, eventKey, status.google_email, rememberCalendars]);
   useEffect(() => { if (tab === "schedule" && view === "today") void loadEvents(); return () => { eventFlight.current?.controller.abort(); }; }, [loadEvents, tab, view]);
   usePeriodicTask("calendar-workspace-events", 30_000, () => Date.now() - lastReadStarted.current.events >= 3000 ? loadEvents() : undefined, { enabled: tab === "schedule" && view === "today" && !selected });
 
@@ -226,10 +225,10 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
     const controller = new AbortController();
     availabilityFlight.current = { key: availabilityKey, controller };
     lastReadStarted.current.availability = Date.now();
-    const requestEpoch = snapshotVaultSessionEpoch();
+    const requestOwner = snapshotValidatedAuthSessionOwner();
     const request = ++availabilityRequest.current;
     const ownsRequest = () => currentReadKeys.current.availability === availabilityKey && !lifetime.current?.signal.aborted && request === availabilityRequest.current;
-    const isCurrent = () => !controller.signal.aborted && isVaultSessionEpochCurrent(requestEpoch) && ownsRequest();
+    const isCurrent = () => !controller.signal.aborted && (!requestOwner || isValidatedAuthSessionOwnerCurrent(requestOwner)) && ownsRequest();
     setAvailabilityStateKey(availabilityKey);
     setAvailabilityLoading(true); setAvailability(null); setAvailabilityError(null);
     const failOffline = () => {
@@ -280,10 +279,6 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
     };
   }, [tab, view, selected, loadEvents, checkAvailability, availabilityError]);
   useEffect(() => {
-    if (token) return;
-    if (ownerTokenStatus === "locked") { selection.current = null; setSelected(null); setReview(null); setResult(null); setActionError(null); setStep("details"); }
-  }, [token, ownerTokenStatus]);
-  useEffect(() => {
     if (selection.current && selection.current.email !== status.google_email) {
       selection.current = null; setSelected(null); setReview(null); setResult(null); setActionError(null); setStep("details");
     }
@@ -304,32 +299,36 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
   });
   const runAction = async (work: () => Promise<void>) => {
     if (submittingRef.current) return;
-    const vaultEpoch = snapshotVaultSessionEpoch();
-    const isCurrent = () => isVaultSessionEpochCurrent(vaultEpoch) && !lifetime.current?.signal.aborted;
+    const owner = snapshotValidatedAuthSessionOwner();
+    const isCurrent = () => !lifetime.current?.signal.aborted && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
     submittingRef.current = true; setSubmitting(true); setActionError(null);
     try { await work(); }
     catch (error) { if (isCurrent()) setActionError(formatFailure(error)); }
     finally { submittingRef.current = false; if (!lifetime.current?.signal.aborted) setSubmitting(false); }
   };
   const prepareReview = () => runAction(async () => {
-    if (!token || !selected?.id) throw new Error("Calendar access changed. Reload this invitation.");
-    const vaultEpoch = snapshotVaultSessionEpoch();
-    const isCurrent = () => isVaultSessionEpochCurrent(vaultEpoch) && !lifetime.current?.signal.aborted;
+    if (!selected?.id) throw new Error("Calendar access changed. Reload this invitation.");
+    const owner = snapshotValidatedAuthSessionOwner();
+    const isCurrent = () => !lifetime.current?.signal.aborted && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
     const firebaseIdToken = await getIdToken?.();
     if (!isCurrent()) return;
     if (!firebaseIdToken) throw new Error("Sign in again to review attendance changes.");
-    const next = await GoogleCalendarService.reviewAttendance({ ...windowParams, firebaseIdToken, isEffectCurrent: isCurrent, eventId: selected.id, calendarId: selected.calendar_id, offerTimes, message });
+    const next = offerTimes
+      ? await GoogleCalendarService.reviewWorkspaceAttendance({ ...windowParams, firebaseIdToken, isEffectCurrent: isCurrent, eventId: selected.id, calendarId: selected.calendar_id, responseStatus: "declined", offerTimes: true, exactTime: false, sendMessage: true, message })
+      : await GoogleCalendarService.reviewRsvp({ firebaseIdToken, isEffectCurrent: isCurrent, eventId: selected.id, calendarId: selected.calendar_id || "primary", responseStatus: "declined", timeZone: zone });
     if (!isCurrent()) return;
     setReview(next); setStep("review");
   });
   const confirm = () => runAction(async () => {
-    if (!token || !review) return;
-    const vaultEpoch = snapshotVaultSessionEpoch();
-    const isCurrent = () => isVaultSessionEpochCurrent(vaultEpoch) && !lifetime.current?.signal.aborted;
+    if (!review) return;
+    const owner = snapshotValidatedAuthSessionOwner();
+    const isCurrent = () => !lifetime.current?.signal.aborted && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
     const firebaseIdToken = await getIdToken?.();
     if (!isCurrent()) return;
     if (!firebaseIdToken) throw new Error("Sign in again to confirm attendance changes.");
-    const next = await GoogleCalendarService.confirmAttendance({ firebaseIdToken, isEffectCurrent: isCurrent, vaultOwnerToken: token, reviewId: review.review_id, reviewToken: review.review_token });
+    const next = offerTimes
+      ? await GoogleCalendarService.confirmWorkspaceAttendance({ firebaseIdToken, isEffectCurrent: isCurrent, reviewId: review.review_id, reviewToken: review.review_token })
+      : await GoogleCalendarService.confirmRsvp({ firebaseIdToken, isEffectCurrent: isCurrent, reviewId: review.review_id, reviewToken: review.review_token });
     if (!isCurrent()) return;
     setResult(next); setStep("result");
     if (next.calendar === "declined") { notifyCalendarChanged(userId); void loadEvents(); }
@@ -371,8 +370,8 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
   const highlighted = ongoing || timed.find(event => Date.parse(event.start!.dateTime!) > now && calendarResponse(event, status.google_email) !== "declined");
   const openDetails = (event: CalendarEventSummary, trigger: HTMLButtonElement) => {
     if (submittingRef.current) return;
-    selection.current = { event, token, email: status.google_email };
-    detailTrigger.current = trigger; setSelectedEpoch(snapshotVaultSessionEpoch()); setSelectedEmail(status.google_email); setSelected(event); setStep("details"); setActionError(null);
+    selection.current = { event, email: status.google_email };
+    detailTrigger.current = trigger; setSelectedEmail(status.google_email); setSelected(event); setStep("details"); setActionError(null);
     setAlternativeDate(date);
     setOfferTimes(false); setReview(null); setResult(null);
     setMessage("I can't attend our meeting. Please choose another time using the link below and update the invitation.");
