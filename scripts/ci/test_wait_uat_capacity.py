@@ -38,7 +38,7 @@ class FakeClock:
         self.now += seconds
 
 
-class CapacityAdmissionTests(unittest.TestCase):
+class ApplicationAuthorityTests(unittest.TestCase):
     def test_application_authority_matches_deploy_for_main_and_curated_uat(self):
         for history in ("main", "uat", "unplaced"):
             with self.subTest(history=history):
@@ -66,6 +66,8 @@ class CapacityAdmissionTests(unittest.TestCase):
                             "Main Post-Merge Smoke Gate" if history == "main"
                             else "CI Status Gate,Queue Validation,Branch Validation Gate")
 
+
+class CapacityAdmissionTests(unittest.TestCase):
     def test_default_wait_defers_in_five_minutes_without_dispatching_cleanup(self):
         clock = FakeClock()
         blocked = {
