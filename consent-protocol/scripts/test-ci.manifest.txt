@@ -429,6 +429,7 @@ tests/test_account_routes.py
 tests/test_account_delete_error_detail.py
 tests/test_account_lost_vault_phone.py
 tests/test_account_phone_routes.py
+tests/test_phone_list_health.py
 tests/test_account_phone_trace_loop.py
 # Full encrypted export: bounded cursor memory, complete recovery history, snapshot and cleanup.
 tests/services/test_account_service_export.py

@@ -26,6 +26,7 @@ if str(PROTOCOL_ROOT) not in sys.path:
 from hushh_mcp.managed_ai_config import load_pwm_policy  # noqa: E402
 from scripts.probe_azure_openai_readiness import (  # noqa: E402
     ReadinessProbeError,
+    capability_failure_event,
     failure_fields,
     readiness_event,
     run_probe,
@@ -444,7 +445,7 @@ async def probe() -> None:
 
     capabilities = await probe_managed_capabilities("azure_openai")
     if not capabilities["ready"]:
-        raise RuntimeError("Managed Azure capability qualification failed")
+        raise ReadinessProbeError(capability_failure_event(capabilities))
 
 
 def main() -> int:

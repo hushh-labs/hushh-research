@@ -36,6 +36,7 @@ jobs:
     environment: uat
     env:
       GCP_PROJECT_ID: hushh-pda-uat
+      AUTH_PHONE_RUNTIME_HEALTH_ENABLED: ${{ vars.AUTH_PHONE_RUNTIME_HEALTH_ENABLED || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,8 +52,14 @@ jobs:
 
       - name: Verify UAT protected lists are intact
         run: |
+          set --
+          case "$AUTH_PHONE_RUNTIME_HEALTH_ENABLED" in
+            true) set -- --check-phone-runtime ;;
+            false) ;;
+            *) echo "Invalid phone runtime health rollout setting" >&2; exit 1 ;;
+          esac
           python3 scripts/ops/verify_secret_list_invariants.py \
-            --project "${{ env.GCP_PROJECT_ID }}" --emit-health-log
+            --project "${{ env.GCP_PROJECT_ID }}" --emit-health-log "$@"
 
   production:
     name: "Production lists"
@@ -61,6 +68,7 @@ jobs:
     environment: production
     env:
       GCP_PROJECT_ID: hushh-pda
+      AUTH_PHONE_RUNTIME_HEALTH_ENABLED: ${{ vars.AUTH_PHONE_RUNTIME_HEALTH_ENABLED || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -76,5 +84,11 @@ jobs:
 
       - name: Verify production protected lists are intact
         run: |
+          set --
+          case "$AUTH_PHONE_RUNTIME_HEALTH_ENABLED" in
+            true) set -- --check-phone-runtime ;;
+            false) ;;
+            *) echo "Invalid phone runtime health rollout setting" >&2; exit 1 ;;
+          esac
           python3 scripts/ops/verify_secret_list_invariants.py \
-            --project "${{ env.GCP_PROJECT_ID }}" --emit-health-log
+            --project "${{ env.GCP_PROJECT_ID }}" --emit-health-log "$@"

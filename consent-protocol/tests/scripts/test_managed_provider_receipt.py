@@ -364,3 +364,118 @@ def test_receipt_refuses_unproven_retry_lineage(monkeypatch, defect):
         entry["textPayload"] = label + ": " + json.dumps(value)
     with pytest.raises(ValueError):
         collector.from_entries(entries, expected, document, label)
+
+
+def azure_capability_failure_logs():
+    return [
+        {"azure_pwm_runtime_probe_stage": "primary_http", "result": "ok", "elapsed_ms": 7107},
+        {
+            "azure_pwm_runtime_probe_result": "failed",
+            "attempt": 1,
+            "capability_failures": [
+                {
+                    "capability": "public_search",
+                    "classification": "provider_unavailable",
+                    "error_type": "TimeoutError",
+                    "elapsed_ms": 87114,
+                    "error": "PRIVATE_PROVIDER_BODY",
+                },
+                {
+                    "capability": "embeddings",
+                    "classification": "provider_unavailable",
+                    "error_type": "LocationBrainEmbeddingUnavailable",
+                    "elapsed_ms": 8047,
+                },
+            ],
+        },
+    ]
+
+
+@pytest.mark.parametrize("binding", [None, "image", "account", "job"])
+def test_collector_keeps_closed_capability_failures_only_after_execution_binding(
+    monkeypatch, binding
+):
+    gate = _managed_provider_gate()
+    expected, value = _provider_fixture(gate, "azure_openai")
+    spec = {
+        "serviceAccountName": expected["runtime_account"],
+        "containers": [
+            {
+                "image": expected["image"],
+                "command": ["python3"],
+                "args": ["scripts/verify_azure_pwm_runtime.py"],
+                "env": [
+                    {"name": "ENVIRONMENT", "value": "uat"},
+                    {"name": "HUSHH_UAT_MANAGED_AI_PROVIDER", "value": "azure_openai"},
+                    {"name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER", "value": "azure_openai"},
+                ],
+            }
+        ],
+    }
+    owner = value["job"]
+    if binding == "image":
+        spec["containers"][0]["image"] = "foreign-image"
+    elif binding == "account":
+        spec["serviceAccountName"] = "foreign-account"
+    elif binding == "job":
+        owner = "foreign-job"
+
+    def cloud(arguments):
+        if arguments[:4] == ["run", "jobs", "executions", "list"]:
+            return [{"metadata": {"name": value["execution"]}}]
+        if arguments[:4] == ["run", "jobs", "executions", "describe"]:
+            return {
+                "metadata": {"ownerReferences": [{"name": owner}]},
+                "spec": {"template": {"spec": spec}},
+                "status": {"conditions": [{"type": "Completed", "status": "False"}]},
+            }
+        assert value["execution"] in arguments[2]
+        rows = azure_capability_failure_logs() + [
+            {"managed_text_provider_probe": value["core"]},
+            value["pwm_proof"],
+            {"managed_capabilities_probe": {**value["capability_proof"], "ready": False}},
+        ]
+        return [{"jsonPayload": row} for row in rows]
+
+    monkeypatch.setattr(gate, "run_json", cloud)
+    observed = gate.collect("azure_openai", expected, 1, value["job"])
+    aggregate = gate.evaluate({"azure_openai": observed}, expected)
+    assert aggregate["ready"] is False and aggregate["selected_provider"] is None
+    diagnostic = aggregate["providers"]["azure_openai"]
+    if binding:
+        assert observed["verified"] is False and "probe_history" not in diagnostic
+        return
+    history = diagnostic["probe_history"]
+    assert observed["core_ready"] is False and "capability_proof" not in observed
+    assert [row["probe"] for row in history] == [
+        "primary_http",
+        "capability:public_search",
+        "capability:embeddings",
+    ]
+    assert [row["attempts"][0]["elapsed_ms"] for row in history] == [7107, 87114, 8047]
+    assert history[1]["attempts"][0]["error_type"] == "TimeoutError"
+    assert history[2]["attempts"][0]["error_type"] == "LocationBrainEmbeddingUnavailable"
+    assert all("recovered_after_retry" not in row for row in history)
+    assert "PRIVATE_PROVIDER_BODY" not in json.dumps(aggregate)
+
+
+@pytest.mark.parametrize(
+    "defect", ["unknown", "duplicate", "duration", "classification", "success", "attempt"]
+)
+def test_azure_capability_diagnostics_refuse_unproven_failure_rows(defect):
+    logs = azure_capability_failure_logs()
+    failures = logs[-1]["capability_failures"]
+    if defect == "unknown":
+        failures[0]["capability"] = "PRIVATE_PROVIDER_BODY"
+    elif defect == "duplicate":
+        failures.append(dict(failures[0]))
+    elif defect == "duration":
+        failures[0]["elapsed_ms"] = 420001
+    elif defect == "classification":
+        failures[0]["classification"] = "dependency_ok"
+    elif defect == "attempt":
+        logs[-1]["attempt"] = 2
+    else:
+        logs[-1]["azure_pwm_runtime_probe_result"] = "ok"
+    with pytest.raises(ValueError):
+        _managed_provider_gate()._capability_proof().execution_diagnostics("azure_openai", logs)
