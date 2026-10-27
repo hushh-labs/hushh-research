@@ -3,6 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from tests.pkm_conformance.postgres_harness import find_pg_bin
+from tests.test_migrations_are_replay_safe import replay_pg  # noqa: F401 -- shared fixture
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS_DIR = REPO_ROOT / "db" / "migrations"
 MANIFEST_PATH = REPO_ROOT / "db" / "release_migration_manifest.json"
@@ -180,3 +185,83 @@ def test_connection_origin_rollback_handles_leave_before_rollback() -> None:
     assert "origin.origin_kind <> 'named_circle'" in circle_only_candidates
     assert "origin.status = 'active'" in aggregate_revoke
     assert "origin.origin_kind <> 'named_circle'" in aggregate_revoke
+
+
+@pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
+def test_circle_backfill_replay_preserves_deleted_identity_boundary(replay_pg):  # noqa: F811
+    """Reproduce UAT's retained memberships with the actual deletion guard."""
+    from psycopg2.errors import CheckViolation
+
+    from db.migration_authority import _replay_sql, build_manifest_entries
+
+    pg = replay_pg
+    pg.execute("""
+      CREATE TABLE actor_profiles (user_id TEXT PRIMARY KEY);
+      CREATE TABLE one_location_circles (id UUID PRIMARY KEY, status TEXT);
+      CREATE TABLE one_location_circle_memberships (
+        circle_id UUID, user_id TEXT, status TEXT);
+      CREATE TABLE connections (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_a_id TEXT, user_b_id TEXT, status TEXT, source TEXT,
+        created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ, revoked_at TIMESTAMPTZ,
+        UNIQUE(user_a_id,user_b_id));
+      CREATE TABLE connection_requests (
+        requester_user_id TEXT, addressee_user_id TEXT, status TEXT,
+        responded_at TIMESTAMPTZ, updated_at TIMESTAMPTZ,
+        metadata JSONB DEFAULT '{}');
+      INSERT INTO one_location_circles VALUES
+        ('00000000-0000-0000-0000-000000000001','active');
+      INSERT INTO actor_profiles VALUES ('deleted'),('live-a'),('live-b'),('zz-deleted');
+      INSERT INTO one_location_circle_memberships
+        SELECT '00000000-0000-0000-0000-000000000001'::UUID,user_id,'active'
+        FROM actor_profiles;
+    """)
+    entry = build_manifest_entries(
+        MIGRATIONS_DIR, ["135_one_location_circle_connection_origins.sql"]
+    )[0]
+    replay = _replay_sql(entry)
+    # Fresh databases reach 135 before the tombstone table exists.
+    pg.execute(replay)
+    assert pg.execute("SELECT count(*) FROM connections") == [(6,)]
+    pg.execute("DELETE FROM connections")
+    pg.apply_file(MIGRATIONS_DIR / "201_account_deletion_tombstones.sql")
+    pg.execute("""
+      INSERT INTO account_deletion_tombstones(user_id_hash)
+      SELECT 'sha256:'||encode(sha256(convert_to(user_id,'UTF8')),'hex')
+      FROM actor_profiles WHERE user_id IN ('deleted','zz-deleted');
+    """)
+    # Negative control: ON CONFLICT cannot bypass the real BEFORE INSERT guard.
+    with pytest.raises(CheckViolation, match="account identity is deleted"):
+        pg.execute(entry.sql)
+    pg.execute("ROLLBACK")
+    pg.execute(replay)
+    before = pg.execute("SELECT id,user_a_id,user_b_id FROM connections ORDER BY id")
+    assert [row[1:] for row in before] == [("live-a", "live-b")]
+    origins = pg.execute("SELECT id,connection_id,origin_key FROM connection_origins ORDER BY id")
+    assert len(origins) == 1
+    pg.execute(replay)
+    assert pg.execute("SELECT id,user_a_id,user_b_id FROM connections ORDER BY id") == before
+    assert (
+        pg.execute("SELECT id,connection_id,origin_key FROM connection_origins ORDER BY id")
+        == origins
+    )
+    assert pg.execute("SELECT count(*) FROM one_location_circle_memberships") == [(4,)]
+    assert pg.execute("SELECT count(*) FROM account_deletion_tombstones") == [(2,)]
+    with pytest.raises(CheckViolation, match="account identity is deleted"):
+        pg.execute("INSERT INTO connections(user_a_id,user_b_id) VALUES ('deleted','live-a')")
+
+
+def test_circle_backfill_replay_refuses_changed_historical_source():
+    from dataclasses import replace
+
+    from db.migration_authority import MigrationAuthorityError, _replay_sql, build_manifest_entries
+
+    entry = build_manifest_entries(
+        MIGRATIONS_DIR, ["135_one_location_circle_connection_origins.sql"]
+    )[0]
+    for changed in (
+        replace(entry, sql=entry.sql + "\n-- drift"),
+        replace(entry, checksum_sha256="0" * 64),
+    ):
+        with pytest.raises(MigrationAuthorityError, match="source checksum changed"):
+            _replay_sql(changed)

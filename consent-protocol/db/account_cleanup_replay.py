@@ -165,132 +165,134 @@ def _eligible(owner: str) -> str:
     )
 
 
+_BOOTSTRAP_RULES: dict[str, list[tuple[str, str, int]]] = {
+    "020": [
+        (
+            "FROM vault_keys\nON CONFLICT (user_id) DO NOTHING;",
+            "FROM vault_keys\nWHERE "
+            + _eligible("vault_keys.user_id")
+            + "\nON CONFLICT (user_id) DO NOTHING;",
+            1,
+        )
+    ],
+    "021": [
+        (
+            "-- Seed missing fallback state; an existing row belongs to the runtime.\nON CONFLICT",
+            "WHERE "
+            + _eligible("vk.user_id")
+            + "\n-- Seed missing fallback state; an existing row belongs to the runtime.\nON CONFLICT",
+            1,
+        )
+    ],
+    "037": [
+        (
+            "ON CONFLICT (user_id) DO UPDATE SET",
+            "WHERE " + _eligible("ap.user_id") + "\nON CONFLICT (user_id) DO UPDATE SET",
+            1,
+        )
+    ],
+    "036": [
+        (
+            "WHERE rel.status = 'approved'",
+            "WHERE rel.status = 'approved' AND "
+            + _eligible("rp.user_id")
+            + " AND "
+            + _eligible("rel.investor_user_id"),
+            1,
+        )
+    ],
+    "043": [
+        (
+            "WHERE rel.status = 'approved'",
+            "WHERE rel.status = 'approved' AND "
+            + _eligible("rp.user_id")
+            + " AND "
+            + _eligible("rel.investor_user_id"),
+            1,
+        )
+    ],
+    "079": [
+        (
+            "AND COALESCE(nc.metadata->>'source', '') <> 'sos_seed'",
+            "AND COALESCE(nc.metadata->>'source', '') <> 'sos_seed' AND "
+            + _eligible("nc.user_a_id")
+            + " AND "
+            + _eligible("nc.user_b_id"),
+            2,
+        )
+    ],
+    "087": [
+        (
+            "FROM retired_live_grants;",
+            "FROM retired_live_grants WHERE " + _eligible("user_id") + ";",
+            1,
+        )
+    ],
+    # Replay can encounter retained Circle memberships after erasure. Filter
+    # both backfills before INSERT triggers run, including ON CONFLICT paths.
+    "135": [
+        (
+            "AND to_jsonb(circle) ->> 'system_kind' IS DISTINCT FROM 'trusted'",
+            "AND to_jsonb(circle) ->> 'system_kind' IS DISTINCT FROM 'trusted' AND "
+            + _eligible("first_member.user_id")
+            + " AND "
+            + _eligible("second_member.user_id"),
+            2,
+        )
+    ],
+    "142": [
+        (
+            "FROM live_authorities;",
+            "FROM live_authorities WHERE " + _eligible("user_id") + ";",
+            1,
+        ),
+        (
+            "FROM pending_requests;",
+            "FROM pending_requests WHERE " + _eligible("user_id") + ";",
+            1,
+        ),
+    ],
+    "234": [
+        (
+            "FROM drive_share_requests\n  ON CONFLICT",
+            "FROM drive_share_requests WHERE "
+            + _eligible("drive_share_requests.user_id")
+            + "\n  ON CONFLICT",
+            1,
+        )
+    ],
+    "347": [
+        (
+            "WHERE NOT EXISTS (SELECT 1 FROM one_referral_relationships p WHERE p.referred_user_id = r.referrer_user_id)\n ON CONFLICT DO NOTHING;",
+            "WHERE NOT EXISTS (SELECT 1 FROM one_referral_relationships p WHERE p.referred_user_id = r.referrer_user_id) AND "
+            + _eligible("r.referrer_user_id")
+            + "\n ON CONFLICT DO NOTHING;",
+            1,
+        ),
+        (
+            "SELECT leader_user_id,id FROM one_referral_network_circles ON CONFLICT DO NOTHING;",
+            "SELECT leader_user_id,id FROM one_referral_network_circles WHERE "
+            + _eligible("leader_user_id")
+            + " ON CONFLICT DO NOTHING;",
+            1,
+        ),
+        (
+            "WHERE NOT r.referred_user_id = ANY(n.path)\n)\nINSERT INTO one_referral_network_members",
+            "WHERE NOT r.referred_user_id = ANY(n.path) AND "
+            + _eligible("r.referred_user_id")
+            + " AND "
+            + _eligible("r.referrer_user_id")
+            + "\n)\nINSERT INTO one_referral_network_members",
+            1,
+        ),
+    ],
+}
+
+
 def _bootstrap(sql: str, version: str) -> str:
     """Filter only the captured identities in checksum-pinned historical seeds."""
-    rule: dict[str, list[tuple[str, str, int]]] = {
-        "020": [
-            (
-                "FROM vault_keys\nON CONFLICT (user_id) DO NOTHING;",
-                "FROM vault_keys\nWHERE "
-                + _eligible("vault_keys.user_id")
-                + "\nON CONFLICT (user_id) DO NOTHING;",
-                1,
-            )
-        ],
-        "021": [
-            (
-                "-- Seed missing fallback state; an existing row belongs to the runtime.\nON CONFLICT",
-                "WHERE "
-                + _eligible("vk.user_id")
-                + "\n-- Seed missing fallback state; an existing row belongs to the runtime.\nON CONFLICT",
-                1,
-            )
-        ],
-        "037": [
-            (
-                "ON CONFLICT (user_id) DO UPDATE SET",
-                "WHERE " + _eligible("ap.user_id") + "\nON CONFLICT (user_id) DO UPDATE SET",
-                1,
-            )
-        ],
-        "036": [
-            (
-                "WHERE rel.status = 'approved'",
-                "WHERE rel.status = 'approved' AND "
-                + _eligible("rp.user_id")
-                + " AND "
-                + _eligible("rel.investor_user_id"),
-                1,
-            )
-        ],
-        "043": [
-            (
-                "WHERE rel.status = 'approved'",
-                "WHERE rel.status = 'approved' AND "
-                + _eligible("rp.user_id")
-                + " AND "
-                + _eligible("rel.investor_user_id"),
-                1,
-            )
-        ],
-        "079": [
-            (
-                "AND COALESCE(nc.metadata->>'source', '') <> 'sos_seed'",
-                "AND COALESCE(nc.metadata->>'source', '') <> 'sos_seed' AND "
-                + _eligible("nc.user_a_id")
-                + " AND "
-                + _eligible("nc.user_b_id"),
-                2,
-            )
-        ],
-        "087": [
-            (
-                "FROM retired_live_grants;",
-                "FROM retired_live_grants WHERE " + _eligible("user_id") + ";",
-                1,
-            )
-        ],
-        # Replay can encounter retained Circle memberships after erasure. Filter
-        # both backfills before INSERT triggers run, including ON CONFLICT paths.
-        "135": [
-            (
-                "AND to_jsonb(circle) ->> 'system_kind' IS DISTINCT FROM 'trusted'",
-                "AND to_jsonb(circle) ->> 'system_kind' IS DISTINCT FROM 'trusted' AND "
-                + _eligible("first_member.user_id")
-                + " AND "
-                + _eligible("second_member.user_id"),
-                2,
-            )
-        ],
-        "142": [
-            (
-                "FROM live_authorities;",
-                "FROM live_authorities WHERE " + _eligible("user_id") + ";",
-                1,
-            ),
-            (
-                "FROM pending_requests;",
-                "FROM pending_requests WHERE " + _eligible("user_id") + ";",
-                1,
-            ),
-        ],
-        "234": [
-            (
-                "FROM drive_share_requests\n  ON CONFLICT",
-                "FROM drive_share_requests WHERE "
-                + _eligible("drive_share_requests.user_id")
-                + "\n  ON CONFLICT",
-                1,
-            )
-        ],
-        "347": [
-            (
-                "WHERE NOT EXISTS (SELECT 1 FROM one_referral_relationships p WHERE p.referred_user_id = r.referrer_user_id)\n ON CONFLICT DO NOTHING;",
-                "WHERE NOT EXISTS (SELECT 1 FROM one_referral_relationships p WHERE p.referred_user_id = r.referrer_user_id) AND "
-                + _eligible("r.referrer_user_id")
-                + "\n ON CONFLICT DO NOTHING;",
-                1,
-            ),
-            (
-                "SELECT leader_user_id,id FROM one_referral_network_circles ON CONFLICT DO NOTHING;",
-                "SELECT leader_user_id,id FROM one_referral_network_circles WHERE "
-                + _eligible("leader_user_id")
-                + " ON CONFLICT DO NOTHING;",
-                1,
-            ),
-            (
-                "WHERE NOT r.referred_user_id = ANY(n.path)\n)\nINSERT INTO one_referral_network_members",
-                "WHERE NOT r.referred_user_id = ANY(n.path) AND "
-                + _eligible("r.referred_user_id")
-                + " AND "
-                + _eligible("r.referrer_user_id")
-                + "\n)\nINSERT INTO one_referral_network_members",
-                1,
-            ),
-        ],
-    }
     filtered = sql
-    for anchor, replacement, expected in rule[version]:
+    for anchor, replacement, expected in _BOOTSTRAP_RULES[version]:
         if filtered.count(anchor) != expected:
             raise ValueError("Account bootstrap replay source shape changed")
         filtered = filtered.replace(anchor, replacement)
