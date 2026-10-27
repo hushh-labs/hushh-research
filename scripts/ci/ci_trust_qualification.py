@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import urllib.error
@@ -22,6 +23,15 @@ WORKFLOW = ".github/workflows/ci-trust-qualification.yml"
 def require(condition: object, message: str) -> None:
     if not condition:
         raise Refused(message)
+
+
+def declared_read_only_cache(workflow_text: str) -> bool:
+    """Require the trusted probe to declare read mode without job overrides."""
+    declarations = [
+        line for line in workflow_text.splitlines()
+        if re.match(r"^\s*cache-mode\s*:", line)
+    ]
+    return declarations == ["cache-mode: read"]
 
 
 def observe(environment: dict, api: GitHub) -> dict:
@@ -63,7 +73,10 @@ def observe(environment: dict, api: GitHub) -> dict:
             item.get("number") for item in run.get("pull_requests", [])
         ],
         "job_head_shas": sorted({item["head_sha"] for item in jobs.get("jobs", [])}),
-        "cache_mode": environment.get("ACTIONS_CACHE_MODE"),
+        "cache_mode_environment": environment.get("ACTIONS_CACHE_MODE"),
+        "read_only_cache_declared": declared_read_only_cache(
+            (Path(__file__).resolve().parents[2] / WORKFLOW).read_text()
+        ),
         "privileged_credentials_present": any(
             environment.get(key)
             for key in (
@@ -123,7 +136,7 @@ def verify(record: dict, environment: dict, api: GitHub) -> None:
         and environment.get("GITHUB_EVENT_NAME") == "pull_request_target"
         and record["workflow"] == f"{REPOSITORY}/{WORKFLOW}@refs/heads/main"
         and record["checkout_sha"] == record["workflow_sha"]
-        and record["cache_mode"] == "read"
+        and record["read_only_cache_declared"] is True
         and record["privileged_credentials_present"] is False,
         "Target workflow or candidate privilege boundary differs from the required configuration",
     )
