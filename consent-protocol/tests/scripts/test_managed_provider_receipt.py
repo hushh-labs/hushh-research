@@ -342,7 +342,8 @@ def test_receipt_preserves_only_actual_same_candidate_retry_history(monkeypatch,
 
 
 @pytest.mark.parametrize(
-    "defect", ["too_many", "negative_latency", "hard_fault", "false_recovery", "azure_retry"]
+    "defect",
+    ["too_many", "negative_latency", "hard_fault", "false_recovery", "azure_retry", "reason_scope"],
 )
 def test_receipt_refuses_unproven_retry_lineage(monkeypatch, defect):
     collector, expected, document, label, entries, _ = _provider_capture_fixture(monkeypatch)
@@ -355,6 +356,8 @@ def test_receipt_refuses_unproven_retry_lineage(monkeypatch, defect):
         history[0]["attempts"][0]["classification"] = "candidate_misconfigured"
     elif defect == "azure_retry":
         history[0]["probe"] = "primary_http"
+    elif defect == "reason_scope":
+        history[0]["attempts"][0]["failure_reason"] = "root.clock_selection"
     else:
         history[0].update(attempts=history[0]["attempts"][1:], recovered_after_retry=True)
     value = json.loads(entries[0]["textPayload"][len(label) + 2 :])
@@ -366,15 +369,16 @@ def test_receipt_refuses_unproven_retry_lineage(monkeypatch, defect):
         collector.from_entries(entries, expected, document, label)
 
 
-def azure_capability_failure_logs():
-    return [
+def azure_capability_failure_logs(failure_reason=None):
+    capability = "one_text_root" if failure_reason == "root.clock_selection" else "public_search"
+    rows = [
         {"azure_pwm_runtime_probe_stage": "primary_http", "result": "ok", "elapsed_ms": 7107},
         {
             "azure_pwm_runtime_probe_result": "failed",
             "attempt": 1,
             "capability_failures": [
                 {
-                    "capability": "public_search",
+                    "capability": capability,
                     "classification": "provider_unavailable",
                     "error_type": "TimeoutError",
                     "elapsed_ms": 87114,
@@ -389,11 +393,15 @@ def azure_capability_failure_logs():
             ],
         },
     ]
+    if failure_reason is not None:
+        rows[-1]["capability_failures"][0]["failure_reason"] = failure_reason
+    return rows
 
 
 @pytest.mark.parametrize("binding", [None, "image", "account", "job"])
+@pytest.mark.parametrize("failure_reason", [None, "unlisted", "root.clock_selection"])
 def test_collector_keeps_closed_capability_failures_only_after_execution_binding(
-    monkeypatch, binding
+    monkeypatch, binding, failure_reason
 ):
     gate = _managed_provider_gate()
     expected, value = _provider_fixture(gate, "azure_openai")
@@ -430,7 +438,7 @@ def test_collector_keeps_closed_capability_failures_only_after_execution_binding
                 "status": {"conditions": [{"type": "Completed", "status": "False"}]},
             }
         assert value["execution"] in arguments[2]
-        rows = azure_capability_failure_logs() + [
+        rows = azure_capability_failure_logs(failure_reason) + [
             {"managed_text_provider_probe": value["core"]},
             value["pwm_proof"],
             {"managed_capabilities_probe": {**value["capability_proof"], "ready": False}},
@@ -449,18 +457,22 @@ def test_collector_keeps_closed_capability_failures_only_after_execution_binding
     assert observed["core_ready"] is False and "capability_proof" not in observed
     assert [row["probe"] for row in history] == [
         "primary_http",
-        "capability:public_search",
+        "capability:one_text_root"
+        if failure_reason == "root.clock_selection"
+        else "capability:public_search",
         "capability:embeddings",
     ]
     assert [row["attempts"][0]["elapsed_ms"] for row in history] == [7107, 87114, 8047]
     assert history[1]["attempts"][0]["error_type"] == "TimeoutError"
+    assert history[1]["attempts"][0].get("failure_reason") == failure_reason
     assert history[2]["attempts"][0]["error_type"] == "LocationBrainEmbeddingUnavailable"
     assert all("recovered_after_retry" not in row for row in history)
     assert "PRIVATE_PROVIDER_BODY" not in json.dumps(aggregate)
 
 
 @pytest.mark.parametrize(
-    "defect", ["unknown", "duplicate", "duration", "classification", "success", "attempt"]
+    "defect",
+    ["unknown", "duplicate", "duration", "classification", "success", "attempt", "reason", "pair"],
 )
 def test_azure_capability_diagnostics_refuse_unproven_failure_rows(defect):
     logs = azure_capability_failure_logs()
@@ -475,6 +487,10 @@ def test_azure_capability_diagnostics_refuse_unproven_failure_rows(defect):
         failures[0]["classification"] = "dependency_ok"
     elif defect == "attempt":
         logs[-1]["attempt"] = 2
+    elif defect == "reason":
+        failures[0]["failure_reason"] = "PRIVATE_PROVIDER_BODY"
+    elif defect == "pair":
+        failures[0]["failure_reason"] = "root.clock_selection"
     else:
         logs[-1]["azure_pwm_runtime_probe_result"] = "ok"
     with pytest.raises(ValueError):

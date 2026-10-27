@@ -344,13 +344,21 @@ def capability_fixture(monkeypatch):
 
 @pytest.mark.parametrize("timeout_type", ["TimeoutError", "APITimeoutError"])
 @pytest.mark.parametrize("embedding_first", [False, True])
+@pytest.mark.parametrize("failure_reason", [None, "unlisted", "root.clock_selection"])
 def test_capability_timeouts_reach_one_terminal_without_runtimeerror_masking(
-    monkeypatch, capsys, timeout_type, embedding_first
+    monkeypatch, capsys, timeout_type, embedding_first, failure_reason
 ):
     module, report, capability_probe = capability_fixture(monkeypatch)
-    report["capabilities"]["public_search"]["error_type"] = timeout_type
+    capability = "one_text_root" if failure_reason == "root.clock_selection" else "public_search"
+    report["capabilities"]["public_search"], report["capabilities"][capability] = (
+        report["capabilities"][capability],
+        report["capabilities"]["public_search"],
+    )
+    report["capabilities"][capability]["error_type"] = timeout_type
+    if failure_reason is not None:
+        report["capabilities"][capability]["failure_reason"] = failure_reason
     if embedding_first:
-        report["capabilities"]["public_search"] = report["capabilities"].pop("public_search")
+        report["capabilities"][capability] = report["capabilities"].pop(capability)
 
     assert module.main() == 1
 
@@ -361,6 +369,7 @@ def test_capability_timeouts_reach_one_terminal_without_runtimeerror_masking(
         {
             "capability": name,
             **{key: row[key] for key in ("classification", "error_type", "elapsed_ms")},
+            **({"failure_reason": row["failure_reason"]} if "failure_reason" in row else {}),
         }
         for name, row in report["capabilities"].items()
         if not row["ready"]
@@ -371,7 +380,7 @@ def test_capability_timeouts_reach_one_terminal_without_runtimeerror_masking(
             "pwm_trust_failure": False,
             "classification": "provider_unavailable",
             "error_type": timeout_type,
-            "failure_stage": "public_search",
+            "failure_stage": capability,
             "elapsed_ms": 87114,
             "attempt": 1,
             "capability_failures": failures,
@@ -424,7 +433,19 @@ def test_mixed_capability_fault_stays_blocking(monkeypatch, capsys, error_type, 
 
 
 @pytest.mark.parametrize(
-    "defect", ["missing", "unknown", "classification", "elapsed", "no_failure", "generation"]
+    "defect",
+    [
+        "missing",
+        "unknown",
+        "classification",
+        "elapsed",
+        "no_failure",
+        "generation",
+        "reason",
+        "reason_type",
+        "root.clock_selection",
+        "live.response_incomplete",
+    ],
 )
 def test_malformed_capability_failure_never_becomes_provider_advisory(monkeypatch, capsys, defect):
     module, report, _ = capability_fixture(monkeypatch)
@@ -441,6 +462,14 @@ def test_malformed_capability_failure_never_becomes_provider_advisory(monkeypatc
         report["capabilities"]["public_search"]["elapsed_ms"] = True
     elif defect == "generation":
         report["policy_generation"] = "changed-generation"
+    elif defect in {"reason", "root.clock_selection", "live.response_incomplete"}:
+        report["capabilities"]["public_search"]["failure_reason"] = (
+            "PRIVATE_PROVIDER_OR_RESPONSE_TEXT" if defect == "reason" else defect
+        )
+    elif defect == "reason_type":
+        report["capabilities"]["public_search"]["failure_reason"] = {
+            "PRIVATE_PROVIDER_OR_RESPONSE_TEXT": True
+        }
     else:
         for row in report["capabilities"].values():
             row["ready"] = True

@@ -112,6 +112,16 @@ provider-only timeout remains visible to this terminal-only metric; mixed
 application/configuration failures remain blocking and do not masquerade as a
 provider-only timeout. Child rows do not increment the timeout counter themselves.
 
+Failed capability rows may also carry a closed `failure_reason` for the authored
+Live binding, transcription, response or provider-operation guards, or the One
+root model, tool roster, clock selection or synthetic round trip. Exact built-in
+exception types and static arguments select these codes; unknown failures use
+`unlisted`. Raw exception text and provider/model content are never retained.
+These codes distinguish failed checks; they do not establish the provider's
+underlying cause or change release admission. The Live probe always settles its
+recording task, including an already-completed failure, without replacing the
+primary failure or extending its deadline.
+
 The existing execution-bound `probe_history` keeps `primary_http` alongside
 Azure-only `capability:<name>` failure rows. Each child has one failed attempt;
 the closed capability/error vocabulary and duration bounds exclude raw provider

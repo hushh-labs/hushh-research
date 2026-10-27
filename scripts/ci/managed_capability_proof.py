@@ -16,6 +16,19 @@ CLASSIFICATIONS = frozenset(
         "application_broken",
     }
 )
+FAILURE_REASONS = frozenset(
+    {
+        "unlisted",
+        "live.binding_unavailable",
+        "live.transcription_failed",
+        "live.response_incomplete",
+        "live.provider_operation_failed",
+        "root.model_contract",
+        "root.tool_roster",
+        "root.clock_selection",
+        "root.roundtrip_failed",
+    }
+)
 ERROR_TYPES = frozenset(
     {
         "ClientError",
@@ -80,6 +93,15 @@ CAPABILITY_PROBES = frozenset(
 )
 
 
+def _valid_failure_reason(probe: str, reason: str) -> bool:
+    return reason == "unlisted" or (
+        probe == "capability:live_audio"
+        and reason.startswith("live.")
+        or probe == "capability:one_text_root"
+        and reason.startswith("root.")
+    )
+
+
 def _decision_fields(value: dict[str, Any]) -> dict[str, Any]:
     if type(value.get("ok")) is not bool or value.get("classification") not in CLASSIFICATIONS:
         raise ValueError("Invalid decision fields")
@@ -97,6 +119,11 @@ def _attempt_receipts(value: Any) -> list[dict[str, Any]]:
         if type(elapsed) is not int or not 0 <= elapsed <= 420000:
             raise ValueError("Invalid probe duration")
         clean = {**_decision_fields(attempt), "elapsed_ms": elapsed}
+        if "failure_reason" in attempt:
+            reason = attempt["failure_reason"]
+            if not isinstance(reason, str) or reason not in FAILURE_REASONS:
+                raise ValueError("Invalid capability failure reason")
+            clean["failure_reason"] = reason
         if "dispatched" in attempt:
             if type(attempt["dispatched"]) is not bool:
                 raise ValueError("Invalid dispatch flag")
@@ -144,6 +171,13 @@ def sanitize_probe_history(value: Any, *, provider: str) -> list[dict]:
             raise ValueError("Invalid probe history name")
         seen.add(name)
         attempts = _attempt_receipts(row.get("attempts"))
+        if name not in CAPABILITY_PROBES and any("failure_reason" in item for item in attempts):
+            raise ValueError("Capability failure reason outside a failed capability")
+        if any(
+            "failure_reason" in item and not _valid_failure_reason(name, item["failure_reason"])
+            for item in attempts
+        ):
+            raise ValueError("Capability failure reason owner mismatch")
         if provider == "azure_openai" and (
             name not in CAPABILITY_PROBES | {"primary_http"} or len(attempts) != 1
         ):
@@ -199,6 +233,11 @@ def _azure_capability_failures(values: list[dict]) -> list[dict]:
                             key: failure.get(key)
                             for key in ("classification", "error_type", "elapsed_ms")
                         },
+                        **(
+                            {"failure_reason": failure["failure_reason"]}
+                            if "failure_reason" in failure
+                            else {}
+                        ),
                     }
                 ],
             }
