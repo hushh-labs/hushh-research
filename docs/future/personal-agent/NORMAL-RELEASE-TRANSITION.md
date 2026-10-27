@@ -6,7 +6,32 @@ Use the [CI delivery map](../../reference/operations/ci.md) for the existing
 validation and deployment owners. This proposal changes their composition while
 preserving environment authority and the separate owner-pod installation flow.
 
-**Current surgical follow-up — 25 October 2026, 21:02 UTC:**
+## Active release-system continuation — 27 October 2026
+
+Preserve restored production `d8a5fa485874`, current identities/database, owner
+assignments, peer edits and active native/ADK work. The
+[readiness memo](../../reference/quality/adk-orchestration-docs-audit.md#current-decision--27-october-2026)
+owns current outcomes; the earlier checkpoints below are historical evidence.
+
+1. Land qualified operations [#8520](https://github.com/hushh-labs/hushh-research/pull/8520)
+   through Admin SOP, then verify the landed SHA.
+2. Qualify Main-owned target-event identity and server-enforced read-only caches
+   before replacing the protected security worker with one trusted CI workflow.
+3. Publish preserved Dev/UAT baselines and activate selective intake/defaults
+   together. Keep the exact application SHA separate from Main's approval merge;
+   require identical approved content and matching predecessor receipts.
+4. Reconcile UAT worker readiness and maintenance without suppressing failed
+   startup or losing cleanup checkpoints. Preserve the healthy serving worker.
+5. Qualify the installed predecessor and final image, obtain exact owner update
+   approval, then finish GCP/Azure Browser and core-lifecycle acceptance.
+
+Manual emergency production admission waives only Dev/UAT predecessor deployment;
+it retains source CI, authority, schema, rollback and serving verification. Its
+implementation does not authorize a production dispatch. Automatic production
+and native publication remain disabled. Sharing/monetization and new scheduling,
+coding or managed-hosting capabilities are excluded from this continuation.
+
+## Historical correction — 25 October 2026, 21:02 UTC
 [Continuity corrections #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
 landed as `2a74d28cd0` after exact CI and landed smoke. Dev run `40224453087`,
 attempt 2, accepted application `5ad9ef542d`: worker invocation returned HTTP 200,
