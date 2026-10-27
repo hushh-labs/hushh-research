@@ -3363,10 +3363,9 @@ class ConnectionsService:
                 return "pending_incoming"
             return "none"
 
-        # Annotated on the row, not inferred from which tab asked. The row has
-        # to be able to say what it is even when the audience is "all" -- voice
-        # name-resolution searches across everyone, and a row that only knew its
-        # kind from its tab would go back to being unlabelled there.
+        # Annotated on the row, not inferred from which tab asked: voice name
+        # resolution searches everyone, and a row that only knew its kind from
+        # its tab would go back to being unlabelled there. Same for roleLabel.
         ria_user_ids = self._verified_ria_user_ids([str(p.get("userId") or "") for p in people])
         public_person_refs = self._public_person_refs([str(p.get("userId") or "") for p in people])
 
@@ -3424,10 +3423,7 @@ class ConnectionsService:
                     "relationship": relationship(str(p.get("userId") or "")),
                     **mutual_payload(str(p.get("userId") or "")),
                     "isRia": str(p.get("userId") or "") in ria_user_ids,
-                    # Migration 433: carried from the directory row. The website
-                    # and Connect show it under the name so a nurse, a plumber
-                    # and an adviser read as what they are, not as "One member".
-                    "roleLabel": p.get("roleLabel"),
+                    **({"roleLabel": p.get("roleLabel")} if "roleLabel" in p else {}),
                 }
                 for p in people
             ],
@@ -3445,147 +3441,6 @@ class ConnectionsService:
             ),
             "updatedAt": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
         }
-
-    # ------------------------------------------------------------------
-    # Migration 433: the person's own Connect directory presence.
-    #
-    # ``directory_listed`` is the one switch that answers "do I show up when
-    # people search for me". NULL means the person never chose, so the
-    # environment-enrolled-vault rule decides; TRUE lists them by name even
-    # with no vault (a website-only account); FALSE hides them from strangers
-    # while existing relationships keep seeing them. ``role_label`` is what
-    # they do, in their own words, shown wherever the name is shown.
-    # ------------------------------------------------------------------
-    DIRECTORY_ROLE_LABEL_MAX_LENGTH = 80
-
-    _DIRECTORY_PRESENCE_COLUMNS = """
-              profile.directory_listed,
-              profile.role_label,
-              profile.updated_at,
-              EXISTS (
-                SELECT 1
-                FROM vault_keys vault
-                WHERE vault.user_id = profile.user_id
-                  AND vault.vault_status = 'active'
-                  AND vault.environment_enrolled_at IS NOT NULL
-              ) AS vault_enrolled
-    """
-
-    @classmethod
-    def normalize_role_label(cls, value: str | None) -> str | None:
-        """Collapse whitespace, refuse control characters, cap the length.
-
-        An empty label clears the column. The limit is a product choice (one
-        short line beside a name), enforced here and by the CHECK constraint.
-        """
-        label = " ".join(str(value or "").split())
-        if not label:
-            return None
-        if len(label) > cls.DIRECTORY_ROLE_LABEL_MAX_LENGTH:
-            raise ConnectionsError(
-                "CONNECTION_ROLE_LABEL_TOO_LONG",
-                f"Keep what you do to {cls.DIRECTORY_ROLE_LABEL_MAX_LENGTH} characters.",
-                status_code=422,
-            )
-        if any(ord(character) < 32 or ord(character) == 127 for character in label):
-            raise ConnectionsError(
-                "CONNECTION_ROLE_LABEL_INVALID",
-                "Describe what you do in plain text.",
-                status_code=422,
-            )
-        return label
-
-    @staticmethod
-    def _directory_presence_payload(row: dict[str, Any] | None) -> dict[str, Any]:
-        row = row or {}
-        listed = row.get("directory_listed")
-        if not isinstance(listed, bool):
-            listed = None
-        vault_enrolled = bool(row.get("vault_enrolled"))
-        updated_at = row.get("updated_at")
-        return {
-            "listed": listed,
-            # What the directory actually does today for this person.
-            "effectiveListed": listed if listed is not None else vault_enrolled,
-            "roleLabel": str(row.get("role_label") or "").strip() or None,
-            "vaultEnrolled": vault_enrolled,
-            "roleLabelMaxLength": ConnectionsService.DIRECTORY_ROLE_LABEL_MAX_LENGTH,
-            "updatedAt": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
-        }
-
-    def get_directory_presence(self, *, user_id: str) -> dict[str, Any]:
-        """Read the person's own presence. A missing row reads as "never chose"."""
-        owner = (user_id or "").strip()
-        if not owner:
-            raise ConnectionsError(
-                "CONNECTION_REQUESTER_MISSING", "Missing requester id.", status_code=422
-            )
-        row = self._execute_one(
-            f"""
-            SELECT {self._DIRECTORY_PRESENCE_COLUMNS}
-            FROM actor_profiles profile
-            WHERE profile.user_id = :user_id
-            LIMIT 1
-            """,  # nosec B608 - the interpolated text is a class constant.
-            {"user_id": owner},
-        )
-        return self._directory_presence_payload(row)
-
-    def update_directory_presence(
-        self,
-        *,
-        user_id: str,
-        fields: set[str],
-        listed: bool | None = None,
-        role_label: str | None = None,
-    ) -> dict[str, Any]:
-        """Write only the fields the caller sent; the others keep their value.
-
-        The row is the actor spine created when the account first syncs its
-        identity, so a signed-in website account already has one. No row means
-        that sync has not happened yet; the caller refreshes and retries rather
-        than this method inventing a profile.
-        """
-        owner = (user_id or "").strip()
-        if not owner:
-            raise ConnectionsError(
-                "CONNECTION_REQUESTER_MISSING", "Missing requester id.", status_code=422
-            )
-        assignments: list[str] = []
-        params: dict[str, Any] = {"user_id": owner}
-        if "listed" in fields:
-            if listed is not None and not isinstance(listed, bool):
-                raise ConnectionsError(
-                    "CONNECTION_PRESENCE_INVALID",
-                    "listed must be true, false or null.",
-                    status_code=422,
-                )
-            assignments.append("directory_listed = :listed")
-            params["listed"] = listed
-        if "role_label" in fields:
-            assignments.append("role_label = :role_label")
-            params["role_label"] = self.normalize_role_label(role_label)
-        if not assignments:
-            raise ConnectionsError(
-                "CONNECTION_PRESENCE_EMPTY", "Nothing to update.", status_code=422
-            )
-        row = self._execute_one(
-            f"""
-            UPDATE actor_profiles AS profile
-            SET {", ".join(assignments)}, updated_at = NOW()
-            WHERE profile.user_id = :user_id
-            RETURNING {self._DIRECTORY_PRESENCE_COLUMNS}
-            """,  # nosec B608 - assignments are fixed column fragments chosen
-            # above; every caller value is bound.
-            params,
-        )
-        if not row:
-            raise ConnectionsError(
-                "CONNECTION_PRESENCE_PROFILE_MISSING",
-                "Your account is still being set up. Refresh and try again.",
-                status_code=409,
-            )
-        return self._directory_presence_payload(row)
 
     def get_last_request_scope_handles(
         self, *, requester_user_id: str, addressee_user_id: str

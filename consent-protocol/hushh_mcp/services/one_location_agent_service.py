@@ -2039,8 +2039,7 @@ class OneLocationAgentService:
         part is a name to the first group and an identifier about the second,
         so only the relationship-scoped caller opts in.
 
-        Off, the behaviour is exactly what it was: the masked phone, then
-        "Verified user".
+        Off, the behaviour is exactly what it was: the masked phone, then "Verified user".
         """
 
         if not row:
@@ -2079,8 +2078,6 @@ class OneLocationAgentService:
             "canReceiveLocation": bool(row.get("key_id")),
             "connectedFromContacts": bool(row.get("connected_from_contacts")),
             "isRia": bool(row.get("is_ria")),
-            # Migration 433: what the person does, in their own words. Public
-            # with the name, so it travels wherever the name travels.
             "roleLabel": str(row.get("role_label") or "").strip() or None,
         }
 
@@ -4951,21 +4948,12 @@ class OneLocationAgentService:
               WHERE profile.user_id <> :owner_user_id
                 AND profile.public_profile_status = 'active'
                 AND (
-                  -- Migration 433: an explicit presence choice outranks the
-                  -- vault rule. TRUE lists a person by name with no vault at
-                  -- all (website-only accounts); FALSE hides them from
-                  -- strangers; NULL keeps the environment-enrolled-vault rule.
-                  -- Relationships below lift all three, as before.
                   profile.directory_listed = TRUE
-                  OR (
-                    profile.directory_listed IS NULL
-                    AND EXISTS (
-                      SELECT 1
-                      FROM vault_keys vault
-                      WHERE vault.user_id = profile.user_id
-                        AND vault.vault_status = 'active' AND vault.environment_enrolled_at IS NOT NULL
-                    )
-                  )
+                  OR (profile.directory_listed IS NULL AND EXISTS (
+                    SELECT 1 FROM vault_keys vault
+                    WHERE vault.user_id = profile.user_id
+                      AND vault.vault_status = 'active' AND vault.environment_enrolled_at IS NOT NULL
+                  ))
                   OR EXISTS (
                     SELECT 1
                     FROM connections related

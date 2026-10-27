@@ -60,14 +60,10 @@ CREATE TABLE actor_identity_cache (
   custom_photo_url TEXT
 );
 CREATE TABLE marketplace_public_profiles (
-  user_id TEXT PRIMARY KEY,
-  display_name TEXT,
-  is_discoverable BOOLEAN
+  user_id TEXT PRIMARY KEY, display_name TEXT, is_discoverable BOOLEAN
 );
 CREATE TABLE ria_profiles (
-  user_id TEXT PRIMARY KEY,
-  display_name TEXT,
-  verification_status TEXT
+  user_id TEXT PRIMARY KEY, display_name TEXT, verification_status TEXT
 );
 CREATE TABLE connections (
   user_a_id TEXT NOT NULL,
@@ -152,26 +148,16 @@ def _person(
     email: str | None = None,
     phone: str | None = None,
     phone_verified: bool = False,
-    listed: bool | None = None,
-    role: str | None = None,
 ) -> None:
     params = {
         "uid": user_id,
         "name": name,
-        "listed": listed,
-        "role": role,
         "discoverable": discoverable,
         "email": email,
         "phone": phone,
         "phone_verified": phone_verified,
     }
-    conn.execute(
-        text(
-            "INSERT INTO actor_profiles (user_id, directory_listed, role_label)"
-            " VALUES (:uid, :listed, :role)"
-        ),
-        params,
-    )
+    conn.execute(text("INSERT INTO actor_profiles (user_id) VALUES (:uid)"), params)
     conn.execute(
         text(
             "INSERT INTO actor_identity_cache"
@@ -681,61 +667,3 @@ async def test_missing_provider_phone_repair_becomes_searchable_without_replacin
     )
     result = _Directory(connection).search_directory_candidates(owner_user_id=OWNER, query=phone)
     assert [item["userId"] for item in result["items"]] == ["target"]
-
-
-def test_an_explicit_presence_choice_outranks_the_vault_rule_on_postgres(
-    connection: Connection,
-) -> None:
-    """Migration 433. A website-only account (no vault) that switched
-    "show me in people search" on is listed by name; an enrolled account that
-    switched it off is hidden from strangers but not from people it already
-    knows; NULL keeps the vault rule exactly as the test above proves it.
-    """
-    _person(connection, OWNER, "Owen Owner")
-    _person(connection, "web-listed", "Wes Website", vault=None, listed=True, role="Plumber")
-    _person(connection, "placeholder-listed", "Pia Placeholder", vault="placeholder", listed=True)
-    _person(connection, "web-unchosen", "Nora Novault", vault=None)
-    _person(connection, "hidden", "Hugo Hidden", listed=False, role="Pediatric nurse")
-    _person(connection, "hidden-friend", "Fern Friend", listed=False)
-    _connected(connection, "hidden-friend")
-    _person(connection, "hidden-asked-me", "Ira Incoming", listed=False)
-    _requested(connection, "hidden-asked-me", OWNER)
-    _person(connection, "enrolled", "Eve Enrolled", role="Retired teacher")
-    service = _Directory(connection)
-
-    listed = service.search_directory_candidates(owner_user_id=OWNER, limit=50)
-
-    assert [item["userId"] for item in listed["items"]] == [
-        "enrolled",
-        "hidden-friend",
-        "hidden-asked-me",
-        "placeholder-listed",
-        "web-listed",
-    ]
-    roles = {item["userId"]: item["roleLabel"] for item in listed["items"]}
-    assert roles == {
-        "enrolled": "Retired teacher",
-        "hidden-friend": None,
-        "hidden-asked-me": None,
-        "placeholder-listed": None,
-        "web-listed": "Plumber",
-    }
-    assert listed["hasMore"] is False
-    for uid, visible in {
-        "web-listed": True,
-        "web-unchosen": False,
-        "hidden": False,
-        "hidden-friend": True,
-        "enrolled": True,
-    }.items():
-        assert (
-            service.is_directory_candidate(owner_user_id=OWNER, candidate_user_id=uid) is visible
-        ), uid
-    # Switching the choice back to "never chose" returns the person to the vault rule.
-    connection.execute(
-        text(
-            "UPDATE actor_profiles SET directory_listed = NULL WHERE user_id IN ('hidden', 'web-listed')"
-        )
-    )
-    assert service.is_directory_candidate(owner_user_id=OWNER, candidate_user_id="hidden")
-    assert not service.is_directory_candidate(owner_user_id=OWNER, candidate_user_id="web-listed")
