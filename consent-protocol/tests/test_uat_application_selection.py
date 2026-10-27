@@ -41,11 +41,12 @@ def test_current_receipt_uses_application_identity_not_main_workflow_sha(monkeyp
     module, repository, acceptance, _, _ = fixture(monkeypatch)
     result = module.current_application(repository, acceptance, SHA, "all")
     assert result["noop"] and set(result["services"]) == {"frontend", "backend"}
-    assert module.choose(SHA, result, True)["decision"] == "NO_OP"
+    assert module.choose(SHA, result, True, ancestor=lambda *_: False)["decision"] == "NO_OP"
     other = "d" * 40
     result = module.current_application(repository, acceptance, other, "all")
     assert not result["noop"]
-    assert module.choose(other, result, True)["sha"] == other
+    assert module.choose(other, result, True, ancestor=lambda *_: True)["sha"] == other
+    assert module.choose(other, result, True, ancestor=lambda *_: False)["decision"] == "BLOCKED"
 
 
 @pytest.mark.parametrize(
@@ -66,6 +67,10 @@ def test_current_failure_never_reuses_an_older_green_receipt(monkeypatch, case):
     result = module.current_application(repository, acceptance, SHA, "all")
     assert not result["noop"]
     assert result["waiting"] == (case == "pending_rerun")
+    assert module.choose(SHA, result, True, ancestor=lambda *_: True)["decision"] in {
+        "BLOCKED",
+        "DEPLOY_IN_FLIGHT",
+    }
 
 
 def test_partial_later_mutation_blocks_backend_but_not_frontend_receipt(monkeypatch):

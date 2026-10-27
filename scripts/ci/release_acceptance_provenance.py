@@ -21,6 +21,7 @@ def application_scope(receipt: dict) -> tuple[str, list[str]]:
     require(
         isinstance(sha, str)
         and re.fullmatch(r"[a-f0-9]{40}", sha) is not None
+        and isinstance(scope, str)
         and scope in {"all", "backend", "frontend"},
         "Resolved application identity and scope are required",
     )

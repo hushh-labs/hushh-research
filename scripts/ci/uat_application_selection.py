@@ -97,7 +97,7 @@ def attempt_unchanged(acceptance, observed: dict) -> bool:
     return True
 
 
-def inspect_deployment(repository, acceptance, deployment, needed, target, observed):
+def inspect_deployment(repository, acceptance, deployment, needed, observed):
     require(isinstance(deployment, dict), "Deployment inventory is malformed")
     identifier = deployment.get("id")
     require(
@@ -145,12 +145,9 @@ def inspect_deployment(repository, acceptance, deployment, needed, target, obser
     touched = needed & application["services"].keys()
     if not touched:
         return None
-    if application["sha"] != target:
-        return observation(
-            "The selected UAT tip is not the current accepted application"
-        )
     return {
-        "accepted": {service: application["services"][service] for service in touched}
+        "sha": application["sha"],
+        "accepted": {service: application["services"][service] for service in touched},
     }
 
 
@@ -166,7 +163,7 @@ def current_application(
     )
     require(type(limit) is int and 1 <= limit <= 300, "Observation bound is invalid")
     needed = {"backend", "frontend"} if scope in {"auto", "all"} else {scope}
-    accepted, observed, count = {}, {}, 0
+    accepted, observed, sources, count = {}, {}, {}, 0
     for page in range(1, 4):
         if count >= limit:
             break
@@ -178,13 +175,14 @@ def current_application(
         for deployment in rows[: limit - count]:
             count += 1
             result = inspect_deployment(
-                repository, acceptance, deployment, needed, target, observed
+                repository, acceptance, deployment, needed, observed
             )
             if result is None:
                 continue
             if "accepted" not in result:
                 return result
             accepted.update(result["accepted"])
+            sources.update({service: result["sha"] for service in result["accepted"]})
             needed -= result["accepted"].keys()
             if not needed:
                 if not repository.unchanged() or not attempt_unchanged(
@@ -193,11 +191,14 @@ def current_application(
                     return observation(
                         "Deployment identity or attempt changed during selection"
                     )
-                return observation(
-                    "Current qualified receipts cover the selected application and services",
-                    noop=True,
-                    services=accepted,
-                )
+                return {
+                    **observation(
+                        "Current qualified service receipts are available",
+                        noop=all(sha == target for sha in sources.values()),
+                        services=accepted,
+                    ),
+                    "sources": sources,
+                }
         if len(rows) < 100:
             break
     return observation(
@@ -205,7 +206,7 @@ def current_application(
     )
 
 
-def choose(target: str, current: dict, allow_noop: bool) -> dict:
+def choose(target: str, current: dict, allow_noop: bool, *, ancestor) -> dict:
     if current["waiting"]:
         return {"decision": "DEPLOY_IN_FLIGHT", "sha": "", "reason": current["reason"]}
     if allow_noop and current["noop"]:
@@ -215,12 +216,34 @@ def choose(target: str, current: dict, allow_noop: bool) -> dict:
             "uat_actual_sha": target,
             "reason": current["reason"],
         }
+    sources = current.get("sources", {})
+    if not sources or not all(ancestor(sha, target) for sha in sources.values()):
+        return {
+            "decision": "BLOCKED",
+            "sha": "",
+            "reason": "Automatic selection requires a verified forward path from each current service; review an explicit candidate",
+        }
     return {
         "decision": "DEPLOY_EXACT_SHA",
         "sha": target,
         "uat_actual_sha": "",
         "reason": "Selected the exact protected UAT tip; source CI and Dev acceptance remain required",
     }
+
+
+def ancestor(before: str, after: str) -> bool:
+    require(
+        all(re.fullmatch(r"[0-9a-f]{40}", sha) for sha in (before, after)),
+        "Full immutable application SHAs are required",
+    )
+    return (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", before, after],
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        ).returncode
+        == 0
+    )
 
 
 def main() -> int:
@@ -246,7 +269,7 @@ def main() -> int:
         current = current_application(
             ObservedRepository(api), acceptance, target, args.scope, args.limit
         )
-        result = choose(target, current, args.allow_no_op)
+        result = choose(target, current, args.allow_no_op, ancestor=ancestor)
         if args.github_output:
             with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
                 for key in ("sha", "decision", "uat_actual_sha", "reason"):
