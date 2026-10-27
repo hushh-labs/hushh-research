@@ -1,19 +1,17 @@
 {
-  "version": "2026.10-dev.32",
+  "version": "2026.10-dev.33",
   "channel": "dev",
-  "summary": "Browser control and reliable private-agent connections.",
+  "summary": "Private hosting and reliable owner connections.",
   "notes": {
     "improvements": [
-      "View the qualified private browser, take control and hand it back to One.",
-      "Browser shares your selected cloud and on-demand agent lifecycle."
+      "One private-agent image supports owner-cloud and admitted Hussh-hosted dev pods."
     ],
     "fixes": [
-      "Confirmed browser actions stay recorded when control changes.",
-      "Puppy can finish within its approved response window."
+      "Phone verification preserves the hosting choice before provisioning."
     ],
     "security": [
-      "Browser activation requires approval for this exact image and site policy.",
-      "Update eligibility remains unavailable until recovery is verified for this image."
+      "Hosting admission keeps project, identity and recovery bindings explicit.",
+      "Owner updates remain unavailable until recovery is verified for this exact image."
     ]
   },
   "supportedUpgradeDigests": []
