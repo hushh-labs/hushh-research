@@ -58,3 +58,29 @@ async def test_bootstrap_includes_phone_hint_when_read_is_ready(monkeypatch) -> 
     )
 
     assert result.phoneVerified is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,enabled",
+    [("shared", True), ("unplaced", True), ("byoc", False), ("pending", False), ("unknown", False)],
+)
+async def test_setup_updates_preserve_server_observed_shared_recovery(monkeypatch, mode, enabled):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import shared_experience_recovery
+
+    class UpdatingVault(_VaultKeysService):
+        update_pre_vault_state = AsyncMock(return_value={"vaultStatus": "active"})
+        check_vault_exists = AsyncMock(return_value=True)
+
+    monkeypatch.setenv("SHARED_EXPERIENCE_RECOVERY_ENABLED", "true")
+    observe = AsyncMock(return_value=mode)
+    monkeypatch.setattr(shared_experience_recovery, "get_owner_hosting_mode", observe)
+    monkeypatch.setattr(db_proxy, "VaultKeysService", UpdatingVault)
+    result = await db_proxy.vault_pre_vault_state(
+        db_proxy.VaultPreStateUpdateRequest(userId="fixture-user", setupCompleted=True),
+        firebase_uid="fixture-user",
+    )
+    assert result.sharedExperienceRecoveryEnabled is enabled
+    observe.assert_awaited_once_with("fixture-user")

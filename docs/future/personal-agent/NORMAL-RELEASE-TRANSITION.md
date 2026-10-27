@@ -6,7 +6,33 @@ Use the [CI delivery map](../../reference/operations/ci.md) for the existing
 validation and deployment owners. This proposal changes their composition while
 preserving environment authority and the separate owner-pod installation flow.
 
-**Current surgical follow-up — 25 October 2026, 21:02 UTC:**
+**Production recovery exception — 26 October 2026:** the owner requested a
+production-only return to the pre-pod experience, leaving Dev/UAT untouched for
+that purpose. The direct image pair is not qualified: source `904fbd215c` lacks
+current account/phone-cleanup authority, its backend revision was pruned and its
+frontend lacks protected-document readers. The actual compatibility checks
+refused; no production mutation was made. Do not bypass these contracts or roll
+back schema. A compatible recovery remains separate from the normal release.
+
+[PR #8482](https://github.com/hushh-labs/hushh-research/pull/8482) preserves current
+lifecycle/readers, private assignments, pending setups and keys while adding
+explicit environment-local Shared presentation recovery. It also retains
+`account_generation_admission_enabled` through the normal runtime JSON writer
+and hydration. Both decisions default off and remain bound to their environment
+and project. Code deployment alone does not activate either. Replacement-owner
+admission additionally requires installed schema and generation-aware consumer
+drain proof. Normal Dev/UAT core acceptance remains tracked below; automatic
+production/native cadence remains disabled.
+
+Account-generation compatibility PR [#8473](https://github.com/hushh-labs/hushh-research/pull/8473)
+landed as `10022eba13` with exact-head hosted CI and landed smoke success.
+Financial migration 426 and WorkOS migration 427 were preserved in order.
+At 10:15 UTC, Dev and UAT still served `c2a5638606`, not that generation-aware
+revision. Production served application `7d5546e471`; its latest frontend/backend
+workflows were dispatched under `ankitkumarsingh1702`. Source completion does not
+establish installed-pod or replacement-generation acceptance.
+
+**Earlier acceptance checkpoint — 25 October 2026, 21:02 UTC:**
 [Continuity corrections #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
 landed as `2a74d28cd0` after exact CI and landed smoke. Dev run `40224453087`,
 attempt 2, accepted application `5ad9ef542d`: worker invocation returned HTTP 200,
@@ -28,8 +54,9 @@ hypothesis without weakening generic missing-status recovery.
 
 The exact qualified pod remains source `9174abfbe594`, image `6e57f251…eeac423`.
 Azure's approved update and one Puppy/Gemma 12B response pass. GCP's approved Files
-operation still has an unconfirmed image handoff; preserve its held operation and
-never replay the exhausted queue continuation. Installed Browser takeover became
+operation had an unconfirmed image handoff at this checkpoint; it has since completed
+through its original approval and operation. Do not replay that queue continuation.
+Installed Browser takeover became
 uncertain without credential entry. The post-result settlement correction has
 source and hosted proof, not an installed image receipt; earlier executor and owner journeys
 remain open. The temporary fixture is deleted. Capacity samples do not justify an
@@ -69,8 +96,9 @@ The correction release follows exact-candidate hosted validation, Admin SOP,
 landed-SHA smoke, governed dev acceptance and UAT promotion. Replacement enrollment
 stays disabled until generation-aware consumers and live two-cycle acceptance
 pass. Historical incomplete cleanup remains repairable and must not be marked
-complete to bypass enrollment. No production, stable or automatic owner upgrade
-is authorized.
+complete to bypass enrollment. Apart from the explicit Shared recovery above,
+no production rollout is authorized. Stable publication and automatic owner upgrades
+remain unauthorized.
 
 **Prior accepted delivery:**
 [PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as

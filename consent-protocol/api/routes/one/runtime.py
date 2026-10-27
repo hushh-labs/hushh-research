@@ -17,6 +17,8 @@ from pydantic import BaseModel, Field, SecretStr
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
 from api.routes.one.runtime_placement import (
+    SharedHostingSelectionRequest,
+    SharedHostingSelectResponse,
     _require_unassigned_byoc,
     observe_managed_cloud,
     require_byoc_setup_enabled,
@@ -706,11 +708,6 @@ async def _reserve_pending_agent_record(user_id: str) -> bool:
         return False
 
 
-class SharedHostingSelectResponse(BaseModel):
-    hostingMode: str
-    nextStep: str
-
-
 class HostedCloudSelectResponse(BaseModel):
     deploymentTarget: str
     # The claim the hosted tier is allowed to make, returned by the server so the
@@ -804,11 +801,12 @@ async def select_hosted_cloud(
 async def select_shared_hosting(
     request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
+    body: SharedHostingSelectionRequest | None = None,
 ) -> SharedHostingSelectResponse:
     """Record the explicit Shared choice (``runtime_placement.select_shared``)."""
-    from api.routes.one.runtime_placement import select_shared
+    from api.routes.one.runtime_placement import select_shared_request
 
-    await select_shared(firebase_uid)
+    await select_shared_request(firebase_uid, body)
     return SharedHostingSelectResponse(
         hostingMode="shared",
         nextStep="Choose how your agent reaches a model next.",

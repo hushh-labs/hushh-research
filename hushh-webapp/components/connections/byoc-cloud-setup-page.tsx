@@ -1,5 +1,6 @@
 "use client";
 
+import { SharedSetupRecoveryEntry, type CloudSetupOwnerProps } from "@/components/onboarding/setup/setup-hosting-step";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -25,10 +26,8 @@ import {
 import { OwnerCloudProviderChoice } from "@/components/connections/owner-cloud-provider-choice";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/lib/firebase/auth-context";
 import {
   isValidatedAuthSessionOwnerCurrent,
-  snapshotValidatedAuthSessionPrincipal,
 } from "@/lib/auth/session-owner";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import {
@@ -80,15 +79,10 @@ import { useCloudSetupManagementReturn } from "./use-cloud-setup-management-retu
 export const CLOUD_CHECK_TIMEOUT_MS = 15_000;
 
 export function ByocCloudSetupPage() {
-  const { user } = useAuth();
-  const owner = snapshotValidatedAuthSessionPrincipal();
-  return <OwnerCloudSetupPage key={`${user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`} user={user} owner={owner} />;
+  return <SharedSetupRecoveryEntry render={OwnerCloudSetupPage} />;
 }
 
-function OwnerCloudSetupPage({ user, owner }: {
-  user: ReturnType<typeof useAuth>["user"];
-  owner: ReturnType<typeof snapshotValidatedAuthSessionPrincipal>;
-}) {
+function OwnerCloudSetupPage({ user, owner }: CloudSetupOwnerProps) {
   const ownerId = owner?.ownerId ?? null;
   const router = useRouter();
   const searchParams = useSearchParams();

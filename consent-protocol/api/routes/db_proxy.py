@@ -254,6 +254,45 @@ class VaultBootstrapStateResponse(BaseModel):
     # mandate. None means "unknown" (e.g. shadow lookup failed); the client then
     # falls back to its own identity read rather than treating it as unverified.
     phoneVerified: bool | None = None
+    sharedExperienceRecoveryEnabled: bool = False
+
+
+async def _bootstrap_state_response(
+    user_id: str, has_vault: bool, state: dict, *, phone_verified: bool | None = None
+) -> VaultBootstrapStateResponse:
+    from hushh_mcp.services.shared_experience_recovery import shared_recovery_for_owner
+
+    return VaultBootstrapStateResponse(
+        userId=user_id,
+        hasVault=has_vault,
+        vaultStatus=state.get("vaultStatus") or "active",
+        firstLoginAt=state.get("firstLoginAt"),
+        lastLoginAt=state.get("lastLoginAt"),
+        loginCount=int(state.get("loginCount") or 0),
+        setupCompleted=state.get("setupCompleted"),
+        setupSkipped=state.get("setupSkipped"),
+        setupCompletedAt=state.get("setupCompletedAt"),
+        navSetupCompletedAt=state.get("navSetupCompletedAt"),
+        navSetupSkippedAt=state.get("navSetupSkippedAt"),
+        setupCapabilityIds=state.get("setupCapabilityIds") or [],
+        setupCapabilityDeclinedIds=state.get("setupCapabilityDeclinedIds") or [],
+        oneChatOnboarding=state.get("oneChatOnboarding"),
+        initialContactsSource=state.get("initialContactsSource"),
+        initialContactsWelcomeAcknowledged=state.get("initialContactsWelcomeAcknowledged"),
+        initialContactsCircleId=state.get("initialContactsCircleId"),
+        setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
+        setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
+        oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),
+        onboardingJourneyVersion=state.get("onboardingJourneyVersion"),
+        onboardingPhase=state.get("onboardingPhase"),
+        onboardingActiveCapability=state.get("onboardingActiveCapability"),
+        onboardingResumeRoute=state.get("onboardingResumeRoute"),
+        onboardingCallbackState=state.get("onboardingCallbackState"),
+        onboardingCallbackAttemptId=state.get("onboardingCallbackAttemptId"),
+        onboardingJourneyUpdatedAt=state.get("onboardingJourneyUpdatedAt"),
+        phoneVerified=phone_verified,
+        sharedExperienceRecoveryEnabled=await shared_recovery_for_owner(user_id),
+    )
 
 
 class VaultPreStateUpdateRequest(BaseModel):
@@ -452,35 +491,8 @@ async def vault_bootstrap_state(
                 type(identity_error).__name__,
             )
 
-        return VaultBootstrapStateResponse(
-            userId=user_id,
-            hasVault=has_vault,
-            vaultStatus=state.get("vaultStatus") or "active",
-            firstLoginAt=state.get("firstLoginAt"),
-            lastLoginAt=state.get("lastLoginAt"),
-            loginCount=int(state.get("loginCount") or 0),
-            setupCompleted=state.get("setupCompleted"),
-            setupSkipped=state.get("setupSkipped"),
-            setupCompletedAt=state.get("setupCompletedAt"),
-            navSetupCompletedAt=state.get("navSetupCompletedAt"),
-            navSetupSkippedAt=state.get("navSetupSkippedAt"),
-            setupCapabilityIds=state.get("setupCapabilityIds") or [],
-            setupCapabilityDeclinedIds=state.get("setupCapabilityDeclinedIds") or [],
-            oneChatOnboarding=state.get("oneChatOnboarding"),
-            initialContactsSource=state.get("initialContactsSource"),
-            initialContactsWelcomeAcknowledged=state.get("initialContactsWelcomeAcknowledged"),
-            initialContactsCircleId=state.get("initialContactsCircleId"),
-            setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
-            setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
-            oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),
-            onboardingJourneyVersion=state.get("onboardingJourneyVersion"),
-            onboardingPhase=state.get("onboardingPhase"),
-            onboardingActiveCapability=state.get("onboardingActiveCapability"),
-            onboardingResumeRoute=state.get("onboardingResumeRoute"),
-            onboardingCallbackState=state.get("onboardingCallbackState"),
-            onboardingCallbackAttemptId=state.get("onboardingCallbackAttemptId"),
-            onboardingJourneyUpdatedAt=state.get("onboardingJourneyUpdatedAt"),
-            phoneVerified=phone_verified,
+        return await _bootstrap_state_response(
+            user_id, has_vault, state, phone_verified=phone_verified
         )
     except ValueError as exc:
         if str(exc) == "stale onboarding journey":
@@ -540,35 +552,7 @@ async def vault_pre_vault_state(
         )
         has_vault = await service.check_vault_exists(user_id, ensure_entry=False)
 
-        return VaultBootstrapStateResponse(
-            userId=user_id,
-            hasVault=has_vault,
-            vaultStatus=state.get("vaultStatus") or "active",
-            firstLoginAt=state.get("firstLoginAt"),
-            lastLoginAt=state.get("lastLoginAt"),
-            loginCount=int(state.get("loginCount") or 0),
-            setupCompleted=state.get("setupCompleted"),
-            setupSkipped=state.get("setupSkipped"),
-            setupCompletedAt=state.get("setupCompletedAt"),
-            navSetupCompletedAt=state.get("navSetupCompletedAt"),
-            navSetupSkippedAt=state.get("navSetupSkippedAt"),
-            setupCapabilityIds=state.get("setupCapabilityIds") or [],
-            setupCapabilityDeclinedIds=state.get("setupCapabilityDeclinedIds") or [],
-            oneChatOnboarding=state.get("oneChatOnboarding"),
-            initialContactsSource=state.get("initialContactsSource"),
-            initialContactsWelcomeAcknowledged=state.get("initialContactsWelcomeAcknowledged"),
-            initialContactsCircleId=state.get("initialContactsCircleId"),
-            setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
-            setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
-            oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),
-            onboardingJourneyVersion=state.get("onboardingJourneyVersion"),
-            onboardingPhase=state.get("onboardingPhase"),
-            onboardingActiveCapability=state.get("onboardingActiveCapability"),
-            onboardingResumeRoute=state.get("onboardingResumeRoute"),
-            onboardingCallbackState=state.get("onboardingCallbackState"),
-            onboardingCallbackAttemptId=state.get("onboardingCallbackAttemptId"),
-            onboardingJourneyUpdatedAt=state.get("onboardingJourneyUpdatedAt"),
-        )
+        return await _bootstrap_state_response(user_id, has_vault, state)
     except ValueError as exc:
         if str(exc) == "stale onboarding journey":
             raise HTTPException(

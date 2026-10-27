@@ -155,14 +155,21 @@ application owner and generation. `ACCOUNT_GENERATION_ADMISSION_ENABLED` default
 off. Do not enable it or publish registration until remaining application callers
 qualify. Federated and purpose-bound email recovery are implemented locally;
 neither has been accepted on a deployed environment.
-Conditional WorkOS and HushhTech custom-auth integrations remain incompatible
-with generation-enabled admission. Their entrypoints now return explicit
-unavailable outcomes before provider mutation or exchange; they never bind an
-old callback to the latest owner. Do not enable generations beside active WorkOS
-sign-in or offboarding until that integration's captured-generation mutation
-authority qualifies. Startup refuses the conflicting configuration, preserving
-the prior running service rather than silently withdrawing offboarding. The
-existing generation-off behavior remains supported.
+
+The existing runtime JSON uses `account_generation_admission_enabled` for this
+decision. The deployment writer retains an explicit boolean only for the same
+environment and project, and startup hydrates it into the admission flag. Omission
+stays off; wiring or retaining the setting does not authorize activation. Verify
+the installed schema, generation-aware consumers and retired-worker drain before
+enabling it in an accepted dev candidate, then read back the serving behavior.
+
+HushhTech custom authentication remains incompatible with generation-enabled
+admission; startup refuses that combination rather than silently withdrawing an
+existing integration. WorkOS preserves captured-generation authority for existing
+users and offboarding. Replacement-owner SSO and Directory Sync remain separately
+unqualified; unknown historical callbacks cannot bind themselves to the latest
+owner. Verify the target lane's actual integrations and deployed mutation authority
+before activation. The existing generation-off behavior remains supported.
 
 An owner-to-Firebase mapping is suitable for reads; it cannot authorize a deferred
 Firebase mutation across retirement. Device and passkey mints now map the exact

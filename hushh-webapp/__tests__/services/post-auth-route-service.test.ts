@@ -58,22 +58,18 @@ describe("PostAuthRouteService", () => {
     refreshIdentityMock.mockReset();
   });
 
-  it("initializes a missing fresh-account phone claim before requiring verification", async () => {
-    bootstrapStateMock.mockResolvedValue({ hasVault: false, setupCompleted: false, phoneVerified: null });
+  it.each([
+    { hint: null, cached: false, recovery: false, expected: buildPhoneMandateRoute(ROUTES.ONE_SETUP_CLOUD) },
+    { hint: false, cached: true, recovery: false, expected: ROUTES.ONE_SETUP_CLOUD },
+    { hint: true, cached: false, recovery: true, expected: ROUTES.ONE_SETUP },
+  ])("keeps phone authority and server-directed setup: $expected", async ({ hint, cached, recovery, expected }) => {
+    bootstrapStateMock.mockResolvedValue({ hasVault: false, setupCompleted: false, phoneVerified: hint, sharedExperienceRecoveryEnabled: recovery });
     loadPendingOnboardingMock.mockResolvedValue(null);
+    peekIdentityMock.mockReturnValue(cached ? { data: { phone_verified: true } } : null);
     refreshIdentityMock.mockResolvedValue({ phone_verified: false });
-    await expect(PostAuthRouteService.resolveAfterLogin({ userId: "new-user", idToken: "google-token", hostname: "one.hushh.ai" }))
-      .resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP_CLOUD));
-    expect(refreshIdentityMock).toHaveBeenCalledWith("new-user", "google-token");
-  });
-
-  it("honors a newer verified identity over a negative bootstrap hint", async () => {
-    bootstrapStateMock.mockResolvedValue({ hasVault: false, setupCompleted: false, phoneVerified: false });
-    loadPendingOnboardingMock.mockResolvedValue(null);
-    peekIdentityMock.mockReturnValue({ data: { phone_verified: true } });
-    await expect(PostAuthRouteService.resolveAfterLogin({ userId: "user", hostname: "one.hushh.ai" }))
-      .resolves.toBe(ROUTES.ONE_SETUP_CLOUD);
-    expect(refreshIdentityMock).not.toHaveBeenCalled();
+    await expect(PostAuthRouteService.resolveAfterLogin({ userId: "new-user", idToken: "google-token", hostname: "one.hushh.ai" })).resolves.toBe(expected);
+    if (hint === null) expect(refreshIdentityMock).toHaveBeenCalledWith("new-user", "google-token");
+    else expect(refreshIdentityMock).not.toHaveBeenCalled();
   });
   it.each([
     "/circle/join?code=23456789ABCD",

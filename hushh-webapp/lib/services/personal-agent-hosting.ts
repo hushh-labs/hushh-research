@@ -93,3 +93,18 @@ export async function readHostingInspection(
     throw new Error("HOSTING_INSPECTION_UNAVAILABLE");
   return data as HostingInspection;
 }
+
+
+export type SharedHostingSelectionOptions = { recovery: true; expectedOwnerId: string };
+export type SharedHostingSelectionResult = { hostingMode: "shared"; nextStep: string };
+
+export async function selectSharedHosting(token: string | undefined, fetchOwner: OwnerFetch,
+  options?: SharedHostingSelectionOptions): Promise<SharedHostingSelectionResult> {
+  const response = await fetchOwner("/api/one/runtime/shared/select", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(options ?? {}),
+  });
+  if (!response.ok) throw new Error("SHARED_SELECT_FAILED");
+  return response.json();
+}

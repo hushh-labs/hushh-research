@@ -1,4 +1,5 @@
 "use client";
+import { useSharedExperienceRecovery } from "@/hooks/use-shared-experience-recovery";
 import { AgentPromptSuggestions, AgentWelcomePanel } from "./agent-welcome-panel";
 import { CalendarInsightsService, type MeetingContext, type MeetingSelection } from "@/lib/services/calendar-insights-service";
 
@@ -2492,6 +2493,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const localCrmEnabled = isLocalCrmBuildEnabled();
   const { user, userId: applicationOwnerId, loading: authLoading, phoneNumber, sessionVerificationRequired } = useAuth();
   const renderedWorkspaceOwnerId = applicationOwnerId ?? null;
+  const sharedRecovery = useSharedExperienceRecovery(applicationOwnerId);
   const workspaceOwnerIdRef = useRef<string | null>(renderedWorkspaceOwnerId);
   workspaceOwnerIdRef.current = renderedWorkspaceOwnerId;
   useEffect(() => {
@@ -2625,6 +2627,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     });
   }, [agentDockOccluder, isCanonicalChatRoute, beginTranscriptProgrammaticScroll]);
   const enterPuppySurface = useCallback(() => {
+    if (sharedRecovery) return;
     // Unconditional, and not behind a `voiceActive` guard. It is a no-op when
     // nothing is running, and it is the only shape that also covers the window
     // where the microphone lease is held but the shared store still reads
@@ -2634,7 +2637,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     requestAgentConversationStop();
     setPuppyEverOpened(true);
     setAgentSurface("puppy");
-  }, []);
+  }, [sharedRecovery]);
 
   const chatSessionRef = useRef(new AgentChatSessionEpoch(() => {
     // Release only this retired session's local wait. Provider outcomes remain
@@ -9833,7 +9836,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               ) : null}
               {/* The shared finite-selector family: a retained 150ms thumb,
                   compact paint and full 44px targets. Icons keep their names. */}
-              <NativeChatChrome kind="agent-surface" owner={renderedWorkspaceOwnerId}
+              {!sharedRecovery ? <NativeChatChrome kind="agent-surface" owner={renderedWorkspaceOwnerId}
                 context={chatChromeContext}
                 eligible={isCanonicalChatRoute && hasChatAccess && (customNativePresentationEnabled() || !isHistoryDrawerOpen)}
                 value={agentSurface} onValueChange={(next) => {
@@ -9873,7 +9876,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 labelClassName=""
                 className="w-full shrink-0 text-xs"
               />
-              </NativeChatChrome>
+              </NativeChatChrome> : null}
               <ShellActionSurface
                 variant="avatar"
                 data-testid="profile-open-button"

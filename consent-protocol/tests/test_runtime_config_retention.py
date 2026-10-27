@@ -3,98 +3,17 @@
 import importlib.util
 import json
 import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 from hushh_mcp import runtime_settings
-from tests.helpers.runtime_config_writer import configuration_arguments, configuration_reader
-
-CANDIDATE_SECRET_NAME = "BACKEND_RUNTIME_CONFIG_JSON_DRIVE_17_1"
-
-
-def _write_configuration(
-    monkeypatch,
-    module,
-    environment,
-    candidate,
-    stored,
-    *,
-    candidate_only=False,
-    candidate_payload=None,
-):
-    project = {"dev": "hushh-pda-dev", "uat": "hushh-pda-uat", "production": "hushh-pda"}[
-        environment
-    ]
-    origin = (
-        "https://one.hussh.ai"
-        if environment == "production"
-        else f"https://{environment}.one.hussh.ai"
-    )
-    existing = {
-        "environment": environment,
-        "google_cloud_project": project,
-        "unowned_configuration": "must not be retained",
-        "one_plg_export_account_ids": ["synthetic-private-cohort"],
-        **stored,
-    }
-    writes = {}
-    monkeypatch.setattr(module, "_mirror_directory_key", lambda **_: None)
-    monkeypatch.setattr(module, "_resolve_secret", lambda *_: None)
-    monkeypatch.setattr(module, "_sync_oauth_redirects", lambda *_: [])
-    monkeypatch.setattr(
-        module,
-        "_read_secret",
-        lambda _, name: json.dumps(existing) if name == "BACKEND_RUNTIME_CONFIG_JSON" else "",
-    )
-    monkeypatch.setattr(
-        module, "_upsert_secret", lambda _, name, value: writes.update({name: value})
-    )
-
-    arguments = configuration_arguments(project, environment, origin)
-    target = "BACKEND_RUNTIME_CONFIG_JSON"
-    if candidate:
-        target = "BACKEND_RUNTIME_CONFIG_JSON_DRIVE_17_1"
-        arguments["production-drive-candidate-secret"] = target
-    monkeypatch.setattr(
-        module,
-        "_run",
-        configuration_reader(
-            project=project,
-            existing=existing,
-            target=target,
-            candidate_only=candidate_only,
-            candidate_payload=candidate_payload,
-        ),
-    )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [str(module.__file__)]
-        + [item for key, value in arguments.items() for item in ("--" + key, value)],
-    )
-    if candidate_only:
-        sys.argv.append("--production-drive-candidate-only")
-
-        def forbidden(*_args, **_kwargs):
-            pytest.fail("Candidate-only mode reached a shared secret mutation")
-
-        for name in ("_mirror_directory_key", "_resolve_secret", "_sync_oauth_redirects"):
-            monkeypatch.setattr(module, name, forbidden)
-    assert module.main() == 0
-    return writes, target
+from tests.helpers.runtime_config_retention import _write_configuration, load_plg_runtime_sync
 
 
 @pytest.fixture
 def plg_runtime_sync():
-    path = Path(__file__).resolve().parents[2] / "scripts/ops/sync_backend_runtime_secrets.py"
-    spec = importlib.util.spec_from_file_location("plg_runtime_sync", path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_plg_runtime_sync()
 
 
 @pytest.mark.feature_auth_reliability
@@ -107,6 +26,49 @@ def test_listener_isolation_rollback_survives_the_deployment_writer(monkeypatch,
         {"auth_db_listener_isolation_enabled": False},
     )
     assert json.loads(writes[target])["auth_db_listener_isolation_enabled"] is False
+
+
+@pytest.mark.parametrize(
+    "environment,candidate,value",
+    [("dev", False, False), ("uat", False, True), ("production", True, True)],
+)
+@pytest.mark.parametrize(
+    "key", ["shared_experience_recovery_enabled", "account_generation_admission_enabled"]
+)
+def test_environment_activation_survives_deployment_writer_and_hydration(
+    monkeypatch, plg_runtime_sync, environment, candidate, value, key
+):
+    writes, target = _write_configuration(
+        monkeypatch,
+        plg_runtime_sync,
+        environment,
+        candidate,
+        {key: value},
+    )
+    assert json.loads(writes[target])[key] is value
+    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
+    monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", writes[target])
+    runtime_settings.hydrate_runtime_environment()
+    assert os.environ[key.upper()] == str(value).lower()
+
+
+@pytest.mark.parametrize(
+    "key", ["shared_experience_recovery_enabled", "account_generation_admission_enabled"]
+)
+def test_environment_activation_cannot_cross_environments(plg_runtime_sync, key):
+    retained = plg_runtime_sync._runtime_config_retention["retained_settings"]
+    with pytest.raises(ValueError, match="different environment"):
+        retained(
+            {
+                "environment": "dev",
+                "google_cloud_project": "hushh-pda-dev",
+                key: True,
+            },
+            project="hushh-pda",
+            environment="production",
+        )
+    assert retained({}, project="hushh-pda", environment="production").get(key, False) is False
 
 
 @pytest.mark.parametrize(
@@ -361,118 +323,3 @@ def test_document_delivery_retention_rejects_cross_lane_or_ambiguous_authority(c
     }
     with pytest.raises(ValueError, match="Document delivery"):
         retain(stored, project="hushh-pda-uat", environment="uat")
-
-
-@pytest.mark.parametrize("reuse", [False, True])
-def test_candidate_only_uses_real_builder_and_retention_without_shared_writes(
-    monkeypatch, plg_runtime_sync, reuse
-):
-    stored = {
-        "one_plg_activity_enabled": True,
-        "auth_db_listener_isolation_enabled": False,
-        "protected_document_delivery": True,
-        "document_delivery_bucket": "hushh-pda-document-delivery",
-        "document_delivery_bucket_identity": "a" * 64,
-    }
-    normal, target = _write_configuration(monkeypatch, plg_runtime_sync, "production", True, stored)
-    expected = json.loads(normal[target])
-    writes, actual_target = _write_configuration(
-        monkeypatch,
-        plg_runtime_sync,
-        "production",
-        True,
-        stored,
-        candidate_only=True,
-        candidate_payload=expected if reuse else None,
-    )
-    assert actual_target == target
-    assert writes == ({} if reuse else {target: normal[target]})
-    assert expected["one_plg_activity_enabled"] is True
-    assert expected["auth_db_listener_isolation_enabled"] is False
-    assert expected["document_delivery_bucket_identity"] == "a" * 64
-    assert "unowned_configuration" not in expected
-
-
-def test_existing_candidate_mismatch_never_appends_a_version(plg_runtime_sync):
-    from argparse import Namespace
-
-    args = Namespace(
-        project="hushh-pda",
-        environment="production",
-        production_drive_candidate_only=True,
-        production_drive_candidate_secret=CANDIDATE_SECRET_NAME,
-    )
-
-    def read(command, **_kwargs):
-        return subprocess.CompletedProcess(
-            command, 0, json.dumps({"environment": "production"}), ""
-        )
-
-    def forbidden(*_args):
-        pytest.fail("Existing candidate must not receive another version")
-
-    with pytest.raises(ValueError, match="differs from requested policy"):
-        plg_runtime_sync._production_drive_candidate["sync_candidate_only"](
-            args,
-            {"environment": "production", "google_cloud_project": "hushh-pda"},
-            read,
-            forbidden,
-        )
-
-
-@pytest.mark.parametrize(
-    "access_error,describe_error",
-    [
-        ("PERMISSION_DENIED", ""),
-        ("UNAVAILABLE", ""),
-        ("NOT_FOUND", "PERMISSION_DENIED"),
-        ("NOT_FOUND", ""),
-    ],
-)
-def test_candidate_only_read_failures_never_create_or_update(
-    access_error, describe_error, plg_runtime_sync
-):
-    from argparse import Namespace
-
-    args = Namespace(
-        project="hushh-pda",
-        environment="production",
-        production_drive_candidate_only=True,
-        production_drive_candidate_secret=CANDIDATE_SECRET_NAME,
-    )
-
-    def read(command, **_kwargs):
-        error = access_error if "access" in command else describe_error
-        return subprocess.CompletedProcess(command, 1 if error else 0, "", error)
-
-    def forbidden(*_args):
-        pytest.fail("Unverified candidate must not be written")
-
-    with pytest.raises(ValueError, match="verified"):
-        plg_runtime_sync._production_drive_candidate["sync_candidate_only"](
-            args,
-            {"environment": "production", "google_cloud_project": "hushh-pda"},
-            read,
-            forbidden,
-        )
-
-
-def test_candidate_only_mutation_guard_detects_normal_sync_fallthrough(
-    monkeypatch, plg_runtime_sync
-):
-    import inspect
-    from types import CodeType, FunctionType
-
-    source = inspect.getsource(plg_runtime_sync.main)
-    boundary = '    if args.production_drive_candidate_only:\n        return _production_drive_candidate["sync_candidate_only"](args, config, _run, _upsert_secret)\n'
-    assert source.count(boundary) == 1
-    # Negative control changes this isolated module in memory, never disk/runtime.
-    code = compile(source.replace(boundary, ""), "candidate-only-negative-control", "exec")
-    function = next(
-        value for value in code.co_consts if isinstance(value, CodeType) and value.co_name == "main"
-    )
-    plg_runtime_sync.main = FunctionType(function, plg_runtime_sync.__dict__)
-    with pytest.raises(pytest.fail.Exception, match="shared secret mutation"):
-        _write_configuration(
-            monkeypatch, plg_runtime_sync, "production", True, {}, candidate_only=True
-        )

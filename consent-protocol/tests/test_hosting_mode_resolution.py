@@ -212,3 +212,110 @@ def test_a_job_that_is_not_the_detached_placement_still_counts(setup_job):
         setup_job_read_ok=True,
     )
     assert mode in {"unknown", "pending"}
+
+
+@pytest.mark.parametrize(
+    ("observations", "expected_error", "recorded"),
+    [
+        (["unplaced", "unplaced"], None, True),
+        (["shared"], None, False),
+        (["pending"], 409, False),
+        (["byoc"], 409, False),
+        (["hussh_pods"], 409, False),
+        (["unknown"], 503, False),
+        (["unplaced", "pending"], 409, False),
+        (["unplaced", "byoc"], 409, False),
+        (["unplaced", "unknown"], 503, False),
+    ],
+)
+async def test_explicit_shared_recovery_preserves_private_and_concurrent_setup(
+    monkeypatch, observations, expected_error, recorded
+):
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    from api.routes.one import runtime_placement
+    from hushh_mcp.services import byoc_setup_intent
+    from hushh_mcp.services.owner_hosting_choice import HostingChoiceRepo
+    from hushh_mcp.services.shared_files import registry
+
+    monkeypatch.setenv("SHARED_EXPERIENCE_RECOVERY_ENABLED", "true")
+    observe = AsyncMock(side_effect=[*observations, observations[-1]])
+    record, marker, clear = AsyncMock(), AsyncMock(), AsyncMock()
+    locked = []
+
+    @asynccontextmanager
+    async def placement_lock(owner):
+        assert owner == "u1"
+        locked.append(True)
+        yield
+
+    monkeypatch.setattr(runtime_placement, "_placement", observe)
+    monkeypatch.setattr(HostingChoiceRepo, "record_shared", record)
+    monkeypatch.setattr(runtime, "_write_cloud_setup_marker", marker)
+    monkeypatch.setattr(byoc_setup_intent, "clear_intent", clear)
+    monkeypatch.setattr(registry, "protect_placement_change", placement_lock)
+    request = runtime_placement.SharedHostingSelectionRequest(recovery=True, expectedOwnerId="u1")
+    if expected_error is not None:
+        with pytest.raises(HTTPException) as refused:
+            await runtime.select_shared_hosting.__wrapped__(
+                request=None, firebase_uid="u1", body=request
+            )
+        assert refused.value.status_code == expected_error
+        marker.assert_not_awaited()
+    else:
+        response = await runtime.select_shared_hosting.__wrapped__(
+            request=None, firebase_uid="u1", body=request
+        )
+        assert response.hostingMode == "shared"
+        marker.assert_awaited_once_with("u1")
+    assert record.await_count == int(recorded)
+    assert bool(locked) is (observations[0] == "unplaced")
+    clear.assert_not_awaited()
+
+
+@pytest.mark.parametrize("mode", ["shared", "unplaced", "pending", "byoc", "hussh_pods", "unknown"])
+async def test_shared_recovery_projection_is_explicit_owner_bound_and_default_off(
+    monkeypatch, mode
+):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.services import shared_experience_recovery as recovery
+
+    monkeypatch.delenv("SHARED_EXPERIENCE_RECOVERY_ENABLED", raising=False)
+    observe = AsyncMock(return_value=mode)
+    monkeypatch.setattr(recovery, "get_owner_hosting_mode", observe)
+    assert await recovery.shared_recovery_for_owner("u1") is False
+    observe.assert_not_awaited()
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", '{"shared_experience_recovery_enabled":true}')
+    runtime_settings.hydrate_runtime_environment()
+    assert await recovery.shared_recovery_for_owner("u1") is (mode in {"shared", "unplaced"})
+    observe.assert_awaited_once_with("u1")
+    monkeypatch.setenv("SHARED_EXPERIENCE_RECOVERY_ENABLED", "false")
+    runtime_settings.hydrate_runtime_environment()
+    observe.reset_mock()
+    assert await recovery.shared_recovery_for_owner("u1") is False
+    observe.assert_not_awaited()
+
+
+@pytest.mark.parametrize("expected_owner", [None, "previous-owner"])
+async def test_shared_recovery_refuses_a_changed_or_missing_owner_before_selection(
+    monkeypatch, expected_owner
+):
+    from unittest.mock import AsyncMock
+
+    from api.routes.one import runtime_placement
+
+    select = AsyncMock()
+    monkeypatch.setattr(runtime_placement, "select_shared_recovery", select)
+    body = runtime_placement.SharedHostingSelectionRequest(
+        recovery=True, expectedOwnerId=expected_owner
+    )
+    with pytest.raises(HTTPException) as refused:
+        await runtime.select_shared_hosting.__wrapped__(
+            request=None, firebase_uid="current-owner", body=body
+        )
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "SHARED_RECOVERY_OWNER_CHANGED"
+    select.assert_not_awaited()

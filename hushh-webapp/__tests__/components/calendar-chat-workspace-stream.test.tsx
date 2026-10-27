@@ -2,7 +2,7 @@ import { clearAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import * as connections from "@/lib/connections/google-connect-in-place";
 import result from "../../../consent-protocol/tests/fixtures/calendar/chat_proposal_result.json";
-import { calendarChatStream as sse } from "../fixtures/calendar-chat-stream";
+import { calendarChatEvent, calendarChatStream as sse } from "../fixtures/calendar-chat-stream";
 import { act, cleanup, configure, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
@@ -44,6 +44,7 @@ vi.mock("@/lib/agent/chat-onboarding/use-chat-onboarding", async importOriginal 
 });
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({ PkmWriteCoordinator: { saveMergedDomain: vi.fn() } }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: {
+  getCachedBootstrapState: vi.fn(() => null),
   syncOneChatOnboarding: vi.fn(async () => ({})),
 } }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => fixture.gmail }));
@@ -113,7 +114,6 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     const ingestion = await import("@/lib/pkm/pkm-natural-language-ingestion");
     vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({ cards: [] } as never);
     let channel!: ReadableStreamDefaultController<Uint8Array>;
-    const encoder = new TextEncoder();
     const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockResolvedValue(new Response(
       new ReadableStream<Uint8Array>({ start(controller) { channel = controller; } }),
       { headers: { "Content-Type": "text/event-stream" } },
@@ -132,7 +132,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
       fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     }
     await waitFor(() => expect(fetchStream).toHaveBeenCalledOnce());
-    const push = (event: Record<string, unknown>) => act(() => channel.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)));
+    const push = (event: Record<string, unknown>) => act(() => channel.enqueue(calendarChatEvent(event)));
     const writes = () => vi.mocked(PkmWriteCoordinator.saveMergedDomain).mock.calls
       .filter(([params]) => params.confirmation.source === "one_chat_preferred_name");
     push({ type: "RUN_STARTED", threadId: "same-conversation", runId: "ordinary-name" });
@@ -167,7 +167,6 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     useChatOnboardingSession.getState().reset("owner");
     useChatOnboardingSession.getState().patch({ machine: pending, durable: null });
     let channel!: ReadableStreamDefaultController<Uint8Array>;
-    const encoder = new TextEncoder();
     const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockResolvedValue(new Response(
       new ReadableStream<Uint8Array>({ start(controller) { channel = controller; } }),
       { headers: { "Content-Type": "text/event-stream" } },
@@ -180,7 +179,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     const wire = JSON.parse(String(fetchStream.mock.calls[0][1]?.body));
     const requestId = wire.forwardedProps.screenContext.screen_state.onboarding_name_request;
     expect(requestId).toMatch(/^[a-p]{32}$/);
-    const push = (event: Record<string, unknown>) => act(() => channel.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)));
+    const push = (event: Record<string, unknown>) => act(() => channel.enqueue(calendarChatEvent(event)));
     const nameWrites = () => vi.mocked(PkmWriteCoordinator.saveMergedDomain).mock.calls
       .filter(([params]) => params.confirmation.source === "one_chat_onboarding");
     push({ type: "RUN_STARTED", threadId: "same-conversation", runId: "name-run" });
@@ -208,11 +207,10 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
   it.each(["result", "error"] as const)("shows working during a tool call and settles after its %s", async outcome => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
     let channel!: ReadableStreamDefaultController<Uint8Array>;
-    const encoder = new TextEncoder();
     const response = new Response(new ReadableStream<Uint8Array>({ start(controller) { channel = controller; } }),
       { headers: { "Content-Type": "text/event-stream" } });
     const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockResolvedValue(response);
-    const push = (event: Record<string, unknown>) => act(() => channel.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)));
+    const push = (event: Record<string, unknown>) => act(() => channel.enqueue(calendarChatEvent(event)));
     const view = workspace();
     const avatar = () => view.container.querySelector("[data-agent-chat-one-profile-trigger] [data-one-presence-state]");
     const composer = await screen.findByRole("textbox", { name: "Message One" });
@@ -241,11 +239,10 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
   it("shows Working for written output in both avatars and recovers after a failed draft", async () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
     const channels: ReadableStreamDefaultController<Uint8Array>[] = [];
-    const encoder = new TextEncoder();
     const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () =>
       new Response(new ReadableStream<Uint8Array>({ start(controller) { channels.push(controller); } }),
         { headers: { "Content-Type": "text/event-stream" } }));
-    const push = (event: Record<string, unknown>) => act(() => channels.at(-1)!.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)));
+    const push = (event: Record<string, unknown>) => act(() => channels.at(-1)!.enqueue(calendarChatEvent(event)));
     const view = workspace();
     const avatar = () => view.container.querySelector("[data-agent-chat-one-profile-trigger] [data-one-presence-state]");
     const composer = await screen.findByRole("textbox", { name: "Message One" });

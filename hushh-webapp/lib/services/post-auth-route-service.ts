@@ -172,6 +172,9 @@ export class PostAuthRouteService {
       params.userId,
       { idToken: params.idToken },
     );
+    const preVaultRoute = remoteState.sharedExperienceRecoveryEnabled === true
+      ? ROUTES.ONE_SETUP
+      : PRE_VAULT_ROUTE;
     // Native auth bridges can restore a valid Firebase session before their
     // local user object has hydrated `phoneNumber`. A positive backend claim
     // is authoritative for this login decision. Unknown claims must not be
@@ -187,12 +190,12 @@ export class PostAuthRouteService {
       if (remoteState.setupCompleted === false && !setupResolved) {
         if (
           hasExplicitRedirect &&
-          (isSetupHubRedirect || fallbackPathname === PRE_VAULT_ROUTE || fallbackPathname === ROUTES.ONE_SETUP_CONNECTIONS)
+          (isSetupHubRedirect || fallbackPathname === preVaultRoute || fallbackPathname === ROUTES.ONE_SETUP_CONNECTIONS)
         )
           return fallbackRoute;
-        return hasExplicitRedirect && fallbackRoute !== PRE_VAULT_ROUTE
+        return hasExplicitRedirect && fallbackRoute !== preVaultRoute
           ? buildOneSetupRoute({ returnTo: fallbackRoute })
-          : PRE_VAULT_ROUTE;
+          : preVaultRoute;
       }
       if (
         (isSetupHubRedirect ||
@@ -267,7 +270,7 @@ export class PostAuthRouteService {
         : buildProfileVaultRoute(inviteRedirectTarget)
       : setupResolved
         ? NO_VAULT_DEFAULT_ROUTE
-        : PRE_VAULT_ROUTE;
+        : preVaultRoute;
 
     // Brand-new Google accounts may not have an identity shadow yet. Resolve
     // that missing claim through the existing identity refresh before deciding;

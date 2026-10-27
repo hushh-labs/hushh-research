@@ -1,5 +1,6 @@
 "use client";
 
+import { useSharedExperienceRecovery } from "@/hooks/use-shared-experience-recovery";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -63,6 +64,7 @@ function OwnerRuntimeConfigurationPage({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, userId: ownerId, loading: authLoading } = auth;
+  const sharedRecovery = useSharedExperienceRecovery(ownerId);
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -351,7 +353,7 @@ function OwnerRuntimeConfigurationPage({
         {/* Not shown during first-run setup: the person is still connecting the key
             the pod would run on, and offering to build one mid-flow would interrupt
             the journey they are already in. */}
-        {setupMode ? null : (
+        {setupMode || sharedRecovery ? null : (
           <PrivateAgentCard
             vaultOwnerToken={vaultOwnerToken}
             needsUnlock={needsUnlock}

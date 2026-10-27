@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { SetupHostingStep } from "./setup-hosting-step";
 import { Cloud } from "@/components/icons";
 import { toast } from "sonner";
 
@@ -130,9 +131,11 @@ export function OneSetupHub() {
     userId: string | null;
     cloud: "loading" | "required" | "complete";
     runtime: "loading" | "required" | "complete";
+    sharedRecovery?: boolean;
   }>({ userId: null, cloud: "loading", runtime: "loading" });
   const prereqMatchesUser = prereqSnapshot.userId === (ownerId ?? null);
   const cloudState = prereqMatchesUser ? prereqSnapshot.cloud : "loading";
+  const sharedRecovery = prereqMatchesUser && prereqSnapshot.sharedRecovery === true;
   const runtimeChoiceState = prereqMatchesUser
     ? prereqSnapshot.runtime
     : "loading";
@@ -223,6 +226,7 @@ export function OneSetupHub() {
       ready = immediateRuntimeChoiceReadiness(ownerId, state, Boolean(vaultKey && vaultOwnerToken)),
     ) => ({
       userId: ownerId,
+      sharedRecovery: state?.sharedExperienceRecoveryEnabled === true,
       cloud: PreVaultUserStateService.hasOneCloudProject(state)
         ? ("complete" as const)
         : ("required" as const),
@@ -327,6 +331,7 @@ export function OneSetupHub() {
               if (!cancelled) {
                 setPrereqSnapshot({
                   userId: ownerId,
+                  sharedRecovery: state?.sharedExperienceRecoveryEnabled === true,
                   cloud: PreVaultUserStateService.hasOneCloudProject(state)
                     ? "complete"
                     : "required",
@@ -663,6 +668,7 @@ export function OneSetupHub() {
           });
           setPrereqSnapshot({
             userId: ownerId,
+            sharedRecovery: currentState.sharedExperienceRecoveryEnabled === true,
             cloud: cloudConfirmed ? "complete" : "required",
             runtime: runtimeChoiceConfirmed ? "complete" : "required",
           });
@@ -856,43 +862,19 @@ export function OneSetupHub() {
                 testId="one-setup-foundation"
                 separatorInset
               >
-                <SetupNavigationTile
-                  id="cloud"
-                  title={
-                    cloudComplete && runtimeChoiceComplete
-                      ? "Agent home" : "Set up your private agent"
-                  }
-                  description={
-                    cloudComplete
-                      ? runtimeChoiceComplete
-                        ? "Your hosting and AI choices are saved."
-                        : "Finish choosing AI access in your agent setup."
-                      : cloudSetupRunning
-                        ? "Being set up in the background. Keep going; this finishes on its own."
-                        : "Choose Hussh Shared, your own cloud, or Hussh Pods when available."
-                  }
-                  href={buildOneSetupCloudRoute(returnTo)}
-                  voiceControlId="one_setup_tile_cloud"
-                  icon={lucideCapabilityIcon(Cloud)}
-                  tone="connected"
-                  statusLabel={
-                    cloudComplete
-                      ? runtimeChoiceComplete ? "Connected" : "Continue"
-                      : cloudSetupRunning
-                        ? cloudSetupStageLabel
-                        : "Required"
-                  }
-                  statusTone={cloudComplete && runtimeChoiceComplete ? undefined : "required"}
-                  isCurrent={!cloudComplete || !runtimeChoiceComplete}
-                  isComplete={cloudComplete && runtimeChoiceComplete}
-                />
+                <SetupHostingStep ownerId={ownerId} returnTo={returnTo}
+                  sharedRecovery={sharedRecovery} cloudComplete={cloudComplete}
+                  runtimeChoiceComplete={runtimeChoiceComplete} cloudSetupRunning={cloudSetupRunning}
+                  cloudSetupStageLabel={cloudSetupStageLabel} />
                 <SetupNavigationTile
                   id="phone"
                   title="Verify your phone"
                   description={
-                    phoneVerified
-                      ? "Verified. Your agent's record is minted from this number."
-                      : cloudComplete
+                    sharedRecovery
+                      ? phoneVerified ? "Your phone is verified." : "Verify your phone to protect your account."
+                      : phoneVerified
+                        ? "Verified. Your agent's record is minted from this number."
+                        : cloudComplete
                         ? "Your agent's record is minted from your verified number."
                         : "After choosing where your agent lives."
                   }
@@ -923,7 +905,7 @@ export function OneSetupHub() {
                     AI" had to leave setup to learn whether anything was
                     happening (audit finding, 2026-08-21). It renders nothing
                     until there is an agent state to report. */}
-                {runtimeChoiceComplete ? <OneAgentPresence /> : null}
+                {runtimeChoiceComplete && !sharedRecovery ? <OneAgentPresence /> : null}
               </SettingsGroup>
               {initialContacts.ownerId === ownerId ? (
                 <SettingsGroup separatorInset>

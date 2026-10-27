@@ -59,8 +59,8 @@ describe("One setup hub terminal action contract", () => {
   });
 
   it("marks the one mandatory row as required rather than leaving it a quiet grey status", () => {
-    const hub = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+    const hosting = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/setup-hosting-step.tsx"),
       "utf8",
     );
     const tile = readFileSync(join(process.cwd(), "components/onboarding/setup/capability-setup-tile.tsx"), "utf8");
@@ -72,12 +72,12 @@ describe("One setup hub terminal action contract", () => {
     // the background job runs), and "Required" stays its resting default.
     // The cloud row is pinned first in both states; its label walks
     // The combined row stays required until both durable choices are saved.
-    expect(hub).toContain("? cloudSetupStageLabel");
-    expect(hub).toContain(
+    expect(hosting).toContain("? cloudSetupStageLabel");
+    expect(hosting).toContain(
       'statusTone={cloudComplete && runtimeChoiceComplete ? undefined : "required"}',
     );
-    expect(hub).toContain("isCurrent={!cloudComplete || !runtimeChoiceComplete}");
-    expect(hub).toContain("isComplete={cloudComplete && runtimeChoiceComplete}");
+    expect(hosting).toContain("isCurrent={!cloudComplete || !runtimeChoiceComplete}");
+    expect(hosting).toContain("isComplete={cloudComplete && runtimeChoiceComplete}");
     expect(tile).toContain('statusTone === "required"');
     expect(tile).toContain("bg-[var(--app-accent-tint)]");
     expect(tile).toContain('aria-current={isCurrent ? "step" : undefined}');
@@ -446,9 +446,14 @@ describe("One setup hub reaches the cloud choice", () => {
     );
 
   it("renders a cloud tile aimed at the canonical setup route", () => {
-    expect(source()).toContain('id="cloud"');
-    expect(source()).toContain("href={buildOneSetupCloudRoute(returnTo)}");
-    expect(source()).toContain('voiceControlId="one_setup_tile_cloud"');
+    const hosting = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/setup-hosting-step.tsx"),
+      "utf8",
+    );
+    expect(source()).toContain("<SetupHostingStep");
+    expect(hosting).toContain('id="cloud"');
+    expect(hosting).toContain("href={buildOneSetupCloudRoute(returnTo)}");
+    expect(hosting).toContain('voiceControlId="one_setup_tile_cloud"');
   });
 
   it("keeps the cloud tile unconditional, which is the half that broke", () => {
@@ -458,7 +463,9 @@ describe("One setup hub reaches the cloud choice", () => {
     // the 2026-08-28 defect fails here rather than in somebody's first run.
     const src = source();
     const group = src.indexOf('testId="one-setup-foundation"');
-    const tile = src.indexOf('id="cloud"', group);
+    // The extracted owner-aware step presents cloud selection normally and
+    // explicit Shared confirmation during recovery; the step stays reachable.
+    const tile = src.indexOf("<SetupHostingStep", group);
     expect(group).toBeGreaterThan(-1);
     expect(tile).toBeGreaterThan(group);
     const between = src.slice(group, tile);

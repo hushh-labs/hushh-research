@@ -1,5 +1,5 @@
 import { requestPhoneTransfer } from "./account-phone-api";
-import { readPersonalAgentStatus, readCloudRemovalAvailability, readHostingInspection } from "./personal-agent-hosting";
+import { readPersonalAgentStatus, readCloudRemovalAvailability, readHostingInspection, selectSharedHosting, type SharedHostingSelectionOptions, type SharedHostingSelectionResult } from "./personal-agent-hosting";
 import { marketInsightsQuery } from "@/lib/kai/market-insights-query";
 /**
  * Platform-aware API routing. Web hub requests use Next.js proxies; native hub
@@ -1892,21 +1892,8 @@ export class ApiService {
     return response.json();
   }
 
-  static async selectSharedHosting(): Promise<{
-    hostingMode: "shared";
-    nextStep: string;
-  }> {
-    const token = await this.getFirebaseToken();
-    const response = await apiFetch("/api/one/runtime/shared/select", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({}),
-    });
-    if (!response.ok) throw new Error("SHARED_SELECT_FAILED");
-    return response.json();
+  static async selectSharedHosting(options?: SharedHostingSelectionOptions): Promise<SharedHostingSelectionResult> {
+    return selectSharedHosting(await this.getFirebaseToken(), apiFetch, options);
   }
 
   static async selectManagedGeminiRuntime(): Promise<{

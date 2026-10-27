@@ -92,7 +92,7 @@
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
-          "Navigate to the standalone AI access setup page for the compatibility entry; the normal setup journey configures AI within /one/setup/cloud."
+          "The Shared recovery setup shows this entry after hosting is confirmed; other placements use the provider-aware hosting wizard."
         ]
       },
       "guard_ids": [
@@ -105,7 +105,9 @@
         "path": "route",
         "target": "/one/setup/connections"
       },
-      "control_ids": [],
+      "control_ids": [
+        "one_setup_tile_connections"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
