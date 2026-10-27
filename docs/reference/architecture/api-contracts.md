@@ -5246,7 +5246,9 @@ external-read barrier; review capabilities remain only in browser memory. Chat
 retains the vault-owner attendance route for organizer Mail. The `/one/calendar`
 workspace uses Firebase-authorized RSVP, organizer Mail, and conflict review routes
 with live owner-bound Google grants and sealed one-time confirmation. Both surfaces
-reuse the invitation components. Realtime
+reuse the invitation components. Direct workspace actions change provider Calendar
+and Gmail records only; they do not write PKM or Live Memory. The owner sees the
+refreshed Calendar state after confirmation. Realtime
 Talk to One's `calendar.invitation.review` handoff forwards the original request (or
 an explicitly selected, current offered event) into the existing conversation. It
 grants no RSVP/Mail authority and never navigates to `/one/calendar` for an action.
