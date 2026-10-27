@@ -1,14 +1,14 @@
 # Dev Fast Lane — the safe rule for agentic shipping
 
-> **Dev intake:** protected `dev` is the default application source; UAT selects
-> its protected tip and requires exact assembled-SHA Dev acceptance. Main owns
-> workflow authority and release approval. Preserve legacy train history and
-> publish reconciled baselines before activating defaults. See
+> **Dev intake:** Main owns workflow authority and release approval. Activate
+> protected `dev` as the default application source only after its baseline is
+> qualified. UAT remains on its current selector until separately authorized;
+> its proposed branch path requires exact assembled-SHA Dev acceptance. Preserve
+> legacy train history. See
 > [branch governance](./branch-governance.md#dev--uat-branch-preparation).
 
-> `main` is the signoff lane (UAT → production). The dev environment is the agentic
-> proving ground and never routes through `main`. This page is the canonical contract
-> for how those two lanes stay fast AND correct at the same time.
+> Dev is the first proving ground for an application revision. Main owns the
+> release workflows, and higher-environment promotion remains a separate cadence.
 
 Dev is a governed dispatch-only proving lane, never a promotion lane. Any decision
 that lands a PR, promotes `main`, or deploys UAT/production follows the canonical
