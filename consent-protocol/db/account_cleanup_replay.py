@@ -86,6 +86,10 @@ _BOOTSTRAP_SOURCES.update(
             "347",
             "347_one_referral_dashboard_lifecycle.sql",
         ): "2036301cdae30b7786a568b41635d5b331e542bb132677dafb4f3227bfe11279",
+        (
+            "428",
+            "428_financial_summary_owner_preference.sql",
+        ): "70f4c3dd8cdfd639cc6b3176b27590de6719b2873bffd89b9a39544631eb7b92",
     }
 )
 SOURCES.update(_BOOTSTRAP_SOURCES)
@@ -337,6 +341,13 @@ def _bootstrap(sql: str, version: str) -> str:
                 + "\n)\nINSERT INTO one_referral_network_members",
                 1,
             ),
+        ],
+        "428": [
+            (
+                "GROUP BY user_id",
+                "AND " + _eligible("btrim(drive_packet_heads.user_id)") + "\nGROUP BY user_id",
+                1,
+            )
         ],
     }
     filtered = sql

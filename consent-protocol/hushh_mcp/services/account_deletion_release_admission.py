@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import text
 
@@ -21,14 +21,26 @@ _FENCED = """SELECT EXISTS (
       AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal
 )"""
 
+# Closed, non-sensitive set: logs, the scheduler response and alerts key on it.
+PausedReason = Literal[
+    "release_fence_installed",
+    "release_lock_unavailable",
+    "lifecycle_roots_missing",
+    "admission_check_failed",
+]
+
 
 class AccountDeletionReleasePaused(RuntimeError):
-    """Retryable release admission refusal; never a provider quarantine."""
+    """Retryable release admission refusal; never a provider quarantine.
+
+    `reason` keeps a paused drain distinguishable from an idle one.
+    """
 
     sqlstate = "55000"
 
-    def __init__(self) -> None:
+    def __init__(self, reason: PausedReason = "admission_check_failed") -> None:
         super().__init__("account deletion is temporarily unavailable during a lifecycle release")
+        self.reason: PausedReason = reason
 
 
 def admit_erasure_transaction(conn: Any) -> None:
@@ -69,9 +81,9 @@ class ReleaseAdmission:
                 timeout=3,
             )
         except Exception as exc:
-            raise AccountDeletionReleasePaused() from exc
+            raise AccountDeletionReleasePaused("admission_check_failed") from exc
         if held is not True:
-            raise AccountDeletionReleasePaused()
+            raise AccountDeletionReleasePaused("release_lock_unavailable")
 
 
 @asynccontextmanager
@@ -94,9 +106,13 @@ async def release_admission() -> AsyncIterator[ReleaseAdmission]:
                 )
                 fenced = await conn.fetchval(_FENCED, timeout=3)
             except Exception as exc:
-                raise AccountDeletionReleasePaused() from exc
-            if acquired is not True or roots != 2 or fenced:
-                raise AccountDeletionReleasePaused()
+                raise AccountDeletionReleasePaused("admission_check_failed") from exc
+            if fenced:
+                raise AccountDeletionReleasePaused("release_fence_installed")
+            if acquired is not True:
+                raise AccountDeletionReleasePaused("release_lock_unavailable")
+            if roots != 2:
+                raise AccountDeletionReleasePaused("lifecycle_roots_missing")
             yield ReleaseAdmission(conn)
         except BaseException:
             body_failed = True
