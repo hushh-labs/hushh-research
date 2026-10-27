@@ -1,7 +1,7 @@
 -- Curated Finance objects: encrypted contents, explicit per-person authority.
 BEGIN;
 CREATE TABLE IF NOT EXISTS finance_share_requests (
-  owner_user_id text NOT NULL,
+  owner_user_id text NOT NULL REFERENCES actor_profiles(user_id) ON DELETE CASCADE,
   id uuid NOT NULL,
   fingerprint text NOT NULL CHECK (fingerprint ~ '^[a-f0-9]{64}$'),
   policy jsonb NOT NULL,
@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS finance_share_requests (
 );
 CREATE TABLE IF NOT EXISTS finance_access_grants (
   id uuid PRIMARY KEY,
-  owner_user_id text NOT NULL,
-  recipient_user_id text NOT NULL,
+  owner_user_id text NOT NULL REFERENCES actor_profiles(user_id) ON DELETE CASCADE,
+  recipient_user_id text NOT NULL REFERENCES actor_profiles(user_id) ON DELETE CASCADE,
   request_id uuid NOT NULL,
   recipient_key_id text NOT NULL,
   envelope jsonb,

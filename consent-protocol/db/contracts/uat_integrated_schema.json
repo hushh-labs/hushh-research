@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 432,
+  "expected_migration_version": 433,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -335,7 +335,10 @@
     "scope_commerce_posting_admission",
     "scope_commerce_queue_continuous_refresh_v1",
     "scope_commerce_payout_account_claims_v1",
-    "enforce_stripe_payout_source_binding"
+    "enforce_stripe_payout_source_binding",
+    "guard_finance_share_request",
+    "guard_finance_access_grant",
+    "end_finance_connection_shares"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -2161,6 +2164,30 @@
     "feed_event_counterparts": [
       "counterpart_user_id",
       "feed_event_id"
+    ],
+    "finance_access_grants": [
+      "content_hash",
+      "created_at",
+      "envelope",
+      "id",
+      "message_id",
+      "owner_envelope",
+      "owner_user_id",
+      "recipient_key_id",
+      "recipient_user_id",
+      "request_id",
+      "revision",
+      "revoked_at",
+      "updated_at"
+    ],
+    "finance_share_requests": [
+      "created_at",
+      "expires_at",
+      "fingerprint",
+      "id",
+      "owner_config",
+      "owner_user_id",
+      "policy"
     ],
     "gmail_mailbox_action_proposals": [
       "action",
@@ -4696,5 +4723,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 432
+  "expected_schema_head": 433
 }
