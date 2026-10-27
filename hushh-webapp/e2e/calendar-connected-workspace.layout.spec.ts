@@ -15,6 +15,7 @@ import { assertCalendarAccountLabel, assertCalendarBoardGeometry, assertCalendar
 registerCalendarConnectedFixture();
 
 test("Calendar product font and real action targets survive responsive boundaries", async ({ page }) => {
+  test.setTimeout(60_000);
   const { errors, unexpectedRequests } = await openFixture(page, 393);
   for (const width of [350, 351, 360, 393, 430, 520, 521, 620, 621, 639, 640, 759, 760, 767, 768, 900, 901, 1024, 1440]) {
     await page.setViewportSize({ width, height: 950 });
@@ -43,6 +44,9 @@ test("Calendar product font and real action targets survive responsive boundarie
   await expect(invitationJoin).toHaveCSS("background-color", /rgb/);
   for (const name of ["Accept", "Decline", "Decline & offer another time"]) {
     const button = dialog.getByRole("button", { name, exact: true });
+    await page.mouse.move(0, 0);
+    await expect.poll(() => button.evaluate(element => getComputedStyle(element).backgroundColor)).toBeTruthy();
+    const restingBackground = await button.evaluate(element => getComputedStyle(element).backgroundColor);
     const normal = (await button.boundingBox())!;
     expect(normal.height, `${name} target`).toBeGreaterThanOrEqual(44);
     await button.hover();
@@ -50,8 +54,21 @@ test("Calendar product font and real action targets survive responsive boundarie
     expect(hovered.width, `${name} hover width`).toBe(normal.width);
     expect(hovered.height, `${name} hover height`).toBe(normal.height);
     expect(hovered.x, `${name} hover alignment`).toBe(normal.x);
+    await expect.poll(() => button.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(restingBackground);
     expect(await button.evaluate(element => getComputedStyle(element).borderRadius)).toBe("999px");
   }
+  const accept = dialog.getByRole("button", { name: "Accept", exact: true });
+  await accept.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  await expect(accept).toBeFocused();
+  expect(await accept.evaluate(element => getComputedStyle(element).outlineStyle)).toBe("solid");
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  const darkRestingBackground = await accept.evaluate(element => getComputedStyle(element).backgroundColor);
+  await accept.hover();
+  await expect.poll(() => accept.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(darkRestingBackground);
+  await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, "calendar-invitation-dark-hover-393.png") });
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -396,6 +413,22 @@ for (const width of [320, 390, 1440]) {
     const guests = dialog.getByRole("list", { name: "Guests" }).getByRole("listitem");
     await expect(guests).toHaveCount(9);
     await expect(dialog.getByText("3 yes, 6 awaiting")).toBeVisible();
+    const acceptedBadges = guests.locator("[data-accepted-indicator]");
+    await expect(acceptedBadges).toHaveCount(3);
+    expect(await acceptedBadges.evaluateAll(badges => badges.every(badge => {
+      const avatar = badge.parentElement?.querySelector('[data-slot="avatar"]');
+      if (!avatar) return false;
+      const image = avatar.getBoundingClientRect();
+      const tick = badge.getBoundingClientRect();
+      return tick.width <= 14 && tick.height <= 14
+        && tick.left >= image.right - 6 && tick.left < image.right
+        && tick.top >= image.bottom - 10 && tick.top < image.bottom
+        && tick.right > image.right && tick.bottom > image.bottom;
+    }))).toBe(true);
+    expect(await guests.evaluateAll(items => items.every(item => {
+      const accepted = item.textContent?.includes("Accepted") ?? false;
+      return Boolean(item.querySelector("[data-accepted-indicator]")) === accepted;
+    }))).toBe(true);
     await expect(guests.filter({ hasText: "Manish" }).locator("img")).toHaveAttribute("src", "https://calendar-fixture.test/avatars/manish.png");
     const guestBounds = await guests.evaluateAll(items => items.map(item => {
       const { x, y, width: rowWidth } = item.getBoundingClientRect();
@@ -417,6 +450,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.locator('[data-slot="dialog-overlay"]')).toBeVisible();
     expect(await page.locator('[data-slot="dialog-overlay"]').evaluate(node => getComputedStyle(node).backdropFilter)).not.toBe("none");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await dialog.evaluate(element => { element.scrollTop = 0; });
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-detail-top-${testInfo.project.name}-${width}.png`) });
     await page.getByRole("button", { name: "Decline & offer another time" }).scrollIntoViewIfNeeded();
     const offerBounds = (await page.getByRole("button", { name: "Decline & offer another time" }).boundingBox())!;

@@ -258,6 +258,7 @@ async def attendance_rsvp_review(
         return await _selected_schedule(payload.account_id).review(
             user_id=firebase_uid,
             **payload.model_dump(exclude={"account_id"}, exclude_none=True),
+            review_kind="rsvp",
             offer_times=False,
             send_message=False,
             mail_only_retry=False,
@@ -313,7 +314,9 @@ async def attendance_workspace_review(
     try:
         response.headers["Cache-Control"] = "private, no-store"
         return await _selected_schedule(payload.account_id).review(
-            user_id=firebase_uid, **payload.model_dump(exclude={"account_id"})
+            user_id=firebase_uid,
+            **payload.model_dump(exclude={"account_id"}),
+            review_kind="workspace",
         )
     except (GmailDeliveryError, GmailApiError) as exc:
         raise HTTPException(
@@ -333,7 +336,9 @@ async def attendance_workspace_confirm(
     try:
         response.headers["Cache-Control"] = "private, no-store"
         return await _selected_schedule(payload.account_id).confirm(
-            user_id=firebase_uid, **payload.model_dump(exclude={"account_id"})
+            user_id=firebase_uid,
+            **payload.model_dump(exclude={"account_id"}),
+            review_kind="workspace",
         )
     except Exception as exc:
         raise _http(exc) from exc

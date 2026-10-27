@@ -16,7 +16,7 @@ import re
 import secrets
 from datetime import UTC, datetime, time, timedelta
 from datetime import date as local_date
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
@@ -25,6 +25,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from hushh_mcp.runtime_settings import get_app_runtime_settings, get_core_security_settings
 from hushh_mcp.services.calendar_attendance_confirmation import (
     claim_attendance_review,
+    preflight_direct_attendance_grant,
+    recheck_accepted_invitation,
+    require_review_account_email,
+    require_rsvp_review,
     send_reviewed_organizer_mail,
 )
 from hushh_mcp.services.gmail_delivery_service import get_gmail_delivery_service
@@ -38,6 +42,7 @@ from hushh_mcp.services.product_value_receipts import capture_value_epoch, recor
 _READABLE_CALENDAR_ROLES = frozenset({"reader", "writer", "owner", "writerWithoutPrivateAccess"})
 _INVENTORY_MAX = 100
 _PAGE_MAX = 10
+AttendanceReviewKind = Literal["legacy_owner", "workspace", "rsvp"]
 
 
 def _error(message: str, status: int = 422, reason: str = "calendar_invalid_request"):
@@ -843,6 +848,7 @@ class CalendarScheduleService:
         duration_minutes: int = 30,
         response_status: str = "declined",
         expected_account_email: str | None = None,
+        review_kind: AttendanceReviewKind = "legacy_owner",
     ):
         if (offer_times or send_message) and response_status != "declined":
             raise _error("Alternative-time messages require a decline response.")
@@ -860,12 +866,7 @@ class CalendarScheduleService:
         event, patch, email = await self._event(
             user_id, event_id, calendar_id, binding, response_status
         )
-        if expected_account_email and email.casefold() != expected_account_email.casefold():
-            raise _error(
-                "The connected Calendar account changed. Load this invitation again.",
-                409,
-                "calendar_connection_changed",
-            )
+        require_review_account_email(expected_account_email, email)
         if mail_only_retry:
             attendee_email = patch["attendees"][0]["email"].casefold()
             if not any(
@@ -892,6 +893,7 @@ class CalendarScheduleService:
             "user_id": user_id,
             "account_id": getattr(self.calendar.connections, "account_id", "default"),
             "review_id": review_id,
+            "review_kind": review_kind,
             "expires": (datetime.now(UTC) + timedelta(minutes=10)).timestamp(),
             "event_id": event_id,
             "calendar_id": calendar_id,
@@ -1043,29 +1045,44 @@ class CalendarScheduleService:
         """Use Firebase authority only for an exact, mail-free Calendar review."""
         plan = self._open(review_token, "calendar-review-v1")
         account_id = getattr(self.calendar.connections, "account_id", "default")
-        if (
-            plan.get("account_id", "default") != account_id
-            or plan.get("review_id") != review_id
-            or plan.get("response_status") not in {"accepted", "declined"}
-            or plan.get("mail")
-            or plan.get("proposed_time")
-            or plan.get("mail_only_retry")
-        ):
-            raise _error("This review cannot be used for a Calendar-only response.", 403)
-        return await self.confirm(user_id=user_id, review_id=review_id, review_token=review_token)
+        require_rsvp_review(plan, review_id=review_id, account_id=account_id)
+        return await self.confirm(
+            user_id=user_id,
+            review_id=review_id,
+            review_token=review_token,
+            review_kind="rsvp",
+        )
 
-    async def confirm(self, *, user_id: str, review_id: str, review_token: str):
+    async def confirm(
+        self,
+        *,
+        user_id: str,
+        review_id: str,
+        review_token: str,
+        review_kind: AttendanceReviewKind = "legacy_owner",
+    ):
         plan = self._open(review_token, "calendar-review-v1")
         if plan["user_id"] != user_id or plan["review_id"] != review_id:
             raise _error("This review belongs to another account.", 403)
+        if plan.get("review_kind", "legacy_owner") != review_kind:
+            raise _error(
+                "This review belongs to a different Calendar action. Review it again.", 403
+            )
         if plan.get("account_id", "default") != getattr(
             self.calendar.connections, "account_id", "default"
         ):
             raise _error(
                 "The connected Calendar account changed. Review this invitation again.", 409
             )
+        if review_kind != "legacy_owner":
+            await preflight_direct_attendance_grant(self, user_id=user_id, plan=plan)
         params = {"review_id": review_id, "user_id": user_id}
-        replay = await claim_attendance_review(self, user_id=user_id, review_id=review_id)
+        replay = await claim_attendance_review(
+            self,
+            user_id=user_id,
+            review_id=review_id,
+            reject_completed_replay=review_kind != "legacy_owner",
+        )
         if replay is not None:
             return replay
         value_epoch = await capture_value_epoch(user_id)
@@ -1090,20 +1107,7 @@ class CalendarScheduleService:
             await self.calendar._check_read_binding(user_id, tuple(plan["binding"]))
             target_status = plan.get("response_status", "declined")
             if target_status == "accepted":
-                conflicts, unchecked = await self._invitation_conflicts(
-                    user_id=user_id,
-                    event=current,
-                    calendar_id=plan.get("calendar_id", "primary"),
-                    time_zone=plan.get("time_zone", "UTC"),
-                    binding=tuple(plan["binding"]),
-                )
-                self.calendar._reject_new_conflicts(
-                    planned=plan.get("conflicts", []), current=conflicts
-                )
-                if set(unchecked) - set(plan.get("unchecked_calendars", [])):
-                    raise _error(
-                        "Calendar access changed. Review conflicts again before accepting.", 409
-                    )
+                await recheck_accepted_invitation(self, user_id=user_id, plan=plan, event=current)
             if plan.get("proposed_time"):
                 proposed = await self._proposed_time(user_id=user_id, **plan["proposed_time"])
                 if set(proposed["calendar_ids"]) != set(plan.get("proposed_calendar_ids", [])):

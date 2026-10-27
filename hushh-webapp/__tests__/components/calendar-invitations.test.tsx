@@ -69,8 +69,10 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(guests[0]).toHaveTextContent("Priya Mehta");
     expect(guests[0]).toHaveTextContent("Organiser · Accepted");
     expect(guests[0].querySelector("[data-accepted-indicator]")).toBeInTheDocument();
+    expect(guests[0].querySelector("[data-guest-avatar] > [data-accepted-indicator]")).toBeInTheDocument();
     expect(guests[1]).toHaveTextContent("Manish");
     expect(guests[1].querySelector("[data-accepted-indicator]")).toBeInTheDocument();
+    expect(guests[1].querySelector("[data-guest-avatar] > [data-accepted-indicator]")).toBeInTheDocument();
     expect(guests[2]).toHaveTextContent("Awaiting reply");
     expect(guests[2].querySelector("[data-accepted-indicator]")).not.toBeInTheDocument();
     expect(screen.getByText("2 yes, 2 awaiting")).toBeInTheDocument();

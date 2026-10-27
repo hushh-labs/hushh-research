@@ -103,9 +103,12 @@ def test_direct_calendar_workspace_mutations_use_firebase_owner_without_vault(
     assert calls[0][0] == method
     assert calls[0][1]["user_id"] == "owner"
     if path == "/attendance/rsvp/review":
+        assert calls[0][1]["review_kind"] == "rsvp"
         assert calls[0][1]["send_message"] is False
         assert calls[0][1]["offer_times"] is False
         assert calls[0][1]["message"] == ""
+    elif path.startswith("/attendance/workspace/"):
+        assert calls[0][1]["review_kind"] == "workspace"
 
 
 @pytest.mark.parametrize(
