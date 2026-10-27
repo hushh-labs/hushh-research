@@ -875,6 +875,18 @@ This classification supplies no phone rollback anchor. The independent reader
 still needs the full 425+431 source, image and runtime qualification above.
 
 
+The consumer comparison also permits one ordered, whole-file reporting change:
+`0c32dc1cba` to `d5f5175957` for `api/routes/account.py` and
+`account_deletion_lifecycle_service.py`. Only scheduler reporting and the retained
+integer-returning drain facade differ; phone and deletion authority remain
+unchanged. Both files remain in the complete consumer hash inventory. A changed
+old or new body, reversed pair, or unrelated drift is refused. The new client
+accepts the older cleanup response and still purges durable device copies only
+after confirmed erasure. This is not qualification to replay the fallback's old
+migration adapter or roll back that client purge. Primary migration execution
+must retain the tombstone filters for migrations 135 and 428. Image, runtime,
+schema, fence and WorkOS checks remain independent.
+
 ## Phone recovery action admission (431)
 
 Migration `431_phone_recovery_actions.sql` adds bounded, non-authorizing recovery
