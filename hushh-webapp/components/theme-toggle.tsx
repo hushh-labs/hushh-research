@@ -44,16 +44,17 @@ function readPersistedThemeOption(): ThemeOption | null {
 
 /**
  * `next-themes` applies its no-FOUC script before React effects, while its
- * context can briefly expose a default during hydration. Read the persisted
- * preference before rendering a selected segment so Profile never shows Light
- * against an already-dark app surface. `resolvedTheme` remains visual-only.
+ * context may initially be unavailable during hydration. Use the provider as
+ * the session authority once available, falling back to storage only until then.
+ * `resolvedTheme` remains visual-only.
  */
 export function useStableThemeSelection() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [activeTheme, setActiveTheme] = useState<ThemeOption | null>(null);
 
   useLayoutEffect(() => {
-    setActiveTheme(readPersistedThemeOption() ?? resolveThemePreference(theme));
+    const contextTheme = resolveThemePreference(theme);
+    setActiveTheme(contextTheme ?? readPersistedThemeOption());
   }, [theme]);
 
   const selectTheme = useCallback(
