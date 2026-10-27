@@ -16,6 +16,7 @@ const empty = { enabled: false, frequency: "weekly", revision: 0, generation: nu
   disclosureVersion: "one-email-updates-v1", consentAt: null, chosenAt: null };
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 function Form() { return <MarketingPreferencePanel model={useMarketingPreference("owner", "setup")} />; }
+function AccountForm() { return <MarketingPreferencePanel model={useMarketingPreference("owner", "account")} variant="account" />; }
 beforeEach(() => {
   publishValidatedAuthSessionOwner(null);
   publishValidatedAuthSessionOwner("owner");
@@ -27,6 +28,31 @@ beforeEach(() => {
 afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
 
 describe("explicit email preference", () => {
+  it("opens the account email anchor and keeps compact controls draft-only until the owner saves", async () => {
+    const scroll = vi.fn();
+    const previousUrl = window.location.href;
+    window.history.replaceState(null, "", "#email-updates");
+    const previous = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scroll;
+    try {
+      render(<AccountForm />);
+      const toggle = await screen.findByRole("switch");
+      expect(screen.getByRole("region", { name: "Optional One email updates" })).toHaveAttribute("id", "email-updates");
+      expect(scroll).toHaveBeenCalledOnce();
+      fireEvent.click(toggle);
+      fireEvent.change(screen.getByRole("combobox", { name: "Email frequency" }), { target: { value: "daily" } });
+      expect(mocks.fetch.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+      mocks.fetch.mockResolvedValueOnce(response({ ...empty, enabled: true, frequency: "daily", revision: 1 }));
+      fireEvent.click(screen.getByRole("button", { name: "Save email preference" }));
+      await screen.findByText("Email preference saved.");
+      expect(JSON.parse(mocks.fetch.mock.calls[1][1].body)).toEqual({ enabled: true, frequency: "daily",
+        expectedRevision: 0, disclosureVersion: "one-email-updates-v1", surface: "account" });
+    } finally {
+      HTMLElement.prototype.scrollIntoView = previous;
+      window.history.replaceState(null, "", previousUrl);
+    }
+  });
+
   it("loads the real saved choice, stages edits, and saves only after a physical submit", async () => {
     render(<Form />);
     const toggle = await screen.findByRole("switch");

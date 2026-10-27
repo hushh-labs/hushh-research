@@ -35,6 +35,15 @@ describe("growth observability contract", () => {
     window.history.replaceState({}, "", "/login?redirect=%2Fkai&utm_source=growth");
   });
 
+  it("never stores or emits email capability visits, including campaign-tagged visits", () => {
+    const path = "/email/unsubscribe/synthetic-unissued-capability";
+    window.history.replaceState({}, "", `${path}?utm_source=email`);
+    captureGrowthAttribution(path);
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+    expect(window.dataLayer).toEqual([]);
+  });
+
   it("preserves entry context and emits growth events in order through dataLayer", () => {
     captureGrowthAttribution("/login");
 

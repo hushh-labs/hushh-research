@@ -1,11 +1,13 @@
 import {
   HUSHH_TECH_LAUNCH_PATH,
+  isEmailUnsubscribeRoute,
   KAI_MARKET_PATH,
   normalizeStaticExportPathname,
   ROUTES,
 } from "@/lib/navigation/routes";
 
 export const ROUTE_ID_VALUES = [
+  "email_unsubscribe",
   "chat",
   "one_dashboard",
   "one_messages",
@@ -157,6 +159,7 @@ function normalizeRoutePathname(pathname: string): string {
 
 export function resolveRouteId(rawPathname: string): RouteId {
   const pathname = normalizeRoutePathname(rawPathname);
+  if (isEmailUnsubscribeRoute(pathname)) return "email_unsubscribe";
   if (pathname === ROUTES.WORLD_MODEL_INVITE) return "world_model_invite";
   if (pathname === ROUTES.ONE_WELCOME) return "one_welcome";
   if (pathname === ROUTES.HOME) return "chat";

@@ -68,6 +68,14 @@ const config: NextConfig = {
   // Trailing slash is important for static export routing
   trailingSlash: isCapacitorBuild,
 
+  // Public email capabilities are web-only HTTP handlers, never native pages.
+  async rewrites() {
+    return isCapacitorBuild ? [] : [{
+      source: "/email/unsubscribe/:token",
+      destination: "/api/plg-email/unsubscribe/:token",
+    }];
+  },
+
   // Page Extensions Strategy for Mobile Build
   // Mobile static export still needs TS resolution for App Router internals.
   // `cap:build` applies the app-page-only build-path filter that keeps web-only

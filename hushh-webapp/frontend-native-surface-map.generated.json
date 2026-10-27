@@ -264,6 +264,10 @@
       "file": "app/api/pkm/[...path]/route.ts"
     },
     {
+      "template": "/api/plg-email/unsubscribe/{token}",
+      "file": "app/api/plg-email/unsubscribe/[token]/route.ts"
+    },
+    {
       "template": "/api/portfolio/share-link",
       "file": "app/api/portfolio/share-link/route.ts"
     },
@@ -10386,5 +10390,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "c3a49f93b9bcb5d8e49897a52317859ce03e018fca70ba570ac363282221b804"
+  "content_sha256": "0bcca3c403a227cd0a483e2e5abc9f9f1f1a95b4799ca028e13c52ad32a3dd06"
 }

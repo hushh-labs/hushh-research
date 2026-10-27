@@ -58,6 +58,16 @@ describe("PostAuthRouteService", () => {
     refreshIdentityMock.mockReset();
   });
 
+  it("returns an onboarded signed-in owner to the account email anchor after login", async () => {
+    bootstrapStateMock.mockResolvedValue({ hasVault: true, setupCompleted: true, phoneVerified: true });
+    loadPendingOnboardingMock.mockResolvedValue(null);
+    peekIdentityMock.mockReturnValue({ data: { phone_verified: true } });
+    const target = "/one/profile/account#email-updates";
+    await expect(PostAuthRouteService.resolveAfterLogin({
+      userId: "email-preference-owner", redirectPath: target, hostname: "one.hussh.ai",
+    })).resolves.toBe(target);
+  });
+
   it("initializes a missing fresh-account phone claim before requiring verification", async () => {
     bootstrapStateMock.mockResolvedValue({ hasVault: false, setupCompleted: false, phoneVerified: null });
     loadPendingOnboardingMock.mockResolvedValue(null);

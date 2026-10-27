@@ -1,6 +1,6 @@
 "use client";
 
-import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
+import { isAnalyticsExemptRoute, KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { trackEvent } from "@/lib/observability/client";
 import type {
   AuthMethod,
@@ -249,7 +249,7 @@ export function resolveGrowthWorkspaceSource(pathname: string): GrowthWorkspaceS
 }
 
 export function captureGrowthAttribution(pathname: string): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || isAnalyticsExemptRoute(pathname)) return;
 
   const context = readGrowthContext();
   const searchParams = new URLSearchParams(window.location.search);

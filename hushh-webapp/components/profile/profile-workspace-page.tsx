@@ -3642,7 +3642,7 @@ function ProfilePageContent({
       )}
     >
       {presentation === "native-page" && nativeAccountException !== "photo" ? <ProfileAvatarEditor /> : null}
-      <MarketingPreferencePanel model={emailPreference} />
+      <MarketingPreferencePanel model={emailPreference} variant="account" />
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={PROFILE_ICONS.name}

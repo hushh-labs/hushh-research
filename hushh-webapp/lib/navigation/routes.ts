@@ -14,6 +14,15 @@ export const KAI_MARKET_PATH = "/one/kai";
 export const DIRECT_MESSAGES_PATH = "/one/messages";
 /** Browser-only Firebase handoff; never part of signed-in app navigation. */
 export const HUSHH_TECH_LAUNCH_PATH = "/products/hushh-tech/launch";
+export const EMAIL_UNSUBSCRIBE_PREFIX = "/email/unsubscribe";
+export const EMAIL_UNSUBSCRIBE_API_PREFIX = "/api/plg-email/unsubscribe";
+
+/** Public bearer links have no account session or analytics authority. */
+export function isEmailUnsubscribeRoute(pathname: string): boolean {
+  const normalized = normalizeStaticExportPathname(pathname.split("?")[0]!.split("#")[0]!);
+  return [EMAIL_UNSUBSCRIBE_PREFIX, EMAIL_UNSUBSCRIBE_API_PREFIX].some((prefix) =>
+    normalized === prefix || normalized.startsWith(`${prefix}/`));
+}
 
 export type KaiMarketTab = "market" | "portfolio" | "analysis";
 export type KaiPortfolioSection =
@@ -880,7 +889,8 @@ export function normalizeInvitationReturnTo(
 export function isPublicRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
+      isEmailUnsubscribeRoute(normalizedPathname) ||
+      normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
     normalizedPathname === ROUTES.HOME ||
     normalizedPathname === ROUTES.WELCOME ||
     normalizedPathname === ROUTES.DEVELOPERS ||
@@ -920,7 +930,8 @@ export function isPublicRoute(pathname: string): boolean {
 export function isAnalyticsExemptRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
+      isEmailUnsubscribeRoute(normalizedPathname) ||
+      normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
     normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
     normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)

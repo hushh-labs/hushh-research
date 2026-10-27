@@ -56,6 +56,43 @@ flowchart TB
 
 ## One PLG pilot task evidence
 
+### One email preference and unsubscribe entrypoints
+
+Email preferences open the existing authenticated
+`/one/profile/account#email-updates` setting. Its compact account presentation
+uses the existing owner-bound preference hook and an explicit Save; the setup
+presentation and native session/privacy fences remain unchanged.
+
+The web-only `/email/unsubscribe/:token` entrypoint rewrites to the HTTP handler
+`/api/plg-email/unsubscribe/:token`. It serves branded HTML without application
+providers or scripts. GET reads the capability and presents a confirmation; it
+never changes a preference. A deliberate same-origin JSON or form POST can only
+unsubscribe. The RFC 8058 `List-Unsubscribe=One-Click` form is also accepted
+without an account login or browser Origin. Other actions, extra fields,
+oversized bodies, cross-origin interactive requests and redirects fail closed.
+
+Only an explicitly production-qualified One origin calls the fixed Matrix
+`/integrations/plg/email-unsubscribe/:token` authority. No inbound Cookie,
+Authorization or Origin is forwarded. The authority's minimal version-1 flags
+are validated; identity, frequency, provider bodies and tokens are not rendered.
+The standalone server's exact HTTPS `0.0.0.0:8080` bind may recover a canonical
+public origin from Host; forwarded-host overrides and conflicting hosts fail closed.
+Links missing a required permission generation need an authenticated account check. A successful
+POST says the request was recorded for this email link; it does not claim a
+synchronous change to a different or newer subscription generation. Existing
+Matrix links and POST behavior remain owned by Matrix.
+
+Unqualified development/UAT lanes fail closed and never fall back to the
+production authority. The HTTP handler is excluded from native static export;
+the account setting continues to use the existing platform-aware preference
+service. Responses are non-cacheable, non-indexable and use `no-referrer` and a
+script-free CSP. Both public and direct-handler paths are excluded from app
+analytics/attribution and redacted in application logs. Before publishing One
+capability links, operations must separately qualify Cloud Run request-log
+exclusions for both prefixes and the Matrix capability paths across every
+matching sink/export; application redaction does not cover platform ingress
+logs. Enabling the optional Matrix link origin is a separate release action.
+
 The server caller and isolated Firestore consumer are maintained in the
 [private PLG dashboard integration PR](https://github.com/hushh-labs/hussh-matrix-dashboard/pull/124).
 Release the two services independently through their existing approved paths;
