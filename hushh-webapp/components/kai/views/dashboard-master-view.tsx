@@ -42,6 +42,7 @@ import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model
 import { holdingTableColumns } from "@/components/kai/holdings/holding-table-columns";
 import { ApiService } from "@/lib/services/api-service";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
+import { findHoldingValidationIssue, holdingValueIssue, isCashEquivalentHolding, type HoldingValidationIssue } from "@/lib/kai/holding-validation";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import type {
   Holding as PortfolioHolding,
@@ -463,6 +464,7 @@ export function DashboardMasterView({
   const [editingHolding, setEditingHolding] = useState<ManagedHolding | null>(
     null,
   );
+  const [holdingValidationIssue, setHoldingValidationIssue] = useState<HoldingValidationIssue | null>(null);
   const [editingHoldingId, setEditingHoldingId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLinkingPlaid, setIsLinkingPlaid] = useState(false);
@@ -653,7 +655,8 @@ export function DashboardMasterView({
       };
     }
 
-    const cashBalance = Number(
+    const cashHoldings = activeHoldings.filter(isCashEquivalentHolding);
+    const cashBalance = cashHoldings.length ? cashHoldings.reduce((sum, holding) => sum + Number(holding.market_value), 0) : Number(
       sourcePortfolio.account_summary?.cash_balance ??
         sourcePortfolio.cash_balance ??
         0,
@@ -662,9 +665,7 @@ export function DashboardMasterView({
       (sum, holding) => sum + Number(holding.market_value || 0),
       0,
     );
-    const holdingsIncludeCash = activeHoldings.some(
-      (holding) => holding.is_cash_equivalent === true,
-    );
+    const holdingsIncludeCash = cashHoldings.length > 0;
     const endingValue =
       holdingsTotalValue + (holdingsIncludeCash ? 0 : cashBalance);
     const beginningValueRaw = Number(
@@ -684,7 +685,7 @@ export function DashboardMasterView({
         ending_value: endingValue,
         cash_balance: cashBalance,
         equities_value: activeHoldings
-          .filter((holding) => holding.is_cash_equivalent !== true)
+          .filter((holding) => !isCashEquivalentHolding(holding))
           .reduce((sum, holding) => sum + Number(holding.market_value || 0), 0),
         change_in_value: endingValue - beginningValue,
       },
@@ -1043,6 +1044,7 @@ export function DashboardMasterView({
   );
 
   const closeHoldingModal = useCallback(() => {
+    setHoldingValidationIssue(null);
     setIsModalOpen(false);
     setEditingHolding(null);
     setEditingHoldingId(null);
@@ -1105,30 +1107,20 @@ export function DashboardMasterView({
       return;
     }
 
-    const invalidHolding = activeHoldings.find((holding) => {
-      const quantity = Number(holding.quantity);
-      const price = Number(holding.price);
-      const marketValue = Number(holding.market_value);
-      return (
-        !Number.isFinite(quantity) ||
-        !Number.isFinite(price) ||
-        !Number.isFinite(marketValue) ||
-        quantity <= 0 ||
-        price <= 0 ||
-        marketValue <= 0
-      );
-    });
-    if (invalidHolding) {
-      toast.error(
-        `${invalidHolding.symbol || invalidHolding.name || "That holding"}: quantity, price and value must all be above zero.`,
-      );
+    const invalid = findHoldingValidationIssue(holdingsDraft);
+    if (invalid) {
+      setHoldingValidationIssue(invalid.issue);
+      setEditingHolding({ ...invalid.holding, pending_delete: false });
+      setEditingHoldingId(invalid.holding.client_id);
+      setIsModalOpen(true);
       return;
     }
 
     setIsSavingHoldings(true);
     try {
       const holdingsForSave = activeHoldings;
-      const cashBalance = Number(
+      const cashHoldings = holdingsForSave.filter(isCashEquivalentHolding);
+      const cashBalance = cashHoldings.length ? cashHoldings.reduce((sum, holding) => sum + Number(holding.market_value), 0) : Number(
         statementEditablePortfolio.account_summary?.cash_balance ??
           statementEditablePortfolio.cash_balance ??
           0,
@@ -1137,9 +1129,7 @@ export function DashboardMasterView({
         (sum, holding) => sum + Number(holding.market_value || 0),
         0,
       );
-      const holdingsIncludeCash = holdingsForSave.some(
-        (holding) => holding.is_cash_equivalent === true,
-      );
+      const holdingsIncludeCash = cashHoldings.length > 0;
       const endingValue =
         holdingsTotalValue + (holdingsIncludeCash ? 0 : cashBalance);
       const beginningValueRaw = Number(
@@ -1149,7 +1139,7 @@ export function DashboardMasterView({
         ? beginningValueRaw
         : endingValue;
       const equitiesValue = holdingsForSave
-        .filter((holding) => holding.is_cash_equivalent !== true)
+        .filter((holding) => !isCashEquivalentHolding(holding))
         .reduce((sum, holding) => sum + Number(holding.market_value || 0), 0);
 
       const updatedPortfolioData: PortfolioData = {
@@ -1227,6 +1217,7 @@ export function DashboardMasterView({
     }
   }, [
     activeHoldings,
+    holdingsDraft,
     reload,
     setCachePortfolioData,
     statementEditablePortfolio,
@@ -1462,6 +1453,7 @@ export function DashboardMasterView({
         toast.info("Restore this holding before editing.");
         return;
       }
+      setHoldingValidationIssue(null);
       setEditingHolding({ ...row, pending_delete: false });
       setEditingHoldingId(holdingId);
       setIsModalOpen(true);
@@ -1475,19 +1467,8 @@ export function DashboardMasterView({
       const price = Number(updatedHolding.price);
       const marketValue = Number(updatedHolding.market_value);
 
-      if (
-        !Number.isFinite(quantity) ||
-        !Number.isFinite(price) ||
-        !Number.isFinite(marketValue) ||
-        quantity <= 0 ||
-        price <= 0 ||
-        marketValue <= 0
-      ) {
-        toast.error(
-          "Quantity, price, and market value must all be greater than 0.",
-        );
-        return;
-      }
+      const issue = holdingValueIssue(updatedHolding);
+      if (issue) { setHoldingValidationIssue(issue); return; }
 
       const oldEntry = holdingsDraft.find(row => row.client_id === editingHoldingId);
       const normalizedHolding: PortfolioHolding = prepareHoldingEntryEdit({
@@ -2418,6 +2399,7 @@ export function DashboardMasterView({
           isOpen={isModalOpen}
           onClose={closeHoldingModal}
           holding={editingHolding}
+          validationIssue={holdingValidationIssue}
           onSave={handleSaveHolding}
         />
 

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "kind": "plg-only-source-v1",
+  "baselineSha": "d8a5fa4858741e611d39fd4f1f28b1ab930d057c",
+  "project": "hushh-pda",
+  "region": "us-central1",
+  "scope": "backend",
+  "services": [
+    "consent-protocol"
+  ],
+  "frontendSha": "d8a5fa4858741e611d39fd4f1f28b1ab930d057c",
+  "providerContractVersion": 2,
+  "authorityPolicySha256": "39ade7f9e38ca0409e2d8c4a2017f5014da41fb7030699aca8863a2c2d29b4ce",
+  "migrations": "none",
+  "replacementAccounts": 0,
+  "requiredAbsentTables": [
+    "account_phone_transfers",
+    "account_phone_auth_fences",
+    "account_phone_recovery_continuations",
+    "account_device_actions"
+  ],
+  "sourceSha": "5de6ee29abe3b00642bd6b745c608279091810b3",
+  "changes": [
+    {
+      "path": "consent-protocol/hushh_mcp/services/plg_outcomes.py",
+      "status": "M",
+      "beforeBlob": "5dbf037996aedb857646cda544fae42cd45f3463",
+      "afterBlob": "a00a21192ad3a8f8f8ef0991c7d09c885dae3820"
+    },
+    {
+      "path": "consent-protocol/tests/test_plg_memory_query_postgres.py",
+      "status": "A",
+      "beforeBlob": null,
+      "afterBlob": "1e502267c9943260e96a327f9e628b92a193d7dd"
+    },
+    {
+      "path": "consent-protocol/scripts/test-ci.manifest.txt",
+      "status": "M",
+      "beforeBlob": "74206d583abcb7780919b658a7ab262d83ac50ee",
+      "afterBlob": "45056678d1431692f0c077186448d4eda5ce4744"
+    }
+  ]
+}

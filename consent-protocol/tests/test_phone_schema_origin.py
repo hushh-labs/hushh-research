@@ -274,6 +274,131 @@ def test_completed_boundary_run_with_late_build_is_not_skipped(submission, monke
     assert result["acknowledged_attempts"][0]["build_id"] == build["id"]
 
 
+@pytest.fixture
+def restoration_history(submission, monkeypatch):
+    from production_phone_receipt_fixtures import LeaseFixture
+
+    module, _attempt, _job, build = submission
+    history = importlib.import_module("production_phone_lease")
+    run = {
+        "id": 300,
+        "run_attempt": 2,
+        "head_sha": PRIMARY,
+        "path": history.WORKFLOW,
+        "head_branch": "main",
+        "event": "workflow_dispatch",
+        "status": "completed",
+        "updated_at": "2026-10-21T04:00:00Z",
+        "repository": {"full_name": module.REPOSITORY},
+        "head_repository": {"full_name": module.REPOSITORY},
+    }
+    case = LeaseFixture(SimpleNamespace(run=run, artifact={}))
+    case.intent_protocol()
+    case.runs[1]["updated_at"] = "2026-10-20T04:00:00Z"
+    case.sources["e" * 40] = case.sources[PRIMARY]
+    latest = case.jobs[(300, 2)]["jobs"][0]
+    latest["steps"] = [
+        {"name": history.RESTORATION_ADMIT, "status": "completed", "conclusion": "success"}
+    ]
+    build.update(
+        createTime="2026-10-21T03:18:03Z",
+        finishTime="2026-10-21T03:18:49Z",
+        tags=["phone-cold-300-1"],
+    )
+    build["substitutions"].update(_GITHUB_RUN_ID="300", _GITHUB_RUN_ATTEMPT="1")
+    builds = [build]
+    monkeypatch.setenv("GITHUB_SHA", "e" * 40)
+    monkeypatch.setattr(module, "_builds", lambda _start: builds)
+    monkeypatch.setattr(module, "_api", lambda endpoint: case.api(module.REPOSITORY, endpoint))
+    monkeypatch.setattr(importlib.import_module("qualify_image"), "run", case.source)
+    return module, case, builds
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        None,
+        "failed",
+        "cancelled",
+        "source",
+        "marker",
+        "build",
+        "older",
+        "attempt",
+        "missing_source",
+        "older_active",
+        "older_queued",
+    ],
+)
+def test_schema_history_reuses_restoration_absence_without_hiding_producers(
+    restoration_history, monkeypatch, change
+):
+    module, case, builds = restoration_history
+    history = importlib.import_module("production_phone_lease")
+    latest = case.jobs[(300, 2)]["jobs"][0]
+    if change in {"failed", "cancelled"}:
+        conclusion = "failure" if change == "failed" else "cancelled"
+        case.runs[0]["conclusion"] = case.attempts[(300, 2)]["conclusion"] = conclusion
+        latest["conclusion"] = latest["steps"][0]["conclusion"] = conclusion
+    elif change == "source":
+        case.sources[PRIMARY] = case.sources[PRIMARY].replace(
+            b"--fence-required false", b"--fence-required true"
+        )
+    elif change == "marker":
+        latest["steps"].append(
+            {"name": history.INTENT, "status": "completed", "conclusion": "success"}
+        )
+    elif change == "build":
+        unexpected = copy.deepcopy(builds[0])
+        unexpected.update(
+            id="fedcba98-0123-0123-0123-0123456789ab",
+            createTime="2026-10-21T03:30:00Z",
+            finishTime="2026-10-21T03:31:00Z",
+            tags=["phone-cold-300-2"],
+        )
+        unexpected["substitutions"]["_GITHUB_RUN_ATTEMPT"] = "2"
+        builds.append(unexpected)
+    elif change == "older":
+        next(
+            step
+            for step in case.jobs[(300, 1)]["jobs"][0]["steps"]
+            if step["name"] == history.DEPLOY
+        )["conclusion"] = "failure"
+    elif change in {"older_active", "older_queued"}:
+        state = "in_progress" if change == "older_active" else "queued"
+        case.attempts[(300, 1)]["status"] = case.jobs[(300, 1)]["jobs"][0]["status"] = state
+    elif change == "missing_source":
+
+        def unavailable(command):
+            if command == ["git", "show", "e" * 40 + ":" + history.WORKFLOW]:
+                raise subprocess.CalledProcessError(128, command)
+            return case.source(command)
+
+        monkeypatch.setattr(importlib.import_module("qualify_image"), "run", unavailable)
+    elif change == "attempt":
+        latest["run_attempt"] = 1
+    if change in {None, "failed", "cancelled"}:
+        result = module.closed_submissions(
+            {"run_id": "99", "run_attempt": 1}, start="2026-10-20T12:00:00Z", source_anchor="c" * 40
+        )
+        assert result["qualification"] == "passed"
+        assert [receipt["run_attempt"] for receipt in result["acknowledged_attempts"]] == [1]
+        assert "runs/300/attempts/1/jobs?per_page=100" in case.calls
+    else:
+        message = {
+            "build": "prior_producer_history_incomplete",
+            "older": "submission_unacknowledged",
+            "older_active": "prior_producer_unfinished",
+            "older_queued": "prior_producer_unfinished",
+        }.get(change)
+        with pytest.raises((ValueError, history.retention.UnsafeState), match=message):
+            module.closed_submissions(
+                {"run_id": "99", "run_attempt": 1},
+                start="2026-10-20T12:00:00Z",
+                source_anchor="c" * 40,
+            )
+
+
 def test_prior_job_still_active_after_successful_build_is_not_settled(submission):
     module, attempt, job, build = submission
     attempt["status"] = job["status"] = "in_progress"
