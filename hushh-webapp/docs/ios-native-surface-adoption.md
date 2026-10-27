@@ -6084,3 +6084,15 @@ does not install it: verify its strict signature and install only the updated
 XCTest runner before assessing changed test diagnostics. Do not replace or
 restart One to update that runner, and do not present the rebuilt App binary
 on disk as the installed product without separate installation evidence.
+
+### Owned sheet material candidate — 2026-10-27
+
+On an iPhone 16e, the same Wallet Add sheet sampled light at the medium
+detent and dark when expanded. In an isolated qualification build, applying
+the same adaptive system material to both detents kept both sampled regions
+dark under the same device settings. A subsequent baseline reinstall reproduced
+the difference. These samples are not visual or accessibility acceptance.
+The candidate retains the system default before iOS 26.1. Verify light and
+dark appearance, intermediate transition frames, accessibility materials,
+and representative Profile and Wallet sheets before enabling native admission.
+Ordinary Release remains on its existing fallback.
