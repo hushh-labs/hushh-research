@@ -151,6 +151,30 @@ gh workflow run deploy-production.yml --ref main -f scope=<frontend|backend|all>
 Production requires an explicit production request and an actor in
 `production.manual_dispatch_users`. UAT success does not authorize production.
 
+#### Explicit emergency production
+
+The manual incident route waives Dev/UAT deployment acceptance only. It is not
+an automatic deployment and cannot certify an ordinary promotion. Require an
+explicit production incident request, both governed original/triggering actors,
+an exact CI-qualified application SHA on a `hotfix/` or `fix/` branch and an
+incident reference with a meaningful reason. Execute the existing production
+workflow from Main; preserve its release helpers, policy and serving parser
+before checking out application sources.
+
+Supply `emergency_source_ref` and `emergency_reason` together. The application
+must descend from both sources actually serving production. The workflow seals
+the serving revisions, UIDs, configuration generations, images and workload
+identities, then rechecks source CI and that baseline before runtime mutation.
+It retains current-schema compatibility, backup, qualified rollback, health,
+account-cleanup and provenance gates. A historical patch that fails those gates
+is incompatible; the incident route cannot waive them.
+
+Do not combine this route with cadence, a curated Main approval, restoration,
+phone transitions, image promotion or capability activation. Record its separate
+`predecessor_exception` in release status, never a fabricated UAT receipt. After
+acceptance, forward-port the patch by behavior into Main, Dev and the selected
+UAT history. A Main merge does not itself authorize another application rollout.
+
 ### 6. Monitor and prove
 
 1. Watch each dispatched run until terminal success or a concrete blocker.
@@ -213,8 +237,10 @@ Production requires an explicit production request and an actor in
 
 Stop rather than improvise when the exact head changes, required checks are not
 terminal green, actor authority is absent, environment identity is ambiguous,
-provenance does not match, or a rollback target cannot be proved. UAT and production
-also require reachability from `main` and successful post-merge smoke. Dev follows
+provenance does not match, or a rollback target cannot be proved. Ordinary Main
+promotion requires reachability from `main` and successful post-merge smoke.
+Curated UAT and explicit incident candidates use only their documented source
+authority; neither changes compatibility or rollback admission. Dev follows
 [Dev Fast Lane](../../../../docs/reference/operations/dev-fast-lane.md): its exact
 CI-green SHA must be reachable from the requested branch, while the workflow
 definition runs from `main`. Dev does not require an application merge to `main`.

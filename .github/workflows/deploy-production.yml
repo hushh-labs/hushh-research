@@ -16,6 +16,14 @@ on:
         description: "Exact green main SHA to deploy"
         required: true
         type: string
+      emergency_source_ref:
+        description: "Manual incident branch based on serving production; leave blank for normal promotion"
+        type: string
+        default: ""
+      emergency_reason:
+        description: "Incident reference and reason for deliberately waiving Dev/UAT deployment acceptance"
+        type: string
+        default: ""
       main_approval_sha:
         description: "Optional Main merge approving identical UAT-tested application content; sha remains the exact accepted application"
         required: false
@@ -199,6 +207,10 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
+      - name: Validate production incident boundary
+        id: dispatch-authority
+        run: python3 scripts/ci/production_emergency.py dispatch
+
       - name: Require reconciled maintenance mutations under deployment lock
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -218,9 +230,9 @@ jobs:
         if: inputs.restoration_validation_run == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REQUIRED_BRANCH: main
+          REQUIRED_BRANCH: ${{ steps.dispatch-authority.outputs.branch }}
           REQUIRE_CI_SUCCESS: "1"
-          REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
+          REQUIRED_CHECK_NAME: ${{ steps.dispatch-authority.outputs.mode == 'manual-emergency' && 'CI Status Gate,Branch Validation Gate' || 'Main Post-Merge Smoke Gate' }}
           REQUESTED_SHA: ${{ inputs.main_approval_sha || inputs.sha }}
         run: bash scripts/ci/require-deploy-sha-on-main.sh "$REQUESTED_SHA"
 
@@ -294,6 +306,9 @@ jobs:
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp config/ci-governance.json "${RUNNER_TEMP}/release-tools/ci-governance.json"
+          cp scripts/ci/production_emergency.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/require-deploy-sha-on-main.sh "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-deploy-scope.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
@@ -637,10 +652,27 @@ jobs:
         if: inputs.restoration_validation_run == ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
+          RESOLVED_SCOPE: ${{ steps.scope.outputs.scope }}
+          APPLICATION_SHA: ${{ inputs.sha }}
         run: |
-          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
-            --environment uat --sha "${{ github.event.inputs.sha }}" \
-            --scope "${{ steps.scope.outputs.scope }}" --output /tmp/prod-predecessor-acceptance.json
+          set -euo pipefail
+          if [ "$RELEASE_MODE" = manual-emergency ]; then
+            python3 "${RUNNER_TEMP}/release-tools/production_emergency.py" admit \
+              --scope "$RESOLVED_SCOPE" --output /tmp/prod-emergency-admission.json
+          else
+            python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
+              --environment uat --sha "$APPLICATION_SHA" \
+              --scope "$RESOLVED_SCOPE" --output /tmp/prod-predecessor-acceptance.json
+          fi
+
+      - name: Publish immutable manual incident admission
+        if: steps.dispatch-authority.outputs.mode == 'manual-emergency'
+        uses: actions/upload-artifact@v6
+        with:
+          name: production-emergency-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/prod-emergency-admission.json
+          if-no-files-found: error
 
       - name: Verify production personal Gmail monitor identity
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -948,6 +980,20 @@ jobs:
           python3 "${RUNNER_TEMP}/release-tools/verify-prod-places-readiness.py" \
             --project "${GCP_PROJECT_ID}"
 
+      - name: Recheck manual incident source and serving baseline before mutation
+        if: steps.dispatch-authority.outputs.mode == 'manual-emergency'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRED_BRANCH: ${{ steps.dispatch-authority.outputs.branch }}
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: "CI Status Gate,Branch Validation Gate"
+          APPLICATION_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          bash "${RUNNER_TEMP}/release-tools/require-deploy-sha-on-main.sh" "$APPLICATION_SHA"
+          python3 "${RUNNER_TEMP}/release-tools/production_emergency.py" recheck \
+            --output /tmp/prod-emergency-admission.json
+
       - name: Sync frontend hosted runtime secrets
         if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true')
         shell: bash
@@ -1177,6 +1223,20 @@ jobs:
           python3 deploy/account-deletion/restoration_operation.py verify \
             --sha "${{ inputs.sha }}" --run-id "$GITHUB_RUN_ID" \
             --plan /tmp/restoration-operation/acceptance.json
+
+      - name: Recheck manual incident source and serving baseline after image builds
+        if: steps.dispatch-authority.outputs.mode == 'manual-emergency'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRED_BRANCH: ${{ steps.dispatch-authority.outputs.branch }}
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: "CI Status Gate,Branch Validation Gate"
+          APPLICATION_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          bash "${RUNNER_TEMP}/release-tools/require-deploy-sha-on-main.sh" "$APPLICATION_SHA"
+          python3 "${RUNNER_TEMP}/release-tools/production_emergency.py" recheck \
+            --output /tmp/prod-emergency-admission.json
 
       - name: Sync canonical hosted runtime secrets
         if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_backend == 'true')
@@ -2805,6 +2865,8 @@ jobs:
           predecessor = Path("/tmp/prod-predecessor-acceptance.json")
           recovery = Path("/tmp/prod-restoration-validation.json")
           payload["production_restoration"] = json.loads(recovery.read_text()) if recovery.exists() else None
+          incident = Path("/tmp/prod-emergency-admission.json")
+          payload["predecessor_exception"] = json.loads(incident.read_text()) if incident.exists() else None
           payload["predecessor_acceptance"] = (
               json.loads(predecessor.read_text(encoding="utf-8")) if predecessor.exists() else None
           )
@@ -3060,7 +3122,12 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate production incident boundary
+        id: dispatch-authority
+        run: python3 scripts/ci/production_emergency.py dispatch
 
       - name: Assert production dispatch actor policy
         shell: bash
@@ -3378,7 +3445,12 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate production incident boundary
+        id: dispatch-authority
+        run: python3 scripts/ci/production_emergency.py dispatch
 
       - name: Require reconciled maintenance mutations under deployment lock
         run: |
@@ -3921,6 +3993,12 @@ jobs:
         id: tag-last-known-good
         if: success() && steps.release-status.outputs.status == 'healthy'
         env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: credential.helper
+          GIT_CONFIG_VALUE_0: ""
+          GIT_CONFIG_KEY_1: credential.https://github.com.helper
+          GIT_CONFIG_VALUE_1: "!gh auth git-credential"
           ENVIRONMENT: production
           SHA: ${{ inputs.sha }}
           BACKEND_REVISION: ${{ steps.final-state.outputs.backend_revision }}
@@ -3989,6 +4067,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Validate production incident boundary
+        id: dispatch-authority
+        run: python3 scripts/ci/production_emergency.py dispatch
 
       - name: Assert production dispatch actor policy
         run: |
