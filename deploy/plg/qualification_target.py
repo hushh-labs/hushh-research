@@ -2,6 +2,13 @@
 
 These resources are qualification targets, never shared-environment acceptance
 or authority to promote production traffic. No cloud reads happen on import.
+
+S runs startup DDL in server.py's market/PWM/fabric hooks (887/909/931). Existing
+tables do not bypass PostgreSQL's CREATE permission check. This fixture therefore
+declares public schema-wide CREATE and ownership of five startup base tables plus
+their actual internal dependencies, installed by qualification_runtime only after
+canonical source verification. Runtime admin/membership/ledger rights stay absent.
+No application source or fail-closed startup guard is changed.
 """
 
 from __future__ import annotations
@@ -18,6 +25,24 @@ SERVICE = "consent-protocol-plg-qual"
 DATABASE = "plg_qualification"
 RUNTIME_ROLE = "plg_qualification_runtime"
 MIGRATOR_ROLE = "plg_qualification_migrator"
+# Exact S's Docker CMD hardcodes `-w 2`; WEB_CONCURRENCY cannot override it.
+# The isolated command preserves S's remaining Gunicorn arguments and port.
+RUNTIME_COMMAND = ("gunicorn",)
+RUNTIME_ARGS = (
+    "server:app",
+    "-w",
+    "1",
+    "-c",
+    "gunicorn.conf.py",
+    "-k",
+    "uvicorn.workers.UvicornWorker",
+    "--timeout",
+    "120",
+    "--graceful-timeout",
+    "8",
+    "-b",
+    "0.0.0.0:8080",
+)
 PREFIX = "PLG_QUALIFICATION_"
 MARKER = "plg-isolated-qualification-v1:" + SOURCE
 ABSENT_TABLES = (
@@ -136,14 +161,10 @@ class Target:
             ],
         }
 
-    def service_document(
-        self, image: str, versions: dict[str, str], run_id: str
-    ) -> dict:
+    def service_document(self, image: str, versions: dict[str, str], run_id: str) -> dict:
         require(
             re.fullmatch(
-                r"gcr\.io/"
-                + re.escape(self.project)
-                + r"/consent-protocol@sha256:[0-9a-f]{64}",
+                r"gcr\.io/" + re.escape(self.project) + r"/consent-protocol@sha256:[0-9a-f]{64}",
                 image,
             )
             is not None,
@@ -156,8 +177,7 @@ class Target:
         require(
             set(versions) == set(RUNTIME_SECRETS)
             and all(
-                isinstance(v, str) and re.fullmatch(r"[1-9][0-9]*", v)
-                for v in versions.values()
+                isinstance(v, str) and re.fullmatch(r"[1-9][0-9]*", v) for v in versions.values()
             ),
             "qualification_secret_versions_invalid",
         )
@@ -176,7 +196,13 @@ class Target:
             "spec": {
                 "template": {
                     "metadata": {
-                        "labels": self.labels | {"deploy-sha": SOURCE},
+                        "labels": self.labels
+                        | {
+                            "deploy-env": self.environment,
+                            "deploy-source": "plg-isolated-qualification",
+                            "deploy-sha": SOURCE,
+                            "github-run-id": run_id,
+                        },
                         "annotations": {
                             "run.googleapis.com/cloudsql-instances": self.instance,
                             "autoscaling.knative.dev/minScale": "0",
@@ -190,6 +216,8 @@ class Target:
                         "containers": [
                             {
                                 "image": image,
+                                "command": list(RUNTIME_COMMAND),
+                                "args": list(RUNTIME_ARGS),
                                 "resources": {"limits": {"cpu": "2", "memory": "2Gi"}},
                                 "env": self._runtime_env(versions, run_id),
                             }
@@ -215,6 +243,7 @@ class Target:
             "APP_REVIEW_MODE": "false",
             "ACCOUNT_GENERATION_ADMISSION_ENABLED": "false",
             "ONE_FEED_ATTENTION_PUSH_ENABLED": "false",
+            "KAI_MARKET_BACKGROUND_REFRESH": "false",
             "EMAIL_AUTH_ENABLED": "false",
             "HUSHH_DEPLOY_ENV": self.environment,
             "HUSHH_DEPLOY_SOURCE": "plg-isolated-qualification",
@@ -224,15 +253,11 @@ class Target:
         return [{"name": name, "value": value} for name, value in plain.items()] + [
             {
                 "name": name,
-                "valueFrom": {
-                    "secretKeyRef": {"name": PREFIX + name, "key": versions[name]}
-                },
+                "valueFrom": {"secretKeyRef": {"name": PREFIX + name, "key": versions[name]}},
             }
             for name in RUNTIME_SECRETS
         ]
 
 
 def config_bytes(target: Target) -> bytes:
-    return json.dumps(
-        target.runtime_config(), sort_keys=True, separators=(",", ":")
-    ).encode()
+    return json.dumps(target.runtime_config(), sort_keys=True, separators=(",", ":")).encode()

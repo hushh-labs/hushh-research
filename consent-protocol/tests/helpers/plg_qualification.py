@@ -9,6 +9,8 @@ from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile, ZipInfo
 
+from tests.helpers.plg_runtime import bootstrap_objects
+
 
 class ExistingSecret:
     project_number = "1234"
@@ -306,6 +308,10 @@ class HostedAcceptance:
             receipt["authorityBlobs"] = {"deploy/backend-image.cloudbuild.yaml": "0" * 64}
         elif case == "schema":
             receipt["schema"]["ownerRowsCopied"] = False
+        elif case == "runtime-privileges":
+            receipt["schema"]["runtimeBootstrapDDL"]["schemaPrivilegeScope"] = (
+                "five-statements-only"
+            )
         elif case == "build":
             receipt["image"]["build"]["sourceTree"] = "0" * 40
         elif case == "iam":
@@ -314,6 +320,18 @@ class HostedAcceptance:
             receipt["capacity"]["report"].update(admission_limit=15, headroom_to_limit=0)
         elif case == "health":
             receipt["health"]["audience"] = "https://unrelated.a.run.app"
+        elif case == "worker-count":
+            receipt["candidate"]["runtimeArgs"][2] = "2"
+        elif case == "worker-default":
+            receipt["candidate"].pop("runtimeCommand")
+        elif case == "market-refresh":
+            receipt["candidate"]["runtimeEnvironment"]["KAI_MARKET_BACKGROUND_REFRESH"] = "true"
+        elif case == "market-default":
+            receipt["candidate"].pop("runtimeEnvironment")
+        elif case == "revision-labels":
+            receipt["candidate"]["provenance"]["checked_revisions"][0]["labels"].pop(
+                "github-run-id"
+            )
         elif case == "stale":
             receipt["schema"]["observedAt"] = "2026-10-27T01:30:00Z"
         elif case == "uat-rebuild":
@@ -345,9 +363,14 @@ def _runtime(m, target):
             "ownerRowsCopied": 0,
             "runtimeEmptyRead": True,
             "runtimeGrantsVerified": True,
+            "runtimeBootstrapDDL": m.runtime._scope()
+            | {"ownedObjects": [o._asdict() for o in bootstrap_objects(m.runtime, m.RUNTIME_ROLE)]},
             "memoryIndexDefinitionSha256": "3" * 64,
         },
         "iam": {
+            "iamEvidenceKind": "allow-policy-bindings",
+            "authorityScope": "target-project-and-ancestors",
+            "serviceExists": True,
             "project": target.project,
             "service": m.SERVICE,
             "runtimePrincipal": target.runtime_sa,
@@ -437,6 +460,9 @@ def _candidate(m, target, run_id, image):
             "runtimeSecretVersions": {m.PREFIX + name: "1" for name in m.RUNTIME_SECRETS},
             "cloudSqlInstance": target.instance,
             "database": m.DATABASE,
+            "runtimeCommand": list(m.RUNTIME_COMMAND),
+            "runtimeArgs": list(m.RUNTIME_ARGS),
+            "runtimeEnvironment": {"KAI_MARKET_BACKGROUND_REFRESH": "false"},
         },
         "health": {
             "candidateUrl": origin,

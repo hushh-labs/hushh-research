@@ -10,10 +10,13 @@ from datetime import datetime
 from urllib.parse import urlsplit
 
 import qualification_foundation as foundation
+import qualification_runtime as runtime
 from qualification_target import (
     ABSENT_TABLES,
     DATABASE,
     PREFIX,
+    RUNTIME_ARGS,
+    RUNTIME_COMMAND,
     RUNTIME_ROLE,
     RUNTIME_SECRETS,
     SERVICE,
@@ -146,12 +149,16 @@ def schema(proof: dict, target: Target, digest: str) -> None:
         _digest(proof.get("memoryIndexDefinitionSha256")),
         "qualification_memory_index_proof_missing",
     )
+    runtime.validate_proof(proof.get("runtimeBootstrapDDL"))
 
 
 def iam(proof: dict, target: Target) -> dict:
     _fields(
         proof,
         "qualification_private_iam_unverified",
+        iamEvidenceKind="allow-policy-bindings",
+        authorityScope="target-project-and-ancestors",
+        serviceExists=True,
         project=target.project,
         service=SERVICE,
         runtimePrincipal=target.runtime_sa,
@@ -260,6 +267,13 @@ def candidate(
         runtimeSecretVersions=versions,
         cloudSqlInstance=target.instance,
         database=DATABASE,
+        runtimeCommand=list(RUNTIME_COMMAND),
+        runtimeArgs=list(RUNTIME_ARGS),
+    )
+    _fields(
+        proof.get("runtimeEnvironment", {}),
+        "qualification_candidate_background_work_unverified",
+        KAI_MARKET_BACKGROUND_REFRESH="false",
     )
     report = proof.get("provenance", {})
     expected = {

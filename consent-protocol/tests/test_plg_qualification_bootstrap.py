@@ -39,6 +39,35 @@ def test_private_candidate_cannot_mount_migrator_or_external_delivery_secrets(mo
     image = f"gcr.io/{selection.project}/consent-protocol@sha256:" + "a" * 64
     service = selection.service_document(image, versions, "19")
     spec = service["spec"]["template"]["spec"]
+    container = spec["containers"][0]
+    assert container["command"] == ["gunicorn"]
+    assert container["args"] == [
+        "server:app",
+        "-w",
+        "1",
+        "-c",
+        "gunicorn.conf.py",
+        "-k",
+        "uvicorn.workers.UvicornWorker",
+        "--timeout",
+        "120",
+        "--graceful-timeout",
+        "8",
+        "-b",
+        "0.0.0.0:8080",
+    ]
+    plain = {row["name"]: row["value"] for row in container["env"] if "value" in row}
+    assert plain["KAI_MARKET_BACKGROUND_REFRESH"] == "false"
+    labels = service["spec"]["template"]["metadata"]["labels"]
+    assert all(
+        labels[key] == value
+        for key, value in {
+            "deploy-env": environment,
+            "deploy-source": "plg-isolated-qualification",
+            "deploy-sha": target.SOURCE,
+            "github-run-id": "19",
+        }.items()
+    )
     mounts = [
         row["valueFrom"]["secretKeyRef"]
         for row in spec["containers"][0]["env"]
@@ -462,9 +491,15 @@ def test_hosted_isolated_acceptance_has_distinct_type_and_source_consumer(monkey
         "build",
         "rerun",
         "schema",
+        "runtime-privileges",
         "iam",
         "capacity",
         "health",
+        "worker-count",
+        "worker-default",
+        "market-refresh",
+        "market-default",
+        "revision-labels",
         "stale",
     ],
 )

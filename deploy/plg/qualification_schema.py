@@ -1,4 +1,4 @@
-"""One-shot synthetic S/D8 schema initialization on fixed Dev/UAT namespaces.
+"""One-shot S/D8 initialization and explicit bootstrap-role reconciliation.
 
 The caller owns the proxy, canonical credentials and temporary DB-owner
 membership. Importing this module never connects, runs SQL or starts a process.
@@ -20,6 +20,7 @@ from urllib.parse import quote
 
 import qualification_base as base
 import qualification_foundation as foundation
+import qualification_runtime as runtime
 import release_source
 from qualification_bootstrap import connect, source_boundary
 from qualification_database import _role, inspect_baseline
@@ -233,65 +234,12 @@ def run_source(
 
 
 def runtime_grants(connection) -> None:
-    """Grant this DB's source-created objects, never role membership or DDL."""
-    from psycopg2 import sql
-
-    with connection.cursor() as cursor:
-        cursor.execute(
-            sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(sql.Identifier(RUNTIME_ROLE))
-        )
-        cursor.execute(
-            "SELECT tablename FROM pg_tables WHERE schemaname='public' "
-            "AND tablename<>'schema_migrations' ORDER BY tablename"
-        )
-        for (table,) in cursor.fetchall():
-            cursor.execute(
-                sql.SQL("GRANT SELECT,INSERT,UPDATE,DELETE ON public.{} TO {}").format(
-                    sql.Identifier(table), sql.Identifier(RUNTIME_ROLE)
-                )
-            )
-        cursor.execute(
-            "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
-            "WHERE n.nspname='public' AND c.relkind IN ('v','m')"
-        )
-        for (view,) in cursor.fetchall():
-            cursor.execute(
-                sql.SQL("GRANT SELECT ON public.{} TO {}").format(
-                    sql.Identifier(view), sql.Identifier(RUNTIME_ROLE)
-                )
-            )
-        cursor.execute(
-            sql.SQL("GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO {}").format(
-                sql.Identifier(RUNTIME_ROLE)
-            )
-        )
-        # Preserve the source's explicit service_role routine admission without
-        # inheriting the shared role or re-enabling routines revoked from PUBLIC.
-        cursor.execute(
-            "SELECT p.oid::regprocedure::text FROM pg_proc p "
-            "JOIN pg_namespace n ON n.oid=p.pronamespace "
-            "CROSS JOIN LATERAL aclexplode(p.proacl) a "
-            "JOIN pg_roles r ON r.oid=a.grantee WHERE n.nspname='public' "
-            "AND r.rolname='service_role' AND a.privilege_type='EXECUTE'"
-        )
-        for (signature,) in cursor.fetchall():
-            cursor.execute(
-                sql.SQL("GRANT EXECUTE ON FUNCTION {} TO {}").format(
-                    sql.SQL(signature), sql.Identifier(RUNTIME_ROLE)
-                )
-            )
-            cursor.execute(
-                "SELECT has_function_privilege(%s,%s,'EXECUTE')",
-                (RUNTIME_ROLE, signature),
-            )
-            require(
-                cursor.fetchone() == (True,),
-                "qualification_runtime_routine_grant_unverified",
-            )
-    verify_runtime_grants(connection)
+    """One guarded bootstrap install; no runtime role membership/admin grants."""
+    runtime.install(connection)
 
 
-def verify_runtime_grants(connection) -> None:
+def verify_runtime_grants(connection) -> dict:
+    privilege = runtime.verify(connection)
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT bool_and(has_table_privilege(%s,c.oid,needed.privilege)) "
@@ -319,9 +267,10 @@ def verify_runtime_grants(connection) -> None:
             (RUNTIME_ROLE,) * 4,
         )
         require(
-            cursor.fetchone() == (False, False, True, True),
+            cursor.fetchone() == (True, False, True, True),
             "qualification_runtime_ddl_ledger_or_read_grants_unverified",
         )
+    return privilege
 
 
 def _index_tokens(expression: str) -> tuple[str, ...]:
@@ -379,7 +328,7 @@ def memory_index(connection) -> str:
     return row[3]
 
 
-def preflight(connection, target: Target, root: Path, user: str, password: str) -> dict:
+def _source_preflight(connection, target: Target, root: Path, user: str, password: str) -> dict:
     reviewed_source(root)
     identity(connection, target, user)
     require(connection.autocommit, "qualification_schema_autocommit_required")
@@ -402,6 +351,31 @@ def preflight(connection, target: Target, root: Path, user: str, password: str) 
     }
 
 
+def _runtime_boundary(connection, boundary: dict) -> dict:
+    connection.set_session(readonly=True)
+    return boundary | {
+        "runtimeGrantsVerified": True,
+        "runtimeBootstrapDDL": verify_runtime_grants(connection),
+    }
+
+
+def preflight(connection, target: Target, root: Path, user: str, password: str) -> dict:
+    return _runtime_boundary(
+        connection, _source_preflight(connection, target, root, user, password)
+    )
+
+
+def reconcile_bootstrap(connection, target: Target, root: Path, user: str, password: str) -> dict:
+    """Explicit existing-namespace action; never initializes or replays S DDL."""
+    reviewed_source(root)
+    identity(connection, target, user)
+    with schema_lock(connection):
+        boundary = _source_preflight(connection, target, root, user, password)
+        connection.set_session(readonly=False)
+        runtime_grants(connection)
+        return _runtime_boundary(connection, boundary)
+
+
 def initialize(connection, target: Target, root: Path, user: str, password: str) -> dict:
     reviewed_source(root)
     identity(connection, target, user)
@@ -414,12 +388,17 @@ def initialize(connection, target: Target, root: Path, user: str, password: str)
             # their own genuine BEGIN/COMMIT. No ledger rows are fabricated.
             with connection.cursor() as cursor:
                 cursor.execute(content.decode())
+        boundary = _source_preflight(connection, target, root, user, password)
+        connection.set_session(readonly=False)
         runtime_grants(connection)
-        return preflight(connection, target, root, user, password)
+        return _runtime_boundary(connection, boundary)
 
 
 def execute(target: Target, root: Path, output: Path, *, action: str) -> dict:
-    require(action in {"initialize", "preflight"}, "qualification_schema_action_invalid")
+    require(
+        action in {"initialize", "preflight", "reconcile-bootstrap"},
+        "qualification_schema_action_invalid",
+    )
     _record, digest = reviewed_source(root)
     proof = target.plan() | {
         "phase": action,
@@ -437,7 +416,11 @@ def execute(target: Target, root: Path, output: Path, *, action: str) -> dict:
             connect(target, database=DATABASE, user=user, password=password)
         ) as connection:
             connection.autocommit = True
-            operation = initialize if action == "initialize" else preflight
+            operation = {
+                "initialize": initialize,
+                "preflight": preflight,
+                "reconcile-bootstrap": reconcile_bootstrap,
+            }[action]
             proof["schemaBoundary"] = operation(connection, target, root.resolve(), user, password)
         proof["status"] = "synthetic-schema-verified"
     except Exception as error:
@@ -462,7 +445,9 @@ def execute(target: Target, root: Path, output: Path, *, action: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment", choices=("dev", "uat"), required=True)
-    parser.add_argument("--action", choices=("initialize", "preflight"), default="preflight")
+    parser.add_argument(
+        "--action", choices=("initialize", "preflight", "reconcile-bootstrap"), default="preflight"
+    )
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()

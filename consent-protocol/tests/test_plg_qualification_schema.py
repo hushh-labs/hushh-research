@@ -12,6 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.helpers.plg_runtime import bootstrap_objects
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -242,7 +244,8 @@ def test_initializer_precedes_only_reviewed_overlays_without_fabricated_ledger(
 
     connection.execute = record
     monkeypatch.setattr(schema, "runtime_grants", lambda *_a: order.append("grants"))
-    monkeypatch.setattr(schema, "preflight", lambda *_a: order.append("preflight"))
+    monkeypatch.setattr(schema, "_source_preflight", lambda *_a: order.append("source-preflight"))
+    monkeypatch.setattr(schema, "_runtime_boundary", lambda *_a: order.append("runtime-proof"))
     schema.initialize(connection, schema.Target("uat"), tmp_path, "synthetic_admin", "synthetic")
     assert order == [
         "vault",
@@ -253,8 +256,9 @@ def test_initializer_precedes_only_reviewed_overlays_without_fabricated_ledger(
         "418",
         "419",
         "423",
+        "source-preflight",
         "grants",
-        "preflight",
+        "runtime-proof",
     ]
     assert not any("INSERT" in query or "DELETE" in query for query, _ in connection.calls)
 
@@ -421,11 +425,13 @@ def test_uncertain_write_preserves_intent_and_refuses_blind_retry(schema, monkey
 
 @pytest.mark.parametrize(
     "privileges",
-    [(True, False, True, True), (False, True, True, True), (False, False, False, True)],
+    [(False, False, True, True), (True, True, True, True), (True, False, False, True)],
 )
-def test_runtime_verification_refuses_ddl_ledger_writes_or_missing_sequence_permission(
-    schema, privileges
+def test_runtime_verification_requires_bootstrap_ddl_without_ledger_writes_and_with_sequence_permission(
+    schema, monkeypatch, privileges
 ):
+    monkeypatch.setattr(schema.runtime, "verify", lambda _connection: {})
+
     class GrantsConnection(Connection):
         def fetchone(self):
             return privileges if "has_schema_privilege" in self.query else (True,)
@@ -436,6 +442,215 @@ def test_runtime_verification_refuses_ddl_ledger_writes_or_missing_sequence_perm
     ):
         schema.verify_runtime_grants(connection)
     assert all(query.startswith("SELECT") for query, _ in connection.calls)
+
+
+class RuntimeConnection(Connection):
+    def __init__(self, runtime, *, installed=False, defect=None):
+        super().__init__()
+        self.runtime, self.create, self.defect = runtime, installed, defect
+        self.readonly = installed and defect != "readonly"
+        owner = runtime.RUNTIME_ROLE if installed else "synthetic_admin"
+        self.objects = bootstrap_objects(runtime, owner)
+        self.extra, self.saved = [], None
+        if defect == "partial":
+            first = self.objects[0].table_oid
+            changed = "synthetic_admin" if installed else runtime.RUNTIME_ROLE
+            self.objects = [
+                o._replace(owner=changed) if o.table_oid == first else o for o in self.objects
+            ]
+        elif defect == "sequence-link":
+            self.objects = [
+                o._replace(links=2) if o.kind == "sequence" else o for o in self.objects
+            ]
+        elif defect == "missing-type":
+            self.objects = [
+                o for o in self.objects if not (o.kind == "row-type" and o.table_oid == 10)
+            ]
+        elif defect == "unrelated-owner":
+            self.extra = [("pg_class", 999)]
+
+    def get_dsn_parameters(self):
+        values = super().get_dsn_parameters()
+        if self.defect == "socket":
+            values["port"] = "5432"
+        return values
+
+    @staticmethod
+    def render(query):
+        from psycopg2 import sql
+
+        if isinstance(query, sql.SQL):
+            return query.string
+        if isinstance(query, sql.Identifier):
+            return ".".join('"' + value + '"' for value in query.strings)
+        if isinstance(query, sql.Composed):
+            return "".join(RuntimeConnection.render(item) for item in query.seq)
+        return str(query)
+
+    def execute(self, query, parameters=None):
+        text = self.render(query)
+        super().execute(text, parameters)
+        if text == "BEGIN":
+            self.saved = (self.create, self.objects[:], self.extra[:])
+        elif text == "ROLLBACK" and self.saved:
+            self.create, self.objects, self.extra = self.saved
+        elif text.startswith("GRANT USAGE,CREATE ON SCHEMA"):
+            self.create = True
+        elif text.startswith("ALTER TABLE public."):
+            name = re.search(r'public\."([^"]+)"', text)[1]
+            oid = next(o.oid for o in self.objects if o.kind == "table" and o.name == name)
+            self.objects = [
+                o._replace(owner=self.runtime.RUNTIME_ROLE) if o.table_oid == oid else o
+                for o in self.objects
+            ]
+            if self.defect == "post-drift":
+                self.extra = [("pg_class", 999)]
+
+    def fetchall(self):
+        if self.query == self.runtime.GRAPH_SQL:
+            return list(self.objects)
+        if self.query == self.runtime.OWNED_SQL:
+            return [
+                (o.catalog, o.oid) for o in self.objects if o.owner == self.runtime.RUNTIME_ROLE
+            ] + self.extra
+        raise AssertionError("unrecognized inert metadata query")
+
+    def fetchone(self):
+        if self.query == self.runtime.RIGHTS_SQL:
+            return True, self.create, self.defect == "ledger-dml", self.defect != "other-object"
+        if "cloudsqlsuperuser" in self.query and self.calls[-1][1] == (
+            self.runtime.MIGRATOR_ROLE,
+            self.runtime.RUNTIME_ROLE,
+        ):
+            return (self.defect != "authority", True, True)
+        if self.query.startswith("SELECT rolcanlogin") and self.defect == "membership":
+            return super().fetchone()[:-1] + (True,)
+        return super().fetchone()
+
+
+def test_bootstrap_ddl_install_is_one_pristine_transaction_with_exact_dependencies(
+    schema, monkeypatch
+):
+    runtime = schema.runtime
+    connection = RuntimeConnection(runtime)
+    monkeypatch.setattr(
+        schema.runtime,
+        "_dml_grants",
+        lambda c: c.execute("GRANT SELECT ON public.synthetic TO runtime"),
+    )
+    runtime.install(connection)
+    statements = [query for query, _ in connection.calls]
+    assert statements.count("BEGIN") == statements.count("COMMIT") == 1
+    assert len([q for q in statements if q.startswith("ALTER TABLE")]) == 5
+    assert not any("CREATE ROLE" in q or "SET ROLE" in q or "MEMBER" in q for q in statements)
+    connection.readonly = True
+    proof = runtime.verify(connection)
+    runtime.validate_proof(proof)
+    assert proof["schemaPrivilegeScope"] == "schema-wide"
+    assert proof["schemaPrivileges"] == ["USAGE", "CREATE"]
+    assert {o["kind"] for o in proof["ownedObjects"]} >= {
+        "toast",
+        "toast-index",
+        "sequence",
+        "row-type",
+        "array-type",
+    }
+    connection.readonly = False
+    count = len([q for q, _ in connection.calls if q.startswith("GRANT")])
+    with pytest.raises(ValueError, match="pristine_install"):
+        runtime.install(connection)
+    assert len([q for q, _ in connection.calls if q.startswith("GRANT")]) == count
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "partial",
+        "sequence-link",
+        "missing-type",
+        "unrelated-owner",
+        "ledger-dml",
+        "other-object",
+        "authority",
+        "membership",
+    ],
+)
+def test_bootstrap_install_refuses_unknown_or_privileged_state_before_any_grant(
+    schema, monkeypatch, defect
+):
+    connection = RuntimeConnection(schema.runtime, defect=defect)
+    monkeypatch.setattr(schema.runtime, "_dml_grants", lambda _c: pytest.fail("grant began"))
+    with pytest.raises(ValueError):
+        schema.runtime.install(connection)
+    assert not any(q.startswith(("GRANT", "ALTER")) for q, _ in connection.calls)
+
+
+def test_bootstrap_post_drift_rolls_back_without_replaying_or_hiding_extra_ownership(
+    schema, monkeypatch
+):
+    connection = RuntimeConnection(schema.runtime, defect="post-drift")
+    initial = connection.objects[:]
+    monkeypatch.setattr(schema.runtime, "_dml_grants", lambda _c: None)
+    with pytest.raises(ValueError, match="bootstrap_ownership"):
+        schema.runtime.install(connection)
+    assert connection.calls[-1][0] == "ROLLBACK"
+    assert connection.objects == initial and connection.create is False and not connection.extra
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        None,
+        "partial",
+        "sequence-link",
+        "missing-type",
+        "unrelated-owner",
+        "ledger-dml",
+        "other-object",
+        "membership",
+        "readonly",
+        "socket",
+    ],
+)
+def test_runtime_metadata_verification_never_mutates_or_accepts_unowned_dependencies(
+    schema, defect
+):
+    connection = RuntimeConnection(schema.runtime, installed=True, defect=defect)
+    if defect is None:
+        schema.runtime.validate_proof(schema.runtime.verify(connection))
+    else:
+        with pytest.raises(ValueError):
+            schema.runtime.verify(connection)
+    assert all(q.startswith(("SELECT", "SHOW", "\nSELECT", "\nWITH")) for q, _ in connection.calls)
+
+
+def test_reconciliation_runs_full_source_boundary_before_one_install_and_never_initializes(
+    schema, monkeypatch, tmp_path
+):
+    connection, order = Connection(), []
+    monkeypatch.setattr(schema, "reviewed_source", lambda *_a: None)
+    monkeypatch.setattr(schema, "schema_lock", lambda _c: nullcontext())
+    monkeypatch.setattr(
+        schema, "_source_preflight", lambda *_a: order.append("canonical-source") or {}
+    )
+    monkeypatch.setattr(schema, "runtime_grants", lambda _c: order.append("install"))
+    monkeypatch.setattr(
+        schema, "_runtime_boundary", lambda *_a: order.append("runtime-proof") or {}
+    )
+    monkeypatch.setattr(schema, "initialize", lambda *_a: pytest.fail("initializer replayed"))
+    schema.reconcile_bootstrap(
+        connection, schema.Target("uat"), tmp_path, "synthetic_admin", "secret"
+    )
+    assert order == ["canonical-source", "install", "runtime-proof"]
+    order.clear()
+    monkeypatch.setattr(
+        schema, "_source_preflight", lambda *_a: (_ for _ in ()).throw(ValueError("source blocked"))
+    )
+    with pytest.raises(ValueError, match="source blocked"):
+        schema.reconcile_bootstrap(
+            connection, schema.Target("uat"), tmp_path, "synthetic_admin", "secret"
+        )
+    assert not order
 
 
 @pytest.mark.parametrize("case", ["valid", "blob", "fragment", "order"])
