@@ -137,6 +137,20 @@ the returning account reached One without an alert, and its real
 `/api/account/session-status` request returned HTTP 200. Public login and the
 unauthenticated session contract also passed.
 
+A hosted restoration completion can attest that same original operation through
+`restoration_activation_run_id` and its exact `restoration_activation_attempt` on
+the existing production workflow. It accepts only retained activation-only failed
+evidence for the recorded source, with the original immutable serving pair and
+document-barrier owner. It rebuilds no image and changes no traffic or schema.
+Fresh canonical schema, barrier, Scheduler delivery, provenance, health and
+already-absent deletion-fence checks must pass. The new verifier has its own
+receipt and run identity; runtime labels retain the original deployment run.
+The canonical activation configures and triggers the existing cleanup Scheduler;
+this is not a read-only operation. Retained consumers needing retirement are
+refused through the existing lifecycle inventory before activation begins.
+This is a restoration serving reference, not Dev/UAT acceptance or a phone
+rollback anchor. The original failed attempt remains unchanged.
+
 The selective-promotion handoff remains preserved separately. Its branch-baseline
 and application-SHA/approval-SHA mapping are not active. Its maintenance draft
 needs corrections for forced capacity inspection, dry-run checkpoint state and

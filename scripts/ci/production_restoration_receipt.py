@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import timedelta
 import hashlib
+from io import BytesIO
 import re
 from runpy import run_path
 import subprocess
 import time
+from zipfile import ZipFile
 
 import production_phone_receipt as phone
 import release_artifact_receipts as receipts
@@ -235,7 +237,6 @@ def serving_reference(
     artifact, job = receipts.current_attempt_artifact(
         repository, run, lane, api=api, timestamp=timestamp
     )
-    _gates(job, run)
     archive = receipts.immutable_archive(
         repository,
         artifact,
@@ -246,6 +247,19 @@ def serving_reference(
         phone._document(archive, "prod-release-status.json") == original,
         "immutable release status differs from the selected serving receipt",
     )
+    with ZipFile(BytesIO(archive)) as bundle:
+        continuation = "prod-restoration-activation-origin.json" in bundle.namelist()
+    _require(continuation == ("restoration_activation" in original),
+             "continuation selector and immutable origin differ")
+    if continuation:
+        from production_restoration_continuation import serving_context
+
+        return serving_context(
+            run, original, job, archive, api=api, governed=governed,
+            timestamp=timestamp, run_command=run_command,
+            timeout=deadline - time.monotonic(),
+        )
+    _gates(job, run)
     operation = _operation(repository, run, job, lane, api=api, timestamp=timestamp)
     operation_archive = receipts.immutable_archive(
         repository,

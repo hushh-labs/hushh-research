@@ -234,6 +234,51 @@ def test_recovery_workflow_joins_images_and_preserves_ordinary_migrations():
     assert "restoration_operation.py verify" in steps[ids["phone-rollback-qualified"]]["run"]
 
 
+def test_hosted_restoration_completion_reuses_lock_and_canonical_checks_without_deployment(
+    tmp_path, monkeypatch
+):
+    import subprocess
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    job = workflow["jobs"]["complete-restoration-activation"]
+    assert workflow["concurrency"]["group"] == "deploy-production"
+    assert workflow["concurrency"]["cancel-in-progress"] is False
+    assert job["environment"] == "production"
+    steps = {step["name"]: step for step in job["steps"]}
+    activation = steps["Activate tombstone-aware account deletion"]["run"]
+    assert (
+        '"$PROTOCOL_PYTHON" deploy/account-deletion/activate_release.py --production-restoration'
+        in activation
+    )
+    assert '--expected-run-id "$ORIGINAL_RUN_ID"' in activation
+    assert "--fence-required false" in activation
+    commands = "\n".join(step.get("run", "") for step in job["steps"])
+    for forbidden in (
+        "builds submit",
+        "update-traffic",
+        "db/migrate.py",
+        "restoration_database.py prepare",
+    ):
+        assert forbidden not in commands
+    assert "restoration_activation_run_id == ''" in workflow["jobs"]["deploy"]["if"]
+    assert "production_restoration_continuation.py" in commands
+    assert steps["Upload production deploy artifacts"]["if"] == "always()"
+    assert (
+        steps["Tag this release as last known good"]["if"]
+        == "success() && steps.release-status.outputs.status == 'healthy'"
+    )
+    port = tmp_path / "python-port"
+    port.write_text("#!/bin/sh\ncase \" $* \" in *' --owned-proxy '*) exit 0;; *) exit 19;; esac\n")
+    port.chmod(0o700)
+    monkeypatch.setenv("PROTOCOL_PYTHON", str(port))
+    monkeypatch.setenv("TARGET_SHA", "a" * 40)
+    monkeypatch.setenv("ORIGINAL_RUN_ID", "42")
+    schema = steps["Verify restoration schema and original document barrier"]["run"]
+    subprocess.run(["bash", "-euc", schema], check=True, cwd=ROOT)  # noqa: S603 - authored workflow, synthetic command port.
+    with pytest.raises(subprocess.CalledProcessError):
+        subprocess.run(["bash", "-euc", schema.replace("--owned-proxy", "")], check=True, cwd=ROOT)  # noqa: S603 - negative control for the same authored command.
+
+
 def test_cleanup_failure_recovery_requires_both_original_readers(operation):
     plan = operation.module["initial_plan"](**operation.args)
     operation.services["hushh-webapp"]["status"]["traffic"][0]["revisionName"] = (
