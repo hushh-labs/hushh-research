@@ -1,6 +1,7 @@
 """Issued delivery reconciliation and erasure inventory, independent of intake."""
 
 import asyncio
+import time
 from collections import Counter
 
 from sqlalchemy import text
@@ -88,6 +89,7 @@ class DocumentDeliveryWorker:
         if type(max_jobs) is not int or not 1 <= max_jobs <= 20 or not 1 <= deadline_seconds <= 540:
             raise ValueError("invalid document delivery worker bounds")
         counts = Counter()
+        started = time.monotonic()
         store = self.service.store
         try:
             async with asyncio.timeout(deadline_seconds):
@@ -140,6 +142,11 @@ class DocumentDeliveryWorker:
                         await store._transaction(rotate)
                 result = await self.service.cleanup(limit=max_jobs)
                 counts.update(result["outcomes"])
+                from .background_service import run_remaining
+
+                await run_remaining(
+                    self.service, counts, max_jobs, deadline_seconds - (time.monotonic() - started)
+                )
         except TimeoutError:
             counts["deadline"] += 1
         except Exception:

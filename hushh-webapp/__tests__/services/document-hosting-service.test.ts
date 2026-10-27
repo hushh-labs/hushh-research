@@ -24,6 +24,9 @@ vi.mock("@/lib/services/api-service", () => ({
 import { CacheService } from "@/lib/services/cache-service";
 import { currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
 import { ApiService } from "@/lib/services/api-service";
+import { OneCopyPresentationService } from "@/lib/services/one-copy-presentation-service";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { OneCopyService } from "@/lib/services/one-copy-service";
 import { DocumentHostingService } from "@/lib/services/document-hosting-service";
 
 describe("hosted document transport and consent projection boundaries", () => {
@@ -93,4 +96,67 @@ describe("hosted document transport and consent projection boundaries", () => {
     expect(spyInvalidate).not.toHaveBeenCalled();
   });
 
+});
+
+describe("background One-copy authenticated transport", () => {
+  const requestId = "11111111-1111-4111-8111-111111111111";
+  const fileRef = "22222222-2222-4222-8222-222222222222";
+  it("uses the current owner token and exact content disposition without provider URLs", async () => {
+    const session = { userId: "b", vaultKey: "vault", vaultOwnerToken: "HCT:synthetic", isCurrent: () => true };
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3])));
+    expect(await OneCopyService.content(session, requestId, fileRef, "download", new AbortController().signal)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(ApiService.apiFetch).toHaveBeenLastCalledWith(`/api/connectors/google_drive/sharing/requests/${requestId}/one-copy/files/${fileRef}/content?disposition=download`, expect.objectContaining({ cache: "no-store", responseType: "arraybuffer", headers: { Authorization: "Bearer HCT:synthetic" } }));
+  });
+  it.each(["timeout", "abort", "session"])("cancels a hanging original body on %s and erases received chunks", async reason => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController(); let current = true; const chunk = new Uint8Array([1, 2, 3]);
+      const cancel = vi.fn();
+      const body = new ReadableStream({ start(stream) { stream.enqueue(chunk); }, cancel });
+      const session = { userId: "b", vaultKey: "synthetic", vaultOwnerToken: "synthetic", isCurrent: () => current };
+      vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(body));
+      const pending = OneCopyService.content(session, requestId, fileRef, "download", controller.signal);
+      const rejected = expect(pending).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(0);
+      if (reason === "abort") controller.abort();
+      if (reason === "session") current = false;
+      await vi.advanceTimersByTimeAsync(reason === "timeout" ? 60_001 : 1000);
+      await rejected; expect(cancel).toHaveBeenCalled(); expect(chunk).toEqual(new Uint8Array(3));
+    } finally { vi.useRealTimers(); }
+  });
+  it("erases late transferred original bytes if the session changes", async () => {
+    let current = true; const bytes = new Uint8Array([4, 5]);
+    const session = { userId: "b", vaultKey: "vault", vaultOwnerToken: "HCT:synthetic", isCurrent: () => current };
+    const body = new ReadableStream({ pull(controller) { current = false; controller.enqueue(bytes); controller.close(); } }, { highWaterMark: 0 });
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(body));
+    await expect(OneCopyService.content(session, requestId, fileRef, "preview", new AbortController().signal)).rejects.toThrow();
+    expect(bytes).toEqual(new Uint8Array(2));
+  });
+});
+
+
+describe("One-copy presentation cache is never access authority", () => {
+  it("shares reads, retains warm metadata, bounds forced followups, and drops the retired vault generation", async () => {
+    CacheService.getInstance().clear();
+    const requestId = "11111111-1111-4111-8111-111111111111";
+    const session = { userId: "owner", vaultKey: "synthetic", vaultOwnerToken: "synthetic", isCurrent: () => true };
+    const value = { requestId, actorRole: "owner", status: "ready", files: [] };
+    let release!: (response: Response) => void;
+    vi.mocked(ApiService.apiFetch).mockImplementationOnce(() => new Promise(done => { release = done; }))
+      .mockResolvedValue(new Response(JSON.stringify(value)));
+    const before = vi.mocked(ApiService.apiFetch).mock.calls.length;
+    const signal = new AbortController().signal;
+    const initial = OneCopyPresentationService.status(session, requestId, signal);
+    const burst = Array.from({ length: 6 }, () => OneCopyPresentationService.status(session, requestId, signal, true));
+    expect(vi.mocked(ApiService.apiFetch).mock.calls.length - before).toBe(1);
+    release(new Response(JSON.stringify(value))); await Promise.all([initial, ...burst]);
+    expect(vi.mocked(ApiService.apiFetch).mock.calls.length - before).toBe(2);
+    expect(OneCopyPresentationService.peekStatus(session, requestId)).toEqual(value);
+    await OneCopyPresentationService.status(session, requestId, signal);
+    expect(vi.mocked(ApiService.apiFetch).mock.calls.length - before).toBe(2);
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response("", { status: 403 }));
+    await expect(OneCopyService.status(session, requestId, signal)).rejects.toThrow("one_copy_unavailable");
+    advanceVaultSessionEpoch(); expect(OneCopyPresentationService.peekStatus(session, requestId)).toBeNull();
+    CacheService.getInstance().clear();
+  });
 });

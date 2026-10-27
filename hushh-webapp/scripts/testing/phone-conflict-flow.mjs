@@ -13,7 +13,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const fixture = "/e2e/fixtures/phone-conflict-flow.tsx";
 const boundary = path.join(root, "e2e/fixtures/phone-conflict-boundaries.tsx");
 const events = [];
-let server, browser, context, stage = "start";
+let server, browser, context, stage = "start", activeScenario = "start";
 const diagnostics = { errors: [], api: [], transfer: {
   get_requests: 0, get_responses: 0, get_failures: 0, confirm_requests: 0, erase_requests: 0,
   click_started: false, click_completed: false,
@@ -48,12 +48,16 @@ async function conflict(page) {
   stage = "phone_entry";
   await page.getByRole("textbox", { name: "Phone number", exact: true }).fill("6505550101");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  stage = "phone_code";
+  stage = "phone_code_enter_invalid";
   const code = page.getByRole("textbox", { name: "One-time code", exact: true });
   await code.fill("111111");
+  stage = "phone_code_confirm_invalid";
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  stage = "phone_code_invalid_error";
   await page.getByRole("alert").first().waitFor();
+  stage = "phone_code_enter_valid";
   await code.fill("123456");
+  stage = "phone_code_confirm_valid";
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await page.getByRole("heading", { name: "This number is linked to another account", exact: true }).waitFor();
   stage = "phone_conflict";
@@ -113,6 +117,7 @@ try {
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await ({ chromium, webkit }[config.engine]).launch({ headless: true });
   for (const scenario of ["recover", "delete", "transfer", "devices"]) {
+    activeScenario = scenario;
     stage = scenario;
     await fixtureRequest("reset", scenario);
     context = await browser.newContext({ viewport: { width: 393, height: 852 }, locale: "en-US", timezoneId: "America/Los_Angeles" });
@@ -244,7 +249,7 @@ try {
   }
   process.stdout.write(JSON.stringify({ feature: "phone_conflict", engine: config.engine, provider: config.provider, trace_loop: events }) + "\n");
 } catch (error) {
-  process.stderr.write(JSON.stringify({ code: "PHONE_BROWSER_LOOP_FAILED", stage, error: safeError(error), diagnostics }) + "\n");
+  process.stderr.write(JSON.stringify({ code: "PHONE_BROWSER_LOOP_FAILED", scenario: activeScenario, stage, completedSteps: events.slice(-8), error: safeError(error), diagnostics }) + "\n");
   process.exitCode = 1;
 } finally {
   if (context) await context.close();

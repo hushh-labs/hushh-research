@@ -7940,9 +7940,17 @@
             "mode": "push",
             "transitionMode": "full"
           }
+        },
+        {
+          "href": "/one/documents/open?ref=00000000-0000-4000-8000-000000000001&delivery=background",
+          "expected": {
+            "href": "/one/consent",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
-      "reason": "The protected reader first closes its registered preview layer and clears decrypted bytes; the authored route parent is the access manager. No raw history fallback."
+      "reason": "Back first cancels the One access confirmation, then closes the registered preview and clears readable bytes. The authored route parent is the access manager; no raw history fallback. Behavioral proof: hosted-document-reader.test.tsx."
     }
   }
 ]

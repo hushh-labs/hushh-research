@@ -6,6 +6,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from hushh_mcp.services.document_delivery.background_consent import summary as copy_summary
 from hushh_mcp.services.drive_bulk_share_store import bulk_outcome_summary, issue_list
 from hushh_mcp.services.drive_live_query_store import STALE_CLAIM_SECONDS
 from hushh_mcp.services.drive_request_recovery_view import (
@@ -429,7 +430,7 @@ class DriveSharingProjectionStore(DriveRevocationStore):
             return {
                 "recipient": private["recipient"] if recipient and private else None,
                 "result": {
-                    **self._summary(summary_row, recipient=recipient),
+                    **copy_summary(self, summary_row, recipient, private),
                     **payment,
                     **(
                         {"noChargeReason": "existing_access"}

@@ -160,10 +160,10 @@ def test_hosted_reader_target_and_rollback_use_actual_source_not_current_tooling
     monkeypatch.setattr(
         module,
         "_previous_sources",
-        lambda _project: ({name: dict(value) for name, value in previous.items()}, {}),
+        lambda _project: ({name: dict(value) for name, value in previous.items()}, None),
     )
     monkeypatch.setattr(module, "_serving_intake_off", lambda *_args: True)
-    monkeypatch.setattr(module, "_database_empty", lambda _project: True)
+    monkeypatch.setattr(module, "_database_empty", lambda _project, **_kwargs: True)
     active = {"configured": True, "enabled": True}
     closed = {**active, "enabled": False}
     with pytest.raises(ValueError, match="reader-capable target"):
@@ -175,7 +175,9 @@ def test_hosted_reader_target_and_rollback_use_actual_source_not_current_tooling
     module.assert_rollback(
         bootstrap, project="hushh-pda", service="hushh-webapp", revision="hushh-webapp-old"
     )
-    monkeypatch.setattr(module, "_database_empty", lambda _project: False)
+    monkeypatch.setattr(
+        module, "_database_empty", lambda _project, **kwargs: kwargs.get("background_only", False)
+    )
     with pytest.raises(ValueError, match="no longer empty"):
         module.assert_rollback(
             bootstrap, project="hushh-pda", service="hushh-webapp", revision="hushh-webapp-old"
@@ -299,11 +301,12 @@ def test_manual_reader_rollback_requires_no_bootstrap_exception(
 ):
     module, _old, reader, _target, calls = manual_rollback_target
 
-    def forbidden(*_args):
-        pytest.fail("A reader-compatible target does not need a bootstrap exception")
+    def background_inventory(_project, *, background_only=False):
+        assert background_only, "A v1 target still reads v1 retained contracts"
+        return True
 
-    monkeypatch.setattr(module, "_previous_sources", forbidden)
-    monkeypatch.setattr(module, "_database_empty", forbidden)
+    monkeypatch.setattr(module, "_previous_sources", lambda _project: ({}, None))
+    monkeypatch.setattr(module, "_database_empty", background_inventory)
     module.assert_manual_rollback(
         project="hushh-pda", service="hushh-webapp", revision="hushh-webapp-target", ancestor=reader
     )
@@ -316,7 +319,7 @@ def test_manual_old_reader_rechecks_live_intake_and_inventory(
 ):
     module, old, reader, target, calls = manual_rollback_target
     target["metadata"]["labels"]["deploy-sha"] = old
-    backend, checks = {"current": "api"}, []
+    backend, checks = {"metadata": {"labels": {"deploy-sha": reader}}}, []
     monkeypatch.setattr(module, "_previous_sources", lambda project: ({}, backend))
 
     def off(project, current, ancestor):
@@ -324,8 +327,10 @@ def test_manual_old_reader_rechecks_live_intake_and_inventory(
         checks.append("intake")
         return intake_off
 
-    def inventory(project):
+    def inventory(project, *, background_only=False):
         assert project == "hushh-pda"
+        if background_only:
+            return True
         checks.append("inventory")
         return empty
 
@@ -360,7 +365,7 @@ def test_manual_rollback_refuses_wrong_revision_or_mutable_provenance(
         target["spec"]["containers"][0]["image"] = "image:latest"
     monkeypatch.setattr(module, "_previous_sources", lambda _project: ({}, None))
     monkeypatch.setattr(module, "_serving_intake_off", lambda *_args: True)
-    monkeypatch.setattr(module, "_database_empty", lambda _project: True)
+    monkeypatch.setattr(module, "_database_empty", lambda _project, **_kwargs: True)
     with pytest.raises(ValueError):
         module.assert_manual_rollback(
             project="hushh-pda",
@@ -387,7 +392,7 @@ def test_manual_nonreader_backend_must_itself_keep_intake_off(
     target["spec"]["containers"][0]["env"][0]["value"] = flag
     monkeypatch.setattr(module, "_cloud", lambda *_args: json.dumps(target))
     monkeypatch.setattr(module, "_previous_sources", lambda _project: ({}, current))
-    monkeypatch.setattr(module, "_database_empty", lambda _project: True)
+    monkeypatch.setattr(module, "_database_empty", lambda _project, **_kwargs: True)
     arguments = dict(
         project="hushh-pda",
         service="consent-protocol",

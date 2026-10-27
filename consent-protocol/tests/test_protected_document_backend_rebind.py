@@ -91,7 +91,7 @@ def binding_case(monkeypatch, tmp_path, reader_repository):
     return module, old, reader, report, qualified, actual, report_path, calls, execute
 
 
-def test_rebind_preserves_other_readers_and_bootstrap_boundary(binding_case):
+def test_rebind_preserves_other_readers_and_bootstrap_boundary(binding_case, monkeypatch):
     module, _old, reader, report, qualified, _actual, path, calls, execute = binding_case
     assert execute() == 0
     updated = json.loads(path.read_text())
@@ -104,6 +104,10 @@ def test_rebind_preserves_other_readers_and_bootstrap_boundary(binding_case):
     }
     assert updated == expected
     assert len(calls) == 1
+    # This synthetic revision has the v1 reader only; there are no v2 writers
+    # or retained obligations. The rebound receipt cannot skip that live proof.
+    monkeypatch.setattr(module, "_previous_sources", lambda _project: ({}, None))
+    monkeypatch.setattr(module, "_database_empty", lambda _project, **_kwargs: True)
     module.assert_rollback(
         updated,
         project="hushh-pda",
