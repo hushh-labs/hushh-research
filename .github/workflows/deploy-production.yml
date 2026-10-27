@@ -515,11 +515,12 @@ jobs:
         shell: bash
         env:
           PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
+          RESTORATION_RUN: ${{ inputs.restoration_validation_run }}
           STAGED_WORKER_LOADED: ${{ steps.staged-worker.outputs.loaded }}
         run: |
           set -euo pipefail
           extra=()
-          if [[ "$PHONE_DEPLOY_PHASE" == cold || "$STAGED_WORKER_LOADED" == true ]]; then
+          if [[ -n "$RESTORATION_RUN" || "$PHONE_DEPLOY_PHASE" == cold || "$STAGED_WORKER_LOADED" == true ]]; then
             extra=(--candidate-service consent-protocol)
           elif [ -n "$PHONE_ROLLBACK_SHA" ]; then
             extra=(--additional-candidate-service consent-protocol)
@@ -859,9 +860,14 @@ jobs:
 
       - name: Qualify WorkOS non-activation before production mutation
         if: steps.scope.outputs.deploy_backend == 'true'
+        env:
+          RESTORATION_SOURCE: ${{ inputs.restoration_validation_run != '' && inputs.sha || '' }}
         run: |
+          set -euo pipefail
+          restoration=()
+          if [ -n "$RESTORATION_SOURCE" ]; then restoration=(--restoration-sha "$RESTORATION_SOURCE"); fi
           "${{ env.PROTOCOL_PYTHON }}" deploy/phone/workos_rollout.py \
-            --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-before.json
+            --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-before.json "${restoration[@]}"
 
       - name: Attest production Drive database before secret sync
         if: inputs.restoration_validation_run == '' && (steps.drive-mode.outputs.active == 'true' || steps.document-mode.outputs.configured == 'true') && steps.scope.outputs.deploy_backend == 'true'
