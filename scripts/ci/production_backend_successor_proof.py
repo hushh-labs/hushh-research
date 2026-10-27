@@ -164,7 +164,7 @@ def _healthy_reference(bundle: dict, schema: dict) -> tuple[dict, dict]:
         "operational_backend_original_reference_invalid",
     )
     serving = schema["reference"]
-    fields = dict(line.split(": ", 1) for line in healthy.splitlines()[1:])
+    fields = reference.healthy_fields(healthy, original["commit"])
     reference.require(
         serving.get("source") == original["commit"]
         and serving.get("revision") == fields["backend_revision"]
