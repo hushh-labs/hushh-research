@@ -65,6 +65,7 @@ const generationListeners = new Set<() => void>();
 
 /** Identity payloads stay in this module; subscribers only learn that it changed. */
 export function subscribeAuthSessionGeneration(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => undefined;
   generationListeners.add(listener);
   return () => generationListeners.delete(listener);
 }

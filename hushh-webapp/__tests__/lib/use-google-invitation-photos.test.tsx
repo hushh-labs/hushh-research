@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/services/google-invitation-photo-token", () => ({
   googleInvitationPhotosAvailable: () => true,
   preloadGoogleInvitationPhotoAuth: async () => undefined,
-  isGoogleContactsConsentCancelled: () => false,
+  isGoogleContactsConsentCancelled: (error: unknown) => error instanceof Error && error.name === "AbortError",
   requestGoogleInvitationPhotoGrant: mocks.request,
 }));
 vi.mock("@/lib/services/google-invitation-photos", async importOriginal => ({
@@ -107,6 +107,34 @@ describe("invitation photo account isolation", () => {
     expect(reopened.result.current.photos.size).toBe(0);
     expect(mocks.request).toHaveBeenCalledTimes(1);
     reopened.unmount();
+  });
+
+  it("drops a photo grant when the same Firebase UID receives a new owner binding", async () => {
+    mocks.request.mockImplementation(async (email: string) => ({ token: "photo-only", accountEmail: email, subject: email,
+      hostedDomain: null, permission: "contacts", expiresAt: Date.now() + 60_000 } satisfies GooglePhotoGrant));
+    mocks.lookup.mockResolvedValue(photo);
+    const view = renderHook(() => useGoogleInvitationPhotos(account("first")));
+    await act(async () => { await view.result.current.authorize("contacts"); });
+    await waitFor(() => expect(view.result.current.photos.get(guest)).toEqual(photo));
+    act(() => signedIn("owner", `acct_${"b".repeat(32)}`, 1));
+    expect(view.result.current.available).toBe(true);
+    expect(view.result.current.permission).toBeNull();
+    expect(view.result.current.photos.size).toBe(0);
+    view.unmount();
+    const reopened = renderHook(() => useGoogleInvitationPhotos(account("first")));
+    expect(reopened.result.current.permission).toBeNull();
+    expect(mocks.request).toHaveBeenCalledTimes(1);
+    reopened.unmount();
+  });
+
+  it("leaves initials and no error after the Google chooser is cancelled", async () => {
+    mocks.request.mockRejectedValue(Object.assign(new Error("Google photo access was cancelled."), { name: "AbortError" }));
+    const view = renderHook(() => useGoogleInvitationPhotos(account("first")));
+    await act(async () => { await view.result.current.authorize("contacts"); });
+    expect(view.result.current.permission).toBeNull();
+    expect(view.result.current.photos.size).toBe(0);
+    expect(view.result.current.message).toBeNull();
+    view.unmount();
   });
 
   it("refuses old photos during pending, wrong-account, and A to B to A identity changes", async () => {

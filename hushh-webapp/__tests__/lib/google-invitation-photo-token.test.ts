@@ -7,7 +7,7 @@ const DIRECTORY = "https://www.googleapis.com/auth/directory.readonly";
 const EMAIL = "https://www.googleapis.com/auth/userinfo.email";
 const SUBJECT_HASH = createHash("sha256").update("google-subject").digest("hex");
 type TokenResponse = { access_token?: string; error?: string; scope?: string; expires_in?: number };
-type Config = { client_id: string; scope: string; include_granted_scopes: boolean; callback: (value: TokenResponse) => void };
+type Config = { client_id: string; scope: string; include_granted_scopes: boolean; callback: (value: TokenResponse) => void; error_callback: (value: { type?: string }) => void };
 const originalFetch = globalThis.fetch;
 
 describe("selected Calendar account binding for Google guest photos", () => {
@@ -66,6 +66,13 @@ describe("selected Calendar account binding for Google guest photos", () => {
     const denied = requestGoogleInvitationPhotoGrant("owner@example.com", SUBJECT_HASH, null, "contacts", new AbortController().signal);
     config.callback({ error: "access_denied" });
     await expect(denied).rejects.toThrow(/exact read-only/i);
+  });
+
+  it("treats a closed chooser as cancellation without reading Google identity", async () => {
+    const pending = requestGoogleInvitationPhotoGrant("owner@example.com", SUBJECT_HASH, null, "contacts", new AbortController().signal);
+    config.error_callback({ type: "popup_closed" });
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it("requires Google to verify the email", async () => {
