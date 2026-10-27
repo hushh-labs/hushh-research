@@ -1,4 +1,4 @@
-"""Fixed DEV target-routing admission; no cloud access or budget calculation."""
+"""Target routing and reviewed reservation scopes; no cloud or budget math."""
 
 import json
 import re
@@ -29,6 +29,131 @@ class VerifiedNonTargetInventory(NamedTuple):
 
 class BudgetError(ValueError):
     """Inventory or policy is incomplete, so admission cannot be proved."""
+
+
+def candidate_selection(
+    config: dict[str, Any], environment: str, candidates: frozenset[str] | None
+) -> frozenset[str]:
+    """Reserve ordinary services by default; qualification requires explicit opt-in."""
+    opt_in = {
+        name
+        for name, settings in config["services"].items()
+        if "candidate_opt_in" in settings
+    }
+    if opt_in and (
+        environment not in {"dev", "uat"}
+        or opt_in != {"consent-protocol-plg-qual"}
+        or config["services"]["consent-protocol-plg-qual"]["candidate_opt_in"]
+        is not True
+    ):
+        raise BudgetError("candidate opt-in is limited to isolated qualification")
+    return (
+        frozenset(config["services"].keys() - opt_in)
+        if candidates is None
+        else candidates
+    )
+
+
+def maintenance_reservation(
+    config: dict[str, Any],
+    environment: str,
+    phase: str,
+    profile: str | None,
+    candidates: frozenset[str] | None,
+    inherited: frozenset[str],
+) -> tuple[dict[str, Any] | None, frozenset[str] | None]:
+    """Validate the existing fixed production maintenance reservation policy."""
+    if profile is None:
+        return None, candidates
+    bootstrap = profile in {"serving_backend_clone_v2", "serving_backend_clone_v3"}
+    expected = {
+        "service": "consent-protocol",
+        "candidate": {
+            "max_instances": 1,
+            "workers_per_instance": 1 if bootstrap else 2,
+            "asyncpg_pool_max": 4 if bootstrap else 2,
+            "sqlalchemy_pool_size": 2,
+            "sqlalchemy_max_overflow": 0,
+        },
+    }
+    if (
+        environment != "production"
+        or phase != "pre-deploy"
+        or profile
+        not in {
+            "serving_backend_clone_v1",
+            "serving_backend_clone_v2",
+            "serving_backend_clone_v3",
+        }
+        or inherited
+        or config.get("maintenance_candidates", {}).get(profile) != expected
+    ):
+        raise BudgetError("unreviewed maintenance capacity profile")
+    # Ordinary worker candidates and jobs still count. Bootstrap creates only
+    # its backend clone, while retained workers remain in the global inventory.
+    if candidates is not None:
+        raise BudgetError("maintenance profile cannot narrow candidate services")
+    return expected, frozenset({"consent-protocol"}) if bootstrap else candidates
+
+
+def service_reservations(
+    config: dict[str, Any],
+    services: dict[str, Any],
+    phase: str,
+    candidates: frozenset[str],
+    inherited: frozenset[str],
+    maintenance: dict[str, Any] | None,
+    connection_name: str,
+    non_target: list[dict[str, Any]],
+    *,
+    retained_budget: Callable[..., list[dict[str, Any]]],
+    candidate_budget: Callable[..., dict[str, Any]],
+    inherited_budget: Callable[..., dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Compose canonical budget rows without dropping optional retained revisions."""
+    expected = set(config["services"]) | {row["name"] for row in non_target}
+    optional = {
+        name
+        for name, settings in config["services"].items()
+        if settings.get("optional_existing")
+    }
+    if not expected - optional <= set(services) or set(services) - expected:
+        raise BudgetError("service inventory differs from capacity profile")
+    rows = []
+    for name, settings in config["services"].items():
+        service = services.get(name)
+        if name in services:
+            rows.extend(
+                retained_budget(
+                    name,
+                    settings,
+                    service["service"],
+                    service["revisions"],
+                    connection_name,
+                )
+            )
+        if phase != "pre-deploy" or name not in candidates:
+            continue
+        if name in inherited:
+            if name not in services:
+                raise BudgetError(f"{name}: inherited candidate has no live service")
+            rows.append(
+                inherited_budget(
+                    name,
+                    settings,
+                    service["service"],
+                    service["revisions"],
+                    connection_name,
+                )
+            )
+        else:
+            effective = (
+                {**settings, "candidate": maintenance["candidate"]}
+                if maintenance and name == maintenance["service"]
+                else settings
+            )
+            rows.append(candidate_budget(name, effective))
+    return rows
 
 
 def isolated_dev_scope(

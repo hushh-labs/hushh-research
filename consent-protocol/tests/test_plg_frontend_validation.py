@@ -262,6 +262,7 @@ def test_consumer_checks_real_artifact_integrity_and_latest_run(monkeypatch):
 def test_workflow_separates_untrusted_build_from_authority():
     import yaml
 
+    assert "deploy/plg/frontend_validation_contract.py" in v.AUTHORITY_PATHS
     document = yaml.safe_load((ROOT / v.WORKFLOW).read_text(encoding="utf-8"))
     assert set(document["jobs"]) == {"admit", "frontend", "gate"}
     for job in document["jobs"].values():

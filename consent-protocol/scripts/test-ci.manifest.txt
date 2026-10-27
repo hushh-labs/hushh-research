@@ -15,6 +15,8 @@ tests/test_plg_frontend_validation.py
 tests/test_plg_source_validation_workflow.py
 tests/test_plg_qualification_bootstrap.py
 tests/test_plg_qualification_schema.py
+tests/test_plg_qualification_runtime.py
+tests/test_plg_qualification_acceptance.py
 tests/test_plg_qualification_image.py
 tests/test_plg_qualification_iam.py
 tests/test_plg_qualification_candidate.py

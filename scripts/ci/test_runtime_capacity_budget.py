@@ -38,31 +38,7 @@ SETTINGS = {
 }
 
 
-def revision(
-    name: str, *, max_instances: int = 5, overflow: int = 0, created: str = "2026-10-01"
-) -> dict:
-    return {
-        "metadata": {
-            "name": name,
-            "creationTimestamp": created,
-            "annotations": {
-                "autoscaling.knative.dev/maxScale": str(max_instances),
-                "run.googleapis.com/cloudsql-instances": CONNECTION,
-            },
-        },
-        "spec": {
-            "containers": [
-                {
-                    "name": "backend",
-                    "env": [
-                        {"name": "DB_POOL_MAX_SIZE", "value": "4"},
-                        {"name": "DB_SQLALCHEMY_POOL_SIZE", "value": "3"},
-                        {"name": "DB_SQLALCHEMY_MAX_OVERFLOW", "value": str(overflow)},
-                    ],
-                }
-            ]
-        },
-    }
+revision = fixtures.revision
 
 
 class RuntimeCapacityBudgetTest(unittest.TestCase):
@@ -631,67 +607,6 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
                     "uat",
                     {"database_max_connections": 100, "services": {}, "jobs": {}},
                     phase=phase,
-                )
-
-    def test_qualification_candidate_is_explicit_but_all_retained_revisions_still_count(
-        self,
-    ) -> None:
-        profile = json.loads(budget.DEFAULT_PROFILE.read_text())
-        config = profile["environments"]["uat"]
-        name = "consent-protocol-plg-qual"
-        ordinary = copy.deepcopy(config)
-        settings = ordinary["services"].pop(name)
-        default, rows = budget.candidate_reservations(
-            config, "uat", "pre-deploy", (), None, frozenset(), None
-        )
-        self.assertEqual(default, frozenset(ordinary["services"]))
-        self.assertEqual(rows, [])
-        # Only reduce this synthetic fixture, never the live collector partition.
-        config["services"] = {name: settings}
-        config["jobs"] = {}
-        observed = {"database_max_connections": 1000, "services": {}, "jobs": {}}
-        self.assertEqual(
-            budget.evaluate(profile, "uat", observed)["projected_connections"], 100
-        )
-        self.assertEqual(
-            budget.evaluate(
-                profile, "uat", observed, candidate_services=frozenset({name})
-            )["projected_connections"],
-            105,
-        )
-        retained = [
-            revision(name + suffix, max_instances=1) for suffix in ("-current", "-old")
-        ]
-        for row in retained:
-            row["spec"]["containers"][0]["env"][1]["value"] = "1"
-        observed["services"][name] = {
-            "service": {
-                "status": {
-                    "traffic": [{"revisionName": name + "-current", "percent": 100}]
-                }
-            },
-            "revisions": retained,
-        }
-        for phase in budget.CAPACITY_PHASES:
-            report = budget.evaluate(profile, "uat", observed, phase=phase)
-            self.assertEqual(report["projected_connections"], 110)
-            self.assertEqual(
-                {row["name"] for row in report["services"]},
-                {name + "-current", name + "-old"},
-            )
-        self.assertEqual(
-            budget.evaluate(
-                profile, "uat", observed, candidate_services=frozenset({name})
-            )["projected_connections"],
-            115,
-        )
-        for environment in ("production", "unknown"):
-            with (
-                self.subTest(environment=environment),
-                self.assertRaises(budget.BudgetError),
-            ):
-                budget.candidate_reservations(
-                    config, environment, "pre-deploy", (), None, frozenset(), None
                 )
 
     def test_optional_service_still_reserves_candidate_and_enforces_limit(self) -> None:

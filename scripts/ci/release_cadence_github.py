@@ -38,6 +38,7 @@ from release_cadence_native import wait_production as wait_production
 from release_cadence_maintenance import (
     adopt_production_baseline, configuration, disabled_snapshot as disabled_snapshot,
     production_baseline, replayed_receipt, retire_obsolete_failures,
+    no_shared_uat_release,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -315,32 +316,6 @@ def verify_recovery(ledger: Ledger, reviewed_head: str, controller: dict, govern
                              ordinal, str(request["origin_run_id"]))
 
 
-def isolated_uat_non_release(run: dict, jobs: dict, actors: list[str]) -> bool:
-    """Exclude the fixed isolated lane; this is not UAT acceptance authority."""
-    rows = jobs.get("jobs") if isinstance(jobs, dict) else None
-    if not (run.get("event") == "workflow_dispatch" and run.get("status") == "completed"
-            and run.get("conclusion") == "success"
-            and (run.get("actor") or {}).get("login") in actors
-            and (run.get("triggering_actor") or {}).get("login") in actors
-            and isinstance(rows, list) and type(jobs.get("total_count")) is int
-            and jobs["total_count"] == len(rows) == 4
-            and all(isinstance(row, dict) for row in rows)):
-        return False
-    expected = {
-        "Select UAT target": "skipped",
-        "Wait for UAT capacity outside the mutation lock": "skipped",
-        "Deploy UAT Scope": "skipped",
-        "PLG Isolated Uat Acceptance Gate": "success",
-    }
-    for name, verdict in expected.items():
-        matches = [row for row in rows if row.get("name") == name]
-        if (len(matches) != 1 or matches[0].get("status") != "completed"
-                or matches[0].get("conclusion") != verdict or matches[0].get("run_id") != run.get("id")
-                or matches[0].get("head_sha") != run.get("head_sha")):
-            return False
-    return True
-
-
 def reconcile(repository: str, controller_id: int, event: dict, full: bool = False, recovery_head: str = "",
               retire_before: int = 0, reviewed_head: str = "") -> dict:
     policy, governance = configuration()
@@ -385,16 +360,9 @@ def reconcile(repository: str, controller_id: int, event: dict, full: bool = Fal
         source = receipt(repository, run["id"], "uat", optional=True)
         if source is None:
             jobs = api(f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
-            if isolated_uat_non_release(run, jobs, governance["production"]["manual_dispatch_users"]):
-                # The existing noops set means non-advancing runs, not UAT acceptance.
-                state.setdefault("noops", []).append(run["id"])
-                continue
-            by_name = {job["name"]: job for job in jobs["jobs"]}
-            require(jobs["total_count"] == len(jobs["jobs"]) and
-                    by_name.get("Deploy UAT Scope", {}).get("conclusion") == "skipped" and
-                    any(step.get("name") == "Summarize unchanged UAT target" and step.get("conclusion") == "success"
-                        for step in by_name.get("Select UAT target", {}).get("steps", [])),
+            require(no_shared_uat_release(run, jobs, governance["production"]["manual_dispatch_users"]),
                     "Successful UAT run lacks both a release receipt and verified NO_OP proof")
+            # No shared release occurred; this does not admit the isolated app.
             state.setdefault("noops", []).append(run["id"])
             continue
         sha = verified_uat(run, source, repository, governance["uat"]["manual_dispatch_users"])
