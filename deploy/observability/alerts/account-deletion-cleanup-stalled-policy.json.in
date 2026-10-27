@@ -1,0 +1,43 @@
+{
+  "displayName": "[Managed] One Account Deletion Cleanup Stalled",
+  "documentation": {
+    "content": "Account deletion provider cleanup is paused while due work has waited at least ten minutes. Read the enumerated `reason` on `account_deletion.cleanup_stalled`. `release_fence_installed` means a failed release retained the deletion fence: follow \"Recovery when a failed deploy leaves the fence installed\" in docs/reference/operations/account-deletion-rollout.md. Do not remove the fence without the boundary check, and do not adopt another release's fence.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "ops",
+    "incident_purpose": "actionable"
+  },
+  "conditions": [
+    {
+      "displayName": "Account deletion cleanup stalled in 5m",
+      "conditionThreshold": {
+        "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_account_deletion_cleanup_stalled_count\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
+}

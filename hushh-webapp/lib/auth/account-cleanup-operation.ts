@@ -7,6 +7,8 @@ export interface AccountCleanupOperation {
   external_validity_unconfirmed_count: number;
   inventory_sha256: string;
   retry_after_seconds: number | null;
+  /** Additive: due work has waited past the backend's stall window. Older backends omit it. */
+  delayed?: boolean;
 }
 
 export function parseAccountCleanupOperation(value: unknown): AccountCleanupOperation | null {
@@ -25,7 +27,8 @@ export function parseAccountCleanupOperation(value: unknown): AccountCleanupOper
     typeof operation.inventory_sha256 !== "string" || !/^[0-9a-f]{64}$/.test(operation.inventory_sha256) ||
     (operation.retry_after_seconds !== null &&
       (typeof operation.retry_after_seconds !== "number" ||
-        !Number.isInteger(operation.retry_after_seconds) || operation.retry_after_seconds < 1 || operation.retry_after_seconds > 60))
+        !Number.isInteger(operation.retry_after_seconds) || operation.retry_after_seconds < 1 || operation.retry_after_seconds > 60)) ||
+    (operation.delayed !== undefined && typeof operation.delayed !== "boolean")
   ) return null;
   return operation as unknown as AccountCleanupOperation;
 }
