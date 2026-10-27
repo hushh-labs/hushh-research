@@ -11,6 +11,7 @@ tests/services/test_product_activity_postgres.py
 tests/test_plg_deploy_bindings.py
 
 # Store releases must retain the selected track, exact source and private binaries.
+tests/test_android_native_ci_contract.py
 tests/test_native_ship_artifact_workflows.py
 
 # Mail/Drive connector lifecycle: real PostgreSQL in the existing test-only CI service.

@@ -335,58 +335,6 @@ def test_android_bundle_verifier_accepts_only_a_uat_bundle(tmp_path: Path) -> No
     assert verify(PRODUCTION_BACKEND).returncode != 0
 
 
-def test_android_dry_run_still_queries_play_for_the_version_floor(tmp_path: Path) -> None:
-    steps = _steps(_workflow("ship-android-playstore-v1.yml"), "ship")
-    preserve = _named(steps, "Preserve workflow-owned version resolver")
-    versioning = _named(steps, "Resolve next monotonic Android versionCode")
-    github_env = tmp_path / "github_env"
-    prepared = _run_step(
-        preserve,
-        cwd=ROOT,
-        env={"RUNNER_TEMP": str(tmp_path), "GITHUB_ENV": str(github_env)},
-    )
-    assert prepared.returncode == 0, prepared.stderr
-    name, resolver_path = github_env.read_text(encoding="utf-8").strip().split("=", 1)
-    assert name == "ANDROID_VERSION_RESOLVER_PATH"
-    assert (
-        Path(resolver_path).read_bytes()
-        == (ROOT / "scripts/ci/resolve-android-build-number.py").read_bytes()
-    )
-
-    fake_python = tmp_path / "play-venv/bin/python"
-    fake_python.parent.mkdir(parents=True)
-    fake_python.write_text(
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$TRACE_PATH\"\nprintf '42\\n'\n",
-        encoding="utf-8",
-    )
-    fake_python.chmod(0o700)
-    service_account = tmp_path / "play-account.json"
-    service_account.write_text("{}", encoding="utf-8")
-    trace = tmp_path / "args.txt"
-
-    # The command is checked-in workflow code; all dynamic paths are test-owned.
-    subprocess.run(  # noqa: S603
-        ["bash", "-e", "-c", versioning["run"]],
-        cwd=ROOT,
-        env={
-            **os.environ,
-            "GITHUB_OUTPUT": str(tmp_path / "output.txt"),
-            "PLAY_SERVICE_ACCOUNT_PATH": str(service_account),
-            "RUNNER_TEMP": str(tmp_path),
-            "TRACE_PATH": str(trace),
-            "ANDROID_VERSION_RESOLVER_PATH": resolver_path,
-        },
-        capture_output=True,
-        check=True,
-        text=True,
-    )
-    arguments = trace.read_text(encoding="utf-8").splitlines()
-    assert arguments[0] == resolver_path
-    assert "--service-account-json" in arguments
-    assert str(service_account) in arguments
-    assert "--update-gradle" in arguments
-
-
 def test_android_dispatcher_binds_selected_track_without_confirmation_bypass() -> None:
     dispatcher = (ROOT / "scripts/release/dispatch-android-playstore.mjs").read_text(
         encoding="utf-8"
