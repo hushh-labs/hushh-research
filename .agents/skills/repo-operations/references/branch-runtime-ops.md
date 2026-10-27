@@ -184,15 +184,12 @@ web origin `http://localhost:3000`, and `lsof -ti :6543` (proxy) / `:8000`
 ## Merge, Deploy, And UAT
 
 1. `merge to main` means land and monitor through `Main Post-Merge Smoke` only.
-2. Merge-to-main lane is decided by AUTHOR. A governed maintainer shipping their
-   own code branches from `origin/main` and opens a PR DIRECTLY into `main` — no
-   `integration/pr-train` detour, no cherry-pick, no promote-branch whitelist.
-   The `PR Base Policy` gate authorizes this by actor identity; the CI status
-   gate, merge queue, and post-merge smoke gate still apply. Non-maintainer PRs
-   route through `integration/pr-train`. Never cherry-pick a train-built branch
-   onto `main` (it references train-only code `main` lacks → dependency trap);
-   branch from `origin/main` at the start instead; keep repository
-   `allow_auto_merge` enabled so `gh pr merge` can enqueue without waiving validation.
+2. **Dev intake** owns new feature work after its baseline transition. Curated
+   UAT selection is a separately authorized future transition. Governed operations/hotfix work may branch from
+   `origin/main` and open a PR directly into `main` by actor identity. Required
+   CI, queue/Admin SOP and landed smoke still apply. Preserve the legacy train,
+   and never transplant a dependent branch onto Main without its dependencies.
+   Keep repository `allow_auto_merge` enabled; a Main merge is not a deployment.
 3. `deploy to UAT` is separate: land on `main`, identify the green SHA,
    dispatch UAT deploy for that SHA, and monitor terminal status.
 4. Monitor `PR Validation`, `Queue Validation`, `Main Post-Merge Smoke`,
