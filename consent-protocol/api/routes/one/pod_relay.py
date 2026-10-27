@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -1107,6 +1107,60 @@ async def relay_pod_memory_revoke(
     )
 
 
+async def _issue_memory_provider_grant(user_id: str, issuer: Any = None) -> dict:
+    from hushh_mcp.services.personal_agent_grant_service import PersonalAgentGrantService
+
+    issue = issuer or PersonalAgentGrantService().issue_or_reuse_standing_scope
+    try:
+        grant = await issue(
+            user_id,
+            scope=ConsentScope.CAP_MEMORY_PROVIDER_PROCESS,
+            grant_kind="memory_provider_process",
+            scope_description=(
+                "Allow the memory service in your own cloud project to process what "
+                "your private agent remembers"
+            ),
+            expires_in_ms=_MEMORY_PROVIDER_CONSENT_TTL_MS,
+        )
+    except Exception as exc:  # noqa: BLE001 - unavailable authority grants nothing
+        logger.warning("pod_relay.provider_consent_grant_failed %s", type(exc).__name__)
+        raise HTTPException(503, detail="memory provider consent grant unavailable") from None
+    if not isinstance(grant, dict) or not str(grant.get("token") or "").strip():
+        raise HTTPException(503, detail="memory provider consent grant unavailable")
+    return grant
+
+
+async def issue_memory_provider_grant(
+    *,
+    hushh_id: str,
+    user_id: str,
+    registry: Any = None,
+    audit: Any = None,
+    provider_grants: Any = None,
+) -> dict:
+    """Owner metadata only: mint consent, never invoke or read the private pod."""
+    _require_enabled()
+    auditor = audit or PodAccessAuditService(registry=registry or PersonalAgentRegistryRepo())
+    try:
+        await auditor.authorize_owner_read(
+            user_id=user_id,
+            agent_id=PERSONAL_AGENT_ID,
+            scope=ConsentScope.PKM_READ.value,
+            hushh_id=hushh_id,
+            request_id=f"memory-provider-grant:{hushh_id}",
+        )
+    except PodAccessDenied:
+        raise HTTPException(403, detail="not authorized for this pod") from None
+    except PersonalAgentDisabledError:
+        raise HTTPException(404, detail="personal agent is not available") from None
+    grant = await _issue_memory_provider_grant(user_id, provider_grants)
+    return {
+        "hushhId": hushh_id,
+        "providerConsentToken": grant["token"],
+        "expiresAt": grant.get("expiresAt"),
+    }
+
+
 async def relay_pod_memory_provider_consent(
     *,
     hushh_id: str,
@@ -1126,34 +1180,10 @@ async def relay_pod_memory_provider_consent(
     personal-agent identity. The pod re-verifies it against the same authority
     before recording the durable consent in its own log. A withdrawal mints nothing.
     """
-    from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
-        PersonalAgentGrantService,
-    )
-
     body: dict[str, Any] = {"granted": bool(payload.granted)}
     if payload.granted:
-        issue = provider_grants
-        if issue is None:
-            issue = PersonalAgentGrantService().issue_or_reuse_standing_scope
-        try:
-            grant = await issue(
-                user_id,
-                scope=ConsentScope.CAP_MEMORY_PROVIDER_PROCESS,
-                grant_kind="memory_provider_process",
-                scope_description=(
-                    "Allow the memory service in your own cloud project to process what "
-                    "your private agent remembers"
-                ),
-                expires_in_ms=_MEMORY_PROVIDER_CONSENT_TTL_MS,
-            )
-        except Exception as exc:  # noqa: BLE001 - authority unavailable fails closed
-            logger.warning("pod_relay.provider_consent_grant_failed %s", type(exc).__name__)
-            raise HTTPException(
-                status_code=503, detail="memory provider consent grant unavailable"
-            ) from None
-        body["providerConsentToken"] = str(grant.get("token") or "")
-        if not body["providerConsentToken"]:
-            raise HTTPException(status_code=503, detail="memory provider consent grant unavailable")
+        grant = await _issue_memory_provider_grant(user_id, provider_grants)
+        body["providerConsentToken"] = grant["token"]
     return await _relay_memory_post(
         hushh_id=hushh_id,
         user_id=user_id,
@@ -1233,6 +1263,16 @@ async def relay_pod_memory_revoke_route(
         payload=payload,
         correlation=_correlation_headers(request),
     )
+
+
+@router.post("/{hushh_id}/memory/provider-grant")
+async def memory_provider_grant_route(
+    response: Response,
+    hushh_id: str = Path(..., min_length=1, max_length=128),
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    return await issue_memory_provider_grant(hushh_id=hushh_id, user_id=user_id)
 
 
 @router.post("/{hushh_id}/memory/provider-consent")
