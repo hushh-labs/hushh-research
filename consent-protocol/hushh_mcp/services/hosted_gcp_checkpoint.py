@@ -52,12 +52,7 @@ def bind_bootstrap_checkpoint(
         "bootstrapContract"
     ) != bootstrap_contract(plan):
         raise ValueError("Hosted bootstrap differs from the retained contract")
-    previous = deepcopy(reservation.get("evidence", {}).get("reserved", {}).get("hostedCheckpoint"))
-    if previous and (
-        previous.get("phase") != "observed"
-        or any(result.get("ok") is not True for result in previous.get("completed", []))
-    ):
-        raise ProvisionReconciliationRequired("Hosted bootstrap requires provider reconciliation")
+    previous = _observed_checkpoint(reservation)
     generation = previous["generation"] if previous else 0
     prefix = deepcopy(previous["completed"] if previous else [])
     owner, attempt = reservation["ownerId"], reservation["attemptId"]
@@ -104,12 +99,9 @@ def bind_bootstrap_checkpoint(
             ) from None
         try:
             admitted = future.result(timeout=20)
-        except TimeoutError:
-            future.cancel()
-            raise ProvisionReconciliationRequired(
-                "Hosted bootstrap checkpoint requires reconciliation"
-            ) from None
-        except Exception:
+        except Exception as error:
+            if isinstance(error, TimeoutError):
+                future.cancel()
             raise ProvisionReconciliationRequired(
                 "Hosted bootstrap checkpoint requires reconciliation"
             ) from None
@@ -140,3 +132,14 @@ def _completed_receipt(
             "Hosted bootstrap completion requires retained evidence"
         )
     return deepcopy(previous)
+
+
+def _observed_checkpoint(reservation: dict[str, Any]) -> dict[str, Any] | None:
+    """Only successful retained observations may become an execution prefix."""
+    previous = deepcopy(reservation.get("evidence", {}).get("reserved", {}).get("hostedCheckpoint"))
+    if previous and (
+        previous.get("phase") != "observed"
+        or any(result.get("ok") is not True for result in previous.get("completed", []))
+    ):
+        raise ProvisionReconciliationRequired("Hosted bootstrap requires provider reconciliation")
+    return previous
