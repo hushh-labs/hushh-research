@@ -30,10 +30,34 @@ if str(ROOT) not in sys.path:
 
 from openai import AsyncOpenAI  # noqa: E402
 
-from hushh_mcp.managed_ai_config import load_pwm_policy  # noqa: E402
+from hushh_mcp.managed_ai_config import load_managed_runtime_policy, load_pwm_policy  # noqa: E402
+from hushh_mcp.runtime_providers.dependency_health import (  # noqa: E402
+    APPLICATION_BROKEN,
+    CANDIDATE_MISCONFIGURED,
+    DEPENDENCY_OK,
+    PROVIDER_UNAVAILABLE,
+    classify_provider_error,
+    summarize,
+)
+from scripts.capability_probe_failure import FAILURE_REASONS  # noqa: E402
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 MAX_OUTPUT_TOKENS = 256
+STAGES = {"configuration", "federation", "primary_http", "response_validation"}
+
+
+def valid_failure_reason(capability: str, reason: object) -> bool:
+    return (
+        isinstance(reason, str)
+        and reason in FAILURE_REASONS
+        and (
+            reason == "unlisted"
+            or capability == "live_audio"
+            and reason.startswith("live.")
+            or capability == "one_text_root"
+            and reason.startswith("root.")
+        )
+    )
 
 
 class ReadinessConfigurationError(ValueError):
@@ -42,6 +66,119 @@ class ReadinessConfigurationError(ValueError):
 
 class ReadinessResponseError(ValueError):
     """The provider response did not satisfy the synthetic readiness contract."""
+
+
+class ReadinessProbeError(RuntimeError):
+    """Carry only the leaf's sanitized failure through the application probe."""
+
+    def __init__(self, event: dict):
+        super().__init__("Azure primary readiness check failed")
+        self.diagnostic = {
+            key: event[key]
+            for key in ("classification", "error_type", "failure_stage", "elapsed_ms", "attempt")
+        }
+        if "capability_failures" in event:
+            self.diagnostic["capability_failures"] = event["capability_failures"]
+
+
+def failure_fields(error: Exception) -> dict:
+    if isinstance(error, ReadinessProbeError):
+        return error.diagnostic
+    return {"classification": classify_provider_error(error), "error_type": type(error).__name__}
+
+
+def capability_failure_event(report: dict) -> dict:
+    """Retain closed child failures without changing the strict readiness result."""
+    policy = load_managed_runtime_policy()
+    rows = report.get("capabilities")
+    if (
+        policy is None
+        or policy["provider"] != "azure_openai"
+        or report.get("provider") != policy["provider"]
+        or report.get("policy_generation") != policy["generation"]
+        or report.get("ready") is not False
+        or not isinstance(rows, dict)
+        or set(rows) != set(policy["required_capabilities"])
+    ):
+        raise ReadinessResponseError("Invalid managed capability failure inventory")
+    failures = []
+    for name, row in rows.items():
+        if (
+            not isinstance(row, dict)
+            or type(row.get("ready")) is not bool
+            or type(row.get("elapsed_ms")) is not int
+            or not 0 <= row["elapsed_ms"] <= 420_000
+        ):
+            raise ReadinessResponseError("Invalid managed capability result")
+        if row["ready"]:
+            continue
+        classification, error_type = row.get("classification"), row.get("error_type")
+        if (
+            classification
+            not in {PROVIDER_UNAVAILABLE, CANDIDATE_MISCONFIGURED, APPLICATION_BROKEN}
+            or not isinstance(error_type, str)
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,95}", error_type)
+            or ("failure_reason" in row and not valid_failure_reason(name, row["failure_reason"]))
+        ):
+            raise ReadinessResponseError("Invalid managed capability failure metadata")
+        failure = {
+            "capability": name,
+            "classification": classification,
+            "error_type": error_type,
+            "elapsed_ms": row["elapsed_ms"],
+        }
+        if "failure_reason" in row:
+            failure["failure_reason"] = row["failure_reason"]
+        failures.append(failure)
+    if not failures:
+        raise ReadinessResponseError("Managed capability failure has no failed child")
+    classification = summarize([row["classification"] for row in failures])
+    decisive = [row for row in failures if row["classification"] == classification]
+    representative = next(
+        (
+            row
+            for row in decisive
+            if classification == PROVIDER_UNAVAILABLE
+            and row["error_type"] in {"TimeoutError", "APITimeoutError"}
+        ),
+        decisive[0],
+    )
+    return {
+        "classification": classification,
+        "error_type": representative["error_type"],
+        "failure_stage": representative["capability"],
+        "elapsed_ms": representative["elapsed_ms"],
+        "attempt": 1,
+        "capability_failures": failures,
+    }
+
+
+def readiness_event(report: dict, deployment: str) -> dict:
+    """Keep the existing strict success predicate and bounded failure provenance."""
+    ready = (
+        report["status"] == "ready"
+        and report["http_status"] == 200
+        and report["deployment"] == deployment
+    )
+    event = {
+        "azure_pwm_runtime_probe_stage": "primary_http",
+        "result": "ok" if ready else "failed",
+        "http_status": report["http_status"],
+        "deployment": deployment,
+        "elapsed_ms": report["latency_ms"],
+        "attempt": 1,
+    }
+    if not ready:
+        event.update(
+            classification=report["classification"]
+            if report["status"] != "ready"
+            else CANDIDATE_MISCONFIGURED,
+            error_type=report["error_class"] or "ReadinessConfigurationError",
+            failure_stage=report["stage"]
+            if report["status"] != "ready" and report["stage"] in STAGES
+            else "configuration",
+        )
+    return event
 
 
 def azure_openai_token_provider(*, tenant_id: str, client_id: str):
@@ -59,6 +196,27 @@ def _status_code(value) -> int | None:
     return value if type(value) is int and 100 <= value <= 599 else None
 
 
+def _require_completed_nonce(raw, nonce: str) -> None:
+    if raw.status_code != 200:
+        raise ReadinessResponseError("HTTP 200 is required")
+    response = raw.parse()
+    if (
+        response.status != "completed"
+        or response.incomplete_details is not None
+        or response.error is not None
+        or any(
+            part.type == "refusal"
+            for item in response.output
+            if item.type == "message"
+            for part in item.content
+        )
+    ):
+        raise ReadinessResponseError("completed output is required")
+    text = response.output_text
+    if not isinstance(text, str) or len(text) > 4096 or json.loads(text) != {"nonce": nonce}:
+        raise ReadinessResponseError("exact nonce output is required")
+
+
 async def run_probe(*, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> dict:
     """Make at most one model request; all results contain closed metadata only."""
     started = time.perf_counter()
@@ -68,6 +226,8 @@ async def run_probe(*, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> dict
         "latency_ms": 0,
         "deployment": None,
         "error_class": None,
+        "stage": "configuration",
+        "classification": CANDIDATE_MISCONFIGURED,
     }
     try:
         if (
@@ -86,12 +246,14 @@ async def run_probe(*, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> dict
         report["deployment"] = config["primary_deployment"]
         nonce = secrets.token_hex(16)
         async with asyncio.timeout(timeout_seconds):
+            report["stage"] = "federation"
             supplier = azure_openai_token_provider(
                 tenant_id=config["tenant_id"], client_id=config["client_id"]
             )
             token = await asyncio.to_thread(supplier)
             if not isinstance(token, str) or not token:
                 raise ReadinessConfigurationError("Azure token is unavailable")
+            report["stage"] = "primary_http"
             async with AsyncOpenAI(
                 api_key=token,
                 base_url=config["primary_endpoint"],
@@ -120,34 +282,16 @@ async def run_probe(*, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> dict
                     },
                 )
                 report["http_status"] = _status_code(raw.status_code)
-                if raw.status_code != 200:
-                    raise ReadinessResponseError("HTTP 200 is required")
-                response = raw.parse()
-                if (
-                    response.status != "completed"
-                    or response.incomplete_details is not None
-                    or response.error is not None
-                    or any(
-                        part.type == "refusal"
-                        for item in response.output
-                        if item.type == "message"
-                        for part in item.content
-                    )
-                ):
-                    raise ReadinessResponseError("completed output is required")
-                text = response.output_text
-                if (
-                    not isinstance(text, str)
-                    or len(text) > 4096
-                    or json.loads(text) != {"nonce": nonce}
-                ):
-                    raise ReadinessResponseError("exact nonce output is required")
+                report["stage"] = "response_validation"
+                _require_completed_nonce(raw, nonce)
                 report["status"] = "ready"
+                report["classification"] = DEPENDENCY_OK
     except Exception as error:
         name = type(error).__name__
         report["error_class"] = (
             name if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,95}", name) else "UnknownException"
         )
+        report["classification"] = classify_provider_error(error)
         if report["http_status"] is None:
             report["http_status"] = _status_code(getattr(error, "status_code", None))
     report["latency_ms"] = round((time.perf_counter() - started) * 1000)

@@ -187,7 +187,7 @@ describe("lost vault deletion", () => {
         "fresh-provider-token",
         PHONE,
       );
-      expect(mocks.startPhoneProof).toHaveBeenCalledWith(PHONE, {}, { expectedUserId: user.uid, attemptId: expect.any(String) });
+      expect(mocks.startPhoneProof).toHaveBeenCalledWith(PHONE, {}, { expectedUserId: user.uid, attemptId: expect.any(String), signal: expect.any(AbortSignal) });
       expect(mocks.deleteAccount).not.toHaveBeenCalled();
       confirmDeletion();
       await screen.findByRole("link", { name: "Create a new account" });
@@ -456,7 +456,7 @@ describe("lost vault deletion", () => {
     expect(mocks.validatePhone).toHaveBeenCalledWith("fresh-provider-token", PHONE);
     expect(mocks.prepareRecaptcha).not.toHaveBeenCalled();
     expect(mocks.startPhoneProof).toHaveBeenCalledWith(PHONE, undefined, {
-      expectedUserId: user.uid, attemptId: expect.any(String),
+      expectedUserId: user.uid, attemptId: expect.any(String), signal: expect.any(AbortSignal),
     });
     expect(await screen.findByRole("button", { name: "Permanently delete account" })).toBeDisabled();
     expect(screen.queryByText(/phone check is unavailable/)).toBeNull();

@@ -27,8 +27,10 @@ internal class DeletionPhoneProofFence(val userId: String, val attemptId: String
         private set
     val deadline = now + 300_000L
     val canRelease get() = phase == Phase.SETTLED && !exchangeOutstanding
+    fun resendEligible(userId: String?, sameSession: Boolean, now: Long) =
+        userId == this.userId && sameSession && now < deadline
     fun current(userId: String?, sameSession: Boolean, now: Long) =
-        phase != Phase.SETTLED && userId == this.userId && sameSession && now < deadline
+        phase != Phase.SETTLED && resendEligible(userId, sameSession, now)
     fun codeSent(userId: String?, sameSession: Boolean, now: Long): Boolean {
         if (phase != Phase.WAITING || !current(userId, sameSession, now)) return false
         phase = Phase.CODE_SENT
@@ -63,9 +65,11 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
         var verificationId: String? = null
         var timeout: Runnable? = null
     }
+    private class Resend(val operation: Operation, val token: PhoneAuthProvider.ForceResendingToken)
     private val handler = Handler(Looper.getMainLooper())
     private val proof: FirebaseAuth
     private var operation: Operation? = null
+    private var resend: Resend? = null
 
     init {
         val name = "hushh-deletion-phone-proof"
@@ -90,18 +94,29 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
             call.reject("Verify the current account and phone.", "session_changed")
             return@post
         }
+        val resending = call.getBoolean("resendCode", false) == true
+        val previous = resend?.takeIf {
+            it.operation.phone == phone && it.operation.fence.resendEligible(
+                user.uid, user === it.operation.user, SystemClock.elapsedRealtime())
+        }
+        resend = null
+        if (resending && previous == null) {
+            call.reject("Request a new phone verification session.", "phone-verification-required")
+            return@post
+        }
         proof.signOut()
         val op = Operation(user, phone, DeletionPhoneProofFence(user.uid, attempt, SystemClock.elapsedRealtime()), call)
         operation = op
-        expire(op, 120_000L)
+        expire(op, 120_000L, "phone-verification-start-timeout")
         try {
-            PhoneAuthProvider.verifyPhoneNumber(PhoneAuthOptions.newBuilder(primary)
+            val options = PhoneAuthOptions.newBuilder(primary)
                 .setPhoneNumber(phone)
                 .setTimeout(0L, TimeUnit.SECONDS)
                 .setActivity(activity)
                 .setCallbacks(object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
                     override fun onCodeSent(id: String, token: PhoneAuthProvider.ForceResendingToken) {
                         if (!active(op) || !op.fence.codeSent(primary.currentUser?.uid, primary.currentUser === op.user, SystemClock.elapsedRealtime())) return
+                        resend = Resend(op, token)
                         op.verificationId = id
                         op.call?.resolve(JSObject().put("attemptId", attempt).put("verificationId", attempt))
                         op.call = null
@@ -120,7 +135,9 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
                         if (active(op) && op.fence.phase == DeletionPhoneProofFence.Phase.WAITING)
                             finish(op, safeErrorCode(error))
                     }
-                }).build())
+                })
+            if (resending) options.setForceResendingToken(previous!!.token)
+            PhoneAuthProvider.verifyPhoneNumber(options.build())
         } catch (_: Exception) { finish(op, "phone_verification_failed") }
     }
 
@@ -147,6 +164,7 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
     }
 
     fun invalidate() = handler.post {
+        resend = null
         operation?.let { finish(it, "session_changed") }
         if (exchangeOwner == null) proof.signOut()
     }
@@ -160,9 +178,9 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
         return true
     }
 
-    private fun expire(op: Operation, delay: Long) {
+    private fun expire(op: Operation, delay: Long, error: String = "phone-verification-required") {
         op.timeout?.let(handler::removeCallbacks)
-        op.timeout = Runnable { if (operation === op) finish(op, "phone-verification-required") }
+        op.timeout = Runnable { if (operation === op) finish(op, error) }
         handler.postDelayed(op.timeout!!, delay)
     }
 

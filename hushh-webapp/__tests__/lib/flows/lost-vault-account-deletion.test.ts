@@ -8,15 +8,16 @@ vi.mock("@/lib/services/onboarding-route-cookie", () => ({ setOnboardingRequired
 vi.mock("@/lib/services/vault-service", () => ({ VaultService: {} }));
 vi.mock("@/lib/auth/session-invalidation", async importOriginal => ({ ...(await importOriginal<typeof import("@/lib/auth/session-invalidation")>()), dispatchAuthSessionInvalidated: mocks.dispatch, publishAccountDeletionToSiblingTabs: mocks.publish }));
 import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { ApiError } from "@/lib/services/api-client";
 import { executeLostVaultAccountDeletion } from "@/lib/flows/delete-account";
 import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 const makeSessionUser = () => ({ uid: "user_123", getIdToken: vi.fn(async () => "synthetic-token") });
 describe("lost-vault deletion submission and terminal outcomes", () => {
   beforeEach(() => { vi.clearAllMocks(); publishValidatedAuthSessionPrincipal(null); publishValidatedAuthSessionPrincipal({ firebaseUid: "user_123", ownerId: "user_123", accountGeneration: 0 }); mocks.clear.mockResolvedValue(undefined); });
   it.each([
-    [true, "account_deleted_ready_to_start_fresh"],
-    [false, "account_deletion_finishing"],
-  ])("reports locked-vault deletion readiness %s at sign-out", async (ready, code) => {
+    [true, "account_deleted_ready_to_start_fresh", "27b517dc-d694-44e3-a9be-ed8ae0484de2"],
+    [false, "account_deletion_finishing", undefined],
+  ])("reports locked-vault deletion readiness %s at sign-out", async (ready, code, continuationId) => {
     mocks.deletion.mockResolvedValue({
       success: true,
       account_deleted: true,
@@ -27,10 +28,12 @@ describe("lost-vault deletion submission and terminal outcomes", () => {
       userId: "user_123",
       sessionUser: makeSessionUser(),
       firebaseIdToken: "fresh-provider-token",
+      ...(continuationId ? {continuationId} : {}),
     });
 
     expect(mocks.deletion).toHaveBeenCalledWith({
       firebaseIdToken: "fresh-provider-token",
+      ...(continuationId ? {continuationId} : {}),
       phoneIdToken: undefined,
       isCurrent: expect.any(Function),
     });
@@ -60,6 +63,17 @@ describe("lost-vault deletion submission and terminal outcomes", () => {
     expect(mocks.dispatch).toHaveBeenCalledWith({ generation: expect.any(Number), code: "account_deletion_identity_retained", path: "account_delete_confirmed", userId: "user_123" });
     expect(mocks.clear).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
     expect(mocks.publish).toHaveBeenCalledWith("user_123");
+  });
+
+  it("keeps a stale recovery rejection before erasure recoverable without sign-out or retry", async () => {
+    const failure = new ApiError("Recovery ended", 403, {detail: {code: "PHONE_RECOVERY_PREVIOUS_SIGN_IN_REQUIRED"}});
+    mocks.deletion.mockRejectedValueOnce(failure);
+    await expect(executeLostVaultAccountDeletion({userId: "user_123", sessionUser: makeSessionUser(),
+      firebaseIdToken: "fresh-provider", continuationId: "27b517dc-d694-44e3-a9be-ed8ae0484de2"})).rejects.toBe(failure);
+    expect(mocks.deletion).toHaveBeenCalledOnce();
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+    expect(mocks.clear).not.toHaveBeenCalled();
+    expect(isAccountDeletionActive("user_123")).toBe(false);
   });
 
 });

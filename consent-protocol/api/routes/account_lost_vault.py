@@ -6,6 +6,7 @@ issues no credential and final deletion must independently reread the binding.
 
 import hmac
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,6 +21,7 @@ router = APIRouter()
 class LostVaultDeleteRequest(BaseModel):
     method: Literal["phone", "provider"]
     phone_id_token: str | None = Field(default=None, min_length=1, max_length=20_000)
+    continuation_id: UUID | None = None
 
 
 class LostVaultDeletePhoneRequest(BaseModel):

@@ -9871,6 +9871,7 @@
         "phone_mandate.close_country_picker",
         "phone_mandate.delete_previous",
         "phone_mandate.recover",
+        "phone_mandate.review_previous_devices",
         "phone_mandate.select_country",
         "phone_mandate.send_real_sms",
         "phone_mandate.submit_code",
@@ -10999,5 +11000,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "2889fc45649c687a2fe5ea092570384d3a54643621f67d62f5c6ac41ac13cb3c"
+  "content_sha256": "25d819595d1a019beb7efbf3c0fc9282f8bc4fd19ed8c6234a76b8ededaaad36"
 }

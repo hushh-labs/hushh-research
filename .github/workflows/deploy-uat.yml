@@ -323,7 +323,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
           mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"
           cp deploy/account-deletion/{install,remove}_release_fence.sql \
-            deploy/account-deletion/activate_release.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
+            deploy/account-deletion/activate_release.py deploy/account-deletion/activation_retirement.py deploy/account-deletion/release_source.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
             deploy/account-deletion/verify_release_boundary.sql \
             "${RUNNER_TEMP}/release-tools/account-deletion/"
           cp config/runtime-capacity.json \
@@ -349,6 +349,7 @@ jobs:
             printf '%s\n' \
               scripts/deploy/backend-deploy.sh \
               scripts/deploy/backend-capacity-settings.sh \
+              scripts/deploy/backend-app-surface-settings.sh \
               scripts/deploy/verify-managed-vertex-runtime.sh \
               scripts/deploy/commerce-preview-bindings.sh \
               scripts/deploy/backend-model-settings.sh \
@@ -413,7 +414,7 @@ jobs:
               cp "${RUNNER_TEMP}/release-tools/$tool" "$tool"
             done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
             printf '\n!deploy/email-auth/bind_secrets.sh\n' >> .gcloudignore
-            printf '\n!deploy/plg/bind_secrets.sh\n!scripts/deploy/backend-capacity-settings.sh\n' >> .gcloudignore
+            printf '\n!deploy/plg/bind_secrets.sh\n!scripts/deploy/backend-capacity-settings.sh\n!scripts/deploy/backend-app-surface-settings.sh\n' >> .gcloudignore
           fi
 
       - name: Validate Google Cloud workload identity configuration
@@ -3750,6 +3751,8 @@ jobs:
           FRONTEND_CURRENT: ${{ steps.final-state.outputs.frontend_revision }}
           BACKEND_ROLLBACK: ${{ steps.predeploy-state.outputs.backend_revision }}
           FRONTEND_ROLLBACK: ${{ steps.predeploy-state.outputs.frontend_revision }}
+          DEPLOY_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          ACTIVATION_RESULT: ${{ steps.activate-account-deletion.outcome }}
         run: |
           set -euo pipefail
           status="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")"
@@ -3757,6 +3760,24 @@ jobs:
             echo "Skipping revision tag retirement for release status $status"
             exit 0
           fi
+          BACKEND_ROLLBACK="$(python3 - <<'PY'
+          import json
+          import os
+          import runpy
+          from pathlib import Path
+
+          path = Path('/tmp/uat-account-deletion-activation.json')
+          evidence = json.loads(path.read_text()) if path.exists() else None
+          owner = runpy.run_path('deploy/account-deletion/activation_retirement.py')
+          print(owner['uat_tags_rollback'](
+              evidence, activation_succeeded=os.environ['ACTIVATION_RESULT'] == 'success',
+              project=os.environ['GCP_PROJECT_ID'], region=os.environ['GCP_REGION'],
+              service=os.environ['BACKEND_SERVICE'], candidate=os.environ['BACKEND_CURRENT'],
+              source=os.environ['DEPLOY_SHA'], run_id=os.environ['GITHUB_RUN_ID'],
+              rollback=os.environ['BACKEND_ROLLBACK'],
+          ))
+          PY
+          )"
           bash scripts/ci/cloudrun-retention.sh "$BACKEND_SERVICE" "$GCP_REGION" "$BACKEND_REVISION_RETENTION" \
             "$BACKEND_CURRENT" --rollback-revision "$BACKEND_ROLLBACK" \
             --last-known-good-revision "$BACKEND_CURRENT" --apply --healthy --tags-only

@@ -21,6 +21,7 @@ def parse_arguments():
         "evidence-prefix",
     ]:
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--production-restoration", action="store_true")
     parser.add_argument("--db-name", default="postgres")
     parser.add_argument("--db-port", type=int, default=6543)
     parser.add_argument("--fence-required", choices=["true", "false"], required=True)

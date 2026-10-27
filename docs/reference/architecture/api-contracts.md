@@ -1030,6 +1030,7 @@ See [Wallet](../one/wallet.md) and the
 | Method | Path                                      | Description                                                                                             |
 | ------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | GET    | `/health`                                 | Detailed health check with agent list                                                                   |
+| GET    | `/health/ready`                           | Dependency readiness with bounded advisory signals                                                     |
 | GET    | `/api/kai/health`                         | Kai subsystem health                                                                                    |
 | GET    | `/api/investors/search?q={name}`          | Fuzzy search investors by name                                                                          |
 | GET    | `/api/investors/{investor_id}`            | Full investor profile by ID                                                                             |
@@ -1040,6 +1041,16 @@ See [Wallet](../one/wallet.md) and the
 | POST   | `/api/validate-token`                     | Validate a consent token                                                                                |
 | GET    | `/api/app-config/review-mode`             | Review mode toggle (enabled only)                                                                       |
 | POST   | `/api/app-config/review-mode/session`     | Non-production reviewer mint: a supplied `reviewer_uid` must name the configured reviewer paired with its passphrase; unknown or mismatched identities fail closed. Legacy callers may omit the UID and authenticate by configured passphrase. |
+
+`GET /health/ready` gates shared-runtime readiness on the database and production
+Firebase Admin configuration. In UAT and production only, its
+`checks.phone_test_transport` is `healthy` or `unavailable`, using the recorded
+phone transport's canonical configuration prerequisites. This advisory value
+never changes HTTP readiness or removes ordinary authentication traffic. It
+exposes no configured values, counts, or identifiers and issues no challenge or
+SMS. `healthy` establishes configuration availability, not phone ownership,
+successful confirmation, identity persistence, or real SMS delivery. The field
+is absent outside those environments and on private pods; `/health` is unchanged.
 
 ### Developer API (Developer Token / Developer API Enabled)
 
@@ -5342,16 +5353,52 @@ app contracts, name directory behavior, location grants and native UI are unchan
 
 Web, iOS and Android use the same phone conflict model. A conflict reveals no
 previous-account name, email, identifiers, devices or information. The choices
-are **Use this number on this account**, **Recover my previous account**, and
-**Delete my previous account**. The latter two open the existing Google/Apple
-sign-in and Profile flow. Deletion still needs that account's existing owner
-capability, re-authentication and destructive confirmation. Phone-origin proof
+are **Use this number on this account**, **Recover my previous account**,
+**Delete my previous account**, and **Review previous device access**. Recovery,
+deletion and device review create an opaque, fifteen-minute continuation and
+resume the selected action at `/register-phone?recovery=<uuid>` after Google or
+Apple sign-in. The continuation grants no account authority. Only the matching
+independently authenticated previous owner may see its masked phone hint and
+their own account/device details. An expired or changed binding ends the request.
+Deletion reuses existing owner verification, fresh same-owner reauthentication,
+any required linked-phone proof, and explicit irreversible confirmation. A final
+continuation refusal is a definite pre-erasure failure and preserves the session. Phone-origin proof
 is accepted only as the secondary possession proof and cannot admit a primary
 application session, read a previous owner profile, mint an owner capability or approve a new trusted device. Existing
 owner-authenticated trusted-device listing and revocation keep their hub-first,
 pod-propagation and uncertain-outcome contracts. This does not create a universal
 browser/mobile session registry; currently enrolled trusted devices retain their
 existing platform coverage.
+
+`POST /api/account/phone/recovery/continuations` accepts the selected `recover`,
+`delete` or `revoke` action and normalized phone. Its response is deliberately
+indistinguishable for absent and occupied bindings. `GET` of the opaque ID returns
+`awaiting_previous_sign_in`, `ready`, `expired` or `stale`; only `ready` includes
+the action and masked own-account hint. Neither endpoint transfers ownership,
+deletes an account, enumerates another person's devices or creates an owner token.
+An optional `continuation_id` on the existing account-deletion contracts is
+revalidated against current binding revision and account generation before erasure.
+
+Own-device revocation prepares a five-minute operation through
+`POST /api/account/trusted-devices/{device_id}/revoke/prepare`. It requires an
+independent Google/Apple session and an existing verified own-phone binding.
+Confirmation through the matching `/revoke/confirm` endpoint, or the existing
+`DELETE /api/account/trusted-devices/{device_id}`, requires the operation ID,
+literal `confirmed: true`, and exactly one fresh `phone_id_token` or configured
+own-fixture `test_code`. The configured fixture code is read through the existing
+server test transport; no code is hardcoded or turned into cross-owner authority.
+Real proof must follow preparation, satisfy the existing five-minute authentication
+age, match the stored number and pass provider fictional-number checks. Preparation
+returns server-computed `proof_wait_ms` (0–1000); clients wait before requesting
+SMS so second-granular Firebase `auth_time` cannot predate preparation. A unique
+stable proof-event digest prevents replay across device operations.
+`GET /api/account/trusted-devices/revocations/{operation_id}` reads progress and
+may settle already-revoked cleanup; it never repeats primary revocation.
+Prepared GET/list reads never cancel another tab's challenge.
+`POST /api/account/trusted-devices/revocations/{operation_id}/cancel` explicitly
+fences a prepared operation before reporting `not_started`.
+Unknown dispatches remain visible and require status reconciliation or support.
+A completed hub receipt is separate from signed pod-delivery completion.
 
 `POST /api/account/phone/transfer/prepare` requires the current Firebase bearer,
 `expected_user_id` matching the captured application owner and an independent
@@ -5428,5 +5475,5 @@ PostgreSQL concurrency/rollback proof, generated UI/native contracts, hosted CI,
 deployment schema/provider qualification, and physical-device real-SMS journeys.
 Passing an earlier lane does not declare a later lane complete. Release requires
 Identity Platform config-read permission, permitted identity mutation authority,
-qualified migration 425, existing alert delivery and real Web/iOS/Android SMS,
+qualified migrations 425 and 428, existing alert delivery and real Web/iOS/Android SMS,
 resend, account-switch, outage and device-revocation rehearsals.

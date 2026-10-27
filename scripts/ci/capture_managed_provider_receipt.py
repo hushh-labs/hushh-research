@@ -8,14 +8,14 @@ no probe, provider selection, revision or traffic mutation is performed here.
 from __future__ import annotations
 
 import argparse
-import json
 import importlib
+import json
 import os
-from pathlib import Path
 import re
 import subprocess
-import time
 import tempfile
+import time
+from pathlib import Path
 from uuid import UUID
 
 
@@ -174,6 +174,11 @@ def from_entries(entries, expected, document, step_label):
         and chosen["traffic_percent"] == 0,
         "provider_selection_unverified",
     )
+    return captured_receipt(aggregate, expected, chosen, origins, step_label, readiness)
+
+
+def captured_receipt(aggregate, expected, chosen, origins, step_label, readiness):
+    providers = aggregate["providers"]
     # Reproduce only the producer's bounded receipt fields, never arbitrary logs,
     # error bodies, source substitutions or runtime secrets.
     result = {
@@ -189,7 +194,17 @@ def from_entries(entries, expected, document, step_label):
         )
     }
     result["providers"] = {
-        p: {"ready": providers[p]["ready"]} for p in sorted(readiness.PROVIDERS)
+        p: {
+            "ready": providers[p]["ready"],
+            **(
+                readiness._capability_proof().verified_diagnostics(
+                    providers[p], provider=p
+                )
+                if "probe_history" in providers[p]
+                else {}
+            ),
+        }
+        for p in sorted(readiness.PROVIDERS)
     }
     return {
         "readiness": result,

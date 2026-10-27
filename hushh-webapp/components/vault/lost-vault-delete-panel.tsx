@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { Capacitor } from "@capacitor/core";
+import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
@@ -21,18 +20,24 @@ import {
 export function LostVaultDeletePanel({
   user,
   onBack,
+  continuationId,
+  onNavigationGuardChange,
 }: {
   user: User;
   onBack: () => void;
+  continuationId?: string;
+  onNavigationGuardChange?: (blocked: boolean) => void;
 }) {
   const { resolveVerifiedPhoneNumber } = useAuth();
   // A new owner or anonymous interlude receives entirely new in-memory proofs.
   return (
     <LostVaultDeleteJourney
-      key={`${user.uid}:${getAuthSessionGeneration()}`}
+      key={`${user.uid}:${getAuthSessionGeneration()}:${continuationId ?? "own"}`}
       user={user}
       onBack={onBack}
       resolvePhone={resolveVerifiedPhoneNumber}
+      continuationId={continuationId}
+      onNavigationGuardChange={onNavigationGuardChange}
     />
   );
 }
@@ -41,12 +46,17 @@ function LostVaultDeleteJourney({
   user,
   onBack,
   resolvePhone,
+  continuationId,
+  onNavigationGuardChange,
 }: {
   user: User;
   onBack: () => void;
   resolvePhone: () => Promise<string | null>;
+  continuationId?: string;
+  onNavigationGuardChange?: (blocked: boolean) => void;
 }) {
-  const flow = useLostVaultDelete(user, resolvePhone);
+  const flow = useLostVaultDelete(user, resolvePhone, continuationId);
+  useEffect(() => { onNavigationGuardChange?.(flow.busy || flow.stage === "deleting"); return () => onNavigationGuardChange?.(false); }, [flow.busy, flow.stage, onNavigationGuardChange]);
   const [countryOpen, setCountryOpen] = useState(false);
   const [countryQuery, setCountryQuery] = useState("");
   const providers =
@@ -54,7 +64,6 @@ function LostVaultDeleteJourney({
       (provider): provider is DeletionProvider =>
         provider === "google.com" || provider === "apple.com",
     ) ?? [];
-  const native = Capacitor.isNativePlatform();
   const title =
     flow.stage === "review"
       ? "Verify it’s you"
@@ -91,8 +100,8 @@ function LostVaultDeleteJourney({
         </div>
         {flow.stage === "review" && (
           <p className="type-footnote text-[color:var(--app-secondary-label)]">
-            Account deletion is permanent. Remove One’s bank access in bank
-            settings. Required records may remain.
+            Permanently deletes this account’s files, vault and saved information.
+            Remove One’s bank access in bank settings. Required records may remain.
           </p>
         )}
         {flow.error && (
@@ -119,9 +128,7 @@ function LostVaultDeleteJourney({
               >
                 Try again
               </Button>
-            ) : providers.some(
-                (provider) => provider === "google.com" || !native,
-              ) ? (
+            ) : providers.length > 0 ? (
               providers.map((provider) => (
                 <AuthProviderButton
                   key={provider}
@@ -134,15 +141,13 @@ function LostVaultDeleteJourney({
                     )
                   }
                   className="min-h-12 rounded-full border-[color:var(--app-accent-border)] bg-transparent dark:bg-transparent [backdrop-filter:none]"
-                  disabled={flow.busy || (provider === "apple.com" && native)}
+                  disabled={flow.busy}
                   onClick={() => void flow.verifyProvider(provider)}
                 />
               ))
             ) : (
               <p className="type-footnote text-[color:var(--app-secondary-label)]">
-                {native && providers.length > 0
-                  ? "Use One on the web, or ask support to verify your request."
-                  : "Contact support to verify your deletion request."}
+                Contact support to verify your deletion request.
               </p>
             )}
           </div>
@@ -321,7 +326,7 @@ function LostVaultDeleteJourney({
               }}
               className="min-h-11 text-[color:var(--app-accent-deep)] underline-offset-2 hover:underline"
             >
-              Back to unlock
+              {continuationId ? "Back" : "Back to unlock"}
             </button>
             <a
               href="/delete-account"

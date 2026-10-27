@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve retained hosted-copy maintenance without enabling legacy Drive.
-
-Only bounded, non-secret booleans leave this process. Storage is maintained
-with intake off because paid copies and erasure obligations can outlive it.
-"""
+"""Resolve retained hosted-copy maintenance and preserve issued readers."""
 
 from __future__ import annotations
 
@@ -350,6 +346,25 @@ def assert_manual_rollback(
 
 
 def _rollback_command(args, parser) -> bool:
+    if args.rebind_backend_report:
+        if not args.rollback_report or args.service or args.revision:
+            parser.error("Backend rebinding requires only the existing rollback report")
+        try:
+            run_path(str(ROOT / "deploy/drive/rebind_protected_document_backend.py"))[
+                "rebind_backend"
+            ](
+                args.rollback_report,
+                args.rebind_backend_report,
+                project=args.project,
+                ancestor=args.required_ancestor,
+                cloud=_cloud,
+                revision_source=_revision_source,
+                reader_supported=reader_supported,
+            )
+        except Exception:
+            parser.exit(1, "Hosted document backend rebinding was not proved\n")
+        print("Hosted document backend rollback binding verified")
+        return True
     if not args.manual_rollback and not args.rollback_report:
         return False
     try:
@@ -405,10 +420,12 @@ def main() -> int:
     parser.add_argument("--target-sha", default="")
     parser.add_argument("--required-ancestor", default="")
     parser.add_argument("--verify-previous", action="store_true")
+    parser.add_argument("--production-restoration", action="store_true")
     parser.add_argument("--json-output", type=Path)
     rollback = parser.add_mutually_exclusive_group()
     rollback.add_argument("--rollback-report", type=Path)
     rollback.add_argument("--manual-rollback", action="store_true")
+    parser.add_argument("--rebind-backend-report", type=Path)
     parser.add_argument("--service", choices=SERVICES)
     parser.add_argument("--revision", default="")
     args = parser.parse_args()
@@ -416,30 +433,34 @@ def main() -> int:
         parser.error("Hosted document release project/environment does not match")
     if _rollback_command(args, parser):
         return 0
-    result = subprocess.run(  # noqa: S603 -- Fixed secret resource; project is an argparse allowlist, no shell or payload arguments.
-        [
-            "gcloud",
-            "secrets",
-            "versions",
-            "access",
-            "latest",
-            "--secret=BACKEND_RUNTIME_CONFIG_JSON",
-            f"--project={args.project}",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        parser.exit(1, "Hosted document runtime policy could not be verified\n")
     try:
+        runtime = json.loads(
+            _cloud(
+                "secrets",
+                "versions",
+                "access",
+                "latest",
+                "--secret=BACKEND_RUNTIME_CONFIG_JSON",
+                f"--project={args.project}",
+            )
+        )
         mode = resolve(
-            json.loads(result.stdout),
+            runtime,
             project=args.project,
             environment=args.environment,
         )
+        if args.production_restoration:
+            mode = run_path(
+                str(ROOT / "deploy/drive/rebind_protected_document_backend.py")
+            )["restoration_mode"](
+                mode,
+                project=args.project,
+                target=args.target_sha,
+                verify_previous=args.verify_previous,
+            )
         if (
-            mode["configured"]
+            not args.production_restoration
+            and mode["configured"]
             and args.target_sha
             and not reader_supported(args.target_sha, args.required_ancestor)
         ):

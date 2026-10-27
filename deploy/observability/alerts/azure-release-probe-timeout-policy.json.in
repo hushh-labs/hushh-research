@@ -1,0 +1,44 @@
+{
+  "displayName": "[Managed] Azure Release Probe Repeated Timeouts",
+  "documentation": {
+    "content": "At least two UAT Azure PWM candidate readiness jobs reported terminal provider timeouts within ten minutes. Inspect each exact build and execution's sanitized failure stage, elapsed time, exception class and immutable source/image/configuration binding. Retain the original failure evidence. Any authorized bounded retry must use the same verified commit; a passing retry proves recovery, not a permanent fix. Keep serving traffic and all readiness, schema, security and provider gates intact. Do not increase timeouts or infer application failure from provider unavailability. Runbook: deploy/observability/README.md#azure-release-probe-timeouts",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "release",
+    "incident_purpose": "actionable"
+  },
+  "conditions": [
+    {
+      "displayName": "Azure release probe terminal timeouts >= 2 in 10m",
+      "conditionThreshold": {
+        "filter": "resource.type=\"cloud_run_job\" AND resource.labels.project_id=\"__PROJECT_ID__\" AND metric.type=\"logging.googleapis.com/user/obs_azure_release_probe_timeout_count\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 1,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ],
+    "autoClose": "1800s"
+  }
+}

@@ -73,19 +73,41 @@ exempting their bindings from the live comparison:
 | `roles/cloudsql.client` | Cloud SQL Auth Proxy connections for migration, producer qualification and activation |
 | `roles/cloudsql.viewer` | Backup/PITR posture and recent successful backup reads |
 | `roles/logging.viewer` | Fresh Scheduler `AttemptFinished` evidence for cleanup activation |
-| `projects/hushh-pda/roles/accountDeletionSchedulerOperator` | Cleanup Scheduler jobs get, list, create, update and run; locations list |
+| `projects/hushh-pda/roles/accountDeletionSchedulerOperator` | Cleanup and Drive Scheduler jobs get, list, create, update, run, pause and enable; locations list |
 | `projects/hushh-pda/roles/predeployBackupOperator` | Optional predeploy backup runs create, get and list |
 
 The two project custom roles are already provisioned in production. Their
 observed permissions are limited respectively to
-`cloudscheduler.jobs.{get,list,create,update,run}` plus
+`cloudscheduler.jobs.{create,enable,get,list,pause,run,update}` plus
 `cloudscheduler.locations.list`, and
 `cloudsql.backupRuns.{create,get,list}`. Reconciliation records these existing
-bindings; it does not require new live grants. The provider still accepts only
+bindings. The 27 October recovery repaired the existing Scheduler role with
+`pause` and `enable`, preserving its other permissions and bindings. The resume
+API requires `cloudscheduler.jobs.enable`, not a `jobs.resume` permission. These
+permissions let the existing release workflow quarantine document jobs and
+restore them after rollback. The provider still accepts only
 this repository's production environment on `main`, and the detector continues
 to reject every undeclared project role, including privilege escalation.
 See the [cleanup activation contract](../../docs/reference/operations/account-deletion-rollout.md#production-procedure)
 and [backup posture contract](../../docs/reference/operations/production-db-backup-and-recovery.md).
+
+The canonical setup now declares and reconciles the existing Scheduler role's
+exact eight permissions and `GA` stage. The live verifier checks that definition
+and its single unconditional binding to
+`github-actions-prod-deployer@hushh-pda.iam.gserviceaccount.com`. Missing pause or
+enable authority, extra permissions, another principal, a conditional binding,
+or an inactive role fails verification. The Cloud Scheduler resume operation
+requires `cloudscheduler.jobs.enable`; there is no `cloudscheduler.jobs.resume`
+permission.
+
+This is a project-level grant: these permissions cover Scheduler jobs throughout
+`hushh-pda`, including jobs outside the three fixed Drive jobs used by the release
+helper. The setup does not claim a job-level IAM condition or change WIF trust.
+It reuses the existing role instead of creating another Scheduler operator.
+Applying setup and observing a successful guarded release remain separate
+evidence; `--record-only` performs no cloud reads or writes. Offline live-policy
+rehearsals additionally supply `--scheduler-role-json` alongside the existing
+provider, policy and prerequisite-role JSON inputs.
 
 ## Drive prerequisite reads
 
@@ -174,3 +196,13 @@ deployment approval alone does not authorize these grants.
 The workflow stops on copy or permission failure before the migration fence.
 An explicit `backend_image_source=build-from-source` retains the ordinary build
 path while preserving exact-SHA Dev acceptance and all UAT release gates.
+
+## Scheduled backup monitoring
+
+`setup_production_backup_wif.sh` reuses this provider for the `production`
+environment on `main`. It provisions a separate `github-prod-backup-reader`
+identity with only `cloudsql.instances.get` and `cloudsql.backupRuns.list`, and
+sets the environment variable `GCP_BACKUP_SERVICE_ACCOUNT`. It cannot connect
+to the database, create/delete backups, deploy services or access runtime secrets.
+Run `Verify Production Backups` after configuration and inspect its JSON report;
+identity setup alone does not prove backup freshness or a successful restore drill.

@@ -429,6 +429,7 @@ tests/test_account_routes.py
 tests/test_account_delete_error_detail.py
 tests/test_account_lost_vault_phone.py
 tests/test_account_phone_routes.py
+tests/test_phone_list_health.py
 tests/test_account_phone_trace_loop.py
 # Full encrypted export: bounded cursor memory, complete recovery history, snapshot and cleanup.
 tests/services/test_account_service_export.py
@@ -440,6 +441,8 @@ tests/services/test_account_deletion_provider_cleanup.py
 tests/test_account_deletion_tombstone_migration.py
 tests/test_account_erasure_lock_timeout_postgres.py
 tests/test_account_deletion_release_workflow.py
+tests/test_production_restoration_compatibility.py
+tests/test_production_restoration_operation.py
 tests/test_cloud_run_image_resolution.py
 # Parallel digest-pinned web image build on every deploy lane, and promotion
 # of the UAT-verified backend digest into production. Both run the real step
@@ -1484,6 +1487,7 @@ tests/test_todo_wallet_inventory_postgres.py
 
 tests/test_world_model_research_context.py
 tests/test_pwm_runtime_probe.py
+tests/scripts/test_probe_azure_openai_readiness.py
 
 tests/services/test_drive_packet_public_summary.py
 tests/services/test_drive_packet_public_summary_postgres.py
@@ -1495,5 +1499,22 @@ tests/test_consumer_consent_replay_postgres.py
 tests/test_phone_transfer_postgres.py
 
 tests/test_phone_transfer_authority.py
+tests/test_phone_bootstrap.py
+tests/test_phone_schema_qualification.py
+tests/test_phone_schema_origin.py
+
+# Phone recovery authority, packaged rollback reader and provider receipts.
+# Full phone UI/SQL proof runs in the mandatory Integration browser gate.
+tests/test_phone_recovery_actions.py
+tests/test_phone_reader_probe.py
+tests/scripts/test_managed_provider_receipt.py
+
+tests/test_account_deletion_activation.py
+
+tests/test_phone_operational_rollback.py
+
+tests/test_prod_drive_worker_staging.py
+
+tests/test_phone_production_receipt.py
 tests/routes/test_area_discovery.py
 tests/services/test_area_discovery_postgres.py

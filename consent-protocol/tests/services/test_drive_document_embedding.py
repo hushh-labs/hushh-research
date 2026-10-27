@@ -154,8 +154,11 @@ def test_embedding_child_only_profiles_the_exact_public_admission(
 
 
 @pytest.mark.asyncio
+@pytest.mark.feature_drive_packets
+@pytest.mark.trace_loop
 @pytest.mark.parametrize(
-    "mode", ["private_query", "public_query", "admit", "malformed", "invalid_vector"]
+    "mode",
+    ["private_query", "public_query", "admit", "startup_admit", "malformed", "invalid_vector"],
 )
 async def test_embedding_admission_logs_only_bounded_metrics_after_vector_validation(
     monkeypatch, runtime_redacted_logs, mode
@@ -164,6 +167,8 @@ async def test_embedding_admission_logs_only_bounded_metrics_after_vector_valida
     from hushh_mcp.services.embedding_client_leaf import ADMISSION_TIMING_PHASES
 
     metrics = {phase: {"wall_ms": 10, "cpu_ms": 5} for phase in ADMISSION_TIMING_PHASES}
+    if mode == "startup_admit":
+        metrics["model_load"]["wall_ms"] = 120_000
     result = {
         "profile": processor.PROFILE,
         "embedding": [1.0] + [0.0] * 383,
@@ -185,12 +190,15 @@ async def test_embedding_admission_logs_only_bounded_metrics_after_vector_valida
     elif mode.endswith("query"):
         query = "synthetic private query" if mode == "private_query" else "synthetic statement"
         assert await embedding.query(query) == tuple(result["embedding"])
+    elif mode == "startup_admit":
+        assert await embedding.admit(timeout=170) is None
     else:
         assert await embedding.admit() is None
     messages = [record.message for record in caplog.records if record.name == processor.__name__]
-    if mode == "admit":
+    if mode in {"admit", "startup_admit"}:
         assert messages == [
-            f"drive_worker_embedding_admission phase={phase} wall_ms=10 cpu_ms=5"
+            f"drive_worker_embedding_admission phase={phase} "
+            f"wall_ms={metrics[phase]['wall_ms']} cpu_ms={metrics[phase]['cpu_ms']}"
             for phase in ADMISSION_TIMING_PHASES
         ]
     elif mode == "malformed":
@@ -199,7 +207,10 @@ async def test_embedding_admission_logs_only_bounded_metrics_after_vector_valida
         assert messages == []
     operation = "query" if mode.endswith("query") else "admit"
     assert process.await_args.args[1] == operation
-    assert process.await_args.kwargs == {"timeout": 100, "limit": 16384}
+    assert process.await_args.kwargs == {
+        "timeout": 170 if mode == "startup_admit" else 100,
+        "limit": 16384,
+    }
 
 
 @pytest.mark.asyncio

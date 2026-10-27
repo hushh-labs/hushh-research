@@ -103,3 +103,34 @@ def validate_artifact(
         ),
         "Acceptance artifact identity or retention is invalid",
     )
+
+
+def required_checks(release: dict, environment: str) -> dict:
+    source = (
+        release.get("verification_plan")
+        if environment == "dev"
+        else release.get("verification")
+    )
+    source = source or {}
+    pkm_required = source.get(
+        "pkm_preservation_required"
+        if environment == "dev"
+        else "pkm_upgrade_gate_required"
+    )
+    reviewer_required = source.get("reviewer_byok_required")
+    require(
+        pkm_required in {"true", "false"} and reviewer_required in {"true", "false"},
+        "Required verification declarations are missing",
+    )
+    return {
+        "pkm": {
+            "required": pkm_required == "true",
+            "outcome": source.get("pkm_preservation_outcome"),
+        },
+        "reviewer": {
+            "required": reviewer_required == "true",
+            "outcome": source.get(
+                "reviewer_byok_outcome" if environment == "dev" else "reviewer_byok"
+            ),
+        },
+    }

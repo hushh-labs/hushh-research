@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from pathlib import Path
 from time import monotonic
 
@@ -31,6 +31,7 @@ from fastapi import FastAPI, HTTPException  # noqa: E402
 
 from api.routes.drive_work_drain import router  # noqa: E402
 from hushh_mcp.services.connector_feature_admission import (  # noqa: E402
+    connector_feature_enabled,
     connector_feature_owner_cohort,
 )
 from hushh_mcp.services.drive_document_processor import (  # noqa: E402
@@ -41,8 +42,11 @@ from hushh_mcp.services.embedding_client_leaf import BAKED_MODEL_DIR  # noqa: E4
 from hushh_mcp.services.google_drive_adapter import DriveReadError  # noqa: E402
 
 # Leave headroom inside the worker's 220s Gunicorn / 240s startup-probe bounds.
-# Model admission, its single retry and scanner attestation share this budget.
+# Model admission and scanner attestation share this budget. One cold model
+# child gets 170s, leaving 10s for cancellation/reaping instead of restarting
+# its expensive imports at 100s with only 80s left for a second cold load.
 STARTUP_TIMEOUT_SECONDS = 180
+EMBEDDING_STARTUP_TIMEOUT_SECONDS = STARTUP_TIMEOUT_SECONDS - 10
 logger = logging.getLogger(__name__)
 
 
@@ -50,20 +54,16 @@ def _indexing_active() -> bool:
     return connector_feature_owner_cohort("drive_document_indexing") != ()
 
 
+def _scanner_active() -> bool:
+    # This synthetic identity evaluates configuration only; it grants no owner
+    # access and does not widen the indexing cohort.
+    return _indexing_active() or connector_feature_enabled(
+        "protected_document_delivery", "connector-scope-check"
+    )
+
+
 async def _admit_embedding() -> None:
-    embedding = IsolatedDocumentEmbedding()
-    try:
-        await embedding.admit()
-    except DriveReadError as error:
-        # The failed child is reaped before its one eligible retry. Preserve
-        # the existing per-query isolation, deadline and resource limits.
-        if not error.retryable or str(error) != "processing_timeout":
-            raise
-        with suppress(Exception):
-            logger.info(
-                "drive_worker_startup stage=embedding outcome=retry reason=processing_timeout"
-            )
-        await embedding.admit()
+    await IsolatedDocumentEmbedding().admit(timeout=EMBEDDING_STARTUP_TIMEOUT_SECONDS)
 
 
 async def _admit_scanner() -> None:
@@ -96,10 +96,11 @@ async def _timed_admission(stage: str, check: Callable[[], Awaitable[None]]) -> 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    if not _indexing_active():
+    indexing = _indexing_active()
+    if not _scanner_active():
         yield
         return
-    if not Path(BAKED_MODEL_DIR).is_dir():
+    if indexing and not Path(BAKED_MODEL_DIR).is_dir():
         raise RuntimeError("Drive worker image is missing its pinned local model")
     # This is synthetic content only. Failure keeps the candidate revision
     # unready and prevents the scheduler from being retargeted to it.
@@ -108,10 +109,9 @@ async def lifespan(_app: FastAPI):
         async with asyncio.timeout(STARTUP_TIMEOUT_SECONDS):
             # Scanner reload/freshness and isolated model admission are
             # independent. Both must finish within the same startup budget.
-            tasks = [
-                asyncio.create_task(_timed_admission("embedding", _admit_embedding)),
-                asyncio.create_task(_timed_admission("scanner", _admit_scanner)),
-            ]
+            tasks = [asyncio.create_task(_timed_admission("scanner", _admit_scanner))]
+            if indexing:
+                tasks.append(asyncio.create_task(_timed_admission("embedding", _admit_embedding)))
             await asyncio.gather(*tasks)
     except TimeoutError:
         raise RuntimeError("Drive worker exceeded its startup readiness budget") from None
@@ -137,7 +137,7 @@ app.include_router(router)
 
 @app.get("/ready", include_in_schema=False)
 async def ready() -> dict[str, str]:
-    if not _indexing_active():
+    if not _scanner_active():
         return {"status": "ready"}
     try:
         await ClamAvScanner().check_ready()

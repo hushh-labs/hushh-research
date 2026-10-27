@@ -10,21 +10,22 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib
-from io import BytesIO
 import json
 import math
 import os
 import re
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
-from zipfile import BadZipFile, ZipFile
+from typing import Literal
 
 import release_artifact_receipts
+import production_phone_receipt
+import production_phone_lease
+import production_retention_context
 
 retention = importlib.import_module("cloudrun-retention")
 capacity_bridge = importlib.import_module("production-capacity-bridge")
@@ -50,7 +51,7 @@ LANES = {
         "deploy_job": "Deploy Production Scope",
         "upload_step": "Upload production deploy artifacts",
         "state_artifact": "production-retention-state",
-        "services": {"consent-protocol": 2, "hushh-webapp": 10},
+        "services": {"consent-protocol": 2, "hushh-webapp": 10, "consent-protocol-drive-worker": 1},
     },
 }
 STATE_ARTIFACT = LANES["uat"]["state_artifact"]
@@ -328,16 +329,7 @@ def verify_post_uat_hygiene_failure(repository: str, run: dict, release: dict) -
 
 
 def artifact_exists(repository: str, run_id: int, name: str) -> bool:
-    result = api(repository, f"runs/{run_id}/artifacts?per_page=100")
-    artifacts = result["artifacts"]
-    if result.get("total_count", len(artifacts)) != len(artifacts):
-        raise retention.UnsafeState("release artifact inventory is incomplete")
-    matches = [item for item in artifacts if item.get("name") == name]
-    if not matches:
-        return False
-    if len(matches) != 1 or matches[0].get("expired") is not False:
-        raise retention.UnsafeState("release artifact is expired or ambiguous")
-    return True
+    return release_artifact_receipts.artifact_exists(repository, run_id, name, api=api)
 
 
 def replayed_release_artifact(
@@ -371,18 +363,7 @@ download_replayed_uat_release = download_replayed_release
 
 
 def download(repository: str, run_id: int, name: str, directory: Path) -> None:
-    command(
-        "gh",
-        "run",
-        "download",
-        str(run_id),
-        "--repo",
-        repository,
-        "--name",
-        name,
-        "--dir",
-        str(directory),
-    )
+    release_artifact_receipts.download(repository, run_id, name, directory, command=command)
 
 
 def governed_dispatch(
@@ -435,15 +416,7 @@ def load_release(repository: str, run_id: int, directory: Path, environment: str
     release = json.loads(status_file.read_text())
     if not isinstance(release, dict):
         raise retention.UnsafeState("source release artifact is invalid")
-    if any(
-        name in release
-        for name in (
-            "_maintenance_source_run",
-            "_maintenance_lane_provenance",
-            "_maintenance_prior_backend_provenance",
-            "_maintenance_backend_rollback_revision",
-        )
-    ):
+    if any(name.startswith("_maintenance_") for name in release):
         raise retention.UnsafeState("source artifact contains internal maintenance authority")
     return release
 
@@ -839,6 +812,8 @@ def find_release(
     *,
     require_live: bool = True,
     environment: str = "uat",
+    on_phone_rollback=None,
+    operational_anchor=None,
 ) -> tuple[int, dict] | None:
     lane_config = LANES[environment]
     if requested:
@@ -915,38 +890,30 @@ def find_release(
                 if requested:
                     raise
                 continue
+        elif environment == "production" and release.get("status") == "pending_activation":
+            release["_maintenance_pending_retirement"] = production_retention_context.pending(
+                sys.modules[__name__], repository, run, release, operational_anchor)
         elif release.get("status") != "healthy":
             if requested:
                 raise retention.UnsafeState("source release artifact is not healthy")
             continue
-        for lane, service in (
-            ("backend", "consent-protocol"),
-            ("frontend", "hushh-webapp"),
-        ):
-            revision = release.get("final", {}).get(f"{lane}_revision", "")
-            pattern = rf"{service}-[a-z0-9-]+"
-            if not isinstance(revision, str) or not re.fullmatch(pattern, revision):
-                raise retention.UnsafeState(
-                    f"source release lacks a valid {lane} revision"
-                )
-            rollback = release.get("predeploy", {}).get(f"{lane}_revision") or ""
-            if rollback and (
-                not isinstance(rollback, str) or not re.fullmatch(pattern, rollback)
-            ):
-                raise retention.UnsafeState(
-                    f"source release has invalid {lane} rollback"
-                )
+        release_artifact_receipts.validate_revision_names(release)
         if environment == "uat" and release.get("scope") == "frontend":
             prove_frontend_inherited_backend(repository, run, release, directory)
         if cleanup_failed:
             verify_post_release_failure(repository, run, release)
             # Local verified context only; never accepted from an artifact.
             release["_maintenance_source_run"] = run_id
-        if (
-            requested
-            or not require_live
-            or live_release_matches(release, environment=environment)
-        ):
+        restoration_continuation = environment == "production" and "restoration_activation" in release
+        if restoration_continuation:
+            # This verifier did not deploy the serving pair. Derive its original
+            # runtime-run identities from the receipt before matching live labels.
+            production_retention_context.healthy_phone(
+                sys.modules[__name__], repository, run, release, lane_config, on_phone_rollback)
+        if requested or not require_live or live_release_matches(release, environment=environment):
+            if not restoration_continuation:
+                production_retention_context.healthy_phone(
+                    sys.modules[__name__], repository, run, release, lane_config, on_phone_rollback)
             return run_id, release
     return None
 
@@ -1042,9 +1009,16 @@ def trusted_pending_uat_state(repository: str, run: dict, artifact: dict) -> boo
 
 
 def download_pending_uat_state(
-    repository: str, artifact: dict, directory: Path, *, environment: str = "uat"
+    repository: str, artifact: dict, directory: Path, *, environment: str = "uat",
+    source_kind: Literal["pending_drain", "saved_checkpoint"] = "pending_drain",
 ) -> None:
-    """Fetch the checked immutable artifact ID, rejecting overwrite and ZIP races."""
+    """Fetch the checked immutable artifact ID, rejecting overwrite and ZIP races.
+
+    A proven saved checkpoint may precede the post-preflight README writer.
+    Legacy pending-drain evidence must still contain its README.
+    """
+    if source_kind not in {"pending_drain", "saved_checkpoint"}:
+        raise retention.UnsafeState("checkpoint artifact source kind is invalid")
     if (
         type(artifact.get("id")) is not int
         or artifact["id"] < 1
@@ -1063,34 +1037,12 @@ def download_pending_uat_state(
         archive
     ).hexdigest() != artifact["digest"].removeprefix("sha256:"):
         raise retention.UnsafeState("pending UAT drain artifact digest changed")
-    allowed = {
-        "README.txt",
-        "completed.json",
-        *(f"{name}.json" for name in LANES[environment]["services"]),
-    }
-    try:
-        with ZipFile(BytesIO(archive)) as bundle:
-            entries = bundle.infolist()
-            names = [entry.filename for entry in entries]
-            if (
-                len(names) != len(set(names))
-                or "completed.json" not in names
-                or "README.txt" not in names
-                or any(
-                    entry.filename not in allowed
-                    or entry.is_dir()
-                    or stat.S_IFMT(entry.external_attr >> 16) == stat.S_IFLNK
-                    or entry.file_size > 1024 * 1024
-                    for entry in entries
-                )
-            ):
-                raise retention.UnsafeState(
-                    "pending UAT drain artifact has unsafe files"
-                )
-            for entry in entries:
-                (directory / entry.filename).write_bytes(bundle.read(entry))
-    except BadZipFile as exc:
-        raise retention.UnsafeState("pending UAT drain artifact is not a ZIP") from exc
+    files = release_artifact_receipts.checkpoint_archive(
+        archive, LANES[environment]["services"],
+        allow_missing_readme=source_kind == "saved_checkpoint",
+    )
+    for name, content in files.items():
+        (directory / name).write_bytes(content)
 
 
 def carry_earlier_uat_clock(current: Path, older: Path) -> bool:
@@ -1227,8 +1179,8 @@ def restore_state(
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary)
             if pending_uat or checkpoint_source:
-                download_pending_uat_state(
-                    repository, item, source, environment=environment
+                download_pending_uat_state(repository, item, source, environment=environment,
+                    source_kind="saved_checkpoint" if checkpoint_source else "pending_drain",
                 )
             else:
                 download(repository, run["id"], artifact, source)
@@ -1339,6 +1291,10 @@ def latest_deploy_observation(repository: str, environment: str) -> int:
     raise retention.UnsafeState("no completed deployment observation")
 
 
+def completion_receipt(directory: Path, environment: str) -> dict | None:
+    return importlib.import_module("retention_publication").completion_receipt(sys.modules[__name__], directory, environment)
+
+
 def maintenance_due(
     repository: str,
     directory: Path,
@@ -1350,33 +1306,8 @@ def maintenance_due(
     """Inspect only changed, unfinished or due retention receipts."""
     if restore:
         restore_state(repository, directory, environment=environment)
-    receipt = directory / "completed.json"
-    if not receipt.exists():
-        return True
-    completed = json.loads(receipt.read_text())
-    if (
-        not isinstance(completed, dict)
-        or completed.get("schema_version") != 1
-        or completed.get("environment") != environment
-        or completed.get("project") != LANES[environment]["project"]
-        or type(completed.get("observed_run_id")) is not int
-        or type(completed.get("release_run_id")) is not int
-        or completed["observed_run_id"] < 1
-        or completed["release_run_id"] < 1
-    ):
-        raise retention.UnsafeState(f"invalid {environment} completion receipt")
-    status = completed.get("pass_status", "complete")
-    if status not in {"complete", "in_progress", "deferred", "unresolved"}:
-        raise retention.UnsafeState("invalid cleanup checkpoint status")
-    if status != "complete":
-        if (
-            completed.get("checkpoint_version") != 2
-            or not isinstance(completed.get("pending_services"), list)
-            or not set(completed["pending_services"]).issubset(
-                LANES[environment]["services"]
-            )
-        ):
-            raise retention.UnsafeState("invalid partial cleanup checkpoint")
+    completed = completion_receipt(directory, environment)
+    if completed is None or completed.get("pass_status", "complete") != "complete":
         return True
     observed = latest_deploy_observation(repository, environment)
     if (
@@ -1408,20 +1339,18 @@ def production_maintenance_due(repository: str, directory: Path) -> bool:
 
 
 def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
+    if environment == "production" and "_maintenance_backend_identity" in release:
+        production_retention_context.backend_identity(sys.modules[__name__], release["_maintenance_backend_identity"])
+    if environment == "production" and "_maintenance_pending_retirement" in release:
+        production_retention_context.pending_live(sys.modules[__name__], release, release["_maintenance_pending_retirement"])
     project = LANES[environment]["project"]
     for service, lane in (
         ("consent-protocol", "backend"),
         ("hushh-webapp", "frontend"),
     ):
         state = retention.service_state(service, project, REGION)
-        ready = any(
-            c.get("type") == "Ready" and c.get("status") == "True"
-            for c in state.get("status", {}).get("conditions", [])
-        )
-        serving = {
-            name for name, percent, _ in retention.traffic_state(state) if percent
-        }
-        if not ready or serving != {release["final"][f"{lane}_revision"]}:
+        serving = production_retention_context.serving(sys.modules[__name__], state)
+        if serving != {release["final"][f"{lane}_revision"]}:
             return False
         provenance = (release.get("_maintenance_lane_provenance") or {}).get(lane)
         if "_maintenance_source_run" in release:
@@ -1445,40 +1374,9 @@ def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
             ]
             if len(matches) != 1:
                 return False
-            revision = matches[0]
-            labels = revision.get("metadata", {}).get("labels") or {}
-            containers = revision.get("spec", {}).get("containers") or []
-            if len(containers) != 1:
-                return False
-            container = containers[0]
-            deploy_sha = [
-                entry.get("value")
-                for entry in container.get("env", [])
-                if entry.get("name") == "HUSHH_DEPLOY_SHA"
-            ]
-            deploy_source = [
-                entry.get("value")
-                for entry in container.get("env", [])
-                if entry.get("name") == "HUSHH_DEPLOY_SOURCE"
-            ]
-            if (
-                labels.get("deploy-sha") != provenance["sha"]
-                or labels.get("github-run-id") != str(provenance["run_id"])
-                or deploy_sha != [provenance["sha"]]
-                or (
-                    provenance.get("source")
-                    and (
-                        labels.get("deploy-source") != provenance["source"]
-                        or deploy_source != [provenance["source"]]
-                    )
-                )
-                or not re.fullmatch(
-                    r"[^\s]+@sha256:[a-f0-9]{64}", container.get("image", "")
-                )
-                or not any(
-                    c.get("type") == "Ready" and c.get("status") == "True"
-                    for c in revision.get("status", {}).get("conditions", [])
-                )
+            identity = (release.get("_maintenance_restoration_runtime") or {}).get(lane)
+            if not production_retention_context.selected_revision_matches(
+                state, matches[0], provenance, identity=identity
             ):
                 return False
     if environment == "production":
@@ -1547,70 +1445,13 @@ def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
 
 
 def release_protection_flags(
-    service: str, lane: str, release: dict, *, environment: str = "uat"
+    service: str, lane: str, release: dict, *, environment: str = "uat", phone_anchor=None,
+    operational_anchor=None,
 ) -> list[str]:
-    current = release["final"][f"{lane}_revision"]
-    rollback = release.get("predeploy", {}).get(f"{lane}_revision", "")
-    if (
-        environment == "uat"
-        and lane == "backend"
-        and release.get("scope") == "frontend"
-    ):
-        verified_rollback = release.get("_maintenance_backend_rollback_revision")
-        if not isinstance(verified_rollback, str) or not re.fullmatch(
-            r"consent-protocol-[a-z0-9-]+", verified_rollback
-        ):
-            raise retention.UnsafeState(
-                "frontend-only UAT backend rollback is unverified"
-            )
-        rollback = verified_rollback
-    known_good = ""
-    if environment == "uat":
-        tag = retention.run_command(
-            ["git", "show-ref", "--verify", "--quiet", "refs/tags/deployed/uat-latest"],
-            check=False,
-            timeout=30,
-        )
-        if tag.returncode not in {0, 1}:
-            raise retention.UnsafeState("UAT last-known-good tag lookup failed")
-    if environment != "uat" or tag.returncode == 0:
-        known_good = command(
-            "bash", "scripts/ci/resolve-rollback-target.sh", environment, lane
-        ).strip()
-    present: set[str] = set()
-    if rollback or environment == "uat":
-        revisions = retention.revision_state(
-            service, LANES[environment]["project"], REGION
-        )
-        present = {item["metadata"]["name"] for item in revisions}
-    if rollback:
-        if not retention.REVISION_RE.fullmatch(rollback):
-            raise retention.UnsafeState("source predeploy revision is invalid")
-        if rollback not in present:
-            # After rollback, an older release artifact can name a predeploy
-            # revision that a later healthy release already retired.
-            print(f"Source predeploy revision {rollback} is already absent.")
-            rollback = ""
-    if known_good not in present and environment == "uat":
-        # A tag records a historical revision and can outlive Cloud Run
-        # retention. It cannot protect a revision that no longer exists.
-        # Preserve an artifact-backed rollback anchor, or the verified live
-        # revision when the historical predeploy revision is already absent.
-        replacement = rollback or current
-        if replacement not in present:
-            raise retention.UnsafeState("UAT recovery anchor is absent")
-        print(
-            f"Tagged last-known-good revision {known_good} is absent; "
-            f"protecting verified UAT revision {replacement} instead."
-        )
-        known_good = replacement
-    return [
-        current,
-        "--rollback-revision",
-        rollback,
-        "--last-known-good-revision",
-        known_good,
-    ]
+    return production_retention_context.protection(
+        sys.modules[__name__], service, lane, release, environment=environment,
+        phone_anchor=phone_anchor, operational_anchor=operational_anchor,
+    )
 
 
 def main() -> int:
@@ -1661,8 +1502,16 @@ def checkpoint(args, run_id, observed, pending, status):
             "pass_status": status,
             "pending_services": list(pending),
             **({"capacity_bridge": bridge} if bridge is not None else {}),
+            **({"phone_rollback_qualification": args.phone_anchor} if getattr(args, "phone_anchor", None) else {}),
+            **({"operational_backend": args.operational_anchor} if isinstance(getattr(args, "operational_anchor", None), dict) else {}),
+            **({"pending_retirement": args.pending_context} if isinstance(getattr(args, "pending_context", None), dict) else {}),
+            **({"staged_worker_qualification": args.worker_anchor["context"]} if isinstance(getattr(args, "worker_anchor", None), dict) else {}),
         },
     )
+    checkpoint_ready()
+
+
+def checkpoint_ready() -> None:
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with Path(output).open("a") as stream:
@@ -1680,81 +1529,28 @@ SCOPED_TICK_TITLES = {
 }
 
 
-def assert_checkpoint_publication(repository: str, environment: str) -> None:
-    name = (
-        "UAT" if environment == "uat" else "Production"
-    ) + " bounded revision cleanup"
-    other_scope = SCOPED_TICK_TITLES["production" if environment == "uat" else "uat"]
-    legacy = (
-        "UAT revision maintenance (no drain wait)"
-        if environment == "uat"
-        else "Production revision maintenance (no drain wait)"
-    )
-    for page in range(1, 11):
-        result = api(
-            repository,
-            f"workflows/capacity-maintenance.yml/runs?branch=main&per_page=100&page={page}",
+def guard_only_preflight_proof(repository: str, environment: str, run: dict, job: dict) -> dict | None:
+    """Compatibility facade; only the existing pure evidence owner qualifies a proof."""
+    try:
+        return importlib.import_module("retention_publication").qualify(
+            sys.modules[__name__], repository, environment, run, job
         )
-        runs = result.get("workflow_runs")
-        if not isinstance(runs, list):
-            raise retention.UnsafeState("maintenance history is invalid")
-        for run in sorted(runs, key=lambda item: item["id"], reverse=True):
-            if (
-                run.get("path") != ".github/workflows/capacity-maintenance.yml"
-                or run.get("head_branch") != "main"
-                or (run.get("repository") or {}).get("full_name") != repository
-                or (run.get("head_repository") or {}).get("full_name") != repository
-            ):
-                continue
-            if run.get("event") == "repository_dispatch" and run.get("display_title") == other_scope:
-                continue
-            inventory = api(
-                repository, f"runs/{run['id']}/jobs?filter=latest&per_page=100"
-            )
-            jobs = inventory.get("jobs")
-            if not isinstance(jobs, list) or inventory.get("total_count") != len(jobs):
-                raise retention.UnsafeState("maintenance job inventory is incomplete")
-            for job in jobs:
-                if job.get("name") == legacy:
-                    return  # The pre-policy historical boundary has no new intents.
-                if job.get("name") != name:
-                    continue
-                if (
-                    str(run.get("id")) == os.environ.get("GITHUB_RUN_ID")
-                    and job.get("status") != "completed"
-                ):
-                    continue
-                if job.get("status") != "completed":
-                    if job.get("status") in {"queued", "waiting", "pending"}:
-                        continue
-                    raise retention.UnsafeState(
-                        "An earlier environment maintenance job is still active"
-                    )
-                steps = {step.get("name"): step for step in job.get("steps", [])}
-                attempt = steps.get(
-                    f"Prepare or finish eligible {environment} revision cleanup", {}
-                )
-                if attempt.get("conclusion") in {None, "skipped"}:
-                    continue
-                saved = steps.get(f"Save {environment} cleanup checkpoint", {}).get(
-                    "conclusion"
-                )
-                if saved == "success":
-                    if not trusted_checkpoint_run(repository, run, environment):
-                        raise retention.UnsafeState(
-                            "maintenance checkpoint source is untrusted"
-                        )
-                    return
-                if saved == "skipped" and attempt.get("conclusion") == "success":
-                    continue  # A successful no-op never started a mutation checkpoint.
-                raise retention.UnsafeState(
-                    "Maintenance exited without publishing its checkpoint; operator reconciliation required"
-                )
-        if len(runs) < 100:
-            return
-    raise retention.UnsafeState(
-        "maintenance checkpoint history exceeds bounded inventory"
-    )
+    except (retention.UnsafeState, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        return None
+
+
+def preflight_release(args: argparse.Namespace, repository: str) -> tuple[int, dict] | None:
+    return importlib.import_module("retention_publication").preflight(sys.modules[__name__], args, repository)
+
+
+def assert_checkpoint_publication(repository: str, environment: str) -> None:
+    if environment == "production":
+        production_phone_lease.assert_reconciled(repository, api=api, governed=governed_dispatch, timestamp=_github_timestamp, deadline=_LOOKUP_DEADLINE.get())
+    publication = importlib.import_module("retention_publication")
+    try:
+        publication.assert_published(sys.modules[__name__], repository, environment)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        raise retention.UnsafeState("Maintenance publication proof is unavailable or invalid") from error
 
 
 def assert_no_pending_mutations(repository, directory, environment):
@@ -1791,7 +1587,7 @@ def record_uat_cleanup_outcome(args: argparse.Namespace, outcome: str) -> None:
             stream.write(f"cleanup_outcome={outcome}\n")
 
 
-def maintenance_pass() -> int:
+def maintenance_cli():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-run-id", default="")
     parser.add_argument("--state-dir", type=Path, required=True)
@@ -1805,6 +1601,10 @@ def maintenance_pass() -> int:
         help="Inspect a new requested release or an explicit out-of-band change",
     )
     parser.add_argument("--environment", choices=tuple(LANES), default="uat")
+    parser.add_argument("--qualified-cold-checkpoint-run-id", default="")
+    parser.add_argument("--operational-backend-proof-run-id", default="")
+    parser.add_argument("--operational-backend-proof-attempt", type=production_retention_context.optional_attempt)
+    parser.add_argument("--staged-worker-run-id", default="")
     args = parser.parse_args()
     if args.production_capacity_bridge and (args.environment != "production" or not args.apply
             or args.verify_source_only or args.check_mutations or not args.force_inspection
@@ -1814,6 +1614,19 @@ def maintenance_pass() -> int:
         parser.error("source verification cannot apply cleanup")
     if args.release_run_id and not args.release_run_id.isdigit():
         parser.error("release run ID must be numeric")
+    if args.qualified_cold_checkpoint_run_id and (
+        args.environment != "production" or not re.fullmatch(r"[1-9][0-9]*", args.qualified_cold_checkpoint_run_id)
+        or not args.release_run_id or args.production_capacity_bridge
+        or os.getenv("GITHUB_EVENT_NAME") != "workflow_dispatch" or os.getenv("GITHUB_REF_NAME") != "main"
+    ):
+        parser.error("cold checkpoint requires explicit manual main production with a healthy serving release")
+    production_phone_receipt.refuse_advance_checkpoint(args.qualified_cold_checkpoint_run_id)
+    production_retention_context.check_inputs(args, parser)
+    return args
+
+
+def maintenance_pass() -> int:
+    args = maintenance_cli()
     repository = os.environ["GITHUB_REPOSITORY"]
     lane_config = LANES[args.environment]
     args.state_dir.mkdir(parents=True, exist_ok=True)
@@ -1823,6 +1636,9 @@ def maintenance_pass() -> int:
     if args.apply:
         assert_checkpoint_publication(repository, args.environment)
         restore_state(repository, args.state_dir, environment=args.environment)
+        importlib.import_module("retention_publication").preserve(sys.modules[__name__], args)
+    args.operational_anchor = production_retention_context.load_operational(sys.modules[__name__], args)
+    args.worker_anchor = production_retention_context.worker(sys.modules[__name__], args, repository)
     if (
         (args.verify_source_only or args.apply)
         and not args.force_inspection
@@ -1839,43 +1655,16 @@ def maintenance_pass() -> int:
             with Path(output).open("a") as stream:
                 stream.write("cleanup_ready=false\n")
         return 0
-    with tempfile.TemporaryDirectory() as temporary:
-        found = find_release(
-            repository,
-            args.release_run_id,
-            Path(temporary),
-            require_live=not args.verify_source_only,
-            environment=args.environment,
-        )
-    if args.verify_source_only:
-        ready = found is not None
-        output = os.environ.get("GITHUB_OUTPUT")
-        if output:
-            with Path(output).open("a") as stream:
-                stream.write(f"cleanup_ready={str(ready).lower()}\n")
-        return 0
+    found = preflight_release(args, repository)
     if found is None:
-        print("No eligible release artifact (or NO_OP source); no cleanup authorized.")
-        record_uat_cleanup_outcome(args, "no_live_source")
         return 0
     run_id, release = found
-    if not live_release_matches(release, environment=args.environment):
-        print(
-            f"Release {run_id} no longer matches live traffic; skipping stale maintenance."
-        )
-        record_uat_cleanup_outcome(args, "no_live_source")
-        return 0
+    observation, service_settings, pending = args.preflight
     # An empty marker makes a completed pass supersede stale earlier artifacts.
     (args.state_dir / "README.txt").write_text(
         f"{args.environment} drain evidence; never deployment authority.\n"
     )
-    observation = (
-        latest_deploy_observation(repository, args.environment) if args.apply else None
-    )
-    pending = list(lane_config["services"])
-    if args.apply:
-        checkpoint(args, run_id, observation, pending, "in_progress")
-    for service in lane_config["services"]:
+    for service in list(pending):
         if not args.apply:
             break
         try:
@@ -1903,7 +1692,7 @@ def maintenance_pass() -> int:
             checkpoint(args, run_id, observation, pending, outcome)
             record_uat_cleanup_outcome(args, outcome)
             return 0
-    for service, keep in lane_config["services"].items():
+    for service, keep in service_settings.items():
         try:
             # The workflow holds the environment's deployment lock for this short pass.
             # Recheck the release before each service as defense against external changes.
@@ -1913,19 +1702,23 @@ def maintenance_pass() -> int:
             lane = {"consent-protocol": "backend", "hushh-webapp": "frontend"}.get(
                 service
             )
+            if service == "consent-protocol-drive-worker" and args.environment == "production":
+                flags += production_retention_context.worker_flags(sys.modules[__name__], args.worker_anchor)
             if lane:
                 flags += release_protection_flags(
-                    service, lane, release, environment=args.environment
+                    service, lane, release, environment=args.environment,
+                    phone_anchor=args.phone_anchor if lane == "backend" else None,
+                    **({"operational_anchor": args.operational_anchor} if args.operational_anchor else {}),
                 )
             if args.apply:
                 flags += [
                     "--apply",
-                    "--healthy",
                     "--defer-state",
                     str(args.state_dir / f"{service}.json"),
                     "--release-run-id",
                     str(run_id),
                 ]
+                flags += production_retention_context.pending_flags(args.pending_context, args.state_dir) if args.pending_context else ["--healthy"]
                 if args.environment == "uat":
                     flags.append("--carry-uat-clock")
             else:

@@ -126,11 +126,13 @@ class HushhAuthPlugin : Plugin() {
     // Firebase Auth instance
     private val firebaseAuth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
     private var deletionPhoneProof: DeletionPhoneProof? = null
+    private var appleIdentityReauthentication: AppleIdentityReauthentication? = null
 
     override fun load() {
         super.load()
         activity.runOnUiThread {
             deletionPhoneProof = try { DeletionPhoneProof(activity, firebaseAuth) } catch (_: Exception) { null }
+            appleIdentityReauthentication = AppleIdentityReauthentication(activity, firebaseAuth)
         }
         Log.d(TAG, "🤖 [HushhAuth] Plugin loaded")
 
@@ -905,17 +907,26 @@ class HushhAuthPlugin : Plugin() {
 
     private fun rejectWhileVerifyingIdentity(call: PluginCall): Boolean {
         if (googleContactsOperation == null && driveAuthorization == null && identityReauthentication == null && pendingCall == null &&
-            pendingGmailConnectCall == null && pendingCalendarConnectCall == null
+            pendingGmailConnectCall == null && pendingCalendarConnectCall == null && appleIdentityReauthentication?.busy != true
         ) return false
         call.reject("Identity verification is already in progress.", "identity_busy")
         return true
     }
 
     @PluginMethod
+    fun reauthenticateAppleIdentity(call: PluginCall) {
+        activity.runOnUiThread {
+            if (rejectWhileVerifyingIdentity(call)) return@runOnUiThread
+            appleIdentityReauthentication?.start(call)
+                ?: call.reject("Identity verification is unavailable.", "native_identity_unavailable")
+        }
+    }
+
+    @PluginMethod
     fun reauthenticateGoogleIdentity(call: PluginCall) {
         activity.runOnUiThread {
             if (googleContactsOperation != null || driveAuthorization != null || identityReauthentication != null || pendingCall != null ||
-                pendingGmailConnectCall != null || pendingCalendarConnectCall != null
+                pendingGmailConnectCall != null || pendingCalendarConnectCall != null || appleIdentityReauthentication?.busy == true
             ) {
                 call.reject("Identity verification is already in progress.", "identity_busy")
                 return@runOnUiThread
@@ -1021,6 +1032,7 @@ class HushhAuthPlugin : Plugin() {
 
     override fun handleOnDestroy() {
         deletionPhoneProof?.invalidate()
+        appleIdentityReauthentication?.close()
         googleContactsSignupAccount = null
         googleContactsOperation?.let { it.fence.drainProvider(); finishGoogleContacts(it, "session_changed") }
         identityReauthentication?.let { finishIdentity(it, "session_changed") }
@@ -1070,6 +1082,7 @@ class HushhAuthPlugin : Plugin() {
             return
         }
         deletionPhoneProof?.invalidate()
+        appleIdentityReauthentication?.invalidate()
         identityReauthentication?.let { finishIdentity(it, "session_changed") }
         googleContactsSignupAccount = null
         googleContactsOperation?.let { finishGoogleContacts(it, "session_changed") }

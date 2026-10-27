@@ -11,6 +11,10 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from tests.helpers.production_release_tools import (
+    production_release_tools as production_release_tools,
+)
+
 
 def cloudrun_revision(*, name: str, service: str, sha: str, intake: str | None = None) -> dict:
     """Synthetic immutable revision with explicit service and optional intake policy."""
@@ -147,71 +151,6 @@ printf '%s' "$code"
     }
 
 
-DRIVE_PRODUCTION_TOOLS = (
-    "resolve_prod_release_mode.py",
-    "resolve_protected_document_release.py",
-    "verify_prod_prerequisites.py",
-    "verify_hashcoin_config.sh",
-    "setup_native_callback_log_exclusion.sh",
-    "deploy_worker_service_prod.sh",
-    "setup_work_drain_scheduler_prod.sh",
-    "work_drain_scheduler_snapshot_prod.py",
-    "restore_prod_after_release_failure.sh",
-)
-
-
-def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str]:
-    """Pinned current tools must survive checkout of a historical application."""
-    return [
-        *old_paths,
-        "scripts/ci/verify-predecessor-acceptance.py",
-        "scripts/ci/release_acceptance_provenance.py",
-        "scripts/ci/resolve-deploy-scope.py",
-        "scripts/ops/runtime_config_retention.py",
-        "scripts/ops/scope_commerce_runtime_policy.py",
-        "scripts/ops/shared_files_runtime_policy.py",
-        "scripts/ops/passkey_domain_policy.py",
-        "scripts/ops/upsert_gcp_secret.py",
-        *(f"deploy/{name}/bind_secrets.sh" for name in ("email-auth", "plg")),
-        "scripts/ci/verify-prod-places-readiness.py",
-        "scripts/ci/cloudrun-retention.py",
-        "scripts/ci/process_group.py",
-        "scripts/ci/cloudrun-rollback.sh",
-        "scripts/ci/runtime_capacity_inventory.py",
-        "scripts/ci/account-deletion-fence-decision.py",
-        "scripts/ci/verify-cloud-scheduler-attempt.py",
-        "scripts/ci/cloudrun-rollback.sh",
-        "deploy/drive/rollback_after_worker_failure.sh",
-        *(
-            f"deploy/account-deletion/{name}"
-            for name in (
-                "install_release_fence.sql",
-                "remove_release_fence.sql",
-                "activate_release.py",
-                "release_target.py",
-                "setup_cleanup_scheduler.sh",
-                "verify_release_boundary.sql",
-            )
-        ),
-        "scripts/ci/managed_provider_readiness.py",
-        "scripts/ci/managed_capability_proof.py",
-        "scripts/ops/verify-env-secrets-parity.py",
-        *(f"deploy/drive/{name}" for name in DRIVE_PRODUCTION_TOOLS),
-        *(
-            f"scripts/deploy/{name}"
-            for name in (
-                "backend-deploy.sh",
-                "verify-managed-vertex-runtime.sh",
-                *(path.name for path in (root / "scripts/deploy").glob("backend-*-settings.sh")),
-                "commerce-preview-bindings.sh",
-                "scope-commerce-secrets.sh",
-                "pod-release-env.sh",
-                "preserve-pod-release.py",
-            )
-        ),
-    ]
-
-
 def executable_manifest() -> tuple[str, str]:
     manifest = json.dumps(
         {
@@ -343,7 +282,8 @@ def assert_backend_source_rollback(
         "if os.environ['SOURCE_CONTRACT']=='unknown': raise SystemExit(1)\n"
         "print(json.dumps({'version':1} if sys.argv[2].endswith('account-deletion-authority.json') "
         "else {'ordered_migrations':['423_account_shared_provider_authority.sql'] + "
-        "(['425_account_phone_transfers.sql'] if os.environ['SOURCE_CONTRACT']=='phone' else [])}))\n"
+        "(['425_account_phone_transfers.sql'] if os.environ['SOURCE_CONTRACT'] in ('phone','legacy_phone') else []) + "
+        "(['431_phone_recovery_actions.sql'] if os.environ['SOURCE_CONTRACT']=='phone' else [])}))\n"
     )
     for binary in ("gcloud", "git"):
         (directory / binary).chmod(0o700)
@@ -476,6 +416,8 @@ def document_installer_environment(directory: Path) -> dict[str, str]:
         directory / "consent-protocol/.venv/bin/python": "exit 0\n",
         commands / "npx": 'echo "$*" >> "$FIXTURE_ROOT/calls"\n'
         '! grep -q azure.archive "$FIXTURE_ROOT/apt-mirrors.txt"\n',
+        commands / "timeout": '[ "$1 $2 $3" = "--signal=TERM --kill-after=30s 8m" ] || exit 97\n'
+        'shift 3\nexec "$@"\n',
     }.items():
         script.parent.mkdir(parents=True, exist_ok=True)
         script.write_text("#!/bin/sh\n" + body)
