@@ -302,6 +302,7 @@ jobs:
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp deploy/drive/resolve_protected_document_release.py "${RUNNER_TEMP}/release-tools/"
+          cp deploy/drive/document_reader_compatibility.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
           git log -1 --diff-filter=A --format=%H -- \
@@ -371,6 +372,7 @@ jobs:
           git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
           mkdir -p deploy/drive
           cp "${RUNNER_TEMP}/release-tools/resolve_protected_document_release.py" deploy/drive/
+          cp "${RUNNER_TEMP}/release-tools/document_reader_compatibility.py" deploy/drive/
           cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/process_group.py" scripts/ci/
           # Keep the current opt-in contract when verifying an older approved build.

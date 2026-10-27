@@ -18,13 +18,86 @@ from hushh_mcp.services.drive_request_semantic_plan import (
     _identity,
     _metadata_period,
     _quoted,
+    semantic_plan_digest,
 )
 
 DISCOVERY_DELIVERY_POLICY = "drive_query_matches_v1"
+DISCOVERY_PROVIDER_RESULTS_POLICY = "drive_query_results_v2"
 
 
 def discovery_delivery(checkpoint: Mapping) -> bool:
-    return checkpoint.get("discovery_delivery_policy") == DISCOVERY_DELIVERY_POLICY
+    return checkpoint.get("discovery_delivery_policy") in {
+        DISCOVERY_DELIVERY_POLICY,
+        DISCOVERY_PROVIDER_RESULTS_POLICY,
+    }
+
+
+def provider_results_only(checkpoint: Mapping) -> bool:
+    """A sealed new policy preserves Google membership without host narrowing."""
+    return checkpoint.get("discovery_delivery_policy") == DISCOVERY_PROVIDER_RESULTS_POLICY
+
+
+def semantic_checkpoint(plan, *, binding, policy, purpose, delivery, provider_results) -> dict:
+    """Freeze the model's plan and the selected delivery policy together."""
+    if plan is None:
+        return {}
+    return {
+        "semantic_plan": plan,
+        "semantic_plan_digest": semantic_plan_digest(plan),
+        "semantic_assessment_policy": policy,
+        **({"semantic_model_binding": binding} if binding is not None else {}),
+        **(
+            {
+                "discovery_delivery_policy": DISCOVERY_PROVIDER_RESULTS_POLICY
+                if provider_results
+                else DISCOVERY_DELIVERY_POLICY
+            }
+            if delivery
+            else {}
+        ),
+        "semantic_pending": [],
+        "semantic_seen": [],
+        "semantic_purpose": purpose,
+    }
+
+
+def provider_date_coverage(enabled: bool, plan: Mapping | None) -> dict:
+    if not enabled or plan is None:
+        return {}
+    basis = plan["date_basis"]
+    return {
+        "dateBasis": "provider_query",
+        "datePushdown": basis if basis in {"created", "modified"} else "not_expressed",
+    }
+
+
+def candidate_metadata(checkpoint, match, source, *, resource_key, shareability, evidence) -> dict:
+    """Project exact provider metadata into the existing sealed result shape."""
+    return {
+        "id": match["file_id"],
+        "name": match["name"],
+        "mimeType": match["mime_type"],
+        "modifiedTime": match["modified_time"],
+        "createdTime": match["created_time"],
+        **(
+            {"sourceContentIdentity": source["sourceContentIdentity"]}
+            if isinstance(source.get("sourceContentIdentity"), dict)
+            else {}
+        ),
+        **(
+            {
+                "sourceVersion": str(source.get("version", "")),
+                **{key: source[key] for key in ("owners", "sharingUser") if key in source},
+            }
+            if checkpoint.get("semantic_plan") is not None
+            else {}
+        ),
+        **({"shortcutName": match["shortcut_name"]} if match.get("shortcut_name") else {}),
+        **({"resourceKey": resource_key} if resource_key else {}),
+        "openUrl": match["open_url"],
+        **shareability,
+        **evidence,
+    }
 
 
 def compile_discovery_queries(
@@ -120,7 +193,7 @@ def discovery_evidence(checkpoint: Mapping, *, user_id, generation, metadata) ->
         }
     )
     return {
-        "policy": DISCOVERY_DELIVERY_POLICY,
+        "policy": checkpoint.get("discovery_delivery_policy", DISCOVERY_DELIVERY_POLICY),
         "basis": "drive_query",
         "content_assessment": "not_applicable_by_delivery_policy",
         "owner_user_id": user_id,
@@ -149,7 +222,7 @@ def discovery_evidence_matches(file: Mapping, *, user_id, generation, checkpoint
                 return False
         period = evidence["period"]
         return (
-            evidence["policy"] == DISCOVERY_DELIVERY_POLICY
+            evidence["policy"] in {DISCOVERY_DELIVERY_POLICY, DISCOVERY_PROVIDER_RESULTS_POLICY}
             and evidence["basis"] == "drive_query"
             and evidence["content_assessment"] == "not_applicable_by_delivery_policy"
             and evidence["owner_user_id"] == user_id

@@ -56,6 +56,7 @@ tests/services/test_drive_work_wake.py
 tests/test_prod_drive_deploy_contract.py
 tests/test_prod_drive_prerequisite_diagnostics.py
 tests/test_protected_document_release_contract.py
+tests/test_protected_document_background_rollback.py
 tests/test_drive_work_drain_scheduler_contract.py
 tests/test_drive_worker_server.py
 tests/test_drive_worker_revision_provenance.py
@@ -1528,3 +1529,6 @@ tests/test_hosted_pod_preparation_postgres.py
 
 tests/test_hosted_private_runtime.py
 tests/test_pod_runtime_writer.py
+# Additive server-readable copies preserve legacy sale authority.
+tests/services/test_document_delivery_background.py
+tests/services/test_document_delivery_background_exports.py

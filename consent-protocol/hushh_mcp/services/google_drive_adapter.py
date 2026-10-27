@@ -28,6 +28,7 @@ from hushh_mcp.services.drive_search_paging_config import (
     valid_file_list_page_size,
 )
 from hushh_mcp.services.drive_telemetry import drive_logger
+from hushh_mcp.services.google_drive_file_facts import facts_projection
 
 logger = drive_logger(__name__)
 
@@ -100,12 +101,12 @@ SHARE_METADATA_FIELDS = (
 # Metadata-only live read for a file with no readable text (a video, an image,
 # an archive, a folder): what it is and where to open it, never its bytes.
 FACT_FIELDS = (
-    "id,name,mimeType,version,modifiedTime,createdTime,driveId,resourceKey,size,webViewLink,trashed,"
+    "id,name,mimeType,version,modifiedTime,createdTime,driveId,resourceKey,size,webViewLink,trashed,md5Checksum,sha256Checksum,headRevisionId,"
     "capabilities(canShare,canDownload,canAccessViaGenAi),clientEncryptionDetails(encryptionState)"
 )
 # Live search: one bounded files.list shape, never a caller-chosen field set.
 LIST_FIELDS = (
-    "nextPageToken,incompleteSearch,files(id,name,mimeType,version,modifiedTime,createdTime,driveId,"
+    "nextPageToken,incompleteSearch,files(id,name,mimeType,version,modifiedTime,createdTime,driveId,size,md5Checksum,sha256Checksum,headRevisionId,"
     "resourceKey,webViewLink,capabilities(canShare),clientEncryptionDetails(encryptionState),"
     "owners(displayName,emailAddress),sharingUser(displayName,emailAddress),"
     "shortcutDetails(targetId,targetMimeType,targetResourceKey))"
@@ -817,7 +818,6 @@ class GoogleDriveAdapter:
             or not isinstance(mime, str)
         ):
             raise DriveReadError("source_unavailable")
-        size, modified, link = (result.get(key) for key in ("size", "modifiedTime", "webViewLink"))
         if (
             result.get("createdTime") is not None
             and (
@@ -848,37 +848,7 @@ class GoogleDriveAdapter:
             or not isinstance(encryption.get("encryptionState"), str)
         ):
             raise DriveReadError("provider_response_invalid")
-        return {
-            "id": file_id,
-            "title": name[:1024],
-            "mimeType": mime[:255],
-            "modifiedTime": modified if isinstance(modified, str) and len(modified) <= 64 else None,
-            **{
-                key: result[key]
-                for key in ("version", "createdTime", "driveId", "resourceKey")
-                if isinstance(result.get(key), str)
-            },
-            "size": int(size)
-            if isinstance(size, str) and re.fullmatch(r"[0-9]{1,20}", size)
-            else None,
-            "viewUrl": link if isinstance(link, str) and link.startswith("https://") else None,
-            **(
-                {
-                    "capabilities": {
-                        key: capabilities[key]
-                        for key in ("canShare", "canDownload", "canAccessViaGenAi")
-                        if key in capabilities
-                    }
-                }
-                if isinstance(capabilities, dict)
-                else {}
-            ),
-            **(
-                {"clientEncryptionDetails": {"encryptionState": encryption["encryptionState"]}}
-                if isinstance(encryption, dict)
-                else {}
-            ),
-        }
+        return facts_projection(file_id, result)
 
     async def get_share_metadata(
         self, *, file_id: str, access_token: str, resource_key: str | None = None

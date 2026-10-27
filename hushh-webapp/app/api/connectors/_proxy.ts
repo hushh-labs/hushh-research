@@ -9,6 +9,7 @@ import {
 } from "@/app/api/_utils/request-id";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 import { isDocumentCiphertextRequest, proxyDocumentCiphertext } from "./_document-ciphertext-proxy";
+import { isOneCopyContentRequest, proxyOneCopyContent } from "./_one-copy-content-proxy";
 
 const CONNECTOR_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000);
 const CONNECTOR_OAUTH_START_TIMEOUT_MS = resolveSlowRequestTimeoutMs(25_000, {
@@ -122,6 +123,9 @@ export async function proxyExternalConnectorRequest(
   if (consentHeader) headers.set("X-Hushh-Consent", consentHeader);
   if (chatKeyHeader) headers.set(ONE_CHAT_KEY_HEADER, chatKeyHeader);
   const joinedPath = path.join("/");
+  if (isOneCopyContentRequest(request.method, joinedPath)) {
+    return proxyOneCopyContent(request, targetUrl, headers, requestId);
+  }
   if (isDocumentCiphertextRequest(request.method, joinedPath)) {
     return proxyDocumentCiphertext(request, targetUrl, headers, requestId);
   }

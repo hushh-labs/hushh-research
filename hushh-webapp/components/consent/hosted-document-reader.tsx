@@ -9,7 +9,7 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import { DocumentHostingService, requireDocumentSession, protectedDocumentUrl, type DocumentSession } from "@/lib/services/document-hosting-service";
 import { openHostedDocuments, openHostedArtifact, hostedDocumentContentHash, verifyHostedPackage } from "@/lib/consent/document-hosting-open";
 import { documentHash } from "@/lib/consent/document-hosting-crypto";
-import { loadHostedPdf, renderHostedPdfPage } from "@/lib/consent/document-hosting-pdf";
+import { HostedPdfCanvas } from "./hosted-pdf-canvas";
 import { downloadFileBlob } from "@/lib/utils/native-download";
 import { shareFile } from "@/lib/share/share-file";
 import { isShareCancellationError } from "@/lib/share/share-link";
@@ -27,36 +27,6 @@ export function documentHostingErrorCopy(error: unknown): string {
   if (code.includes("browser_required")) return "Open One in your browser to prepare this encrypted copy.";
   if (code.includes("size") || code.includes("page_limit")) return "This PDF exceeds the supported file or page limit. No payment can start for this copy.";
   return "This protected copy is unavailable. Refresh to check current access.";
-}
-function PdfCanvas({ bytes, signal, onRendered }: { bytes: Uint8Array; signal: AbortSignal; onRendered: () => void }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const [page, setPage] = useState(1); const [pages, setPages] = useState(0); const [error, setError] = useState(false);
-  const callback = useRef(onRendered);
-  useLayoutEffect(() => { callback.current = onRendered; }, [onRendered]);
-  useEffect(() => {
-    const controller = new AbortController();
-    const element = canvas.current;
-    const abort = () => controller.abort(); signal.addEventListener("abort", abort, { once: true });
-    let pdf: Awaited<ReturnType<typeof loadHostedPdf>> | null = null;
-    setError(false);
-    void (async () => {
-      pdf = await loadHostedPdf(bytes, controller.signal);
-      if (controller.signal.aborted) return;
-      setPages(pdf.numPages);
-      if (element) await renderHostedPdfPage(pdf, page, element, controller.signal);
-      if (!controller.signal.aborted) callback.current();
-    })().catch(() => { if (!controller.signal.aborted) setError(true); });
-    return () => { controller.abort(); signal.removeEventListener("abort", abort); void pdf?.loadingTask.destroy(); if (element) { element.width = 0; element.height = 0; } };
-  }, [bytes, signal, page]);
-  return <div className="min-w-0 space-y-3">
-    {error ? <HelperText role="alert">The PDF could not be displayed. Your original file is unchanged.</HelperText> : null}
-    <canvas ref={canvas} aria-label={`Document preview, page ${page}`} className="mx-auto h-auto max-w-full bg-white" />
-    {pages > 1 ? <div className="flex items-center justify-center gap-3">
-      <Button size="compact" variant="none" disabled={page <= 1} onClick={() => setPage(value => value - 1)}>Previous page</Button>
-      <HelperText>{page} of {pages}</HelperText>
-      <Button size="compact" variant="none" disabled={page >= pages} onClick={() => setPage(value => value + 1)}>Next page</Button>
-    </div> : null}
-  </div>;
 }
 
 /** Same production reader for request details and protected HTTPS entry; session supplied by the owning auth/vault surface. */
@@ -176,7 +146,7 @@ export function HostedDocumentReader({ session, requestId }: { session: Document
     {preview ? <div className="space-y-3" role="region" aria-label="Document preview">
       <Button data-voice-control-id="document-hosting-close-preview" size="compact" variant="none" onClick={close}>Back to documents</Button>
       <HelperText>This is a watermarked preview. The original and any signatures remain unchanged.</HelperText>
-      <PdfCanvas key={preview.artifactId} bytes={preview.bytes} signal={preview.controller.signal} onRendered={() => {
+      <HostedPdfCanvas key={preview.artifactId} bytes={preview.bytes} signal={preview.controller.signal} onRendered={() => {
         const key = `${opened?.package.interactionId}:${preview.artifactId}`;
         if (!announced.current.has(key)) { announced.current.add(key); record(preview.artifactId, "preview_rendered", "success"); }
       }} />

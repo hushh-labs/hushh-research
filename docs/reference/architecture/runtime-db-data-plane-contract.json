@@ -125,14 +125,16 @@
         "document_delivery_file_receipts",
         "document_delivery_key_challenges",
         "document_delivery_activity",
-        "document_delivery_idempotency"
+        "document_delivery_idempotency",
+        "document_delivery_background_requests",
+        "document_delivery_background_activity"
       ],
-      "primary_access_path": "Owner/requester-authenticated document-delivery facade under the existing Drive sharing namespace; request-bound copy approval, exact canonical connector-key binding, per-file channel fulfillment, activity and scoped revocation. Historical Drive requests retain their original path.",
-      "retention_policy": "Active contracts have a finite access deadline. Abandoned preparation has a 30-minute lease bounded by that deadline; single-use possession challenges expire after five minutes; participant activity is retained at most 90 days. Retired cleanup purges selection, cached results, challenges and package envelopes after fencing. Account erasure removes public-key pins after fencing dependent requests. Financial provenance and unresolved storage inventory are retained separately.",
+      "primary_access_path": "Owner/requester-authenticated document-delivery facade under the existing Drive sharing namespace; explicit request-bound copy approval, per-file fulfillment, activity and scoped revocation. Device-encrypted v1 retains canonical connector-key binding. Additive server-readable v2 attaches to the original Drive request, approval, payment and confirmed recipient grant without a second financial authority. Historical Drive requests retain their original path.",
+      "retention_policy": "Device-encrypted v1 contracts have a finite access deadline; abandoned preparation has a 30-minute lease bounded by that deadline and possession challenges expire after five minutes. Server-readable v2 follows the original approved grant's explicit access deadline, or remains until revoked or erased when no deadline was selected; pending-request and receipt-retention TTLs do not expire a granted copy. Participant activity is retained at most 90 days. Retired cleanup purges selection, cached results, challenges and package envelopes after fencing. Account erasure removes public-key pins after fencing dependent requests. Financial provenance and unresolved storage inventory are retained separately.",
       "deletion_behavior": "Request-scoped workflow rows cascade only after independent cleanup inventory and opaque financial bindings preserve required obligations. Account deletion and expiry fence further release; no cascade is proof that provider objects are absent.",
-      "trust_boundary": "One sign-in is not copy consent or payment. Exact A/B identity, selected files, terms/package digests, current authority and required channel receipts govern release. Public-key rows pin a request's canonical connector evidence; they are not a second key-registration authority. Selected filenames, provider IDs and revision metadata use existing encrypted Drive metadata custody. No file contents or unwrapped content/vault keys are stored here.",
+      "trust_boundary": "One sign-in, Drive OAuth and Trusted membership are not copy consent or payment. Exact A/B identity, selected files, current authority and confirmed channel receipts govern release. In v1, terms/package digests and public-key rows pin canonical connector evidence; they are not a second key-registration authority. In v2, the owner explicitly permits backend reads and encrypted hosting for the original requester. Activity distinguishes preview/download requests and completed transfers, never proof of viewing or saving. Selected filenames, provider IDs and revision metadata use existing encrypted Drive metadata custody. No file contents or unwrapped content/vault keys are stored here.",
       "plaintext_posture": "opaque_workflow_metadata_public_keys_and_encrypted_selection_and_retry_results",
-      "expected_row_growth": "bounded contracts per owner/requester; at most 25 file receipts per contract; deduplicated paginated activity with 90-day retention and bounded idempotency/challenge records"
+      "expected_row_growth": "bounded contracts per owner/requester; v1 has at most 25 file receipts per contract; v2 has one copy-consent record per original Drive request; bounded paginated activity with 90-day retention and bounded idempotency/challenge records"
     },
     {
       "id": "protected_document_delivery_artifacts",
@@ -141,14 +143,16 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "document_delivery_packages",
-        "document_delivery_artifacts"
+        "document_delivery_artifacts",
+        "document_delivery_background_files",
+        "document_delivery_background_chunks"
       ],
-      "primary_access_path": "A device prepares PDF originals and watermark derivatives locally, then uploads bounded ciphertext through the qualified private GCS port. SQL binds immutable content generations, ciphertext hashes/object generations, encrypted metadata manifests and recipient/owner recovery wraps. B reads only through current paid entitlement and decrypts locally.",
-      "retention_policy": "Retain approved ciphertext and wraps only while the finite delivery grant remains active. Keep uncertain writes and deletion fences until provider outcome is reconciled. Superseded staging follows its bounded lease; retained provider versions/soft deletion remain explicit pending destruction.",
+      "primary_access_path": "In device-encrypted v1, A prepares PDF originals and watermark derivatives locally, SQL binds immutable content generations and wraps, and B decrypts locally. In server-readable v2, the existing sharing drain fetches the exact confirmed Drive original, verifies frozen provider content identity and complete checksums, then uploads independently authenticated 1 MiB ciphertext chunks through the same qualified private GCS port. Authenticated recipient streaming checks current paid entitlement and fences for every chunk.",
+      "retention_policy": "Retain approved ciphertext and encrypted keys only while the applicable grant remains active: finite v1 deadline, or v2's original explicit Drive deadline or until revoke/erasure when none was selected. Keep uncertain writes and deletion fences until provider outcome is reconciled. Superseded staging follows its bounded lease; retained provider versions/soft deletion remain explicit pending destruction.",
       "deletion_behavior": "Deny access and fence admissions before exact-generation object deletion. Persist independent cleanup inventory across request/account cascades; verify bucket incarnation and provider-visible absence before removing it. Original Drive files are never modified or deleted by hosted-copy cleanup.",
-      "trust_boundary": "AES-GCM content encryption and X25519 recipient wrapping happen on A's device. The metadata manifest contains no file keys or wraps. B's file-key envelopes are withheld before payment and until each required channel receipt; owner recovery is a separate owner-only path. The platform sees necessary access/payment metadata and ciphertext integrity only, not readable content or cryptographic proof of source fidelity.",
-      "plaintext_posture": "ciphertext_key_wraps_and_opaque_integrity_metadata_only",
-      "expected_row_growth": "at most 25 files and their qualified original/watermark renditions plus one metadata manifest per immutable generation; 4 MiB plaintext/rendition and 32 MiB total request ciphertext admission"
+      "trust_boundary": "V1 retains device-side AES-GCM and X25519 wrapping, withholding recipient keys until payment and required receipts; the platform sees ciphertext only in that lane. V2 is explicitly server-readable: transient original bytes are encrypted with per-file server-created AES keys wrapped by the existing Drive sharing cipher, never by an escrowed vault key. Encrypted source identity, result hashes and key envelopes persist in SQL; only ciphertext reaches GCS. Source files are unchanged. V2 never substitutes a current file for a missing historical content identity, copies an unconfirmed grant or exposes plaintext in logs, SQL or cleanup custody.",
+      "plaintext_posture": "v1_device_ciphertext_only_v2_server_transient_plaintext_with_ciphertext_and_encrypted_keys_at_rest",
+      "expected_row_growth": "v1 retains at most 25 files, qualified original/watermark renditions and one manifest per immutable generation, with existing 4 MiB/rendition and 32 MiB/request admissions. V2 file rows follow actual confirmed Drive deliveries; chunk rows grow by original byte size in 1 MiB units, with bounded producer leases and no additional search membership cap. Cleanup inventory tracks every reserved chunk."
     },
     {
       "id": "protected_document_delivery_retained_obligations",

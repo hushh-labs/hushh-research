@@ -7,6 +7,7 @@ export type FileRequestTerms = {
   accessDays?: number;
   requesterActorType?: "person" | "ria";
   reason?: string;
+  oneCopyRequested?: boolean;
   receiveThrough?: "drive" | "one" | "both";
   activityAccepted?: boolean;
   activityDisclosureVersion?: string;
@@ -16,6 +17,7 @@ export const FILE_REQUEST_HELPER =
   "You get original Drive links for the files they share with you.";
 
 export function validFileRequest(terms: FileRequestTerms): boolean {
+  if (terms.oneCopyRequested && (!terms.activityAccepted || terms.activityDisclosureVersion !== "one-document-activity-v1")) return false;
   if (terms.receiveThrough && !["drive", "one", "both"].includes(terms.receiveThrough)) return false;
   if (terms.receiveThrough && terms.receiveThrough !== "drive" && (!terms.activityAccepted || terms.activityDisclosureVersion !== "one-document-activity-v1")) return false;
   if (terms.accessDays !== undefined &&
@@ -39,6 +41,7 @@ export function normalizeFileRequestTerms(terms: FileRequestTerms): FileRequestT
     ...(terms.accessDays === undefined ? {} : { accessDays: terms.accessDays }),
     ...(terms.requesterActorType === undefined ? {} : { requesterActorType: terms.requesterActorType }),
     ...(terms.reason === undefined ? {} : { reason: terms.reason.trim() }),
+    ...(terms.oneCopyRequested === undefined ? {} : { oneCopyRequested: terms.oneCopyRequested }),
     ...(terms.receiveThrough === undefined ? {} : { receiveThrough: terms.receiveThrough }),
     ...(terms.activityAccepted === undefined ? {} : { activityAccepted: terms.activityAccepted }),
     ...(terms.activityDisclosureVersion === undefined ? {} : { activityDisclosureVersion: terms.activityDisclosureVersion }),

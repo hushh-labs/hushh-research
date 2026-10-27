@@ -53,6 +53,51 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError
 CONSENT_VERSION = "drive-owner-search-v1"
 MAX_RESULTS = 10000
 ACTIVE = frozenset({"queued", "running"})
+_COVERAGE_FIELDS = (
+    "corpora",
+    "fileKind",
+    "requestedPeriod",
+    "dateBasis",
+    "datePushdown",
+    "timeIntent",
+    "ownerReviewRequired",
+    "contentPeriodVerified",
+    "folderDiscovery",
+    "retrievalSource",
+    "retrievalCompleteness",
+    "formatScope",
+    "fallbackReason",
+    "lastIndexedAt",
+    "periodConflict",
+)
+
+
+_COVERAGE_COUNTERS = (
+    "providerRowsScanned",
+    "providerFilePages",
+    "indexedDocumentsReused",
+    "excludedByDateCount",
+    "excludedByKindCount",
+    "excludedByFilenameCount",
+    "excludedByNoteTypeCount",
+    "excludedByTopicCount",
+    "excludedFolderTopicCount",
+    "deduplicatedCount",
+    "unavailableShortcutCount",
+    "resolvedShortcutCount",
+    "unavailableFolderCount",
+    "invalidMetadataCount",
+    "unsupportedCandidateCount",
+    "matchingFoldersDiscovered",
+    "matchingFoldersExhausted",
+    "uniqueCandidateCount",
+    "verifiedCandidateCount",
+    "contentExcludedCount",
+    "unavailableCandidateCount",
+    "unassessedCandidateCount",
+)
+
+
 _ROW = "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job AND user_id=:user AND expires_at>clock_timestamp()"
 
 
@@ -202,52 +247,10 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             # the subject, folder IDs, provider cursors nor resource keys leave
             # the encrypted checkpoint through this projection.
             result["coverage"] = {
-                **{
-                    key: manifest[key]
-                    for key in (
-                        "corpora",
-                        "fileKind",
-                        "requestedPeriod",
-                        "dateBasis",
-                        "timeIntent",
-                        "ownerReviewRequired",
-                        "contentPeriodVerified",
-                        "folderDiscovery",
-                        "retrievalSource",
-                        "retrievalCompleteness",
-                        "formatScope",
-                        "fallbackReason",
-                        "lastIndexedAt",
-                        "periodConflict",
-                    )
-                    if key in manifest
-                },
+                **{key: manifest[key] for key in _COVERAGE_FIELDS if key in manifest},
                 **{
                     key: checkpoint.get("coverage_counts", {}).get(key, 0)
-                    for key in (
-                        "providerRowsScanned",
-                        "providerFilePages",
-                        "indexedDocumentsReused",
-                        "excludedByDateCount",
-                        "excludedByKindCount",
-                        "excludedByFilenameCount",
-                        "excludedByNoteTypeCount",
-                        "excludedByTopicCount",
-                        "excludedFolderTopicCount",
-                        "deduplicatedCount",
-                        "unavailableShortcutCount",
-                        "resolvedShortcutCount",
-                        "unavailableFolderCount",
-                        "invalidMetadataCount",
-                        "unsupportedCandidateCount",
-                        "matchingFoldersDiscovered",
-                        "matchingFoldersExhausted",
-                        "uniqueCandidateCount",
-                        "verifiedCandidateCount",
-                        "contentExcludedCount",
-                        "unavailableCandidateCount",
-                        "unassessedCandidateCount",
-                    )
+                    for key in _COVERAGE_COUNTERS
                 },
                 "workLimitReached": checkpoint.get("coverage_counts", {}).get(
                     "workLimitReached", False
