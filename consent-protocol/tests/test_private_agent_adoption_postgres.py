@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 
-from db import migrate
+from db import private_agent_adoption
 from db.db_client import DatabaseClient, DatabaseExecutionError
 from db.migration_authority import (
     MigrationAuthorityError,
@@ -33,8 +33,14 @@ from tests.helpers.private_agent_adoption import (
     LEGACY_PREDECESSOR_SCHEMA,
     LEGACY_TRIGGERS,
     RECEIPT_PREDECESSORS,
+    assert_pending_ledger_receipt,
     authorization_state,
+    canonical_database,
+    custody_catalog,
+    execute_mode,
     guard_catalog,
+    install_custody_fixture,
+    install_legacy_guards,
     receipt_state,
 )
 from tests.pkm_conformance.postgres_harness import find_pg_bin
@@ -45,69 +51,6 @@ MIGRATIONS = ROOT / "db/migrations"
 FOUNDATION = "420_private_agent_lifecycle_foundation.sql"
 IMMUTABLE_SHA256 = "78981e14e2dc4ef0d40a6275f785a5015367ea08d00ab7b4ef352538cb612f2d"
 pytestmark = [pytest.mark.feature_drive_packets, pytest.mark.trace_loop]
-
-
-def canonical_database(server, monkeypatch):
-    database = "synthetic_consent_adoption"
-    server.execute("CREATE DATABASE " + database)
-    server.execute(
-        "CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN"
-    )
-    monkeypatch.setattr(
-        migrate,
-        "release_migration_files",
-        lambda _environment: tuple(
-            name for name in migrate.RELEASE_MIGRATION_FILES if int(name[:3]) < 420
-        ),
-    )
-    for key, value in {
-        "DB_USER": "hushh",
-        "DB_PASSWORD": "synthetic",
-        "DB_HOST": "127.0.0.1",
-        "DB_PORT": str(server.port),
-        "DB_NAME": database,
-        "DB_UNIX_SOCKET": server.dir,
-        "GCP_PROJECT_ID": "local-schema-qualification",
-        "ENVIRONMENT": "test",
-        "HUSHH_RELEASE_ENVIRONMENT": "production",
-        "HUSHH_MIGRATION_MODE": "replay",
-    }.items():
-        monkeypatch.setenv(key, value)
-    connection = psycopg2.connect(host=server.dir, port=server.port, user="hushh", dbname=database)
-    connection.autocommit = True
-    with connection.cursor() as cursor:
-        cursor.execute((ROOT / "db/legacy/init_legacy_schema.sql").read_text())
-
-    async def initialize():
-        pool = await asyncpg.create_pool(
-            host=server.dir,
-            port=server.port,
-            user="hushh",
-            database=database,
-            min_size=1,
-            max_size=2,
-            command_timeout=60,
-        )
-        try:
-            await migrate.run_init_migration(pool)
-        finally:
-            await pool.close()
-
-    try:
-        asyncio.run(initialize())
-    except BaseException:
-        connection.close()
-        raise
-    return connection, database
-
-
-def install_legacy_guards(connection, *, triggers=True):
-    with connection.cursor() as cursor:
-        cursor.execute("""CREATE TABLE public.consumer_mcp_connections(
-          connection_id TEXT PRIMARY KEY,user_id TEXT,generation BIGINT,authorization_floor_id BIGINT)""")
-        cursor.execute(LEGACY_FUNCTIONS)
-        if triggers:
-            cursor.execute(LEGACY_TRIGGERS)
 
 
 def assert_absent_guard_qualification_blocks_concurrent_install(connection, server, database):
@@ -163,43 +106,6 @@ def reject_guard_drift(connection, entry):
             finally:
                 cursor.execute("ROLLBACK")
                 cursor.execute(cleanup)
-
-
-async def execute_mode(server, database, entry, mode, *, following=()):
-    connection = await asyncpg.connect(
-        host=server.dir, port=server.port, user="hushh", database=database
-    )
-    try:
-        return await apply_manifest_entries(
-            connection, (entry, *following), mode=mode, deploy_sha="synthetic-adoption-head"
-        )
-    finally:
-        await connection.close()
-
-
-def assert_pending_ledger_receipt(server, database, connection, entry):
-    with connection.cursor() as cursor:
-        cursor.execute((ROOT / "db/foundations/schema_migrations_v2.sql").read_text())
-        # Established operational baseline is a fixture prerequisite; baseline/backup authorization is separate.
-        cursor.execute(
-            """INSERT INTO schema_migrations(migration_id,filename,checksum_sha256,status,baseline_through)
-          VALUES('baseline:419','synthetic-baseline-419',%s,'baseline',419)""",
-            (manifest_checksum(()),),
-        )
-    before = guard_catalog(connection)
-    assert asyncio.run(execute_mode(server, database, entry, MigrationMode.LEDGER)) == (FOUNDATION,)
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT * FROM schema_migrations WHERE migration_id='420'")
-        receipt = cursor.fetchone()
-        assert receipt[1:4] == (FOUNDATION, IMMUTABLE_SHA256, "applied")
-        assert receipt[6] == "synthetic-adoption-head" and receipt[7] is None
-    normalized = authorization_state(connection)
-    assert asyncio.run(execute_mode(server, database, entry, MigrationMode.LEDGER)) == ()
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT * FROM schema_migrations WHERE migration_id='420'")
-        assert cursor.fetchone() == receipt
-    assert guard_catalog(connection) == before
-    assert authorization_state(connection) == normalized
 
 
 @pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
@@ -263,9 +169,10 @@ def test_immutable_foundation_preserves_qualified_guards_and_pending_ledger_rece
     assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256
 
 
+@pytest.mark.parametrize("filename", [FOUNDATION, "421_cloud_removal_recovery.sql"])
 @pytest.mark.parametrize("drift", ["metadata", "body", "rehashed_body"])
-def test_private_agent_adoption_refuses_changed_immutable_source(drift):
-    [entry] = build_manifest_entries(MIGRATIONS, [FOUNDATION])
+def test_private_agent_adoption_refuses_changed_immutable_source(drift, filename):
+    [entry] = build_manifest_entries(MIGRATIONS, [filename])
     body = entry.sql + "\n-- unreviewed source\n"
     altered = (
         replace(entry, checksum_sha256="0" * 64)
@@ -280,6 +187,80 @@ def test_private_agent_adoption_refuses_changed_immutable_source(drift):
     )
     with pytest.raises(MigrationAuthorityError, match="checksum"):
         execution_sql(altered)
+
+
+@pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
+def test_installed_custody_family_survives_replay_and_refuses_partial_authority(
+    replay_pg, monkeypatch
+):
+    entries = build_manifest_entries(MIGRATIONS, [FOUNDATION, "421_cloud_removal_recovery.sql"])
+    connection, database = canonical_database(replay_pg, monkeypatch)
+
+    def replay(entry):
+        return asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY))
+
+    with closing(connection):
+        for entry in entries:
+            replay(entry)
+        # Even an unknown overload alone is a footprint, before any sentinel
+        # or reviewed successor body has been installed.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "CREATE FUNCTION public.private_gcp_coordinates(integer) "
+                "RETURNS jsonb LANGUAGE sql AS $$ SELECT '{}'::jsonb $$"
+            )
+        partial = custody_catalog(connection)
+        for entry in entries:
+            with pytest.raises(asyncpg.RaiseError, match="Unqualified managed custody"):
+                replay(entry)
+            assert custody_catalog(connection) == partial
+        with connection.cursor() as cursor:
+            cursor.execute("DROP FUNCTION public.private_gcp_coordinates(integer)")
+        before = install_custody_fixture(connection)
+        guards = guard_catalog(connection)
+        # The old420 path reproduces the actual deployed failure.
+        with monkeypatch.context() as broken:
+            broken.setattr(private_agent_adoption, "hosted_custody_adoption", lambda sql: sql)
+            with pytest.raises(asyncpg.RaiseError, match="expected_erasure_bootstrap_release"):
+                replay(entries[0])
+        assert custody_catalog(connection) == before
+        # The old421 path really overwrites the newer authority guard.
+        with monkeypatch.context() as broken:
+            broken.setattr(
+                private_agent_adoption, "hosted_custody_recovery_replay", lambda entry, sql: sql
+            )
+            replay(entries[1])
+        assert (
+            custody_catalog(connection)["guard_personal_agent_erasure_registry()"]
+            != before["guard_personal_agent_erasure_registry()"]
+        )
+        assert install_custody_fixture(connection) == before
+        for _ in range(2):
+            for entry in entries:
+                assert replay(entry) == (entry.filename,)
+                assert custody_catalog(connection) == before
+                assert guard_catalog(connection) == guards
+        defects = (
+            "DROP FUNCTION public.erasure_authorization_history(jsonb,jsonb)",
+            "DROP FUNCTION public.private_gcp_coordinates(jsonb)",
+            "CREATE OR REPLACE FUNCTION public.managed_prefix_items_complete(r jsonb,kind text) "
+            "RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public "
+            "AS $$ BEGIN RETURN true; END $$",
+            "CREATE FUNCTION public.private_gcp_coordinates(integer) RETURNS jsonb "
+            "LANGUAGE sql AS $$ SELECT '{}'::jsonb $$",
+        )
+        for defect in defects:
+            with connection.cursor() as cursor:
+                cursor.execute(defect)
+            changed = custody_catalog(connection)
+            for entry in entries:
+                with pytest.raises(asyncpg.RaiseError, match="Unqualified managed custody"):
+                    replay(entry)
+                assert custody_catalog(connection) == changed
+                assert guard_catalog(connection) == guards
+            with connection.cursor() as cursor:
+                cursor.execute("DROP FUNCTION IF EXISTS public.private_gcp_coordinates(integer)")
+            before = install_custody_fixture(connection)
 
 
 def seed_legacy_authorization(connection):
