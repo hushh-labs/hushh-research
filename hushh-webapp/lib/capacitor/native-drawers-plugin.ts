@@ -1,3 +1,4 @@
+import type { NativeWalletCardPort, NativeWalletCardEdit, NativeWalletCardAction } from "./native-wallet-card";
 import type { PluginListenerHandle } from "@capacitor/core";
 import type { NativeOwnedChoicePort } from "./native-owned-choice";
 import type { NativeFeedbackPort } from "./native-feedback";
@@ -16,7 +17,7 @@ import type { NativeDrawerIsolation, NativeDrawerReadmission, NativeDrawerPresen
 import type { NativeWorkspacePort, NativeWorkspaceChoice, NativeWorkspaceEdit, NativeWorkspaceFinalEdit } from "./native-workspace";
 
 /** Additive private NativeDrawers v1 transport. Runtime ownership stays in native-drawers. */
-export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort>, Partial<Omit<NativePaymentsScenePort, "addListener">>, Partial<Omit<NativeOwnedChoicePort, "addListener">> {
+export interface HushhNativeDrawersPlugin extends Partial<Omit<NativeWalletCardPort, "addListener">>, Partial<NativeWorkspacePort>, Partial<Omit<NativePaymentsScenePort, "addListener">>, Partial<Omit<NativeOwnedChoicePort, "addListener">> {
   applyFeedback?: NativeFeedbackPort["applyFeedback"];
   retireFeedback?: NativeFeedbackPort["retireFeedback"];
   /** Private, one-shot pasteboard delivery after the authored Copy choice. */
@@ -33,7 +34,7 @@ export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort>, 
   confirmProfileRuntimeAction?: NativeRuntimeScenePort["confirmProfileRuntimeAction"];
   settleProfileRuntimeAction?: NativeRuntimeScenePort["settleProfileRuntimeAction"];
   retireProfileRuntimeScene?: NativeRuntimeScenePort["retireProfileRuntimeScene"];
-  getCapabilities(): Promise<NativeDrawerIsolation & { ownedChoices?: boolean; privateFeedback?: boolean; profilePaymentsPages?: boolean; profilePaymentsScene?: boolean; profileHostingPages?: boolean; profileSoftwareUpdatePages?: boolean; profileReferralPages?: boolean; profilePreparation?: boolean; closeSettlements?: boolean;
+  getCapabilities(): Promise<NativeDrawerIsolation & { ownedChoices?: boolean; walletCardForms?: boolean; privateFeedback?: boolean; profilePaymentsPages?: boolean; profilePaymentsScene?: boolean; profileHostingPages?: boolean; profileSoftwareUpdatePages?: boolean; profileReferralPages?: boolean; profilePreparation?: boolean; closeSettlements?: boolean;
     contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; compatibleBackRefreshes?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileSharedMemoryPages?: boolean; profileSecretMemoryPages?: boolean; profileMemoryScene?: boolean; profileWorldModelPages?: boolean; profileWorldModelPublicProfiles?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean; routeWorkspaces?: readonly "referrals"[] }>;
   applyProfileWorldModelScene?: NativeWorldModelScenePort["applyProfileWorldModelScene"];
   confirmProfileWorldModelAction?: NativeWorldModelScenePort["confirmProfileWorldModelAction"];
@@ -66,6 +67,8 @@ export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort>, 
   retireProfileStyleScene?(options: Parameters<NativeProfileStyleScenePort["retireProfileStyleScene"]>[0]): ReturnType<NativeProfileStyleScenePort["retireProfileStyleScene"]>;
   addListener: NativeOwnedChoicePort["addListener"] & NativeFeedbackPort["addListener"] & NativePaymentsScenePort["addListener"] & NativeMemoryScenePort["addListener"] & NativeConnectorScenePort["addListener"] & NativeRuntimeScenePort["addListener"] & NativeWorldModelScenePort["addListener"] & NativeProfilePricingScenePort["addListener"] & NativePasswordScenePort["addListener"] & NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & NativeSupportScenePort["addListener"] & NativePhoneScenePort["addListener"] & {
     (eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
+    (eventName: "walletCardEdit" | "walletCardFinalEdit", listener: (event: NativeWalletCardEdit) => void): Promise<PluginListenerHandle>;
+    (eventName: "walletCardAction", listener: (event: NativeWalletCardAction) => void): Promise<PluginListenerHandle>;
     (eventName: "workspaceChoice", listener: (event: NativeWorkspaceChoice) => void): Promise<PluginListenerHandle>;
     (eventName: "workspaceEdit", listener: (event: NativeWorkspaceEdit) => void): Promise<PluginListenerHandle>;
     (eventName: "workspaceFinalEdit", listener: (event: NativeWorkspaceFinalEdit) => void): Promise<PluginListenerHandle>;

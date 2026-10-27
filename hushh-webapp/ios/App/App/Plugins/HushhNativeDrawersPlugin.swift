@@ -9,6 +9,12 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     let jsName = "HushhNativeDrawers"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyWalletCardScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmWalletCardAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleWalletCardAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireWalletCardScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getWalletCardState", returnType: CAPPluginReturnPromise),
+
         CAPPluginMethod(name: "prepareOwnedChoice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateOwnedChoice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retireOwnedChoice", returnType: CAPPluginReturnPromise),
@@ -75,24 +81,41 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var controllers = [String: NativeDrawerPresentationController]()
     private var retiringControllers = [ObjectIdentifier: NativeDrawerPresentationController]()
     private var form: NativeProfileOwnedForm?
+    @MainActor private func admitRoutePresentationOwner(_ identity: NativeOwnedChoiceIdentity) -> Bool {
+        guard supported, UIDevice.current.userInterfaceIdiom == .phone else { return false }
+        var session = sessionFence
+        guard session.admitOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) else { return false }
+        if !sessionFence.containsOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) {
+            retireAll(); leases.removeAll(); sessionFence = session
+        }
+        return true
+    }
+    @MainActor private lazy var walletCard: NativeWalletCardCoordinator = {
+        let value = NativeWalletCardCoordinator()
+        value.parent = { [weak self] in self?.bridge?.viewController }
+        value.available = { [weak self] in
+            guard let self else { return false }
+            return self.supported && self.ownedChoices.concealed && self.form == nil && self.retiringForms.isEmpty &&
+                self.retiringControllers.isEmpty && self.workspace == nil && self.retiringWorkspaces.isEmpty &&
+                !self.controllers.values.contains { $0.coversUnderlyingPresentation }
+        }
+        value.admitOwner = { [weak self] in self?.admitRoutePresentationOwner($0) == true }
+        value.currentOwner = { [weak self] identity in self?.sessionFence.containsOwner(documentId: identity.documentId,
+            ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) == true }
+        value.changed = { [weak self] in self?.reconcileIsolation() }
+        value.emit = { [weak self] name, event in self?.notifyListeners(name, data: event, retainUntilConsumed: false) }
+        return value
+    }()
     @MainActor private lazy var ownedChoices: NativeOwnedChoiceCoordinator = {
         let choice = NativeOwnedChoiceCoordinator()
         choice.parent = { [weak self] in self?.bridge?.viewController }
         choice.available = { [weak self] in
             guard let self else { return false }
-            return self.supported && UIDevice.current.userInterfaceIdiom == .phone && self.form == nil &&
+            return self.supported && UIDevice.current.userInterfaceIdiom == .phone && self.walletCard.concealed && self.form == nil &&
                 self.retiringForms.isEmpty && self.retiringControllers.isEmpty && self.workspace == nil &&
                 self.retiringWorkspaces.isEmpty && !self.controllers.values.contains { $0.coversUnderlyingPresentation }
         }
-        choice.admitOwner = { [weak self] identity in
-            guard let self, self.supported, UIDevice.current.userInterfaceIdiom == .phone else { return false }
-            var session = self.sessionFence
-            guard session.admitOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) else { return false }
-            if !self.sessionFence.containsOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) {
-                self.retireAll(); self.leases.removeAll(); self.sessionFence = session
-            }
-            return true
-        }
+        choice.admitOwner = { [weak self] in self?.admitRoutePresentationOwner($0) == true }
         choice.currentOwner = { [weak self] identity in self?.sessionFence.containsOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) == true }
         choice.changed = { [weak self] in self?.reconcileIsolation() }
         choice.emit = { [weak self] event in self?.notifyListeners("ownedChoice", data: event, retainUntilConsumed: false) }
@@ -145,7 +168,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             HushhSessionPrivacyShield.shared.profilePresentationsConcealed = { [weak self] in
                 guard let self else { return false }
-                return self.ownedChoices.concealed && self.form == nil && self.retiringForms.isEmpty && self.retiringControllers.isEmpty &&
+                return self.walletCard.concealed && self.ownedChoices.concealed && self.form == nil && self.retiringForms.isEmpty && self.retiringControllers.isEmpty &&
                     self.workspace == nil && self.retiringWorkspaces.isEmpty &&
                     !self.controllers.values.contains { $0.coversUnderlyingPresentation }
             }
@@ -189,6 +212,11 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         if let privacyObserver { NotificationCenter.default.removeObserver(privacyObserver) }
         if let isolationObserver { NotificationCenter.default.removeObserver(isolationObserver) }
     }
+    @objc func applyWalletCardScene(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.walletCard.apply(call) } }
+    @objc func confirmWalletCardAction(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.walletCard.action(call, settlement: false) } }
+    @objc func settleWalletCardAction(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.walletCard.action(call, settlement: true) } }
+    @objc func retireWalletCardScene(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.walletCard.retire(call) } }
+    @objc func getWalletCardState(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.walletCard.read(call) } }
     @objc func prepareOwnedChoice(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.prepare(call) } }
     @objc func updateOwnedChoice(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.update(call) } }
     @objc func retireOwnedChoice(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.retire(call) } }
@@ -197,6 +225,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             call.resolve(["contractVersion": 1, "supported": self?.supported == true, "wholePresentation": self?.supported == true,
+                "walletCardForms": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "ownedChoices": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "privateFeedback": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "historyActions": self?.supported == true,
@@ -633,6 +662,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         else { completion() }
     }
     @MainActor private func retireAll() {
+        walletCard.retire()
         ownedChoices.retire()
         feedback.clear()
         retireWorkspacePresentation()
@@ -644,9 +674,9 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @MainActor private func reconcileIsolation() {
-        let formCovered = ownedChoices.coversPresentation || form?.coversPresentation == true || !retiringForms.isEmpty
+        let formCovered = walletCard.coversPresentation || ownedChoices.coversPresentation || form?.coversPresentation == true || !retiringForms.isEmpty
         for controller in controllers.values { controller.setFormCoverage(formCovered) }
-        let covered = ownedChoices.coversPresentation || controllers.values.contains { $0.coversUnderlyingPresentation } ||
+        let covered = walletCard.coversPresentation || ownedChoices.coversPresentation || controllers.values.contains { $0.coversUnderlyingPresentation } ||
             retiringControllers.values.contains { $0.coversUnderlyingPresentation } ||
             form?.coversPresentation == true || retiringForms.values.contains { $0.coversPresentation }
         container?.isolateForOwnedDrawer(covered)

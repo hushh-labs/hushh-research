@@ -11,12 +11,12 @@ import { nativePresentationAdmission, syncNativePresentationRegions, type Native
 
 // Presentation only. No route, UID, token, credential or content body crosses this bridge.
 export type ChromeFrame = { x: number; y: number; width: number; height: number };
-export type ChromeControlId = "top-shell-back" | "profile-back" | "chat-history-toggle" | "chat-history-close" | "chat-agent-surface" | "stationary-more" | "bounded-selection" | "bounded-date" | "profile-close" | "profile-appearance" | "profile-accent";
-export type ChromeFamily = "back" | "profile-back" | "history" | "history-close" | "agent-surface" | "more" | "selection" | "date" | "close" | "appearance" | "accent";
+export type ChromeControlId = "top-shell-back" | "profile-back" | "chat-history-toggle" | "chat-history-close" | "chat-agent-surface" | "stationary-more" | "stationary-add" | "bounded-selection" | "bounded-date" | "profile-close" | "profile-appearance" | "profile-accent";
+export type ChromeFamily = "back" | "profile-back" | "history" | "history-close" | "agent-surface" | "more" | "add" | "selection" | "date" | "close" | "appearance" | "accent";
 export type ChromeAgentSurface = "one" | "puppy";
 export type ChromeOption = { value: string; label: string; disabled?: boolean };
 export type ChromeAccentPalette = { blue: string; gold: string };
-export type ChromeControl = { kind: "back" | "profile-back" | "close" } | { kind: "history" | "history-close"; expanded?: boolean } |
+export type ChromeControl = { kind: "back" | "profile-back" | "close" | "add" } | { kind: "history" | "history-close"; expanded?: boolean } |
   { kind: "agent-surface"; value: ChromeAgentSurface } |
   { kind: "appearance"; value: "light" | "dark" | "system" } |
   { kind: "accent"; value: "blue" | "gold"; fullTrigger?: boolean; palette?: ChromeAccentPalette } |
@@ -240,6 +240,7 @@ export async function canResumeNativeChrome(projection: ChromeControlProjection,
   return suspended.get(id) === entry && outstanding.get(id)?.revision === entry.projection.revision;
 }
 export function chromeControlId(kind: ChromeFamily): ChromeControlId {
+  if (kind === "add") return "stationary-add";
   if (kind === "history-close") return "chat-history-close";
   if (kind === "profile-back") return "profile-back";
   if (kind === "history") return "chat-history-toggle";

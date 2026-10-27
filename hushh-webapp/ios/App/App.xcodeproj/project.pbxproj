@@ -29,6 +29,7 @@
 		5E5510C1000000000000000A /* NativeProfileNameScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000009 /* NativeProfileNameScene.swift */; };
 		6C1107E975D02B780BB53825 /* NativeDrawerQualificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 916568596D05EAF9607D3609 /* NativeDrawerQualificationPolicy.swift */; };
 		0170210E5C57FAD25DE97F84 /* NativeOwnedChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99C1046A10FC334F8F78C4BA /* NativeOwnedChoice.swift */; };
+		CDDD427B288B2FE9E8CE480D /* NativeWalletCardScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE49F7770E0A0471A66B741 /* NativeWalletCardScene.swift */; };
 		5E5510C100000000000000D1 /* NativeProfileWorldModelScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */; };
 		5E5510C100000000000000D3 /* NativeProfileRuntimeScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */; };
 		5E5510C100000000000000D5 /* NativeProfileConnectorScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D4 /* NativeProfileConnectorScene.swift */; };
@@ -151,6 +152,7 @@
 		5E5510C10000000000000009 /* NativeProfileNameScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileNameScene.swift; path = Plugins/NativeProfileNameScene.swift; sourceTree = "<group>"; };
 		916568596D05EAF9607D3609 /* NativeDrawerQualificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeDrawerQualificationPolicy.swift; path = Plugins/NativeDrawerQualificationPolicy.swift; sourceTree = "<group>"; };
 		99C1046A10FC334F8F78C4BA /* NativeOwnedChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeOwnedChoice.swift; path = Plugins/NativeOwnedChoice.swift; sourceTree = "<group>"; };
+		6EE49F7770E0A0471A66B741 /* NativeWalletCardScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeWalletCardScene.swift; path = Plugins/NativeWalletCardScene.swift; sourceTree = "<group>"; };
 		5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileWorldModelScene.swift; path = Plugins/NativeProfileWorldModelScene.swift; sourceTree = "<group>"; };
 		5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileRuntimeScene.swift; path = Plugins/NativeProfileRuntimeScene.swift; sourceTree = "<group>"; };
 		5E5510C100000000000000D4 /* NativeProfileConnectorScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileConnectorScene.swift; path = Plugins/NativeProfileConnectorScene.swift; sourceTree = "<group>"; };
@@ -357,6 +359,7 @@
 				C4A7B90100000000000000A1 /* NativeFeedbackPresentation.swift */,
 				5E5510C10000000000000009 /* NativeProfileNameScene.swift */,
 				916568596D05EAF9607D3609 /* NativeDrawerQualificationPolicy.swift */,
+				6EE49F7770E0A0471A66B741 /* NativeWalletCardScene.swift */,
 				99C1046A10FC334F8F78C4BA /* NativeOwnedChoice.swift */,
 				5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */,
 				5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */,
@@ -624,6 +627,7 @@
 				C4A7B90100000000000000A2 /* NativeFeedbackPresentation.swift in Sources */,
 				5E5510C1000000000000000A /* NativeProfileNameScene.swift in Sources */,
 				6C1107E975D02B780BB53825 /* NativeDrawerQualificationPolicy.swift in Sources */,
+				CDDD427B288B2FE9E8CE480D /* NativeWalletCardScene.swift in Sources */,
 				0170210E5C57FAD25DE97F84 /* NativeOwnedChoice.swift in Sources */,
 				5E5510C100000000000000D1 /* NativeProfileWorldModelScene.swift in Sources */,
 				5E5510C100000000000000D3 /* NativeProfileRuntimeScene.swift in Sources */,

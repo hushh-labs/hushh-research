@@ -11260,3 +11260,6 @@ html:has([data-calendar-presentation]) [data-sonner-toast] [data-description] {
   line-height: 20px;
   font-weight: 400;
 }
+
+/* Native Wallet reserves its Add affordance in the stationary shell before paint. */
+html[data-native-wallet-card-forms="true"] [data-native-route-add-fallback] { display: none; }

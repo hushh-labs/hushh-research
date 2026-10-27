@@ -1484,7 +1484,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     // policy. Moving drawer controls deliberately keep their React renderer.
     static let stationaryChatControlIds = [
         "history": "chat-history-toggle", "agent-surface": "chat-agent-surface",
-        "more": "stationary-more", "selection": "bounded-selection", "date": "bounded-date"
+        "more": "stationary-more", "add": "stationary-add", "selection": "bounded-selection", "date": "bounded-date"
     ]
     private func admits(_ kind: String, controlId: String) -> Bool {
         if compositor?.contentBackedPresentation == true {
@@ -1521,6 +1521,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         case "close", "history-close": return "xmark"
         case "history": return expanded ? "xmark" : "line.3.horizontal"
         case "more": return "ellipsis"
+        case "add": return "plus"
         case "selection": return "chevron.up.chevron.down"
         case "date": return "calendar"
         case "accent": return "circle.lefthalf.filled"
@@ -1680,7 +1681,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func identity(_ call: CAPPluginCall) -> HushhNativeChromeState.Identity? {
         guard let controlId = call.getString("controlId"),
-              ["top-shell-back", "profile-back", "chat-history-toggle", "chat-history-close", "chat-agent-surface", "stationary-more", "bounded-selection", "bounded-date", "profile-close", "profile-appearance", "profile-accent"].contains(controlId),
+              ["top-shell-back", "profile-back", "chat-history-toggle", "chat-history-close", "chat-agent-surface", "stationary-more", "stationary-add", "bounded-selection", "bounded-date", "profile-close", "profile-appearance", "profile-accent"].contains(controlId),
               let document = call.getString("documentId"), !document.isEmpty, document.count <= 128,
               let owner = call.getString("ownerEpoch"), !owner.isEmpty, owner.count <= 128,
               let revision = call.getInt("revision"), revision >= 0,

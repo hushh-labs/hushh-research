@@ -47,6 +47,7 @@ type Props = {
   interactionLayer?: string;
   ref?: Ref<NativeChatChromeHandle>;
 } & ({ kind: "close"; onActivate: () => void; label: string } |
+  { kind: "add"; onActivate: () => void; label: string } |
   { kind: "profile-back"; onActivate: () => void; label: string } |
   { kind: "history"; onActivate: () => void; expanded?: boolean;
   /** Omission or any nonzero count retains the authored notification/badge DOM. Never bridged. */
@@ -397,7 +398,7 @@ export function NativeChatChrome(props: Props) {
           void active?.choose(event, () => lease.current === active && current.current.epoch === active.projection.ownerEpoch &&
             current.current.context === active.context && isCurrentNativeControlAppearance(active.projection, foreground) && canAct(), () => {
             const callback = current.current.props;
-            if (callback.kind === "history" || callback.kind === "close" || callback.kind === "profile-back") {
+            if (callback.kind === "history" || callback.kind === "close" || callback.kind === "profile-back" || callback.kind === "add") {
               appHaptic("light", `${event.ownerEpoch}:${event.controlId}:${event.revision}:${event.sequence}`);
               callback.onActivate();
             }
@@ -556,7 +557,7 @@ export function NativeChatChrome(props: Props) {
         let geometry = allowed && theme && canPrepare() && !heldFocus.current && slot.current &&
           !slot.current.contains(document.activeElement) ? measureNativeChromeGeometry(slot.current, kind) : null;
         const control: ChromeControl & { label: string } =
-          props.kind === "close" || props.kind === "profile-back" ? { kind: props.kind, label: props.label } :
+          props.kind === "close" || props.kind === "profile-back" || props.kind === "add" ? { kind: props.kind, label: props.label } :
           props.kind === "history" ? { kind: kind === "history-close" ? "history-close" : "history", expanded, label: expanded ? "Close chat history" : "Chat history" } :
           props.kind === "agent-surface" ? { kind: "agent-surface", value: props.value, label: "Agent" } :
           props.kind === "appearance" ? { kind: "appearance", value: props.value, label: "Appearance" } :

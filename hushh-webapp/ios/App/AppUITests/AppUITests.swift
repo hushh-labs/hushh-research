@@ -5528,6 +5528,14 @@ final class AppUITests: XCTestCase {
             XCTFail("WORKSPACE_REQUIRES_RUNNING_SESSION"); return
         }
         app.activate()
+        if ProcessInfo.processInfo.environment["HUSHH_WORKSPACE_FAMILY"] == "wallet" {
+            // Recover only this harness's known, local unsaved card scene after
+            // an interrupted check; no account or saved-card operation runs.
+            let pickerBack = app.navigationBars.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Add card", "Back")).firstMatch
+            if pickerBack.exists && pickerBack.isHittable { pickerBack.tap() }
+            let cancel = app.buttons["native-wallet-card-cancel"].firstMatch
+            if cancel.exists && cancel.isHittable { cancel.tap() }
+        }
         dismissRehearsalChatKeyboard(app)
         let hosts = app.webViews.matching(identifier: "native-webview")
         var web = hosts.firstMatch
@@ -5655,114 +5663,72 @@ final class AppUITests: XCTestCase {
                 XCTAssertFalse(sharingFailed, "WORKSPACE_WALLET_SHARING_UNAVAILABLE")
                 guard sharedReady, !sharingFailed else { return }
                 select("My cards")
-                let add = web.buttons["Add a card"].firstMatch
-                guard waitForAdmittedControl(add) else { XCTFail("WORKSPACE_WALLET_ADD_TRIGGER_UNAVAILABLE"); return }
-                add.tap()
-                let name = web.textFields["Name on card"].firstMatch
-                let cancel = web.buttons["Cancel"].firstMatch
-                guard waitForAdmittedControl(name), waitForAdmittedControl(cancel) else {
-                    XCTFail("WORKSPACE_WALLET_ADD_BODY_UNOBSERVED"); return
-                }
-                // Inspection and cancellation only: never enter or save a card.
-                XCTAssertFalse(app.tabBars.firstMatch.buttons["Chat"].firstMatch.isHittable,
-                               "WORKSPACE_WALLET_SHEET_LEAKED_NAVIGATION")
                 if ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
-                    // Exercise the shared Select adapter, not a Wallet-owned
-                    // native picker. No card entry, save or backend mutation.
-                    for (choiceIndex, label) in ["Card network", "Card network", "Issuing region"].enumerated() {
-                        // The passive shared probe supplies actual control
-                        // geometry and DOM hit admission, not labels or values.
-                        // XCTest still delivers a normal trusted screen tap.
-                        let slot = label == "Card network" ? 0 : 1
-                        let geometry = app.buttons["native-vault-layout"].firstMatch
-                        func triggerPoint() -> CGPoint? {
-                            guard geometry.exists, let json = geometry.value as? String, let data = json.data(using: .utf8),
-                                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber],
-                                  packet["nativeChoiceCount"]?.intValue == 2,
-                                  packet["nativeWebInteractive"]?.boolValue == true,
-                                  packet["nativeChoice\(slot)Hit"]?.boolValue == true,
-                                  let x = packet["nativeChoice\(slot)X"]?.doubleValue,
-                                  let y = packet["nativeChoice\(slot)Y"]?.doubleValue,
-                                  let width = packet["nativeChoice\(slot)Width"]?.doubleValue,
-                                  let height = packet["nativeChoice\(slot)Height"]?.doubleValue,
-                                  let viewportWidth = packet["nativeChoiceViewportWidth"]?.doubleValue,
-                                  let viewportHeight = packet["innerHeight"]?.doubleValue,
-                                  viewportWidth > 0, viewportHeight > 0, width > 0, height >= 32,
-                                  x >= 0, y >= 0, x + width <= viewportWidth + 1, y + height <= viewportHeight + 1 else { return nil }
-                            let frame = web.frame
-                            return CGPoint(x: frame.minX + (x + width / 2) * frame.width / viewportWidth,
-                                           y: frame.minY + (y + height / 2) * frame.height / viewportHeight)
+                    let add = app.buttons["stationary-add"].firstMatch
+                    for cycle in 0..<3 {
+                        guard waitForAdmittedControl(add) else { XCTFail("WORKSPACE_WALLET_NATIVE_ADD_UNAVAILABLE"); return }
+                        add.tap()
+                        let name = app.textFields["native-wallet-card-cardholderName"].firstMatch
+                        let cancel = app.buttons["native-wallet-card-cancel"].firstMatch
+                        guard waitForAdmittedControl(name), waitForAdmittedControl(cancel) else {
+                            XCTFail("WORKSPACE_WALLET_NATIVE_FORM_UNOBSERVED"); return
                         }
-                        for _ in 0..<4 {
-                            if triggerPoint() != nil { break }
-                            web.swipeUp()
-                        }
-                        let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in triggerPoint() != nil }, object: geometry)
-                        guard XCTWaiter.wait(for: [admitted], timeout: 10) == .completed,
-                              let point = triggerPoint() else { XCTFail("WORKSPACE_WALLET_CHOICE_TRIGGER_UNAVAILABLE"); return }
-                        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).tap()
-                        let sheet = app.descendants(matching: .any).matching(identifier: "native-owned-choice").firstMatch
-                        guard sheet.waitForExistence(timeout: 10) else {
-                            let probe = app.buttons["native-vault-layout"].firstMatch
-                            if let json = probe.value as? String, let data = json.data(using: .utf8),
-                               let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
-                                let namedCancel = NSPredicate(format: "label == %@", "Cancel")
-                                let nativeCancel = app.buttons.matching(namedCancel).count > web.buttons.matching(namedCancel).count
-                                print("WORKSPACE_CHOICE_ADMISSION bootstrap=\(packet["nativeChoiceBootstrap"]?.boolValue == true) ready=\(packet["nativeChoiceReady"]?.intValue ?? 0) presented=\(packet["nativeChoicePresented"]?.intValue ?? 0) blocked=\(packet["nativeChoiceBlocked"]?.intValue ?? 0) native_cancel=\(nativeCancel)")
-                                print("WORKSPACE_CHOICE_NATIVE prepares=\(packet["nativeChoicePreparationCount"]?.intValue ?? -1) stage=\(packet["nativeChoicePreparationStage"]?.intValue ?? -1)")
-                                print("WORKSPACE_CHOICE_MODES count=\(packet["nativeChoiceCount"]?.intValue ?? -1) first=\(packet["nativeChoice0Mode"]?.intValue ?? -1) second=\(packet["nativeChoice1Mode"]?.intValue ?? -1)")
+                        XCTAssertFalse(app.tabBars.firstMatch.buttons["Chat"].firstMatch.isHittable,
+                                       "WORKSPACE_WALLET_SHEET_LEAKED_NAVIGATION")
+                        XCTAssertFalse(add.isHittable, "WORKSPACE_WALLET_SHEET_LEAKED_TOOLBAR")
+                        XCTAssertFalse(web.textFields["Name on card"].firstMatch.isHittable,
+                                       "WORKSPACE_WALLET_DUPLICATE_EDITOR")
+                        if cycle == 0 {
+                            let network = app.buttons["native-wallet-card-network"].firstMatch
+                            guard waitForAdmittedControl(network) else { XCTFail("WORKSPACE_WALLET_NATIVE_NETWORK_UNAVAILABLE"); return }
+                            network.tap()
+                            let auto = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Auto-detect")).firstMatch
+                            guard waitForAdmittedControl(auto) else { XCTFail("WORKSPACE_WALLET_NATIVE_NETWORK_BODY_UNAVAILABLE"); return }
+                            auto.tap()
+                            // Navigation-link pickers commit their choice in
+                            // place. Follow the system Back affordance; they
+                            // are not the previous detached choice popup.
+                            if !cancel.isHittable {
+                                let pickerBack = app.navigationBars.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Add card", "Back")).firstMatch
+                                guard waitForAdmittedControl(pickerBack) else { XCTFail("WORKSPACE_WALLET_NATIVE_PICKER_BACK_UNAVAILABLE"); return }
+                                pickerBack.tap()
                             }
-                            XCTFail("WORKSPACE_WALLET_CHOICE_NOT_NATIVE"); return
+                            guard waitForAdmittedControl(cancel) else { XCTFail("WORKSPACE_WALLET_NATIVE_PICKER_RETURN_FAILED"); return }
+                            name.tap()
+                            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "WORKSPACE_WALLET_NATIVE_KEYBOARD_UNAVAILABLE")
                         }
-                        print("WORKSPACE_CHOICE_STAGE choice=\(choiceIndex) stage=presented")
-                        let dismiss = sheet.buttons["Cancel"].firstMatch
-                        guard waitForAdmittedControl(dismiss) else { XCTFail("WORKSPACE_WALLET_CHOICE_CANCEL_UNAVAILABLE"); return }
-                        XCTAssertFalse(cancel.exists && cancel.isHittable, "WORKSPACE_WALLET_CHOICE_LEAKED_FORM_TOUCH")
-                        print("WORKSPACE_CHOICE_STAGE choice=\(choiceIndex) stage=isolated")
-                        dismiss.tap()
-                        XCTAssertTrue(sheet.waitForNonExistence(timeout: 10), "WORKSPACE_WALLET_CHOICE_NOT_RETIRED")
-                        print("WORKSPACE_CHOICE_STAGE choice=\(choiceIndex) stage=retired")
-                        // WebKit can rebuild its accessibility subtree after
-                        // native modal ownership. Read current UIKit flags and
-                        // resolve a fresh query rather than a covered snapshot.
-                        let probe = app.buttons["native-vault-layout"].firstMatch
-                        var interactive = false, hidden = true, probeSeen = false, sampleSeen = false, isolated = false
-                        let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                            probeSeen = probe.exists
-                            guard probeSeen, let json = probe.value as? String, let data = json.data(using: .utf8),
-                                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] else { return false }
-                            sampleSeen = packet["nativeWebInteractive"] != nil
-                            isolated = packet["nativeIsolation"]?.boolValue == true
-                            interactive = packet["nativeWebInteractive"]?.boolValue == true
-                            hidden = packet["nativeWebAXHidden"]?.boolValue != false
-                            return interactive && !hidden && packet["nativeWebInWindow"]?.boolValue == true
-                        }, object: probe)
-                        guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
-                            print("WORKSPACE_CHOICE_RECOVERY interactive=\(interactive) ax_hidden=\(hidden) probe_seen=\(probeSeen) sample_seen=\(sampleSeen) isolated=\(isolated)")
-                            XCTFail(probeSeen && sampleSeen ? "WORKSPACE_WALLET_WEB_NOT_RESTORED" : "WORKSPACE_WALLET_RECOVERY_PROBE_UNAVAILABLE"); return
+                        if cycle == 1 {
+                            // UIKit owns the complete interrupted/dismissed sheet.
+                            // Its actual dismissal must retire the private owner too.
+                            let bar = app.navigationBars["Add card"].firstMatch
+                            bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1,
+                                thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+                        } else { cancel.tap() }
+                        guard cancel.waitForNonExistence(timeout: 10), waitForAdmittedControl(add) else {
+                            XCTFail("WORKSPACE_WALLET_NATIVE_DISMISSAL_NOT_RESTORED"); return
                         }
-                        web = app.webViews.matching(identifier: "native-webview").firstMatch
-                        guard web.waitForExistence(timeout: 10) else { XCTFail("WORKSPACE_WALLET_WEB_AX_NOT_RESTORED"); return }
-                        print("WORKSPACE_CHOICE_STAGE choice=\(choiceIndex) stage=restored")
-                        print("WORKSPACE_CHOICE_PARENT form=\(web.textFields["Name on card"].firstMatch.exists) add=\(web.buttons["Add a card"].firstMatch.exists)")
+                        print("WORKSPACE_NATIVE_CARD cycle=\(cycle) native_form=true chrome_isolated=true returned=true")
                     }
-                    // Return to the form's authored Cancel without closing its
-                    // parent while an owned native picker is still attached.
+                    web = app.webViews.matching(identifier: "native-webview").firstMatch
+                } else {
+                    let add = web.buttons["Add a card"].firstMatch
+                    guard waitForAdmittedControl(add) else { XCTFail("WORKSPACE_WALLET_ADD_TRIGGER_UNAVAILABLE"); return }
+                    add.tap()
+                    let cancel = web.buttons["Cancel"].firstMatch
+                    guard waitForAdmittedControl(web.textFields["Name on card"].firstMatch), waitForAdmittedControl(cancel) else {
+                        XCTFail("WORKSPACE_WALLET_ADD_BODY_UNOBSERVED"); return
+                    }
+                    cancel.tap()
+                    guard waitForAdmittedControl(add) else { XCTFail("WORKSPACE_WALLET_ADD_CANCEL_NOT_RESTORED"); return }
                 }
-                let formCancel = web.buttons["Cancel"].firstMatch
-                for _ in 0..<4 { if formCancel.exists && formCancel.isHittable { break }; web.swipeDown() }
-                guard waitForAdmittedControl(formCancel) else { XCTFail("WORKSPACE_WALLET_FORM_CANCEL_NOT_RESTORED"); return }
-                formCancel.tap()
-                guard walletPaneReady({
-                    let currentAdd = web.buttons["Add a card"].firstMatch
-                    let currentName = web.textFields["Name on card"].firstMatch
-                    return tab("My cards").isSelected && tab("My cards").isHittable && currentAdd.exists && currentAdd.isHittable &&
-                        !(currentName.exists && currentName.isHittable)
-                }, failure: "WORKSPACE_WALLET_ADD_CANCEL_NOT_RESTORED") else { return }
                 let back = app.buttons.matching(NSPredicate(format: "label == %@", "Go back")).firstMatch
                 XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable, "WORKSPACE_BACK_UNAVAILABLE")
                 back.tap()
                 XCTAssertTrue(web.links["Open Wallet"].waitForExistence(timeout: 15), "WORKSPACE_BACK_DID_NOT_RETURN_TO_ONE")
+                if ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                    XCTAssertTrue(app.buttons["stationary-add"].firstMatch.waitForNonExistence(timeout: 5),
+                                  "WORKSPACE_WALLET_ADD_LEAKED_TO_ONE")
+                }
             }
             continuity(family)
         }

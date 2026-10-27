@@ -71,7 +71,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
-import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
+import { NativeRouteAdd } from "@/components/app-ui/native-route-add";
+import { AdaptiveWalletCardForm } from "@/components/wallet/native-wallet-card-form";
 import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handoff";
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
@@ -334,7 +335,6 @@ export function WalletWorkspace() {
     }
   };
   const [walletAccessOpen, setWalletAccessOpen] = useState(false);
-  const [addFooterHost, setAddFooterHost] = useState<HTMLDivElement | null>(null);
   const walletAccessTrigger = useRef<HTMLButtonElement>(null);
   const addTrigger = useRef<HTMLButtonElement>(null);
   const pendingCardRef = useRef<HTMLElement>(null);
@@ -1128,7 +1128,9 @@ export function WalletWorkspace() {
             <span className={workspaceStyles.collectionCount}>{ready ? `${cards.length} ${cards.length === 1 ? "payment card" : "payment cards"}` : "Your cards"}</span>
             <div className="flex items-center gap-2">
               <Button ref={walletAccessTrigger} variant="ghost" size="compact" disabled={!ready} onClick={() => setWalletAccessOpen(true)} aria-label="Wallet access" className={workspaceStyles.accessButton}><ShieldCheck aria-hidden="true" className="size-4" /><span>Wallet access</span></Button>
-              <Button ref={addTrigger} size="compact" disabled={!ready || Boolean(currentSave)} onClick={() => selectTab("add")} aria-label="Add a card" data-testid="one-wallet-add"><Plus aria-hidden="true" className="size-4" />Add card</Button>
+              <NativeRouteAdd route={ROUTES.ONE_WALLET} owner={renderedOwnerId} context="wallet-add" enabled={ready && !currentSave} onActivate={() => selectTab("add")}>
+                <Button ref={addTrigger} size="compact" disabled={!ready || Boolean(currentSave)} onClick={() => selectTab("add")} aria-label="Add a card" data-testid="one-wallet-add"><Plus aria-hidden="true" className="size-4" />Add card</Button>
+              </NativeRouteAdd>
             </div>
           </div>
           <TopShellTabs
@@ -1239,29 +1241,15 @@ export function WalletWorkspace() {
           </div>
           </SwipeViews>
           </div>
-          <SettingsDetailPanel open={ready && activeTab === "add"} onOpenChange={open => { if (!open) returnToWalletView(); }} title="Add card" headerTextOverflow="wrap"
-            surfaceClassName={`${workspaceStyles.addPanel} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} bodyClassName={workspaceStyles.addBody}
-            desktopMaxWidth="560px" desktopMaxWidthClassName="sm:!max-w-[560px]"
-            onCloseAutoFocus={event => { event.preventDefault(); (saveJob.current ? pendingCardRef.current : addTrigger.current)?.focus({ preventScroll: true }); }}
-            footer={<div ref={setAddFooterHost} className={workspaceStyles.addFooter} />}>
-            {ready ? (
-              <SecureCardAddForm
-                backRoute={ROUTES.ONE_WALLET}
-                collectSecurityCode
-                showIntroduction={false}
-                getNetworkContext={vaultContext}
-                inSheet
-                footerHost={addFooterHost}
-                scanInToolbar
-                key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
-                active={activeTab === "add"}
-                initialNickname={offerNickname ?? undefined}
-                initialPan={filing?.pan}
-                onSubmit={beginSave}
-                onCancel={returnToWalletView}
-              />
-            ) : null}
-          </SettingsDetailPanel>
+          {ready ? <AdaptiveWalletCardForm
+            key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
+            open={activeTab === "add"} ownerId={renderedOwnerId ?? ""}
+            onReturnFocus={() => (saveJob.current ? pendingCardRef.current : addTrigger.current)?.focus({ preventScroll: true })}
+            backRoute={ROUTES.ONE_WALLET} collectSecurityCode showIntroduction={false}
+            getNetworkContext={vaultContext} inSheet scanInToolbar
+            initialNickname={offerNickname ?? undefined} initialPan={filing?.pan}
+            onSubmit={beginSave} onCancel={returnToWalletView}
+          /> : null}
           <SettingsDetailPanel open={ready && walletAccessOpen} onOpenChange={setWalletAccessOpen} title="Wallet access" description="Manage Wallet-wide permissions and sharing history."
             surfaceClassName={`${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} desktopMaxWidth="680px" desktopMaxWidthClassName="sm:!max-w-[680px]"
             onCloseAutoFocus={event => { event.preventDefault(); walletAccessTrigger.current?.focus({ preventScroll: true }); }}>

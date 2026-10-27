@@ -16,8 +16,9 @@ import styles from "./secure-card-add-form.module.css";
 import presentationStyles from "./wallet-connect-presentation.module.css";
 
 /** Raw capture exists only in this mounted owner surface and is released on exit. */
-export function WalletCardScanner({ active, disabled, backRoute, featured = false, showPhotoActions = true, compactControls = false, onRead, onBusyChange }: {
+export function WalletCardScanner({ active, disabled, backRoute, featured = false, showPhotoActions = true, compactControls = false, initialSource, onExit, onRead, onBusyChange }: {
   active: boolean; disabled: boolean; backRoute?: string; featured?: boolean; showPhotoActions?: boolean; compactControls?: boolean;
+  initialSource?: "camera" | "photos"; onExit?: () => void;
   onRead: (draft: CardScanDraft) => void; onBusyChange: (busy: boolean) => void;
 }) {
   const camera = useRef<HTMLInputElement>(null), gallery = useRef<HTMLInputElement>(null);
@@ -34,7 +35,7 @@ export function WalletCardScanner({ active, disabled, backRoute, featured = fals
     photoRef.current = null;
   }, []);
   const release = () => {
-    clearCaptureResources(); setPhoto(null); setLive(false); setBusy(false); busyCallback.current(false);
+    clearCaptureResources(); setPhoto(null); setLive(false); setBusy(false); busyCallback.current(false); onExit?.();
   };
   const pathname = usePathname();
   useBackLayer(backRoute ?? pathname, active && (photo || busy || live) ? 30 : 0, () => {
@@ -69,6 +70,12 @@ export function WalletCardScanner({ active, disabled, backRoute, featured = fals
     else if (source === "camera" && typeof navigator.mediaDevices?.getUserMedia === "function") { setLive(true); busyCallback.current(true); }
     else (source === "camera" ? camera : gallery).current?.click();
   };
+  const launched = useRef(false);
+  useEffect(() => {
+    if (!active || !initialSource || launched.current) return;
+    launched.current = true;
+    choose(initialSource);
+  }, [active, initialSource]);
   const scan = async () => {
     if (!photo || !validCardCorners(corners) || request.current || disabled || !active) return;
     const controller = new AbortController(); request.current = controller;
