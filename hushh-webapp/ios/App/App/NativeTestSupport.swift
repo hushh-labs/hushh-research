@@ -816,7 +816,7 @@ final class NativeVaultLayoutProbe {
                             "bottomProgress", "appScrollTop", "appScrollRange", "appScrollHeight", "appScrollClientHeight", "appScrollRootCount", "windowScrollRange", "oneRosterPresent",
                             "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
                             "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial",
-                            "routeKind", "globalErrorKind", "phoneGate"])
+                            "routeKind", "globalErrorKind", "phoneGate", "nativeChoiceBootstrap", "nativeChoiceReady", "nativeChoicePresented", "nativeChoiceBlocked"])
             var payload = [String: Any]()
             for (key, value) in values where keys.contains(key) {
                 guard let number = value as? NSNumber,
@@ -825,6 +825,9 @@ final class NativeVaultLayoutProbe {
             }
             self.sequence += 1
             payload["sequence"] = self.sequence
+            payload["nativeWebInteractive"] = webView.isUserInteractionEnabled
+            payload["nativeWebAXHidden"] = webView.accessibilityElementsHidden
+            payload["nativeWebInWindow"] = webView.window != nil
             // Read UIKit's current docked-keyboard layout guide independently
             // of the Capacitor height event consumed by CSS. A hardware/floating
             // keyboard need not reserve a full-width inset.
