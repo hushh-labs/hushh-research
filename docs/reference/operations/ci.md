@@ -2,8 +2,8 @@
 
 > **Staged branch preparation:** CI now recognizes `dev` and `uat` for strict
 > destination freshness and merge-queue validation. Existing branch routing and
-> manual deploy source rules remain active. Current Main is preserved; there is
-> no production-baseline rollback. See [branch preparation](./branch-governance.md#dev--uat-branch-preparation)
+> manual deploy source rules remain active. Current Main is preserved; application
+> restoration does not rewind Main or the database. See [branch preparation](./branch-governance.md#dev--uat-branch-preparation)
 > for the activation boundary and remaining promotion work.
 
 
@@ -75,6 +75,52 @@ Canonical pre-PR command:
 ```
 
 This command runs the same blocking local CI surface that feeds GitHub `PR Validation` and `CI Status Gate`. Use `./bin/hushh codex pre-pr --include-advisory` only when you intentionally want the wider non-blocking readiness lane too.
+
+## Recorded production restoration — 26 October 2026
+
+Normal releases keep their exact application SHA and environment acceptance chain:
+Dev acceptance before UAT; UAT acceptance before production. A normal manually
+requested Main smoke must test the dispatch commit itself. Its check cannot
+certify another checkout. Release checks verify the canonical producer, current
+attempt, complete bounded inventory and job identity; later failed reruns refuse
+stale success.
+
+The one-time Shared-experience restoration uses the pinned
+[`production-restoration.json`](../../../deploy/account-deletion/production-restoration.json)
+record. The separate **Production Recovery Validation Gate** certifies only that
+candidate, with an attempt-bound artifact. It does not create Dev/UAT acceptance
+or authorize other commits. Its result neither replaces nor invalidates ordinary
+Main smoke. Production admission requires both services built from source,
+disabled legacy Drive intake, no new capability activation and a governed manual
+operator. Credentials remain scoped to the production environment; Git push
+credentials are supplied only to the final trusted release-tagging step.
+
+The recovery workflow joins both immutable image builds before lifecycle fences.
+Its database gate inspects the installed contract without replaying migrations;
+a transactional writer barrier drains prior document writers and rejects new
+issuance. Retained storage remains configured while its recovery worker
+maintenance is disabled only after that barrier is verified. Candidate readback
+requires phone recovery, WorkOS, replacement-generation admission, document
+issuance and document work drain to be explicitly off.
+
+An immutable, run-bound artifact records the original serving pair before any
+release mutation. Retries recover that pair and accept only the original
+revisions or this same run's candidate as current traffic. Rollback qualifies the
+original destinations even when the failing candidate is unhealthy. An
+unconfirmed cleanup restoration remains blocked in the release receipt. The
+document barrier stays while a non-reader serves; removing it requires a
+separately qualified reader activation.
+
+**Deployment remains unverified until its release receipt and serving readback
+pass.** Operations source, hosted recovery validation and live application
+restoration are separate outcomes. No historical migration replay, Firebase
+rollback or fabricated UAT receipt is allowed.
+
+The selective-promotion handoff remains preserved separately. Its branch-baseline
+and application-SHA/approval-SHA mapping are not active. Its maintenance draft
+needs corrections for forced capacity inspection, dry-run checkpoint state and
+pre-mutation preparation failures. Do not import deployment-triggered maintenance
+or use the two historical UAT exceptions as production authority.
 
 ## Workflow catalog and naming
 

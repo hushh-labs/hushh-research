@@ -23,9 +23,9 @@
 #
 # Called from deploy-uat.yml / deploy-production.yml only after the release
 # classified healthy (no rollback fired). Requires `contents: write` on the
-# calling workflow and a checkout with push credentials persisted (the
-# actions/checkout default — do not add persist-credentials: false upstream
-# of this step).
+# calling workflow and push credentials at this step. Production supplies a
+# step-scoped GH_TOKEN via an ephemeral Git credential helper; checkout and
+# application build steps retain no persisted Git credentials.
 #
 # Env (all required except RUN_URL/ACTOR):
 #   ENVIRONMENT        uat | production

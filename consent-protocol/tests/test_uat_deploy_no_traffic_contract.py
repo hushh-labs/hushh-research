@@ -28,6 +28,7 @@ _BACKEND_RELEASE_TOOL_FIXTURES = (
     "scripts/ci/managed_capability_proof.py",
     "scripts/deploy/backend-deploy.sh",
     "scripts/deploy/backend-capacity-settings.sh",
+    "scripts/deploy/backend-app-surface-settings.sh",
     "scripts/deploy/verify-managed-vertex-runtime.sh",
     "scripts/deploy/commerce-preview-bindings.sh",
     "scripts/deploy/backend-model-settings.sh",
@@ -1818,7 +1819,7 @@ def test_production_release_verifies_provenance_and_publishes_evidence() -> None
         in workflow
     )
     assert (
-        'steps.final-state.outputs.frontend_serving }}" != "${{ steps.predeploy-state.outputs.frontend_revision'
+        'steps.final-state.outputs.frontend_serving }}" != "${{ (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision)'
         in workflow
     )
     assert 'if [ "$STATUS" != "healthy" ]; then' in workflow

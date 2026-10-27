@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve retained hosted-copy maintenance without enabling legacy Drive.
-
-Only bounded, non-secret booleans leave this process. Storage is maintained
-with intake off because paid copies and erasure obligations can outlive it.
-"""
+"""Resolve retained hosted-copy maintenance and preserve issued readers."""
 
 from __future__ import annotations
 
@@ -424,6 +420,7 @@ def main() -> int:
     parser.add_argument("--target-sha", default="")
     parser.add_argument("--required-ancestor", default="")
     parser.add_argument("--verify-previous", action="store_true")
+    parser.add_argument("--production-restoration", action="store_true")
     parser.add_argument("--json-output", type=Path)
     rollback = parser.add_mutually_exclusive_group()
     rollback.add_argument("--rollback-report", type=Path)
@@ -436,30 +433,34 @@ def main() -> int:
         parser.error("Hosted document release project/environment does not match")
     if _rollback_command(args, parser):
         return 0
-    result = subprocess.run(  # noqa: S603 -- Fixed secret resource; project is an argparse allowlist, no shell or payload arguments.
-        [
-            "gcloud",
-            "secrets",
-            "versions",
-            "access",
-            "latest",
-            "--secret=BACKEND_RUNTIME_CONFIG_JSON",
-            f"--project={args.project}",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        parser.exit(1, "Hosted document runtime policy could not be verified\n")
     try:
+        runtime = json.loads(
+            _cloud(
+                "secrets",
+                "versions",
+                "access",
+                "latest",
+                "--secret=BACKEND_RUNTIME_CONFIG_JSON",
+                f"--project={args.project}",
+            )
+        )
         mode = resolve(
-            json.loads(result.stdout),
+            runtime,
             project=args.project,
             environment=args.environment,
         )
+        if args.production_restoration:
+            mode = run_path(
+                str(ROOT / "deploy/drive/rebind_protected_document_backend.py")
+            )["restoration_mode"](
+                mode,
+                project=args.project,
+                target=args.target_sha,
+                verify_previous=args.verify_previous,
+            )
         if (
-            mode["configured"]
+            not args.production_restoration
+            and mode["configured"]
             and args.target_sha
             and not reader_supported(args.target_sha, args.required_ancestor)
         ):

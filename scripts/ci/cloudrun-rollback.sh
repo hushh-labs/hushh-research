@@ -43,7 +43,18 @@ if [[ "${manual_reader_guard}" == true ]]; then
     --service "${SERVICE}" --revision "${REVISION}"
 fi
 
-if [[ "$SERVICE" == "consent-protocol" ]]; then
+restoration_plan="${HUSHH_PRODUCTION_RESTORATION_PLAN:-}"
+if [[ -n "$restoration_plan" ]]; then
+  [[ "$PROJECT" == hushh-pda && "$REGION" == us-central1 ]] || {
+    echo "Recovery rollback requires canonical production." >&2; exit 1;
+  }
+  python3 deploy/account-deletion/restoration_operation.py rollback \
+    --sha "${HUSHH_PRODUCTION_RESTORATION_SHA:?recovery SHA required}" \
+    --run-id "${GITHUB_RUN_ID:?recovery run required}" --plan "$restoration_plan" \
+    --service "$SERVICE" --revision "$REVISION"
+fi
+
+if [[ "$SERVICE" == "consent-protocol" && -z "$restoration_plan" ]]; then
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   inspect=(gcloud run revisions describe "$REVISION" "--region=$REGION"
     '--format=value(metadata.labels.deploy-sha)')
