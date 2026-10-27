@@ -308,3 +308,102 @@ def test_recovery_health_failure_rolls_back_the_pair_and_preserves_normal_scope(
     other = "frontend" if failed_service == "backend" else "backend"
     assert observed[other + "_failure"] == ("true" if recovery == "true" else "false")
     assert observed["release_failed"] == "true"
+
+
+@pytest.mark.parametrize(
+    ("restoration", "fallback", "reservation"),
+    [
+        ("42", "", ["--candidate-service", "consent-protocol"]),
+        ("", "", []),
+        ("", "a" * 40, ["--additional-candidate-service", "consent-protocol"]),
+    ],
+)
+def test_recovery_reserves_only_its_real_candidate(tmp_path, restoration, fallback, reservation):
+    import os
+    import subprocess
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    step = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Enforce production database connection budget before deployment"
+    )
+    assert "RESTORATION_RUN" in step["env"]
+    # Capture the actual authored invocation without contacting a cloud provider.
+    timeout = tmp_path / "timeout"
+    timeout.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$CAPTURE"\n')
+    timeout.chmod(0o755)
+    capture = tmp_path / "args"
+    subprocess.run(  # noqa: S603 -- authored workflow with the provider command replaced.
+        ["bash", "-euc", step["run"]],
+        check=True,
+        timeout=5,
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RESTORATION_RUN": restoration,
+            "PHONE_ROLLBACK_SHA": fallback,
+            "CAPTURE": str(capture),
+        },
+    )
+    assert capture.read_text().splitlines() == [
+        "--signal=TERM",
+        "--kill-after=2s",
+        "295s",
+        "python3",
+        "scripts/ci/runtime-capacity-budget.py",
+        "--environment",
+        "production",
+        *reservation,
+    ]
+
+
+@pytest.mark.parametrize("flag", ["false", "true", None, "secret"])
+def test_workos_retry_admits_only_exact_closed_restoration(operation, monkeypatch, flag):
+    import subprocess
+
+    monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
+    import workos_rollout as closed_workos
+
+    source = operation.record["sourceSha"]
+    original = operation.record["previousServices"]["consent-protocol"]
+
+    def main_only(sha):
+        if sha != original["sha"]:
+            raise subprocess.CalledProcessError(1, ["git", "merge-base"])
+        return True
+
+    def authority(path):
+        assert Path(path) == ROOT / "deploy/account-deletion/compatibility_restoration.py"
+
+        def qualify(sha):
+            if sha != source:
+                raise ValueError("unreviewed_restoration_source")
+
+        return {"qualify_source": qualify}
+
+    monkeypatch.setattr(closed_workos, "source_capable", main_only)
+    monkeypatch.setattr(closed_workos, "run_path", authority)
+    with pytest.raises(ValueError, match="unreviewed_restoration_source"):
+        closed_workos._capable("e" * 40, "e" * 40)
+    with pytest.raises(ValueError, match="restoration_project_invalid"):
+        closed_workos.qualify("hushh-pda-dev", source)
+    revision = copy.deepcopy(operation.revisions[original["revision"]])
+    revision["metadata"].update(creationTimestamp="2026-10-26T06:00:00Z")
+    revision["metadata"]["labels"]["deploy-sha"] = source
+    if flag is not None:
+        row = {"name": "WORKOS_SSO_ENABLED", "value": flag}
+        if flag == "secret":
+            row = {"name": "WORKOS_SSO_ENABLED", "valueFrom": {"secretKeyRef": {"name": "flag"}}}
+        revision["spec"]["containers"][0]["env"].append(row)
+    with pytest.raises(subprocess.CalledProcessError):
+        closed_workos.revision_inventory([revision])
+    with pytest.raises(subprocess.CalledProcessError):
+        closed_workos.revision_inventory([revision], "e" * 40)
+    if flag == "false":
+        assert closed_workos.revision_inventory([revision], source)[original["revision"]][
+            "direct_sso_false"
+        ]
+    else:
+        with pytest.raises(ValueError, match="not_directly_closed"):
+            closed_workos.revision_inventory([revision], source)
