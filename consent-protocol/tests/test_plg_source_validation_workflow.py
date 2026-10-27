@@ -110,7 +110,15 @@ def test_full_source_runner_is_unchanged_with_bounded_workers_and_local_database
     step = _step("Run full canonical source backend manifest")
     assert step["working-directory"] == "source/consent-protocol"
     assert step["env"]["ONE_COMMAND_TEST_DATABASE_URL"] == (
-        "postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/plg_test"
+        "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
+    )
+    canonical = yaml.load(
+        (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,  # noqa: S506 -- strings/sequences/mappings only.
+    )
+    assert (
+        _workflow()["jobs"]["validate"]["services"]["postgres"]["env"]
+        == (canonical["jobs"]["protocol-check"]["services"]["command-postgres"]["env"])
     )
     assert step["env"]["PYTEST_XDIST_AUTO_NUM_WORKERS"] == "2"
     assert step["env"]["DB_OFFLINE"] == "1"
