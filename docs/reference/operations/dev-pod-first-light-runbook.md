@@ -686,6 +686,17 @@ are idempotent; changed numbers, owners or attempts refuse. It preserves the
 original assignment and spend slot. A fresh admission check compares that exact
 record before worker-side provider operations, without holding SQL connections
 across cloud work. This port is not yet connected to a live project creator.
+The optional hosted `bootstrapContract` retains the full authored plan and exact
+executor order on the original assignment. Its checkpoint uses the existing
+`provisionAttempt`: one generation CAS admits intent, then retains sanitized
+observations. A duplicate intent grants no second mutation. Missing acknowledgment
+or a failed step requires reconciliation; it never terminates a concurrent winner.
+Only successful observed prefixes can resume. A fully observed plan needs a fresh
+SQL acknowledgment to settle, with no cloud token mint or provider mutation.
+Hosted notification work requires both general and notification-specific intent
+acknowledgments; its specialized observation must persist before general progress
+can be reused. Existing notification SQL remains BYOC-only, so this composition
+alone does not enable hosted Gmail or establish live connector acceptance.
 These ceilings are not usage metering or provider spending enforcement.
 Completing live operations still needs exact image/model admission, bounded cost
 checks, retained project creation outcomes, per-owner custody and verified cleanup. A deployment marker,

@@ -1104,17 +1104,15 @@ class PersonalAgentProvisioningService:
             # Flip to provisioned now that the read authority is live.
             await _record("provisioned", handle=handle)
         except Exception as exc:
-            # Mark the row failed so the state is legible to the user and to the
-            # reconcile sweep. Best-effort and swallowed: this is an error path
+            # Preserve uncertain provider/checkpoint work for reconciliation;
+            # ordinary failures retain the existing terminal handling. Best-effort: this is an error path
             # already, and a registry write that fails here must not replace the
             # original exception with a less informative one. When it does fail the
             # row stays in ``provisioning``, which is exactly the pre-existing
             # behaviour -- so this can only ever add information, never remove it.
-            if record is not None:
-                try:
-                    await record("provisioning_failed")
-                except Exception:
-                    logger.exception("personal_agent.failed_status_write_failed")
+            from hushh_mcp.services.provision_attempt import retain_provision_failure
+
+            await retain_provision_failure(record, exc, logger)
             # Surface the stall to the user, then re-raise UNCHANGED: the feed is a
             # projection, never an error handler.
             await record_provisioning_feed_event_safe(

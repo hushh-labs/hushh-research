@@ -24,6 +24,9 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
 
+from hushh_mcp.services.byoc_bootstrap_execution import BootstrapContinuation
+from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
+
 logger = logging.getLogger(__name__)
 
 # Receipts are versioned so a later reader can tell which shape it is looking at
@@ -522,13 +525,10 @@ class NoSubstrateRequired:
 
 
 class HushhFederatedSubstrate:
-    """Hushh federates into the user's project, applies their plan, keeps a receipt.
+    """Apply a target project's plan through its authorized bootstrap identity.
 
-    Keyless by construction: the token is minted by impersonating the USER's own
-    bootstrap service account and is short-lived. ``mint_bootstrap_token`` fails loudly
-    rather than falling back to hushh's identity, because a silent fallback would let
-    this keep working after the user revoked their grant -- which is precisely the
-    control being relied on.
+    Tokens are short-lived; revoked impersonation never falls back to hub authority.
+    The hosting adapter owns managed versus user-owned authority and admission.
     """
 
     ensurer_id = "hushh_federated"
@@ -543,7 +543,9 @@ class HushhFederatedSubstrate:
         bootstrap_factory: Any = None,
         token_minter: Any = None,
         dry_run: Optional[bool] = None,
+        continuation: BootstrapContinuation | None = None,
     ) -> None:
+        self._continuation = continuation or BootstrapContinuation()
         self._project = project
         self._region = region
         self._bootstrap_sa = bootstrap_sa
@@ -556,13 +558,9 @@ class HushhFederatedSubstrate:
         self._dry_run = True if dry_run is None else bool(dry_run)
 
     def _render_plan(self, spec: Any) -> dict[str, Any]:
-        if self._plan_renderer is not None:
-            return self._plan_renderer(spec)
-        from hushh_mcp.services.user_gcp_backend import UserGcpBackend  # noqa: PLC0415
+        from hushh_mcp.services.byoc_bootstrap_execution import render_bootstrap_plan
 
-        return UserGcpBackend(
-            user_project=self._project, user_region=self._region
-        ).render_bootstrap_plan(spec)
+        return render_bootstrap_plan(self._plan_renderer, spec, self._project, self._region)
 
     async def ensure(self, spec: Any, *, grant_ref: str = "") -> SubstrateReceipt:
         from hushh_mcp.services.user_gcp_bootstrap import (  # noqa: PLC0415
@@ -619,7 +617,7 @@ class HushhFederatedSubstrate:
         ids, digest = resource_ids(plan), plan_digest(plan)
 
         token = None
-        if not self._dry_run:
+        if not self._dry_run and not self._continuation.complete(plan, self._bootstrap_sa):
             minter = self._token_minter or mint_bootstrap_token
             try:
                 token = await asyncio.to_thread(minter, bootstrap_sa=self._bootstrap_sa)
@@ -658,22 +656,22 @@ class HushhFederatedSubstrate:
 
         factory = self._bootstrap_factory or UserGcpBootstrap
         try:
-            bootstrap = factory(
+            from hushh_mcp.services.byoc_bootstrap_execution import execute_bootstrap
+
+            outcome = await execute_bootstrap(
+                factory=factory,
                 project=self._project,
                 region=self._region,
                 token=token,
                 bootstrap_sa=self._bootstrap_sa,
-            )
-            # The spec's substrate observer rides through to_thread as a kwarg. The
-            # applier's loop is synchronous on that worker thread, which is exactly
-            # why the observer contract is sync -- see PodSpec.on_substrate_step.
-            outcome = await asyncio.to_thread(
-                bootstrap.apply,
-                plan,
+                plan=plan,
                 dry_run=self._dry_run,
                 on_step=getattr(spec, "on_substrate_step", None),
                 notification_checkpoint=getattr(spec, "on_notification_checkpoint", None),
+                continuation=self._continuation,
             )
+        except ProvisionReconciliationRequired:
+            raise
         except BootstrapError:
             return SubstrateReceipt(
                 False,

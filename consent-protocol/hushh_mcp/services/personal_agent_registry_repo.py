@@ -320,6 +320,18 @@ class PersonalAgentRegistryRepo:
         )
         return bool(result.data and result.data[0].get("current") is True)
 
+    async def publish_hosted_bootstrap_checkpoint(
+        self, *, owner_id: str, attempt_id: str, checkpoint: dict[str, Any]
+    ) -> bool:
+        """CAS one bootstrap intent/result in the existing retained attempt."""
+        result = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.publish_hosted_pod_bootstrap_checkpoint(:owner,:attempt,"
+            "CAST(:checkpoint AS jsonb)) AS admitted",
+            {"owner": owner_id, "attempt": attempt_id, "checkpoint": json.dumps(checkpoint)},
+        )
+        return bool(result.data and result.data[0].get("admitted") is True)
+
     async def publish_provision(
         self,
         *,

@@ -1248,44 +1248,23 @@ class UserGcpBootstrap:
         calls = self.plan_calls(plan)
         if dry_run:
             return {"dryRun": True, "project": self._project, "steps": calls}
-        if not self._token:
-            raise BootstrapError(
-                "apply(dry_run=False) needs an impersonated bootstrap token; see "
-                "mint_bootstrap_token. It will not fall back to hushh's own identity."
-            )
-
         from copy import deepcopy
 
         results: list[dict[str, Any]] = deepcopy(completed_prefix or [])
         notification_steps = {
             call["step"] for call in calls if call.get("capability") == "gmail_notifications"
         }
-        if results and (
-            checkpoint is None
-            or len(results) >= len(calls)
-            or any(result.get("ok") is not True for result in results)
-            or [result.get("step") for result in results]
-            != [call["step"] for call in calls[: len(results)]]
-        ):
-            raise BootstrapError("Bootstrap continuation requires a verified successful prefix")
+        from hushh_mcp.services.byoc_bootstrap_execution import validate_bootstrap_continuation
+
+        validate_bootstrap_continuation(calls, results, checkpoint)
+
+        if not self._token and not (results and len(results) == len(calls)):
+            raise BootstrapError(
+                "apply(dry_run=False) needs an impersonated bootstrap token; see "
+                "mint_bootstrap_token. It will not fall back to hushh's own identity."
+            )
 
         def _checkpoint(phase: str, step: str) -> None:
-            selected_checkpoint = (
-                notification_checkpoint
-                if step in notification_steps and notification_checkpoint is not None
-                else checkpoint
-            )
-            if selected_checkpoint is None:
-                return
-            if (
-                selected_checkpoint is notification_checkpoint
-                and step == "gmail_notification_prerequisite"
-            ):
-                # This preflight reads authority only. An unavailable capability
-                # has no notification mutation to admit or resource to retain.
-                return
-            from copy import deepcopy
-
             # Only qualified resource/IAM observations leave the applier. Error
             # text and provider response bodies can contain private configuration.
             safe = [
@@ -1304,13 +1283,18 @@ class UserGcpBootstrap:
                     }
                 }
                 for result in results
-                if selected_checkpoint is not notification_checkpoint
-                or result["step"] in notification_steps
             ]
-            if selected_checkpoint is notification_checkpoint:
-                for result in safe:
-                    result["capability"] = "gmail_notifications"
-            selected_checkpoint(phase, step, safe)
+            from hushh_mcp.services.byoc_bootstrap_execution import publish_bootstrap_checkpoints
+
+            publish_bootstrap_checkpoints(
+                phase=phase,
+                step=step,
+                completed=safe,
+                notification_steps=notification_steps,
+                checkpoint=checkpoint,
+                notification_checkpoint=notification_checkpoint,
+                managed=plan.get("tenancy") == "hussh-hosted",
+            )
 
         headers = {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
         unmet: set[str] = set()

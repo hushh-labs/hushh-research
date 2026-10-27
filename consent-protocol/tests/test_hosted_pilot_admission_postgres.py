@@ -40,7 +40,7 @@ def pg(monkeypatch):
         server.stop()
 
 
-def _policy(pg, *, expired=False, numbers_known=True):
+def _policy(pg, *, expired=False, numbers_known=True, bootstrap=False):
     from hushh_mcp.managed_ai_config import load_profile, profile_hash
 
     profile = load_profile("dev")
@@ -48,6 +48,22 @@ def _policy(pg, *, expired=False, numbers_known=True):
     if not numbers_known:
         for assignment in assignments:
             assignment["projectNumber"] = None
+    if bootstrap:
+        for assignment in assignments:
+            assignment["bootstrapContract"] = (
+                bootstrap(assignment)
+                if callable(bootstrap)
+                else {
+                    "plan": {
+                        "tenancy": "hussh-hosted",
+                        "target": {
+                            "project": assignment["project"],
+                            "region": assignment["region"],
+                        },
+                    },
+                    "steps": ["enable_services", "kms_key"],
+                }
+            )
     pg.execute(
         "INSERT INTO public.hosted_pod_pilot_policy(policy_id,environment,source_revision,"
         "image_digest,assignments,model_binding,work_budget_cents,cleanup_reserve_cents,created_at,expires_at)"

@@ -4,6 +4,21 @@
 -- the migration/runtime database administrator (currently the same SQL role).
 BEGIN;
 
+CREATE OR REPLACE FUNCTION public.valid_hosted_bootstrap_contract(value jsonb, project text, region text)
+RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT CASE WHEN jsonb_typeof(value)='object' AND value ?& ARRAY['plan','steps']
+   AND value-ARRAY['plan','steps']='{}'::jsonb
+   AND jsonb_typeof(value->'plan')='object' AND jsonb_typeof(value->'steps')='array'
+   AND octet_length(value::text)<=49152
+ THEN coalesce(value->'plan'->'target'=jsonb_build_object('project',project,'region',region)
+   AND value->'plan'->>'tenancy'='hussh-hosted'
+   AND jsonb_array_length(value->'steps') BETWEEN 1 AND 64
+   AND (SELECT count(*)=count(DISTINCT entry) AND bool_and(
+       jsonb_typeof(entry)='string' AND entry#>>'{}' ~ '^[a-z][a-z0-9_]{0,100}$')
+       FROM jsonb_array_elements(value->'steps') entry),false)
+ ELSE false END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.valid_hosted_pod_pilot_assignments(assignments jsonb)
 RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
  SELECT CASE WHEN jsonb_typeof(assignments)='array' AND jsonb_array_length(assignments)=2
@@ -12,7 +27,9 @@ RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
        AND count(DISTINCT a->>'projectNumber')=count(a->>'projectNumber')
        AND bool_and(jsonb_typeof(a)='object'
          AND a ?& ARRAY['ownerHash','hushhId','project','projectNumber','region']
-         AND a - ARRAY['ownerHash','hushhId','project','projectNumber','region']='{}'::jsonb
+         AND a - ARRAY['ownerHash','hushhId','project','projectNumber','region','bootstrapContract']='{}'::jsonb
+         AND (NOT (a ? 'bootstrapContract') OR public.valid_hosted_bootstrap_contract(
+           a->'bootstrapContract',a->>'project',a->>'region'))
          AND jsonb_typeof(a->'ownerHash')='string'
          AND a->>'ownerHash' ~ '^sha256:[a-f0-9]{64}$'
          AND jsonb_typeof(a->'hushhId')='string'
@@ -123,6 +140,10 @@ BEGIN
    'modelBinding',policy.model_binding,
    'assignment',assignment,'workBudgetCents',policy.work_budget_cents/2,
    'cleanupReserveCents',policy.cleanup_reserve_cents/2,'expiresAt',policy.expires_at);
+ IF assignment ? 'bootstrapContract' THEN
+   admission := admission || jsonb_build_object('bootstrapContractHash',
+     encode(digest((assignment->'bootstrapContract')::text,'sha256'),'hex'));
+ END IF;
  reservation := reservation || jsonb_build_object('hostedAdmission',admission);
  prior_setting := current_setting('hussh.hosted_pilot_reservation',true);
  PERFORM set_config('hussh.hosted_pilot_reservation',policy.policy_id::text || ':' || attempt_id,true);
@@ -227,6 +248,101 @@ CREATE OR REPLACE FUNCTION public.hosted_pod_pilot_admission_current(
                     AND a->>'ownerHash'='sha256:' || encode(digest(r.user_id,'sha256'),'hex')
                     AND CASE WHEN n=1 THEN p.attempt_a ELSE p.attempt_b END=p_attempt)
             );
+$$;
+
+-- One serialized bootstrap step in the existing operation. A duplicate intent
+-- never authorizes a second mutation; a duplicate observed receipt is harmless.
+CREATE OR REPLACE FUNCTION public.publish_hosted_pod_bootstrap_checkpoint(
+ p_owner text, p_attempt text, checkpoint jsonb
+) RETURNS boolean LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE
+ r public.personal_agent_registry%ROWTYPE;
+ attempt jsonb;
+ admission jsonb;
+ prior jsonb;
+ contract jsonb;
+ expected integer;
+ prior_results jsonb;
+ results jsonb;
+ result jsonb;
+ prior_setting text;
+BEGIN
+ IF jsonb_typeof(checkpoint) IS DISTINCT FROM 'object'
+ OR octet_length(checkpoint::text)>65536
+ OR checkpoint-ARRAY['version','ownerId','attemptId','expectedGeneration','generation',
+     'planDigest','phase','step','completed']<>'{}'::jsonb
+ OR (checkpoint ?& ARRAY['version','ownerId','attemptId','expectedGeneration','generation',
+     'planDigest','phase','step','completed']) IS NOT TRUE
+ OR checkpoint->'version' IS DISTINCT FROM '1'::jsonb
+ OR checkpoint->>'ownerId' IS DISTINCT FROM p_owner
+ OR checkpoint->>'attemptId' IS DISTINCT FROM p_attempt
+ OR (checkpoint->>'phase' IN ('intent','observed')) IS NOT TRUE
+ OR jsonb_typeof(checkpoint->'step') IS DISTINCT FROM 'string'
+ OR (checkpoint->>'step' ~ '^[a-z][a-z0-9_]{0,100}$') IS NOT TRUE
+ OR jsonb_typeof(checkpoint->'planDigest') IS DISTINCT FROM 'string'
+ OR jsonb_typeof(checkpoint->'expectedGeneration') IS DISTINCT FROM 'number'
+ OR jsonb_typeof(checkpoint->'generation') IS DISTINCT FROM 'number'
+ OR (checkpoint->>'expectedGeneration' ~ '^[0-9]{1,4}$') IS NOT TRUE
+ OR (checkpoint->>'generation' ~ '^[1-9][0-9]{0,3}$') IS NOT TRUE
+ OR jsonb_typeof(checkpoint->'completed') IS DISTINCT FROM 'array'
+ THEN RETURN false; END IF;
+ expected := (checkpoint->>'expectedGeneration')::integer;
+ IF (checkpoint->>'generation')::integer<>expected+1 THEN RETURN false; END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended(p_owner,171));
+ PERFORM pg_advisory_xact_lock(hashtextextended(p_owner,198));
+ SELECT * INTO r FROM public.personal_agent_registry WHERE user_id=p_owner FOR UPDATE;
+ IF NOT FOUND OR r.deployment_target IS DISTINCT FROM 'gcp'
+ OR r.backend_metadata ? 'erasure' THEN RETURN false; END IF;
+ attempt := r.backend_metadata->'provisionAttempt';
+ admission := attempt->'hostedAdmission';
+ prior := attempt->'evidence'->'reserved'->'hostedCheckpoint';
+ contract := admission->'assignment'->'bootstrapContract';
+ IF attempt->>'ownerId' IS DISTINCT FROM p_owner
+ OR attempt->>'attemptId' IS DISTINCT FROM p_attempt
+ OR attempt->>'phase' IS DISTINCT FROM 'reserved'
+ OR public.valid_hosted_bootstrap_contract(contract,
+    admission->'assignment'->>'project',admission->'assignment'->>'region') IS NOT TRUE
+ OR admission->>'bootstrapContractHash' IS DISTINCT FROM encode(digest(contract::text,'sha256'),'hex')
+ OR checkpoint->>'planDigest' IS DISTINCT FROM admission->>'bootstrapContractHash'
+ THEN RETURN false; END IF;
+ IF prior=checkpoint THEN RETURN checkpoint->>'phase'='observed'; END IF;
+ IF expected<>coalesce((prior->>'generation')::integer,0) THEN RETURN false; END IF;
+ prior_results := coalesce(prior->'completed','[]'::jsonb);
+ results := checkpoint->'completed';
+ IF checkpoint->>'phase'='intent' THEN
+   IF public.hosted_pod_pilot_admission_current(p_owner,p_attempt,admission,
+       coalesce(attempt->'evidence'->'reserved'->'projectObservation','null'::jsonb)) IS NOT TRUE
+   OR (prior IS NOT NULL AND prior->>'phase'<>'observed')
+   OR results<>prior_results
+   OR EXISTS (SELECT 1 FROM jsonb_array_elements(results) entry WHERE entry->'ok' IS DISTINCT FROM 'true'::jsonb)
+   OR contract->'steps'->>jsonb_array_length(results) IS DISTINCT FROM checkpoint->>'step'
+   THEN RETURN false; END IF;
+ ELSE
+   -- Retain an already-authorized result after expiry. This permits no new work.
+   IF prior->>'phase' IS DISTINCT FROM 'intent'
+   OR prior->>'step' IS DISTINCT FROM checkpoint->>'step'
+   OR jsonb_array_length(results)<>jsonb_array_length(prior_results)+1
+   OR results-(jsonb_array_length(results)-1)<>prior_results THEN RETURN false; END IF;
+   result := results->(jsonb_array_length(results)-1);
+   IF jsonb_typeof(result) IS DISTINCT FROM 'object'
+   OR result-ARRAY['step','status','ok','skipped','resourceObservation',
+        'bindingObservations','operatorBindingObservations']<>'{}'::jsonb
+   OR result->>'step' IS DISTINCT FROM checkpoint->>'step'
+   OR jsonb_typeof(result->'ok') IS DISTINCT FROM 'boolean'
+   OR jsonb_typeof(result->'status') IS DISTINCT FROM 'number'
+   OR (result->>'status' ~ '^[0-9]{1,3}$') IS NOT TRUE
+   OR (result->>'status')::integer>599 THEN RETURN false; END IF;
+ END IF;
+ prior_setting := current_setting('hussh.provision_attempt',true);
+ PERFORM set_config('hussh.provision_attempt',p_attempt,true);
+ attempt := attempt || jsonb_build_object('evidence',coalesce(attempt->'evidence','{}'::jsonb) ||
+   jsonb_build_object('reserved',coalesce(attempt->'evidence'->'reserved','{}'::jsonb) ||
+      jsonb_build_object('hostedCheckpoint',checkpoint)));
+ UPDATE public.personal_agent_registry SET backend_metadata=jsonb_set(
+     backend_metadata,'{provisionAttempt}',attempt),updated_at=clock_timestamp() WHERE user_id=p_owner;
+ PERFORM set_config('hussh.provision_attempt',coalesce(prior_setting,''),true);
+ RETURN true;
+END;
 $$;
 
 COMMIT;
