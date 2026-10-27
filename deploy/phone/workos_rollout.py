@@ -88,15 +88,28 @@ def source_capable(sha: str) -> bool:
     return False
 
 
-def _source(labels: dict) -> str:
+def _capable(sha: str, restoration_sha: str | None) -> bool:
+    if restoration_sha is not None and sha == restoration_sha:
+        run_path(str(ROOT / "deploy/account-deletion/compatibility_restoration.py"))[
+            "qualify_source"
+        ](sha)
+        # Conservative classification: the exact recovery must still be
+        # explicitly closed, including its immutable audit history.
+        return True
+    return source_capable(sha)
+
+
+def _source(labels: dict, restoration_sha: str | None = None) -> str:
     if not isinstance(labels, dict):
         raise ValueError("workos_history_labels_invalid")
     sha = labels.get("deploy-sha")
-    source_capable(sha)
+    _capable(sha, restoration_sha)
     return sha
 
 
-def revision_inventory(rows: list) -> dict[str, dict]:
+def revision_inventory(
+    rows: list, restoration_sha: str | None = None
+) -> dict[str, dict]:
     if not isinstance(rows, list) or not rows or len(rows) >= LIMIT:
         raise ValueError("workos_revision_inventory_incomplete")
     result = {}
@@ -112,7 +125,7 @@ def revision_inventory(rows: list) -> dict[str, dict]:
         ):
             raise ValueError("workos_revision_identity_invalid")
         _instant(created)
-        sha = _source(labels)
+        sha = _source(labels, restoration_sha)
         containers = spec.get("containers") or []
         if len(containers) != 1:
             raise ValueError("workos_revision_container_unknown")
@@ -123,7 +136,7 @@ def revision_inventory(rows: list) -> dict[str, dict]:
             and flags[0].get("value") == "false"
             and "valueFrom" not in flags[0]
         )
-        capable = source_capable(sha)
+        capable = _capable(sha, restoration_sha)
         if capable and not closed:
             raise ValueError("workos_capable_revision_was_not_directly_closed")
         result[name] = {
@@ -188,7 +201,12 @@ def _completion_closed(template: dict) -> bool:
 
 
 def review_history(
-    events: list, inventory: dict[str, dict], *, project: str, until: str
+    events: list,
+    inventory: dict[str, dict],
+    *,
+    project: str,
+    until: str,
+    restoration_sha: str | None = None,
 ) -> int:
     if not isinstance(events, list) or len(events) >= LIMIT:
         raise ValueError("workos_audit_history_incomplete")
@@ -207,7 +225,7 @@ def review_history(
             raise ValueError("workos_audit_scope_invalid")
         for template, completed_name, completion in _audit_templates(event):
             metadata = template.get("metadata") or {}
-            sha = _source(metadata.get("labels") or {})
+            sha = _source(metadata.get("labels") or {}, restoration_sha)
             name = metadata.get("name") or completed_name
             if completed_name and name != completed_name:
                 raise ValueError("workos_audit_revision_ambiguous")
@@ -228,7 +246,7 @@ def review_history(
         completed = completions.get(name)
         if completed is not None and completed[0] != sha:
             raise ValueError("workos_audit_request_completion_mismatch")
-        if source_capable(sha) and (
+        if _capable(sha, restoration_sha) and (
             completed == (sha, False)
             or not (
                 (actual is not None and actual["direct_sso_false"])
@@ -252,7 +270,7 @@ def _document(command: list[str]) -> object:
     return json.loads(run(command, timeout=120))
 
 
-def _revisions(project: str) -> dict[str, dict]:
+def _revisions(project: str, restoration_sha: str | None = None) -> dict[str, dict]:
     return revision_inventory(
         _document(
             [
@@ -266,7 +284,8 @@ def _revisions(project: str) -> dict[str, dict]:
                 f"--limit={LIMIT}",
                 "--format=json",
             ]
-        )
+        ),
+        restoration_sha,
     )
 
 
@@ -377,10 +396,14 @@ def database_evidence(project: str) -> dict:
     return {**evidence, "owned_proxy_exited": True}
 
 
-def qualify(project: str) -> dict:
+def qualify(project: str, restoration_sha: str | None = None) -> dict:
     if project not in TARGETS:
         raise ValueError("workos_rollout_project_invalid")
-    before = _revisions(project)
+    if restoration_sha is not None:
+        if project != "hushh-pda":
+            raise ValueError("workos_restoration_project_invalid")
+        _capable(restoration_sha, restoration_sha)
+    before = _revisions(project, restoration_sha)
     until = datetime.now(timezone.utc).isoformat()
     query = (
         f'logName="projects/{project}/logs/cloudaudit.googleapis.com%2Factivity" '
@@ -401,9 +424,11 @@ def qualify(project: str) -> dict:
             "--format=json",
         ]
     )
-    count = review_history(events, before, project=project, until=until)
+    count = review_history(
+        events, before, project=project, until=until, restoration_sha=restoration_sha
+    )
     database = database_evidence(project)
-    after = _revisions(project)
+    after = _revisions(project, restoration_sha)
     if before != after:
         raise ValueError("workos_revision_inventory_changed_during_proof")
     return {
@@ -417,6 +442,7 @@ def qualify(project: str) -> dict:
         "history_start": HISTORY_START,
         "history_until": until,
         "source_anchor": SOURCE_ANCHOR,
+        "restoration_source": restoration_sha,
         "audit_event_count": count,
         "audit_truncated": False,
         "revisions": sorted(before.values(), key=lambda row: row["revision"]),
@@ -429,11 +455,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", choices=tuple(TARGETS), required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--restoration-sha", help="Exact reviewed production recovery source only"
+    )
     args = parser.parse_args()
     try:
         # A failed rerun must not leave an earlier passing receipt at this path.
         args.output.write_text(json.dumps({"qualification": "refused"}) + "\n")
-        receipt = qualify(args.project)
+        receipt = qualify(args.project, args.restoration_sha)
         args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     except Exception as exc:
         # Never print subprocess output, SQL errors, credentials or cloud bodies.
