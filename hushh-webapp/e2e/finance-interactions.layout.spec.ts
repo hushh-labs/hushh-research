@@ -189,6 +189,8 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       expect(measurements.railOverflow).toBe(false);
       const movers = page.getByRole("region", { name: "Market movers", exact: true });
       await movers.scrollIntoViewIfNeeded();
+      await expect(movers.getByRole("button")).toHaveCount(6);
+      await expect(movers.locator("[data-market-mover-empty]")).toHaveCount(0);
       if (width >= 1024) {
         const sectorCard = page.getByRole("region", { name: "Sector rotation", exact: true }).locator(":scope > [data-surface-tone]");
         const moverCard = movers.locator(":scope > [data-surface-tone]");

@@ -50,6 +50,16 @@ export function registerFinanceScreenChecks(
         await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
         const overview = page.getByTestId("portfolio-overview-fixture");
         await overview.scrollIntoViewIfNeeded();
+        const importAction = overview.getByRole("button", { name: "Import portfolio", exact: true });
+        const manageAction = overview.getByRole("button", { name: "Manage portfolio", exact: true });
+        const importBox = (await importAction.boundingBox())!;
+        const manageBox = (await manageAction.boundingBox())!;
+        expect(importBox.x + importBox.width).toBeLessThanOrEqual(manageBox.x);
+        expect(Math.abs(importBox.y - manageBox.y)).toBeLessThanOrEqual(1);
+        await importAction.click();
+        await expect(page.getByTestId("action-result")).toHaveText("Import portfolio");
+        await manageAction.click();
+        await expect(page.getByTestId("action-result")).toHaveText("Open sources");
         await expect(overview.getByText("Invested", { exact: true })).toBeVisible();
         expect(await overview.getByRole("heading", { name: "Your portfolio" }).evaluate(el => getComputedStyle(el).fontSize)).toBe("14px");
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
