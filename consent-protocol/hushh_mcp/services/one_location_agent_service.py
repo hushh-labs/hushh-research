@@ -2079,6 +2079,9 @@ class OneLocationAgentService:
             "canReceiveLocation": bool(row.get("key_id")),
             "connectedFromContacts": bool(row.get("connected_from_contacts")),
             "isRia": bool(row.get("is_ria")),
+            # Migration 433: what the person does, in their own words. Public
+            # with the name, so it travels wherever the name travels.
+            "roleLabel": str(row.get("role_label") or "").strip() or None,
         }
 
     @staticmethod
@@ -4881,11 +4884,11 @@ class OneLocationAgentService:
         directory_sql = f"""
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
-              a.public_person_ref, a.photo_url,
+              a.public_person_ref, a.photo_url, a.role_label,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
             FROM (
               SELECT
-                profile.user_id, profile.public_person_ref,
+                profile.user_id, profile.public_person_ref, profile.role_label,
                 COALESCE(
                   {usable_name("identity.display_name")},
                   {usable_name("marketplace.display_name")},
@@ -4948,11 +4951,20 @@ class OneLocationAgentService:
               WHERE profile.user_id <> :owner_user_id
                 AND profile.public_profile_status = 'active'
                 AND (
-                  EXISTS (
-                    SELECT 1
-                    FROM vault_keys vault
-                    WHERE vault.user_id = profile.user_id
-                      AND vault.vault_status = 'active' AND vault.environment_enrolled_at IS NOT NULL
+                  -- Migration 433: an explicit presence choice outranks the
+                  -- vault rule. TRUE lists a person by name with no vault at
+                  -- all (website-only accounts); FALSE hides them from
+                  -- strangers; NULL keeps the environment-enrolled-vault rule.
+                  -- Relationships below lift all three, as before.
+                  profile.directory_listed = TRUE
+                  OR (
+                    profile.directory_listed IS NULL
+                    AND EXISTS (
+                      SELECT 1
+                      FROM vault_keys vault
+                      WHERE vault.user_id = profile.user_id
+                        AND vault.vault_status = 'active' AND vault.environment_enrolled_at IS NOT NULL
+                    )
                   )
                   OR EXISTS (
                     SELECT 1
