@@ -1,0 +1,131 @@
+-- Dev only. Configuration binds two fixed owners/projects; the existing provision
+-- journal remains the sole operation authority. No policy row is seeded.
+-- These are trusted-control-plane coordination guards, not a boundary against
+-- the migration/runtime database administrator (currently the same SQL role).
+BEGIN;
+
+CREATE OR REPLACE FUNCTION public.valid_hosted_pod_pilot_assignments(assignments jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT CASE WHEN jsonb_typeof(assignments)='array' AND jsonb_array_length(assignments)=2
+ THEN (SELECT count(DISTINCT a->>'ownerHash')=2
+       AND count(DISTINCT a->>'hushhId')=2 AND count(DISTINCT a->>'project')=2
+       AND count(DISTINCT a->>'projectNumber')=count(a->>'projectNumber')
+       AND bool_and(jsonb_typeof(a)='object'
+         AND a ?& ARRAY['ownerHash','hushhId','project','projectNumber','region']
+         AND a - ARRAY['ownerHash','hushhId','project','projectNumber','region']='{}'::jsonb
+         AND jsonb_typeof(a->'ownerHash')='string'
+         AND a->>'ownerHash' ~ '^sha256:[a-f0-9]{64}$'
+         AND jsonb_typeof(a->'hushhId')='string'
+         AND a->>'hushhId' ~ '^[A-Za-z0-9_-]{1,128}$'
+         AND jsonb_typeof(a->'project')='string'
+         AND a->>'project' ~ '^[a-z][a-z0-9-]{4,28}[a-z0-9]$'
+         AND (a->'projectNumber'='null'::jsonb OR (
+           jsonb_typeof(a->'projectNumber')='string'
+           AND a->>'projectNumber' ~ '^[1-9][0-9]{0,19}$'))
+         AND jsonb_typeof(a->'region')='string'
+         AND a->>'region' ~ '^[a-z]+-[a-z]+[0-9]+$')
+       FROM jsonb_array_elements(assignments) AS a)
+ ELSE false END;
+$$;
+
+CREATE TABLE IF NOT EXISTS public.hosted_pod_pilot_policy (
+ singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+ policy_id uuid NOT NULL UNIQUE,
+ environment text NOT NULL CHECK (environment='dev'),
+ source_revision text NOT NULL CHECK (source_revision ~ '^[a-f0-9]{40}$'),
+ image_digest text NOT NULL CHECK (image_digest ~ '^sha256:[a-f0-9]{64}$'),
+ assignments jsonb NOT NULL CHECK (public.valid_hosted_pod_pilot_assignments(assignments) IS TRUE),
+ attempt_a text CHECK (attempt_a ~ '^[a-f0-9]{32}$'),
+ attempt_b text CHECK (attempt_b ~ '^[a-f0-9]{32}$'),
+ CHECK (attempt_a IS NULL OR attempt_b IS NULL OR attempt_a<>attempt_b),
+ work_budget_cents integer NOT NULL CHECK (work_budget_cents=40000),
+ cleanup_reserve_cents integer NOT NULL CHECK (cleanup_reserve_cents=10000),
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ expires_at timestamptz NOT NULL,
+ CHECK (expires_at>created_at AND expires_at<=created_at+interval '7 days')
+);
+COMMENT ON TABLE public.hosted_pod_pilot_policy IS
+ 'One non-renewable $500 dev pilot allocation, including $100 cleanup. Each owner holds $200 work and $50 cleanup. Hash-only assignments; no credentials. Existing provisionAttempt owns operations. These ceilings are not measured usage or provider spend enforcement; billable activation requires bounded operation/cost admission.';
+
+CREATE OR REPLACE FUNCTION public.guard_hosted_pod_pilot_policy()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+ IF TG_OP='UPDATE' AND to_jsonb(NEW)-ARRAY['attempt_a','attempt_b'] =
+    to_jsonb(OLD)-ARRAY['attempt_a','attempt_b'] THEN
+   IF OLD.attempt_a IS NULL AND NEW.attempt_a IS NOT NULL
+      AND NEW.attempt_b IS NOT DISTINCT FROM OLD.attempt_b
+      AND current_setting('hussh.hosted_pilot_reservation',true)=
+          NEW.policy_id::text || ':' || NEW.attempt_a THEN RETURN NEW; END IF;
+   IF OLD.attempt_b IS NULL AND NEW.attempt_b IS NOT NULL
+      AND NEW.attempt_a IS NOT DISTINCT FROM OLD.attempt_a
+      AND current_setting('hussh.hosted_pilot_reservation',true)=
+          NEW.policy_id::text || ':' || NEW.attempt_b THEN RETURN NEW; END IF;
+ END IF;
+ RAISE EXCEPTION 'hosted pod pilot allocation is retained' USING ERRCODE='42501';
+END;
+$$;
+DROP TRIGGER IF EXISTS hosted_pod_pilot_policy_retained ON public.hosted_pod_pilot_policy;
+CREATE TRIGGER hosted_pod_pilot_policy_retained BEFORE UPDATE OR DELETE
+ON public.hosted_pod_pilot_policy FOR EACH ROW
+EXECUTE FUNCTION public.guard_hosted_pod_pilot_policy();
+DROP TRIGGER IF EXISTS hosted_pod_pilot_policy_truncate ON public.hosted_pod_pilot_policy;
+CREATE TRIGGER hosted_pod_pilot_policy_truncate BEFORE TRUNCATE
+ON public.hosted_pod_pilot_policy FOR EACH STATEMENT
+EXECUTE FUNCTION public.guard_hosted_pod_pilot_policy();
+
+CREATE OR REPLACE FUNCTION public.claim_hosted_pod_pilot_provision(
+ owner_id text, attempt_id text, observed jsonb, desired jsonb
+) RETURNS jsonb LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE
+ policy public.hosted_pod_pilot_policy%ROWTYPE;
+ assignment jsonb;
+ slot integer;
+ reservation jsonb;
+ admission jsonb;
+ prior_setting text;
+BEGIN
+ IF desired->>'deployment_target' IS DISTINCT FROM 'gcp' THEN
+   RAISE EXCEPTION 'hosted pilot requires explicit managed placement' USING ERRCODE='42501';
+ END IF;
+ -- Retain the existing owner/erasure lock ordering before policy observation.
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,171));
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,198));
+ SELECT * INTO policy FROM public.hosted_pod_pilot_policy WHERE singleton FOR UPDATE;
+ IF NOT FOUND OR policy.expires_at<=clock_timestamp()
+    OR desired ?| ARRAY['user_cloud_project','user_cloud_region','user_cloud_bootstrap_sa']
+ THEN RAISE EXCEPTION 'hosted pod pilot admission unavailable' USING ERRCODE='42501'; END IF;
+ SELECT a,ordinality INTO assignment,slot FROM jsonb_array_elements(policy.assignments) WITH ORDINALITY AS entries(a,ordinality)
+ WHERE a->>'ownerHash'='sha256:' || encode(digest(owner_id,'sha256'),'hex')
+   AND a->>'hushhId'=desired->>'hushh_id';
+ IF assignment IS NULL THEN
+   RAISE EXCEPTION 'hosted pod owner is not admitted' USING ERRCODE='42501';
+ END IF;
+ IF (slot=1 AND policy.attempt_a IS NOT NULL) OR (slot=2 AND policy.attempt_b IS NOT NULL) THEN
+   RAISE EXCEPTION 'hosted pilot attempt requires reconciliation' USING ERRCODE='42501';
+ END IF;
+ reservation := public.claim_personal_agent_provision(
+   owner_id,attempt_id,observed,desired);
+ admission := jsonb_build_object(
+   'version',1,'policyId',policy.policy_id,'environment',policy.environment,
+   'sourceRevision',policy.source_revision,'imageDigest',policy.image_digest,
+   'assignment',assignment,'workBudgetCents',policy.work_budget_cents/2,
+   'cleanupReserveCents',policy.cleanup_reserve_cents/2,'expiresAt',policy.expires_at);
+ reservation := reservation || jsonb_build_object('hostedAdmission',admission);
+ prior_setting := current_setting('hussh.hosted_pilot_reservation',true);
+ PERFORM set_config('hussh.hosted_pilot_reservation',policy.policy_id::text || ':' || attempt_id,true);
+ UPDATE public.hosted_pod_pilot_policy
+ SET attempt_a=CASE WHEN slot=1 THEN attempt_id ELSE attempt_a END,
+     attempt_b=CASE WHEN slot=2 THEN attempt_id ELSE attempt_b END WHERE singleton;
+ PERFORM set_config('hussh.hosted_pilot_reservation',coalesce(prior_setting,''),true);
+ prior_setting := current_setting('hussh.provision_attempt',true);
+ PERFORM set_config('hussh.provision_attempt',attempt_id,true);
+ UPDATE public.personal_agent_registry SET backend_metadata=jsonb_set(
+   backend_metadata,'{provisionAttempt}',reservation)
+ WHERE user_id=owner_id AND backend_metadata->'provisionAttempt'->>'attemptId'=attempt_id;
+ IF NOT FOUND THEN RAISE EXCEPTION 'hosted pod reservation changed' USING ERRCODE='42501'; END IF;
+ PERFORM set_config('hussh.provision_attempt',coalesce(prior_setting,''),true);
+ RETURN reservation;
+END;
+$$;
+
+COMMIT;

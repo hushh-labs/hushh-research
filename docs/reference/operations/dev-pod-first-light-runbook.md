@@ -674,13 +674,27 @@ runtime changes.
 
 `PrivateGcpDeployment` is the common rendering/readback contract. The hosted
 adapter currently supports pure planning through the existing spec resolver and
-refuses resource creation, updates and erasure. Completing those operations needs
-transactional admission in the existing provisioning authority, retained project
-creation outcomes, per-owner custody and verified cleanup. A deployment marker,
+refuses resource creation, updates and erasure. Dev migration 973 adds two fixed
+project assignments and retained cost-reservation references around the existing
+provision journal, without seeding a policy. Each owner holds US$200 for work and
+US$50 for cleanup. A lost journal or retry cannot replenish that allocation.
+Project IDs can be reserved before creation; capture Resource Manager's actual
+project number in the provision evidence before accepting numeric readback.
+These ceilings are not usage metering or provider spending enforcement.
+Completing live operations still needs exact image/model admission, bounded cost
+checks, retained project creation outcomes, per-owner custody and verified cleanup. A deployment marker,
 an environment flag or a successful model request supplies none of that authority.
 
-For the temporarily shared dev AI connection, pin `inferenceProject` to the current
-dev managed profile. Runtime mode `hosted_pod_adc` uses the hosted pod's own attached
+The current shared UAT text runtime explicitly selects Azure OpenAI. Its keyless
+bridge trusts the shared Google workload subject; a new pod needs its own Entra
+federation rather than copying or impersonating that identity. Cached operator
+Azure sessions did not cover that bridge tenant at the October 26 inspection.
+The owner authorized the existing Gemini bridge as the dev-pilot fallback when
+the Azure connection cannot be reused with separate pod identities. This is an
+explicit pilot processing choice, not a claim that shared One currently uses Vertex.
+
+For this authorized dev fallback, pin `inferenceProject` to the dev Vertex profile.
+Runtime mode `hosted_pod_adc` uses the hosted pod's own attached
 service account and verifies the metadata principal before releasing a token to
 Vertex. Grant that exact account only the reviewed inference permissions in the
 selected model project; do not copy hub credentials. Compute, storage, KMS and

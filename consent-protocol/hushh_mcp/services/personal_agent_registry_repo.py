@@ -263,10 +263,15 @@ class PersonalAgentRegistryRepo:
         """
         owner = str(intent.get("user_id") or "")
         attempt = uuid.uuid4().hex
+        claim_function = (
+            "claim_hosted_pod_pilot_provision"
+            if intent.get("deployment_target") == "gcp"
+            else "claim_personal_agent_provision"
+        )
         try:
             result = await asyncio.to_thread(
                 self._db().execute_raw,
-                "SELECT public.claim_personal_agent_provision(:owner,:attempt,"
+                f"SELECT public.{claim_function}(:owner,:attempt,"
                 "CAST(:observed AS jsonb),CAST(:intent AS jsonb)) AS reservation",
                 {
                     "owner": owner,
