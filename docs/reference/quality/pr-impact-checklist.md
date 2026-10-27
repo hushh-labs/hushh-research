@@ -26,6 +26,34 @@ Mandatory impact mapping for any change touching Kai, PKM, routes, or mobile par
 - Docs updated (exact file list)
 - Verification commands executed
 
+## Surface placement review
+
+For a new or moved screen, card, control or sheet, record the person's job and
+why the owning route is the right place. Reuse the existing shell, Morphy UX and
+app-ui layers; do not introduce another navigation or settings system.
+
+| Review | Required evidence |
+|---|---|
+| Ownership | Existing feature owner, authored route/action, and one primary place to find it |
+| Navigation | Parent, Back, cancel and Finish destinations; returning users resume their originating Settings screen |
+| Availability | Shared, GCP and Azure behavior from actual placement/capabilities; one relevant setup action when unavailable |
+| State | Loading, unlocked/locked, offline, updating, retry and terminal outcomes without indefinite spinners |
+| Layout | Narrow, tablet and desktop containers; app-bar title/icon; reachable mouse, keyboard and touch controls |
+| Information | Primary task first; storage, provider and relay details remain contextual settings |
+
+Apply this to private-agent surfaces consistently:
+
+- Hosting and AI belong in Settings; new onboarding chooses Hosting before one AI step.
+- Files uses its dedicated explorer; organization is inline and storage details live in Files settings.
+- Browser uses One's task card and contextual preview with same-session control.
+- Puppy uses its BYOC chat mode and compact composer controls; Shared explains availability.
+- Existing scheduled tasks use task-management navigation rather than a detached floating button.
+- Updates show one durable operation across Settings and Feed.
+- Cloud removal and account deletion remain distinct actions with review, progress and repair.
+
+This is a review procedure, not a claim that every deployed surface has passed.
+Record actual route/runtime evidence in the existing readiness memo.
+
 ## Fill-In Template
 
 ```md

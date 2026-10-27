@@ -1,6 +1,6 @@
 "use client";
 
-import { MapPin } from "@/components/icons";
+import { CheckCircle, MapPin } from "@/components/icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import type { CalendarInvitation } from "@/lib/services/google-calendar-service";
@@ -91,7 +91,10 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), work
         const organizer = isOrganizer(attendee);
         const name = attendee.self ? "You" : (organizer ? event.organizer?.displayName : null) || attendee.display_name || person?.displayName || attendee.email || "Guest";
         return <li key={`${attendee.email || "guest"}:${index}`} title={attendee.email || undefined}>
-          <InvitationAvatar name={name} email={attendee.email} photoUrl={invitationPhotoUrl(people, attendee.email, accountEmail, accountPhotoUrl)} />
+          <span className={styles.guestAvatar} data-guest-avatar>
+            <InvitationAvatar name={name} email={attendee.email} photoUrl={invitationPhotoUrl(people, attendee.email, accountEmail, accountPhotoUrl)} />
+            {attendee.response_status === "accepted" ? <CheckCircle aria-hidden="true" weight="fill" data-accepted-indicator className={styles.guestAccepted} /> : null}
+          </span>
           <span className={styles.guestCopy}><span>{name}</span>{organizer && attendee.email && name !== attendee.email ? <small>{attendee.email}</small> : null}<small>{organizer ? `Organiser · ${guestStatus(attendee.response_status)}` : guestStatus(attendee.response_status)}</small></span>
         </li>;
       })}</ul>

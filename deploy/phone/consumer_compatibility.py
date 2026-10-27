@@ -42,27 +42,40 @@ REVIEWED_EXCEPTIONS = (
     "hushh_mcp/services/account_firebase_mutations.py",
     "hushh_mcp/services/phone_transfer_authority.py",
 )
+ERASURE_REPORTING_BASELINE = "0c32dc1cba0e5a0a4d7a3f9c257baf32e2e4b14b"
+ERASURE_REPORTING_REVIEWED = "d5f5175957cecbfa1ba0394d5dcf7621cb6385b2"
+ERASURE_REPORTING_EXCEPTIONS = (
+    "api/routes/account.py",
+    "hushh_mcp/services/account_deletion_lifecycle_service.py",
+)
 
 
 def _source(sha: str, path: str) -> bytes:
     return run(["git", "show", f"{sha}:consent-protocol/{path}"])
 
 
-def qualify_consumers(fallback: str, primary: str) -> dict:
-    """Require identical 431 consumers; retain only the reviewed 425/427 exception.
+def _reviewed_change(path: str, previous: bytes, current: bytes) -> bool:
+    if path in REVIEWED_EXCEPTIONS:
+        before, after = BASELINE, REVIEWED
+    elif path in ERASURE_REPORTING_EXCEPTIONS:
+        before, after = ERASURE_REPORTING_BASELINE, ERASURE_REPORTING_REVIEWED
+    else:
+        return False
+    return previous == _source(before, path) and current == _source(after, path)
 
-    The exception pins whole files, including the changed functions. It never
-    ignores arbitrary SSO additions or excludes an authority-bearing module.
+
+def qualify_consumers(fallback: str, primary: str) -> dict:
+    """Require identical consumers or an ordered, reviewed whole-file change.
+
+    The reporting pair preserves deletion/phone authority and the integer drain
+    facade. It does not qualify old migration replay or a frontend rollback.
+    No authority-bearing module is excluded from the hash inventory.
     WorkOS non-activation remains an independent, live release requirement.
     """
     checked = {}
     for path in (*UNCHANGED, *REVIEWED_EXCEPTIONS):
         previous, current = _source(fallback, path), _source(primary, path)
-        if previous != current and not (
-            path in REVIEWED_EXCEPTIONS
-            and previous == _source(BASELINE, path)
-            and current == _source(REVIEWED, path)
-        ):
+        if previous != current and not _reviewed_change(path, previous, current):
             raise ValueError("phone_rollback_consumer_change_unqualified")
         checked[path] = hashlib.sha256(current).hexdigest()
     return {"fallback": fallback, "primary": primary, "source_sha256": checked}

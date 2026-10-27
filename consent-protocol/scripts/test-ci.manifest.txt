@@ -455,6 +455,7 @@ tests/test_frontend_prebuilt_image_contract.py
 tests/test_production_image_promotion_contract.py
 tests/test_uat_backend_image_promotion.py
 tests/test_predecessor_acceptance_contract.py
+tests/test_production_emergency.py
 
 # First-party document renewal: expiry is not revocation, but revoked lineage
 # can never renew or regain authority through a later grant/duplicate token.
@@ -1492,6 +1493,7 @@ tests/test_todo_wallet_inventory_postgres.py
 
 tests/test_world_model_research_context.py
 tests/test_pwm_runtime_probe.py
+tests/scripts/test_azure_readiness_deadline.py
 tests/scripts/test_probe_azure_openai_readiness.py
 
 tests/services/test_drive_packet_public_summary.py
