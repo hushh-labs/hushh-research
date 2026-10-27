@@ -335,9 +335,16 @@ def _fixture_app(pool, recorded, baseline, outcomes):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "browser_engine,provider", [("chromium", "google.com"), ("webkit", "apple.com")]
+    "browser_engine,provider,readback_failure",
+    [
+        ("chromium", "google.com", False),
+        ("webkit", "apple.com", False),
+        ("webkit", "apple.com", True),
+    ],
 )
-async def test_recorded_phone_browser_journeys(database_url, monkeypatch, browser_engine, provider):
+async def test_recorded_phone_browser_journeys(
+    database_url, monkeypatch, browser_engine, provider, readback_failure
+):
     pool = await asyncpg.create_pool(database_url, min_size=1, max_size=4, command_timeout=5)
     engine = create_engine(database_url, pool_size=3, max_overflow=1)
     try:
@@ -345,12 +352,41 @@ async def test_recorded_phone_browser_journeys(database_url, monkeypatch, browse
         recorded = RecordedFirebase(provider)
         _install_ports(monkeypatch, pool, engine, recorded)
         outcomes = []
-        app = _fixture_app(pool, recorded, {}, outcomes)
+        baseline = {}
+        app = _fixture_app(pool, recorded, baseline, outcomes)
         async with browser_backend(app) as origin:
-            result = await run_browser_process(
-                {"backend": origin, "engine": browser_engine, "provider": provider},
-                script="phone-conflict-flow.mjs",
-            )
+            try:
+                result = await run_browser_process(
+                    {
+                        "backend": origin,
+                        "engine": browser_engine,
+                        "provider": provider,
+                        "transferReadbackFailure": readback_failure,
+                    },
+                    script="phone-conflict-flow.mjs",
+                )
+            except AssertionError as error:
+                if not readback_failure:
+                    raise
+                report = json.loads(str(error).removeprefix("Browser loop failed: "))
+                assert report["code"] == "PHONE_BROWSER_LOOP_FAILED"
+                assert report["stage"] == "transfer_readback"
+                assert report["diagnostics"]["transfer"] == {
+                    "get_requests": 1,
+                    "get_responses": 0,
+                    "get_failures": 1,
+                    "confirm_requests": 1,
+                    "erase_requests": 0,
+                    "click_started": True,
+                    "click_completed": True,
+                }
+                async with pool.acquire() as connection:
+                    await _assert_preserved(connection, recorded, baseline, "transfer")
+                assert outcomes == ["recover", "delete"]
+                return
+        assert not readback_failure, (
+            "A blocked authoritative status read must not pass the browser gate"
+        )
         assert result["feature"] == "phone_conflict"
         assert result["engine"] == browser_engine
         assert outcomes == ["recover", "delete", "transfer", "devices"]

@@ -1259,6 +1259,20 @@ outcomes retain mutation intent and block conflicting deployments until reconcil
 a timeout does not prove that Google stopped the operation. No completion is claimed
 for partial or unresolved work. Cleanup outcome is separate from release health and
 capacity admission; diagnostic reporting does not add another unconditional cloud scan.
+Maintenance publishes an unfinished checkpoint before its worker-health preflight,
+preserving restored service journals and capacity-bridge intent. Historical UAT
+failures without an artifact require exact frozen owner/workflow source, actual
+checkout, completed attempt and runner-output proof that the checkpoint barrier
+was never crossed. This proves no provider mutation; it grants no cleanup or
+release-health authority. Unknown source, incomplete logs, cancellation and failed
+checkpoint uploads remain blocked. Every attempt is inspected, including earlier
+attempts of a currently running retry; never delete failed runs to clear admission.
+A saved maintenance checkpoint may precede the README writer. Only the existing
+attempt/job/source-qualified saved-checkpoint path may restore that shape; legacy
+pending-drain archives still require the marker. Artifact ID, size, digest, bounded
+regular ZIP members and completion receipt remain mandatory. Unfinished journals
+are restored unchanged and continue to block mutation admission. New publishers
+write the README with the initial checkpoint before live health checks.
 Retained database-connected revisions remain in admission accounting until safe
 retirement. Zero minimum instances and aggregate SQL peaks do not prove that older
 generations have finished their admitted requests. A shortage defers deployment.

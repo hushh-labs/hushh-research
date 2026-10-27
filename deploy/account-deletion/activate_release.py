@@ -14,7 +14,7 @@ import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,7 +30,6 @@ CONTRACT_SQL = """SELECT CASE WHEN EXISTS(SELECT 1 FROM pg_trigger
 def run(argv, *, env=None, timeout=120):
     if not argv or argv[0] not in {"git", "gcloud", "psql", "bash"}:
         raise ValueError("unsupported_release_tool")
-    # Fixed tool allowlist; arguments are separate, validated release values.
     result = subprocess.run(  # noqa: S603
         argv, env=env, capture_output=True, text=True, timeout=timeout
     )
@@ -45,65 +44,40 @@ def supports_current_contract(sha: str, *, rollback: bool = False) -> bool:
     return SOURCE["supports_current_contract"](sha, run=run, rollback=rollback)
 
 
-def serving_candidate(
-    service, revisions, *, expected_sha, expected_run, restoration=False
-):
-    traffic = [
-        row
-        for row in service.get("status", {}).get("traffic", [])
-        if int(row.get("percent") or 0) > 0
-    ]
-    if len(traffic) != 1 or int(traffic[0].get("percent") or 0) != 100:
-        raise ValueError("candidate_does_not_have_exact_serving_traffic")
-    name = traffic[0].get("revisionName")
-    matches = [row for row in revisions if row.get("metadata", {}).get("name") == name]
-    if len(matches) != 1:
-        raise ValueError("candidate_revision_unresolved")
-    labels = matches[0]["metadata"].get("labels", {})
-    if (
-        labels.get("deploy-sha") != expected_sha
-        or labels.get("github-run-id") != expected_run
-        or labels.get("account-deletion-contract") != "v201"
-    ):
-        raise ValueError("candidate_provenance_unqualified")
-    if not (
-        restoration and supports_restoration_source(expected_sha)
-    ) and not supports_current_contract(expected_sha):
-        raise ValueError("candidate_lacks_current_provider_contract")
-    return name
+def _supports_activation_source(sha, *, rollback=False, restoration=False):
+    return supports_current_contract(sha, rollback=rollback) or (
+        restoration and not rollback and supports_restoration_source(sha)
+    )
 
 
-def legacy_inventory(
-    service, revisions, candidate, *, phone_floor=False, restoration=False
-):
-    legacy = set()
-    for row in revisions:
-        metadata = row.get("metadata", {})
-        name, labels = metadata.get("name", ""), metadata.get("labels", {})
-        if not re.fullmatch(r"[a-z0-9-]+", name):
-            raise ValueError("invalid_revision_name")
-        supported = supports_current_contract(
-            labels.get("deploy-sha", ""), rollback=phone_floor
-        )
-        if restoration and not phone_floor:
-            supported = supported or supports_restoration_source(
-                labels.get("deploy-sha", "")
-            )
-        if labels.get("account-deletion-contract") != "v201" or not supported:
-            legacy.add(name)
-    if candidate in legacy:
-        raise ValueError("candidate_is_legacy")
-    tags = set()
-    for row in service.get("status", {}).get("traffic", []):
-        if row.get("revisionName") not in legacy:
-            continue
-        if int(row.get("percent") or 0) > 0:
-            raise ValueError("legacy_revision_still_serves")
-        if row.get("tag"):
-            if not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", row["tag"]):
-                raise ValueError("invalid_legacy_tag")
-            tags.add(row["tag"])
-    return sorted(legacy), sorted(tags)
+def serving_candidate(service, revisions, *, expected_sha, expected_run, restoration=False):
+    return retirement_owner().serving_candidate(
+        service,
+        revisions,
+        expected_sha=expected_sha,
+        expected_run=expected_run,
+        supports=partial(_supports_activation_source, restoration=restoration),
+    )
+
+
+@lru_cache(maxsize=1)
+def retirement_owner():
+    spec = importlib.util.spec_from_file_location(
+        "activation_retirement", Path(__file__).with_name("activation_retirement.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def legacy_inventory(service, revisions, candidate, *, phone_floor=False, restoration=False):
+    return retirement_owner().legacy_inventory(
+        service,
+        revisions,
+        candidate,
+        supports=partial(_supports_activation_source, restoration=restoration),
+        phone_floor=phone_floor,
+    )
 
 
 @contextmanager
@@ -441,6 +415,29 @@ def activate(args, evidence):
     service, revisions, candidate = observe(args)
     qualify_database(args, save)
     evidence["database_preflight"] = "qualified"
+    if args.project == "hushh-pda" and supports_current_contract(
+        args.expected_sha, rollback=True
+    ):
+        service, revisions, candidate = observe(args)
+        evidence.update(
+            schema_version=1,
+            kind="account-lifecycle-activation",
+            project=args.project,
+            region=args.region,
+            service=args.backend_service,
+            sha=args.expected_sha,
+            run_id=args.expected_run_id,
+            required_provider_contract=2,
+            **retirement_owner().production_boundary(
+                service,
+                revisions,
+                candidate,
+                supports=supports_current_contract,
+                fence_required=args.fence_required,
+            ),
+        )
+        if evidence.get("status") == "pending_activation":
+            return
     triggered = configure_scheduler(args, save)
     verify_scheduler_delivery(args, evidence, save, triggered)
     retire_incompatible_revisions(args, evidence, service, revisions, candidate)

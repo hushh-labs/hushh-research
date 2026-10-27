@@ -1,7 +1,7 @@
 """Qualify one reviewed historical checkpoint-guard failure, without authority.
 
 The caller supplies the latest authenticated run/job, its bounded official job
-log, and Git blob IDs resolved at its explicit reviewed source SHA. This module performs no
+log, and Git blob IDs resolved at AUDITED_SOURCE_SHA. This module performs no
 I/O and never returns log text, credentials, a checkpoint, or mutation authority.
 Unknown evidence remains a refusal; the ordinary checkpoint guard still owns
 all other failures and the caller must continue checking older maintenance.
@@ -10,26 +10,25 @@ all other failures and the caller must continue checking older maintenance.
 from __future__ import annotations
 
 import re
+import json
 from datetime import datetime, timedelta
 from typing import Any
 
 AUDITED_SOURCE_SHA = "f454c67bceefa9829c6825a65d907f8cdd4e6069"
+AUDITED_SOURCE_SHAS = frozenset(
+    {
+        AUDITED_SOURCE_SHA,
+        "2c720061b7a711ded7d3f822f67c72d73d98e6e2",
+        "c738ff0b975d9a326664f9af356eea2dc7d90125",
+        "dce2e32866b6ff7369b58e6695b599e57c946ad7",
+    }
+)
 # Verified with git show <sha>:<path> | git hash-object --stdin. In this source,
 # --apply calls assert_checkpoint_publication before restore_state or mutations.
 AUDITED_SOURCE_BLOBS = {
     "scripts/ci/uat-retention-maintenance.py": "17b8ac515413c893efa980d3cd74301af09762ca",
     ".github/workflows/capacity-maintenance.yml": "3345c20d2ec1f7d33e5665596af8878e9c9a538e",
 }
-_SOURCE_BLOB_PROFILES = {
-    AUDITED_SOURCE_SHA: AUDITED_SOURCE_BLOBS,
-    "2c720061b7a711ded7d3f822f67c72d73d98e6e2": AUDITED_SOURCE_BLOBS,
-    "c738ff0b975d9a326664f9af356eea2dc7d90125": AUDITED_SOURCE_BLOBS,
-    "dce2e32866b6ff7369b58e6695b599e57c946ad7": {
-        "scripts/ci/uat-retention-maintenance.py": "34050aa25db19afe6004d97fdc76bda7de9c6471",
-        ".github/workflows/capacity-maintenance.yml": "3345c20d2ec1f7d33e5665596af8878e9c9a538e",
-    },
-}
-AUDITED_SOURCE_SHAS = frozenset(_SOURCE_BLOB_PROFILES)
 MAX_LOG_BYTES = 2 * 1024 * 1024
 _JOB = "UAT bounded revision cleanup"
 _CHECKOUT = "Checkout mutation tooling and rollback history"
@@ -65,100 +64,6 @@ _PREPARE_COMMAND = (
 )
 _TIMESTAMP = re.compile(r"^\ufeff?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z (.*)$")
 _STYLE = re.compile(r"(?:\x1b|\^\[)\[[0-9;]*m")
-_RAW_LINE = re.compile(r"^\ufeff?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) (.*)$")
-
-
-def expected_source_blobs(source_sha: object) -> dict[str, str] | None:
-    """Return an independent copy of an explicit reviewed profile, or refuse."""
-    profile = _SOURCE_BLOB_PROFILES.get(source_sha) if isinstance(source_sha, str) else None
-    return dict(profile) if profile is not None else None
-
-
-def _utc(value: object) -> datetime | None:
-    if (
-        not isinstance(value, str)
-        or re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", value) is None
-    ):
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-def _step_window(job: dict[str, Any], name: str) -> tuple[datetime, datetime] | None:
-    step = next(item for item in job["steps"] if item["name"] == name)
-    started, completed = _utc(step.get("started_at")), _utc(step.get("completed_at"))
-    if started is None or completed is None or completed < started:
-        return None
-    # GitHub's step API records whole seconds, while raw logs retain fractions.
-    return started, completed + timedelta(seconds=1)
-
-
-def raw_log_matches(log: str, job: dict[str, Any], source_sha: str) -> bool:
-    """Closed diagnostic only: validate raw official logs without inventing steps."""
-    if (
-        not isinstance(log, str)
-        or not log
-        or len(log) > MAX_LOG_BYTES
-        or not isinstance(job, dict)
-        or not _steps_match(job)
-        or not isinstance(source_sha, str)
-        or source_sha not in AUDITED_SOURCE_SHAS
-    ):
-        return False
-    try:
-        if len(log.encode("utf-8")) > MAX_LOG_BYTES:
-            return False
-    except UnicodeError:
-        return False
-    checkout_window = _step_window(job, _CHECKOUT)
-    prepare_window = _step_window(job, _PREPARE)
-    if checkout_window is None or prepare_window is None:
-        return False
-    records = []
-    for line in log.splitlines():
-        match = _RAW_LINE.fullmatch(line)
-        if match is None or (at := _utc(match[1])) is None:
-            return False
-        records.append((at, _STYLE.sub("", match[2])))
-    contents = [content for _, content in records]
-    checkout = [index for index, content in enumerate(contents) if content == _CHECKOUT_COMMAND]
-    if len(checkout) != 1:
-        return False
-    position = checkout[0]
-    if (
-        contents[position + 1 : position + 2] != [source_sha]
-        or not checkout_window[0]
-        <= records[position][0]
-        <= records[position + 1][0]
-        < checkout_window[1]
-    ):
-        return False
-    groups = [
-        index
-        for index, content in enumerate(contents)
-        if content == "##[group]Run set -euo pipefail"
-        and contents[index + 1 : index + 7] == list(_PREPARE_COMMAND)
-    ]
-    if len(groups) != 1:
-        return False
-    start = groups[0]
-    end = next(
-        (index for index in range(start + 7, len(contents)) if contents[index] == "##[endgroup]"),
-        None,
-    )
-    if end is None:
-        return False
-    return (
-        not any(line.startswith("##[group]") for line in contents[start + 1 : end])
-        and [line for line in contents[start:end] if line.startswith("  APPLY:")]
-        == ["  APPLY: true"]
-        and contents[end + 1 : end + 3] == [_DIAGNOSTIC, _EXIT]
-        and all(prepare_window[0] <= at < prepare_window[1] for at, _ in records[start : end + 3])
-        and [line for line in contents if "Hosted maintenance stopped:" in line] == [_DIAGNOSTIC]
-        and [line for line in contents if "##[error]" in line] == [_EXIT]
-    )
 
 
 def _steps_match(job: dict[str, Any]) -> bool:
@@ -167,7 +72,9 @@ def _steps_match(job: dict[str, Any]) -> bool:
         return False
     numbers = []
     for step, name in zip(steps, _STEP_NAMES, strict=True):
-        conclusion = "failure" if name == _PREPARE else "skipped" if name == _SAVE else "success"
+        conclusion = (
+            "failure" if name == _PREPARE else "skipped" if name == _SAVE else "success"
+        )
         if (
             not isinstance(step, dict)
             or step.get("name") != name
@@ -189,7 +96,7 @@ def _log_matches(log: str, source_sha: str, job: dict[str, Any]) -> bool:
             return False
     except UnicodeError:
         return False
-    if _RAW_LINE.fullmatch(log.splitlines()[0]):
+    if _stamp(log.splitlines()[0].lstrip("\ufeff").partition(" ")[0]) is not None:
         return raw_log_matches(log, job, source_sha)
     records: dict[str, list[str]] = {}
     last_step = -1
@@ -213,14 +120,19 @@ def _log_matches(log: str, source_sha: str, job: dict[str, Any]) -> bool:
     if set(records) != set(_STEP_NAMES) - {_SAVE}:
         return False
     checkout = records[_CHECKOUT]
-    positions = [index for index, content in enumerate(checkout) if content == _CHECKOUT_COMMAND]
-    if len(positions) != 1 or checkout[positions[0] + 1 : positions[0] + 2] != [source_sha]:
+    positions = [
+        index for index, content in enumerate(checkout) if content == _CHECKOUT_COMMAND
+    ]
+    if len(positions) != 1 or checkout[positions[0] + 1 : positions[0] + 2] != [
+        source_sha
+    ]:
         return False
     prepare = records[_PREPARE]
     if (
         prepare[:7] != ["##[group]Run set -euo pipefail", *_PREPARE_COMMAND]
         or prepare.count("##[endgroup]") != 1
-        or [line for line in prepare if line.startswith("  APPLY:")] != ["  APPLY: true"]
+        or [line for line in prepare if line.startswith("  APPLY:")]
+        != ["  APPLY: true"]
     ):
         return False
     return (
@@ -269,7 +181,8 @@ def qualify_guard_only_run(
         # A later guard-only attempt cannot account for an earlier lost checkpoint.
         or run["run_attempt"] != 1
         or any(
-            not isinstance(run.get(key), dict) or run[key].get("full_name") != repository
+            not isinstance(run.get(key), dict)
+            or run[key].get("full_name") != repository
             for key in ("repository", "head_repository")
         )
         or not _steps_match(job)
@@ -285,4 +198,298 @@ def qualify_guard_only_run(
         "source_sha": run["head_sha"],
         "script_blob": source_blobs["scripts/ci/uat-retention-maintenance.py"],
         "workflow_blob": source_blobs[".github/workflows/capacity-maintenance.yml"],
+    }
+
+
+# The same pure owner also qualifies complete raw job transcripts. Source profiles
+# prove the checkpoint barrier; neither a newer retry nor elapsed time clears custody.
+REPOSITORY = "hushh-labs/hushh-research"
+WORKFLOW = ".github/workflows/capacity-maintenance.yml"
+OWNER = "scripts/ci/uat-retention-maintenance.py"
+LEGACY_BLOBS = {
+    OWNER: (AUDITED_SOURCE_BLOBS[OWNER], 88790),
+    WORKFLOW: (AUDITED_SOURCE_BLOBS[WORKFLOW], 13614),
+}
+SOURCE_PROFILES = {
+    AUDITED_SOURCE_BLOBS[OWNER]: LEGACY_BLOBS,
+    "34050aa25db19afe6004d97fdc76bda7de9c6471": {
+        OWNER: ("34050aa25db19afe6004d97fdc76bda7de9c6471", 91390),
+        WORKFLOW: LEGACY_BLOBS[WORKFLOW],
+        "scripts/ci/retention_preflight_evidence.py": (
+            "55e824a5aa41801dadbef3ec12236291394eb00b",
+            7541,
+        ),
+    },
+}
+RUNNER_WARNING = "##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: google-github-actions/auth@v2, google-github-actions/setup-gcloud@v2. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/"
+REPORT_GROUP = '##[group]Run echo "Cleanup: ${CLEANUP_OUTCOME:-failed}. This is not a deployment-capacity or release-health result." >> "$GITHUB_STEP_SUMMARY"'
+
+
+def expected_source_blobs(source_sha: object) -> dict[str, str] | None:
+    if not isinstance(source_sha, str) or source_sha not in AUDITED_SOURCE_SHAS:
+        return None
+    digest = (
+        "34050aa25db19afe6004d97fdc76bda7de9c6471"
+        if source_sha == "dce2e32866b6ff7369b58e6695b599e57c946ad7"
+        else AUDITED_SOURCE_BLOBS[OWNER]
+    )
+    return {path: value[0] for path, value in SOURCE_PROFILES[digest].items()}
+
+
+def raw_log_matches(log: str, job: dict[str, Any], source_sha: str) -> bool:
+    """Compatibility diagnostic delegates to the single complete raw classifier."""
+    expected = expected_source_blobs(source_sha)
+    if expected is None or not isinstance(job, dict) or not _steps_match(job):
+        return False
+    rows = _raw_rows(log, job)
+    return bool(
+        rows is not None
+        and actual_checkout(log, job) == source_sha
+        and [body for _, body in rows if body.startswith("Hosted maintenance stopped:")]
+        == [_DIAGNOSTIC]
+        and _raw_failure(rows, job, expected[OWNER])
+    )
+
+
+def _stamp(value):
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", value)
+        is None
+    ):
+        return None
+    try:
+        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return stamp if stamp.utcoffset() is not None else None
+    except (AttributeError, ValueError, TypeError):
+        return None
+
+
+def _raw_rows(log, job):
+    if not isinstance(log, str) or not log:
+        return None
+    try:
+        if len(log.encode("utf-8")) > MAX_LOG_BYTES:
+            return None
+    except UnicodeError:
+        return None
+    start, end = (_stamp(job.get(key)) for key in ("started_at", "completed_at"))
+    rows = []
+    forbidden = (
+        "Unable to process file command",
+        "Invalid format",
+        "The operation was canceled",
+        "The operation was cancelled",
+        "checkpoint_ready=true",
+    )
+    for line in log.removeprefix("\ufeff").splitlines():
+        stamp, separator, body = line.partition(" ")
+        at = _stamp(stamp)
+        if not (
+            separator
+            and at
+            and start
+            and end
+            and start <= at <= end
+            and (not rows or at >= rows[-1][0])
+        ):
+            return None
+        body = _STYLE.sub("", body)
+        if any(token in body for token in forbidden):
+            return None
+        rows.append((at, body))
+    final = rows[-2:] if rows and rows[-1][1] == RUNNER_WARNING else rows[-1:]
+    if not (
+        rows
+        and rows[0][1].startswith("Current runner version:")
+        and final
+        and final[0][1] == "Cleaning up orphan processes"
+    ):
+        return None
+    return rows
+
+
+def _step_rows(rows, step):
+    start, end = (_stamp(step.get(key)) for key in ("started_at", "completed_at"))
+    if start is None or end is None or end < start:
+        return []
+    # Actions metadata has second precision; actual transcript stamps have fractions.
+    return [body for at, body in rows if start <= at < end + timedelta(seconds=1)]
+
+
+def actual_checkout(log, job):
+    """Extract only a complete finalized transcript's exact checkout command result."""
+    rows = _raw_rows(log, job)
+    if rows is None or not _steps_match(job):
+        return None
+    checkout = _step_rows(rows, job["steps"][1])
+    commands = [i for i, body in enumerate(checkout) if body == _CHECKOUT_COMMAND]
+    if len(commands) != 1 or commands[0] + 1 >= len(checkout):
+        return None
+    sha = checkout[commands[0] + 1]
+    return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else None
+
+
+def _prepare_segment(rows, job):
+    report = job["steps"][8]
+    start, end = (_stamp(report.get(key)) for key in ("started_at", "completed_at"))
+    begin = _stamp(job["steps"][6].get("started_at"))
+    finish = _stamp(job["steps"][6].get("completed_at"))
+    markers = [
+        (index, at) for index, (at, body) in enumerate(rows) if body == REPORT_GROUP
+    ]
+    if not (
+        begin
+        and finish
+        and begin <= finish
+        and start
+        and end
+        and len(markers) == 1
+        and start <= end
+        and start <= markers[0][1] < end + timedelta(seconds=1)
+    ):
+        return []
+    segment = [(at, body) for at, body in rows[: markers[0][0]] if at >= begin]
+    return (
+        [body for _, body in segment]
+        if all(at < finish + timedelta(seconds=1) for at, _ in segment)
+        else []
+    )
+
+
+def _raw_failure(rows, job, profile):
+    prepare = _prepare_segment(rows, job)
+    commands = ["##[group]Run set -euo pipefail", *_PREPARE_COMMAND]
+    positions = [i for i in range(len(prepare)) if prepare[i : i + 7] == commands]
+    if len(positions) != 1 or prepare.count("  APPLY: true") != 1:
+        return False
+    grouped = prepare[positions[0] :]
+    if "##[endgroup]" not in grouped:
+        return False
+    tail = grouped[grouped.index("##[endgroup]") + 1 :]
+    reasons = {_DIAGNOSTIC}
+    if profile == AUDITED_SOURCE_BLOBS[OWNER]:
+        reasons.add("Hosted maintenance stopped: Drive worker is not ready")
+    diagnostics = [
+        body for _, body in rows if body.startswith("Hosted maintenance stopped:")
+    ]
+    errors = [body for _, body in rows if "##[error]" in body]
+    terminal = len(tail) == 2 and tail[0] in reasons and tail[-1] == _EXIT
+    if (
+        profile == "34050aa25db19afe6004d97fdc76bda7de9c6471"
+        and tail
+        and tail[-1] == _EXIT
+    ):
+        before_exit = tail[:-1]
+        # Frozen stdout may flush its one observer record after stderr's failure.
+        terminal = (
+            1 <= len(before_exit) <= 2
+            and before_exit.count(_DIAGNOSTIC) == 1
+            and all(
+                body == _DIAGNOSTIC or _observer_record(body) for body in before_exit
+            )
+        )
+    return (
+        terminal
+        and len(diagnostics) == 1
+        and diagnostics[0] in reasons
+        and errors == [_EXIT]
+    )
+
+
+def _observer_record(body):
+    """Recognize frozen diagnostic output only; it grants no reconciliation authority."""
+    try:
+        value = json.loads(body)
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(value, dict) or set(value) != {"guard_only_reconciliation"}:
+        return False
+    proof = value["guard_only_reconciliation"]
+    return (
+        isinstance(proof, dict)
+        and set(proof)
+        == {
+            "schema",
+            "environment",
+            "run_id",
+            "job_id",
+            "run_attempt",
+            "source_sha",
+            "script_blob",
+            "workflow_blob",
+        }
+        and proof["schema"] == "retention_guard_only_failure.v1"
+        and proof["environment"] == "uat"
+        and all(
+            type(proof[key]) is int and proof[key] > 0 for key in ("run_id", "job_id")
+        )
+        and type(proof["run_attempt"]) is int
+        and proof["run_attempt"] == 1
+        and proof["source_sha"] == "c738ff0b975d9a326664f9af356eea2dc7d90125"
+        and proof["script_blob"] == AUDITED_SOURCE_BLOBS[OWNER]
+        and proof["workflow_blob"] == AUDITED_SOURCE_BLOBS[WORKFLOW]
+    )
+
+
+def _source_profile(blobs, workflow_blob):
+    for digest, profile in SOURCE_PROFILES.items():
+        expected = {
+            path: {"sha": sha, "size": size} for path, (sha, size) in profile.items()
+        }
+        if blobs == expected and workflow_blob == expected[WORKFLOW]:
+            return digest
+    return None
+
+
+def qualify_preflight_run(
+    repository, environment, run, job, log, source_blobs, workflow_blob
+):
+    """One exact completed attempt may prove no mutation; it never resolves older custody."""
+    if not isinstance(run, dict) or not isinstance(job, dict):
+        return None
+    if not (
+        repository == REPOSITORY
+        and environment == "uat"
+        and run.get("status") == "completed"
+        and run.get("conclusion") == "failure"
+        and run.get("path") == WORKFLOW
+        and run.get("head_branch") == "main"
+        and run.get("event") in {"schedule", "workflow_dispatch", "repository_dispatch"}
+        and re.fullmatch(r"[0-9a-f]{40}", str(run.get("head_sha", "")))
+        and all(
+            type(value) is int and value > 0
+            for value in (run.get("id"), run.get("run_attempt"), job.get("id"))
+        )
+        and run["run_attempt"] <= 10
+        and all(
+            (run.get(key) or {}).get("full_name") == repository
+            for key in ("repository", "head_repository")
+        )
+        and job.get("name") == _JOB
+        and job.get("status") == "completed"
+        and job.get("conclusion") == "failure"
+        and job.get("head_branch") == "main"
+        and job.get("run_id") == run["id"]
+        and type(job.get("run_attempt")) is int
+        and job.get("run_attempt") == run["run_attempt"]
+        and job.get("head_sha") == run["head_sha"]
+        and _steps_match(job)
+    ):
+        return None
+    rows, checkout = _raw_rows(log, job), actual_checkout(log, job)
+    profile = _source_profile(source_blobs, workflow_blob)
+    if (
+        rows is None
+        or checkout is None
+        or profile is None
+        or not _raw_failure(rows, job, profile)
+    ):
+        return None
+    return {
+        "run_id": run["id"],
+        "attempt": run["run_attempt"],
+        "job_id": job["id"],
+        "checkout_sha": checkout,
+        "qualification": "no_provider_mutation",
     }

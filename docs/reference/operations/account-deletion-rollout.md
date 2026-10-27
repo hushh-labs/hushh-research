@@ -807,10 +807,10 @@ environment-bound runtime attestation; path selection is not deployed proof.
 ### Staged phone-reader rollout
 
 Production phone recovery is enabled only after every retained backend revision
-qualifies for the strict 425 admission floor. The first rollout deploys the
+qualifies for the strict 425+431 admission floor. The first rollout deploys the
 phone-aware candidate with `AUTH_PHONE_RECOVERY_ENABLED=false`, verifies the
-ordinary release, and retires pre-425 readers through the existing lifecycle
-activation. A subsequent backend release may enable recovery when the fresh
+runtime gates, and retains deletion fences while the canonical lifecycle
+retirement drains incompatible readers. A subsequent backend release may enable recovery when the fresh
 revision inventory passes. `AUTH_PHONE_RECOVERY_PROD_ENABLED=false` remains the
 producer kill switch; it does not erase pending work or stop recovery consumers.
 
@@ -855,3 +855,81 @@ permission to delete the protected rollback, shrink pools or increase the limit.
 A staged capacity transition requires its own qualified anchor, full request
 drain and worker compatibility evidence before primary admission. Local tests,
 green CI and UAT acceptance do not alone prove this production transition.
+
+### Capacity-bounded first production transition
+
+A cold runtime checkpoint is not a healthy release. The `cold` phase binds a
+qualified independent UAT source to a pinned production image, a pre-published
+schema intent, closed producer history, backup/release fences, installed empty
+phone metadata and the original healthy Git object. Unknown submissions or
+partial migration cannot be retried as a new empty first rollout. The bounded
+health-tag lease is retired and the actual cold revision is revalidated before
+publishing the operational proof.
+
+The production capacity owner counts every retained backend and worker revision,
+readiness jobs and reserve. Keep its existing300-slot limit and pools. Under the
+shared deployment lock, capacity maintenance may publish a separately typed
+operational backend reference from the exact immutable proof; its historical
+healthy commit/message remain unchanged. Preparation is read-only, the intent is
+uploaded before CAS, and uncertain Git/cloud mutations require readback. Later
+passes reuse the same reference rather than republishing or renewing it.
+
+The `worker` phase prepares and immutably publishes the existing private worker
+intent, then stages exactly one zero-traffic revision. It preserves IAM, service
+controls, Scheduler state, current traffic and the candidate configuration version.
+UID/spec, scanner/EICAR and readiness checks remain mandatory. Staging admits no
+backend traffic or healthy application release. Maintenance can retain this
+qualified worker as the explicit fallback while the ordinary300-second worker
+drain retires the obsolete fallback. A staged receipt expires after six hours;
+activation preparation cannot renew that original clock.
+
+The `standard` phase consumes the exact staged image/config/revision without a
+second worker or image build, then runs the ordinary backend gates. If legacy
+readers remain, deletion activation reports `pending_activation`, retains the
+release fences and skips the healthy tag. The canonical3660-second backend drain
+runs outside a hosted wait through the same maintenance owner. Only an exact
+pending receipt grants the distinct pending-retirement context; it is never
+relabelled as healthy.
+
+The `activate` phase names the original deployment run and original application
+SHA. It revalidates runtime UIDs, schema, phone rollback, document mode and normal
+health/provenance gates, then resumes the existing activation owner with the
+original runtime run ID. It executes no build, DDL, backend promotion or worker
+release. Healthy publication requires actual fence removal, zero incompatible
+readers and fresh Scheduler-delivery proof; its Git result is read back.
+
+That continuation still has the original recovery-disabled process environment.
+Complete the transition with a `standard` rollout of the same application SHA,
+using the now-qualified current backend as rollback. The organization switch and
+fresh retained-reader inventory must permit recovery; verify the new revision's
+direct flag and actual journey. Until that standard release replaces the
+continuation, admission preserves its exact backend source and refuses an
+intervening frontend-only release that would discard its activation basis.
+
+### Recurring worker staging
+
+After a healthy release, the same worker phase accepts a typed current-healthy
+basis instead of an operational annotation. It joins the exact current Git tag,
+canonical healthy attempt/archive, actual backend and worker UIDs, protected
+mode and candidate's exact UAT/Dev image acceptance. The registry copy uses that
+accepted immutable digest. The original prepared intent embeds this basis;
+readers and native staging/activation revalidate it before mutation. Source-only
+qualification grants no runtime or cleanup authority.
+
+Maintenance may use this staged worker with the explicit current healthy release
+run, without inventing an operational reference. It preserves the healthy phone
+rollback while retiring only the obsolete worker through the existing drain.
+Then the standard backend rollout fits the unchanged budget. Once the new healthy
+release independently selects the previous backend as rollback, ordinary backend
+retention can drain the older cold reader. Changed tags, attempts, UIDs, image,
+mode, configuration or Scheduler state fail closed. Qualified cleanup-only
+workflow failures retain the existing canonical health classifier; application
+failures and failed activation continuations remain ineligible.
+
+A frontend-only healthy release carries the unchanged backend's exact original
+run, source and revision identities as an untrusted selector. Maintenance and
+worker admission independently qualify that run's immutable ordinary backend
+receipt, activated identity and phone rollback. The current frontend receipt and
+healthy tag remain authoritative. Pending origins, chained frontend origins and
+missing or changed identity proofs refuse cleanup; no historical scan substitutes
+an older apparently healthy release.

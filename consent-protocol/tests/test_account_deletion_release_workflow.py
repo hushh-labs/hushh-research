@@ -79,8 +79,8 @@ def _activation_adapter(module, args, failure, monkeypatch, *, phone_floor=False
                 "timestamp": (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat(),
                 "jsonPayload": {
                     "@type": "type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished",
-                    "jobName": "projects/hushh-pda-uat/locations/us-central1/jobs/account-deletion-cleanup-uat",
-                    "url": "https://api.uat.hushh.ai/api/account/deletion-cleanup/drain?limit=10",
+                    "jobName": f"projects/{args.project}/locations/{args.region}/jobs/{args.scheduler_job}",
+                    "url": args.backend_url + "/api/account/deletion-cleanup/drain?limit=10",
                 },
                 "httpRequest": {"status": 503 if failure == "scheduler" else 200},
             }
@@ -244,13 +244,12 @@ def test_shared_dev_requires_lifecycle_activation_before_healthy_acceptance():
 )
 def test_every_release_retains_activation_failure_evidence(workflow, prefix):
     document = yaml.safe_load((ROOT / f".github/workflows/deploy-{workflow}.yml").read_text())
-    uploads = [
-        step
-        for step in document["jobs"]["deploy"]["steps"]
-        if "upload-artifact" in step.get("uses", "")
-    ]
+    required_if = "always()"
+    if workflow == "production":
+        required_if = f"env.PHONE_DEPLOY_PHASE != 'cold' && ({required_if})"
     assert any(
-        step.get("if") == "always()"
+        step.get("if") == required_if
+        and "upload-artifact" in step.get("uses", "")
         and any(
             path in step["with"]["path"]
             for path in [
@@ -258,7 +257,7 @@ def test_every_release_retains_activation_failure_evidence(workflow, prefix):
                 f"/tmp/{prefix}-account-deletion-*.json",  # noqa: S108 - workflow artifact path, never opened here
             ]
         )
-        for step in uploads
+        for step in document["jobs"]["deploy"]["steps"]
     )
 
 
@@ -966,8 +965,7 @@ def test_production_no_longer_hard_blocks_migration_201() -> None:
 def test_production_release_orders_image_fence_schema_runtime_and_activation() -> None:
     names = [str(step.get("name") or "") for step in _production_steps()]
     expected_order = [
-        # The proxy is installed early for read-only Drive database attestation.
-        # Backup, image, fence and migration authority retain their order.
+        # Proxy, backup, image, fence and migration authority retain their order.
         "Install Cloud SQL Auth Proxy",
         "Pre-deploy Cloud SQL backup posture gate",
         "Build and pin backend image before lifecycle migration",
@@ -999,16 +997,22 @@ def test_production_release_orders_image_fence_schema_runtime_and_activation() -
     ):
         step = _production_step(name)
         assert step.get("id") == step_id
-    for name in (
-        "Build and pin backend image before lifecycle migration",
-        "Apply production DB migrations behind account deletion fence",
-        "Resolve backend candidate revision",
-        "Verify backend candidate readiness and exact-SHA provenance",
+    backend = "steps.scope.outputs.deploy_backend == 'true'"
+    candidate = f"env.PHONE_DEPLOY_PHASE != 'cold' && ({backend})"
+    for name, expected in (
+        ("Build and pin backend image before lifecycle migration", backend),
+        (
+            "Apply production DB migrations behind account deletion fence",
+            backend
+            + " && (env.PHONE_DEPLOY_PHASE != 'cold' || steps.cold-schema-intent.outcome == 'success')",
+        ),
+        ("Resolve backend candidate revision", candidate),
+        ("Verify backend candidate readiness and exact-SHA provenance", candidate),
     ):
-        assert _production_step(name).get("if") == "steps.scope.outputs.deploy_backend == 'true'"
+        assert _production_step(name).get("if") == expected
     assert _production_step("Install fail-closed account deletion release fence").get("if") == (
-        "steps.scope.outputs.deploy_backend == 'true' && "
-        "steps.account-deletion-fence-decision.outputs.required == 'true'"
+        "steps.scope.outputs.deploy_backend == 'true' && steps.account-deletion-fence-decision.outputs.required == 'true' && "
+        "(env.PHONE_DEPLOY_PHASE != 'cold' || steps.cold-schema-intent.outcome == 'success')"
     )
 
 
@@ -1162,19 +1166,6 @@ def test_production_backend_deploy_substitutions_are_declared_by_cloud_build() -
     ):
         assert f"{name}=" in deploy_run
         assert name in declared
-
-
-def test_production_activation_uses_the_same_qualified_lifecycle_owner() -> None:
-    activation = _production_step("Activate tombstone-aware account deletion")
-    assert activation["if"] == (
-        "steps.classify.outputs.release_failed == 'false' && "
-        "steps.scope.outputs.deploy_backend == 'true'"
-    )
-    assert "python3 deploy/account-deletion/activate_release.py" in activation["run"]
-    assert '--expected-sha "${{ github.event.inputs.sha }}"' in activation["run"]
-    assert '--cloudsql-instance "${{ env.PROD_CLOUDSQL_INSTANCE }}"' in activation["run"]
-    assert _production_workflow()["env"]["CONSENT_API_PUBLIC_ORIGIN"] == "https://api.hushh.ai"
-    _assert_no_uat_target(activation["run"])
 
 
 def test_production_scheduler_service_account_id_is_valid_and_consistent() -> None:
