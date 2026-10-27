@@ -71,6 +71,10 @@ _BOOTSTRAP_SOURCES.update(
             "087_scope_policy_v2.sql",
         ): "9bbaa6653f55b33c4d80b2b753b65e06e3ac2087db4f4513d969a9b52a55efbc",
         (
+            "135",
+            "135_one_location_circle_connection_origins.sql",
+        ): "1d876753e329bf7da3dcc40d7fbef6ea7810d0a191d6b62c8ef5322dcb581e26",
+        (
             "142",
             "142_source_library_scope_retirement.sql",
         ): "d8561eaa69132078943e00a256e9fc8b7655a079a764505f59d2bfac2a384359",
@@ -161,6 +165,67 @@ def _eligible(owner: str) -> str:
     )
 
 
+def _circle_bootstrap_rules() -> list[tuple[str, str, int]]:
+    connection_eligible = (
+        _eligible("btrim(connection.user_a_id)")
+        + " AND "
+        + _eligible("btrim(connection.user_b_id)")
+    )
+    circle_eligible = " AND ".join(
+        _eligible(f"btrim({identity})")
+        for identity in (
+            "circle.owner_user_id",
+            "first_member.user_id",
+            "second_member.user_id",
+        )
+    )
+    # A retained named origin cannot re-activate a live pair on behalf of an
+    # erased Circle owner. Independent direct/import provenance still applies.
+    origin_eligible = (
+        "(origin.origin_kind <> 'named_circle' OR EXISTS(SELECT 1 "
+        "FROM public.one_location_circles origin_circle "
+        "WHERE origin_circle.id=origin.source_circle_id AND "
+        + _eligible("btrim(origin_circle.owner_user_id)")
+        + "))"
+    )
+    return [
+        (
+            "WHERE connection.source IN ('request', 'circle_invite', 'import')",
+            "WHERE connection.source IN ('request', 'circle_invite', 'import') AND "
+            + connection_eligible,
+            1,
+        ),
+        (
+            "AND to_jsonb(circle) ->> 'system_kind' IS DISTINCT FROM 'trusted'",
+            "AND to_jsonb(circle) ->> 'system_kind' IS DISTINCT FROM 'trusted' AND "
+            + circle_eligible,
+            2,
+        ),
+        (
+            "AND origin.status = 'active'",
+            "AND origin.status = 'active' AND " + origin_eligible,
+            4,
+        ),
+        (
+            "WHERE EXISTS (\n  SELECT 1\n  FROM connection_origins origin",
+            "WHERE "
+            + connection_eligible
+            + " AND EXISTS (\n  SELECT 1\n  FROM connection_origins origin",
+            1,
+        ),
+        (
+            "AND connection.status = 'active'",
+            "AND connection.status = 'active' AND "
+            + connection_eligible
+            + " AND EXISTS(SELECT 1 FROM connection_origins origin "
+            "WHERE origin.connection_id=connection.id AND origin.status='active' AND "
+            + origin_eligible
+            + ")",
+            1,
+        ),
+    ]
+
+
 def _bootstrap(sql: str, version: str) -> str:
     """Filter only the captured identities in checksum-pinned historical seeds."""
     rule: dict[str, list[tuple[str, str, int]]] = {
@@ -226,6 +291,7 @@ def _bootstrap(sql: str, version: str) -> str:
                 1,
             )
         ],
+        "135": _circle_bootstrap_rules(),
         "142": [
             (
                 "FROM live_authorities;",
@@ -279,6 +345,10 @@ def _bootstrap(sql: str, version: str) -> str:
             raise ValueError("Account bootstrap replay source shape changed")
         filtered = filtered.replace(anchor, replacement)
 
+    return _bootstrap_transaction(sql, filtered)
+
+
+def _bootstrap_transaction(sql: str, filtered: str) -> str:
     def body(value: str) -> str:
         value, begins = re.subn(r"^BEGIN;[ \t]*$", "", value, flags=re.MULTILINE)
         value, commits = re.subn(r"^COMMIT;[ \t]*$", "", value, flags=re.MULTILINE)

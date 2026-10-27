@@ -219,9 +219,10 @@ def closed_submissions(owner: dict, *, start: str, source_anchor: str) -> dict:
     builds, accepted, boundary = _builds(start), [], False
     for listed in history._history(REPOSITORY, api, timestamp):
         producer = history._run(REPOSITORY, listed, api)
-        if not authority.governed_dispatch(
+        trusted = authority.governed_dispatch(
             {**producer, "status": "completed"}, REPOSITORY, "production"
-        ):
+        )
+        if not trusted:
             raise ValueError("phone_schema_prior_producer_ungoverned")
         if (
             timestamp(producer["created_at"]) < timestamp(start)
@@ -257,6 +258,10 @@ def closed_submissions(owner: dict, *, start: str, source_anchor: str) -> dict:
             if job is None:
                 # The shared reader permits this only for a queued workflow
                 # with no admitted deploy job; it cannot yet submit a build.
+                continue
+            if history._restoration_nonproducer(
+                REPOSITORY, attempt, job, trusted, source, run
+            ):
                 continue
             receipt = _acknowledged(attempt, job, builds, owner, timestamp)
             if receipt:

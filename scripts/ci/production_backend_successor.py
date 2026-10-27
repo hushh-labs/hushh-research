@@ -43,18 +43,14 @@ def unique(pairs: list[tuple[str, object]]) -> dict:
 
 
 def healthy_fields(healthy: str, commit: str) -> dict[str, str]:
-    """Parse legacy fields without rewriting the bytes covered by receipts.
-
-    Git strips the trailing space of an empty tag field. Only informational
-    service URLs may use that spelling; authority keys and duplicates refuse.
-    """
-    require(
-        len(healthy.encode()) <= 65536 and bool(HEX40.fullmatch(commit)),
-        "operational_backend_healthy_annotation_invalid",
-    )
+    """Read producer-supported empty URLs without changing historical bytes."""
+    require(len(healthy.encode()) <= 65536, "operational_backend_annotation_too_large")
+    require(bool(HEX40.fullmatch(commit)), "operational_backend_healthy_commit_invalid")
     values = {}
     for line in healthy.splitlines()[1:]:
         key, separator, value = line.partition(": ")
+        # git tag's default cleanup removes a producer's trailing space when
+        # either optional service URL is empty. No other field is optional.
         if line in {"backend_url:", "frontend_url:"}:
             key, separator, value = line[:-1], ":", ""
         require(

@@ -111,10 +111,10 @@ class RestorationContinuationCases:
             source = previous["consent-protocol"]["sha"]
             fields = {"sha": source, "backend_revision": previous["consent-protocol"]["revision"],
                       "backend_url": "https://api.example.test", "frontend_revision": previous["hushh-webapp"]["revision"],
-                      "frontend_url": "https://app.example.test", "run": "https://github.com/fixture/actions/runs/200",
+                      "frontend_url": "", "run": "https://github.com/fixture/actions/runs/200",
                       "actor": "fixture", "tagged_at": "20261027T010000Z"}
             tag = {"commit": source, "tag_oid": "a" * 40,
-                   "message": "Last known good — production\n" + "".join(f"{k}: {v}\n" for k, v in fields.items())}
+                   "message": "Last known good — production\n" + "".join(f"{k}: {v}".rstrip() + "\n" for k, v in fields.items())}
             proof = __import__("production_backend_successor_proof")
             args = SimpleNamespace(run_id="300", attempt=2, sha=original["source"])
             with (mock.patch.object(continuation, "ports", return_value=arguments),

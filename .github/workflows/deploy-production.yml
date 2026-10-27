@@ -4018,7 +4018,7 @@ jobs:
           import production_backend_successor_proof as proof
           current = proof.read_original()
           healthy, operational = reference.split(current["message"], current["commit"])
-          fields = dict(line.split(": ", 1) for line in healthy.splitlines()[1:])
+          fields = reference.healthy_fields(healthy, current["commit"])
           if (operational is not None or current["commit"] != os.environ["TARGET_SHA"]
               or fields["backend_revision"] != os.environ["BACKEND_REVISION"]
               or fields["frontend_revision"] != os.environ["FRONTEND_REVISION"]

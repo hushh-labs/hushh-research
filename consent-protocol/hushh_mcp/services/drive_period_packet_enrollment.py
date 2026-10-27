@@ -156,8 +156,15 @@ async def candidate_owners(store):
                 WHERE h.user_id=c.user_id AND h.connection_generation=c.connection_generation
                   AND h.packet_kind='provider_discovery' AND h.category='financial'
                   AND h.period_start=ANY(CAST(:period_starts AS date[]))
-                  AND h.predefined_query_version=:template AND h.preview_complete
-                  AND h.preview_document_count>120 AND NOT h.dirty AND h.attempts<8
+                  AND h.predefined_query_version=:template AND NOT h.dirty AND h.attempts<8
+                  AND ((h.preview_complete AND h.preview_document_count>120)
+                    OR (NOT h.preview_complete AND h.next_at<=clock_timestamp()
+                      AND EXISTS(SELECT 1 FROM drive_owner_search_jobs pending
+                        WHERE pending.user_id=h.user_id AND pending.period_packet_id=h.packet_id
+                          AND pending.connection_generation=h.connection_generation
+                          AND pending.status='queued' AND pending.error_code IS NULL
+                          AND pending.next_at<=clock_timestamp() AND pending.expires_at>clock_timestamp()
+                          AND (pending.lease_id IS NULL OR pending.lease_expires_at<=clock_timestamp()))))
                   AND (h.lease_id IS NULL OR h.lease_expires_at<=clock_timestamp())))
             ORDER BY COALESCE(c.drive_packet_inspected_at,'epoch'::timestamptz),COALESCE((SELECT max(h.updated_at) FROM drive_packet_heads h
               WHERE h.user_id=c.user_id AND h.connection_generation=c.connection_generation
@@ -202,10 +209,16 @@ async def due_owners(store, limit=4):
                     )
                 )
                 await admit_hub_content(user, "drive_period_packets")
-                from hushh_mcp.services.drive_period_packet_migration import queue_missing_sources
+                from hushh_mcp.services.drive_period_packet_migration import (
+                    queue_missing_sources,
+                    queue_pending_sources,
+                )
 
                 queued = await store._transaction(
-                    lambda c, user=user: queue_missing_sources(store, c, user)
+                    lambda c, user=user: (
+                        queue_pending_sources(store, c, user)
+                        or queue_missing_sources(store, c, user)
+                    )
                 )
                 if not candidate["normal_due"] and not queued:
                     continue
