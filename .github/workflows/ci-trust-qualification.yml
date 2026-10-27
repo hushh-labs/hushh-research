@@ -46,6 +46,10 @@ jobs:
       - name: Attempt a cache write with the candidate token
         continue-on-error: true
         uses: actions/cache/save@v5
+        env:
+          # A candidate can spoof client environment. The server-issued cache
+          # token must still refuse writes; SDK read-mode skipping is no proof.
+          ACTIONS_CACHE_MODE: write
         with:
           path: ${{ runner.temp }}/ci-trust-cache
           key: ci-trust-${{ github.run_id }}-${{ github.run_attempt }}-${{ runner.os }}
