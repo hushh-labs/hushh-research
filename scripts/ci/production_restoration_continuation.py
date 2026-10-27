@@ -376,7 +376,7 @@ def prepare(args, maintenance):
     tag = proof.read_original()
     current = active_run(maintenance)
     healthy, operational = proof.reference.split(tag["message"], tag["commit"])
-    fields = dict(line.split(": ", 1) for line in healthy.splitlines()[1:])
+    fields = proof.reference.healthy_fields(healthy, tag["commit"])
     previous = original["previous"]
     require(operational is None and tag["commit"] == previous["consent-protocol"]["sha"]
             and fields["backend_revision"] == previous["consent-protocol"]["revision"]
