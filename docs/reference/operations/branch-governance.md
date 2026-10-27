@@ -26,13 +26,23 @@ it refuses undeclared branches rather than silently treating them as Main.
 Before enabling intake, preserve existing refs and outstanding work, prepare each
 branch from the then-current Main baseline, and apply/read back its protection.
 The existing `uat` ref must not be reset merely because its history is old.
-Default `apply-governance.py` still reconciles Main/train and teams; it does not
-bootstrap the prepared branches. Verify explicitly after provisioning:
+Default `apply-governance.py` reconciles Main/train and teams. Select prepared
+branches explicitly to bootstrap their complete protection and exact-ref queue
+rulesets without changing those other authorities:
 
 ```bash
+python3 scripts/ci/apply-governance.py --branch dev --branch uat
+python3 scripts/ci/apply-governance.py --branch dev --branch uat --apply
 GITHUB_BRANCH=dev scripts/ci/verify-main-branch-protection.sh
 GITHUB_BRANCH=uat scripts/ci/verify-main-branch-protection.sh
 ```
+
+Selected mode never creates refs or deploys applications. It refuses ambiguous
+rulesets, retargeting a ruleset that protects other refs, and unauthored stronger
+push/review controls. Reconcile those explicitly rather than overwriting them.
+On 26 October 2026, Dev was created from Main `b819614ccc` and both prepared
+branches' protection passed live readback. UAT history reconciliation and the
+selective-promotion authority remain separate from this protection checkpoint.
 
 The following batches must complete before activation:
 
