@@ -452,6 +452,8 @@ class RuntimeConnection(Connection):
         owner = runtime.RUNTIME_ROLE if installed else "synthetic_admin"
         self.objects = bootstrap_objects(runtime, owner)
         self.extra, self.saved = [], None
+        self.admin_select = set(runtime.TABLES) if installed else set()
+        self.temporary_owners = True
         if defect == "partial":
             first = self.objects[0].table_oid
             changed = "synthetic_admin" if installed else runtime.RUNTIME_ROLE
@@ -491,9 +493,9 @@ class RuntimeConnection(Connection):
         text = self.render(query)
         super().execute(text, parameters)
         if text == "BEGIN":
-            self.saved = (self.create, self.objects[:], self.extra[:])
+            self.saved = (self.create, self.objects[:], self.extra[:], self.admin_select.copy())
         elif text == "ROLLBACK" and self.saved:
-            self.create, self.objects, self.extra = self.saved
+            self.create, self.objects, self.extra, self.admin_select = self.saved
         elif text.startswith("GRANT USAGE,CREATE ON SCHEMA"):
             self.create = True
         elif text.startswith("ALTER TABLE public."):
@@ -505,6 +507,10 @@ class RuntimeConnection(Connection):
             ]
             if self.defect == "post-drift":
                 self.extra = [("pg_class", 999)]
+        elif text.startswith("GRANT SELECT ON TABLE public.") and self.defect != "admin-post":
+            name = re.search(r'public\."([^"]+)"', text)[1]
+            assert text.endswith('TO "synthetic_admin"') and name in self.runtime.TABLES
+            self.admin_select.add(name)
 
     def fetchall(self):
         if self.query == self.runtime.GRAPH_SQL:
@@ -516,6 +522,12 @@ class RuntimeConnection(Connection):
         raise AssertionError("unrecognized inert metadata query")
 
     def fetchone(self):
+        if "preserved_admin_select" in self.query:
+            direct = self.admin_select == set(self.runtime.TABLES)
+            effective = (not self.create or self.temporary_owners or direct) and (
+                self.defect != "admin-read" or direct
+            )
+            return True, effective, direct
         if self.query == self.runtime.RIGHTS_SQL:
             return True, self.create, self.defect == "ledger-dml", self.defect != "other-object"
         if "cloudsqlsuperuser" in self.query and self.calls[-1][1] == (
@@ -542,6 +554,7 @@ def test_bootstrap_ddl_install_is_one_pristine_transaction_with_exact_dependenci
     statements = [query for query, _ in connection.calls]
     assert statements.count("BEGIN") == statements.count("COMMIT") == 1
     assert len([q for q in statements if q.startswith("ALTER TABLE")]) == 5
+    assert len([q for q in statements if q.startswith("GRANT SELECT ON TABLE public.")]) == 5
     assert not any("CREATE ROLE" in q or "SET ROLE" in q or "MEMBER" in q for q in statements)
     connection.readonly = True
     proof = runtime.verify(connection)
@@ -560,6 +573,32 @@ def test_bootstrap_ddl_install_is_one_pristine_transaction_with_exact_dependenci
     with pytest.raises(ValueError, match="pristine_install"):
         runtime.install(connection)
     assert len([q for q, _ in connection.calls if q.startswith("GRANT")]) == count
+
+
+@pytest.mark.parametrize("defect", [None, "admin-read", "admin-post"])
+def test_bootstrap_preserves_only_existing_administrator_select_after_membership_restore(
+    schema, monkeypatch, defect
+):
+    connection = RuntimeConnection(schema.runtime, defect=defect)
+    monkeypatch.setattr(schema.runtime, "_dml_grants", lambda _c: None)
+    if defect:
+        code = (
+            "existing_admin_read_required" if defect == "admin-read" else "admin_read_not_preserved"
+        )
+        with pytest.raises(ValueError, match=code):
+            schema.runtime.install(connection)
+        assert connection.calls[-1][0] == "ROLLBACK" and not connection.admin_select
+        if defect == "admin-read":
+            assert not any(q.startswith(("GRANT", "ALTER")) for q, _ in connection.calls)
+    else:
+        schema.runtime.install(connection)
+        connection.temporary_owners = False
+        assert connection.admin_select == set(schema.runtime.TABLES)
+        query, parameters = next(
+            (q, p) for q, p in connection.calls if "preserved_admin_select" in q
+        )
+        connection.execute(query, parameters)
+        assert connection.fetchone() == (True, True, True)
 
 
 @pytest.mark.parametrize(

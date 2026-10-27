@@ -277,6 +277,16 @@ def install(connection) -> None:
 
     require(connection.autocommit, "qualification_runtime_autocommit_required")
     user = _binding(connection, write=True)
+    # Preserve the canonical reader's existing access on this owned fixture.
+    # After temporary owner memberships end, schema-post must still read it.
+    read_sql = """
+    SELECT count(*)=%s,bool_and(has_table_privilege(current_user,c.oid,'SELECT')),
+     bool_and(EXISTS(SELECT 1 FROM aclexplode(c.relacl) a
+      WHERE a.grantee=(SELECT oid FROM pg_roles WHERE rolname=current_user)
+      AND a.privilege_type='SELECT')) AS preserved_admin_select
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname=ANY(%s)
+    """
     with connection.cursor() as cursor:
         try:
             cursor.execute("BEGIN")
@@ -290,6 +300,10 @@ def install(connection) -> None:
                 not create and not owned and all(o.owner in {user, MIGRATOR_ROLE} for o in before),
                 "qualification_runtime_pristine_install_required",
             )
+            cursor.execute(read_sql, (len(TABLES), list(TABLES)))
+            require(
+                cursor.fetchone()[:2] == (True, True), "qualification_existing_admin_read_required"
+            )
             _dml_grants(connection)
             cursor.execute(
                 sql.SQL("GRANT USAGE,CREATE ON SCHEMA public TO {}").format(
@@ -302,6 +316,15 @@ def install(connection) -> None:
                         sql.Identifier(name), sql.Identifier(RUNTIME_ROLE)
                     )
                 )
+                cursor.execute(
+                    sql.SQL("GRANT SELECT ON TABLE public.{} TO {}").format(
+                        sql.Identifier(name), sql.Identifier(user)
+                    )
+                )
+            cursor.execute(read_sql, (len(TABLES), list(TABLES)))
+            require(
+                cursor.fetchone() == (True, True, True), "qualification_admin_read_not_preserved"
+            )
             after = _verified(cursor)
             require(
                 [o._replace(owner="") for o in before] == [o._replace(owner="") for o in after],
