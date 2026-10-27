@@ -90,9 +90,14 @@ def denied_check_write(environment: dict, head_sha: str) -> None:
             response.read(4096)
     except urllib.error.HTTPError as error:
         code = error.code
+        raw = error.read(4097)
         error.close()
         require(
-            code == 403, "Check write did not produce the expected permission refusal"
+            code == 403
+            and len(raw) <= 4096
+            and json.loads(raw).get("message")
+            == "Resource not accessible by integration",
+            "Check write did not produce the expected integration-permission refusal",
         )
         return
     raise Refused("Candidate token unexpectedly had check-write authority")
