@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare production deploy authority with its single reviewed shell record.
 
-Provider mapping/condition, project bindings and the owned prerequisite reader's
+Provider mapping/condition, project bindings and the owned custom roles'
 permissions are parsed from `deploy/iam/setup_production_github_wif.sh`, never
 retyped here. Record-only checks are cloud-free. Live checks also read the
 provider, project IAM policy and custom-role definition; an unavailable read is
@@ -17,6 +17,14 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Any
+
+import deploy_identity_roles as custom_roles
+from deploy_identity_roles import (
+    ACTIVE_CUSTOM_ROLE_STAGES as ACTIVE_CUSTOM_ROLE_STAGES,
+    PREREQUISITE_READ_VERBS as PREREQUISITE_READ_VERBS,
+    audit_custom_role as audit_custom_role,
+    audit_prerequisite_record as audit_prerequisite_record,
+)
 
 DEFAULT_RECORD = "deploy/iam/setup_production_github_wif.sh"
 DEFAULT_WORKFLOW = ".github/workflows/deploy-production.yml"
@@ -36,10 +44,6 @@ FORBIDDEN_DEPLOY_ROLES = frozenset(
         "roles/resourcemanager.projectIamAdmin",
     }
 )
-# A reviewed custom reader must remain read-only even when its record changes.
-PREREQUISITE_READ_VERBS = frozenset({"list", "getKeyString", "getIamPolicy"})
-ACTIVE_CUSTOM_ROLE_STAGES = frozenset({"ALPHA", "BETA", "GA"})
-
 _SCALAR = re.compile(r"^readonly\s+([A-Za-z_][A-Za-z0-9_]*)=\"?([^\"\n]*)\"?\s*$")
 _ARRAY_OPEN = re.compile(r"^readonly\s+-a\s+([A-Za-z_][A-Za-z0-9_]*)=\(\s*$")
 _INTERPOLATION = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -117,6 +121,10 @@ def load_record(path: Path) -> dict[str, Any]:
         "PREREQUISITE_READ_ROLE",
         "PREREQUISITE_READ_ROLE_STAGE",
         "PREREQUISITE_READ_PERMISSIONS",
+        "CLEANUP_SCHEDULER_ROLE_ID",
+        "CLEANUP_SCHEDULER_ROLE",
+        "CLEANUP_SCHEDULER_ROLE_STAGE",
+        "CLEANUP_SCHEDULER_PERMISSIONS",
     )
     missing = [key for key in required if not record.get(key)]
     if missing:
@@ -136,31 +144,8 @@ def mapping_pairs(mapping: str) -> dict[str, str]:
 # -- checks that need no cloud ---------------------------------------------------------
 
 
-def audit_prerequisite_record(record: dict[str, Any]) -> list[dict[str, Any]]:
-    role_id = record["PREREQUISITE_READ_ROLE_ID"]
-    role = record["PREREQUISITE_READ_ROLE"]
-    stage = record["PREREQUISITE_READ_ROLE_STAGE"]
-    permissions = record["PREREQUISITE_READ_PERMISSIONS"]
-    valid = (
-        re.fullmatch(r"[A-Za-z0-9_.]{3,64}", role_id)
-        and role == f"projects/{record['PROD_PROJECT_ID']}/roles/{role_id}"
-        and record["DEPLOY_PROJECT_ROLES"].count(role) == 1
-        and isinstance(stage, str)
-        and stage in ACTIVE_CUSTOM_ROLE_STAGES
-        and isinstance(permissions, list)
-        and bool(permissions)
-        and len(permissions) == len(set(permissions))
-        and all(
-            re.fullmatch(r"[a-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*){2,}", p)
-            and p.rsplit(".", 1)[-1] in PREREQUISITE_READ_VERBS
-            for p in permissions
-        )
-    )
-    return [] if valid else [{"reason": "prerequisite_read_role_record_invalid"}]
-
-
 def audit_record(record: dict[str, Any], workflow_text: str | None) -> list[dict[str, Any]]:
-    failures = audit_prerequisite_record(record)
+    failures = audit_prerequisite_record(record) + custom_roles.audit_cleanup_scheduler_record(record)
     condition = str(record["ATTRIBUTE_CONDITION"])
     mapping = mapping_pairs(str(record["ATTRIBUTE_MAPPING"]))
 
@@ -334,28 +319,6 @@ def audit_project_bindings(record: dict[str, Any], policy: dict[str, Any]) -> li
     return failures
 
 
-def audit_custom_role(record: dict[str, Any], role: Any) -> list[dict[str, Any]]:
-    if not isinstance(role, dict) or role.get("name") != record["PREREQUISITE_READ_ROLE"]:
-        return [{"reason": "prerequisite_read_role_missing_or_mismatched"}]
-    if role.get("deleted", False) is not False or role.get("stage") == "DISABLED":
-        return [{"reason": "prerequisite_read_role_inactive"}]
-    if role.get("stage") != record["PREREQUISITE_READ_ROLE_STAGE"]:
-        return [{"reason": "prerequisite_read_role_stage_drift"}]
-    permissions = role.get("includedPermissions")
-    if not isinstance(permissions, list) or any(not isinstance(p, str) for p in permissions):
-        return [{"reason": "prerequisite_read_role_permissions_unavailable"}]
-    expected, actual = set(record["PREREQUISITE_READ_PERMISSIONS"]), set(permissions)
-    if expected != actual:
-        return [
-            {
-                "reason": "prerequisite_read_role_permissions_drift",
-                "missing_permissions": sorted(expected - actual),
-                "extra_permission_count": len(actual - expected),
-            }
-        ]
-    return []
-
-
 def _gcloud_json(args: list[str]) -> Any:
     result = subprocess.run(  # noqa: S603 - fixed gcloud executable with structured args.
         ["gcloud", *args, "--format=json"],
@@ -364,6 +327,14 @@ def _gcloud_json(args: list[str]) -> Any:
         capture_output=True,
     )
     return json.loads(result.stdout)
+
+
+def _read_custom_role(record, args, prefix, path_argument):
+    path = getattr(args, path_argument, "")
+    return json.loads(Path(path).read_text(encoding="utf-8")) if path else _gcloud_json(
+        ["iam", "roles", "describe", str(record[prefix + "_ROLE_ID"]),
+         f"--project={record['PROD_PROJECT_ID']}"]
+    )
 
 
 def _read_live(record: dict[str, Any], args: argparse.Namespace) -> tuple[Any, Any, Any]:
@@ -388,19 +359,7 @@ def _read_live(record: dict[str, Any], args: argparse.Namespace) -> tuple[Any, A
         if args.iam_policy_json
         else _gcloud_json(["projects", "get-iam-policy", str(record["PROD_PROJECT_ID"])])
     )
-    custom_role = (
-        json.loads(Path(args.custom_role_json).read_text(encoding="utf-8"))
-        if args.custom_role_json
-        else _gcloud_json(
-            [
-                "iam",
-                "roles",
-                "describe",
-                str(record["PREREQUISITE_READ_ROLE_ID"]),
-                f"--project={record['PROD_PROJECT_ID']}",
-            ]
-        )
-    )
+    custom_role = _read_custom_role(record, args, "PREREQUISITE_READ", "custom_role_json")
     return provider, policy, custom_role
 
 
@@ -416,6 +375,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
     if not args.record_only:
         try:
             provider, policy, custom_role = _read_live(record, args)
+            scheduler_role = _read_custom_role(record, args, "CLEANUP_SCHEDULER", "scheduler_role_json")
         except (subprocess.CalledProcessError, OSError, ValueError):
             unverifiable = {
                 "reason": "live_read_refused",
@@ -426,6 +386,9 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
             failures.extend(audit_provider(record, provider))
             failures.extend(audit_project_bindings(record, policy))
             failures.extend(audit_custom_role(record, custom_role))
+            failures.extend(custom_roles.audit_custom_role(record, scheduler_role,
+                prefix="CLEANUP_SCHEDULER", reason="cleanup_scheduler_role"))
+            failures.extend(custom_roles.audit_cleanup_scheduler_binding(record, policy))
 
     classifications: list[str] = []
     if failures:
@@ -449,11 +412,8 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
             "attributeCondition": record["ATTRIBUTE_CONDITION"],
             "attributeMapping": mapping_pairs(str(record["ATTRIBUTE_MAPPING"])),
             "projectRoles": sorted(record["DEPLOY_PROJECT_ROLES"]),
-            "prerequisiteReadRole": {
-                "name": record["PREREQUISITE_READ_ROLE"],
-                "stage": record["PREREQUISITE_READ_ROLE_STAGE"],
-                "includedPermissions": sorted(record["PREREQUISITE_READ_PERMISSIONS"]),
-            },
+            "prerequisiteReadRole": custom_roles.expected_role(record, "PREREQUISITE_READ"),
+            "cleanupSchedulerRole": custom_roles.expected_role(record, "CLEANUP_SCHEDULER"),
         },
         "unverifiable": unverifiable,
         "failures": failures,
@@ -472,6 +432,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--provider-json", default="")
     parser.add_argument("--iam-policy-json", default="")
     parser.add_argument("--custom-role-json", default="")
+    parser.add_argument("--scheduler-role-json", default="")
     parser.add_argument("--report-path", default="")
     args = parser.parse_args(argv)
 
