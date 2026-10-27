@@ -44,6 +44,7 @@ from scripts.capability_probe_failure import FAILURE_REASONS  # noqa: E402
 DEFAULT_TIMEOUT_SECONDS = 30.0
 MAX_OUTPUT_TOKENS = 256
 STAGES = {"configuration", "federation", "primary_http", "response_validation"}
+TIMING_PHASES = ("credential_setup", "token_acquisition", "primary_http", "response_validation")
 
 
 def valid_failure_reason(capability: str, reason: object) -> bool:
@@ -79,6 +80,9 @@ class ReadinessProbeError(RuntimeError):
         }
         if "capability_failures" in event:
             self.diagnostic["capability_failures"] = event["capability_failures"]
+        for key in ("phase_ms", "deadline_expired"):
+            if key in event:
+                self.diagnostic[key] = event[key]
 
 
 def failure_fields(error: Exception) -> dict:
@@ -168,6 +172,9 @@ def readiness_event(report: dict, deployment: str) -> dict:
         "elapsed_ms": report["latency_ms"],
         "attempt": 1,
     }
+    for key in ("phase_ms", "deadline_expired"):
+        if key in report:
+            event[key] = report[key]
     if not ready:
         event.update(
             classification=report["classification"]
@@ -217,6 +224,30 @@ def _require_completed_nonce(raw, nonce: str) -> None:
         raise ReadinessResponseError("exact nonce output is required")
 
 
+async def _request_nonce(client: AsyncOpenAI, deployment: str, nonce: str):
+    return await client.responses.with_raw_response.create(
+        model=deployment,
+        instructions="Return only the supplied nonce in the required JSON object.",
+        input=json.dumps({"nonce": nonce}),
+        max_output_tokens=MAX_OUTPUT_TOKENS,
+        store=False,
+        reasoning={"effort": "low"},
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "synthetic_readiness",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {"nonce": {"type": "string", "enum": [nonce]}},
+                    "required": ["nonce"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+    )
+
+
 async def run_probe(*, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> dict:
     """Make at most one model request; all results contain closed metadata only."""
     started = time.perf_counter()
@@ -228,7 +259,19 @@ async def run_probe(*, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> dict
         "error_class": None,
         "stage": "configuration",
         "classification": CANDIDATE_MISCONFIGURED,
+        "phase_ms": dict.fromkeys(TIMING_PHASES, 0),
+        "deadline_expired": False,
     }
+    phase, phase_started = None, started
+    deadline = None
+
+    def begin_phase(name: str | None) -> None:
+        nonlocal phase, phase_started
+        now = time.perf_counter()
+        if phase is not None:
+            report["phase_ms"][phase] = round((now - phase_started) * 1000)
+        phase, phase_started = name, now
+
     try:
         if (
             isinstance(timeout_seconds, bool)
@@ -245,47 +288,35 @@ async def run_probe(*, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> dict
         config = policy["azure"]
         report["deployment"] = config["primary_deployment"]
         nonce = secrets.token_hex(16)
-        async with asyncio.timeout(timeout_seconds):
+        async with asyncio.timeout(timeout_seconds) as deadline:
             report["stage"] = "federation"
-            supplier = azure_openai_token_provider(
-                tenant_id=config["tenant_id"], client_id=config["client_id"]
+            begin_phase("credential_setup")
+            # Import and credential construction can also block; keep the loop
+            # responsive so the shared deadline can prevent a late model call.
+            supplier = await asyncio.to_thread(
+                azure_openai_token_provider,
+                tenant_id=config["tenant_id"],
+                client_id=config["client_id"],
             )
+            begin_phase("token_acquisition")
             token = await asyncio.to_thread(supplier)
             if not isinstance(token, str) or not token:
                 raise ReadinessConfigurationError("Azure token is unavailable")
             report["stage"] = "primary_http"
+            begin_phase("primary_http")
             async with AsyncOpenAI(
                 api_key=token,
                 base_url=config["primary_endpoint"],
                 timeout=timeout_seconds,
                 max_retries=0,
             ) as client:
-                raw = await client.responses.with_raw_response.create(
-                    model=config["primary_deployment"],
-                    instructions="Return only the supplied nonce in the required JSON object.",
-                    input=json.dumps({"nonce": nonce}),
-                    max_output_tokens=MAX_OUTPUT_TOKENS,
-                    store=False,
-                    reasoning={"effort": "low"},
-                    text={
-                        "format": {
-                            "type": "json_schema",
-                            "name": "synthetic_readiness",
-                            "strict": True,
-                            "schema": {
-                                "type": "object",
-                                "properties": {"nonce": {"type": "string", "enum": [nonce]}},
-                                "required": ["nonce"],
-                                "additionalProperties": False,
-                            },
-                        }
-                    },
-                )
+                raw = await _request_nonce(client, config["primary_deployment"], nonce)
                 report["http_status"] = _status_code(raw.status_code)
                 report["stage"] = "response_validation"
+                begin_phase("response_validation")
                 _require_completed_nonce(raw, nonce)
-                report["status"] = "ready"
-                report["classification"] = DEPENDENCY_OK
+        report["status"] = "ready"
+        report["classification"] = DEPENDENCY_OK
     except Exception as error:
         name = type(error).__name__
         report["error_class"] = (
@@ -294,6 +325,9 @@ async def run_probe(*, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> dict
         report["classification"] = classify_provider_error(error)
         if report["http_status"] is None:
             report["http_status"] = _status_code(getattr(error, "status_code", None))
+    finally:
+        begin_phase(None)
+        report["deadline_expired"] = deadline is not None and deadline.expired()
     report["latency_ms"] = round((time.perf_counter() - started) * 1000)
     return report
 
