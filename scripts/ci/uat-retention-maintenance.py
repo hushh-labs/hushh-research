@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Literal
 
 import release_artifact_receipts
 import production_phone_receipt
@@ -1006,9 +1007,15 @@ def trusted_pending_uat_state(repository: str, run: dict, artifact: dict) -> boo
 
 def download_pending_uat_state(
     repository: str, artifact: dict, directory: Path, *, environment: str = "uat",
-    allow_missing_readme: bool = False,
-) -> dict[str, bytes] | None:
-    """Fetch immutable checkpoint bytes; only full archives are materialized."""
+    source_kind: Literal["pending_drain", "saved_checkpoint"] = "pending_drain",
+) -> None:
+    """Fetch the checked immutable artifact ID, rejecting overwrite and ZIP races.
+
+    A proven saved checkpoint may precede the post-preflight README writer.
+    Legacy pending-drain evidence must still contain its README.
+    """
+    if source_kind not in {"pending_drain", "saved_checkpoint"}:
+        raise retention.UnsafeState("checkpoint artifact source kind is invalid")
     if (
         type(artifact.get("id")) is not int
         or artifact["id"] < 1
@@ -1029,13 +1036,10 @@ def download_pending_uat_state(
         raise retention.UnsafeState("pending UAT drain artifact digest changed")
     files = release_artifact_receipts.checkpoint_archive(
         archive, LANES[environment]["services"],
-        allow_missing_readme=allow_missing_readme and environment == "uat",
+        allow_missing_readme=source_kind == "saved_checkpoint",
     )
-    if "README.txt" not in files:
-        return files
     for name, content in files.items():
         (directory / name).write_bytes(content)
-    return None
 
 
 def carry_earlier_uat_clock(current: Path, older: Path) -> bool:
@@ -1129,33 +1133,6 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
     return False
 
 
-def _restore_checkpoint_source(repository, item, source, environment, immutable, unmatched):
-    """Materialize only complete trusted sources; hold incomplete metadata in memory."""
-    if immutable or unmatched is not None:
-        contents = download_pending_uat_state(
-            repository, item, source, environment=environment,
-            allow_missing_readme=environment == "uat",
-        )
-        if contents is not None:
-            if unmatched is not None and contents != unmatched[1]:
-                raise retention.UnsafeState("Incomplete checkpoint copies differ")
-            return unmatched or (item["id"], contents), True
-    else:
-        download(repository, item["workflow_run"]["id"], LANES[environment]["state_artifact"], source)
-    if unmatched is not None:
-        prior = release_artifact_receipts.checkpoint_directory(source, LANES[environment]["services"])
-        release_artifact_receipts.verify_checkpoint_copy(unmatched[1], prior, LANES[environment]["services"])
-        print(json.dumps({"maintenance_metadata_recovery": {
-            "kind": "identical_checkpoint_readme", "artifact_id": unmatched[0],
-            "prior_artifact_id": item["id"],
-        }}, sort_keys=True))
-    return None, False
-
-
-def _existing_service_states(directory, services):
-    return {service for service in services if (directory / f"{service}.json").exists()}
-
-
 def restore_state(
     repository: str, directory: Path, *, environment: str = "uat"
 ) -> None:
@@ -1169,8 +1146,11 @@ def restore_state(
     artifacts.sort(key=lambda item: _github_timestamp(item.get("created_at"))
                    or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     selected = False
-    unmatched = None
-    active = _existing_service_states(directory, lane["services"])
+    active = {
+        service
+        for service in lane["services"]
+        if (directory / f"{service}.json").exists()
+    }
     for item in artifacts:
         if item.get("name") != artifact or item.get("expired") is not False:
             continue
@@ -1195,11 +1175,12 @@ def restore_state(
             continue
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary)
-            unmatched, deferred = _restore_checkpoint_source(
-                repository, item, source, environment, pending_uat or checkpoint_source, unmatched
-            )
-            if deferred:
-                continue
+            if pending_uat or checkpoint_source:
+                download_pending_uat_state(repository, item, source, environment=environment,
+                    source_kind="saved_checkpoint" if checkpoint_source else "pending_drain",
+                )
+            else:
+                download(repository, run["id"], artifact, source)
             if not selected and environment == "uat":
                 receipt = source / "completed.json"
                 if not receipt.is_file() or receipt.is_symlink():
@@ -1267,12 +1248,14 @@ def restore_state(
             selected = True
             if environment == "production":
                 return
-            active = _existing_service_states(directory, lane["services"])
+            active = {
+                service
+                for service in lane["services"]
+                if (directory / f"{service}.json").exists()
+            }
             if not active:
                 # A newer empty pass must supersede older pending receipts.
                 return
-    if unmatched is not None:
-        raise retention.UnsafeState("Incomplete checkpoint has no identical trusted prior")
 
 
 def latest_deploy_observation(repository: str, environment: str) -> int:

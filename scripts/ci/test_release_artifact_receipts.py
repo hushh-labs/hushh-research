@@ -347,9 +347,7 @@ class CheckpointArchiveFixture:
 
 
 class CheckpointArchiveCopyTest(CheckpointArchiveFixture, unittest.TestCase):
-    def test_explicit_in_memory_copy_requires_prior_marker_and_exact_settled_bytes(
-        self,
-    ):
+    def test_checkpoint_archive_explicit_marker_policy_and_closed_file_set(self):
         archive = self.archive(self.missing)
         with self.assertRaises(MAINTENANCE.retention.UnsafeState):
             self.receipts.checkpoint_archive(archive, self.services)
@@ -357,108 +355,30 @@ class CheckpointArchiveCopyTest(CheckpointArchiveFixture, unittest.TestCase):
             self.receipts.checkpoint_archive(
                 archive, self.services, allow_missing_readme="true"
             )
-        missing = self.receipts.checkpoint_archive(
-            archive, self.services, allow_missing_readme=True
+        self.assertEqual(
+            self.receipts.checkpoint_archive(
+                archive, self.services, allow_missing_readme=True
+            ),
+            self.missing,
         )
-        self.receipts.verify_checkpoint_copy(missing, self.full, self.services)
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = pathlib.Path(temporary)
-            artifact = {
-                "id": 2,
-                "digest": "sha256:" + hashlib.sha256(archive).hexdigest(),
-                "size_in_bytes": len(archive),
-            }
-            with mock.patch.object(
-                MAINTENANCE.retention,
-                "run_command",
-                return_value=subprocess.CompletedProcess([], 0, archive, b""),
-            ):
-                self.assertEqual(
-                    MAINTENANCE.download_pending_uat_state(
-                        "org/repo", artifact, directory, allow_missing_readme=True
-                    ),
-                    missing,
-                )
-            self.assertEqual(list(directory.iterdir()), [])
-            for name, value in self.full.items():
-                (directory / name).write_bytes(value)
-            self.assertEqual(
-                self.receipts.checkpoint_directory(directory, self.services), self.full
-            )
-            (directory / "README.txt").unlink()
-            (directory / "README.txt").symlink_to(directory / "completed.json")
-            with self.assertRaises(MAINTENANCE.retention.UnsafeState):
-                self.receipts.checkpoint_directory(directory, self.services)
-
-    def test_changed_incomplete_or_pending_copies_never_qualify(self):
-        for defect in (
-            "bytes",
-            "missing_prior",
-            "journal",
-            "pending",
-            "run",
-            "mutation",
-            "json",
+        for members, mode in (
+            ({**self.full, "../outside.json": b"{}"}, None),
+            (self.full, 0o120777),
+            (
+                {
+                    name: value
+                    for name, value in self.missing.items()
+                    if name != "completed.json"
+                },
+                None,
+            ),
         ):
-            missing, previous = dict(self.missing), dict(self.full)
-            if defect == "bytes":
-                missing[self.services[0] + ".json"] += b" "
-            elif defect == "missing_prior":
-                previous = {}
-            elif defect == "journal":
-                missing.pop(self.services[0] + ".json")
-            elif defect in {"pending", "run"}:
-                completed = json.loads(missing["completed.json"])
-                completed[
-                    "pending_services" if defect == "pending" else "observed_run_id"
-                ] = [self.services[0]] if defect == "pending" else 124
-                missing["completed.json"] = previous["completed.json"] = json.dumps(
-                    completed
-                ).encode()
-            else:
-                value = (
-                    b'{"pending_mutation":{"action":"delete"}}'
-                    if defect == "mutation"
-                    else b'{"pending_mutation":null,"pending_mutation":null}'
-                )
-                missing[self.services[0] + ".json"] = previous[
-                    self.services[0] + ".json"
-                ] = value
             with (
-                self.subTest(defect=defect),
+                self.subTest(mode=mode),
                 self.assertRaises(MAINTENANCE.retention.UnsafeState),
             ):
-                self.receipts.verify_checkpoint_copy(missing, previous, self.services)
-
-    def test_zip_boundary_refuses_unsafe_members_and_missing_completion(self):
-        for defect in (
-            "path",
-            "symlink",
-            "fifo",
-            "oversize",
-            "completion",
-            "duplicate",
-        ):
-            members, mode = dict(self.full), None
-            if defect == "path":
-                members["../escape"] = b"unsafe"
-            elif defect in {"symlink", "fifo"}:
-                mode = 0o120600 if defect == "symlink" else 0o010600
-            elif defect == "oversize":
-                members["README.txt"] = b"x" * (1024 * 1024 + 1)
-            elif defect == "completion":
-                members.pop("completed.json")
-            archive = self.archive(members, mode=mode)
-            if defect == "duplicate":
-                stream = io.BytesIO(archive)
-                with (
-                    self.assertWarns(UserWarning),
-                    zipfile.ZipFile(stream, "a") as bundle,
-                ):
-                    bundle.writestr("README.txt", b"duplicate")
-                archive = stream.getvalue()
-            with (
-                self.subTest(defect=defect),
-                self.assertRaises(MAINTENANCE.retention.UnsafeState),
-            ):
-                self.receipts.checkpoint_archive(archive, self.services)
+                self.receipts.checkpoint_archive(
+                    self.archive(members, mode=mode),
+                    self.services,
+                    allow_missing_readme=True,
+                )

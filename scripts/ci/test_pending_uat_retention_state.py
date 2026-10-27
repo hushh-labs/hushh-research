@@ -13,8 +13,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
-from zipfile import ZipFile
-from test_release_artifact_receipts import CheckpointArchiveFixture
+from zipfile import ZipFile, ZipInfo
 
 
 maintenance = importlib.import_module("uat-retention-maintenance")
@@ -149,7 +148,8 @@ class PendingUatStateTests(unittest.TestCase):
             run_id = int(endpoint.split('/')[1])
             return jobs[run_id] if endpoint.endswith('/jobs?filter=latest&per_page=100') else runs[run_id]
 
-        def download(_repository: str, item: dict, directory: Path, *, environment: str = "uat", allow_missing_readme: bool = False) -> None:
+        def download(_repository: str, item: dict, directory: Path, *, environment: str = "uat", source_kind: str = "pending_drain") -> None:
+            self.assertEqual(source_kind, "pending_drain")
             backend_at, worker_at = states[item['id']]
             (directory / 'README.txt').write_text('drain evidence')
             for service, observed_at, duration in (
@@ -223,7 +223,8 @@ class PendingUatStateTests(unittest.TestCase):
                 return jobs
             raise AssertionError(endpoint)
 
-        def download(_repository: str, selected: dict, directory: Path, *, environment: str = "uat", allow_missing_readme: bool = False) -> None:
+        def download(_repository: str, selected: dict, directory: Path, *, environment: str = "uat", source_kind: str = "pending_drain") -> None:
+            self.assertEqual(source_kind, "pending_drain")
             self.assertEqual(selected['id'], artifact['id'])
             (directory / 'README.txt').write_text('drain evidence')
             (directory / 'consent-protocol.json').write_text(json.dumps(saved))
@@ -324,7 +325,7 @@ class PendingUatStateTests(unittest.TestCase):
         def api(_repository: str, endpoint: str) -> dict:
             return {'artifacts': [artifact]} if endpoint.startswith('artifacts?') else run
 
-        def download(_repository: str, _run_id: int, _name: str, directory: Path, *, environment: str = "uat", allow_missing_readme: bool = False) -> None:
+        def download(_repository: str, _run_id: int, _name: str, directory: Path, *, environment: str = "uat") -> None:
             (directory / 'README.txt').write_text('empty pass')
             (directory / 'completed.json').write_text(json.dumps({
                 'schema_version': 1, 'observed_run_id': 200,
@@ -356,6 +357,7 @@ class PendingUatStateTests(unittest.TestCase):
                 maintenance.restore_state('org/repo', Path(temporary), environment='production')
             self.assertEqual(list(Path(temporary).iterdir()), [])
 
+class ImmutableStateArchiveTests(unittest.TestCase):
     def test_pending_download_binds_id_digest_and_rejects_unsafe_zip(self) -> None:
         _run, artifact, _jobs = fixture()
 
@@ -394,13 +396,66 @@ class PendingUatStateTests(unittest.TestCase):
                 with self.assertRaisesRegex(maintenance.retention.UnsafeState, 'digest changed'):
                     maintenance.download_pending_uat_state('org/repo', bad_digest, directory)
 
+    def test_saved_checkpoint_without_readme_preserves_archive_safety(self) -> None:
+        _run, artifact, _jobs = fixture()
 
-class CheckpointRestoreCopyTest(CheckpointArchiveFixture, unittest.TestCase):
-    def test_restore_holds_missing_archive_until_real_prior_copy_proof(self):
-        for defect in (None, "changed", "no_prior", "prior_digest"):
+        def archive(*, receipt: bool = True, extra: str | ZipInfo | None = None) -> bytes:
+            memory = BytesIO()
+            with ZipFile(memory, 'w') as bundle:
+                if receipt:
+                    bundle.writestr('completed.json', '{"pass_status":"complete"}')
+                bundle.writestr('consent-protocol.json', '{"pending_mutation":null}')
+                if extra is not None:
+                    bundle.writestr(extra, '{}')
+            return memory.getvalue()
+
+        symlink = ZipInfo('hushh-webapp.json')
+        symlink.create_system = 3
+        symlink.external_attr = 0o120777 << 16
+        cases = (
+            ('modern', archive(), 'saved_checkpoint', True),
+            ('legacy_missing_readme', archive(), 'pending_drain', False),
+            ('missing_receipt', archive(receipt=False), 'saved_checkpoint', False),
+            ('unknown_path', archive(extra='../outside.json'), 'saved_checkpoint', False),
+            ('symlink', archive(extra=symlink), 'saved_checkpoint', False),
+            ('invalid_kind', archive(), 'unverified', False),
+        )
+        for name, content, source_kind, accepted in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                selected = {**artifact, 'size_in_bytes': len(content),
+                            'digest': 'sha256:' + hashlib.sha256(content).hexdigest()}
+                directory = Path(temporary)
+                with mock.patch.object(maintenance.retention, 'run_command', return_value=subprocess.CompletedProcess(
+                    [], 0, content, b''
+                )):
+                    if accepted:
+                        maintenance.download_pending_uat_state(
+                            'org/repo', selected, directory, source_kind=source_kind
+                        )
+                        self.assertEqual((directory / 'consent-protocol.json').read_text(),
+                                         '{"pending_mutation":null}')
+                    else:
+                        with self.assertRaises(maintenance.retention.UnsafeState):
+                            maintenance.download_pending_uat_state(
+                                'org/repo', selected, directory, source_kind=source_kind
+                            )
+                        self.assertEqual(list(directory.iterdir()), [])
+
+
+class CheckpointRestoreCopyTest(unittest.TestCase):
+    def test_trusted_missing_readme_preserves_pending_journal_and_blocks_mutation(self):
+        for defect in (None, "digest"):
             with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temporary:
                 destination = Path(temporary)
-                archive = self.archive(self.missing)
+                entries = {"completed.json": json.dumps({"schema_version": 1, "environment": "uat",
+                    "project": "hushh-pda-uat", "release_run_id": 40375889792,
+                    "observed_run_id": 40375889792, "pass_status": "in_progress"}).encode(),
+                    "consent-protocol.json": b'{"pending_mutation":{"operation":"delete","revision":"backend-old"}}'}
+                memory = BytesIO()
+                with ZipFile(memory, "w") as bundle:
+                    for name, content in entries.items():
+                        bundle.writestr(name, content)
+                archive = memory.getvalue()
                 run, item, jobs = fixture()
                 run.update(status="completed", conclusion="failure", event="workflow_dispatch", run_attempt=4)
                 saved = jobs["jobs"][1]["steps"][1]
@@ -409,44 +464,27 @@ class CheckpointRestoreCopyTest(CheckpointArchiveFixture, unittest.TestCase):
                         {**saved, "name": name} for name in ("Checkout mutation tooling and rollback history",
                         "Recheck due source under the deployment lock", "Authenticate to uat", "Save uat cleanup checkpoint")]}]}
                 item.update(size_in_bytes=len(archive), digest="sha256:" + hashlib.sha256(archive).hexdigest())
-                prior = {**run, "id": run["id"] - 1, "run_attempt": 1, "status": "completed", "conclusion": "success"}
-                old_artifact = {**item, "id": item["id"] - 1, "created_at": "2026-10-14T12:30:00Z",
-                                "workflow_run": {"id": prior["id"]}}
-                previous = dict(self.full)
-                if defect == "changed":
-                    previous["completed.json"] += b" "
-                old_archive = self.archive(previous)
-                old_artifact.update(size_in_bytes=len(old_archive), digest="sha256:" + hashlib.sha256(old_archive).hexdigest())
-                self.assertNotEqual(item["digest"], old_artifact["digest"])
-                if defect == "prior_digest":
-                    old_artifact["digest"] = "sha256:" + "0" * 64
-                downloads = []
+                if defect == "digest":
+                    item["digest"] = "sha256:" + "0" * 64
                 def api(_repository, endpoint):
                     if endpoint.startswith("artifacts?"):
-                        return {"artifacts": [item, *([] if defect == "no_prior" else [old_artifact])]}
-                    if "/jobs?" in endpoint:
-                        return jobs
-                    return run if endpoint == f"runs/{run['id']}" else prior
+                        return {"artifacts": [item]}
+                    return jobs if "/jobs?" in endpoint else run
                 def download(arguments, **_kwargs):
                     self.assertEqual(list(destination.iterdir()), [])
-                    selected = int(arguments[-1].split("/")[-2])
-                    self.assertEqual(arguments, ["gh", "api", f"repos/org/repo/actions/artifacts/{selected}/zip"])
-                    self.assertIn(selected, (item["id"], old_artifact["id"]))
-                    downloads.append(selected)
-                    content = archive if selected == item["id"] else old_archive
-                    return subprocess.CompletedProcess(arguments, 0, content, b"")
+                    self.assertEqual(arguments, ["gh", "api", f"repos/org/repo/actions/artifacts/{item['id']}/zip"])
+                    return subprocess.CompletedProcess(arguments, 0, archive, b"")
                 with mock.patch.object(maintenance, "api", side_effect=api), mock.patch.object(
-                    maintenance, "download", side_effect=AssertionError("repair must use immutable artifact ID")
-                ) as legacy, mock.patch.object(maintenance.retention, "run_command", side_effect=download):
-                    if defect:
-                        with self.assertRaises(maintenance.retention.UnsafeState):
-                            maintenance.restore_state("org/repo", destination)
-                        self.assertEqual(list(destination.iterdir()), [])
-                    else:
-                        maintenance.restore_state("org/repo", destination)
-                        self.assertEqual({path.name: path.read_bytes() for path in destination.iterdir()}, self.missing)
+                    maintenance, "download", side_effect=AssertionError("saved checkpoint must use artifact ID")
+                ) as legacy, mock.patch.object(maintenance.retention, "run_command", side_effect=download) as fetch, \
+                    mock.patch.object(maintenance, "assert_checkpoint_publication"):
+                    expected = "digest changed" if defect else "provider outcome is unresolved"
+                    with self.assertRaisesRegex(maintenance.retention.UnsafeState, expected):
+                        maintenance.assert_no_pending_mutations("org/repo", destination, "uat")
+                    fetch.assert_called_once()
                     legacy.assert_not_called()
-                self.assertEqual(downloads, [item["id"]] if defect == "no_prior" else [item["id"], old_artifact["id"]])
+                self.assertEqual({path.name: path.read_bytes() for path in destination.iterdir()},
+                                 {} if defect else entries)
 
 
 if __name__ == '__main__':

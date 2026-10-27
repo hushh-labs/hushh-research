@@ -1940,7 +1940,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
         }
         stream = io.BytesIO()
         with ZipFile(stream, "w") as bundle:
-            bundle.writestr("README.txt", "checkpoint")
+            # Preflight may republish restored JSONs before the README writer.
             bundle.writestr(
                 "completed.json",
                 json.dumps(

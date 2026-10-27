@@ -10,10 +10,8 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 import hashlib
 import importlib
-import json
 from io import BytesIO
 from pathlib import Path
-import os
 import re
 import stat
 from typing import Any
@@ -386,88 +384,3 @@ def checkpoint_archive(
     ) as error:
         raise retention.UnsafeState("checkpoint ZIP is invalid") from error
     return _checkpoint_shape(members, services, allow_missing_readme)
-
-
-def checkpoint_directory(directory: Path, services) -> dict[str, bytes]:
-    """Read only a complete regular bounded checkpoint; never synthesize its marker."""
-    if directory.is_symlink() or not directory.is_dir():
-        raise retention.UnsafeState("checkpoint directory is invalid")
-    allowed = _checkpoint_names(services) | {"README.txt"}
-    members = {}
-    try:
-        for path in directory.iterdir():
-            if path.name not in allowed:
-                raise retention.UnsafeState("checkpoint directory has unsafe files")
-            with os.fdopen(
-                os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb"
-            ) as stream:
-                metadata = os.fstat(stream.fileno())
-                if (
-                    not stat.S_ISREG(metadata.st_mode)
-                    or metadata.st_size > _CHECKPOINT_LIMIT
-                ):
-                    raise retention.UnsafeState(
-                        "checkpoint member is not regular or bounded"
-                    )
-                value = stream.read(_CHECKPOINT_LIMIT + 1)
-                if len(value) != metadata.st_size or len(value) > _CHECKPOINT_LIMIT:
-                    raise retention.UnsafeState("checkpoint member changed")
-                members[path.name] = value
-    except OSError as error:
-        raise retention.UnsafeState(
-            "checkpoint directory cannot be verified"
-        ) from error
-    return _checkpoint_shape(members, services)
-
-
-def _checkpoint_json(value):
-    def unique(pairs):
-        result = {}
-        for key, item in pairs:
-            if key in result:
-                raise ValueError("duplicate checkpoint JSON key")
-            result[key] = item
-        return result
-
-    try:
-        result = json.loads(value, object_pairs_hook=unique)
-    except (ValueError, UnicodeError, RecursionError) as error:
-        raise retention.UnsafeState("checkpoint JSON is invalid") from error
-    if not isinstance(result, dict):
-        raise retention.UnsafeState("checkpoint JSON is not an object")
-    return result
-
-
-def verify_checkpoint_copy(
-    missing: dict[str, bytes], previous: dict[str, bytes], services
-) -> None:
-    """Prove an unchanged settled JSON copy; the caller independently proves both origins."""
-    _checkpoint_shape(missing, services, True)
-    _checkpoint_shape(previous, services)
-    expected = _checkpoint_names(services)
-    if set(missing) != expected or set(previous) != expected | {"README.txt"}:
-        raise retention.UnsafeState(
-            "checkpoint copy lacks the complete independent file set"
-        )
-    if any(missing[name] != previous[name] for name in expected):
-        raise retention.UnsafeState("checkpoint copy bytes changed")
-    completed = _checkpoint_json(missing["completed.json"])
-    run_id, observed = (
-        completed.get(key) for key in ("release_run_id", "observed_run_id")
-    )
-    if (
-        type(completed.get("schema_version")) is not int
-        or completed["schema_version"] != 1
-        or completed.get("pass_status") != "complete"
-        or completed.get("pending_services") != []
-        or (
-            type(run_id) is not int
-            or run_id < 1
-            or type(observed) is not int
-            or observed != run_id
-        )
-    ):
-        raise retention.UnsafeState("checkpoint copy is not settled")
-    for name in expected - {"completed.json"}:
-        if _checkpoint_json(missing[name]).get("pending_mutation") is not None:
-            raise retention.UnsafeState("checkpoint copy has pending provider mutation")
