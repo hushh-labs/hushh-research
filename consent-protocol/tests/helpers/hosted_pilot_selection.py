@@ -123,3 +123,39 @@ def prove_policy_cannot_outlive_cleanup(monkeypatch, repo):
         )
         with pytest.raises(HostedTierNotPermittedError):
             asyncio.run(require_hosted_pilot_selection("owner-a", repo))
+
+
+async def prove_phone_pending_selection(pg, monkeypatch):
+    from hushh_mcp.services import compute_backend, personal_agent_registry_repo
+    from hushh_mcp.services.actor_identity_service import ActorIdentityService
+    from hushh_mcp.services.hosted_tier_guard import require_hosted_pilot_selection
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from tests import test_hosted_pilot_admission_postgres as pilot
+
+    selection_runtime(monkeypatch)
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setenv("PERSONAL_AGENT_AUTOPROVISION_ENABLED", "1")
+    client = pilot._Client(pg)
+    repo = PersonalAgentRegistryRepo(client=client)
+    monkeypatch.setattr(personal_agent_registry_repo, "PersonalAgentRegistryRepo", lambda: repo)
+    monkeypatch.setattr(compute_backend, "resolve_compute_backend", compute_backend.NullBackend)
+    try:
+        await ActorIdentityService()._register_pending_personal_agent("owner-a", "+14155550123")
+        row = await repo.get("owner-a")
+        assert row["status"] == "pending"
+        assert "provisionAttempt" not in (row.get("backend_metadata") or {})
+        original = pilot._assignment
+
+        def assignment(owner, number):
+            value = original(owner, number)
+            if owner == "owner-a":
+                value["hushhId"] = row["hushh_id"]
+            return value
+
+        monkeypatch.setattr(pilot, "_assignment", assignment)
+        pilot._policy(pg)
+        selected = await require_hosted_pilot_selection("owner-a", repo, require_record=True)
+        assert selected.hushh_id == row["hushh_id"] and selected.registry_present
+        assert await repo.get("owner-a") == row
+    finally:
+        client._engine.dispose()

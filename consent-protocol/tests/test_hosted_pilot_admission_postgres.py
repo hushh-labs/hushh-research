@@ -490,3 +490,9 @@ def test_managed_custody_replay_refuses_unknown_helper_drift(pg, helper):
         psycopg2.errors.RaiseException, match="Unqualified managed custody predecessor"
     ):
         pg.apply_file(ROOT / "db/migrations/parked/974_hosted_pod_custody.sql")
+
+
+def test_verified_phone_retains_fixed_cohort_selection(pg, monkeypatch):
+    from tests.helpers.hosted_pilot_selection import prove_phone_pending_selection
+
+    asyncio.run(prove_phone_pending_selection(pg, monkeypatch))

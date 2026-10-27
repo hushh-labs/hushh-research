@@ -666,6 +666,12 @@ establish installed owner acceptance.
 
 ### Hosted private-pod pilot
 
+Phone verification reserves the owner's pending identity. The automatic
+continuation requires an already authorized BYOC placement; unselected, Shared,
+managed and unreadable placements remain pending. A managed pilot owner selects
+hosting, then invokes the existing owner-authorized provision route. Keep the
+existing automation flag; do not use it to bypass fixed-cohort admission.
+
 The October 26 pilot keeps two synthetic hosted owners in separate Hussh-funded
 projects. Shared and BYOC remain separate choices. Use the existing image build,
 release catalog and upgrade approval contracts. Copy the same immutable digest

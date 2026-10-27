@@ -492,13 +492,12 @@ def pod_lifecycle_log_enabled() -> bool:
 
 
 def personal_agent_autoprovision_enabled() -> bool:
-    """Fire a user's pod automatically once their phone is verified.
+    """Allow automatic continuation for an already authorized BYOC home.
 
-    OFF, the phone-verify seam stops where it always has: a ``pending`` registry
-    row reserving the user's HusshID, and a pod only when the owner-authorized
-    ``POST /api/one/personal-agent/provision`` is called. ON, that same seam
-    continues straight through to :meth:`provision`, so every verified signup
-    gets a host with no further interaction.
+    OFF, phone verification reserves a ``pending`` registry row and HusshID;
+    provisioning requires the owner-authorized route. ON, continuation still
+    requires the recorded cloud to be authorized and ready. Unselected, Shared
+    and managed placements retain their explicit owner selection/provision flow.
 
     Separate from ``PERSONAL_AGENT_ENABLED`` on purpose, and defaults OFF. The
     master flag opens the surface; this one decides whether verifying a phone
