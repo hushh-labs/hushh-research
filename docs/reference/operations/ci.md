@@ -1146,6 +1146,18 @@ Older PR branches must inherit the current read-only consumer and rerun gate thr
 main synchronization; never restore the exposed repository credential to repair
 an obsolete consumer. Missing authority still refuses clearance.
 
+The bounded [CI trust qualification](../../../.github/workflows/ci-trust-qualification.yml)
+prepares consolidation into one Main-owned validation workflow. It triggers only
+against the disposable `ci/trusted-source-qualification` branch, never ordinary
+application PRs. Linux/macOS fixtures record actual workflow, candidate and native
+check identities; spoofing client cache write mode must not bypass server-issued
+read-only authority. An empty cache listing alone is insufficient: require the
+actual server refusal and fresh absence readback. A synthetic check write must
+receive the specific integration-permission refusal. Jobs use no protected
+environment, OIDC or owner information and issue no merge verdict. Retire this
+temporary workflow and its disposable refs after the qualified CI cutover;
+the existing security worker remains required until its replacement is active.
+
 The worker starts when a new PR Validation run is requested; it does not wait
 for the validation it must unblock. [GitHub does not emit `requested` for reruns](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
 Use the governed operator command below to request one retry and its exact
