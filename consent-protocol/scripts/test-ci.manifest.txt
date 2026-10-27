@@ -1095,6 +1095,7 @@ tests/test_email_chat_service.py
 
 # Restored after updating to the deliberate product changes they predated (2026-10-02).
 tests/test_pod_memory_routes.py
+tests/test_pod_memory_provider_grant.py
 tests/test_pod_turn_relay.py
 tests/test_one_grounding_honesty.py
 tests/test_pod_data_door_specialist.py
