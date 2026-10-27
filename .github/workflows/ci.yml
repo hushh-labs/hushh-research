@@ -335,6 +335,13 @@ jobs:
             # on main every night.
             editor:
 
+              - 'hushh-webapp/components/app-ui/shell-action-surface-base.tsx'
+              - 'hushh-webapp/lib/capacitor/native-chrome-controls.ts'
+              - 'hushh-webapp/lib/capacitor/native-feedback-sink.ts'
+              - 'hushh-webapp/lib/capacitor/native-wallet-profile-editor.ts'
+              - 'hushh-webapp/lib/capacitor/native-wallet-workspace.ts'
+              - 'hushh-webapp/lib/wallet/wallet-card-draft.ts'
+
               - 'hushh-webapp/components/agent/agent-connections-drawer.tsx'
               - 'hushh-webapp/components/agent/agent-history-sidebar.tsx'
               - 'hushh-webapp/components/app-ui/app-chat-history-edge-gesture.tsx'

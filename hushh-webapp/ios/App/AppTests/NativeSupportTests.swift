@@ -280,6 +280,57 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testWalletCardReplacementRejectsCallbacksFromThePreviousVisit() throws {
+        func state(_ visit: String) throws -> NativeWorkspaceProjection {
+            let object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "wallet",
+                "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111",
+                "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+                "page": "overview", "title": "Wallet", "enabled": true, "backEnabled": false, "sections": [],
+                "wallet": ["cards": [["id": "public-card", "kind": "profile", "title": "Public fixture", "subtitle": "", "network": "", "last4": "", "holder": "", "expiry": ""]],
+                    "addId": "add", "addEnabled": true, "selectedId": "public-card", "detailVisitId": visit, "closeId": "close", "detailTitle": "Public fixture", "detailBusy": false]]
+            let decoded = try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertTrue(decoded.valid); return decoded
+        }
+        let first = try state("visit-a"), second = try state("visit-b")
+        let model = NativeWalletDetailModel(first, wallet: try XCTUnwrap(first.wallet), visit: "visit-a")
+        var events = 0; model.enabled = true; model.action = { _, _ in events += 1 }
+        let staleClose = { model.choose("close", from: "visit-a") }
+        model.update(second, wallet: try XCTUnwrap(second.wallet))
+        staleClose()
+        XCTAssertEqual(events, 0, "A retained button must not inherit its replacement visit")
+        model.choose("close", from: "visit-b")
+        XCTAssertEqual(events, 1)
+        model.clear(); model.choose("close", from: "visit-b")
+        XCTAssertEqual(events, 1)
+    }
+
+    @MainActor
+    func testRouteWorkspaceRetirementReleasesCoverageBeforeReceipt() throws {
+        let object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "referrals",
+            "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111",
+            "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+            "page": "overview", "title": "Public workspace", "enabled": true, "backEnabled": false, "sections": []]
+        let state = try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object))
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        let parent = UIViewController(); parent.view = container
+        let presentation = try XCTUnwrap(NativeWorkspacePresentation(state, parent: parent, container: container))
+        var released = false
+        presentation.coverage = {
+            released = !presentation.coversPresentation
+            XCTAssertTrue(parent.children.isEmpty, "Coverage cannot release before the presenter detaches")
+        }
+        let retired = expectation(description: "Actual workspace retirement")
+        presentation.retire {
+            XCTAssertTrue(released, "Retirement must reconcile modal isolation before acknowledging absence")
+            XCTAssertTrue(parent.children.isEmpty)
+            retired.fulfill()
+        }
+        wait(for: [retired], timeout: 3)
+        presentation.coverage = nil
+    }
+
+    @MainActor
     func testRouteBodyRetainsItsOwnerAndEditorWhileRejectingRetiredOrRepeatedActions() throws {
         func projection(sequence: Int = 1, ack: Int = 0, name: String = "Synthetic Circle") throws -> NativeWorkspaceProjection {
             let object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "referrals",

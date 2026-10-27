@@ -16,7 +16,58 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
-### Wallet native Add scene — 2026-10-26
+### Wallet shared presentation — 2026-10-27 (qualification candidate)
+
+This supersedes the toolbar-only Add experiment below. Ordinary Release/TestFlight
+custom-native admission remains OFF. Source identity is the base revision plus
+recorded working-tree hashes until the candidate is committed; a base SHA alone
+must not be described as the installed source.
+
+| Family | Renderer and operation owner | Current evidence / qualification |
+| --- | --- | --- |
+| Wallet collection and labeled body Add | Native collection; existing Wallet/form owners | Combined physical candidate: ten selected-card and three Add/Cancel cycles passed |
+| Selected Profile, Referral, NWS and payment details | Owned native sheet above retained navigation/dock; existing feature callbacks | Ten physical system-card cycles, nested Profile editor/keyboard return and retained Next-card presenter passed; payment mutations remain unqualified |
+| Wallet access and sharing | Owned native detail; existing consent and history owners | Text/center/trailing-edge taps and modal isolation passed physically; no grant/revocation acceptance claimed |
+| Shared short action menus | Authored native popup through shared ActionMenu adapter | Unsupported rich content retains complete React fallback; no DOM-inferred operations |
+| Shared with me and scanner review | Deliberate complete React handoff | Not native-qualified; scanner retains existing acquisition/commit boundaries |
+
+The native workspace bounds the **entire serialized artwork projection**, not just
+individual images. Optional thumbnails yield to selected-card and QR artwork;
+metadata and operations are never truncated. This corrects a reproduced aggregate
+one-megabyte admission refusal without weakening the native boundary. Compatible
+Next-card changes publish the new visit immediately and retain the sheet; callbacks
+from its previous rendered visit are rejected. Add form admission permits the ready,
+uncovered Wallet collection while retaining owner, privacy and presenter checks.
+
+Use the shared native settings-row label for full-width row interaction, including
+transparent spacing. Qualification exercises text, center and trailing-edge taps;
+accessibility hittability alone does not prove a delivered action. Feedback remains
+inside its owned native scene. Removal feedback explicitly binds to the returning
+workspace rather than an unrelated newly selected card.
+
+A reproduced return-path gap also required a shared lifecycle correction: workspace
+retirement now publishes coverage change **after actual controller detachment and
+before the retirement receipt**. Retained retirement-registry entries must not latch
+touch/accessibility isolation on the returning route. The nearest native support
+regression verifies that ordering; the combined physical journey verifies returning
+Chat, one WebView and the unchanged draft. A subsequent independent warm Access
+journey also passed without relaunching. Earlier failed startup/snapshot attempts
+remain failed evidence; the passing run used public layout diagnostics and normal
+reviewer unlock, not privileged authentication or saved-card mutations.
+
+Private profile-draft types and limits live in an import-safe Wallet leaf shared by
+web and native validators. Native bridges must not import UI/service/auth graphs
+merely to validate presentation payloads. Existing CI input filters include these
+new leaves; no release gate or threshold is relaxed. Run targeted lint and typecheck
+before exporting the native candidate, then bind staged web assets and executable
+to its source manifest.
+
+No durable card save, consent mutation, visual/accessibility qualification or three-run
+physical frame-pacing acceptance follows from these functional receipts. Preserve
+web, Android, iPad and older-wrapper fallbacks. Rollback remains the existing single
+custom-native presentation switch.
+
+### Historical toolbar-only Wallet Add experiment — 2026-10-26
 
 Implementation `8935b960a7` (shared editor lifetime: `7fc0e95cdb`) adds an explicit,
 qualification-only iPhone Wallet presentation. `NativeRouteAdd` maps the authored

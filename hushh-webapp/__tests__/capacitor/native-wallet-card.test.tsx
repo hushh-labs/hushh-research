@@ -1,44 +1,56 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { NativeRouteAdd, NativeRouteAddSeat } from "@/components/app-ui/native-route-add";
+import { describe, expect, it, vi } from "vitest";
 import { NativeWalletCardFence, type NativeWalletCardProjection } from "@/lib/capacitor/native-wallet-card";
-const profile = vi.hoisted(() => ({ pathname: "/" }));
-vi.mock("next/navigation", () => ({ usePathname: () => profile.pathname }));
-// Test registration and action ownership; the real native renderer has its
-// existing Chrome suite and physical admission/retirement journey.
-vi.mock("@/components/app-ui/native-add-action", () => ({
-  NativeAddAction: ({ label, enabled, onActivate }: { label: string; enabled: boolean; onActivate: () => void }) =>
-    <button aria-label={label} disabled={!enabled} onClick={onActivate} />,
-}));
-afterEach(cleanup);
+import { boundNativeWalletArtwork, validNativeWalletCollection } from "@/lib/capacitor/native-wallet-workspace";
+import { workspaceChoiceDomainAllowed, type NativeWorkspaceProjection, type NativeWorkspaceChoice } from "@/lib/capacitor/native-workspace";
+import { validNativeWalletProfileDraft } from "@/lib/capacitor/native-wallet-profile-editor";
+import { EMPTY_WALLET_CARD_DRAFT } from "@/components/wallet-card/wallet-card-fields";
+import { nativeChromeSizeAllowed } from "@/lib/capacitor/native-chrome-controls";
+import { retainNativeFeedbackSink, withNativeFeedbackScope, nativeSinkFeedbackOptions, reconcileNativeSinkFeedback, isNativeSinkFeedback } from "@/lib/capacitor/native-feedback-sink";
+import type { ToastT } from "sonner";
 
-describe("authored native route actions", () => {
-  it("removes Wallet Add when a retained Wallet owner observes another route", async () => {
-    const bootstrap = Object.getOwnPropertyDescriptor(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
-    const previousPath = profile.pathname, previousUrl = window.location.href;
-    Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { configurable: true,
-      value: { contractVersion: 1, enabled: true, walletCardForms: true } });
-    const activate = vi.fn();
-    const ui = () => <><NativeRouteAdd route="/one/wallet" owner="public-owner" context="wallet-add" enabled onActivate={activate}>
-      <button>Body Add</button></NativeRouteAdd><NativeRouteAddSeat /></>;
-    try {
-      profile.pathname = "/one/wallet/"; window.history.replaceState(null, "", profile.pathname);
-      const view = render(ui());
-      fireEvent.click(await screen.findByRole("button", { name: "Add a card" }));
-      expect(activate).toHaveBeenCalledTimes(1);
-      profile.pathname = "/one"; window.history.replaceState(null, "", profile.pathname);
-      view.rerender(ui());
-      expect(screen.queryByRole("button", { name: "Add a card" })).toBeNull();
-      expect(activate).toHaveBeenCalledTimes(1);
-      view.unmount();
-    } finally {
-      profile.pathname = previousPath; window.history.replaceState(null, "", previousUrl);
-      if (bootstrap) Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", bootstrap);
-      else delete (window as Window & { __HUSHH_NATIVE_DRAWER_BOOTSTRAP__?: unknown }).__HUSHH_NATIVE_DRAWER_BOOTSTRAP__;
-    }
-  });
+it("retires private feedback on a destination change without replaying it", () => {
+  let key = "public-owner:visit-a", ready = false;
+  const show = vi.fn(), hide = vi.fn();
+  const release = retainNativeFeedbackSink({ capture: () => key, ready: () => ready, show, hide });
+  try {
+    const options = nativeSinkFeedbackOptions()!;
+    const toasts = [{ ...options, title: "Public fixture", type: "success", duration: 1000 }] as ToastT[];
+    reconcileNativeSinkFeedback(toasts);
+    expect(show).not.toHaveBeenCalled();
+    ready = true;
+    reconcileNativeSinkFeedback(toasts);
+    expect(show).toHaveBeenCalledTimes(1);
+    key = "public-owner:visit-b";
+    reconcileNativeSinkFeedback(toasts);
+    expect(hide).toHaveBeenCalledWith("public-owner:visit-a", options.id);
+    expect(isNativeSinkFeedback(options.id)).toBe(false);
+    reconcileNativeSinkFeedback(toasts);
+    expect(show).toHaveBeenCalledTimes(1);
+  } finally { release(); }
 });
 
+it("admits only the current detail while its sheet isolates base actions", () => {
+  const wallet = { cards: [{ id: "public-card", kind: "payment" as const, title: "Public fixture", subtitle: "Visa", network: "Visa", last4: "4242", holder: "Fixture", expiry: "12/30" }],
+    selectedId: "public-card", detailVisitId: "visit-b", closeId: "close", addId: "add", addEnabled: true, detailTitle: "Fixture", detailBusy: false };
+  const state = { workspace: "wallet", wallet, sections: [{ id: "details", rows: [{ id: "copy", label: "Copy", enabled: true }] }] } as NativeWorkspaceProjection;
+  const choice = { action: "row", rowId: "copy", domain: "wallet-detail", detailVisitId: "visit-b" } as NativeWorkspaceChoice;
+  expect(workspaceChoiceDomainAllowed(choice, state, true)).toBe(true);
+  expect(workspaceChoiceDomainAllowed({ ...choice, detailVisitId: "visit-a" }, state, true)).toBe(false);
+  expect(workspaceChoiceDomainAllowed({ ...choice, domain: undefined, rowId: "add" }, state, true)).toBe(false);
+  expect(workspaceChoiceDomainAllowed({ ...choice, dismissed: true }, state, true)).toBe(false);
+  expect(workspaceChoiceDomainAllowed({ ...choice, dismissed: true, rowId: "close" }, state, true)).toBe(true);
+  expect(validNativeWalletCollection(wallet)).toBe(true);
+  expect(validNativeWalletCollection({ ...wallet, ownerToken: "forbidden" } as typeof wallet)).toBe(false);
+  expect(validNativeWalletProfileDraft(EMPTY_WALLET_CARD_DRAFT)).toBe(true);
+  expect(validNativeWalletProfileDraft({ ...EMPTY_WALLET_CARD_DRAFT, vaultKey: "forbidden" })).toBe(false);
+});
+
+it("preserves bounded authored map geometry without relaxing ordinary chrome", () => {
+  expect(nativeChromeSizeAllowed("map-close", 56, 56)).toBe(true);
+  expect(nativeChromeSizeAllowed("map-check-in", 112, 44)).toBe(true);
+  expect(nativeChromeSizeAllowed("map-close", 112, 56)).toBe(false);
+  expect(nativeChromeSizeAllowed("history", 56, 56)).toBe(false);
+});
 describe("private route-owned card editor", () => {
   it("rejects obsolete draft bases and consumes a confirmed save only once", async () => {
     const state: NativeWalletCardProjection = {
@@ -67,3 +79,39 @@ describe("private route-owned card editor", () => {
   });
 });
 
+
+it("keeps late artwork within the whole bridge budget without losing card actions", () => {
+  const image = "data:image/png;base64," + "/".repeat(350_000);
+  const cards = Array.from({ length: 5 }, (_, index) => ({ id: `fixture-${index}`, kind: "payment" as const, title: "Public fixture", subtitle: "Visa", network: "Visa", last4: "4242", holder: "", expiry: "12/30", imageData: image }));
+  const wallet = { cards, selectedId: cards[4]!.id, detailVisitId: "visit", closeId: "close", addId: "add", addEnabled: true, detailTitle: "Fixture", detailBusy: false, detailQrData: image };
+  const before = JSON.stringify(wallet);
+  const projected = boundNativeWalletArtwork({ wallet });
+  expect(new TextEncoder().encode(JSON.stringify(projected).replaceAll("/", "\\/")).byteLength).toBeLessThan(900_000);
+  expect(projected.wallet.detailQrData).toBe(image);
+  expect(projected.wallet.cards.map(card => card.id)).toEqual(cards.map(card => card.id));
+  expect(projected.wallet.closeId).toBe("close");
+  expect(validNativeWalletCollection(projected.wallet)).toBe(true);
+  expect(JSON.stringify(wallet)).toBe(before);
+});
+
+it("keeps an explicitly route-owned operation outcome until its child closes", () => {
+  let route = "owner-a:wallet-visit", child = "card-a", childOpen = true;
+  const show = vi.fn(), hide = vi.fn();
+  const release = retainNativeFeedbackSink({ capture: scope => scope === "workspace" ? route : `${route}:${child}`, ready: () => !childOpen, show, hide });
+  try {
+    const options = withNativeFeedbackScope("workspace", () => nativeSinkFeedbackOptions()!);
+    const toasts = [{ ...options, title: "Card removed.", type: "success", duration: 1000 }] as ToastT[];
+    reconcileNativeSinkFeedback(toasts);
+    child = "card-b";
+    reconcileNativeSinkFeedback(toasts);
+    expect(show).not.toHaveBeenCalled();
+    expect(isNativeSinkFeedback(options.id)).toBe(true);
+    childOpen = false;
+    reconcileNativeSinkFeedback(toasts);
+    expect(show).toHaveBeenCalledTimes(1);
+    route = "owner-b:wallet-visit";
+    reconcileNativeSinkFeedback(toasts);
+    expect(isNativeSinkFeedback(options.id)).toBe(false);
+    expect(hide).toHaveBeenCalledWith("owner-a:wallet-visit", options.id);
+  } finally { release(); }
+});

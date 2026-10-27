@@ -1,5 +1,6 @@
 "use client";
 
+import { withNativeFeedbackScope } from "@/lib/capacitor/native-feedback-sink";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 
 /**
@@ -71,7 +72,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
-import { NativeRouteAdd } from "@/components/app-ui/native-route-add";
 import { AdaptiveWalletCardForm } from "@/components/wallet/native-wallet-card-form";
 import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handoff";
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
@@ -935,8 +935,8 @@ export function WalletWorkspace() {
     }
   };
 
-  const confirmRemove = () => {
-    const target = removeTarget;
+  const confirmRemove = (confirmedTarget = removeTarget) => {
+    const target = confirmedTarget;
     setRemoveTarget(null);
     if (!target || removalRef.current) return;
     const current = vaultContextRef.current();
@@ -946,12 +946,12 @@ export function WalletWorkspace() {
     cardReadRevision.current += 1;
     cardActionScopeRef.current.revision += 1;
     setSelectedDeckCardId(null); dispatch({ type: "unfocus" });
-    const handle = morphyToast.promise(removeCard(target.card.cardId, current, operation), {
+    const handle = withNativeFeedbackScope("workspace", () => morphyToast.promise(removeCard(target.card.cardId, current, operation), {
       isCurrent: () => activeOwnerIdRef.current === current.userId && profileVisitRef.current === operation.visit && isVaultSessionEpochCurrent(operation.visit.epoch) && vaultContextRef.current()?.vaultOwnerToken === current.vaultOwnerToken,
       loading: "Removing card…",
       success: "Card removed.",
       error: "The card could not be removed.",
-    })?.valueOf(); // Sonner boxes promise handles; dismissal needs the primitive ID.
+    }))?.valueOf(); // Sonner boxes promise handles; dismissal needs the primitive ID.
     if (typeof handle === "string" || typeof handle === "number") operation.toastId = handle;
   };
 
@@ -1128,9 +1128,7 @@ export function WalletWorkspace() {
             <span className={workspaceStyles.collectionCount}>{ready ? `${cards.length} ${cards.length === 1 ? "payment card" : "payment cards"}` : "Your cards"}</span>
             <div className="flex items-center gap-2">
               <Button ref={walletAccessTrigger} variant="ghost" size="compact" disabled={!ready} onClick={() => setWalletAccessOpen(true)} aria-label="Wallet access" className={workspaceStyles.accessButton}><ShieldCheck aria-hidden="true" className="size-4" /><span>Wallet access</span></Button>
-              <NativeRouteAdd route={ROUTES.ONE_WALLET} owner={renderedOwnerId} context="wallet-add" enabled={ready && !currentSave} onActivate={() => selectTab("add")}>
                 <Button ref={addTrigger} size="compact" disabled={!ready || Boolean(currentSave)} onClick={() => selectTab("add")} aria-label="Add a card" data-testid="one-wallet-add"><Plus aria-hidden="true" className="size-4" />Add card</Button>
-              </NativeRouteAdd>
             </div>
           </div>
           <TopShellTabs
@@ -1220,6 +1218,9 @@ export function WalletWorkspace() {
               key={renderedOwnerId}
               cards={cards}
               pendingCard={pendingCard}
+              nativePending={currentSave ? { label: `${currentSave.status === "saving" ? "Saving card…" : "Save not confirmed"} · •••• ${currentSave.last4}`,
+                ...(currentSave.status === "failed" ? { retry: () => { const job = saveJob.current; if (job) void executeSave(job); }, dismiss: () => { saveJob.current = null; setPendingSave(null); clearSecretOffer(); setFiling(null); setOfferNickname(null); } } : {}) } : undefined}
+              nativeHistoryContext={getHistoryContext}
               addDisabled={Boolean(currentSave)}
               cardholderNames={cardholderNames}
               artworks={artworks}
@@ -1228,6 +1229,10 @@ export function WalletWorkspace() {
               onSelect={selectCard}
               onOverview={() => { cardActionScopeRef.current.revision += 1; setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
               onAdd={() => selectTab("add")}
+              nativeAddPresented={activeTab === "add"}
+              nativeOperations={{ copyNumber: copyCardNumber, readSecurityCode, getShareContext: getCardShareContext,
+                removeConfirmed: card => { const context = vaultContextRef.current(); if (context && !busyCardId && !removalRef.current) confirmRemove({ card, context }); } }}
+              onSharing={() => selectTab("sharing")}
               details={cardDetails}
               active={activeTab === "cards"}
               onRemove={requestRemove}
@@ -1275,7 +1280,7 @@ export function WalletWorkspace() {
               <AlertDialogCancel data-testid="one-wallet-remove-cancel">Keep card</AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
-                onClick={confirmRemove}
+                onClick={() => confirmRemove()}
                 data-testid="one-wallet-remove-confirm-action"
               >
                 Remove card

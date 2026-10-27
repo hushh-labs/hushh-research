@@ -122,9 +122,6 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         configuration.userContentController.addUserScript(WKUserScript(
             source: "Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value:Object.freeze({contractVersion:1,enabled:\(eligible ? "true" : "false"),coherentShell:\(eligible && NativeDrawerQualificationPolicy.coherentShell ? "true" : "false"),ownedChoices:\(eligible && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? "true" : "false"),walletCardForms:\(eligible && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? "true" : "false")})});",
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        if eligible && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone {
-            configuration.userContentController.addUserScript(WKUserScript(source: "(() => { const mark = () => { if (!document.documentElement) return false; document.documentElement.dataset.nativeWalletCardForms = 'true'; return true; }; if (!mark()) { const observer = new MutationObserver(() => { if (mark()) observer.disconnect(); }); observer.observe(document, {childList:true}); } })();", injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        }
         return super.webView(with: frame, configuration: configuration)
     }
 

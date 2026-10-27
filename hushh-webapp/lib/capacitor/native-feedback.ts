@@ -1,3 +1,4 @@
+import { NATIVE_FEEDBACK_TOASTER_ID, nativeSinkFeedbackOptions, reconcileNativeSinkFeedback, isNativeSinkFeedback, clearNativeSinkFeedback } from "./native-feedback-sink";
 import type { PluginListenerHandle } from "@capacitor/core";
 import { toast, type ToastT, type ExternalToast } from "sonner";
 import type { NativeDrawerIdentity, NativeDrawerProjection } from "./native-drawers";
@@ -6,7 +7,7 @@ import { nativePrivacyCanInteract, nativePrivacyObservation } from "./session-pr
 /** Private, memory-only status presentation. Sonner still owns the promise and
  * feature callbacks; UIKit owns the banner's placement and expiry. No operation
  * or arbitrary JSX crosses this boundary. */
-export const NATIVE_FEEDBACK_TOASTER = "native-owned-feedback";
+export const NATIVE_FEEDBACK_TOASTER = NATIVE_FEEDBACK_TOASTER_ID;
 export type NativeFeedbackProjection = NativeDrawerIdentity & {
   privacyGeneration: number; feedbackId: string; feedbackRevision: number; feedbackSequence: number;
   destinationId: string | null; supportDestinationId: string | null; formScene: string | null; formRevision: number | null;
@@ -93,6 +94,8 @@ function live(owner: Owner, state: Context): boolean {
 export function nativeFeedbackOptions(message: unknown, description?: unknown): { id: string; toasterId: string } | undefined {
   if (!consumers || typeof message !== "string" || description != null && typeof description !== "string") return;
   if (!message.trim() || message.length + String(description ?? "").length > 2048) return;
+  const sink = nativeSinkFeedbackOptions();
+  if (sink) return sink;
   for (const owner of [...owners].reverse()) {
     const state = owner.state();
     if (!state || !state.open || !live(owner, state)) continue;
@@ -138,19 +141,20 @@ export function retainNativeFeedbackConsumer(): () => void {
   return () => {
     consumers--;
     if (!consumers) {
-      latestToasts = [];
+      latestToasts = []; clearNativeSinkFeedback();
       for (const [id, entry] of entries) retire(id, entry);
     }
   };
 }
 export function reconcileNativeFeedback(toasts: readonly ToastT[]) {
+  reconcileNativeSinkFeedback(toasts);
   latestToasts = toasts.filter(t => t.toasterId === NATIVE_FEEDBACK_TOASTER);
   const active = new Set(toasts.filter(t => t.toasterId === NATIVE_FEEDBACK_TOASTER).map(t => String(t.id)));
   for (const [id, entry] of entries) if (entry.observed && !active.has(id)) retire(id, entry);
   for (const t of toasts) {
     if (t.toasterId !== NATIVE_FEEDBACK_TOASTER) continue;
     const id = String(t.id), entry = entries.get(id);
-    if (!entry) { toast.dismiss(t.id); continue; }
+    if (!entry) { if (!isNativeSinkFeedback(id)) toast.dismiss(t.id); continue; }
     entry.observed = true;
     if (!live(entry.owner, entry.context) || entry.form && !entry.form.current() || typeof t.title !== "string" || t.description != null && typeof t.description !== "string") {
       retire(id, entry); continue;

@@ -11,11 +11,12 @@ export type OwnedChoiceIdentity = NonNullable<ReturnType<typeof captureNativeDra
   visitId: string;
   revision: number;
 };
-export type OwnedChoiceOption = { handle: string; label: string; disabled: boolean; selected: boolean };
+export type OwnedChoiceOption = { handle: string; label: string; disabled: boolean; selected: boolean; artworkId?: string };
 export type OwnedChoiceProjection = OwnedChoiceIdentity & NativeControlAppearance & {
   privacyGeneration: number;
   updateSequence: number;
   title: string;
+  showTitle?: boolean;
   options: readonly OwnedChoiceOption[];
 };
 export type OwnedChoiceReceipt = OwnedChoiceIdentity & {
@@ -55,12 +56,12 @@ export function validOwnedChoiceIdentity(value: OwnedChoiceIdentity): boolean {
 }
 export function validOwnedChoiceProjection(value: OwnedChoiceProjection): boolean {
   return validOwnedChoiceIdentity(value) && closed(value, [...identityKeys, ...appearanceKeys,
-    "privacyGeneration", "updateSequence", "title", "options"]) && sequence(value.privacyGeneration) &&
-    sequence(value.updateSequence, 1) && text(value.title, 256) && ["light", "dark"].includes(value.appearance) &&
+    "privacyGeneration", "updateSequence", "title", "options", "showTitle"]) && sequence(value.privacyGeneration) &&
+    sequence(value.updateSequence, 1) && (value.showTitle === undefined || typeof value.showTitle === "boolean") && text(value.title, 256) && ["light", "dark"].includes(value.appearance) &&
     /^#[\da-f]{6}$/i.test(value.accentHex) && /^#[\da-f]{6}([\da-f]{2})?$/i.test(value.foregroundHex) &&
     Array.isArray(value.options) && value.options.length <= 256 && value.options.every(option => !!option &&
-      closed(option, ["handle", "label", "disabled", "selected"]) && text(option.handle, 128) && text(option.label, 256) &&
-      typeof option.disabled === "boolean" && typeof option.selected === "boolean") &&
+      closed(option, ["handle", "label", "disabled", "selected", "artworkId"]) && text(option.handle, 128) && text(option.label, 256) &&
+      typeof option.disabled === "boolean" && typeof option.selected === "boolean" && (option.artworkId === undefined || text(option.artworkId, 128))) &&
     new Set(value.options.map(option => option.handle)).size === value.options.length &&
     value.options.filter(option => option.selected).length <= 1;
 }

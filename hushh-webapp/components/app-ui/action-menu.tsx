@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { NativeChatChrome } from "@/components/app-ui/native-chat-chrome";
+import { NativeActionMenu } from "./native-action-menu";
+import { nativeOwnedChoicesEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { plainChoiceText } from "@/lib/capacitor/native-choice-items";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "@/components/icons";
 
@@ -64,7 +66,7 @@ export type ActionMenuItem = {
 const ITEM_CLASSNAME =
   "flex min-h-11 w-full items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-primary-label)] focus:!bg-[color:var(--app-neutral-fill)] focus:!text-[color:var(--app-primary-label)] data-[highlighted]:!bg-[color:var(--app-neutral-fill)] data-[highlighted]:!text-[color:var(--app-primary-label)] dark:hover:bg-[color:var(--app-neutral-fill-strong)] dark:focus:!bg-[color:var(--app-neutral-fill-strong)] dark:data-[highlighted]:!bg-[color:var(--app-neutral-fill-strong)] disabled:text-[color:var(--app-tertiary-label)] disabled:opacity-45 data-[disabled]:!text-[color:var(--app-tertiary-label)] data-[disabled]:opacity-45 focus:[&_svg]:!text-[color:var(--app-secondary-label)] data-[highlighted]:[&_svg]:!text-[color:var(--app-secondary-label)]";
 
-export function ActionMenu({
+function WebActionMenu({
   label,
   title,
   showMobileTitle = true,
@@ -74,7 +76,8 @@ export function ActionMenu({
   testId,
   contentClassName,
   profileTypeScale,
-  nativePresentation,
+  nativePresentation: _nativePresentation,
+  initialOpen = false,
 }: {
   /** The trigger's accessible name, e.g. "Add Circle". */
   label: string;
@@ -93,10 +96,11 @@ export function ActionMenu({
   /** Explicit author admission: only stationary public labels, never a person,
    * protected record, credential, or arbitrary rich React label. */
   nativePresentation?: { owner: string | null; context: string };
+  initialOpen?: boolean;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const isMobile = useIsMobile();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   // Frozen for the lifetime of one opening. See the note above.
   const [sheetPresentation, setSheetPresentation] = useState(isMobile);
   useEffect(() => {
@@ -120,15 +124,7 @@ export function ActionMenu({
       )}
     </Button>
   );
-  const publicOptions = items.every((item) => typeof item.label === "string")
-    ? items.map((item) => ({ value: item.id, label: item.label as string, disabled: item.disabled || item.busy })) : null;
-  const presentedTrigger = sheetPresentation && nativePresentation && !customTrigger && publicOptions ?
-    <NativeChatChrome kind="more" owner={nativePresentation.owner} context={nativePresentation.context}
-      label={title ?? label} eligible={!open} options={publicOptions} focusRef={triggerRef}
-      className="relative flex size-11 items-center justify-center" onValueChange={(id) => {
-        const item = items.find((candidate) => candidate.id === id);
-        if (item && !item.disabled && !item.busy) item.onSelect();
-      }}>{trigger}</NativeChatChrome> : trigger;
+  const presentedTrigger = trigger;
 
   if (sheetPresentation) {
     return (
@@ -160,14 +156,14 @@ export function ActionMenu({
                   <button
                     key={item.id}
                     type="button"
-                    disabled={item.disabled}
+                    disabled={item.disabled || item.busy}
                     aria-busy={item.busy || undefined}
                     data-voice-control-id={item.voiceControlId}
                     data-testid={
                       testId ? `${testId}-item-${item.id}` : undefined
                     }
                     onClick={() => {
-                      if (item.disabled) return;
+                      if (item.disabled || item.busy) return;
                       setOpen(false);
                       item.onSelect();
                     }}
@@ -208,7 +204,7 @@ export function ActionMenu({
     // the menu appearing; Radix otherwise opens inside the same event. A test
     // that presses Enter and reads the menu on the next line then fails under
     // load while passing in isolation -- which is exactly what it did.
-    <DropdownMenu onOpenChange={setOpen}>
+    <DropdownMenu defaultOpen={initialOpen} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>{presentedTrigger}</DropdownMenuTrigger>
       <DropdownMenuContent data-profile-type-scale={profileTypeScale}
         align="end"
@@ -224,13 +220,13 @@ export function ActionMenu({
           return (
             <DropdownMenuItem
               key={item.id}
-              disabled={item.disabled}
+              disabled={item.disabled || item.busy}
               aria-busy={item.busy || undefined}
               data-voice-control-id={item.voiceControlId}
               data-voice-action-id={item.voiceActionId}
               data-testid={testId ? `${testId}-item-${item.id}` : undefined}
               onSelect={(event) => {
-                if (item.disabled) {
+                if (item.disabled || item.busy) {
                   event.preventDefault();
                   return;
                 }
@@ -251,4 +247,16 @@ export function ActionMenu({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+
+/** Renderer is selected for the popup family, not for each screen or click.
+ * Trigger geometry/artwork stays authored; only the complete popup is native. */
+export function ActionMenu(props: Parameters<typeof WebActionMenu>[0]) {
+  const [native] = useState(() => nativeOwnedChoicesEnabled() && props.items.length > 0 &&
+    props.items.length <= 256 && props.items.every(item => {
+      const label = plainChoiceText(item.label)?.trim();
+      return item.id.length > 0 && item.id.length <= 128 && label && label.length <= 256;
+    }) && new Set(props.items.map(item => item.id)).size === props.items.length);
+  return native ? <NativeActionMenu {...props} webFallback={open => <WebActionMenu {...props} initialOpen={open} />} /> : <WebActionMenu {...props} />;
 }

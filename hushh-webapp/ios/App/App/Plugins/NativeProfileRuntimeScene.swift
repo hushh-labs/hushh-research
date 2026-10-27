@@ -87,6 +87,11 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
     @Published private(set) var editRevision = 0
     @Published private(set) var pending: NativeProfileNameAction?
     @Published private(set) var retired = false
+    @Published private(set) var presentationEnabled = true
+    func setPresentationEnabled(_ enabled: Bool) {
+        guard presentationEnabled != enabled else { return }; presentationEnabled = enabled
+        if !enabled { fields.values.compactMap(\.value).forEach { $0.resignFirstResponder() }; textViews.values.compactMap(\.value).forEach { $0.resignFirstResponder() } }
+    }
     private var sequence = 0; private var confirmed = 0; private var lastComposing = false
     private var fields = [String: WeakField]()
     private final class WeakField { weak var value: UITextField?; init(_ value: UITextField) { self.value = value } }
@@ -105,8 +110,8 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
     var choose: ((NativeProfileNameAction) -> Bool)?
     var finalEdit: ((Projection.Draft, Int) -> Void)?
     var composing: Bool { fields.values.contains { $0.value?.markedTextRange != nil } || textViews.values.contains { $0.value?.markedTextRange != nil } }
-    var canEdit: Bool { !retired && !projection.busy && pending == nil }
-    var canCancel: Bool { !retired && !projection.busy && (pending == nil || projection.primary == "validate" && pending?.action == "save") }
+    var canEdit: Bool { presentationEnabled && !retired && !projection.busy && pending == nil }
+    var canCancel: Bool { presentationEnabled && !retired && !projection.busy && (pending == nil || projection.primary == "validate" && pending?.action == "save") }
     var canSave: Bool { canEdit && !projection.checking && !composing && projection.canSave && projection.acknowledgedEditRevision == editRevision }
     var accent: UIColor { HushhNativeControlAppearance.color(projection.accentHex) ?? .label }
     init(_ projection: Projection) { self.projection = projection; draft = projection.draft }
