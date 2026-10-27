@@ -751,10 +751,14 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     if (outcome === "commit") {
       await waitFor(() => expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1));
       expect(mocks.replaceDocument).toHaveBeenCalledWith("/login?auth_notice=account_deletion_identity_retained");
+      // Deletion settles after a 202 handoff, so delete-account.ts never purges;
+      // the confirmed erasure must still take the device's durable copies.
+      expect(mocks.clearForUser).toHaveBeenCalledWith("account-owner", { deleteDurableReceipts: true });
     } else {
       expect(await screen.findByText("Vault content for account-owner")).toBeInTheDocument();
       expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
       expect(mocks.replaceDocument).not.toHaveBeenCalled();
+      expect(mocks.clearForUser).not.toHaveBeenCalledWith("account-owner", { deleteDurableReceipts: true });
     }
   });
 
@@ -1033,6 +1037,8 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
       expect(mocks.clearDeviceSecretsForDeletedAccount).toHaveBeenCalledWith(
         "account-owner",
       );
+      // account_not_found is broader than a backend-confirmed erasure.
+      expect(mocks.clearForUser).not.toHaveBeenCalledWith("account-owner", { deleteDurableReceipts: true });
     } finally {
       setItem.mockRestore();
     }
@@ -1059,6 +1065,7 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     await act(async () => Promise.resolve());
 
     expect(mocks.clearDeviceSecretsForDeletedAccount).not.toHaveBeenCalled();
+    expect(mocks.clearForUser).not.toHaveBeenCalledWith("account-owner", { deleteDurableReceipts: true });
   });
 
   it.each(["account_deleted", "account_deletion_identity_retained"] as const)("clears device secrets for confirmed erasure after teardown: %s", async code => {

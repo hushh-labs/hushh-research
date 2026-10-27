@@ -35,6 +35,9 @@ from hushh_mcp.services.account_deletion_cleanup_policy import (
     authority_refusal,
     cleanup_parameters,
 )
+from hushh_mcp.services.account_deletion_cleanup_stall import (
+    AccountDeletionDrainReport as AccountDeletionDrainReport,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1413,13 +1416,24 @@ async def drain_account_deletion_cleanup_intents(
     service: AccountDeletionLifecycleService | None = None,
     limit: int = 10,
 ) -> int:
+    """Compatibility facade: the settled count only."""
+    return (await drain_account_deletion_cleanup_with_report(service=service, limit=limit)).settled
+
+
+async def drain_account_deletion_cleanup_with_report(
+    *,
+    service: AccountDeletionLifecycleService | None = None,
+    limit: int = 10,
+) -> AccountDeletionDrainReport:
     # The injected service is the existing Firebase-only test/operator port.
     # Normal startup and authenticated scheduler delivery own both stages.
     provider_settled = 0
+    paused_reason: str | None = None
     if service is None:
-        from hushh_mcp.services.account_deletion_provider_worker import drain
+        from hushh_mcp.services.account_deletion_provider_worker import drain_with_outcome
 
-        provider_settled = await drain(limit=min(limit, 5))
+        outcome = await drain_with_outcome(limit=min(limit, 5))
+        provider_settled, paused_reason = outcome.settled, outcome.paused_reason
     lifecycle = service or AccountDeletionLifecycleService()
     intents = await asyncio.wait_for(
         asyncio.to_thread(lifecycle.claim_due_cleanup_intents, limit=limit),
@@ -1452,7 +1466,7 @@ async def drain_account_deletion_cleanup_intents(
             raise
         except Exception:
             logger.exception("account_deletion.cleanup_intent_failed")
-    return settled
+    return AccountDeletionDrainReport(settled, paused_reason)
 
 
 async def _account_deletion_cleanup_loop(interval_seconds: float) -> None:

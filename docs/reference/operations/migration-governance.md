@@ -147,6 +147,16 @@ A bounded relation lock preserves ordinary row writes while fencing trigger DDL.
 Fresh schemas introduce no consumer objects or API. Observe and already-applied
 ledger entries remain unchanged. Historical SQL and checksums remain immutable.
 
+The same execution adapter preserves the complete reviewed managed-custody
+function family already installed in shared Dev. Any new helper or matching
+refined function requires all 60 exact definitions; a missing sentinel, partial
+family, changed function or unknown overload refuses replay. Both 420 and 421
+qualify the family before and after execution, and 421 retains its newer registry
+guard. Public and client execution grants are revoked. The test-only catalog
+fixture contains function definitions without owner records or pilot policy.
+This compatibility installs neither the parked pilot migrations nor private-pod
+runtime behavior, and changes no historical SQL or ledger checksum.
+
 Permanent account cleanup additionally erases retained owner-scoped consumer
 connections before ordinary OAuth/app cleanup. The shared client and neighboring
 owners remain. This compatibility does not publish the consumer-MCP feature.
@@ -167,6 +177,13 @@ provenance, Trusted exclusions and SMS Circle behavior are preserved. Fresh
 installation still executes the immutable historical body before migration 201.
 The normal identity-write guards remain authoritative for concurrent erasure;
 replay never deletes tombstones, disables a guard or changes accepted SQL checksums.
+
+Migration 428's owner financial-summary preference backfill uses the same filter,
+so replay during an in-flight deletion skips the erased owner instead of failing
+the deploy and retaining the deletion release fence. The static check
+`test_replayed_identity_backfills_skip_tombstoned_owners` refuses any new manifest
+migration whose replayed `INSERT ... SELECT` copies an account identity without
+enrollment here; its legacy exceptions (030, 127, 129) may only shrink.
 
 The checksum-pinned `db/private_agent_adoption.py` execution adapter preserves
 420's historical SQL and ledger checksum in replay and pending ledger execution;
