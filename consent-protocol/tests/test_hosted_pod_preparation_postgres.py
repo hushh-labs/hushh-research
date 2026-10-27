@@ -13,6 +13,32 @@ from tests.test_hosted_pilot_admission_postgres import pg as pg
 from tests.test_hosted_pilot_admission_postgres import pytestmark as pytestmark
 
 
+def _creation_receipt(reservation):
+    assignment = reservation["hostedAdmission"]["assignment"]
+    return {
+        "step": "create_project",
+        "status": 200,
+        "ok": True,
+        "resourceObservation": {
+            "type": "gcp_project",
+            "id": assignment["project"],
+            "disposition": "created",
+            "identity": {
+                "projectId": assignment["project"],
+                "projectNumber": assignment["projectNumber"],
+                "lifecycleState": "ACTIVE",
+                "parent": {"type": "folder", "id": "123456789"},
+                "labels": {
+                    "created-by": "hussh-one",
+                    "tenancy": "hussh-hosted",
+                    "hussh-environment": "dev",
+                    "hussh-provision-attempt": reservation["attemptId"],
+                },
+            },
+        },
+    }
+
+
 @pytest.mark.parametrize("expire_after_ack", [False, True])
 def test_project_preparation_has_one_intent_winner_and_refuses_foreign_readback(
     pg, expire_after_ack
@@ -20,7 +46,6 @@ def test_project_preparation_has_one_intent_winner_and_refuses_foreign_readback(
     _policy(pg, preparation=True, ttl="2 seconds" if expire_after_ack else "1 day")
     reservation = _claim(pg)
     admission = reservation["hostedAdmission"]
-    assignment = admission["assignment"]
     client = _Client(pg)
     checkpoint = {
         "version": 1,
@@ -49,28 +74,7 @@ def test_project_preparation_has_one_intent_winner_and_refuses_foreign_readback(
         with ThreadPoolExecutor(max_workers=2) as workers:
             assert sorted(workers.map(publish, [checkpoint, checkpoint])) == [False, True]
         assert not publish(checkpoint)
-        result = {
-            "step": "create_project",
-            "status": 200,
-            "ok": True,
-            "resourceObservation": {
-                "type": "gcp_project",
-                "id": assignment["project"],
-                "disposition": "created",
-                "identity": {
-                    "projectId": assignment["project"],
-                    "projectNumber": assignment["projectNumber"],
-                    "lifecycleState": "ACTIVE",
-                    "parent": {"type": "folder", "id": "123456789"},
-                    "labels": {
-                        "created-by": "hussh-one",
-                        "tenancy": "hussh-hosted",
-                        "hussh-environment": "dev",
-                        "hussh-provision-attempt": reservation["attemptId"],
-                    },
-                },
-            },
-        }
+        result = _creation_receipt(reservation)
         observed = {
             **checkpoint,
             "expectedGeneration": 1,
