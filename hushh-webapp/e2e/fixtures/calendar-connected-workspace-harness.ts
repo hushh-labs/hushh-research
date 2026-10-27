@@ -244,7 +244,8 @@ export async function openFixture(page: Page, width: number, locked = false, var
     }
     if (routePath.endsWith("/schedule/today")) {
       if (scheduleGate) await scheduleGate;
-      return route.fulfill({ json: { events: fixtureEvents(String(body.date), scheduleVariant), date: body.date, time_zone: body.time_zone, calendars: sources, unreadable_calendars: [] } });
+      const otherOwner = request.headers().authorization === "Bearer synthetic-firebase-other-owner-token";
+      return route.fulfill({ json: { events: otherOwner ? [] : fixtureEvents(String(body.date), scheduleVariant), date: body.date, time_zone: body.time_zone, calendars: otherOwner ? [{ id: "other-owner@example.com", name: "Other owner", primary: true }] : sources, unreadable_calendars: [] } });
     }
     if (routePath.endsWith("/schedule/availability")) {
       const response = freeWindows(body); call.response = response;

@@ -70,8 +70,7 @@ test("three-account Board keeps its measure, heading roles and account actions a
   const addPill = page.getByRole("button", { name: "Add account" });
   const lightPill = await addPill.evaluate(element => getComputedStyle(element).backgroundColor);
   await page.evaluate(() => document.documentElement.classList.add("dark"));
-  const darkPill = await addPill.evaluate(element => getComputedStyle(element).backgroundColor);
-  expect(darkPill).not.toBe(lightPill);
+  await expect(addPill).not.toHaveCSS("background-color", lightPill);
   expect((await addPill.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, "calendar-board-dark-1440.png") });
   await page.getByRole("button", { name: /^Open QA Design Review/ }).click();
@@ -180,13 +179,19 @@ for (const width of [320, 390, 1440]) {
     await assertActionsClearChrome(page, width, "today");
     await page.getByTestId("calendar-scroll-root").evaluate(element => { element.scrollTop = 0; });
     await page.getByRole("button", { name: /^QA Product Sync/ }).click();
-    await expect(page.getByRole("dialog")).toContainText("Synthetic event details for rendered QA.");
-    for (let index = 0; index < 5; index++) { await page.keyboard.press("Tab"); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
+    const eventDialog = page.getByRole("dialog");
+    await expect(eventDialog).toContainText("Synthetic event details for rendered QA.");
+    for (let index = 0; index < 5; index++) { await page.keyboard.press("Tab"); expect(await eventDialog.evaluate(element => element.contains(document.activeElement))).toBe(true); }
+    const readsBeforeVaultLock = calls.filter(call => call.path.endsWith("/schedule/today")).length;
     await page.getByTestId("calendar-fixture-lock").dispatchEvent("click");
-    await expect.poll(() => page.evaluate(() => document.body.textContent?.includes("Synthetic event details for rendered QA."))).toBe(false);
+    await expect(eventDialog).toContainText("Synthetic event details for rendered QA.");
+    expect(calls.filter(call => call.path.endsWith("/schedule/today"))).toHaveLength(readsBeforeVaultLock);
     await expect(page.getByText("Calendar session unavailable.", { exact: false })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /unlock/i })).toHaveCount(0);
     await page.getByTestId("calendar-fixture-authorize").dispatchEvent("click");
+    await expect(eventDialog).toContainText("Synthetic event details for rendered QA.");
+    await page.keyboard.press("Escape");
+    await expect(eventDialog).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^QA Product Sync/ })).toBeVisible();
     const menu = page.getByRole("button", { name: "Calendar settings and actions", exact: true });
     await menu.focus(); await page.keyboard.press("Enter");
@@ -275,14 +280,16 @@ for (const width of [320, 390, 1440]) {
     const previousReads = long.calls.filter(call => call.path.endsWith("/schedule/today")).length;
     const releaseSchedule = long.holdSchedule();
     try {
-      await page.getByTestId("calendar-fixture-lock").dispatchEvent("click");
+      await page.getByTestId("calendar-fixture-switch-owner").dispatchEvent("click");
       await expect.poll(() => long.calls.filter(call => call.path.endsWith("/schedule/today")).length).toBeGreaterThan(previousReads);
-      // Distinguish retained private DOM from a new Firebase-authorized read.
+      expect(long.calls.filter(call => call.path.endsWith("/schedule/today")).at(-1)?.authorization).toBe("Bearer synthetic-firebase-other-owner-token");
+      // A new owner never sees the prior owner's details while their read is held.
       await expect.poll(() => page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
     } finally {
       releaseSchedule("standard");
     }
-    await expect(page.getByRole("button", { name: /^QA Product Sync/ })).toBeVisible();
+    await expect(page.getByText("other-owner@example.com", { exact: true })).toBeVisible();
+    await expect(page.getByText("No events today.", { exact: true })).toBeVisible();
     expect(await page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
     expect(long.errors).toEqual([]);
     expect(long.unexpectedRequests).toEqual([]);
