@@ -36,6 +36,35 @@ describe("connected Calendar transport authority", () => {
     expect(JSON.parse(options.body)).not.toHaveProperty("user_id");
   });
 
+  it("uses Firebase without vault authority for a Calendar-only RSVP", async () => {
+    const current = vi.fn(() => true);
+    await GoogleCalendarService.reviewRsvp({
+      firebaseIdToken: "firebase-owner", eventId: "live-event", calendarId: "primary",
+      accountId: "second", expectedAccountEmail: "owner@example.test", responseStatus: "accepted",
+      timeZone: "UTC", isEffectCurrent: current,
+    });
+    const [url, options] = apiFetch.mock.calls[0];
+    expect(url).toBe("/api/one/calendar/attendance/rsvp/review");
+    expect(options.headers.Authorization).toBe("Bearer firebase-owner");
+    expect(options.headers).not.toHaveProperty("X-Hushh-Consent");
+    expect(JSON.parse(options.body)).toEqual({
+      event_id: "live-event", calendar_id: "primary", account_id: "second",
+      expected_account_email: "owner@example.test", response_status: "accepted", time_zone: "UTC",
+    });
+    expect(options.isEffectCurrent).toBe(current);
+    expect(options.cache).toBe("no-store");
+  });
+
+  it("confirms a Calendar-only RSVP without vault authority", async () => {
+    apiFetch.mockResolvedValueOnce(Response.json({ calendar: "accepted", email: "not_sent", calendar_error: null, email_error: null }));
+    await GoogleCalendarService.confirmRsvp({ firebaseIdToken: "firebase-owner", accountId: "second", reviewId: "review-id", reviewToken: "sealed-review" });
+    const [url, options] = apiFetch.mock.calls[0];
+    expect(url).toBe("/api/one/calendar/attendance/rsvp/confirm");
+    expect(options.headers.Authorization).toBe("Bearer firebase-owner");
+    expect(options.headers).not.toHaveProperty("X-Hushh-Consent");
+    expect(JSON.parse(options.body)).toEqual({ account_id: "second", review_id: "review-id", review_token: "sealed-review" });
+  });
+
   it("keeps confirmed selections on availability only and preserves failure catalog", async () => {
     const options = [{ id: "work", name: "Work", availability_default_included: true, availability_included: true }];
     apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ detail: { message: "Unreadable work calendar", reason_code: "calendar_unreadable", calendar_options: options } }), { status: 409 }));

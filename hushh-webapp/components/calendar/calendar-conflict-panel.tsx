@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { CalendarCompactAction } from "./calendar-compact-action";
 import presentationStyles from "./calendar-presentation.module.css";
 import { Textarea } from "@/components/ui/textarea";
-import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { GoogleCalendarService, GoogleCalendarError, type CalendarAttendanceResult, type CalendarAttendanceReview, type CalendarBoardDay, type CalendarConflictReview, type CalendarConflictResult, type CalendarEventRef, type CalendarEventSummary } from "@/lib/services/google-calendar-service";
 import { eventTime } from "./calendar-schedule-presentation";
 import { MAX_CALENDAR_DECLINE_REASON_LENGTH, calendarDeclineMessage, sameCalendarInvitationOccurrence } from "@/lib/calendar/calendar-recipient-copy";
@@ -15,10 +15,9 @@ import styles from "./calendar-account-board.module.css";
 type Choice = { ref: CalendarEventRef; event: CalendarEventSummary; email: string; canDecline: boolean };
 const key = (ref: CalendarEventRef) => `${ref.account_id}\u001f${ref.calendar_id}\u001f${ref.event_id}`;
 
-export function CalendarConflictPanel({ board, keep, token, getIdToken, initialDraft, onDraftChange, onDone, onConfirmed, onBusyChange, onChooseKeep, onMailConnect }: {
+export function CalendarConflictPanel({ board, keep, getIdToken, initialDraft, onDraftChange, onDone, onConfirmed, onBusyChange, onChooseKeep, onMailConnect }: {
   board: CalendarBoardDay;
   keep: CalendarEventRef;
-  token: string | null;
   getIdToken: () => Promise<string>;
   initialDraft: { selected: string[]; notes: Record<string, string> };
   onDraftChange: (draft: { selected: string[]; notes: Record<string, string> }) => void;
@@ -64,17 +63,18 @@ export function CalendarConflictPanel({ board, keep, token, getIdToken, initialD
   };
 
   const prepare = () => void execute(async () => {
-    if (!token || !board.complete || !board.conflicts_complete) throw new Error("Unlock your vault and refresh every account before resolving conflicts.");
-    const epoch = snapshotVaultSessionEpoch();
+    if (!board.complete || !board.conflicts_complete) throw new Error("Refresh every account before resolving conflicts.");
+    const owner = snapshotValidatedAuthSessionOwner();
+    const current = () => mounted.current && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
     const firebaseIdToken = await getIdToken();
-    if (!isVaultSessionEpochCurrent(epoch)) return;
+    if (!current()) return;
     const decline = choices.filter(choice => selected.includes(key(choice.ref))).map(choice => ({
       ...choice.ref,
       message: calendarDeclineMessage(choice.event, board.time_zone, notes[key(choice.ref)]?.trim() || ""),
     }));
-    const next = await GoogleCalendarService.reviewConflict({
-      firebaseIdToken, vaultOwnerToken: token, date: board.date, timeZone: board.time_zone,
-      keep, decline, isEffectCurrent: () => mounted.current && isVaultSessionEpochCurrent(epoch),
+    const next = await GoogleCalendarService.reviewWorkspaceConflict({
+      firebaseIdToken, date: board.date, timeZone: board.time_zone,
+      keep, decline, isEffectCurrent: current,
     });
     for (const choice of choices.filter(item => selected.includes(key(item.ref)))) {
       const preview = next.previews.find(item => item.kind === "decline" && key(item.ref) === key(choice.ref));
@@ -82,60 +82,63 @@ export function CalendarConflictPanel({ board, keep, token, getIdToken, initialD
         throw new Error("An invitation changed while the email was prepared. Refresh Calendar and review it again; nothing was sent.");
       }
     }
-    if (mounted.current && isVaultSessionEpochCurrent(epoch)) setReview(next);
+    if (current()) setReview(next);
   });
 
   const confirm = () => void execute(async () => {
-    if (!review || !token) return;
-    const epoch = snapshotVaultSessionEpoch();
+    if (!review) return;
+    const owner = snapshotValidatedAuthSessionOwner();
+    const current = () => mounted.current && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
     const firebaseIdToken = await getIdToken();
-    if (!isVaultSessionEpochCurrent(epoch)) return;
-    const next = await GoogleCalendarService.confirmConflict({
-      firebaseIdToken, vaultOwnerToken: token, reviewId: review.review_id,
+    if (!current()) return;
+    const next = await GoogleCalendarService.confirmWorkspaceConflict({
+      firebaseIdToken, reviewId: review.review_id,
       reviewToken: review.review_token,
-      isEffectCurrent: () => mounted.current && isVaultSessionEpochCurrent(epoch),
+      isEffectCurrent: current,
     });
-    if (mounted.current && isVaultSessionEpochCurrent(epoch)) { setResult(next); onConfirmed(); }
+    if (current()) { setResult(next); onConfirmed(); }
   });
 
   const prepareRetry = (ref: CalendarEventRef) => void execute(async () => {
-    if (!token || !review) return;
+    if (!review) return;
     const preview = review.previews.find(item => item.kind === "decline" && key(item.ref) === key(ref));
     if (!preview?.message) throw new Error("The reviewed organizer note is unavailable. Refresh and review again.");
     const account = board.accounts.find(item => item.account_id === ref.account_id);
     if (!account) throw new Error("The Calendar account is unavailable.");
-    const epoch = snapshotVaultSessionEpoch();
+    const owner = snapshotValidatedAuthSessionOwner();
+    const current = () => mounted.current && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
     const firebaseIdToken = await getIdToken();
-    if (!isVaultSessionEpochCurrent(epoch)) return;
-    const prepared = await GoogleCalendarService.reviewAttendance({
-      firebaseIdToken, vaultOwnerToken: token, accountId: ref.account_id,
+    if (!current()) return;
+    const prepared = await GoogleCalendarService.reviewWorkspaceAttendance({
+      firebaseIdToken, accountId: ref.account_id,
       expectedAccountEmail: account.google_email, eventId: ref.event_id,
       calendarId: ref.calendar_id, responseStatus: "declined", sendMessage: true,
       offerTimes: false, exactTime: false, mailOnlyRetry: true, message: preview.message,
       date: board.date, timeZone: board.time_zone, startTime: "00:00", endTime: "24:00",
       durationMinutes: 30,
-      isEffectCurrent: () => mounted.current && isVaultSessionEpochCurrent(epoch),
+      isEffectCurrent: current,
     });
     const original = choices.find(choice => key(choice.ref) === key(ref))?.event;
     if (!original || !sameCalendarInvitationOccurrence(original, prepared) || prepared.message !== preview.message) {
       throw new Error("This invitation changed since the earlier review. Refresh Calendar and check the organizer note again; nothing was sent.");
     }
-    if (mounted.current && isVaultSessionEpochCurrent(epoch)) {
+    if (current()) {
       setRetryTarget(ref); setRetryReview(prepared);
     }
   });
 
   const confirmRetry = () => void execute(async () => {
-    if (!token || !retryReview || !retryTarget) return;
-    const epoch = snapshotVaultSessionEpoch();
+    if (!retryReview || !retryTarget) return;
+    const owner = snapshotValidatedAuthSessionOwner();
+    const current = () => mounted.current && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
     const firebaseIdToken = await getIdToken();
-    if (!isVaultSessionEpochCurrent(epoch)) return;
-    const outcome = await GoogleCalendarService.confirmAttendance({
-      firebaseIdToken, vaultOwnerToken: token, accountId: retryTarget.account_id,
+    if (!current()) return;
+    const outcome = await GoogleCalendarService.confirmWorkspaceAttendance({
+      firebaseIdToken, accountId: retryTarget.account_id,
       reviewId: retryReview.review_id, reviewToken: retryReview.review_token,
-      isEffectCurrent: () => mounted.current && isVaultSessionEpochCurrent(epoch),
+      isEffectCurrent: current,
     });
-    if (mounted.current && isVaultSessionEpochCurrent(epoch)) {
+    if (current()) {
       setRetryResults(current => ({ ...current, [key(retryTarget)]: outcome })); setRetryReview(null);
     }
   });
@@ -175,7 +178,7 @@ export function CalendarConflictPanel({ board, keep, token, getIdToken, initialD
           {checked ? <label className={styles.noteLabel}>Note to this organizer<Textarea disabled={busy} value={notes[key(choice.ref)] || ""} maxLength={MAX_CALENDAR_DECLINE_REASON_LENGTH} onChange={event => { resetReview(); const next = { ...notes, [key(choice.ref)]: event.target.value }; setNotes(next); onDraftChange({ selected, notes: next }); }} placeholder="Explain why you cannot attend" /></label> : null}
         </div>;
       })}</div>
-      <CalendarCompactAction disabled={busy || !token || !board.complete || !board.conflicts_complete || selected.length === 0 || selected.some(value => !notes[value]?.trim() || notes[value].length > MAX_CALENDAR_DECLINE_REASON_LENGTH)} onClick={prepare}>{busy ? "Preparing…" : "Review Calendar and Mail"}</CalendarCompactAction>
+      <CalendarCompactAction disabled={busy || !board.complete || !board.conflicts_complete || selected.length === 0 || selected.some(value => !notes[value]?.trim() || notes[value].length > MAX_CALENDAR_DECLINE_REASON_LENGTH)} onClick={prepare}>{busy ? "Preparing…" : "Review Calendar and Mail"}</CalendarCompactAction>
     </>}
     {error ? <div role="alert" className={styles.conflictError}><AlertTriangle aria-hidden className="size-4" /><span>{error.message}{error instanceof GoogleCalendarError && error.reasonCode?.startsWith("GMAIL") && onMailConnect ? <CalendarCompactAction disabled={busy} onClick={() => void execute(onMailConnect)}>Enable Mail sending</CalendarCompactAction> : null}</span></div> : null}
   </section>;

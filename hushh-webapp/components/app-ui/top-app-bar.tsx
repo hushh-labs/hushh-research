@@ -856,7 +856,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     [normalizedPathname],
   );
   const showVaultUnlockAction =
-    isAuthenticated && hasVault === true && !isVaultUnlocked;
+    isAuthenticated && hasVault === true && !isVaultUnlocked &&
+    normalizedPathname !== ROUTES.CALENDAR && normalizedPathname !== ROUTES.ONE_SETUP_CALENDAR;
   const showOneHomeBrand =
     model.mode !== "hidden" && model.brand === "one" && !showOnboardingActions;
   const handleTopShellBack = useCallback(() => {

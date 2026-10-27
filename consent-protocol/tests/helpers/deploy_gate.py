@@ -110,6 +110,7 @@ def _run_gate(
     reachable: bool = True,
     accepted: str = ACCEPTED,
     workflow_runs: list[dict] | None = None,
+    later_workflow_runs: list[dict] | None = None,
     provenance_failure: bool = False,
 ):
     """Execute the real gate with `git` and `curl` stubbed onto PATH.
@@ -128,7 +129,10 @@ def _run_gate(
         ]
         workflow_runs = workflow_runs[:1]
     provenance_file = tmp_path / "provenance.json"
-    provenance_file.write_text(json.dumps({"workflow_runs": workflow_runs}), encoding="utf-8")
+    provenance_file.write_text(
+        json.dumps({"workflow_runs": workflow_runs, "later_workflow_runs": later_workflow_runs}),
+        encoding="utf-8",
+    )
     stub_dir = tmp_path / "stub"
     stub_dir.mkdir()
     (stub_dir / "git").write_text(
@@ -215,7 +219,10 @@ while i < len(args):
 params.update(dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query)))
 if "/actions/" in url:
     if os.environ.get("PROVENANCE_FAILURE") == "1": sys.exit(22)
-    runs = json.load(open(os.environ["PROVENANCE_FIXTURE"]))["workflow_runs"]
+    fixture_path = os.environ["PROVENANCE_FIXTURE"]
+    with open(fixture_path) as stream:
+        fixture = json.load(stream)
+    runs = fixture["workflow_runs"]
     if "/attempts/" in url:
         run = next((r for r in runs if f"/runs/{r['id']}/attempts/{r['run_attempt']}/" in url), {})
         jobs = run.get("jobs", [])
@@ -224,6 +231,17 @@ if "/actions/" in url:
         run = next((r for r in runs if url.endswith("/runs/" + str(r["id"]))), {})
         result = run.get("reread", run)
     else:
+        if fixture.get("later_workflow_runs") is not None:
+            count_path = fixture_path + ".workflow-reads"
+            try:
+                with open(count_path) as stream: counts = json.load(stream)
+            except FileNotFoundError:
+                counts = {}
+            count = counts.get(url, 0)
+            counts[url] = count + 1
+            with open(count_path, "w") as stream: json.dump(counts, stream)
+            if count:
+                runs = fixture["later_workflow_runs"]
         runs = [r for r in runs if "/" + r["path"].split("/")[-1] + "/runs?" in url
                 and r.get("event") == params.get("event")]
         result = {"workflow_runs": runs, "total_count": max([len(runs)] + [r.get("inventory_count", 0) for r in runs])}
