@@ -10,21 +10,21 @@ BEGIN
  ('erasure_managed_model_grants_complete(jsonb)',ARRAY['ab7ad9ac87b2a2acd524de7d8f794b1a9ba3c0bffa39996c2c9fa21333a6fcba']::text[]),
  ('erasure_private_coordinates(jsonb)',ARRAY['1390d7709aef509377b352995a8354ce9d25c60f871e3f7b9d05ad72ebb5ffe5']::text[]),
  ('expected_erasure_bootstrap_release(text,jsonb,text)',ARRAY['5f147b9ea109568a120653b39373d1f607986b0cbd1f9b3133c851ad73d99eb5','9c7df549d997f7e00af73bdc28816ca337452ff340ea232b0acf27a486b04897']::text[]),
- ('guard_personal_agent_erasure_registry()',ARRAY['28050839ef93e010d92cd5289dda40b6adb020aaf3717f4b23c513aa4503f30a','ad1098a0ec4bef6691a40bb4b9a34bf98a2bfcbdb4cec71100113f1b7948618b','acee347ae543bdb182fc5cbfe1090a788f8f31213ab09569be5509aac3707ee9','c7f509dc6824e9a0ab66ae6e30b98e2afdd48483d72754a00c36cb15d0d3f521']::text[]),
+ ('guard_personal_agent_erasure_registry()',ARRAY['28050839ef93e010d92cd5289dda40b6adb020aaf3717f4b23c513aa4503f30a','ad1098a0ec4bef6691a40bb4b9a34bf98a2bfcbdb4cec71100113f1b7948618b','acee347ae543bdb182fc5cbfe1090a788f8f31213ab09569be5509aac3707ee9','c7f509dc6824e9a0ab66ae6e30b98e2afdd48483d72754a00c36cb15d0d3f521','1e2357c1d4d76fd6e78b16137734bf59cfa18f4229200c653cce9bc3315db0d1']::text[]),
  ('guard_project_grant_registry_admission()',ARRAY['1912f59585796ac340a29f56fa7875726e742531b716fa9b98612a555cc3a6ca','38822c10a774c8c8602cf8b2788436a83958167b7bcfb302d37eef3bcb9e3d54']::text[]),
  ('hosted_pod_cleanup_admitted(text,text,jsonb)',ARRAY['8c9507d2151caede029d26b1784c3772bc7c4e959b3bf3e8a8766f8865e51735']::text[]),
  ('hosted_pod_execution_admitted(text,text,jsonb,jsonb,text)',ARRAY['8361affe67f04eb6269e2bbec93d43b2893c8fbfb9681e5db0f69907cccdd166']::text[]),
  ('hosted_pod_retained_admitted(text,jsonb)',ARRAY['7886341ac8363c3ef491746978e5d4863c24a74b84531ebd2ce29a7d7c7ba954']::text[]),
  ('hosted_pod_upgrade_admitted(text,text,jsonb,boolean)',ARRAY['a3b2321d76a773ae76378fe640eca1f65a70445c25feb64a37b0c90e70e47455']::text[]),
  ('hosted_preparation_cleanup_admitted(text,text,jsonb)',ARRAY['087392d6dd4740ecbe1cc43e19e8da6a01d578570c7bd4257881e97d10ae8777']::text[]),
- ('managed_preparation_cleanup_coordinates(jsonb)',ARRAY['4876286e5b7e1d3f69d534b55aec8961dd8c5d38c58af1a6514da1333f9693d1']::text[]),
- ('personal_agent_erasure_archive(jsonb,jsonb)',ARRAY['1139e56bb652ecfcab21e859685bcbabaa1fb77b6600fb644ab1b0f579aeb812','64014a7954dca3c882c634eee8baaae4ea7a5a9f33a69b1a8dc176e47645e957','e43bad73e40984d01c4ea5a01872dc76ce3ba77fce05c48eaffd95118d398685']::text[]),
+ ('managed_preparation_cleanup_coordinates(jsonb)',ARRAY['4876286e5b7e1d3f69d534b55aec8961dd8c5d38c58af1a6514da1333f9693d1','b579eb521662df03cdfc108ca92bab129fbfa24a6c71bb689f811c70c69fc54c']::text[]),
+ ('personal_agent_erasure_archive(jsonb,jsonb)',ARRAY['1139e56bb652ecfcab21e859685bcbabaa1fb77b6600fb644ab1b0f579aeb812','64014a7954dca3c882c634eee8baaae4ea7a5a9f33a69b1a8dc176e47645e957','e43bad73e40984d01c4ea5a01872dc76ce3ba77fce05c48eaffd95118d398685','9a7a7b1bb39aa33c5f397eb0e42848aeeaceb16931e043fc9ccc7f8f20ddbee8']::text[]),
  ('personal_agent_erasure_archived(text,jsonb,jsonb)',ARRAY['842f2a6bfa25429a970a2508c9ef84e525175c7e69e91875f18fcb7253b4d7f8','869752af19ff5735ad84cfefcb7cdfdc3036646bf137d64e16e04ce57f984bab','ac8763439ef913b66287f4b69c2493b6572922b1ed7adba729539fbd5d05d700']::text[]),
- ('personal_agent_erasure_complete(text)',ARRAY['6783be49623801f45983a4eed88ba4473ab1e853fd20bec6bd82020cb613eb9e','d1e653a9c5323c12e558ed2b2d5483487e50d745424f5d512b91c687cd94dd2d','d6e6864d75ed2e06b36f1ec52a6428017a92477ff4f70941b4105474416646a8']::text[]),
+ ('personal_agent_erasure_complete(text)',ARRAY['6783be49623801f45983a4eed88ba4473ab1e853fd20bec6bd82020cb613eb9e','d1e653a9c5323c12e558ed2b2d5483487e50d745424f5d512b91c687cd94dd2d','d6e6864d75ed2e06b36f1ec52a6428017a92477ff4f70941b4105474416646a8','7f28101ba074765abb5699bf8dd42668e8449e77229ec43033d511fc3a217467']::text[]),
  ('private_gcp_coordinates(jsonb)',ARRAY['1276132589bc5b003fb031bb84e5f8a5b7e4b9c5b2ab707c1f3576823e86e03c']::text[]),
  ('project_grant_release_is_exclusive(text,text)',ARRAY['2443acc5b64dd4866dba2f0814a1abad38f031dee12f1f4e2f69e78fb4a8a9f9','600d73daf4d90be870860e24fc5e7ee8130acf2a46afac5ae1a72def433e6a1e']::text[]),
  ('reserve_erasure_grant_release(text,text,jsonb)',ARRAY['31773f73b7057b12261573a9a42f0c3838046723a49598fad1f3c2dfe92506fc','6a2e27053b8c0d2e3abef78c446a1fd653bf93d1ad2d3edb800f6f3a5b400855']::text[]),
- ('reserve_personal_agent_erasure(text,text)',ARRAY['adb9e04bbda14bdd2d0d0373d014efc288760f7d3eacb227551de7677b682498','cd9672f048b220109cb23cd12e97921f11afddf1616d3bea7fcec10f0eb26195']::text[]),
+ ('reserve_personal_agent_erasure(text,text)',ARRAY['adb9e04bbda14bdd2d0d0373d014efc288760f7d3eacb227551de7677b682498','cd9672f048b220109cb23cd12e97921f11afddf1616d3bea7fcec10f0eb26195','08490d2bfdf17c5cbd6163216f924548a17192ff0139a0997266624d6974f420']::text[]),
  ('retain_erasure_managed_model_grant_receipt(text,text,jsonb,text,text,jsonb)',ARRAY['ba959ceb4ac55f3b3b93ada3fac883faf2fd697cb5dbe083b3160a9e202d4912']::text[]),
  ('retain_erasure_managed_project_retirement(text,text,jsonb,text,jsonb)',ARRAY['1c83c62a23b3f8e050c3d15ec76153c9ffc5a7b0f874b515443645585f54a50b']::text[]),
  ('retain_hosted_pod_project_authorization(text,text)',ARRAY['69a3a70f7793e2a2936d14143defde00cf01534eb8abb08f75210519ac1da862']::text[]),
@@ -42,8 +42,28 @@ BEGIN
  ('valid_erasure_repository_inventory(jsonb,jsonb)',ARRAY['6c2d5f82d86f8a97001f252860d3d770744e43bedd07c5b04eef8cfa99f69d3e','ce792c145b70c2f5515221a2e3cc93add5e2c0ae0182800bce30aafa9ec2ffe4']::text[]),
  ('valid_erasure_secret_receipt(jsonb,text,jsonb)',ARRAY['40f47265300102f0b7d1f8420820948406b1748b61cba2ca2543aa2a763e0ae3','9fd18377bf2d060aac9d7236c708dacefe2b674b19a381b0778ddac15be0672c']::text[]),
  ('valid_erasure_writer_receipt(jsonb,text,jsonb)',ARRAY['b1f78ff6cc79b6a8cb1ca2a2c8f5be2f7bf1699ab5b1d9df585f42e6490bdd81','c25e11f3a85b63082a3adcbd08bf93cd6c9f7f439c0db262df42ac49575cd041']::text[]),
- ('valid_managed_preparation_cleanup(jsonb,text,jsonb)',ARRAY['2a6e52470a9c63d38d1b3565e3216d86e1a51359ed506da73b5db331f41b7ef6']::text[]),
- ('valid_managed_preparation_cleanup_append(jsonb,jsonb)',ARRAY['7fb22e756f1ca75aa7b475d8cb80a690646a1520487afa3da771cddf71eb8cb5']::text[])) AS expected(signature,allowed) LOOP
+ ('valid_managed_preparation_cleanup(jsonb,text,jsonb)',ARRAY['2a6e52470a9c63d38d1b3565e3216d86e1a51359ed506da73b5db331f41b7ef6','45bc615c0be9c136d49c6e30c8df53990424020ec561facdc122c5f9c3049184']::text[]),
+ ('valid_managed_preparation_cleanup_append(jsonb,jsonb)',ARRAY['7fb22e756f1ca75aa7b475d8cb80a690646a1520487afa3da771cddf71eb8cb5']::text[]),
+ ('hosted_prefix_abort_admitted(text,text,jsonb)',ARRAY['4d3662ef87909557b354c6e86f5a147f9f84768e35f98aa52222e330fdbb4f74']::text[]),
+ ('managed_prefix_abort_complete(jsonb)',ARRAY['9e56151f811ac3a2a988936a300cb8821831a7e0ac0bb74292f7b29848bdb7c6']::text[]),
+ ('managed_prefix_abort_context(jsonb)',ARRAY['8b3db943f9f15243b8b4ebfff0ce2df885d2f8b7e3232de25c49d1038ae5666b']::text[]),
+ ('managed_prefix_base(jsonb)',ARRAY['e1a538e3f5b421ec335d5cedf31a5dd4f2eb3b900bd0f71ca94f85c90b90ba80']::text[]),
+ ('managed_prefix_bindings(jsonb)',ARRAY['a2b7b62d3e679584263a07da7ddbe46a4ba54e57c5d11df1cede2cda3ecf3930','9524a16f3de16d3c348f72b609704b85a8ba4ce3b3dfe26de8d6c11c2446fb1b']::text[]),
+ ('managed_prefix_failed_binding_checks(jsonb)',ARRAY['13810bc43590edf448e9de5a3139110c8cf106de6d910ed976b4dcdea564a22f','2a0a91ae45c72d8f7e4cdf364ab712f3fd276e59ea85d7bb363b87e6d691f110']::text[]),
+ ('managed_prefix_items_complete(jsonb,text)',ARRAY['f7e0a60ef59d53d4d3dd5152e42982610ff5f1c17c47710083bd5f13b6db632d']::text[]),
+ ('managed_prefix_nonkey_complete(jsonb)',ARRAY['8ed028c03c5779842a4f5d5a2843ea4f60ae8dca809ebe08a1677ceaf6409819']::text[]),
+ ('managed_prefix_resource_name(jsonb,jsonb)',ARRAY['deb6064753f49150ff1203696ff389df7bee108a0df903577f8965f040139de6']::text[]),
+ ('managed_prefix_resource_step(text)',ARRAY['b2e0027531cc18ada63b213fc5150272c5b6f1590b24b1c1730709bfb43e2184']::text[]),
+ ('managed_prefix_terminal_failure(jsonb)',ARRAY['b7eaaec9175bcd93b2bc813f1d28a65511ec0ad90556528ba96874f423913cbc']::text[]),
+ ('retain_managed_prefix_abort(text,text,jsonb,text,text,text,jsonb)',ARRAY['992cc805c1b0190176213c2432043d9af2f938cdb10a585e0ffe8eadb69c21a3']::text[]),
+ ('valid_managed_prefix_abort_append(jsonb,jsonb)',ARRAY['26c6b0e4b17c15c383d2a00e6af7f872fe16eea8c24f65f0c93b249739cc9ab4']::text[]),
+ ('valid_managed_prefix_abort_receipt(jsonb,text,text,text,jsonb)',ARRAY['2a631b9ead61db799383d2263071a27e0603ab692eb8f8cf1a16773a1191aecc']::text[]),
+ ('valid_managed_prefix_created_identity(jsonb,jsonb,jsonb)',ARRAY['c9e08edf80dbabb0c3a332d75750d24b00e9a128e4f499d65ee0c6a6374f3eb7']::text[]),
+ ('valid_managed_prefix_inventory(jsonb,jsonb)',ARRAY['9c4d219b79341445768debe3e749c89f539fca7754b84b7c7ed292ed2f18426c']::text[]),
+ ('valid_managed_prefix_inventory_admission(jsonb,jsonb)',ARRAY['2d08b62c03499f51b8a17c4c9a5e4b539ddbea1f1de965ae27181301ac564e11']::text[]),
+ ('valid_managed_prefix_memory_absence(jsonb,jsonb)',ARRAY['7a3b70f0ce6ea077c51e1c7f3306ef9edba016d083a21ef02869371613108bf3','14f7ee9eafa2c6cff37e089e58e1bd2f0f0f28426fd9344bf2a036e18d03b3c7']::text[]),
+ ('valid_managed_prefix_resource_result(jsonb,jsonb,jsonb,jsonb)',ARRAY['4f0cdf06677eba2a3167fa3244c45333f754ddcc195114779432c482299e00cd']::text[]),
+ ('managed_prefix_binding_contract(jsonb,text,text)',ARRAY['659d1a4a44cf64fc8aae0b884c651cb4e6a9cfb47cdb2d51a79cefed6e32d4e6']::text[])) AS expected(signature,allowed) LOOP
   SELECT pg_get_functiondef(to_regprocedure('public.'||spec.signature)) INTO definition;
   IF definition IS NOT NULL AND NOT encode(sha256(convert_to(definition,'UTF8')),'hex')=ANY(spec.allowed) THEN
    RAISE EXCEPTION 'Unqualified managed custody predecessor: %',spec.signature;
@@ -233,6 +253,7 @@ DECLARE snapshot jsonb:=r->'registrySnapshot'; a jsonb:=snapshot->'backend_metad
  admission jsonb:=a->'hostedAdmission'; assignment jsonb:=admission->'assignment';
  checkpoint jsonb:=a->'evidence'->'reserved'->'hostedPreparation';
  completed jsonb:=checkpoint->'completed'; project text:=assignment->>'project'; identity jsonb;
+ failure jsonb;
 BEGIN
  IF jsonb_typeof(completed) IS DISTINCT FROM 'array' THEN RETURN NULL; END IF;
  IF admission->'version' IS DISTINCT FROM '1'::jsonb
@@ -251,17 +272,26 @@ BEGIN
  OR a->'intent'->>'hushh_id' IS DISTINCT FROM r->>'hushhId'
  OR assignment->>'hushhId' IS DISTINCT FROM r->>'hushhId'
  OR assignment->>'ownerHash' IS DISTINCT FROM 'sha256:'||encode(digest(r->>'ownerId','sha256'),'hex')
- OR a->>'phase' IS DISTINCT FROM 'reserved'
+ OR (a->>'phase'='reserved' OR (a->>'phase'='failed' AND a->>'failedFrom'='reserved')) IS NOT TRUE
+ OR coalesce(snapshot->>'external_agent_id','')<>'' OR coalesce(snapshot->'backend_metadata'->>'serviceUid','')<>''
+ OR a->'evidence' ?| ARRAY['host_requested','host_acknowledged','connecting','provisioned']
  OR checkpoint->>'phase' IS DISTINCT FROM 'observed'
  OR checkpoint->>'planDigest' IS DISTINCT FROM admission->>'preparationContractHash'
  OR admission->>'preparationContractHash' IS DISTINCT FROM encode(digest((assignment->'preparationContract')::text,'sha256'),'hex')
  OR public.valid_hosted_preparation_contract(assignment->'preparationContract') IS NOT TRUE
- OR jsonb_array_length(completed) NOT IN (1,2)
+ OR jsonb_array_length(completed) NOT BETWEEN 1 AND 3
  OR completed->0->>'step' IS DISTINCT FROM 'create_project'
- OR (jsonb_array_length(completed)=2 AND completed->1->>'step' IS DISTINCT FROM 'link_billing')
+ OR completed->0->'ok' IS DISTINCT FROM 'true'::jsonb
+ OR (jsonb_array_length(completed)>=2 AND completed->1->>'step' IS DISTINCT FROM 'link_billing')
+ OR (jsonb_array_length(completed)=3 AND completed->2->>'step' IS DISTINCT FROM 'authorize_project')
  OR a->'evidence'->'reserved' ?| ARRAY['hostedCheckpoint','projectAuthorization']
  OR EXISTS(SELECT 1 FROM jsonb_array_elements(completed) x
-    WHERE public.valid_hosted_preparation_result(a,x) IS NOT TRUE OR x->'ok' IS DISTINCT FROM 'true'::jsonb)
+    WHERE public.valid_hosted_preparation_result(a,x) IS NOT TRUE)
+ THEN RETURN NULL; END IF;
+ failure:=public.managed_prefix_terminal_failure(completed);
+ IF failure IS NULL
+ OR (failure='{}'::jsonb AND (jsonb_array_length(completed)>2 OR a->>'phase'='failed'))
+ OR (failure<>'{}'::jsonb AND (failure->>'step' IN ('link_billing','authorize_project')) IS NOT TRUE)
  THEN RETURN NULL; END IF;
  identity:=completed->0->'resourceObservation'->'identity';
  IF a->'evidence'->'reserved'->'projectObservation' IS DISTINCT FROM
@@ -269,7 +299,8 @@ BEGIN
  THEN RETURN NULL; END IF;
  RETURN jsonb_build_object('project',project,'projectNumber',identity->>'projectNumber',
    'operatorPrincipal',assignment->'preparationContract'->>'operatorPrincipal','projectIdentity',identity,
-   'bootstrap',assignment->'bootstrapContract'->'plan'->'federation'->'impersonation'->>'bootstrap_service_account');
+   'bootstrap',assignment->'bootstrapContract'->'plan'->'federation'->'impersonation'->>'bootstrap_service_account')
+   ||CASE WHEN failure='{}'::jsonb THEN '{}'::jsonb ELSE jsonb_build_object('failedPreparation',failure,'region',assignment->>'region') END;
 END;
 $$;
 
@@ -292,12 +323,33 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.valid_managed_preparation_cleanup(r jsonb,stage text,receipt jsonb)
 RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
-DECLARE coordinates jsonb:=public.managed_preparation_cleanup_coordinates(r); wanted jsonb;
+DECLARE coordinates jsonb:=public.managed_preparation_cleanup_coordinates(r); wanted jsonb; proof jsonb;
+ admission jsonb:=r->'managedPreparationCleanup'->'admission'; project text; bootstrap text;
 BEGIN
  IF coordinates IS NULL OR jsonb_typeof(receipt) IS DISTINCT FROM 'object' THEN RETURN false; END IF;
  wanted:=jsonb_build_object('ownerId',r->>'ownerId','attemptId',r->>'attemptId',
   'project',coordinates->>'project','projectNumber',coordinates->>'projectNumber',
   'operatorPrincipal',coordinates->>'operatorPrincipal');
+ IF coordinates ? 'failedPreparation' THEN
+  proof:=CASE WHEN stage='admission' THEN receipt->'failureReconciliation' ELSE admission->'failureReconciliation' END;
+  project:=coordinates->>'project'; bootstrap:=coordinates->>'bootstrap';
+  IF jsonb_typeof(proof) IS DISTINCT FROM 'object'
+   OR proof-ARRAY['failedPreparation','billingObservation','bootstrapIdentity','projectIam','resourceInventory','noMemory']<>'{}'::jsonb
+   OR proof->'failedPreparation' IS DISTINCT FROM coordinates->'failedPreparation'
+   OR proof->'bootstrapIdentity' IS DISTINCT FROM jsonb_build_object('name','projects/'||project||'/serviceAccounts/'||bootstrap,
+      'projectNumber',coordinates->>'projectNumber','httpStatus',404,'status','observed_absent')
+   OR proof->'projectIam' IS DISTINCT FROM jsonb_build_object('project',project,'projectNumber',coordinates->>'projectNumber',
+      'httpStatus',200,'member','serviceAccount:'||bootstrap,'bindings','[]'::jsonb,'complete',true)
+   OR proof->'resourceInventory' IS DISTINCT FROM jsonb_build_object('cloud_run_services','[]'::jsonb,'cloud_run_jobs','[]'::jsonb,
+      'buckets','[]'::jsonb,'soft_deleted_buckets','[]'::jsonb,'kms_keys','[]'::jsonb,'secrets','[]'::jsonb)
+   OR public.valid_managed_prefix_memory_absence(coordinates,proof->'noMemory') IS NOT TRUE
+   OR (proof->'billingObservation' IN (
+     jsonb_build_object('projectId',project,'billingAccountName','','billingEnabled',false),
+     jsonb_build_object('projectId',project,'billingAccountName',r->'registrySnapshot'->'backend_metadata'->'provisionAttempt'->'hostedAdmission'->'assignment'->'preparationContract'->>'billingAccount','billingEnabled',true))) IS NOT TRUE
+   THEN RETURN false; END IF;
+  IF stage='admission' THEN RETURN receipt=wanted||jsonb_build_object('status','admitted','failureReconciliation',proof); END IF;
+  IF public.valid_managed_preparation_cleanup(r,'admission',admission) IS NOT TRUE THEN RETURN false; END IF;
+ END IF;
  IF stage='admission' THEN RETURN receipt=wanted||jsonb_build_object('status','admitted'); END IF;
  IF stage='acknowledgement' THEN RETURN receipt=wanted||jsonb_build_object('status','acknowledged'); END IF;
  IF stage='deletion' THEN RETURN receipt=wanted||jsonb_build_object('status','retirement_pending_provider_purge',
@@ -1044,6 +1096,552 @@ BEGIN
 END;
 $$;
 
+
+-- A pre-host abort interprets the retained executor prefix; it never invents a
+-- running service incarnation or substitutes absence for normal erasure proof.
+CREATE OR REPLACE FUNCTION public.managed_prefix_terminal_failure(completed jsonb)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE entry jsonb; n integer; failed jsonb:='{}'::jsonb;
+BEGIN
+ IF jsonb_typeof(completed) IS DISTINCT FROM 'array' THEN RETURN NULL; END IF;
+ FOR entry,n IN SELECT value,ordinality::integer FROM jsonb_array_elements(completed) WITH ORDINALITY LOOP
+  IF entry->'ok'='true'::jsonb THEN CONTINUE; END IF;
+  IF entry->'ok' IS DISTINCT FROM 'false'::jsonb OR n<>jsonb_array_length(completed)
+   OR (entry->>'status' IN ('400','401','403','404','405','410','412','422')) IS NOT TRUE
+   OR entry->'skipped'='true'::jsonb OR entry ? 'resourceObservation'
+   OR (entry ? 'bindingObservations' AND entry->'bindingObservations'<>'[]'::jsonb)
+   OR entry ? 'operatorBindingObservations' THEN RETURN NULL; END IF;
+  failed:=jsonb_build_object('step',entry->>'step','status',entry->'status');
+ END LOOP;
+ RETURN failed;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.managed_prefix_abort_context(r jsonb)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE s jsonb:=r->'registrySnapshot'; a jsonb:=s->'backend_metadata'->'provisionAttempt';
+ c jsonb:=public.erasure_private_coordinates(r); plan jsonb:=a->'hostedAdmission'->'assignment'->'bootstrapContract'->'plan';
+ b jsonb:=a->'evidence'->'reserved'->'hostedCheckpoint'; preparation jsonb:=a->'evidence'->'reserved'->'hostedPreparation';
+ completed jsonb:=coalesce(b->'completed','[]'::jsonb); steps jsonb; expected jsonb;
+ bf jsonb:=public.managed_prefix_terminal_failure(coalesce(b->'completed','[]'::jsonb));
+ pf jsonb:=public.managed_prefix_terminal_failure(preparation->'completed'); failed jsonb:='{}'::jsonb;
+BEGIN
+ IF c IS NULL OR s->>'deployment_target' IS DISTINCT FROM 'gcp'
+ OR (a->>'phase' IN ('reserved','substrate') OR
+    (a->>'phase'='failed' AND a->>'failedFrom' IN ('reserved','substrate'))) IS NOT TRUE
+ OR (s->>'status' IN ('provisioning','suspended')) IS NOT TRUE
+ OR coalesce(s->>'external_agent_id','')<>'' OR coalesce(s->'backend_metadata'->>'serviceUid','')<>''
+ OR s->'backend_metadata' ?| ARRAY['upgradeLease','erasure','notificationCheckpoint']
+ OR a->'evidence' ?| ARRAY['host_requested','host_acknowledged','connecting','provisioned']
+ OR plan->'capabilityReadiness' IS DISTINCT FROM '{"gmailNotifications":"unqualified"}'::jsonb
+ OR plan ?| ARRAY['gmailNotifications','filesLibrary']
+ OR jsonb_typeof(plan->'resources') IS DISTINCT FROM 'array'
+ OR jsonb_array_length(plan->'resources')<>6
+ OR (SELECT count(DISTINCT x->>'type') FROM jsonb_array_elements(plan->'resources') x)<>6
+ OR EXISTS(SELECT 1 FROM jsonb_array_elements(plan->'resources') x
+   WHERE x->>'type' NOT IN ('kms_key','gcs_bucket','service_account','artifact_repository','cloud_run_service','secret') OR x ? 'legacyOnly')
+ OR preparation->>'phase' IS DISTINCT FROM 'observed'
+ OR preparation->>'planDigest' IS DISTINCT FROM a->'hostedAdmission'->>'preparationContractHash'
+ OR jsonb_typeof(preparation->'completed') IS DISTINCT FROM 'array'
+ OR jsonb_array_length(preparation->'completed') NOT BETWEEN 3 AND 5
+ OR bf IS NULL OR pf IS NULL
+ OR EXISTS(SELECT 1 FROM jsonb_array_elements(preparation->'completed') x
+   WHERE public.valid_hosted_preparation_result(a,x) IS NOT TRUE)
+ OR jsonb_typeof(completed) IS DISTINCT FROM 'array'
+ THEN RETURN NULL; END IF;
+ SELECT coalesce(jsonb_agg(x->>'step' ORDER BY n),'[]'::jsonb) INTO steps
+ FROM jsonb_array_elements(preparation->'completed') WITH ORDINALITY t(x,n);
+ SELECT jsonb_agg(x ORDER BY n) INTO expected FROM jsonb_array_elements(a->'hostedAdmission'->'assignment'->'preparationContract'->'steps') WITH ORDINALITY t(x,n)
+ WHERE n<=jsonb_array_length(preparation->'completed');
+ IF steps IS DISTINCT FROM expected THEN RETURN NULL; END IF;
+ IF b IS NOT NULL THEN
+  IF b->>'phase' IS DISTINCT FROM 'observed'
+   OR b->>'planDigest' IS DISTINCT FROM a->'hostedAdmission'->>'bootstrapContractHash'
+   OR jsonb_array_length(completed)>jsonb_array_length(a->'hostedAdmission'->'assignment'->'bootstrapContract'->'steps')
+  THEN RETURN NULL; END IF;
+  SELECT coalesce(jsonb_agg(x->>'step' ORDER BY n),'[]'::jsonb) INTO steps FROM jsonb_array_elements(completed) WITH ORDINALITY t(x,n);
+  SELECT coalesce(jsonb_agg(x ORDER BY n),'[]'::jsonb) INTO expected FROM jsonb_array_elements(a->'hostedAdmission'->'assignment'->'bootstrapContract'->'steps') WITH ORDINALITY t(x,n)
+  WHERE n<=jsonb_array_length(completed);
+  IF steps IS DISTINCT FROM expected THEN RETURN NULL; END IF;
+ END IF;
+ IF bf<>'{}'::jsonb THEN
+  IF pf<>'{}'::jsonb OR jsonb_array_length(preparation->'completed')<>3
+   OR (bf->>'step' IN ('artifact_repo','kms_key','pod_service_account','cmek_bucket','pod_signing_secret',
+    'artifact_repo_grant_copy_writer','artifact_repo_grant_run_agent_reader','iam_bootstrap_can_run_as_pod',
+    'iam_gcs_agent_on_key','iam_pod_sa_on_key','iam_pod_sa_on_signing_secret','iam_pod_sa_on_bucket',
+    'iam_pod_sa_vertex','iam_pod_sa_quota')) IS NOT TRUE THEN RETURN NULL; END IF;
+  failed:=bf||jsonb_build_object('journal','bootstrap');
+ ELSIF pf<>'{}'::jsonb THEN
+  IF (pf->>'step' IN ('inference_vertex','inference_quota')) IS NOT TRUE
+   OR jsonb_array_length(completed)<>jsonb_array_length(a->'hostedAdmission'->'assignment'->'bootstrapContract'->'steps')
+  THEN RETURN NULL; END IF;
+  failed:=pf||jsonb_build_object('journal','preparation');
+ END IF;
+ IF a->>'phase'='failed' AND failed='{}'::jsonb THEN RETURN NULL; END IF;
+ RETURN c||jsonb_build_object('bootstrapGeneration',coalesce(b->'generation','0'::jsonb),
+  'preparationGeneration',preparation->'generation','bootstrapCompleted',completed,'plan',plan,'failed',failed);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.hosted_prefix_abort_admitted(owner_id text,attempt_id text,expected jsonb)
+RETURNS boolean LANGUAGE sql SET search_path=public AS $$
+ SELECT public.managed_prefix_abort_context(expected) IS NOT NULL
+ AND public.hosted_pod_cleanup_admitted(owner_id,attempt_id,expected) IS TRUE;
+$$;
+
+CREATE OR REPLACE FUNCTION public.managed_prefix_resource_step(kind text)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT CASE kind WHEN 'kms_key' THEN 'kms_key' WHEN 'gcs_bucket' THEN 'cmek_bucket'
+ WHEN 'service_account' THEN 'pod_service_account' WHEN 'artifact_repository' THEN 'artifact_repo'
+ WHEN 'secret' THEN 'pod_signing_secret' WHEN 'cloud_run_service' THEN 'host_creation' END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.managed_prefix_resource_name(c jsonb,item jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT CASE item->>'type'
+ WHEN 'gcs_bucket' THEN 'buckets/'||(item->>'id')
+ WHEN 'service_account' THEN 'projects/'||(c->>'project')||'/serviceAccounts/'||(item->>'id')
+ WHEN 'secret' THEN 'projects/'||(c->>'project')||'/secrets/'||(item->>'id')
+ WHEN 'kms_key' THEN 'projects/'||(c->>'project')||'/locations/'||(c->>'region')||'/keyRings/hushh-one/cryptoKeys/'||(item->>'id')
+ WHEN 'artifact_repository' THEN 'projects/'||(c->>'project')||'/locations/'||(c->>'region')||'/repositories/'||(item->>'id')
+ WHEN 'cloud_run_service' THEN 'projects/'||(c->>'project')||'/locations/'||(c->>'region')||'/services/'||(item->>'id') END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.valid_managed_prefix_created_identity(c jsonb,item jsonb,identity jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE kind text:=item->>'type'; name text:=public.managed_prefix_resource_name(c,item);
+BEGIN
+ IF jsonb_typeof(identity) IS DISTINCT FROM 'object' OR name IS NULL THEN RETURN false; END IF;
+ CASE kind
+ WHEN 'service_account' THEN RETURN coalesce(identity-ARRAY['name','projectId','email','uniqueId']='{}'::jsonb
+  AND identity->>'email'=item->>'id' AND identity->>'projectId'=c->>'project'
+  AND identity->>'uniqueId' ~ '^[1-9][0-9]{0,31}$'
+  AND identity->>'name' IN (name,'projects/'||(c->>'project')||'/serviceAccounts/'||(identity->>'uniqueId')),false);
+ WHEN 'gcs_bucket' THEN RETURN coalesce(identity-ARRAY['name','generation','projectNumber','timeCreated']='{}'::jsonb
+  AND identity->>'name'=item->>'id' AND identity->>'projectNumber'=c->>'projectNumber'
+  AND identity->>'generation' ~ '^[1-9][0-9]{0,19}$' AND coalesce(identity->>'timeCreated','')<>'',false);
+ WHEN 'kms_key' THEN RETURN coalesce(identity-ARRAY['name','purpose','createTime']='{}'::jsonb
+  AND identity->>'name'=name AND identity->>'purpose'='ENCRYPT_DECRYPT' AND coalesce(identity->>'createTime','')<>'',false);
+ WHEN 'secret' THEN RETURN coalesce(identity-ARRAY['name','projectId','createTime']='{}'::jsonb
+  AND identity->>'name'=name AND identity->>'projectId'=c->>'project' AND coalesce(identity->>'createTime','')<>'',false);
+ WHEN 'artifact_repository' THEN RETURN coalesce(identity-ARRAY['name','format','createTime']='{}'::jsonb
+  AND identity->>'name'=name AND identity->>'format'='DOCKER' AND coalesce(identity->>'createTime','')<>'',false);
+ ELSE RETURN false;
+ END CASE;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.managed_prefix_binding_contract(c jsonb,model_project text,step text)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE path text;
+ runtime text; bootstrap text; hub text; number text; member text; roles text[]; role text;
+ checks jsonb:='[]'::jsonb; key_name text; bucket text; secret text;
+BEGIN
+ IF c IS NULL THEN RETURN NULL; END IF;
+ number:=c->>'projectNumber';
+ SELECT x->>'id' INTO runtime FROM jsonb_array_elements(c->'plan'->'resources') x WHERE x->>'type'='service_account';
+ SELECT public.managed_prefix_resource_name(c,x) INTO key_name FROM jsonb_array_elements(c->'plan'->'resources') x WHERE x->>'type'='kms_key';
+ SELECT x->>'id' INTO bucket FROM jsonb_array_elements(c->'plan'->'resources') x WHERE x->>'type'='gcs_bucket';
+ SELECT public.managed_prefix_resource_name(c,x) INTO secret FROM jsonb_array_elements(c->'plan'->'resources') x WHERE x->>'type'='secret';
+ bootstrap:=c->>'bootstrap'; hub:=c->'plan'->'federation'->'impersonation'->>'granted_to';
+ member:='serviceAccount:'||runtime;
+ CASE step
+ WHEN 'artifact_repo_grant_copy_writer','artifact_repo_grant_run_agent_reader' THEN
+  SELECT 'https://artifactregistry.googleapis.com/v1/'||public.managed_prefix_resource_name(c,x)||':getIamPolicy' INTO path
+  FROM jsonb_array_elements(c->'plan'->'resources') x WHERE x->>'type'='artifact_repository';
+  roles:=CASE step WHEN 'artifact_repo_grant_copy_writer' THEN ARRAY['roles/artifactregistry.writer'] ELSE ARRAY['roles/artifactregistry.reader'] END;
+  member:='serviceAccount:'||CASE step WHEN 'artifact_repo_grant_copy_writer' THEN hub ELSE 'service-'||number||'@serverless-robot-prod.iam.gserviceaccount.com' END;
+ WHEN 'iam_bootstrap_can_run_as_pod' THEN
+  path:='https://iam.googleapis.com/v1/projects/'||(c->>'project')||'/serviceAccounts/'||runtime||':getIamPolicy';
+  roles:=ARRAY['roles/iam.serviceAccountUser']; member:='serviceAccount:'||bootstrap;
+ WHEN 'iam_gcs_agent_on_key','iam_pod_sa_on_key' THEN
+  path:='https://cloudkms.googleapis.com/v1/'||key_name||':getIamPolicy';
+  roles:=CASE step WHEN 'iam_gcs_agent_on_key' THEN ARRAY['roles/cloudkms.cryptoKeyEncrypterDecrypter'] ELSE ARRAY['roles/cloudkms.cryptoKeyDecrypter','roles/cloudkms.cryptoKeyEncrypter'] END;
+  IF step='iam_gcs_agent_on_key' THEN member:='serviceAccount:service-'||number||'@gs-project-accounts.iam.gserviceaccount.com'; END IF;
+ WHEN 'iam_pod_sa_on_signing_secret' THEN path:='https://secretmanager.googleapis.com/v1/'||secret||':getIamPolicy'; roles:=ARRAY['roles/secretmanager.secretAccessor'];
+ WHEN 'iam_pod_sa_on_bucket' THEN path:='https://storage.googleapis.com/storage/v1/b/'||bucket||'/iam'; roles:=ARRAY['roles/storage.objectAdmin'];
+ WHEN 'iam_pod_sa_vertex','iam_pod_sa_quota','inference_vertex','inference_quota' THEN
+  path:='https://cloudresourcemanager.googleapis.com/v1/projects/'||CASE WHEN step LIKE 'inference_%'
+   THEN model_project ELSE c->>'project' END||':getIamPolicy';
+  roles:=CASE WHEN step IN ('iam_pod_sa_vertex','inference_vertex') THEN ARRAY['roles/aiplatform.user'] ELSE ARRAY['roles/serviceusage.serviceUsageConsumer'] END;
+ ELSE RETURN checks;
+ END CASE;
+ IF path IS NULL OR member IS NULL OR roles IS NULL THEN RETURN NULL; END IF;
+ FOREACH role IN ARRAY roles LOOP
+  checks:=checks||jsonb_build_array(jsonb_build_object('step',step,'policyResource',path,'role',role,'member',member));
+ END LOOP;
+ RETURN checks;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.managed_prefix_bindings(r jsonb)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE c jsonb:=public.managed_prefix_abort_context(r); a jsonb:=r->'registrySnapshot'->'backend_metadata'->'provisionAttempt';
+ results jsonb; result jsonb; bindings jsonb:='[]'::jsonb; binding jsonb;
+ expected jsonb; observed jsonb; target jsonb; seen jsonb;
+BEGIN
+ IF c IS NULL THEN RETURN NULL; END IF;
+ results:=(c->'bootstrapCompleted')||(a->'evidence'->'reserved'->'hostedPreparation'->'completed');
+ FOR result IN SELECT value FROM jsonb_array_elements(results) LOOP
+  IF result ? 'operatorBindingObservations' THEN RETURN NULL; END IF;
+  observed:=coalesce(result->'bindingObservations','[]'::jsonb);
+  IF jsonb_typeof(observed) IS DISTINCT FROM 'array' THEN RETURN NULL; END IF;
+  expected:=CASE WHEN result->'ok'='true'::jsonb
+   THEN public.managed_prefix_binding_contract(c,a->'hostedAdmission'->'modelBinding'->>'project',result->>'step') ELSE '[]'::jsonb END;
+  IF expected IS NULL OR jsonb_array_length(observed)<>jsonb_array_length(expected) THEN RETURN NULL; END IF;
+  seen:='[]'::jsonb;
+  FOR binding IN SELECT value FROM jsonb_array_elements(observed) LOOP
+   IF jsonb_typeof(binding) IS DISTINCT FROM 'object'
+    OR binding-ARRAY['step','policyResource','role','member','disposition','beforeEtag','afterEtag']<>'{}'::jsonb
+    OR (binding->>'disposition' IN ('added','already_present')) IS NOT TRUE
+    OR jsonb_typeof(binding->'beforeEtag') IS DISTINCT FROM 'string'
+    OR jsonb_typeof(binding->'afterEtag') IS DISTINCT FROM 'string'
+    OR length(binding->>'beforeEtag') NOT BETWEEN 1 AND 512
+    OR length(binding->>'afterEtag') NOT BETWEEN 1 AND 512 THEN RETURN NULL; END IF;
+   target:=binding-ARRAY['disposition','beforeEtag','afterEtag'];
+   IF NOT EXISTS(SELECT 1 FROM jsonb_array_elements(expected) x WHERE x=target)
+    OR seen @> jsonb_build_array(target) THEN RETURN NULL; END IF;
+   seen:=seen||jsonb_build_array(target);
+   bindings:=bindings||jsonb_build_array(binding);
+  END LOOP;
+ END LOOP;
+ RETURN bindings;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.managed_prefix_failed_binding_checks(r jsonb)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE c jsonb:=public.managed_prefix_abort_context(r); failed jsonb; target jsonb;
+ checks jsonb:='[]'::jsonb; targets jsonb;
+BEGIN
+ IF c IS NULL THEN RETURN NULL; END IF;
+ failed:=c->'failed';
+ IF failed='{}'::jsonb THEN RETURN checks; END IF;
+ targets:=public.managed_prefix_binding_contract(c,r->'registrySnapshot'->'backend_metadata'->'provisionAttempt'->'hostedAdmission'->'modelBinding'->>'project',failed->>'step');
+ IF targets IS NULL THEN RETURN NULL; END IF;
+ FOR target IN SELECT value FROM jsonb_array_elements(targets) LOOP
+  checks:=checks||jsonb_build_array((target-'step')||jsonb_build_object('failedStep',failed->>'step',
+   'failedStatus',failed->'status','projectNumber',c->>'projectNumber','httpStatus',200,'present',false,'status','confirmed_absent'));
+ END LOOP;
+ RETURN checks;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.valid_managed_prefix_memory_absence(c jsonb,observation jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE catalogue jsonb:=observation->'locationCatalogue'; locations jsonb; coverage jsonb:=observation->'coverage';
+ entry jsonb; identity jsonb; attempt text:=coalesce(c->>'provisionAttemptId',c->'projectIdentity'->'labels'->>'hussh-provision-attempt');
+BEGIN
+ IF jsonb_typeof(observation) IS DISTINCT FROM 'object'
+ OR observation-ARRAY['projectNumber','locations','engines','complete','status','coverage','locationCatalogue']<>'{}'::jsonb
+ OR observation->>'projectNumber' IS DISTINCT FROM c->>'projectNumber'
+ OR observation->'engines' IS DISTINCT FROM '[]'::jsonb OR observation->'complete' IS DISTINCT FROM 'true'::jsonb
+ OR observation->>'status' IS DISTINCT FROM 'observed_absent'
+ OR jsonb_typeof(catalogue) IS DISTINCT FROM 'object'
+ OR catalogue-ARRAY['projectNumber','locations','paginationComplete']<>'{}'::jsonb
+ OR catalogue->>'projectNumber' IS DISTINCT FROM c->>'projectNumber'
+ OR catalogue->'paginationComplete' IS DISTINCT FROM 'true'::jsonb
+ OR jsonb_typeof(catalogue->'locations') IS DISTINCT FROM 'array'
+ OR jsonb_typeof(coverage) IS DISTINCT FROM 'array' THEN RETURN false; END IF;
+ IF jsonb_array_length(catalogue->'locations') NOT BETWEEN 1 AND 1024
+ OR EXISTS(SELECT 1 FROM jsonb_array_elements(catalogue->'locations') x
+   WHERE jsonb_typeof(x)<>'string' OR (x#>>'{}' ~ '^[a-z][a-z0-9-]{0,62}$') IS NOT TRUE)
+ OR (SELECT count(*)<>count(DISTINCT x) FROM jsonb_array_elements(catalogue->'locations') x) THEN RETURN false; END IF;
+ SELECT jsonb_agg(x ORDER BY x) INTO locations FROM (
+  SELECT DISTINCT x FROM jsonb_array_elements((catalogue->'locations')||jsonb_build_array('global',c->>'region')) t(x)
+ ) names;
+ IF observation->'locations' IS DISTINCT FROM locations
+ OR jsonb_array_length(coverage)<>jsonb_array_length(locations)
+ OR (SELECT count(*)<>count(DISTINCT x->>'location') FROM jsonb_array_elements(coverage) x)
+ THEN RETURN false; END IF;
+ FOR entry IN SELECT value FROM jsonb_array_elements(coverage) LOOP
+  IF jsonb_typeof(entry) IS DISTINCT FROM 'object'
+   OR entry->>'projectNumber' IS DISTINCT FROM c->>'projectNumber'
+   OR NOT locations ? (entry->>'location') OR entry->>'apiVersion' IS DISTINCT FROM 'v1beta1'
+   OR jsonb_typeof(entry->'observedAt') IS DISTINCT FROM 'string'
+   OR length(entry->>'observedAt') NOT BETWEEN 20 AND 64
+   OR (entry->>'observedAt' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+]00:00)$') IS NOT TRUE
+   OR jsonb_typeof(entry->'pages') IS DISTINCT FROM 'number' THEN RETURN false; END IF;
+  IF entry->>'status'='listed_empty' THEN
+   IF entry-ARRAY['location','status','apiVersion','observedAt','projectNumber','pages']<>'{}'::jsonb
+    OR (entry->>'pages' ~ '^[1-9][0-9]{0,3}$') IS NOT TRUE THEN RETURN false; END IF;
+  ELSIF entry->>'status'='not_applicable' THEN
+   identity:=entry->'projectIdentity';
+   IF entry->>'location' IS DISTINCT FROM 'ca' OR entry->'pages' IS DISTINCT FROM '0'::jsonb
+    OR entry-ARRAY['location','status','apiVersion','observedAt','projectNumber','pages','providerContract','projectIdentity','endpointObservation']<>'{}'::jsonb
+    OR (attempt ~ '^[a-f0-9]{32}$') IS NOT TRUE
+    OR coalesce(c->>'project','') !~ '^[a-z][a-z0-9-]{4,28}[a-z0-9]$'
+    OR entry->'providerContract' IS DISTINCT FROM jsonb_build_object(
+      'sourceUrl','https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations',
+      'sourceLastUpdated','2026-10-26','snapshotSha256','040fd2ca7235d6b70df2531b15c18753ec1c3f8fd0c7571290de2ff9aca7b193',
+      'qualificationExpiresAt','2026-10-31T00:00:00Z')
+    OR jsonb_typeof(identity) IS DISTINCT FROM 'object'
+    OR identity-ARRAY['projectId','projectNumber','createTime','lifecycleState','labels']<>'{}'::jsonb
+    OR identity->>'projectId' IS DISTINCT FROM c->>'project'
+    OR identity->>'projectNumber' IS DISTINCT FROM c->>'projectNumber'
+    OR identity->>'lifecycleState' IS DISTINCT FROM 'ACTIVE'
+    OR identity->'labels' IS DISTINCT FROM jsonb_build_object('created-by','hussh-one','tenancy','hussh-hosted',
+      'hussh-environment','dev','hussh-provision-attempt',attempt)
+    OR jsonb_typeof(identity->'createTime') IS DISTINCT FROM 'string'
+    OR (identity->>'createTime' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+]00:00)$') IS NOT TRUE
+    OR (identity->>'createTime')::timestamptz<'2026-10-26T00:00:00Z'::timestamptz
+    OR (identity->>'createTime')::timestamptz>(entry->>'observedAt')::timestamptz
+    OR (entry->>'observedAt')::timestamptz>='2026-10-31T00:00:00Z'::timestamptz
+    OR entry->'endpointObservation' IS DISTINCT FROM jsonb_build_object('url',
+      'https://ca-aiplatform.googleapis.com/v1beta1/projects/'||(c->>'project')||'/locations/ca/reasoningEngines',
+      'httpStatus',404,'status','unavailable') THEN RETURN false; END IF;
+  ELSE RETURN false;
+  END IF;
+ END LOOP;
+ RETURN true;
+EXCEPTION WHEN data_exception THEN RETURN false;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.valid_managed_prefix_inventory(r jsonb,receipt jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE c jsonb:=public.managed_prefix_abort_context(r); a jsonb:=r->'registrySnapshot'->'backend_metadata'->'provisionAttempt';
+ expected jsonb; item jsonb; entry jsonb; result jsonb; step text; name text; runtime jsonb; service text;
+BEGIN
+ IF c IS NULL OR jsonb_typeof(receipt) IS DISTINCT FROM 'object'
+ OR receipt-ARRAY['ownerId','attemptId','provisionAttemptId','project','projectNumber','bootstrapGeneration','preparationGeneration','noHost','noMemory','writerFence','resources','bindings','failedBindingChecks']<>'{}'::jsonb
+ OR receipt->>'ownerId' IS DISTINCT FROM r->>'ownerId' OR receipt->>'attemptId' IS DISTINCT FROM r->>'attemptId'
+ OR receipt->>'provisionAttemptId' IS DISTINCT FROM c->>'provisionAttemptId'
+ OR receipt->>'project' IS DISTINCT FROM c->>'project' OR receipt->>'projectNumber' IS DISTINCT FROM c->>'projectNumber'
+ OR receipt->'bootstrapGeneration' IS DISTINCT FROM c->'bootstrapGeneration'
+ OR receipt->'preparationGeneration' IS DISTINCT FROM c->'preparationGeneration'
+ OR jsonb_typeof(receipt->'resources') IS DISTINCT FROM 'array' OR jsonb_array_length(receipt->'resources')<>6
+ OR receipt->'bindings' IS DISTINCT FROM public.managed_prefix_bindings(r)
+ OR public.managed_prefix_bindings(r) IS NULL
+ OR receipt->'failedBindingChecks' IS DISTINCT FROM public.managed_prefix_failed_binding_checks(r) THEN RETURN false; END IF;
+ FOR item IN SELECT value FROM jsonb_array_elements(c->'plan'->'resources') LOOP
+  SELECT x INTO entry FROM jsonb_array_elements(receipt->'resources') x WHERE x->>'type'=item->>'type' AND x->>'id'=item->>'id';
+  IF (SELECT count(*) FROM jsonb_array_elements(receipt->'resources') x WHERE x->>'type'=item->>'type' AND x->>'id'=item->>'id')<>1 THEN RETURN false; END IF;
+  step:=public.managed_prefix_resource_step(item->>'type'); name:=public.managed_prefix_resource_name(c,item);
+  SELECT x INTO result FROM jsonb_array_elements(c->'bootstrapCompleted') x WHERE x->>'step'=step;
+  expected:=jsonb_build_object('type',item->>'type','id',item->>'id','sourceStep',step);
+  IF result IS NULL THEN
+   expected:=expected||jsonb_build_object('disposition','not_created','absence',jsonb_build_object('name',name,'projectNumber',c->>'projectNumber','httpStatus',404,'status','observed_absent'));
+  ELSIF result->'ok'='false'::jsonb THEN
+   expected:=expected||jsonb_build_object('disposition','confirmed_absent','failedStep',step,'failedStatus',result->'status',
+    'absence',jsonb_build_object('name',name,'projectNumber',c->>'projectNumber','httpStatus',404,'status','observed_absent'));
+  ELSE
+   IF public.valid_managed_prefix_created_identity(c,item,result->'resourceObservation'->'identity') IS NOT TRUE
+    OR result->'resourceObservation'->>'type' IS DISTINCT FROM item->>'type'
+    OR result->'resourceObservation'->>'id' IS DISTINCT FROM item->>'id'
+    OR result->'resourceObservation'->>'disposition' IS DISTINCT FROM 'created' THEN RETURN false; END IF;
+   expected:=expected||jsonb_build_object('disposition','created','identity',result->'resourceObservation'->'identity');
+  END IF;
+  IF entry IS DISTINCT FROM expected THEN RETURN false; END IF;
+  IF item->>'type'='service_account' THEN runtime:=entry; END IF;
+  IF item->>'type'='cloud_run_service' THEN service:=name; END IF;
+ END LOOP;
+ IF receipt->'noHost' IS DISTINCT FROM jsonb_build_object('serviceName',service,'projectNumber',c->>'projectNumber','httpStatus',404,'status','observed_absent')
+ OR public.valid_managed_prefix_memory_absence(c,receipt->'noMemory') IS NOT TRUE
+ OR receipt->'writerFence' IS DISTINCT FROM (CASE WHEN runtime->>'disposition'='created'
+ THEN jsonb_build_object('status','disabled','identity',runtime->'identity')
+ WHEN runtime->>'disposition'='confirmed_absent' THEN jsonb_build_object('status','confirmed_absent','serviceAccount',runtime->>'id','projectNumber',c->>'projectNumber','failedStep',runtime->>'failedStep','failedStatus',runtime->'failedStatus')
+ ELSE jsonb_build_object('status','not_created','serviceAccount',runtime->>'id','projectNumber',c->>'projectNumber') END)
+ THEN RETURN false; END IF;
+ RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.valid_managed_prefix_inventory_admission(r jsonb,receipt jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE observed jsonb:=receipt;
+BEGIN
+ IF receipt->'writerFence'->>'status'='admitted' THEN
+  observed:=jsonb_set(receipt,'{writerFence,status}','"disabled"'::jsonb);
+ ELSIF (receipt->'writerFence'->>'status' IN ('not_created','confirmed_absent')) IS NOT TRUE THEN RETURN false; END IF;
+ RETURN public.valid_managed_prefix_inventory(r,observed);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.managed_prefix_base(r jsonb)
+RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=public AS $$
+ SELECT jsonb_build_object('ownerId',r->>'ownerId','attemptId',r->>'attemptId',
+  'provisionAttemptId',r->'managedPrefixAbort'->'inventory'->>'provisionAttemptId',
+  'inventoryHash',encode(digest((r->'managedPrefixAbort'->'inventory')::text,'sha256'),'hex'));
+$$;
+
+CREATE OR REPLACE FUNCTION public.managed_prefix_items_complete(r jsonb,kind text)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE inventory jsonb:=r->'managedPrefixAbort'->'inventory'; item jsonb; key text; wanted text[]:='{}';
+ states jsonb:=coalesce(r->'managedPrefixAbort'->kind,'{}'::jsonb);
+BEGIN
+ IF public.valid_managed_prefix_inventory(r,inventory) IS NOT TRUE
+ OR kind NOT IN ('resources','bindings') OR kind IS NULL OR jsonb_typeof(states) IS DISTINCT FROM 'object' THEN RETURN false; END IF;
+ FOR item IN SELECT value FROM jsonb_array_elements(inventory->kind) LOOP
+  key:=CASE WHEN kind='resources' THEN item->>'type'||':'||(item->>'id') ELSE encode(digest(item::text,'sha256'),'hex') END;
+  wanted:=array_append(wanted,key);
+  IF public.valid_managed_prefix_abort_receipt(r,kind,key,'deletion',states->key->'deletion') IS NOT TRUE THEN RETURN false; END IF;
+ END LOOP;
+ RETURN (SELECT coalesce(array_agg(x ORDER BY x),'{}'::text[]) FROM jsonb_object_keys(states) x)=
+        (SELECT coalesce(array_agg(x ORDER BY x),'{}'::text[]) FROM unnest(wanted) x);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.managed_prefix_nonkey_complete(r jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE item jsonb; key text;
+BEGIN
+ FOR item IN SELECT value FROM jsonb_array_elements(r->'managedPrefixAbort'->'inventory'->'resources') LOOP
+  IF item->>'type'='kms_key' THEN CONTINUE; END IF;
+  key:=item->>'type'||':'||(item->>'id');
+  IF public.valid_managed_prefix_abort_receipt(r,'resources',key,'deletion',
+    r->'managedPrefixAbort'->'resources'->key->'deletion') IS NOT TRUE THEN RETURN false; END IF;
+ END LOOP;
+ RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.valid_managed_prefix_resource_result(r jsonb,item jsonb,admitted jsonb,receipt jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE versions jsonb; states jsonb;
+BEGIN
+ IF item->>'disposition' IN ('not_created','confirmed_absent') THEN RETURN receipt=admitted-'status'||jsonb_build_object('status',item->>'disposition'); END IF;
+ IF item->>'type'<>'kms_key' THEN RETURN receipt=admitted-'status'||jsonb_build_object('status','observed_absent'); END IF;
+ versions:=admitted->'versionNames'; states:=receipt->'destroyedVersions';
+ IF receipt-'destroyedVersions' IS DISTINCT FROM admitted-'status'||jsonb_build_object('status','destroyed')
+ OR jsonb_typeof(states) IS DISTINCT FROM 'array' OR jsonb_array_length(states)<>jsonb_array_length(versions)
+ OR EXISTS(SELECT 1 FROM jsonb_array_elements(states) x WHERE x-ARRAY['name','state']<>'{}'::jsonb
+  OR x->>'state' IS DISTINCT FROM 'DESTROYED' OR NOT versions ? (x->>'name')) THEN RETURN false; END IF;
+ RETURN (SELECT count(*)=count(DISTINCT x->>'name') FROM jsonb_array_elements(states) x);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.valid_managed_prefix_abort_receipt(r jsonb,kind text,key text,stage text,receipt jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE inventory jsonb:=r->'managedPrefixAbort'->'inventory'; c jsonb:=public.managed_prefix_abort_context(r);
+ base jsonb:=public.managed_prefix_base(r); item jsonb; admitted jsonb; expected jsonb; creation jsonb; versions jsonb; name text;
+BEGIN
+ IF kind='inventory' THEN
+  IF key<>'' THEN RETURN false; END IF;
+  IF stage='admission' THEN RETURN public.valid_managed_prefix_inventory_admission(r,receipt); END IF;
+  IF stage<>'inventory' OR public.valid_managed_prefix_inventory(r,receipt) IS NOT TRUE THEN RETURN false; END IF;
+  expected:=CASE WHEN receipt->'writerFence'->>'status'='disabled'
+   THEN jsonb_set(receipt,'{writerFence,status}','"admitted"'::jsonb) ELSE receipt END;
+  RETURN r->'managedPrefixAbort'->'inventoryAdmission'=expected;
+ END IF;
+ IF public.valid_managed_prefix_inventory(r,inventory) IS NOT TRUE OR jsonb_typeof(receipt) IS DISTINCT FROM 'object'
+ OR (stage IN ('admission','deletion')) IS NOT TRUE THEN RETURN false; END IF;
+ IF kind IN ('resources','bindings') THEN
+  SELECT x INTO item FROM jsonb_array_elements(inventory->kind) x WHERE key=CASE WHEN kind='resources'
+   THEN x->>'type'||':'||(x->>'id') ELSE encode(digest(x::text,'sha256'),'hex') END;
+  IF item IS NULL THEN RETURN false; END IF;
+  expected:=base||jsonb_build_object(CASE WHEN kind='resources' THEN 'resource' ELSE 'binding' END,item,'status','admitted');
+  IF kind='resources' AND item->>'disposition'='created' AND item->>'type'='kms_key' THEN
+   versions:=receipt->'versionNames'; name:=item->'identity'->>'name';
+   IF jsonb_typeof(versions) IS DISTINCT FROM 'array' OR jsonb_array_length(versions) NOT BETWEEN 1 AND 32000
+    OR EXISTS(SELECT 1 FROM jsonb_array_elements(versions) x WHERE jsonb_typeof(x)<>'string'
+      OR left(x#>>'{}',length(name||'/cryptoKeyVersions/'))<>name||'/cryptoKeyVersions/'
+      OR substring(x#>>'{}' FROM length(name||'/cryptoKeyVersions/')+1)!~'^[1-9][0-9]{0,19}$')
+    OR (SELECT count(*)<>count(DISTINCT x) FROM jsonb_array_elements(versions) x) THEN RETURN false; END IF;
+   expected:=expected||jsonb_build_object('versionNames',versions,'paginationComplete',true);
+  END IF;
+  IF stage='admission' THEN
+   RETURN receipt=expected AND (kind='bindings' OR public.managed_prefix_items_complete(r,'bindings'))
+    AND (kind<>'resources' OR item->>'type'<>'kms_key' OR item->>'disposition'<>'created'
+      OR public.managed_prefix_nonkey_complete(r));
+  END IF;
+  admitted:=r->'managedPrefixAbort'->kind->key->'admission';
+  IF admitted IS NULL OR public.valid_managed_prefix_abort_receipt(r,kind,key,'admission',admitted) IS NOT TRUE THEN RETURN false; END IF;
+  IF kind='resources' THEN RETURN public.valid_managed_prefix_resource_result(r,item,admitted,receipt); END IF;
+  RETURN receipt=admitted-'status'||jsonb_build_object('status',CASE item->>'disposition' WHEN 'added' THEN 'observed_absent' ELSE 'preserved_preexisting' END);
+ ELSIF kind='bootstrap' THEN
+  IF key<>'bootstrap' OR public.managed_prefix_items_complete(r,'resources') IS NOT TRUE
+   OR public.managed_prefix_items_complete(r,'bindings') IS NOT TRUE THEN RETURN false; END IF;
+  expected:=base||jsonb_build_object('authorization',r->'registrySnapshot'->'backend_metadata'->'provisionAttempt'->'evidence'->'reserved'->'projectAuthorization'->'receipt','status','admitted');
+ ELSIF kind='retirement' THEN
+  IF key<>'project' OR public.valid_managed_prefix_abort_receipt(r,'bootstrap','bootstrap','deletion',r->'managedPrefixAbort'->'bootstrap'->'deletion') IS NOT TRUE THEN RETURN false; END IF;
+  expected:=base||jsonb_build_object('project',c->>'project','projectNumber',c->>'projectNumber','operatorPrincipal',
+   r->'registrySnapshot'->'backend_metadata'->'provisionAttempt'->'hostedAdmission'->'assignment'->'preparationContract'->>'operatorPrincipal','status','admitted');
+ ELSE RETURN false; END IF;
+ IF stage='admission' THEN RETURN receipt=expected; END IF;
+ IF r->'managedPrefixAbort'->kind->'admission' IS DISTINCT FROM expected THEN RETURN false; END IF;
+ IF kind='bootstrap' THEN
+  RETURN receipt=expected-'status'||jsonb_build_object('status',CASE expected->'authorization'->'bindingObservation'->>'disposition' WHEN 'added' THEN 'observed_absent' ELSE 'preserved_preexisting' END);
+ END IF;
+ creation:=r->'registrySnapshot'->'backend_metadata'->'provisionAttempt'->'evidence'->'reserved'->'hostedPreparation'->'completed'->0->'resourceObservation'->'identity';
+ RETURN receipt=expected-'status'||jsonb_build_object('status','retirement_pending_provider_purge',
+  'projectIdentity',jsonb_set(creation,'{lifecycleState}','"DELETE_REQUESTED"'::jsonb),
+  'billingObservation',jsonb_build_object('projectId',c->>'project','billingAccountName','','billingEnabled',false));
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.valid_managed_prefix_abort_append(old_r jsonb,new_r jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE prior jsonb:=coalesce(old_r->'managedPrefixAbort','{}'::jsonb); after_state jsonb:=new_r->'managedPrefixAbort';
+ kind text; key text; stage text; old_entry jsonb; new_entry jsonb; candidate jsonb;
+BEGIN
+ IF old_r-'managedPrefixAbort' IS DISTINCT FROM new_r-'managedPrefixAbort'
+ OR jsonb_typeof(prior) IS DISTINCT FROM 'object' OR jsonb_typeof(after_state) IS DISTINCT FROM 'object'
+ OR after_state-ARRAY['inventoryAdmission','inventory','resources','bindings','bootstrap','retirement']<>'{}'::jsonb
+ OR prior->'retirement' ? 'deletion' THEN RETURN false; END IF;
+ IF NOT prior ? 'inventoryAdmission' THEN
+  RETURN after_state-'inventoryAdmission'='{}'::jsonb AND public.valid_managed_prefix_inventory_admission(old_r,after_state->'inventoryAdmission');
+ END IF;
+ IF after_state->'inventoryAdmission' IS DISTINCT FROM prior->'inventoryAdmission' THEN RETURN false; END IF;
+ IF NOT prior ? 'inventory' THEN
+  RETURN after_state-'inventory'=prior AND public.valid_managed_prefix_abort_receipt(new_r,'inventory','','inventory',after_state->'inventory');
+ END IF;
+ IF after_state->'inventory' IS DISTINCT FROM prior->'inventory' THEN RETURN false; END IF;
+ FOREACH kind IN ARRAY ARRAY['resources','bindings','bootstrap','retirement'] LOOP
+  IF after_state-kind IS DISTINCT FROM prior-kind THEN CONTINUE; END IF;
+  IF kind IN ('resources','bindings') THEN
+   IF jsonb_typeof(after_state->kind) IS DISTINCT FROM 'object' OR (prior ? kind AND jsonb_typeof(prior->kind)<>'object') THEN CONTINUE; END IF;
+   FOR key IN SELECT jsonb_object_keys(after_state->kind) LOOP
+    IF (after_state->kind)-key IS DISTINCT FROM coalesce(prior->kind,'{}'::jsonb)-key THEN CONTINUE; END IF;
+    old_entry:=coalesce(prior->kind->key,'{}'::jsonb); new_entry:=after_state->kind->key;
+    FOREACH stage IN ARRAY ARRAY['admission','deletion'] LOOP
+     IF old_entry ? stage OR old_entry ? 'deletion' OR new_entry-stage IS DISTINCT FROM old_entry THEN CONTINUE; END IF;
+     IF public.valid_managed_prefix_abort_receipt(new_r,kind,key,stage,new_entry->stage) IS TRUE THEN RETURN true; END IF;
+    END LOOP;
+   END LOOP;
+  ELSE
+   key:=CASE kind WHEN 'bootstrap' THEN 'bootstrap' ELSE 'project' END;
+   old_entry:=coalesce(prior->kind,'{}'::jsonb); new_entry:=after_state->kind;
+   IF jsonb_typeof(new_entry) IS DISTINCT FROM 'object' THEN CONTINUE; END IF;
+   FOREACH stage IN ARRAY ARRAY['admission','deletion'] LOOP
+    IF old_entry ? stage OR old_entry ? 'deletion' OR new_entry-stage IS DISTINCT FROM old_entry THEN CONTINUE; END IF;
+    IF public.valid_managed_prefix_abort_receipt(new_r,kind,key,stage,new_entry->stage) IS TRUE THEN RETURN true; END IF;
+   END LOOP;
+  END IF;
+ END LOOP;
+ RETURN false;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.retain_managed_prefix_abort(owner_id text,attempt_id text,expected jsonb,kind text,key text,stage text,receipt jsonb)
+RETURNS boolean LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE r jsonb; updated jsonb; state jsonb; path text[]; existing jsonb;
+BEGIN
+ IF current_setting('transaction_isolation')<>'read committed' OR kind IS NULL OR key IS NULL OR stage IS NULL THEN RETURN false; END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,171));
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,198));
+ SELECT backend_metadata->'erasure' INTO r FROM public.personal_agent_registry WHERE user_id=owner_id FOR UPDATE;
+ IF public.hosted_prefix_abort_admitted(owner_id,attempt_id,r) IS NOT TRUE THEN RETURN false; END IF;
+ path:=CASE WHEN kind='inventory' THEN ARRAY[CASE WHEN stage='admission' THEN 'inventoryAdmission' ELSE 'inventory' END] WHEN kind IN ('resources','bindings') THEN ARRAY[kind,key,stage] ELSE ARRAY[kind,stage] END;
+ state:=coalesce(r->'managedPrefixAbort','{}'::jsonb); existing:=state#>path;
+ IF existing IS NOT NULL THEN RETURN existing=receipt AND public.valid_managed_prefix_abort_receipt(r,kind,key,stage,receipt) IS TRUE; END IF;
+ IF r IS DISTINCT FROM expected THEN RETURN false; END IF;
+ IF kind='inventory' THEN state:=state||jsonb_build_object(CASE WHEN stage='admission' THEN 'inventoryAdmission' ELSE 'inventory' END,receipt);
+ ELSIF kind IN ('resources','bindings') THEN state:=state||jsonb_build_object(kind,coalesce(state->kind,'{}'::jsonb)||jsonb_build_object(key,coalesce(state->kind->key,'{}'::jsonb)||jsonb_build_object(stage,receipt)));
+ ELSE state:=state||jsonb_build_object(kind,coalesce(state->kind,'{}'::jsonb)||jsonb_build_object(stage,receipt)); END IF;
+ updated:=r||jsonb_build_object('managedPrefixAbort',state);
+ IF public.valid_managed_prefix_abort_append(r,updated) IS NOT TRUE THEN RETURN false; END IF;
+ UPDATE public.personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,'{erasure}',updated) WHERE user_id=owner_id;
+ RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.managed_prefix_abort_complete(r jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=public AS $$
+ SELECT public.managed_prefix_abort_context(r) IS NOT NULL
+ AND public.valid_managed_prefix_abort_receipt(r,'retirement','project','deletion',r->'managedPrefixAbort'->'retirement'->'deletion') IS TRUE;
+$$;
+
 CREATE OR REPLACE FUNCTION public.reserve_personal_agent_erasure(owner_id text, attempt_id text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -1097,6 +1695,15 @@ BEGIN
     'hushhId', current_row.hushh_id, 'phase', 'reserved',
     'registrySnapshot', to_jsonb(current_row)
   );
+  IF current_row.deployment_target='gcp'
+    AND (current_row.backend_metadata->'provisionAttempt'->>'phase' IN ('reserved','substrate')
+      OR current_row.backend_metadata->'provisionAttempt'->>'failedFrom' IN ('reserved','substrate'))
+    AND (public.managed_prefix_terminal_failure(coalesce(current_row.backend_metadata->'provisionAttempt'->'evidence'->'reserved'->'hostedCheckpoint'->'completed','[]'::jsonb)) IS DISTINCT FROM '{}'::jsonb
+      OR public.managed_prefix_terminal_failure(coalesce(current_row.backend_metadata->'provisionAttempt'->'evidence'->'reserved'->'hostedPreparation'->'completed','[]'::jsonb)) IS DISTINCT FROM '{}'::jsonb)
+    AND public.managed_prefix_abort_context(reservation) IS NULL
+    AND public.managed_preparation_cleanup_coordinates(reservation) IS NULL THEN
+    RAISE EXCEPTION 'managed failed provision requires native reconciliation' USING ERRCODE='42501';
+  END IF;
   UPDATE public.personal_agent_registry SET
     backend_metadata = coalesce(backend_metadata, '{}'::jsonb) || jsonb_build_object('erasure', reservation),
     status = 'suspended', updated_at = clock_timestamp()
@@ -1151,6 +1758,12 @@ BEGIN
        AND to_jsonb(NEW)-'backend_metadata'=to_jsonb(OLD)-'backend_metadata'
        AND NEW.backend_metadata-'erasure'=OLD.backend_metadata-'erasure'
        AND public.valid_managed_preparation_cleanup_append(reservation,NEW.backend_metadata->'erasure') IS TRUE
+       THEN RETURN NEW; END IF;
+
+    IF TG_OP='UPDATE' AND to_jsonb(NEW)-'backend_metadata'=to_jsonb(OLD)-'backend_metadata'
+       AND NEW.backend_metadata-'erasure'=OLD.backend_metadata-'erasure'
+       AND public.hosted_prefix_abort_admitted(OLD.user_id,reservation->>'attemptId',reservation) IS TRUE
+       AND public.valid_managed_prefix_abort_append(reservation,NEW.backend_metadata->'erasure') IS TRUE
        THEN RETURN NEW; END IF;
 
     -- Managed cleanup uses its retained policy slot, without a new-work expiry test.
@@ -1523,7 +2136,8 @@ AS $function$
    'bootstrapGrantErasure',r->'bootstrapGrantErasure') ||
    CASE WHEN r->'registrySnapshot'->>'deployment_target'='gcp' THEN jsonb_build_object(
     'hostingMode','hussh_hosted','managedModelGrantErasure',r->'managedModelGrantErasure',
-    'managedProjectRetirement',r->'managedProjectRetirement','managedPreparationCleanup',r->'managedPreparationCleanup') ELSE '{}'::jsonb END ||
+    'managedProjectRetirement',r->'managedProjectRetirement','managedPreparationCleanup',r->'managedPreparationCleanup',
+    'managedPrefixAbort',r->'managedPrefixAbort') ELSE '{}'::jsonb END ||
    CASE WHEN EXISTS(SELECT 1 FROM jsonb_array_elements(r->'substrateInventory'->'plannedResources') x WHERE x->>'type'='cloud_tasks_queue')
     THEN jsonb_build_object('filesErasure',r->'filesErasure') ELSE '{}'::jsonb END
    -- 954: keep the person's never-hosted receipt; absent (no key) on every hosted archive.
@@ -1577,7 +2191,7 @@ CREATE OR REPLACE FUNCTION public.personal_agent_erasure_complete(owner_id text)
 AS $function$
 DECLARE row_state public.personal_agent_registry%ROWTYPE; setup public.byoc_setup_jobs%ROWTYPE;
  r jsonb; release jsonb; expected_release jsonb; item record; stages jsonb; wanted jsonb;
- archive jsonb; table_name text; never_hosted boolean; azure_hosted boolean; group_scope text; managed boolean; preparing boolean; history jsonb;
+ archive jsonb; table_name text; never_hosted boolean; azure_hosted boolean; group_scope text; managed boolean; preparing boolean; prefix_abort boolean; history jsonb;
 BEGIN
  IF owner_id IS NULL OR btrim(owner_id)='' OR current_setting('transaction_isolation')<>'read committed' THEN RETURN false; END IF;
  PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,171));
@@ -1589,15 +2203,18 @@ BEGIN
  r:=row_state.backend_metadata->'erasure'; release:=r->'bootstrapGrantRelease';
  managed:=coalesce(r->'registrySnapshot'->>'deployment_target'='gcp',false);
  preparing:=public.managed_preparation_cleanup_coordinates(r) IS NOT NULL;
+ prefix_abort:=public.managed_prefix_abort_context(r) IS NOT NULL;
  SELECT * INTO setup FROM public.byoc_setup_jobs WHERE user_id=owner_id FOR UPDATE;
  IF NOT managed AND NOT FOUND THEN RETURN false; END IF;
  history:=public.erasure_authorization_history(r,setup.authorization_attempts);
- IF managed AND NOT preparing AND (public.hosted_pod_cleanup_admitted(owner_id,r->>'attemptId',r) IS NOT TRUE
+ IF managed AND NOT preparing AND NOT prefix_abort AND (public.hosted_pod_cleanup_admitted(owner_id,r->>'attemptId',r) IS NOT TRUE
   OR public.erasure_managed_model_grants_complete(r) IS NOT TRUE
   OR public.valid_erasure_managed_project_retirement(r,'deletion',r->'managedProjectRetirement'->'deletion') IS NOT TRUE) THEN RETURN false; END IF;
  IF preparing AND (public.hosted_preparation_cleanup_admitted(owner_id,r->>'attemptId',r) IS NOT TRUE
   OR public.valid_managed_preparation_cleanup(r,'deletion',r->'managedPreparationCleanup'->'deletion') IS NOT TRUE
   OR public.valid_erasure_account_receipt(r,'deletion',r->'accountErasure'->'deletion') IS NOT TRUE) THEN RETURN false; END IF;
+ IF prefix_abort AND (public.hosted_prefix_abort_admitted(owner_id,r->>'attemptId',r) IS NOT TRUE
+  OR public.managed_prefix_abort_complete(r) IS NOT TRUE) THEN RETURN false; END IF;
  azure_hosted:=coalesce(r->'registrySnapshot'->>'deployment_target'='user_azure',false)
   OR public.azure_setup_never_deployed(owner_id,r->'registrySnapshot') IS TRUE;
  IF (NOT managed AND NOT azure_hosted AND setup.status IS DISTINCT FROM 'recorded')
@@ -1608,7 +2225,7 @@ BEGIN
  IF r->>'ownerId' IS DISTINCT FROM owner_id OR r->'registrySnapshot'->>'user_id' IS DISTINCT FROM owner_id
  OR r->>'hushhId' IS DISTINCT FROM row_state.hushh_id OR row_state.hushh_id IS NULL OR row_state.hushh_id=''
  OR r->>'attemptId' IS NULL OR r->>'attemptId'=''
- OR (NOT azure_hosted AND NOT preparing AND jsonb_typeof(release) IS DISTINCT FROM 'object')
+ OR (NOT azure_hosted AND NOT preparing AND NOT prefix_abort AND jsonb_typeof(release) IS DISTINCT FROM 'object')
  OR r ?| ARRAY['lateUpgradeAcknowledgement','lateProvisionAcknowledgement']
  OR nullif(r->'registrySnapshot'->'backend_metadata'->>'upgradeLease','') IS NOT NULL
  OR (NOT managed AND NOT azure_hosted AND NOT never_hosted AND r->'registrySnapshot'->'backend_metadata'->'provisionAttempt'->>'phase' IS DISTINCT FROM 'provisioned')
@@ -1626,7 +2243,7 @@ BEGIN
     AND '/subscriptions/'||user_cloud_subscription_id||'/resourceGroups/'||user_cloud_resource_group=group_scope)
   THEN RETURN false; END IF;
  ELSE
-  IF public.project_grant_release_is_exclusive(owner_id,coalesce(public.managed_preparation_cleanup_coordinates(r)->>'project',r->'grantRelease'->>'project')) IS DISTINCT FROM true THEN RETURN false; END IF;
+  IF public.project_grant_release_is_exclusive(owner_id,coalesce(public.managed_preparation_cleanup_coordinates(r)->>'project',CASE WHEN prefix_abort THEN public.erasure_private_coordinates(r)->>'project' ELSE r->'grantRelease'->>'project' END)) IS DISTINCT FROM true THEN RETURN false; END IF;
  END IF;
  -- The canonical identity barrier must cover late registry/setup/log/migration insertion.
  FOREACH table_name IN ARRAY ARRAY['personal_agent_registry','byoc_setup_jobs','pod_lifecycle_events','pod_migration_jobs'] LOOP
@@ -1643,7 +2260,7 @@ BEGIN
  OR jsonb_typeof(history) IS DISTINCT FROM 'object'
  OR EXISTS (SELECT 1 FROM jsonb_each(history) h
    WHERE h.value->'intent'->>'project' IS DISTINCT FROM coalesce(public.erasure_private_coordinates(r)->>'project',setup.project_id) OR NOT h.value ? 'receipt') THEN RETURN false; END IF;
- IF NOT azure_hosted AND NOT preparing THEN
+ IF NOT azure_hosted AND NOT preparing AND NOT prefix_abort THEN
  IF NOT never_hosted AND (public.erasure_planned_resources_covered(r) IS DISTINCT FROM true
  OR public.valid_erasure_repository_grant_receipt(r,'deletion',r->'repositoryGrantErasure'->'deletion') IS DISTINCT FROM true
  OR public.valid_erasure_repository_retention(r,r->'repositoryRetention') IS DISTINCT FROM true) THEN RETURN false; END IF;
@@ -1857,5 +2474,22 @@ BEGIN
  END IF;
 END;
 $hosted_custody_acl$;
+
+DO $managed_prefix_acl$
+DECLARE signature text; client_role text;
+BEGIN
+ FOREACH signature IN ARRAY ARRAY['managed_prefix_binding_contract(jsonb,text,text)','managed_prefix_terminal_failure(jsonb)','managed_prefix_abort_context(jsonb)','hosted_prefix_abort_admitted(text,text,jsonb)','managed_prefix_resource_step(text)','managed_prefix_resource_name(jsonb,jsonb)','valid_managed_prefix_created_identity(jsonb,jsonb,jsonb)','managed_prefix_bindings(jsonb)','managed_prefix_failed_binding_checks(jsonb)','valid_managed_prefix_memory_absence(jsonb,jsonb)','valid_managed_prefix_inventory(jsonb,jsonb)','valid_managed_prefix_inventory_admission(jsonb,jsonb)','managed_prefix_base(jsonb)','managed_prefix_items_complete(jsonb,text)','managed_prefix_nonkey_complete(jsonb)','valid_managed_prefix_resource_result(jsonb,jsonb,jsonb,jsonb)','valid_managed_prefix_abort_receipt(jsonb,text,text,text,jsonb)','valid_managed_prefix_abort_append(jsonb,jsonb)','retain_managed_prefix_abort(text,text,jsonb,text,text,text,jsonb)','managed_prefix_abort_complete(jsonb)'] LOOP
+  EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM PUBLIC',signature);
+  FOREACH client_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+   IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=client_role) THEN
+    EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM %I',signature,client_role);
+   END IF;
+  END LOOP;
+  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+   EXECUTE format('GRANT EXECUTE ON FUNCTION public.%s TO service_role',signature);
+  END IF;
+ END LOOP;
+END;
+$managed_prefix_acl$;
 
 COMMIT;

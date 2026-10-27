@@ -14,6 +14,8 @@ async def run_reserved_erasure(service: Any, *, user_id: str, reservation: dict)
 
     if await managed_erasure_step(
         service, user_id=user_id, stage="preparation", reservation=reservation
+    ) or await managed_erasure_step(
+        service, user_id=user_id, stage="prefix_abort", reservation=reservation
     ):
         await asyncio.to_thread(
             AccountService().assert_personal_agent_external_resources_absent, user_id

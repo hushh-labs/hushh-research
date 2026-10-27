@@ -734,6 +734,35 @@ a model profile cannot strand inspection; new mutations still require current po
 
 Complete partial-provision cleanup, operator adapter, archive and reconciliation
 acceptance remains required before either pilot owner is provisioned.
+Pre-host abort uses the same frozen erasure reservation, without inventing a
+running service UID or successful Memory deletion. `HostedPrefixAbortOperator`
+retains native inventory before disabling the runtime writer, removes retained
+IAM grants before their targets, and releases bootstrap authority last. Its
+default `NativePrefixInventory` reads exact resource incarnations and independent
+project-wide compute, storage, key, secret and Memory inventories. Unknown
+resources, denied reads and unsupported endpoints remain unverified. Regional
+Vertex reads must use their matching endpoint; `us` and `eu` use Google's
+Regional Endpoint Proxy. Native location discovery alone does not prove that an
+Engine namespace was read successfully.
+The generic Vertex catalogue also contains `ca`, outside the Engine capability
+domain in Google's pinned October 26 agent-location contract. Only these new
+managed dev projects may retain a separate `not_applicable` observation: exact
+native creation time and attempt labels, the reviewed contract hash and expiry,
+and an independently observed unavailable endpoint are required. The catalogue
+entry remains visible. A successful listing takes precedence; older/BYOC
+projects, denied reads, unknown locations and expired qualification still refuse.
+The pinned qualification expires October 31; refreshing it requires reviewing
+the provider contract and its owning SQL validator together.
+
+`cleanup_managed_preparation` covers the earlier project/billing preparation
+boundary. A terminal failed billing or authorization step retains its failure;
+independent bootstrap absence, IAM, billing and resource observations are needed
+before retirement. Partial authorization effects remain pending reconciliation.
+Both operators require explicitly supplied, verified short-lived operator
+authority; neither discovers credentials inside the hub. A bounded pass exits
+with unfinished work retained. KMS destruction resumes from the existing journal
+after its provider deadline; it never keeps a runner sleeping. Source regression
+and migration replay checks are not live erasure acceptance.
 Hosted notification work requires both general and notification-specific intent
 acknowledgments; its specialized observation must persist before general progress
 can be reused. Existing notification SQL remains BYOC-only, so this composition

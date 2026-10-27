@@ -463,13 +463,21 @@ def test_frozen_managed_cleanup_coordinates_preserve_real_authorization_history(
         assert coordinates(invalid) is None
 
 
-def test_managed_custody_replay_refuses_unknown_helper_drift(pg):
+@pytest.mark.parametrize("helper", ["placement", "prefix_memory"])
+def test_managed_custody_replay_refuses_unknown_helper_drift(pg, helper):
     from db.hosted_custody_adoption import _successor_qualification
 
     pg.apply_file(ROOT / "db/migrations/parked/974_hosted_pod_custody.sql")
     pg.execute(_successor_qualification())
+    changed = (
+        "private_gcp_coordinates(snapshot jsonb) RETURNS jsonb AS $$ BEGIN RETURN '{}'::jsonb; END; $$"
+        if helper == "placement"
+        else "valid_managed_prefix_memory_absence(c jsonb,observation jsonb) RETURNS boolean AS $$ BEGIN RETURN true; END; $$"
+    )
     pg.execute(
-        "CREATE OR REPLACE FUNCTION public.private_gcp_coordinates(snapshot jsonb) RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$ BEGIN RETURN '{}'::jsonb; END; $$"
+        "CREATE OR REPLACE FUNCTION public."
+        + changed
+        + " LANGUAGE plpgsql IMMUTABLE SET search_path=public"
     )
     with pytest.raises(
         psycopg2.errors.RaiseException, match="Unqualified managed custody successor"

@@ -160,8 +160,56 @@ class HostedPodJournal:
         )
         return await self._cleanup_query(query, owner_id, reservation, kind, stage, receipt)
 
+    async def prefix_abort_current(self, *, owner_id: str, reservation: dict) -> bool:
+        return await self._cleanup_query(
+            "SELECT public.hosted_prefix_abort_admitted(:owner,:attempt,CAST(:expected AS jsonb)) AS admitted",
+            owner_id,
+            reservation,
+            "",
+            "",
+            {},
+        )
+
+    async def retain_prefix_abort(
+        self,
+        *,
+        owner_id: str,
+        reservation: dict,
+        kind: str,
+        key: str,
+        stage: str,
+        receipt: dict,
+    ) -> bool:
+        stages = {
+            "inventory": {"admission", "inventory"},
+            "resources": {"admission", "deletion"},
+            "bindings": {"admission", "deletion"},
+            "bootstrap": {"admission", "deletion"},
+            "retirement": {"admission", "deletion"},
+        }
+        if kind not in stages or stage not in stages[kind] or not isinstance(key, str):
+            raise ValueError("Unsupported managed prefix-abort receipt")
+        return await self._cleanup_query(
+            "SELECT public.retain_managed_prefix_abort(:owner,:attempt,CAST(:expected AS jsonb),"
+            ":kind,:key,:stage,CAST(:receipt AS jsonb)) AS admitted",
+            owner_id,
+            reservation,
+            kind,
+            stage,
+            receipt,
+            key=key,
+        )
+
     async def _cleanup_query(
-        self, query: str, owner_id: str, reservation: dict, kind: str, stage: str, receipt: dict
+        self,
+        query: str,
+        owner_id: str,
+        reservation: dict,
+        kind: str,
+        stage: str,
+        receipt: dict,
+        *,
+        key: str = "",
     ) -> bool:
         result = await asyncio.to_thread(
             self._database.execute_raw,
@@ -171,6 +219,7 @@ class HostedPodJournal:
                 "attempt": reservation["attemptId"],
                 "expected": json.dumps(reservation),
                 "kind": kind,
+                "key": key,
                 "stage": stage,
                 "receipt": json.dumps(receipt),
             },

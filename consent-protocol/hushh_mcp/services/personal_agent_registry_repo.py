@@ -1660,49 +1660,42 @@ class PersonalAgentRegistryRepo:
         *,
         user_id: str,
         deployment_target: str,
+        expected_row: dict[str, Any] | None,
         model_credential_mode: Optional[str] = None,
     ) -> bool:
-        """Record that this person chose to have hussh host their pod. Returns False
-        if they have no row.
+        """Publish hosting intent only while the entire admitted row is unchanged.
 
-        The sibling of ``set_user_cloud`` for the third door. Same two rules, for the
-        same two reasons:
-
-        * ``deployment_target`` is REQUIRED and never defaulted here. The registry
-          orchestrates a fleet it must not be able to name; the route that knows a
-          person chose the hosted tier is the layer allowed to say so
-          (``test_deployment_boundary_holds``).
-        * An UPDATE, never an upsert. A row created here would carry no HusshID and
-          no phone hash, and every reader downstream assumes both.
-
-        The user-cloud coordinates are CLEARED, not left behind. A hosted row that
-        still carries a project, region, bootstrap SA or a proven authorization is a
-        half-state: ``is_user_owned`` would read False while ``user_cloud_project``
-        reads set, and the schema's own ``user_gcp_needs_project`` constraint exists
-        because those half-states are illegal. Clearing them also means a later
-        migration into that same project re-proves the grant rather than inheriting a
-        stale proof about a project this pod never ran in.
-
-        ``model_credential_mode`` stays None unless the caller states it. The two axes
-        are orthogonal by design -- where the pod runs and which credential reaches a
-        model are separate choices, and the AI step owns the second one.
+        Target choice belongs to the caller, not this generic registry. An exact
+        JSON snapshot fences concurrent BYOC, lifecycle and identity changes before
+        clearing cloud coordinates. This never inserts a row or claims resources.
+        The model credential axis stays unchanged unless explicitly supplied.
         """
         normalized = str(user_id or "").strip()
-        if not normalized:
+        if (
+            not normalized
+            or not isinstance(expected_row, dict)
+            or expected_row.get("user_id") != normalized
+            or not isinstance(expected_row.get("hushh_id"), str)
+            or not expected_row["hushh_id"]
+        ):
             return False
-
-        data: dict[str, Any] = {
-            "deployment_target": deployment_target,
-            "user_cloud_project": None,
-            "user_cloud_region": None,
-            "user_cloud_bootstrap_sa": None,
-            "user_cloud_authorized_at": None,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        if model_credential_mode:
-            data["model_credential_mode"] = model_credential_mode
-
-        response = self._db().table(_REGISTRY).update(data).eq("user_id", normalized).execute()
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "UPDATE public.personal_agent_registry AS current SET "
+            "deployment_target=:target,user_cloud_project=NULL,user_cloud_region=NULL,"
+            "user_cloud_bootstrap_sa=NULL,user_cloud_authorized_at=NULL,"
+            "model_credential_mode=COALESCE(:model,current.model_credential_mode),"
+            "updated_at=clock_timestamp() "
+            "WHERE current.user_id=:owner AND current.hushh_id=:hushh_id "
+            "AND to_jsonb(current)=CAST(:expected AS jsonb) RETURNING current.user_id",
+            {
+                "owner": normalized,
+                "hushh_id": expected_row["hushh_id"],
+                "target": deployment_target,
+                "model": model_credential_mode or None,
+                "expected": json.dumps(expected_row),
+            },
+        )
         return bool(response.data or [])
 
     async def begin_migration(self, user_id: str) -> bool:

@@ -243,3 +243,159 @@ def test_configured_existing_maintenance_does_not_enable_new_managed_pods(clean_
     clean_env.setenv("HUSSH_POD_PROJECT", "synthetic-existing-fleet")
     require_hosted_pod_maintenance_permitted()
     assert hosted_pod_creates_permitted() is False
+
+
+@pytest.mark.asyncio
+async def test_pilot_selection_admits_intent_without_opening_legacy_creation(monkeypatch):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.hosted_tier_guard import require_hosted_pilot_selection
+    from tests.helpers.hosted_pilot_selection import selection_runtime
+
+    db = selection_runtime(monkeypatch)
+    selected = await require_hosted_pilot_selection("u1", SimpleNamespace(_db=lambda: db))
+    assert selected.owner_id == "u1" and selected.hushh_id == "ha1_test"
+    assert selected.registry_present and hosted_pod_creates_permitted() is False
+    assert db.calls[0][1]["sha"] == "a" * 40
+    assert db.calls[0][1]["digest"] == "sha256:" + "b" * 64
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    ["owner", "lane", "sha", "policy", "hushh", "active", "byoc", "attempt", "missing_schema"],
+)
+async def test_pilot_selection_refuses_unqualified_owner_and_runtime(monkeypatch, change):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.hosted_tier_guard import require_hosted_pilot_selection
+    from tests.helpers.hosted_pilot_selection import selection_runtime
+
+    db = selection_runtime(monkeypatch)
+    owner = "other" if change == "owner" else "u1"
+    if change == "lane":
+        monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    if change == "sha":
+        monkeypatch.setenv("HUSHH_DEPLOY_SHA", "c" * 40)
+    if change == "policy":
+        db.records = False
+    if change == "hushh":
+        db.row["hushh_id"] = "ha1_wrong"
+    if change == "active":
+        db.row["status"] = "provisioned"
+    if change == "byoc":
+        db.row["deployment_target"] = "user_gcp"
+    if change == "attempt":
+        db.row["backend_metadata"] = {"provisionAttempt": {}}
+    if change == "missing_schema":
+
+        def missing(*args):
+            raise RuntimeError("missing table")
+
+        db.execute_raw = missing
+    with pytest.raises(HostedTierNotPermittedError):
+        await require_hosted_pilot_selection(owner, SimpleNamespace(_db=lambda: db))
+
+
+@pytest.mark.asyncio
+async def test_pilot_missing_registry_allows_only_phone_reservation_intent(monkeypatch):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.hosted_tier_guard import require_hosted_pilot_selection
+    from tests.helpers.hosted_pilot_selection import selection_runtime
+
+    db = selection_runtime(monkeypatch)
+    db.row = None
+    repo = SimpleNamespace(_db=lambda: db)
+    assert not (await require_hosted_pilot_selection("u1", repo)).registry_present
+    with pytest.raises(HostedTierNotPermittedError):
+        await require_hosted_pilot_selection("u1", repo, require_record=True)
+
+
+def test_pilot_selection_query_with_real_policy_and_expiry(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.hosted_tier_guard import require_hosted_pilot_selection
+    from tests.helpers.hosted_pilot_selection import selection_runtime
+    from tests.pkm_conformance.postgres_harness import find_pg_bin
+    from tests.test_byoc_setup_job_azure_admission_postgres import ROOT, _Client, _server
+    from tests.test_hosted_pilot_admission_postgres import _policy
+
+    if find_pg_bin() is None:
+        pytest.skip("local PostgreSQL unavailable")
+    selection_runtime(monkeypatch)
+    server = _server(monkeypatch, last=954)
+    client = _Client(server)
+    repo = SimpleNamespace(_db=lambda: client)
+    try:
+        server.apply_file(ROOT / "db/migrations/parked/973_hosted_pod_pilot_admission.sql")
+        _policy(server)
+        selection = asyncio.run(require_hosted_pilot_selection("owner-a", repo))
+        assert selection.hushh_id == "ha1_synthetic_hosted_owner_1"
+        assert not selection.registry_present
+        server.execute(
+            "INSERT INTO public.personal_agent_registry(user_id,hushh_id,status) "
+            "VALUES ('owner-a','ha1_synthetic_hosted_owner_1','pending')"
+        )
+        assert asyncio.run(
+            require_hosted_pilot_selection("owner-a", repo, require_record=True)
+        ).registry_present
+        from hushh_mcp.services import pod_release
+
+        monkeypatch.setattr(
+            pod_release, "configured_release", lambda _: {"sourceRevision": "c" * 40}
+        )
+        monkeypatch.setenv("HUSHH_DEPLOY_SHA", "c" * 40)
+        with pytest.raises(HostedTierNotPermittedError):
+            asyncio.run(require_hosted_pilot_selection("owner-a", repo))
+        selection_runtime(monkeypatch)
+        monkeypatch.setenv(
+            "HUSSH_ONE_POD_IMAGE", "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:" + "c" * 64
+        )
+        with pytest.raises(HostedTierNotPermittedError):
+            asyncio.run(require_hosted_pilot_selection("owner-a", repo))
+        selection_runtime(monkeypatch)
+        from hushh_mcp import managed_ai_config
+
+        changed_profile = {**managed_ai_config.load_profile("dev"), "text_model": "gemini-other"}
+        with monkeypatch.context() as changed:
+            changed.setattr(managed_ai_config, "load_profile", lambda _: changed_profile)
+            with pytest.raises(HostedTierNotPermittedError):
+                asyncio.run(require_hosted_pilot_selection("owner-a", repo))
+        assert asyncio.run(require_hosted_pilot_selection("owner-b", repo)).owner_id == "owner-b"
+        from tests.helpers.hosted_pilot_selection import prove_policy_cannot_outlive_cleanup
+
+        prove_policy_cannot_outlive_cleanup(monkeypatch, repo)
+        with pytest.raises(HostedTierNotPermittedError):
+            asyncio.run(require_hosted_pilot_selection("other", repo))
+        monkeypatch.setenv("HUSHH_DEPLOY_SHA", "c" * 40)
+        with pytest.raises(HostedTierNotPermittedError):
+            asyncio.run(require_hosted_pilot_selection("owner-a", repo))
+        monkeypatch.setenv("HUSHH_DEPLOY_SHA", "a" * 40)
+        # Recreate the isolated fixture policy, never mutate a live retained policy.
+        server.execute("DROP TABLE public.hosted_pod_pilot_policy CASCADE")
+        server.apply_file(ROOT / "db/migrations/parked/973_hosted_pod_pilot_admission.sql")
+        _policy(server, expired=True)
+        with pytest.raises(HostedTierNotPermittedError):
+            asyncio.run(require_hosted_pilot_selection("owner-a", repo))
+    finally:
+        client._engine.dispose()
+        server.stop()
+
+
+async def test_expired_cleanup_qualification_refuses_before_policy_read(monkeypatch):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import hosted_engine_location_contract as locations
+    from hushh_mcp.services.hosted_tier_guard import require_hosted_pilot_selection
+    from tests.helpers.hosted_pilot_selection import selection_runtime
+
+    real_contract = locations.provider_contract
+    db = selection_runtime(monkeypatch)
+    monkeypatch.setattr(locations, "provider_contract", real_contract)
+    monkeypatch.setattr(locations, "utc_now", lambda: datetime(2026, 11, 1, tzinfo=timezone.utc))
+    with pytest.raises(HostedTierNotPermittedError):
+        await require_hosted_pilot_selection("u1", SimpleNamespace(_db=lambda: db))
+    assert db.calls == []

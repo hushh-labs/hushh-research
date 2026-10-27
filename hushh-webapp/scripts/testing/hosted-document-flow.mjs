@@ -70,6 +70,32 @@ try {
   browser = await ({ chromium, webkit }[config.engine]).launch({ headless: true });
   const context = await browser.newContext({ acceptDownloads: true, viewport: { width: 390, height: 820 } });
   page = await context.newPage();
+  await page.addInitScript(() => {
+    // Observe native failures without replacing crypto, retaining arguments or
+    // recording messages. Only bounded operation/algorithm labels leave the page.
+    const failures = [];
+    const algorithms = new Set(["X25519", "AES-GCM", "SHA-256", "PBKDF2", "HKDF"]);
+    const subtle = crypto.subtle;
+    for (const operation of ["importKey", "generateKey", "deriveBits", "deriveKey", "digest", "encrypt", "decrypt"]) {
+      const original = subtle[operation];
+      Object.defineProperty(subtle, operation, { value: async function (...args) {
+        try { return await Reflect.apply(original, subtle, args); }
+        catch (error) {
+          let algorithm = "unknown";
+          try {
+            const input = args[operation === "importKey" ? 2 : 0];
+            const name = typeof input === "string" ? input : input?.name;
+            if (algorithms.has(name)) algorithm = name;
+          } catch { /* Diagnostic inspection must not replace the native error. */ }
+          if (failures.length < 8) failures.push({ operation, algorithm });
+          throw error;
+        }
+      } });
+    }
+    Object.defineProperty(window, "__takeDocumentCryptoFailures", {
+      value: () => failures.splice(0),
+    });
+  });
   const switchActor = async actor => {
     await page.getByRole("button", { name: `Use ${actor} session`, exact: true }).click();
     await page.waitForFunction(expected => document.querySelector('[data-testid="document-fixture"]')?.getAttribute("data-actor") === expected, actor);
@@ -137,6 +163,13 @@ try {
   const start = performance.now();
   await page.setViewportSize({ width: 900, height: 900 });
   await page.goto(`${origin}/one/documents/open`);
+  const diagnosticProbe = await page.evaluate(async () => {
+    let rejected = false;
+    try { await crypto.subtle.importKey("raw", new Uint8Array(1), "synthetic-private-algorithm", false, ["decrypt"]); }
+    catch { rejected = true; }
+    return { rejected, failures: window.__takeDocumentCryptoFailures() };
+  });
+  assert.deepEqual(diagnosticProbe, { rejected: true, failures: [{ operation: "importKey", algorithm: "unknown" }] });
   await page.getByRole("heading", { name: "Historical device-encrypted document flow", exact: true }).waitFor();
   // Create a historical v1 record through the real production client/API. The
   // retired delivery picker is intentionally absent from new request UI.
@@ -294,7 +327,8 @@ try {
 } catch (error) {
   const alerts = await page?.getByRole("alert").allTextContents().catch(() => []);
   const keySetups = await page?.evaluate(async () => (await import("/e2e/fixtures/hosted-document-boundaries.tsx")).getFixtureKeySetupCount()).catch(() => null);
-  console.error(JSON.stringify({ stage: events.at(-1)?.name ?? "starting", directGoogleReads, oneUploads, keySetups, failures, alerts, errors, caught }));
+  const cryptoFailures = await page?.evaluate(() => window.__takeDocumentCryptoFailures?.() ?? []).catch(() => []);
+  console.error(JSON.stringify({ stage: events.at(-1)?.name ?? "starting", directGoogleReads, oneUploads, keySetups, cryptoFailures, failures, alerts, errors, caught }));
   throw error;
 } finally {
   await browser?.close();

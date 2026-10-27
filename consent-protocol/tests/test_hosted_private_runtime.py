@@ -348,3 +348,143 @@ def test_operator_identity_checks_authenticated_subject_not_a_supplied_email():
     verified = verify_operator(credentials, session, expected="user:operator@example.test")
     assert verified.principal == "user:operator@example.test"
     assert "synthetic" not in repr(verified)
+
+
+@pytest.mark.parametrize("failure", [None, "denied", "unreachable", "loop", "malformed", "foreign"])
+def test_native_cleanup_inventory_requires_complete_project_scoped_pages(failure):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.hosted_native_inventory import NativeProjectInventory
+    from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
+
+    calls = []
+    bodies = [{"items": [{"name": "first"}], "nextPageToken": "next"}, {"items": []}]
+    if failure == "unreachable":
+        bodies[0]["unreachable"] = ["locations/unknown"]
+    elif failure == "loop":
+        bodies[1]["nextPageToken"] = "next"
+    elif failure == "malformed":
+        bodies[0]["items"] = "unverified"
+
+    def get(url, **kwargs):
+        calls.append((url, kwargs))
+        return SimpleNamespace(
+            status_code=403 if failure == "denied" else 200, json=lambda: bodies.pop(0)
+        )
+
+    client = NativeProjectInventory(
+        project="hussh-pilot-owner-a",
+        number="123456789",
+        token="synthetic-only",  # noqa: S106 - public fixture; no provider credential
+        session=SimpleNamespace(get=get),
+    )
+    url = "https://storage.googleapis.com/storage/v1/b"
+    params = {"project": "foreign-project" if failure == "foreign" else client.project}
+    if failure:
+        with pytest.raises(ProvisionReconciliationRequired):
+            client.pages(url, "items", params=params)
+        assert client.coverage == []
+        if failure == "foreign":
+            assert calls == []
+    else:
+        assert client.pages(url, "items", params=params) == [{"name": "first"}]
+        assert client.coverage == [{"url": url, "filters": params, "pages": 2, "complete": True}]
+        assert calls[1][1]["params"]["pageToken"] == "next"
+        assert all(call[1]["allow_redirects"] is False for call in calls)
+
+
+@pytest.mark.parametrize("failure", [None, "denied", "unreachable", "late_engine", "foreign"])
+def test_native_memory_absence_reads_every_region_using_its_canonical_endpoint(failure):
+    from types import SimpleNamespace
+    from urllib.parse import urlsplit
+
+    from hushh_mcp.services.hosted_native_inventory import NativeProjectInventory
+    from hushh_mcp.services.hosted_native_memory_inventory import observe_memory_absence
+    from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
+
+    project, number = "hussh-pilot-owner-a", "123456789"
+    creation = {"projectId": project, "projectNumber": number, "lifecycleState": "ACTIVE"}
+    visited = []
+
+    def get(url, **kwargs):
+        status = 200
+        if url.endswith("/locations"):
+            body = {
+                "locations": [
+                    {"name": f"projects/{project}/locations/{region}"}
+                    for region in ("us-central1", "europe-west9", "us", "eu")
+                ]
+            }
+        elif url.endswith("/reasoningEngines"):
+            region = url.split("/locations/")[1].split("/")[0]
+            expected = (
+                "aiplatform.googleapis.com"
+                if region == "global"
+                else f"aiplatform.{region}.rep.googleapis.com"
+                if region in {"us", "eu"}
+                else f"{region}-aiplatform.googleapis.com"
+            )
+            assert urlsplit(url).netloc == expected
+            visited.append(region)
+            body = {"reasoningEngines": []}
+            if failure == "denied":
+                status = 403
+            elif failure == "unreachable":
+                body["unreachable"] = [region]
+            elif failure == "late_engine":
+                body = (
+                    {"reasoningEngines": [{"name": "retained-engine"}]}
+                    if kwargs["params"].get("pageToken")
+                    else {"nextPageToken": "next"}
+                )
+        else:
+            body = {**creation, "projectNumber": "999"} if failure == "foreign" else creation
+        return SimpleNamespace(status_code=status, json=lambda: body)
+
+    reader = NativeProjectInventory(
+        project=project,
+        number=number,
+        token="synthetic-only",  # noqa: S106 - public fixture; no provider credential
+        session=SimpleNamespace(get=get),
+    )
+    if failure:
+        with pytest.raises(ProvisionReconciliationRequired):
+            observe_memory_absence(reader, assigned_region="us-central1", creation=creation)
+    else:
+        result = observe_memory_absence(reader, assigned_region="us-central1", creation=creation)
+        assert (
+            result["locations"]
+            == sorted(set(visited))
+            == ["eu", "europe-west9", "global", "us", "us-central1"]
+        )
+        assert result["engines"] == [] and result["complete"] is True
+        assert all(item["status"] == "listed_empty" for item in result["coverage"])
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "europe-west9-aiplatform.googleapis.com",
+        "secretmanager.europe-west9.rep.googleapis.com",
+        "aiplatform.eu.rep.googleapis.com",
+    ],
+)
+def test_native_inventory_refuses_mismatched_regional_authority_before_read(host):
+    from unittest.mock import Mock
+
+    from hushh_mcp.services.hosted_native_inventory import NativeProjectInventory
+    from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
+
+    session = Mock()
+    reader = NativeProjectInventory(
+        project="hussh-pilot-owner-a",
+        number="123456789",
+        token="synthetic-only",  # noqa: S106 - public fake credential; no provider request is made
+        session=session,
+    )
+    with pytest.raises(ProvisionReconciliationRequired, match="outside its project"):
+        reader.pages(
+            f"https://{host}/v1/projects/hussh-pilot-owner-a/locations/us-central1/secrets",
+            "secrets",
+        )
+    session.get.assert_not_called()

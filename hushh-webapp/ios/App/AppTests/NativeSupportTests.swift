@@ -306,6 +306,7 @@ final class NativeSupportTests: XCTestCase {
 
     @MainActor
     func testRouteWorkspaceRetirementReleasesCoverageBeforeReceipt() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Native workspace requires iOS 26") }
         let object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "referrals",
             "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111",
             "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
@@ -915,7 +916,8 @@ final class NativeSupportTests: XCTestCase {
             "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms", "sign-out",
             "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "vault-methods", "vault-password", "appearance", "accent", "voice",
             "payout-receipt", "payout-warning", "payout-progress", "payout-review",
-            "style-name", "style-tone", "style-length", "style-language", "style-punctuation"]
+            "style-name", "style-tone", "style-length", "style-language", "style-punctuation",
+            "action-join", "action-manage-connections"]
         for id in NativeProfileArtwork.ids {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
             let glyphSize: CGFloat = id == "gemini" ? 32 : 28
@@ -1509,7 +1511,13 @@ final class NativeSupportTests: XCTestCase {
     func testPendingNativeCloseSurvivesContentRefreshAndUncoversTheSameWebViewOnlyAfterAcknowledgement() async throws {
         let state = privateDrawerState(family: "history")
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        // The app's shared shield belongs to its live document, not this
+        // synthetic controller. Exercise Close against an explicitly active gate.
+        let shield = HushhSessionPrivacyShield()
+        shield.markAppActive()
+        XCTAssertTrue(shield.snapshot().appIsActive)
+        XCTAssertFalse(shield.snapshot().shielded)
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers, privacyShield: shield)
         let parent = UIViewController()
         parent.view = container
         let window = UIWindow(frame: web.frame)

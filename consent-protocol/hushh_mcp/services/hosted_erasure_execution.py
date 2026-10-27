@@ -12,6 +12,7 @@ from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
 
 class ManagedErasureOperator(Protocol):
     async def preparation(self, *, user_id: str, reservation: dict) -> None: ...
+    async def prefix_abort(self, *, user_id: str, reservation: dict) -> None: ...
     async def model_grants(self, *, user_id: str, reservation: dict) -> None: ...
     async def retirement(self, *, user_id: str, reservation: dict) -> None: ...
 
@@ -36,6 +37,7 @@ async def managed_erasure_step(
         raise ProvisionReconciliationRequired("Managed erasure owner changed")
     queries = {
         "preparation": "SELECT public.managed_preparation_cleanup_coordinates(CAST(:r AS jsonb)) AS coordinates, public.valid_managed_preparation_cleanup(CAST(:r AS jsonb),'deletion',CAST(:r AS jsonb)->'managedPreparationCleanup'->'deletion') IS TRUE AS complete",
+        "prefix_abort": "SELECT public.managed_prefix_abort_context(CAST(:r AS jsonb)) AS coordinates, public.managed_prefix_abort_complete(CAST(:r AS jsonb)) IS TRUE AS complete",
         "model_grants": "SELECT public.erasure_managed_model_grants_complete(CAST(:r AS jsonb)) IS TRUE AS complete",
         "retirement": "SELECT public.valid_erasure_managed_project_retirement(CAST(:r AS jsonb),'deletion',CAST(:r AS jsonb)->'managedProjectRetirement'->'deletion') IS TRUE AS complete",
     }
@@ -51,7 +53,7 @@ async def managed_erasure_step(
         return cast(dict, response.data[0])
 
     evidence = await check()
-    if stage == "preparation" and evidence.get("coordinates") is None:
+    if stage in {"preparation", "prefix_abort"} and evidence.get("coordinates") is None:
         return False
     if evidence.get("complete") is True:
         return True
