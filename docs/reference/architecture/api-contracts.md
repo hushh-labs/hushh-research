@@ -1030,6 +1030,7 @@ See [Wallet](../one/wallet.md) and the
 | Method | Path                                      | Description                                                                                             |
 | ------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | GET    | `/health`                                 | Detailed health check with agent list                                                                   |
+| GET    | `/health/ready`                           | Dependency readiness with bounded advisory signals                                                     |
 | GET    | `/api/kai/health`                         | Kai subsystem health                                                                                    |
 | GET    | `/api/investors/search?q={name}`          | Fuzzy search investors by name                                                                          |
 | GET    | `/api/investors/{investor_id}`            | Full investor profile by ID                                                                             |
@@ -1040,6 +1041,16 @@ See [Wallet](../one/wallet.md) and the
 | POST   | `/api/validate-token`                     | Validate a consent token                                                                                |
 | GET    | `/api/app-config/review-mode`             | Review mode toggle (enabled only)                                                                       |
 | POST   | `/api/app-config/review-mode/session`     | Non-production reviewer mint: a supplied `reviewer_uid` must name the configured reviewer paired with its passphrase; unknown or mismatched identities fail closed. Legacy callers may omit the UID and authenticate by configured passphrase. |
+
+`GET /health/ready` gates shared-runtime readiness on the database and production
+Firebase Admin configuration. In UAT and production only, its
+`checks.phone_test_transport` is `healthy` or `unavailable`, using the recorded
+phone transport's canonical configuration prerequisites. This advisory value
+never changes HTTP readiness or removes ordinary authentication traffic. It
+exposes no configured values, counts, or identifiers and issues no challenge or
+SMS. `healthy` establishes configuration availability, not phone ownership,
+successful confirmation, identity persistence, or real SMS delivery. The field
+is absent outside those environments and on private pods; `/health` is unchanged.
 
 ### Developer API (Developer Token / Developer API Enabled)
 
@@ -4259,6 +4270,29 @@ The fiscal rule is title date, created time, then modified time in the owner's
 zone. Kept files have no fiscal folder. See [implementation and local release
 registration](../one/drive-four-group-index.md#slice-3-storage-worker-and-owner-api).
 
+### Financial packet scalar summary visibility
+
+Scalar financial summaries default ON under the explicit product policy
+`drive-financial-summary-default-v1`. One owner switch covers every prepared and
+future financial period. A saved OFF survives reconnect and freezing; background
+preparation remains an independent choice. These metadata routes return
+`private, no-store` and use the existing connector catch-all proxy on web/native.
+
+| Method / path | Authority | Contract |
+| --- | --- | --- |
+| `GET /api/connectors/google_drive/sharing/financial-summary-preference` | Current Vault Owner | `{enabled:boolean,revision:number,disclosure:"drive-financial-summary-default-v1"}`. Unconfigured defaults to ON/revision zero. Reads no files and starts no preparation; available after source access loss. |
+| `PUT /api/connectors/google_drive/sharing/financial-summary-preference` | Current Vault Owner | Strict `{enabled:boolean,expectedRevision:number,disclosure:"drive-financial-summary-default-v1"}`. Atomically changes the owner flag; stale revision returns `409 listing_changed`. OFF remains available after revoke/pause; ON requires verified live Drive. |
+| `GET /api/one/people/{person_ref}/financial-packets` | Current Firebase identity | Up to 25 scalar summaries and `nextCursor`. Current active public profile, source generation, feature admission and owner visibility are required; no accepted relationship is needed to see these scalars. |
+
+The public allowlist contains opaque packet/version, controlled title/category,
+period/timezone, discovery count/basis/completeness/update time, nullable exact
+`saleDocumentCount`, bounded price/currency and availability/action. It excludes
+filenames, Drive identifiers/links and contents. Source permission, accepted
+connection, exact-version owner approval and purchase/delivery checks still
+govern private access. The old per-period publication endpoint is a compatibility
+facade and cannot widen a saved owner OFF through its legacy disclosure. See the
+[owning visibility contract](../one/drive-public-financial-summary.md).
+
 ### Owner Drive searches
 
 `/api/connectors/google_drive/searches` requires a current Vault Owner and private/no-store responses.
@@ -4461,7 +4495,10 @@ window is not a claim about statement reporting coverage.
 and adds a discriminated `kind: "provider_discovery"` item with `category`,
 `periodStart`, `periodEnd`, `timezone`, server lifecycle state, fixed `priceCents:500`,
 and recipient-bound `requestId`/`purchaseState`. Unfrozen heads have version zero;
-frozen heads have version one. Owner-only contents contain bounded original links.
+initial frozen heads have version one. A newer complete search may append a new
+immutable version only for an empty unavailable financial sale with no request
+references; earlier versions and listing permissions remain unchanged. Owner-only
+contents contain bounded original links.
 Visitors receive only summaries admitted by the owner's explicit listing audience,
 including separately authorized public summaries. Private filenames and links are
 never included in an unpurchased public summary. A connection remains required to request purchase.
@@ -5280,21 +5317,88 @@ warning. Standing-preference failures still fail visibly. Query budgets and
 latency targets require request-level runtime verification; batching alone does
 not prove those targets.
 
+### Opt-in area discovery (website caller; One app unchanged)
+
+`GET /api/one/area-discovery/me`, `PUT /api/one/area-discovery/me` and
+`POST /api/one/area-discovery/search` use Firebase owner
+identity and the existing One identity/vault enrollment. They expose no protected
+PKM information and require no new onboarding. The website proxies only these
+allowlisted paths through `/api/marketplace`.
+
+PUT accepts `enabled`, `postalCode`, `expectedRevision`, `consentVersion` and
+`adultConfirmed`. Enabling requires explicit version `one-area-discovery-v1`, a
+five-digit US ZIP, and a fresh explicit 18+ self-confirmation. This is not verified
+age. No date of birth leaves the encrypted profile. A stale revision returns409;
+clients refresh and require a new deliberate choice. Off does not require ZIP,
+adult confirmation, Firebase profile lookup or vault unlock; it removes searchable
+area and current consent/attestation timestamps. Owner identity authentication and
+account deletion barriers always apply.
+
+Search takes `{postalCode, page}` in a JSON body so the ZIP is absent from access-log URLs. It accepts no name, age or other narrowing filters. It returns only existing
+shared names, user identifiers and connection relationship labels. Opted-out,
+deleted, disabled, unnamed and unenrolled accounts cannot contribute to the floor
+of ten eligible *other* people, evaluated before pagination. Below the floor, the
+same empty suppressed response is used for zero through nine. Area matching is exact US ZIP; neighbouring-area expansion is not part of this contract. There are at most
+five 20-person pages, a 500-candidate work cap, and 30 searches per account/UTC day
+charged atomically in Postgres. No counts, ZIP values or private details appear
+in results. No export endpoint exists. Account identity lookup failures fail
+closed. Area opt-in is distinct from ordinary name search and GPS sharing.
+
+Consent rows are share-locked while projecting each response. Opt-out serializes
+with already admitted reads; every search starting after opt-out commits excludes
+the withdrawn row. Previously delivered names cannot be recalled. Existing One
+app contracts, name directory behavior, location grants and native UI are unchanged.
 
 ### Phone conflict recovery and trusted-device boundary
 
 Web, iOS and Android use the same phone conflict model. A conflict reveals no
 previous-account name, email, identifiers, devices or information. The choices
-are **Use this number on this account**, **Recover my previous account**, and
-**Delete my previous account**. The latter two open the existing Google/Apple
-sign-in and Profile flow. Deletion still needs that account's existing owner
-capability, re-authentication and destructive confirmation. Phone-origin proof
+are **Use this number on this account**, **Recover my previous account**,
+**Delete my previous account**, and **Review previous device access**. Recovery,
+deletion and device review create an opaque, fifteen-minute continuation and
+resume the selected action at `/register-phone?recovery=<uuid>` after Google or
+Apple sign-in. The continuation grants no account authority. Only the matching
+independently authenticated previous owner may see its masked phone hint and
+their own account/device details. An expired or changed binding ends the request.
+Deletion reuses existing owner verification, fresh same-owner reauthentication,
+any required linked-phone proof, and explicit irreversible confirmation. A final
+continuation refusal is a definite pre-erasure failure and preserves the session. Phone-origin proof
 is accepted only as the secondary possession proof and cannot admit a primary
 application session, read a previous owner profile, mint an owner capability or approve a new trusted device. Existing
 owner-authenticated trusted-device listing and revocation keep their hub-first,
 pod-propagation and uncertain-outcome contracts. This does not create a universal
 browser/mobile session registry; currently enrolled trusted devices retain their
 existing platform coverage.
+
+`POST /api/account/phone/recovery/continuations` accepts the selected `recover`,
+`delete` or `revoke` action and normalized phone. Its response is deliberately
+indistinguishable for absent and occupied bindings. `GET` of the opaque ID returns
+`awaiting_previous_sign_in`, `ready`, `expired` or `stale`; only `ready` includes
+the action and masked own-account hint. Neither endpoint transfers ownership,
+deletes an account, enumerates another person's devices or creates an owner token.
+An optional `continuation_id` on the existing account-deletion contracts is
+revalidated against current binding revision and account generation before erasure.
+
+Own-device revocation prepares a five-minute operation through
+`POST /api/account/trusted-devices/{device_id}/revoke/prepare`. It requires an
+independent Google/Apple session and an existing verified own-phone binding.
+Confirmation through the matching `/revoke/confirm` endpoint, or the existing
+`DELETE /api/account/trusted-devices/{device_id}`, requires the operation ID,
+literal `confirmed: true`, and exactly one fresh `phone_id_token` or configured
+own-fixture `test_code`. The configured fixture code is read through the existing
+server test transport; no code is hardcoded or turned into cross-owner authority.
+Real proof must follow preparation, satisfy the existing five-minute authentication
+age, match the stored number and pass provider fictional-number checks. Preparation
+returns server-computed `proof_wait_ms` (0–1000); clients wait before requesting
+SMS so second-granular Firebase `auth_time` cannot predate preparation. A unique
+stable proof-event digest prevents replay across device operations.
+`GET /api/account/trusted-devices/revocations/{operation_id}` reads progress and
+may settle already-revoked cleanup; it never repeats primary revocation.
+Prepared GET/list reads never cancel another tab's challenge.
+`POST /api/account/trusted-devices/revocations/{operation_id}/cancel` explicitly
+fences a prepared operation before reporting `not_started`.
+Unknown dispatches remain visible and require status reconciliation or support.
+A completed hub receipt is separate from signed pod-delivery completion.
 
 `POST /api/account/phone/transfer/prepare` requires the current Firebase bearer,
 `expected_user_id` matching the captured application owner and an independent
@@ -5371,5 +5475,5 @@ PostgreSQL concurrency/rollback proof, generated UI/native contracts, hosted CI,
 deployment schema/provider qualification, and physical-device real-SMS journeys.
 Passing an earlier lane does not declare a later lane complete. Release requires
 Identity Platform config-read permission, permitted identity mutation authority,
-qualified migration 425, existing alert delivery and real Web/iOS/Android SMS,
+qualified migrations 425 and 428, existing alert delivery and real Web/iOS/Android SMS,
 resend, account-switch, outage and device-revocation rehearsals.

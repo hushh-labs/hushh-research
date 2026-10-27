@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve retained hosted-copy maintenance without enabling legacy Drive.
-
-Only bounded, non-secret booleans leave this process. Storage is maintained
-with intake off because paid copies and erasure obligations can outlive it.
-"""
+"""Resolve retained hosted-copy maintenance and preserve issued readers."""
 
 from __future__ import annotations
 
@@ -19,10 +15,12 @@ from pathlib import Path
 from runpy import run_path
 
 ROOT = Path(__file__).resolve().parents[2]
-READER_FILES = (
-    "consent-protocol/api/routes/document_delivery.py",
-    "hushh-webapp/app/one/documents/open/page.tsx",
-)
+_READERS = run_path(str(ROOT / "deploy/drive/document_reader_compatibility.py"))
+READER_FILES = _READERS["READER_FILES"]
+BACKGROUND_READER_FILES = _READERS["BACKGROUND_READER_FILES"]
+BACKGROUND_READER_ANCESTOR = _READERS["BACKGROUND_READER_ANCESTOR"]
+reader_supported = _READERS["reader_supported"]
+inventory_empty = _READERS["inventory_empty"]
 SERVICES = ("consent-protocol", "hushh-webapp", "consent-protocol-drive-worker")
 LANES = {
     "hushh-pda": ("production", "hushh-pda:us-central1:hushh-vault-db", "hushh_vault"),
@@ -30,26 +28,18 @@ LANES = {
 }
 
 
-def reader_supported(sha: str, ancestor: str) -> bool:
-    if not all(
-        isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value)
-        for value in (sha, ancestor)
-    ):
-        return False
-    commands = [
-        ["git", "merge-base", "--is-ancestor", ancestor, sha],
-        *(["git", "cat-file", "-e", f"{sha}:{path}"] for path in READER_FILES),
-    ]
-    return all(
-        subprocess.run(command, capture_output=True, check=False).returncode == 0  # noqa: S603 -- Fixed git operations, validated SHA arguments, no shell.
-        for command in commands
-    )
+def background_reader_supported(sha: str) -> bool:
+    return reader_supported(
+        sha,
+        BACKGROUND_READER_ANCESTOR,
+        required_files=READER_FILES + BACKGROUND_READER_FILES,
+    ) is True
 
 
 def _cloud(*args: str) -> str:
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 -- Fixed cloud operations and allowlisted environment resources; no shell.
         ["gcloud", *args], capture_output=True, text=True, check=False
-    )  # noqa: S603 -- Fixed cloud operations and allowlisted environment resources; no shell.
+    )
     if result.returncode:
         raise ValueError("Hosted document release evidence could not be verified")
     return result.stdout
@@ -151,30 +141,7 @@ def _serving_intake_off(project: str, backend: dict | None, ancestor: str) -> bo
     )
 
 
-def inventory_empty(connection, *, schema: str = "public") -> bool:
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema):
-        raise ValueError("Invalid document inventory schema")
-    from psycopg2 import sql
-
-    with connection.cursor() as cursor:
-        for table in (
-            "document_delivery_contracts",
-            "document_delivery_financial_bindings",
-            "document_delivery_cleanup",
-        ):
-            cursor.execute("SELECT to_regclass(%s)", (schema + "." + table,))
-            if cursor.fetchone()[0] is not None:
-                cursor.execute(
-                    sql.SQL("SELECT EXISTS(SELECT 1 FROM {}.{})").format(
-                        sql.Identifier(schema), sql.Identifier(table)
-                    )
-                )
-                if cursor.fetchone()[0] is True:
-                    return False
-    return True
-
-
-def _database_empty(project: str) -> bool:
+def _database_empty(project: str, *, background_only: bool = False) -> bool:
     """Authoritative read-only bootstrap proof in an owned, bounded SQL proxy."""
     import psycopg2
 
@@ -213,9 +180,7 @@ def _database_empty(project: str) -> bool:
                     if probe.connect_ex(("127.0.0.1", port)) == 0:
                         break
                 if proxy.poll() is not None or time.monotonic() >= deadline:
-                    raise ValueError(
-                        "Hosted document bootstrap database proof is unavailable"
-                    )
+                    raise ValueError("Hosted document bootstrap database proof is unavailable")
                 time.sleep(0.1)
             with closing(
                 psycopg2.connect(
@@ -228,7 +193,7 @@ def _database_empty(project: str) -> bool:
                 )
             ) as connection:
                 connection.set_session(readonly=True, autocommit=True)
-                return inventory_empty(connection)
+                return inventory_empty(connection, background_only=background_only) is True
         finally:
             stop()
             try:
@@ -236,6 +201,25 @@ def _database_empty(project: str) -> bool:
             except subprocess.TimeoutExpired:
                 stop(force=True)
                 proxy.wait(timeout=5)
+
+
+def _assert_background_downgrade_safe(project: str, backend: dict | None) -> None:
+    # V2 consent/worker admission is not controlled by the v1 intake flag. Only
+    # an absent or known pre-v2 API plus a fresh empty inventory proves safety.
+    if backend is not None:
+        sha = (backend.get("metadata") or {}).get("labels", {}).get("deploy-sha", "")
+        if (
+            not _known_source(sha)
+            or subprocess.run(  # noqa: S603 -- Fixed Git read, validated SHA, no shell.
+                ["git", "cat-file", "-e", f"{sha}:{BACKGROUND_READER_FILES[0]}"],
+                capture_output=True,
+                check=False,
+            ).returncode
+            == 0
+        ):
+            raise ValueError("Background document writers require forward recovery")
+    if not _database_empty(project, background_only=True):
+        raise ValueError("Rollback would remove issued background document readers")
 
 
 def verify_readers(mode: dict, *, project: str, target: str, ancestor: str) -> dict:
@@ -248,10 +232,10 @@ def verify_readers(mode: dict, *, project: str, target: str, ancestor: str) -> d
             "bootstrapEmpty": False,
         }
     if not reader_supported(target, ancestor):
-        raise ValueError(
-            "Configured hosted storage requires a reader-capable target source"
-        )
+        raise ValueError("Configured hosted storage requires a reader-capable target source")
     previous, backend = _previous_sources(project)
+    if not background_reader_supported(target):
+        _assert_background_downgrade_safe(project, backend)
     for value in previous.values():
         value["readerCompatible"] = reader_supported(value["sha"], ancestor)
     compatible = all(value["readerCompatible"] for value in previous.values())
@@ -263,9 +247,7 @@ def verify_readers(mode: dict, *, project: str, target: str, ancestor: str) -> d
             and _database_empty(project)
         )
         if not bootstrap:
-            raise ValueError(
-                "A reader-capable rollback baseline is required before hosted intake"
-            )
+            raise ValueError("A reader-capable rollback baseline is required before hosted intake")
     return {
         **mode,
         "project": project,
@@ -288,14 +270,12 @@ def assert_rollback(report: dict, *, project: str, service: str, revision: str) 
         or previous.get("revision") != revision
     ):
         raise ValueError("Hosted document rollback is outside the verified baseline")
-    supported = reader_supported(
-        previous.get("sha", ""), report.get("readerAncestor", "")
-    )
+    supported = reader_supported(previous.get("sha", ""), report.get("readerAncestor", ""))
+    if not background_reader_supported(previous.get("sha", "")):
+        _, current_backend = _previous_sources(project)
+        _assert_background_downgrade_safe(project, current_backend)
     if not supported:
-        if (
-            report.get("enabled") is not False
-            or report.get("bootstrapEmpty") is not True
-        ):
+        if report.get("enabled") is not False or report.get("bootstrapEmpty") is not True:
             raise ValueError("Hosted document rollback would remove issued readers")
         # Recheck immediately before the existing traffic mutator. A stale
         # empty-bootstrap receipt cannot authorize erasing newly issued access.
@@ -306,9 +286,7 @@ def assert_rollback(report: dict, *, project: str, service: str, revision: str) 
             raise ValueError("Hosted document bootstrap rollback is no longer empty")
 
 
-def assert_manual_rollback(
-    *, project: str, service: str, revision: str, ancestor: str
-) -> None:
+def assert_manual_rollback(*, project: str, service: str, revision: str, ancestor: str) -> None:
     if (
         project not in LANES
         or service not in SERVICES
@@ -335,21 +313,40 @@ def assert_manual_rollback(
         raise ValueError("Manual document rollback revision belongs to another service")
     source = _revision_source(target)
     if reader_supported(source["sha"], ancestor):
+        if not background_reader_supported(source["sha"]):
+            _, backend = _previous_sources(project)
+            _assert_background_downgrade_safe(project, backend)
         return
     if not _known_source(source["sha"]):
         raise ValueError("Manual rollback target source is unavailable")
-    if service == "consent-protocol" and not _serving_intake_off(
-        project, target, ancestor
-    ):
+    if service == "consent-protocol" and not _serving_intake_off(project, target, ancestor):
         raise ValueError("Non-reader rollback target can issue document copies")
     _, backend = _previous_sources(project)
-    if not _serving_intake_off(project, backend, ancestor) or not _database_empty(
-        project
-    ):
+    if not _serving_intake_off(project, backend, ancestor) or not _database_empty(project):
         raise ValueError("Manual rollback would remove issued document readers")
+    _assert_background_downgrade_safe(project, backend)
 
 
 def _rollback_command(args, parser) -> bool:
+    if args.rebind_backend_report:
+        if not args.rollback_report or args.service or args.revision:
+            parser.error("Backend rebinding requires only the existing rollback report")
+        try:
+            run_path(str(ROOT / "deploy/drive/rebind_protected_document_backend.py"))[
+                "rebind_backend"
+            ](
+                args.rollback_report,
+                args.rebind_backend_report,
+                project=args.project,
+                ancestor=args.required_ancestor,
+                cloud=_cloud,
+                revision_source=_revision_source,
+                reader_supported=reader_supported,
+            )
+        except Exception:
+            parser.exit(1, "Hosted document backend rebinding was not proved\n")
+        print("Hosted document backend rollback binding verified")
+        return True
     if not args.manual_rollback and not args.rollback_report:
         return False
     try:
@@ -405,10 +402,12 @@ def main() -> int:
     parser.add_argument("--target-sha", default="")
     parser.add_argument("--required-ancestor", default="")
     parser.add_argument("--verify-previous", action="store_true")
+    parser.add_argument("--production-restoration", action="store_true")
     parser.add_argument("--json-output", type=Path)
     rollback = parser.add_mutually_exclusive_group()
     rollback.add_argument("--rollback-report", type=Path)
     rollback.add_argument("--manual-rollback", action="store_true")
+    parser.add_argument("--rebind-backend-report", type=Path)
     parser.add_argument("--service", choices=SERVICES)
     parser.add_argument("--revision", default="")
     args = parser.parse_args()
@@ -416,30 +415,34 @@ def main() -> int:
         parser.error("Hosted document release project/environment does not match")
     if _rollback_command(args, parser):
         return 0
-    result = subprocess.run(  # noqa: S603 -- Fixed secret resource; project is an argparse allowlist, no shell or payload arguments.
-        [
-            "gcloud",
-            "secrets",
-            "versions",
-            "access",
-            "latest",
-            "--secret=BACKEND_RUNTIME_CONFIG_JSON",
-            f"--project={args.project}",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        parser.exit(1, "Hosted document runtime policy could not be verified\n")
     try:
+        runtime = json.loads(
+            _cloud(
+                "secrets",
+                "versions",
+                "access",
+                "latest",
+                "--secret=BACKEND_RUNTIME_CONFIG_JSON",
+                f"--project={args.project}",
+            )
+        )
         mode = resolve(
-            json.loads(result.stdout),
+            runtime,
             project=args.project,
             environment=args.environment,
         )
+        if args.production_restoration:
+            mode = run_path(
+                str(ROOT / "deploy/drive/rebind_protected_document_backend.py")
+            )["restoration_mode"](
+                mode,
+                project=args.project,
+                target=args.target_sha,
+                verify_previous=args.verify_previous,
+            )
         if (
-            mode["configured"]
+            not args.production_restoration
+            and mode["configured"]
             and args.target_sha
             and not reader_supported(args.target_sha, args.required_ancestor)
         ):

@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useState, type ReactNode, type RefObject } from "react";
+import { useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
-import { DocumentHostingService, type HostingReadiness } from "@/lib/services/document-hosting-service";
-import { useHostedDocumentSession } from "./use-hosted-document-session";
 import { validDocumentRequestPeriod } from "@/lib/services/drive-sharing-service";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { Button } from "@/lib/morphy-ux/button";
@@ -30,7 +28,7 @@ export { useFileRequest } from "./use-file-request";
 export { useRecipientIdentityPreview, RecipientIdentityNotice } from "./recipient-identity-preview";
 export type { RecipientIdentityPreview } from "./recipient-identity-preview";
 
-/** Asks a connection for exact files through the selected, separately approved delivery method. */
+/** One existing Drive request also asks for a separately owner-approved background copy. */
 export function RequestFilesButton({
   userId,
   personRef,
@@ -65,25 +63,10 @@ export function RequestFilesButton({
   const [accessDays, setAccessDays] = useState(30);
   const [requesterActorType, setRequesterActorType] = useState<"person" | "ria">("person");
   const [reason, setReason] = useState("");
-  const [receiveThrough, setReceiveThrough] = useState<"drive" | "one" | "both">("drive");
-  const [activityAccepted, setActivityAccepted] = useState(false);
-  const [hosting, setHosting] = useState<HostingReadiness | null>(null);
-  const hostingSession = useHostedDocumentSession();
-  useEffect(() => {
-    if (!open || !hostingSession) return;
-    const controller = new AbortController();
-    void DocumentHostingService.readiness(hostingSession, controller.signal).then(value => {
-      if (hostingSession.isCurrent() && !controller.signal.aborted) {
-        setHosting(value.enabled ? value : null);
-        if (value.enabled && !driveAllowed) setReceiveThrough(current => current === "drive" ? "one" : current);
-      }
-    }).catch(() => { if (!controller.signal.aborted) setHosting(null); });
-    return () => controller.abort();
-  }, [open, hostingSession, driveAllowed]);
   const [created, setCreated] = useState<{ requestId: string; purpose: string; start: string; end: string } | null>(null);
-  const allowedForMode = canRequest && (receiveThrough === "drive" ? driveAllowed : Boolean(hosting));
-  const quote = useDocumentRequestQuote({ active: receiveThrough === "drive" && open && !created && canRequest && driveAllowed, ownerPersonRef: personRef, getToken });
-  const identity = useRecipientIdentityPreview({ active: receiveThrough !== "one" && open && !created && allowedForMode, userId, getToken });
+  const allowedForMode = canRequest && driveAllowed;
+  const quote = useDocumentRequestQuote({ active: open && !created && canRequest && driveAllowed, ownerPersonRef: personRef, getToken });
+  const identity = useRecipientIdentityPreview({ active: open && !created && allowedForMode, userId, getToken });
   const request = useFileRequest({
     canRequest: allowedForMode,
     userId,
@@ -94,8 +77,12 @@ export function RequestFilesButton({
     onIdentityLinked: identity.refresh,
   });
   const terms = { purpose, periodStart: start || null, periodEnd: end || null,
-    ...(receiveThrough === "drive" ? {} : { receiveThrough, activityAccepted, activityDisclosureVersion: hosting?.activityDisclosureVersion, accessDays }),
-    ...(agentPackagesEnabled ? { accessDays, requesterActorType, reason } : {}) };
+    oneCopyRequested: true, activityAccepted: true, activityDisclosureVersion: "one-document-activity-v1",
+    ...(agentPackagesEnabled ? {
+      accessDays,
+      requesterActorType,
+      ...(requesterActorType === "ria" ? { reason } : {}),
+    } : {}) };
   const valid = validFileRequest(terms);
   const busy = request.phase !== "idle";
   const close = () => {
@@ -114,7 +101,7 @@ export function RequestFilesButton({
     setAccessDays(30);
     setRequesterActorType("person");
     setReason("");
-    setReceiveThrough("drive"); setActivityAccepted(false);
+
   };
   return (
     <>
@@ -198,22 +185,9 @@ export function RequestFilesButton({
               }}
             >
               <IllustratedRequestBody>
-              {!canRequest || (receiveThrough === "drive" && !driveAllowed) ? availabilityNotice : null}
-              {hosting ? <div className="space-y-3">
-                <Label htmlFor="document-receive-through" data-consent-role="form-label">Receive through</Label>
-                <select id="document-receive-through" data-voice-control-id="document-hosting-receive-through" data-consent-input="true" value={receiveThrough}
-                  onChange={event => { setReceiveThrough(event.target.value as "drive" | "one" | "both"); setActivityAccepted(false); }} disabled={busy}
-                  className="min-h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
-                  <option value="drive" disabled={!driveAllowed}>Google Drive</option><option value="one">Secure One link</option><option value="both">Both</option>
-                </select>
-                {receiveThrough !== "drive" ? <>
-                  <HelperText>Read PDF copies inside One and choose Download when you want to save them. Your request does not authorize access to the owner's files.</HelperText>
-                  <label className="flex min-h-11 items-start gap-3 text-sm"><input type="checkbox" checked={activityAccepted} disabled={busy} onChange={event => setActivityAccepted(event.target.checked)} className="mt-1" />
-                    <span>I accept that the owner can see access activity and approximate network country when available. Activity is retained for up to 90 days; downloaded copies cannot be recalled.</span>
-                  </label>
-                </> : null}
-              </div> : null}
-              <div className="space-y-2">
+              {!canRequest || (!driveAllowed) ? availabilityNotice : null}
+
+              <div className="space-y-[var(--app-form-field-gap)]">
                 <Label htmlFor="document-request-purpose" data-consent-role="form-label">
                   Which files do you need?
                 </Label>
@@ -228,7 +202,7 @@ export function RequestFilesButton({
                 />
               </div>
               {agentPackagesEnabled && <>
-                <div className="space-y-2">
+                <div className="space-y-[var(--app-form-field-gap)]">
                   <Label htmlFor="document-request-role" data-consent-role="form-label">Requesting as</Label>
                   <select id="document-request-role" data-consent-input="true" value={requesterActorType}
                     onChange={event => setRequesterActorType(event.target.value as "person" | "ria")}
@@ -238,13 +212,13 @@ export function RequestFilesButton({
                     <option value="ria">Verified RIA</option>
                   </select>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="document-request-reason" data-consent-role="form-label">Reason{requesterActorType === "ria" ? "" : " (optional)"}</Label>
+                {requesterActorType === "ria" ? <div className="space-y-[var(--app-form-field-gap)]">
+                  <Label htmlFor="document-request-reason" data-consent-role="form-label">Reason</Label>
                   <Textarea id="document-request-reason" data-consent-input="true" value={reason}
                     onChange={event => setReason(event.target.value)} maxLength={500}
-                    required={requesterActorType === "ria"} disabled={busy}
+                    required disabled={busy}
                     placeholder="Why do you need these documents?" />
-                </div>
+                </div> : null}
               </>}
               <fieldset className="min-w-0" disabled={busy} aria-describedby="document-period-help">
                 <legend data-consent-role="form-label" className="mb-2">Dates covered</legend>
@@ -278,7 +252,7 @@ export function RequestFilesButton({
                   </div>
                 </div>
               </fieldset>
-              {agentPackagesEnabled && <div className="space-y-2">
+              {agentPackagesEnabled && <div className="space-y-[var(--app-form-field-gap)]">
                 <Label htmlFor="document-access-days" data-consent-role="form-label">Access period</Label>
                 <select id="document-access-days" data-consent-input="true" value={accessDays}
                   onChange={event => setAccessDays(Number(event.target.value))}
@@ -302,17 +276,18 @@ export function RequestFilesButton({
                   {request.error}
                 </HelperText>
               ) : null}
-              {receiveThrough !== "one" ? <RecipientIdentityNotice preview={identity} /> : null}
-              {receiveThrough === "drive" ? <DocumentRequestQuoteNotice quote={quote.quote} loading={quote.loading}
-                error={quote.error} onRetry={quote.refresh} personName={personName} /> : <HelperText>The owner chooses the exact files, final price and access deadline. You review the approved terms before paying.</HelperText>}
+              <RecipientIdentityNotice preview={identity} />
+              <DocumentRequestQuoteNotice quote={quote.quote} loading={quote.loading}
+                error={quote.error} onRetry={quote.refresh} personName={personName} />
+              <HelperText>Request Drive originals and a One copy when available. Sending accepts owner-visible access activity. Saved files can’t be recalled.</HelperText>
               </IllustratedRequestBody>
               <IllustratedRequestActions>
               <FlowActionGroup
                 primary={
-                  <Button data-consent-role="primary-action" type="submit" size="prominent" disabled={!allowedForMode || !valid || (receiveThrough === "drive" && !quote.quote) || busy}>
+                  <Button data-consent-role="primary-action" type="submit" size="prominent" disabled={!allowedForMode || !valid || (!quote.quote) || busy}>
                     {request.phase !== "idle"
                       ? "Sending…"
-                      : receiveThrough !== "one" && request.needsGoogle
+                      : request.needsGoogle
                         ? "Add Google account"
                         : "Send request"}
                   </Button>

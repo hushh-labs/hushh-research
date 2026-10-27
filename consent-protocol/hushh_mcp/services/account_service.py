@@ -15,6 +15,7 @@ from sqlalchemy import text
 
 from db.db_client import get_db, get_db_connection
 from hushh_mcp.consent.audit_logger import get_trace_id
+from hushh_mcp.services import account_choice_erasure as choices
 from hushh_mcp.services.account_answer_erasure import guard_answer_erasure
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
@@ -154,9 +155,7 @@ class AccountService:
             "google_service_grants": text(
                 "DELETE FROM google_service_grants WHERE user_id = :user_id"
             ),
-            "one_marketing_preferences": text(
-                "DELETE FROM one_marketing_preferences WHERE user_id = :user_id"
-            ),
+            **choices.CHOICE_ERASURE_QUERIES,
             "pwm_research_preferences": text(
                 "DELETE FROM pwm_research_preferences WHERE user_id = :user_id"
             ),
@@ -2187,7 +2186,7 @@ class AccountService:
             "one_product_activity_observations": False,
             "one_product_value_receipts": False,
             "one_product_activity_epochs": False,
-            "one_marketing_preferences": False,
+            **dict.fromkeys(choices.CHOICE_ERASURE_TABLES, False),
             "one_referral_relationships": False,
             "one_referral_attributions": False,
             "one_referral_codes": False,
@@ -2332,7 +2331,7 @@ class AccountService:
                         "one_product_activity_observations",
                         "one_product_value_receipts",
                         "one_product_activity_epochs",
-                        "one_marketing_preferences",
+                        *choices.CHOICE_ERASURE_TABLES,
                         # Remove challenge bindings before their enrollment lookup.
                         "email_auth_challenges",
                         "email_auth_enrollments",

@@ -122,6 +122,13 @@ def _phone_test_challenge_key() -> str:
     )
 
 
+def phone_test_transport_readiness() -> str | None:
+    """Advisory configuration availability; never issues or verifies a challenge."""
+    if _runtime_environment() not in {"uat", "production"}:
+        return None
+    return "healthy" if _phone_test_enabled() and _phone_test_challenge_key() else "unavailable"
+
+
 def _create_uat_phone_test_verification_id(phone_number: str) -> str:
     digest = hmac.new(
         _phone_test_challenge_key().encode("utf-8"),

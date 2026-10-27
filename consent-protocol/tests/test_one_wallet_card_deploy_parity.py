@@ -29,8 +29,13 @@ name agreement cannot silently drift afterwards.
 
 from __future__ import annotations
 
+import importlib.util
+import json
+import os
 import re
 import subprocess
+import sys
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 import pytest
@@ -182,28 +187,31 @@ def test_uat_card_sharing_substitution_preserves_historical_deploys(
 @pytest.mark.parametrize(
     "packed,expected",
     [
-        ("review=,wallet=true,card_access=false", "|true|false"),
-        ("review=false,wallet=,card_access=true", "false||true"),
-        ("review=true,wallet=false,card_access=", "true|false|"),
+        ("review=,wallet=true,card_access=false,phone_recovery=false", "|true|false|false"),
+        ("review=false,wallet=,card_access=true,phone_recovery=true", "false||true|true"),
+        ("review=true,wallet=false,card_access=,phone_recovery=false", "true|false||false"),
+        ("review=,wallet=true,card_access=false,phone_recovery=", None),
+        ("review=,wallet=true,card_access=false,phone_recovery=invalid", None),
         ("review=,wallet=true,card_access=invalid", None),
         ("review=,wallet=true,wallet=false", None),
         ("review=,wallet=true,unknown=false", None),
+        ("review=,wallet=true,card_access=false,generation_admission=false", None),
+        (
+            "review=,wallet=true,card_access=false,phone_recovery=false,generation_admission=false",
+            "|true|false|false",
+        ),
         ("review=,wallet=true", None),
     ],
 )
 def test_application_flags_preserve_values_and_refuse_malformed_packing(packed, expected):
-    script = _read(REPO_ROOT / "scripts/deploy/backend-deploy.sh")
-    parser = script[
-        script.index("IFS=',' read -r -a _app_surface_pairs") : script.index(
-            "# The account-deletion cleanup scheduler identity"
-        )
-    ]
+    parser = _read(REPO_ROOT / "scripts/deploy/backend-phone-rollback.sh") + "\n"
+    parser += _read(REPO_ROOT / "scripts/deploy/backend-app-surface-settings.sh")
     result = subprocess.run(  # noqa: S603 - Repository parser, no cloud operations.
         [
             "bash",
             "-euc",
             parser
-            + '\nprintf "%s|%s|%s" "${_APP_REVIEW_MODE}" "${_ONE_WALLET_CARD_ENABLED}" "${_WALLET_CARD_ACCESS_ENABLED}"',
+            + '\nprintf "%s|%s|%s|%s" "${_APP_REVIEW_MODE}" "${_ONE_WALLET_CARD_ENABLED}" "${_WALLET_CARD_ACCESS_ENABLED}" "${_AUTH_PHONE_RECOVERY_ENABLED}"',
         ],
         env={"_APP_SURFACE_SETTINGS": packed},
         capture_output=True,
@@ -216,3 +224,160 @@ def test_application_flags_preserve_values_and_refuse_malformed_packing(packed, 
     else:
         assert result.returncode == 0, result.stderr
         assert result.stdout == expected
+
+
+@pytest.fixture
+def phone_image_qualifier():
+    spec = importlib.util.spec_from_file_location(
+        "phone_image_qualifier", REPO_ROOT / "deploy/phone/qualify_image.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.feature_auth_reliability
+def test_phone_image_run_preserves_bounded_binary_input(phone_image_qualifier):
+    payload = b"synthetic-image-evidence\x00\xff"
+    assert (
+        phone_image_qualifier.run(
+            [sys.executable, "-c", "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"],
+            data=payload,
+            timeout=5,
+        )
+        == payload
+    )
+
+
+@pytest.mark.feature_auth_reliability
+@pytest.mark.parametrize("mode", ["overflow", "timeout"])
+def test_phone_image_run_bounds_output_and_releases_owned_processes(
+    phone_image_qualifier, monkeypatch, tmp_path, mode
+):
+    canonical_group = phone_image_qualifier.run_path(
+        str(REPO_ROOT / "scripts/ci/process_group.py")
+    )["command_group"]
+    owned = []
+
+    @contextmanager
+    def track_group(command, **kwargs):
+        with canonical_group(command, **kwargs) as pair:
+            owned.append(pair)
+            yield pair
+
+    monkeypatch.setattr(
+        phone_image_qualifier, "run_path", lambda _path: {"command_group": track_group}
+    )
+    child_pid = tmp_path / "child.pid"
+    program = """
+import pathlib, signal, subprocess, sys, time
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+def stop(_signum, _frame):
+    child.terminate()
+    child.wait(timeout=2)
+    raise SystemExit(0)
+signal.signal(signal.SIGTERM, stop)
+pathlib.Path(sys.argv[1]).write_text(str(child.pid))
+if sys.argv[2] == 'overflow':
+    sys.stdout.buffer.write(b'x' * (1024 * 1024 + 1))
+    sys.stdout.buffer.flush()
+time.sleep(30)
+"""
+    failure = ValueError if mode == "overflow" else subprocess.TimeoutExpired
+    try:
+        with pytest.raises(failure) as error:
+            phone_image_qualifier.run(
+                [sys.executable, "-c", program, str(child_pid), mode], timeout=1
+            )
+        if mode == "overflow":
+            assert str(error.value) == "phone_image_evidence_exceeds_bound"
+        assert len(owned) == 1
+        process, _stop = owned[0]
+        assert process.poll() is not None
+        assert process.stdout.closed
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(child_pid.read_text()), 0)
+    finally:
+        for process, stop in owned:
+            stop(force=True)
+            process.wait(timeout=5)
+            process.stdout.close()
+
+
+@pytest.mark.feature_auth_reliability
+@pytest.mark.parametrize(
+    "cleanup,error_type",
+    [
+        ("already_absent", None),
+        ("removed", None),
+        ("inventory_unavailable", subprocess.CalledProcessError),
+        ("remove_refused", subprocess.CalledProcessError),
+        ("survives", ValueError),
+    ],
+)
+def test_phone_image_probe_requires_proven_container_absence(
+    phone_image_qualifier, monkeypatch, cleanup, error_type
+):
+    commands = []
+    present = cleanup != "already_absent"
+    container_name = None
+    verdict = {
+        "schema_version": 1,
+        "phone_reader": phone_image_qualifier.EXPECTED,
+        "probe_generation_admission": False,
+    }
+
+    def container_port(command, *, data=None, timeout=120):
+        nonlocal present, container_name
+        commands.append(command)
+        if command[:2] == ["docker", "run"]:
+            container_name = command[command.index("--name") + 1]
+            assert not any("ACCOUNT_GENERATION_ADMISSION_ENABLED" in value for value in command)
+            assert data == (REPO_ROOT / "deploy/phone/reader_probe.py").read_bytes()
+            return json.dumps(verdict).encode()
+        if command[:3] == ["docker", "container", "ls"]:
+            assert f"name=^/{container_name}$" in command
+            if cleanup == "inventory_unavailable":
+                raise subprocess.CalledProcessError(1, command)
+            return b"synthetic-container\n" if present else b""
+        assert command == ["docker", "rm", "--force", container_name]
+        if cleanup == "remove_refused":
+            raise subprocess.CalledProcessError(1, command)
+        present = cleanup == "survives"
+        return b""
+
+    monkeypatch.setattr(phone_image_qualifier, "run", container_port)
+    with pytest.raises(error_type) if error_type is not None else nullcontext():
+        assert phone_image_qualifier.probe("synthetic-image") == verdict
+    if cleanup in {"removed", "remove_refused", "survives"}:
+        assert [command[1] for command in commands] == ["run", "container", "rm"] + (
+            [] if cleanup == "remove_refused" else ["container"]
+        )
+    if cleanup == "survives":
+        assert present is True
+
+
+@pytest.mark.feature_auth_reliability
+def test_phone_image_probe_timeout_still_proves_cleanup(phone_image_qualifier, monkeypatch):
+    commands = []
+    present = True
+    original = None
+
+    def container_port(command, *, data=None, timeout=120):
+        nonlocal present, original
+        commands.append(command)
+        if command[:2] == ["docker", "run"]:
+            original = subprocess.TimeoutExpired(command, timeout)
+            raise original
+        if command[:3] == ["docker", "container", "ls"]:
+            return b"synthetic-container\n" if present else b""
+        assert command[:3] == ["docker", "rm", "--force"]
+        present = False
+        return b""
+
+    monkeypatch.setattr(phone_image_qualifier, "run", container_port)
+    with pytest.raises(subprocess.TimeoutExpired) as error:
+        phone_image_qualifier.probe("synthetic-image")
+    assert error.value is original
+    assert present is False
+    assert [command[1] for command in commands] == ["run", "container", "rm", "container"]

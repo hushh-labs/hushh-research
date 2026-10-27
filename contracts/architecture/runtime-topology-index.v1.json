@@ -772,12 +772,14 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "account_phone_transfers"
+        "account_phone_transfers",
+        "account_phone_recovery_continuations",
+        "account_device_actions"
       ],
       "id": "account_phone_transfer_workflow",
       "lifecycle_status": "release_schema_qualification",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Phone transfer prepare/confirm through the existing identity writer and generation-bound Firebase mutation journal."
+      "primary_access_path": "Phone transfer prepare/confirm through the existing identity writer; opaque recovery continuations and single-use own-device action admission with independent owner authentication."
     },
     {
       "data_class": "personal_metadata",
@@ -1030,7 +1032,7 @@
       "id": "drive_continuous_document_evidence",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing. A separate vault-owner scalar receipt read permits public-summary withdrawal even when OAuth or background processing is off. Authenticated public-profile viewers, including non-connections, receive only owner-published scalar summaries; private purchase routes retain current connection and approval checks. Worker writes use generation, source-version and lease fences. Financial preparations use a versioned predefined query and independently organize saved candidates with the unchanged local bounded-head classifier, without enabling whole-Drive indexing."
+      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing. A separate vault-owner scalar receipt read permits public-summary withdrawal even when OAuth or background processing is off. Authenticated public-profile viewers, including non-connections, receive only scalar financial summaries allowed by the default-ON owner visibility preference; private purchase routes retain current connection and approval checks. Worker writes use generation, source-version and lease fences. Financial preparations use a versioned predefined query and independently organize saved candidates with the unchanged local bounded-head classifier, without enabling whole-Drive indexing. Migration 429 adds only the head sale_finalization_revision scalar: the existing owner/generation-fenced packet worker may attempt an empty-sale finalization once per saved discovery revision, preserving prior immutable versions and request pins."
     },
     {
       "data_class": "personal_encrypted",
@@ -1061,7 +1063,7 @@
       "id": "drive_live_preparation_preferences",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Vault Owner turns background live Drive preparation on or off separately from the live OAuth grant. The suggestion worker checks the current consent and generation before each read and publication."
+      "primary_access_path": "Vault Owner independently controls background live Drive preparation and owner-level scalar financial summary visibility. Workers check background authority before reads; authenticated public-profile discovery checks the current financial_summary_enabled choice under the owner graph lock. The scalar policy defaults ON and preserves explicit OFF across reconnect and new periods."
     },
     {
       "data_class": "personal_encrypted",
@@ -1518,6 +1520,17 @@
       "primary_access_path": "model preference service, read on every agent chat turn and written from Agent chat or /api/one/models/preference"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_area_discovery_preferences",
+        "one_area_discovery_search_budgets"
+      ],
+      "id": "one_area_discovery",
+      "lifecycle_status": "customer0",
+      "owner": "backend-api-contracts",
+      "primary_access_path": "Firebase-owner GET/PUT /api/one/area-discovery/me and bounded authenticated POST /api/one/area-discovery/search. Postgres indexed ZIP+UID scan, no positive result cache; per-account revision CAS and atomic daily search budget. Redis may replace budget storage only with equivalent atomic limits."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "one_attention_ledger"
@@ -1971,12 +1984,14 @@
       "data_class": "personal_encrypted",
       "exact_tables": [
         "document_delivery_packages",
-        "document_delivery_artifacts"
+        "document_delivery_artifacts",
+        "document_delivery_background_files",
+        "document_delivery_background_chunks"
       ],
       "id": "protected_document_delivery_artifacts",
       "lifecycle_status": "current",
       "owner": "security-audit",
-      "primary_access_path": "A device prepares PDF originals and watermark derivatives locally, then uploads bounded ciphertext through the qualified private GCS port. SQL binds immutable content generations, ciphertext hashes/object generations, encrypted metadata manifests and recipient/owner recovery wraps. B reads only through current paid entitlement and decrypts locally."
+      "primary_access_path": "In device-encrypted v1, A prepares PDF originals and watermark derivatives locally, SQL binds immutable content generations and wraps, and B decrypts locally. In server-readable v2, the existing sharing drain fetches the exact confirmed Drive original, verifies frozen provider content identity and complete checksums, then uploads independently authenticated 1 MiB ciphertext chunks through the same qualified private GCS port. Authenticated recipient streaming checks current paid entitlement and fences for every chunk."
     },
     {
       "data_class": "workflow_state",
@@ -1986,12 +2001,14 @@
         "document_delivery_file_receipts",
         "document_delivery_key_challenges",
         "document_delivery_activity",
-        "document_delivery_idempotency"
+        "document_delivery_idempotency",
+        "document_delivery_background_requests",
+        "document_delivery_background_activity"
       ],
       "id": "protected_document_delivery_authority",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Owner/requester-authenticated document-delivery facade under the existing Drive sharing namespace; request-bound copy approval, exact canonical connector-key binding, per-file channel fulfillment, activity and scoped revocation. Historical Drive requests retain their original path."
+      "primary_access_path": "Owner/requester-authenticated document-delivery facade under the existing Drive sharing namespace; explicit request-bound copy approval, per-file fulfillment, activity and scoped revocation. Device-encrypted v1 retains canonical connector-key binding. Additive server-readable v2 attaches to the original Drive request, approval, payment and confirmed recipient grant without a second financial authority. Historical Drive requests retain their original path."
     },
     {
       "data_class": "audit_regulated",
@@ -6441,8 +6458,6 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
-          "people.profile.browse_financial_summaries",
-          "people.profile.browse_packets",
           "people.profile.cancel_connection_request",
           "people.profile.connect",
           "people.profile.manage_consent",
@@ -7144,21 +7159,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "a15ef27401abb851953444fc8fc0d51fdb2d2adddb166f47ce4aa7c4a2d055e6",
+    "action_gateway": "00ac4947aa27ed716ee138f157743066fa0f59af3dc52b225e441ddfa48bd79e",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "ba5ccda8ef76d67e41ad8922705b3fe4cb5ef3eda0a4fbc95c57bbb160822200",
-    "data_plane": "8b7c2ede3d91f5aef6086aab2526782dfe733424239fc1b39e85d556178723b2",
+    "data_plane": "412ceeec089c6e8ef81a0d500b015972e9cb2c181cd5d087a9286a82b126168d",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "0ffc664551a4ceef26722bb9a7947bcd5549e5539b2b7e2c78694e22c347b797",
-    "route_layout": "70797338bdab9648b22a77d38f19f43049bfcf00fd7ebe910778fbe457b2f09f",
-    "surface_map": "fa19132e6b9bf362f41ef35d3e23b15dce12faf0755947dc9ce196bcc078fae3",
+    "route_index": "9f36cb5a752042829d3497d7ed9dcbc97d6f8481dce542b45842871a3d7a7158",
+    "route_layout": "f7645e902d3ab0d1ab9b8a872f083f72c66c3fd0ea68db9e8834fca770c6219d",
+    "surface_map": "d42ffc7635d692d7ba6ed6ba7dbdf6d0a02fbcacb063ee8899cbaeff926eb767",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 307,
+    "actions": 310,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
@@ -7166,6 +7181,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 161,
     "semantic_routes": 17,
-    "table_families": 137
+    "table_families": 138
   }
 }

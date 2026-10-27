@@ -3,6 +3,66 @@
 ## Visual Map
 
 ```mermaid
+flowchart LR
+  Request[B requests files] --> Allow[A allows Drive and One]
+  Allow --> Payment[Existing payment]
+  Payment --> Drive[Google Drive sharing]
+  Drive --> Copy[Backend prepares encrypted copy]
+  Drive --> Original[Open Drive]
+  Copy --> One[Authenticated One preview and download]
+  Revoke[Revoke or disconnect] --> Fence[Stop future One access]
+```
+
+## Current default: background copies
+
+New file requests use the existing Drive request, approval and payment with an
+additive protected One copy. B sends the request with the access-activity notice;
+A's single **Allow** authorizes Drive sharing and server-readable encrypted
+hosting. New combined requests require this Allow even for Trusted connections.
+Historical requests and Drive-only Trusted behavior keep their existing policy.
+
+Azure still authors the Drive query. Newly sealed provider-results policy v3
+uses Google's unique valid file results without another filename, relevance,
+type or date filter. Existing query compilation remains authoritative: when its
+date basis is created/modified, the date range is in the provider query; a
+title-date plan does not acquire an invented Last modified rule. Owner-only
+coverage records whether date pushdown was expressed. Original permission,
+recipient, payment and provider download restrictions remain enforced.
+
+After payment and a confirmed Drive grant, the existing backend drain prepares
+One copies without A's browser remaining open. Uploaded files keep their original
+bytes. Google Docs, Sheets and Slides use labelled PDF, XLSX and PPTX exports
+respectively; their preparation-time snapshot is labelled with an export time.
+Changed sources and failed preparation do not remove the working Drive link or
+create another checkout. Native Google export limits remain explicit provider
+failures. PDF preview uses the existing bounded canvas and a request-reference
+watermark; original downloads remain unchanged. Unsupported previews retain
+Download and Open Drive.
+
+`/one/documents/open?ref=<request-uuid>&delivery=background` is an authenticated
+locator, never a bearer grant or public object URL. Every content read checks
+the original paid entitlement, owner placement and connection generation,
+relationship, explicit access deadline and revocation. Disconnect permanently
+withdraws old copy consent; reconnect does not restore it. Without an explicit
+grant deadline, the copy remains until revoked or erased, matching Drive's
+until-removed grant. Pending-request TTLs are not access deadlines.
+
+One stores only encrypted chunks and encrypted file keys at rest, but its backend
+can read transient source bytes in this mode. This is not zero knowledge. It
+does not use an escrowed vault key. Owner activity distinguishes preview/download
+requests from completed transfers, with server times and participant roles;
+neither proves viewing, saving, screenshots or offline forwarding. Country is
+unknown unless a separately qualified source provides it. Stopping One access
+fences future reads; saved copies cannot be recalled. Drive access has its
+existing separate removal path.
+
+Implementation and storage custody:
+[background document delivery](../../../consent-protocol/docs/reference/document-delivery-background.md).
+The device-encrypted v1 contract below remains supported for existing requests.
+
+## Device-encrypted v1 compatibility
+
+```mermaid
 sequenceDiagram
   participant B as B requester
   participant One as One authority
@@ -29,7 +89,7 @@ sequenceDiagram
   One->>Store: Reconcile and erase exact object generation
 ```
 
-This is the implementation contract for additive browser PDF delivery. Runtime
+This is the v1 implementation contract for device-encrypted browser PDF delivery. Runtime
 admission and deployed evidence remain separate from source availability. One is
 the private agent; A owns the documents and B requests/pays for them. Existing
 Drive-only requests keep their original entrypoints, payment rules and workers.
@@ -42,6 +102,17 @@ selects exact source files, authorizes hosting an encrypted copy, chooses a fini
 deadline/price, and approves the final prepared package. Drive connection and
 Trusted status do not imply this consent. Changed terms require a fresh review
 before payment; an allocated Checkout attempt fences owner preparation changes.
+
+Packet browsing and the optional agent-package request flow have separate
+capabilities. An available packet catalog does not add access-period or actor
+fields to a legacy Drive request. An unchanged retry keeps its request key;
+starting another request creates a separate intent.
+
+The owner starts with file selection. Price, expiry and copy consent appear
+after a supported PDF is selected. Cancelling the picker preserves the draft;
+completing selection refreshes the local source catalog. If device preparation
+fails after approval is acknowledged, retry uses the acknowledged revision.
+Known shared Drive failures retain the existing safe status/code mapping.
 
 The initial source is a selected PDF no larger than 4 MiB. A's browser reads the
 source directly from Google's fixed Drive API after source metadata and download

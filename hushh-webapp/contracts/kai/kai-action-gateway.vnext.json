@@ -22890,226 +22890,6 @@
       }
     },
     {
-      "action_id": "people.profile.browse_packets",
-      "surface_id": "one_person_profile",
-      "label": "Browse available document packets",
-      "aliases": [
-        "show available packets",
-        "browse document packets",
-        "what packets can I request"
-      ],
-      "search_keywords": [
-        "packets",
-        "documents",
-        "coverage",
-        "price",
-        "browse"
-      ],
-      "meaning": "Shows document packet summaries this connected person has allowed you to see. Requesting a packet still requires owner approval before checkout; browsing grants no document access.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/people/[personRef]"
-        ],
-        "screens": [
-          "one_person_profile"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "This person is connected to you."
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_unlocked"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "people.profile.browse_packets"
-      },
-      "control_ids": [
-        "person-profile-browse-packets"
-      ],
-      "state_exposure": [
-        "relationship state"
-      ],
-      "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "The mounted action reports its browser-observed outcome."
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.people.profile.browse_packets",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "people.profile.browse_packets",
-            "label": "Browse available document packets",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "people.profile.browse_financial_summaries",
-      "surface_id": "one_person_profile",
-      "label": "Browse public Financial summaries",
-      "aliases": [
-        "show financial documents",
-        "browse published Financial packets",
-        "show public Financial summaries"
-      ],
-      "search_keywords": [
-        "financial",
-        "documents",
-        "public",
-        "summary",
-        "period"
-      ],
-      "meaning": "Shows Financial packet summaries this person explicitly published to signed-in people. Connect to request; an accepted connection and unlock are required to request files. Browsing and connecting grant no document access. You pay only after owner approval.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/people/[personRef]"
-        ],
-        "screens": [
-          "one_person_profile"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Sign in to browse owner-published Financial summaries."
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "people.profile.browse_financial_summaries"
-      },
-      "control_ids": [
-        "person-profile-browse-financial-summaries"
-      ],
-      "state_exposure": [
-        "owner-published summary availability",
-        "relationship state"
-      ],
-      "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "The mounted action reports its browser-observed outcome."
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.people.profile.browse_financial_summaries",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "people.profile.browse_financial_summaries",
-            "label": "Browse public Financial summaries",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
       "action_id": "people.profile.request_card",
       "surface_id": "one_person_profile",
       "label": "Request cards",
@@ -24211,6 +23991,118 @@
             "type": "action",
             "action_id": "phone_mandate.delete_previous",
             "label": "Delete my previous account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.review_previous_devices",
+      "surface_id": "phone_mandate",
+      "label": "Review previous device access",
+      "aliases": [
+        "review previous device access"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery",
+        "devices"
+      ],
+      "meaning": "Preserve device-review intent through previous-account Google or Apple sign-in. Reviewing devices grants no revocation; each unlink requires fresh own-phone proof and explicit confirmation.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-revoke-previous"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.review_previous_devices",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.review_previous_devices",
+            "label": "Review previous device access",
             "failure_behavior": "stop"
           }
         ],
@@ -31339,107 +31231,6 @@
       }
     },
     {
-      "action_id": "document.hosted.choose_receive_through",
-      "surface_id": "one_document_delivery",
-      "label": "Choose document delivery method",
-      "aliases": [],
-      "search_keywords": [
-        "documents",
-        "delivery method",
-        "Google Drive",
-        "secure One link"
-      ],
-      "meaning": "The requester manually chooses Google Drive, a secure One link, or both in the file request form. This changes only the draft delivery method: it grants no access to owner files, authorizes no hosted copy and submits no request. Secure One delivery also requires the separate activity disclosure; Drive delivery still requires the existing requester identity proof.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/people/[personRef]"
-        ],
-        "screens": [
-          "one_person_profile"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "The file request form is open for an accepted connection, the requester is signed in with an unlocked vault, and hosted delivery readiness is enabled for this request."
-        ],
-        "active_personas": [],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "unwired",
-        "reason": "The requester must choose the delivery method directly in the visible request form; choosing does not grant owner-file authority or hosted-copy consent.",
-        "intended_handler": "RequestFilesButton"
-      },
-      "control_ids": [
-        "document-hosting-receive-through"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /people/[personRef]"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.document.hosted.choose_receive_through",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "document.hosted.choose_receive_through",
-            "label": "Choose document delivery method",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
       "action_id": "document.hosted.open_link",
       "surface_id": "one_document_delivery",
       "label": "Open protected One link",
@@ -31484,7 +31275,8 @@
         "intended_handler": "HostedDocumentPanel"
       },
       "control_ids": [
-        "document-hosting-open-link"
+        "document-hosting-open-link",
+        "document-copy-open-link"
       ],
       "state_exposure": [],
       "docs_references": [
@@ -31719,6 +31511,516 @@
             "type": "action",
             "action_id": "document.hosted.load_activity",
             "label": "Load newer document activity",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.copy.preview",
+      "surface_id": "one_document_delivery",
+      "label": "Preview One copy",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "meaning": "Displays an approved PDF copy in a safe canvas with a visual watermark. Original bytes are unchanged; this does not save a file.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-preview"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.copy.preview",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.copy.preview",
+            "label": "Preview One copy",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.copy.download",
+      "surface_id": "one_document_delivery",
+      "label": "Download original",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "meaning": "Downloads the original file only after an explicit click and a fresh entitlement check. Native uses the existing system share sheet; cancellation does not mean saved.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-download"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.copy.download",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.copy.download",
+            "label": "Download original",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.copy.close_preview",
+      "surface_id": "one_document_delivery",
+      "label": "Back to files",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "meaning": "Closes the document preview and clears its readable bytes before returning to the file list. Also cancels the pending One access confirmation without revoking access.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-close-preview",
+        "document-copy-cancel-revoke"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.copy.close_preview",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.copy.close_preview",
+            "label": "Back to files",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.copy.refresh",
+      "surface_id": "one_document_delivery",
+      "label": "Refresh One copy",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "meaning": "Reads current copy preparation and access status without creating another request or payment. The owner can open, refresh or paginate the private activity list. Requested previews and completed transfers do not prove display or saving.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-refresh",
+        "document-copy-activity",
+        "document-copy-refresh-activity",
+        "document-copy-more-activity"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.copy.refresh",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.copy.refresh",
+            "label": "Refresh One copy",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.copy.revoke",
+      "surface_id": "one_document_delivery",
+      "label": "Stop One access",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "meaning": "The owner confirms stopping hosted One access. Drive access and files already saved are separate.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-revoke",
+        "document-copy-confirm-revoke"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.copy.revoke",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.copy.revoke",
+            "label": "Stop One access",
             "failure_behavior": "stop"
           }
         ],

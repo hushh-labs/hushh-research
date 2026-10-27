@@ -51,7 +51,7 @@ def entries(raw: str) -> list[str]:
 
 def gcloud(args: list[str]) -> tuple[int, str]:
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603 - fixed CLI argv, never shell interpolation
             ["gcloud", *args], capture_output=True, text=True, check=False, timeout=45
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -75,18 +75,136 @@ def read(secret: str, project: str, version: str) -> str | None:
     return out if code == 0 else None
 
 
-def publish_phone_health(project: str, status: str, checked: int) -> bool:
+def publish_phone_health(
+    project: str, status: str, checked: int, *, runtime_status: str | None = None
+) -> bool:
     """Publish only bounded status/count metadata, never a secret or provider error."""
-    payload = json.dumps({
+    fields = {
         "message": "auth.test_allowlist.health",
         "status": status,
         "checked_lists": checked,
-    }, separators=(",", ":"))
-    code, _ = gcloud([
-        "logging", "write", "obs-auth-health", payload, f"--project={project}",
-        "--payload-type=json", "--severity=INFO" if status == "healthy" else "--severity=ERROR",
-    ])
+    }
+    if runtime_status is not None:
+        fields["runtime_status"] = runtime_status
+    payload = json.dumps(fields, separators=(",", ":"))
+    code, _ = gcloud(
+        [
+            "logging",
+            "write",
+            "obs-auth-health",
+            payload,
+            f"--project={project}",
+            "--payload-type=json",
+            "--severity=INFO" if status == "healthy" else "--severity=ERROR",
+        ]
+    )
     return code == 0
+
+
+def phone_runtime_authority(project: str) -> tuple[str, str] | None:
+    """Resolve only the governed service's authenticated, unambiguous serving origin."""
+    if project not in {"hushh-pda", "hushh-pda-uat"}:
+        return None
+    code, raw = gcloud(
+        [
+            "run",
+            "services",
+            "describe",
+            "consent-protocol",
+            f"--project={project}",
+            "--region=us-central1",
+            "--format=json(metadata.name,status.url,status.traffic)",
+        ]
+    )
+    if code or len(raw) > 65536:
+        return None
+    try:
+        payload = json.loads(raw)
+        status = payload["status"]
+        traffic = status["traffic"]
+        if not isinstance(traffic, list) or any(
+            type(row.get("percent", 0)) is not int or not 0 <= row.get("percent", 0) <= 100
+            for row in traffic
+        ):
+            return None
+        active = [row for row in traffic if row.get("percent", 0) > 0]
+        from urllib.parse import urlsplit
+
+        address = urlsplit(status["url"])
+        if (
+            payload["metadata"]["name"] != "consent-protocol"
+            or len(active) != 1
+            or active[0]["percent"] != 100
+            or not re.fullmatch(r"consent-protocol-[a-z0-9-]{1,46}", active[0]["revisionName"])
+            or address.scheme != "https"
+            or address.username
+            or address.password
+            or address.port
+            or not re.fullmatch(
+                r"consent-protocol-[a-z0-9]+(?:-[a-z0-9]+)*[.][a-z0-9]+(?:-[a-z0-9]+)*[.]run[.]app",
+                address.hostname or "",
+            )
+            or len(address.hostname) > 253
+            or address.path
+            or address.query
+            or address.fragment
+        ):
+            return None
+        return status["url"], active[0]["revisionName"]
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
+def read_phone_runtime(origin: str) -> str:
+    """A bounded unauthenticated GET; curl configuration, proxies and redirects are off."""
+    try:
+        result = subprocess.run(  # noqa: S603 - only the authenticated service's validated origin
+            [
+                "curl",
+                "--disable",
+                "--silent",
+                "--show-error",
+                "--fail",
+                "--max-time",
+                "10",
+                "--max-filesize",
+                "16384",
+                "--max-redirs",
+                "0",
+                "--proto",
+                "=https",
+                "--noproxy",
+                "*",
+                "--write-out",
+                "\n%{http_code}",
+                origin + "/health/ready",
+            ],
+            capture_output=True,
+            check=False,
+            timeout=15,
+        )
+        if result.returncode or len(result.stdout) > 16388:
+            return "unavailable"
+        body, status = result.stdout.rsplit(b"\n", 1)
+        payload = json.loads(body)
+        if (
+            status == b"200"
+            and payload["status"] == "ready"
+            and payload["checks"]["phone_test_transport"] == "healthy"
+        ):
+            return "healthy"
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError, KeyError):
+        pass
+    return "unavailable"
+
+
+def check_phone_runtime(project: str) -> str:
+    authority = phone_runtime_authority(project)
+    if authority is None:
+        return "unavailable"
+    status = read_phone_runtime(authority[0])
+    # A changed serving target cannot inherit the previous process's observation.
+    return status if phone_runtime_authority(project) == authority else "unavailable"
 
 
 class ProtectedListSpec(TypedDict):
@@ -175,18 +293,27 @@ def report_results(tracked_count: int, failures: list[str], unchecked: list[str]
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", help="only check secrets in this project")
-    ap.add_argument("--publish-health", "--emit-health-log", action="store_true",
-                    help="Publish content-free phone-list status to Cloud Logging (explicit opt-in)")
+    ap.add_argument(
+        "--publish-health",
+        "--emit-health-log",
+        action="store_true",
+        help="Publish content-free phone-list status to Cloud Logging (explicit opt-in)",
+    )
+    ap.add_argument(
+        "--check-phone-runtime",
+        action="store_true",
+        help="Also observe the governed serving phone-test readiness (explicit opt-in)",
+    )
     args = ap.parse_args()
-    if args.publish_health and args.project not in {"hushh-pda", "hushh-pda-uat"}:
-        ap.error("--publish-health requires one governed --project")
+    if (args.publish_health or args.check_phone_runtime) and args.project not in {
+        "hushh-pda",
+        "hushh-pda-uat",
+    }:
+        ap.error("phone-health options require one governed --project")
 
     config = json.loads(CONFIG.read_text(encoding="utf-8"))
-    tracked = [
-        s for s in config["secrets"]
-        if not args.project or s["project"] == args.project
-    ]
-    if not tracked:
+    tracked = [s for s in config["secrets"] if not args.project or s["project"] == args.project]
+    if not tracked and not args.check_phone_runtime:
         print("No tracked secrets for that project.")
         return 0
 
@@ -203,11 +330,37 @@ def main() -> int:
         if spec["name"] in {"HUSHH_UAT_PHONE_TEST_NUMBERS", "HUSHH_PROD_PHONE_TEST_NUMBERS"}:
             phone_results.append(result.status)
 
+    runtime_status = None
+    if args.check_phone_runtime:
+        if not phone_results:
+            phone_results.append("unavailable")
+            unchecked.append("No protected phone list configured for runtime observation")
+        runtime_status = check_phone_runtime(args.project)
+        phone_results.append(runtime_status)
+        print(f"Phone test runtime observation: {runtime_status}")
+        if runtime_status != "healthy":
+            unchecked.append(
+                "Serving phone-test runtime readiness unavailable; inspect deployed configuration"
+            )
+
     if args.publish_health:
-        status = ("failed" if "failed" in phone_results else
-                  "unavailable" if not phone_results or "unavailable" in phone_results else "healthy")
-        if not publish_phone_health(args.project, status, len(phone_results)):
-            unchecked.append("Auth phone-list health publication unavailable; check logging writer permission")
+        status = (
+            "failed"
+            if "failed" in phone_results
+            else "unavailable"
+            if not phone_results or "unavailable" in phone_results
+            else "healthy"
+        )
+        checked_lists = sum(
+            spec["name"] in {"HUSHH_UAT_PHONE_TEST_NUMBERS", "HUSHH_PROD_PHONE_TEST_NUMBERS"}
+            for spec in tracked
+        )
+        if not publish_phone_health(
+            args.project, status, checked_lists, runtime_status=runtime_status
+        ):
+            unchecked.append(
+                "Auth phone-list health publication unavailable; check logging writer permission"
+            )
 
     return report_results(len(tracked), failures, unchecked)
 

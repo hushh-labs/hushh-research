@@ -1,6 +1,7 @@
 "use client";
 
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import { phoneRecoveryRouteFromHref } from "@/lib/auth/phone-recovery-route";
 import { AuthService } from "@/lib/services/auth-service";
 import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
@@ -38,6 +39,8 @@ function normalizeRedirectPath(path: string | null | undefined): string {
   const safePath = normalizeInternalRouteHref(path);
   if (!safePath) return DEFAULT_HOME_ROUTE;
   const url = new URL(safePath, "https://one.local");
+  const recovery = phoneRecoveryRouteFromHref(safePath);
+  if (recovery) return recovery;
   if (normalizeStaticExportPathname(url.pathname) === ROUTES.PHONE_MANDATE) {
     // A session can expire during phone verification. Its login handoff wraps
     // the invite in `redirect`; unwrap only a safe invitation target and let
@@ -140,6 +143,8 @@ export class PostAuthRouteService {
     allowNativeRouteAuditBypass?: boolean;
   }): Promise<string> {
     const requestedRoute = normalizeRedirectPath(params.redirectPath);
+    // Navigation opens review only; the continuation API validates the old owner.
+    if (phoneRecoveryRouteFromHref(requestedRoute)) return requestedRoute;
     const safeExplicitRedirect = normalizeInternalRouteHref(requestedRoute);
     const hasExplicitRedirect = Boolean(
       params.redirectPath &&

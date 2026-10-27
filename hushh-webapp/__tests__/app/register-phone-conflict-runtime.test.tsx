@@ -43,7 +43,7 @@ describe("register-phone conflict runtime", () => {
     const api = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");
     const firebaseConfig = await vi.importActual<typeof import("@/lib/firebase/config")>("@/lib/firebase/config");
     vi.mocked(prepareRecaptchaVerifier).mockImplementation(firebaseConfig.prepareRecaptchaVerifier);
-    Object.assign(ApiService, { claimAccountPhone: api.ApiService.claimAccountPhone });
+    Object.assign(ApiService, { claimAccountPhone: api.ApiService.claimAccountPhone, apiFetch: api.ApiService.apiFetch });
     mocks.identityClaim.mockImplementation(identity.AccountIdentityService.claimCurrentUserPhone.bind(identity.AccountIdentityService));
     vi.mocked(fetch).mockImplementation(async () => Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED", message: "Choose how to continue" } }, { status: 409 }));
   });
@@ -77,4 +77,63 @@ describe("register-phone conflict runtime", () => {
     expect(fetch).toHaveBeenCalledWith("/api/account/phone/claim", expect.objectContaining({ method: "POST" }));
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
+
+  it.each(["recover", "delete", "revoke"] as const)("creates a server-bound %s continuation before leaving the current account", async (action) => {
+    const continuationId = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
+    vi.mocked(fetch).mockImplementation(async (url) => String(url).endsWith("/phone/recovery/continuations")
+      ? Response.json({ continuation_id: continuationId, state: "awaiting_previous_sign_in", expires_at: "2099-01-01T00:00:00Z" })
+      : Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }, { status: 409 }));
+    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
+    const phone = await screen.findByRole("textbox", { name: "Phone number" });
+    fireEvent.change(phone, { target: { value: "6505550101" } });
+    fireEvent.submit(phone.closest("form")!);
+    const code = await screen.findByRole("textbox", { name: "One-time code" });
+    fireEvent.change(code, { target: { value: "123456" } });
+    fireEvent.submit(code.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: action === "delete" ? "Delete my previous account" : action === "revoke" ? "Review previous device access" : "Recover my previous account" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/account/phone/recovery/continuations", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ action, phone_number: "+16505550101" }),
+    })));
+    await waitFor(() => expect(mocks.replaceDocument).toHaveBeenCalled());
+    const destination = new URL(mocks.replaceDocument.mock.calls.at(-1)![0], window.location.origin);
+    expect(destination.pathname).toBe("/login");
+    expect(destination.searchParams.get("redirect")).toBe(`/register-phone?recovery=${continuationId}`);
+    expect(destination.href).not.toContain("6505550101");
+    expect(destination.href).not.toContain("123456");
+  });
+  it("keeps a wrong-owner continuation generic and never dispatches deletion", async () => {
+    const id = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
+    window.history.replaceState({}, "", `/register-phone?recovery=${id}`);
+    vi.mocked(fetch).mockResolvedValue(Response.json({continuation_id: id, state: "awaiting_previous_sign_in"}));
+    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
+    await screen.findByRole("heading", { name: "Sign in to your previous account" });
+    expect(screen.queryByRole("button", { name: "Review deletion" })).toBeNull();
+    expect(screen.queryByText("owner@example.test")).toBeNull();
+    expect(fetch).toHaveBeenCalledWith(`/api/account/phone/recovery/continuations/${id}`, expect.objectContaining({method: "GET"}));
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
+  });
+  it("opens the existing deletion review only after server-matched old-owner confirmation", async () => {
+    const id = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
+    window.history.replaceState({}, "", `/register-phone?recovery=${id}`);
+    vi.mocked(fetch).mockImplementation(async url => String(url).endsWith(id)
+      ? Response.json({continuation_id: id, state: "ready", action: "delete", expires_at: "2099-01-01T00:00:00Z", phone_hint: "••01"})
+      : Response.json({providers: ["google.com"], phone_available: true, phone_hint: "••01"}));
+    const navigate = vi.fn();
+    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent />
+      <NativeShellBack label="Recovery shell Back" owner="account-owner" context="register-phone" eligible
+        onBack={() => navigateTopShellBack({ pathname: "/register-phone", searchParams: new URLSearchParams(window.location.search), navigate })} />
+    </AgentRuntimeStateProvider></AuthProvider>);
+    fireEvent.click(await screen.findByRole("button", {name: "Review deletion"}));
+    await screen.findByRole("button", { name: "Continue with Google" });
+    expect(screen.queryByRole("button", {name: "Permanently delete account"})).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
+    fireEvent.click(screen.getByRole("button", {name: "Recovery shell Back"}));
+    await screen.findByRole("button", {name: "Review deletion"});
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", {name: "Recovery shell Back"}));
+    expect(mocks.routerReplace).toHaveBeenCalledWith("/register-phone");
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
 });

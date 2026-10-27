@@ -125,14 +125,16 @@
         "document_delivery_file_receipts",
         "document_delivery_key_challenges",
         "document_delivery_activity",
-        "document_delivery_idempotency"
+        "document_delivery_idempotency",
+        "document_delivery_background_requests",
+        "document_delivery_background_activity"
       ],
-      "primary_access_path": "Owner/requester-authenticated document-delivery facade under the existing Drive sharing namespace; request-bound copy approval, exact canonical connector-key binding, per-file channel fulfillment, activity and scoped revocation. Historical Drive requests retain their original path.",
-      "retention_policy": "Active contracts have a finite access deadline. Abandoned preparation has a 30-minute lease bounded by that deadline; single-use possession challenges expire after five minutes; participant activity is retained at most 90 days. Retired cleanup purges selection, cached results, challenges and package envelopes after fencing. Account erasure removes public-key pins after fencing dependent requests. Financial provenance and unresolved storage inventory are retained separately.",
+      "primary_access_path": "Owner/requester-authenticated document-delivery facade under the existing Drive sharing namespace; explicit request-bound copy approval, per-file fulfillment, activity and scoped revocation. Device-encrypted v1 retains canonical connector-key binding. Additive server-readable v2 attaches to the original Drive request, approval, payment and confirmed recipient grant without a second financial authority. Historical Drive requests retain their original path.",
+      "retention_policy": "Device-encrypted v1 contracts have a finite access deadline; abandoned preparation has a 30-minute lease bounded by that deadline and possession challenges expire after five minutes. Server-readable v2 follows the original approved grant's explicit access deadline, or remains until revoked or erased when no deadline was selected; pending-request and receipt-retention TTLs do not expire a granted copy. Participant activity is retained at most 90 days. Retired cleanup purges selection, cached results, challenges and package envelopes after fencing. Account erasure removes public-key pins after fencing dependent requests. Financial provenance and unresolved storage inventory are retained separately.",
       "deletion_behavior": "Request-scoped workflow rows cascade only after independent cleanup inventory and opaque financial bindings preserve required obligations. Account deletion and expiry fence further release; no cascade is proof that provider objects are absent.",
-      "trust_boundary": "One sign-in is not copy consent or payment. Exact A/B identity, selected files, terms/package digests, current authority and required channel receipts govern release. Public-key rows pin a request's canonical connector evidence; they are not a second key-registration authority. Selected filenames, provider IDs and revision metadata use existing encrypted Drive metadata custody. No file contents or unwrapped content/vault keys are stored here.",
+      "trust_boundary": "One sign-in, Drive OAuth and Trusted membership are not copy consent or payment. Exact A/B identity, selected files, current authority and confirmed channel receipts govern release. In v1, terms/package digests and public-key rows pin canonical connector evidence; they are not a second key-registration authority. In v2, the owner explicitly permits backend reads and encrypted hosting for the original requester. Activity distinguishes preview/download requests and completed transfers, never proof of viewing or saving. Selected filenames, provider IDs and revision metadata use existing encrypted Drive metadata custody. No file contents or unwrapped content/vault keys are stored here.",
       "plaintext_posture": "opaque_workflow_metadata_public_keys_and_encrypted_selection_and_retry_results",
-      "expected_row_growth": "bounded contracts per owner/requester; at most 25 file receipts per contract; deduplicated paginated activity with 90-day retention and bounded idempotency/challenge records"
+      "expected_row_growth": "bounded contracts per owner/requester; v1 has at most 25 file receipts per contract; v2 has one copy-consent record per original Drive request; bounded paginated activity with 90-day retention and bounded idempotency/challenge records"
     },
     {
       "id": "protected_document_delivery_artifacts",
@@ -141,14 +143,16 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "document_delivery_packages",
-        "document_delivery_artifacts"
+        "document_delivery_artifacts",
+        "document_delivery_background_files",
+        "document_delivery_background_chunks"
       ],
-      "primary_access_path": "A device prepares PDF originals and watermark derivatives locally, then uploads bounded ciphertext through the qualified private GCS port. SQL binds immutable content generations, ciphertext hashes/object generations, encrypted metadata manifests and recipient/owner recovery wraps. B reads only through current paid entitlement and decrypts locally.",
-      "retention_policy": "Retain approved ciphertext and wraps only while the finite delivery grant remains active. Keep uncertain writes and deletion fences until provider outcome is reconciled. Superseded staging follows its bounded lease; retained provider versions/soft deletion remain explicit pending destruction.",
+      "primary_access_path": "In device-encrypted v1, A prepares PDF originals and watermark derivatives locally, SQL binds immutable content generations and wraps, and B decrypts locally. In server-readable v2, the existing sharing drain fetches the exact confirmed Drive original, verifies frozen provider content identity and complete checksums, then uploads independently authenticated 1 MiB ciphertext chunks through the same qualified private GCS port. Authenticated recipient streaming checks current paid entitlement and fences for every chunk.",
+      "retention_policy": "Retain approved ciphertext and encrypted keys only while the applicable grant remains active: finite v1 deadline, or v2's original explicit Drive deadline or until revoke/erasure when none was selected. Keep uncertain writes and deletion fences until provider outcome is reconciled. Superseded staging follows its bounded lease; retained provider versions/soft deletion remain explicit pending destruction.",
       "deletion_behavior": "Deny access and fence admissions before exact-generation object deletion. Persist independent cleanup inventory across request/account cascades; verify bucket incarnation and provider-visible absence before removing it. Original Drive files are never modified or deleted by hosted-copy cleanup.",
-      "trust_boundary": "AES-GCM content encryption and X25519 recipient wrapping happen on A's device. The metadata manifest contains no file keys or wraps. B's file-key envelopes are withheld before payment and until each required channel receipt; owner recovery is a separate owner-only path. The platform sees necessary access/payment metadata and ciphertext integrity only, not readable content or cryptographic proof of source fidelity.",
-      "plaintext_posture": "ciphertext_key_wraps_and_opaque_integrity_metadata_only",
-      "expected_row_growth": "at most 25 files and their qualified original/watermark renditions plus one metadata manifest per immutable generation; 4 MiB plaintext/rendition and 32 MiB total request ciphertext admission"
+      "trust_boundary": "V1 retains device-side AES-GCM and X25519 wrapping, withholding recipient keys until payment and required receipts; the platform sees ciphertext only in that lane. V2 is explicitly server-readable: transient original bytes are encrypted with per-file server-created AES keys wrapped by the existing Drive sharing cipher, never by an escrowed vault key. Encrypted source identity, result hashes and key envelopes persist in SQL; only ciphertext reaches GCS. Source files are unchanged. V2 never substitutes a current file for a missing historical content identity, copies an unconfirmed grant or exposes plaintext in logs, SQL or cleanup custody.",
+      "plaintext_posture": "v1_device_ciphertext_only_v2_server_transient_plaintext_with_ciphertext_and_encrypted_keys_at_rest",
+      "expected_row_growth": "v1 retains at most 25 files, qualified original/watermark renditions and one manifest per immutable generation, with existing 4 MiB/rendition and 32 MiB/request admissions. V2 file rows follow actual confirmed Drive deliveries; chunk rows grow by original byte size in 1 MiB units, with bounded producer leases and no additional search membership cap. Cleanup inventory tracks every reserved chunk."
     },
     {
       "id": "protected_document_delivery_retained_obligations",
@@ -1309,11 +1313,11 @@
       "exact_tables": [
         "drive_live_preferences"
       ],
-      "primary_access_path": "Vault Owner turns background live Drive preparation on or off separately from the live OAuth grant. The suggestion worker checks the current consent and generation before each read and publication.",
-      "retention_policy": "One current preference per owner, superseded on connection generation change; no document content or provider identifier is stored.",
-      "deletion_behavior": "Owner account deletion removes the preference. Disabling preparation stops new background reads without reversing an already explicit Allow.",
-      "trust_boundary": "Only owner ID, connection generation, consent flag, disclosure version and revision are stored. This preference never authorizes a Viewer grant.",
-      "plaintext_posture": "owner_scoped_background_consent_status_only",
+      "primary_access_path": "Vault Owner independently controls background live Drive preparation and owner-level scalar financial summary visibility. Workers check background authority before reads; authenticated public-profile discovery checks the current financial_summary_enabled choice under the owner graph lock. The scalar policy defaults ON and preserves explicit OFF across reconnect and new periods.",
+      "retention_policy": "One current preference per owner, retained across connection generation changes until account deletion. Background and financial summary visibility choices have independent revisions; no document content or provider identifier is stored.",
+      "deletion_behavior": "Owner account deletion removes the preference. Preparation OFF stops new background reads; summary OFF hides every financial period without reversing an already explicit file Allow or modifying a sale manifest.",
+      "trust_boundary": "Only owner ID, connection generation, independent preparation and scalar summary flags, authored policy version, revisions and update time are stored. The default summary policy fabricates no personal acceptance. Legacy explicit per-period hides migrate to owner OFF. Neither preference authorizes a Viewer grant. PostgreSQL owns the choice; a future Redis cache may project it but cannot authorize publication.",
+      "plaintext_posture": "owner_scoped_background_and_scalar_summary_visibility_policy_only",
       "expected_row_growth": "one_row_per_live_drive_owner"
     },
     {
@@ -2023,10 +2027,10 @@
         "drive_packet_version_sources",
         "drive_packet_listings"
       ],
-      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing. A separate vault-owner scalar receipt read permits public-summary withdrawal even when OAuth or background processing is off. Authenticated public-profile viewers, including non-connections, receive only owner-published scalar summaries; private purchase routes retain current connection and approval checks. Worker writes use generation, source-version and lease fences. Financial preparations use a versioned predefined query and independently organize saved candidates with the unchanged local bounded-head classifier, without enabling whole-Drive indexing.",
+      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing. A separate vault-owner scalar receipt read permits public-summary withdrawal even when OAuth or background processing is off. Authenticated public-profile viewers, including non-connections, receive only scalar financial summaries allowed by the default-ON owner visibility preference; private purchase routes retain current connection and approval checks. Worker writes use generation, source-version and lease fences. Financial preparations use a versioned predefined query and independently organize saved candidates with the unchanged local bounded-head classifier, without enabling whole-Drive indexing. Migration 429 adds only the head sale_finalization_revision scalar: the existing owner/generation-fenced packet worker may attempt an empty-sale finalization once per saved discovery revision, preserving prior immutable versions and request pins.",
       "retention_policy": "Current collection cursors and workflow state are replaced as progress commits. Versioned extraction, facts and packet evidence are retained while their parent records exist; background pause stops processing without deleting evidence. Historical packet manifests preserve exact approval and purchase evidence. A time-based purge of superseded evidence is not implemented.",
       "deletion_behavior": "Connection generation invalidation removes connected documents; their extraction, page and fact children cascade. Packet availability is fenced by active connection, consent, generation, source versions and freshness. Connection deletion cascades packet heads and versions. Account reset and deletion explicitly remove owner packet heads and cascade their encrypted versions, sources and listings; reset retains only the connector generation fence. Account deletion removes remaining owner-bound state; request packet foreign keys become null while independently encrypted approved request and financial records retain their established lifecycle.",
-      "trust_boundary": "Source identifiers, filenames, page text, document facts, citations, packet membership, assessments and provider checkpoints remain owner/resource/purpose-bound encrypted evidence. Plaintext contains opaque IDs, versions, keyed digests, work statuses, timestamps, bounded pricing, explicit listing policy and authored period-packet category/date/timezone selectors. Provider-discovery packets do not assert content facts or citations. Preparation consent never authorizes publication or buyer access. Public scalar count, completeness, freshness and price projections require a distinct owner-accepted publication disclosure bound to the packet version and connection generation; connection-only listing consent is never promoted to public consent. Provider/model I/O occurs outside database transactions. Candidate tags are advisory; the server-managed processing policy records no fabricated personal acceptance. Explicit background Off and placement refusal remain enforced.",
+      "trust_boundary": "Source identifiers, filenames, page text, document facts, citations, packet membership, assessments and provider checkpoints remain owner/resource/purpose-bound encrypted evidence. Plaintext contains opaque IDs, versions, keyed digests, work statuses, timestamps, bounded pricing, explicit listing policy and authored period-packet category/date/timezone selectors. Provider-discovery packets do not assert content facts or citations. Preparation consent never authorizes publication or buyer access. Public scalar count, completeness, freshness and price projections use the distinct drive-financial-summary-default-v1 product policy and canonical owner flag in drive_live_preferences. A saved OFF suppresses all periods, including new versions, while public reads retain current profile and source-generation gates. The policy is independent from preparation and connection-only listing consent, fabricates no personal acceptance, and never authorizes private file access. Saved discovery counts and exact immutable sale membership remain separate projections; legacy per-period publication receipts retain their historical meaning only. Provider/model I/O occurs outside database transactions. Candidate tags are advisory; the server-managed processing policy records no fabricated personal acceptance. Explicit background Off and placement refusal remain enforced. The sale_finalization_revision receipt contains no source metadata or private contents, grants no buyer access or listing authority, and follows its existing head retention and deletion contract.",
       "plaintext_posture": "encrypted_document_and_packet_evidence_with_opaque_workflow_metadata_and_explicit_listing_policy",
       "expected_row_growth": "Proportional to consented accessible files, pages and source versions; canonical membership avoids every possible file combination. Superseded-version storage requires operational growth monitoring."
     },
@@ -2334,13 +2338,15 @@
       "data_class": "workflow_state",
       "lifecycle_status": "release_schema_qualification",
       "exact_tables": [
-        "account_phone_transfers"
+        "account_phone_transfers",
+        "account_phone_recovery_continuations",
+        "account_device_actions"
       ],
-      "primary_access_path": "Phone transfer prepare/confirm through the existing identity writer and generation-bound Firebase mutation journal.",
-      "retention_policy": "Prepared intents expire after five minutes; completed workflow receipts prune after seven days on prepare. Unsettled effects remain until reconciled.",
-      "deletion_behavior": "Account erasure waits for unsettled committed provider work; completed or unconsumed workflow rows cascade on participant erasure. Hash-only admission fences remain independently.",
+      "primary_access_path": "Phone transfer prepare/confirm through the existing identity writer; opaque recovery continuations and single-use own-device action admission with independent owner authentication.",
+      "retention_policy": "Transfer prepared intents expire after five minutes and settled receipts prune after seven days. Recovery navigation expires after fifteen minutes. Device drafts expire after five minutes; completed hub receipts prune after seven days. Unknown dispatches retain consumed proof digests for reconciliation and never replay primary effects.",
+      "deletion_behavior": "Account erasure waits for unsettled transfer provider work; continuation and device-action metadata cascade on their owning participants. A requester deletion clears navigation but retains the target owner device-action receipt. Hash-only admission fences remain independently.",
       "plaintext_posture": "metadata_and_hashes_only",
-      "expected_row_growth": "At most five live prepared intents per claimant.",
+      "expected_row_growth": "At most five live recovery drafts or unsettled device actions per owner; completed device preparations limited to five per five-minute window; opportunistic cleanup removes at most one hundred expired rows per prepare.",
       "trust_boundary": "No OTP, phone number, bearer or previous-account private projection. Explicit confirmation, fresh manual SMS and binding revisions gate consumption."
     },
     {
@@ -2357,6 +2363,22 @@
       "trust_boundary": "No OTP, token, phone number or private account projection. Independent Google/Apple sign-in remains available.",
       "plaintext_posture": "hashes_only",
       "expected_row_growth": "One row per retired identity/phone pair."
+    },
+    {
+      "id": "one_area_discovery",
+      "owner": "backend-api-contracts",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "one_area_discovery_preferences",
+        "one_area_discovery_search_budgets"
+      ],
+      "primary_access_path": "Firebase-owner GET/PUT /api/one/area-discovery/me and bounded authenticated POST /api/one/area-discovery/search. Postgres indexed ZIP+UID scan, no positive result cache; per-account revision CAS and atomic daily search budget. Redis may replace budget storage only with equivalent atomic limits.",
+      "retention_policy": "One current opt-in row per account. Off removes postal code, adult self-attestation and consent timestamps. Daily budget rows older than two days removed on that account next search; dormant accounts retain only their last bounded buckets until erasure.",
+      "deletion_behavior": "Actor-profile FK cascade, explicit account-service deletion and account-deletion tombstone trigger erase both tables; phone_orphan is excluded. No migration of old website discovery preferences or inferred permission.",
+      "trust_boundary": "No GPS, full address, DOB, private PKM, tokens or encryption keys. ZIP is intentionally queryable plaintext only with explicit consent; inclusion in a ZIP result implies area membership. Age is explicitly self-declared 18+, never verified. Disabled/deleted/unenrolled and unconsented accounts cannot contribute to the ten-person group floor. Results contain shared names and connection identifiers only; bounded pages and cross-instance daily rate limit. Browser roles revoked and RLS enabled.",
+      "plaintext_posture": "explicit_opt_in_coarse_area_and_consent_metadata",
+      "expected_row_growth": "One preference per account and at most three recent daily-budget rows per actively searching account; bounded deferred cleanup for dormant accounts."
     },
     {
       "id": "workos_generation_membership",

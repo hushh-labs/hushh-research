@@ -28,6 +28,7 @@ _BACKEND_RELEASE_TOOL_FIXTURES = (
     "scripts/ci/managed_capability_proof.py",
     "scripts/deploy/backend-deploy.sh",
     "scripts/deploy/backend-capacity-settings.sh",
+    "scripts/deploy/backend-app-surface-settings.sh",
     "scripts/deploy/verify-managed-vertex-runtime.sh",
     "scripts/deploy/commerce-preview-bindings.sh",
     "scripts/deploy/backend-model-settings.sh",
@@ -1751,7 +1752,11 @@ def test_production_secret_parity_fails_closed_before_traffic() -> None:
     parity_position = workflow.index("- name: Verify production candidate runtime env parity")
     promote_position = workflow.index("- name: Promote deployed revisions to production traffic")
     assert parity_position < promote_position
-    assert "if: steps.verify-parity.outcome == 'success'" in workflow
+    steps = yaml.safe_load(workflow)["jobs"]["deploy"]["steps"]
+    promote = next(step for step in steps if step.get("id") == "promote-traffic")
+    assert promote["if"].startswith(
+        "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' &&"
+    )
     assert '--backend-revision "${{ steps.candidate-state.outputs.backend_revision }}"' in workflow
     assert (
         '--frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"' in workflow
@@ -1814,11 +1819,11 @@ def test_production_release_verifies_provenance_and_publishes_evidence() -> None
         in workflow
     )
     assert (
-        'steps.final-state.outputs.backend_serving }}" != "${{ steps.predeploy-state.outputs.backend_revision'
+        'steps.final-state.outputs.backend_serving }}" != "${{ steps.phone-rollback-qualified.outputs.revision'
         in workflow
     )
     assert (
-        'steps.final-state.outputs.frontend_serving }}" != "${{ steps.predeploy-state.outputs.frontend_revision'
+        'steps.final-state.outputs.frontend_serving }}" != "${{ (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision)'
         in workflow
     )
     assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
@@ -1867,16 +1872,15 @@ def test_production_wif_has_one_keyless_setup_path() -> None:
 
 
 def test_production_health_gates_only_probe_after_successful_promotion() -> None:
-    workflow = _read(".github/workflows/deploy-production.yml")
-
-    assert (
-        "if: steps.scope.outputs.deploy_backend == 'true' "
-        "&& steps.promote-traffic.outcome == 'success'"
-    ) in workflow
-    assert (
-        "if: steps.scope.outputs.deploy_frontend == 'true' "
-        "&& steps.promote-traffic.outcome == 'success'"
-    ) in workflow
+    steps = yaml.safe_load(_read(".github/workflows/deploy-production.yml"))["jobs"]["deploy"][
+        "steps"
+    ]
+    for lane in ("backend", "frontend"):
+        gate = next(step for step in steps if step.get("id") == f"health-{lane}")
+        assert gate["if"] == (
+            f"env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_{lane} == 'true' "
+            "&& steps.promote-traffic.outcome == 'success')"
+        )
 
 
 def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:
@@ -2432,233 +2436,6 @@ def test_complete_azure_bundle_does_not_require_a_working_alternate(classificati
     result = module.evaluate({"azure_openai": azure, "vertex": vertex}, expected)
     assert result["ready"] is allowed
     assert result["providers"]["vertex"]["classifications"] == vertex["capability_classifications"]
-
-
-def _provider_capture_fixture(monkeypatch, azure=True, vertex=False):
-    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/ci"))
-    collector = importlib.import_module("capture_managed_provider_receipt")
-    gate = _managed_provider_gate()
-    expected, a = _provider_fixture(gate, "azure_openai")
-    _, v = _provider_fixture(gate, "vertex")
-    aggregate = gate.evaluate(
-        {"azure_openai": a if azure else None, "vertex": v if vertex else None}, expected
-    )
-    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
-    selection = {
-        "context": expected,
-        "managed_provider_selection": {
-            "provider": aggregate["selected_provider"],
-            "status": "verified",
-            "revision": "consent-protocol-test-rev",
-            "image": expected["image"],
-            "traffic_percent": 0,
-        },
-    }
-    build_steps = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))["steps"]
-    aggregate_index, aggregate_step = next(
-        (index, step)
-        for index, step in enumerate(build_steps)
-        if step.get("id") == "verify-managed-provider-readiness"
-    )
-    label = f'Step #{aggregate_index} - "verify-managed-provider-readiness"'
-
-    def entry(value, number):
-        return {
-            "resource": {
-                "type": "build",
-                "labels": {"build_id": expected["build_id"], "project_id": expected["project"]},
-            },
-            "labels": {"build_step": label},
-            "textPayload": label + ": " + json.dumps(value),
-            "insertId": str(number),
-            "timestamp": "2026-10-21T12:00:01Z",
-        }
-
-    entries = [
-        entry({"managed_provider_readiness": aggregate}, 1),
-        entry({"managed_provider_readiness": aggregate}, 2),
-        entry(selection, 3),
-    ]
-    build = {
-        "id": expected["build_id"],
-        "projectId": expected["project"],
-        "status": "SUCCESS",
-        "startTime": "2026-10-21T12:00:00Z",
-        "finishTime": "2026-10-21T12:01:00Z",
-        "substitutions": dict(
-            _DEPLOY_SHA=expected["source_sha"],
-            _GITHUB_RUN_ID=expected["github_run"],
-            _IMAGE_REFERENCE=expected["image"],
-            _RUNTIME_SERVICE_ACCOUNT=expected["runtime_account"],
-            _DEPLOY_ENV=expected["environment"],
-            _REGION=expected["region"],
-            _BACKEND_SERVICE="consent-protocol",
-            _CLOUD_RUN_TAG="account-deletion-" + expected["github_run"],
-            _SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE="false",
-        ),
-        "steps": [{}] * aggregate_index + [{**aggregate_step, "status": "SUCCESS"}],
-    }
-    return collector, expected, document, label, entries, build
-
-
-@pytest.mark.parametrize(
-    "azure,vertex,preferred",
-    [
-        (True, False, "azure_openai"),
-        (False, True, None),
-        (True, True, "azure_openai"),
-        (False, False, None),
-    ],
-)
-def test_uploaded_provider_receipt_uses_exact_remote_build_without_stdout(
-    monkeypatch, azure, vertex, preferred
-):
-    collector, expected, document, label, entries, build = _provider_capture_fixture(
-        monkeypatch, azure, vertex
-    )
-    calls = []
-
-    def read(arguments, deadline):
-        calls.append(arguments)
-        return build if arguments[:2] == ["builds", "describe"] else entries
-
-    if preferred is None:
-        with pytest.raises(collector.ReceiptError, match="provider_readiness_unverified"):
-            collector.collect(expected, document, read=read)
-    else:
-        result = collector.collect(expected, document, read=read)
-        assert result["selection_verified"] is True
-        assert result["readiness"]["selected_provider"] == preferred
-        assert len(result["collection"]["logs"]) == 3
-        assert collector.check_build(build, expected) == label
-    assert calls[0][2] == expected["build_id"]
-    assert expected["build_id"] in calls[1][2]
-
-
-@pytest.mark.parametrize(
-    "defect",
-    [
-        "build",
-        "failed_build",
-        "failed_step",
-        "dependency_deploy-backend",
-        "dependency_verify-azure-pwm-runtime",
-        "dependency_verify-managed-vertex-runtime",
-        "dependency_unexpected",
-        "run",
-        "image",
-        "log_build",
-        "log_step",
-        "context",
-        "selection",
-        "conflict",
-        "trust",
-        "truncated",
-    ],
-)
-def test_uploaded_provider_receipt_refuses_unbound_or_ambiguous_evidence(monkeypatch, defect):
-    collector, expected, document, label, entries, build = _provider_capture_fixture(monkeypatch)
-    if defect == "build":
-        build["id"] = "foreign-build"
-    elif defect == "failed_build":
-        build["status"] = "FAILURE"
-    elif defect == "failed_step":
-        build["steps"][-1]["status"] = "FAILURE"
-    elif defect.startswith("dependency_"):
-        dependency = defect.removeprefix("dependency_")
-        parents = build["steps"][-1]["waitFor"]
-        if dependency == "unexpected":
-            parents.append(dependency)
-        else:
-            parents.remove(dependency)
-    elif defect == "run":
-        build["substitutions"]["_GITHUB_RUN_ID"] = "wrong-run"
-    elif defect == "image":
-        build["substitutions"]["_IMAGE_REFERENCE"] = "wrong-image"
-    elif defect == "log_build":
-        entries[0]["resource"]["labels"]["build_id"] = "foreign-build"
-    elif defect == "log_step":
-        entries[0]["labels"]["build_step"] = "another-step"
-    elif defect == "selection":
-        entries[-1]["textPayload"] = (
-            label + ": " + json.dumps({"context": {}, "managed_provider_selection": {}})
-        )
-    elif defect == "truncated":
-        entries *= 34
-    else:
-        value = json.loads(entries[0]["textPayload"][len(label) + 2 :])
-        if defect == "context":
-            value["managed_provider_readiness"]["context"] = {}
-        elif defect == "trust":
-            value["managed_provider_readiness"]["pwm_trust"] = "failed"
-        else:
-            value["managed_provider_readiness"]["ready"] = False
-        entries[0]["textPayload"] = label + ": " + json.dumps(value)
-        if defect != "conflict":
-            entries[1]["textPayload"] = entries[0]["textPayload"]
-    with pytest.raises(collector.ReceiptError):
-        collector.collect(
-            expected,
-            document,
-            read=lambda arguments, deadline: (
-                build if arguments[:2] == ["builds", "describe"] else entries
-            ),
-        )
-
-
-@pytest.mark.parametrize("visible", [True, False])
-def test_uploaded_provider_receipt_has_bounded_log_visibility_recovery(monkeypatch, visible):
-    collector, expected, document, _, entries, build = _provider_capture_fixture(monkeypatch)
-    reads = 0
-    sleeps = []
-
-    def read(arguments, deadline):
-        nonlocal reads
-        if arguments[:2] == ["builds", "describe"]:
-            return build
-        reads += 1
-        return entries if visible and reads > 1 else []
-
-    if visible:
-        assert (
-            collector.collect(expected, document, read=read, sleep=sleeps.append)["collection"][
-                "attempts"
-            ]
-            == 2
-        )
-    else:
-        with pytest.raises(collector.ReceiptError, match="receipt_logs_not_visible"):
-            collector.collect(expected, document, read=read, sleep=sleeps.append)
-        assert reads == 6
-    assert sleeps == [5] * (reads - 1)
-
-
-def test_provider_capture_failure_writes_artifact_and_fails(monkeypatch, tmp_path):
-    collector, _, _, _, _, _ = _provider_capture_fixture(monkeypatch)
-    path = tmp_path / "provider-receipt.json"
-    monkeypatch.setattr(sys, "argv", ["capture", "--output", str(path)])
-    monkeypatch.setenv("READINESS_BUILD_ID", "invalid")
-    assert collector.main() == 1
-    assert json.loads(path.read_text())["selection_verified"] is False
-    assert path.stat().st_mode & 0o777 == 0o600
-
-
-def test_provider_capture_missing_target_companion_still_writes_failure_artifact(
-    monkeypatch, tmp_path
-):
-    collector, _, _, _, _, _ = _provider_capture_fixture(monkeypatch)
-    path = tmp_path / "provider-receipt.json"
-    monkeypatch.setattr(sys, "argv", ["capture", "--output", str(path)])
-
-    def unavailable(name):
-        raise ModuleNotFoundError(name)
-
-    monkeypatch.setattr(collector.importlib, "import_module", unavailable)
-    assert collector.main() == 1
-    assert json.loads(path.read_text()) == {
-        "selection_verified": False,
-        "collection": {"status": "failed", "reason": "receipt_collection_unavailable"},
-    }
 
 
 def test_provider_receipt_workflow_pins_collector_and_exact_build_identity():

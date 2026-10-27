@@ -3108,6 +3108,25 @@ final class NativeSupportTests: XCTestCase {
         let expected = [UIUserInterfaceIdiom.phone, .pad].contains(UIDevice.current.userInterfaceIdiom) ? phoneFamilies : []
         XCTAssertEqual(HushhNativePreferencePresentation.families, expected)
     }
+    func testAppleReauthenticationQuarantinesFirebaseCallbacksAfterProviderDrains() {
+        for stage in [AppleIdentityCallbackDrain.Stage.reauthentication, .token] {
+            let fence = GoogleIdentityReauthenticationFence(expectedUserID: "owner", now: 100)
+            let callbacks = AppleIdentityCallbackDrain()
+            XCTAssertTrue(fence.drainProvider())
+            XCTAssertTrue(callbacks.begin(stage))
+            XCTAssertTrue(fence.settle()) // Timeout or owner change rejects JS now.
+            XCTAssertTrue(fence.canRelease) // Provider alone no longer owns the slot.
+            XCTAssertFalse(callbacks.canRelease(fence)) // Firebase still does.
+            let otherStage: AppleIdentityCallbackDrain.Stage = stage == .token ? .reauthentication : .token
+            XCTAssertFalse(callbacks.drain(otherStage))
+            XCTAssertFalse(callbacks.canRelease(fence))
+            XCTAssertTrue(callbacks.drain(stage))
+            XCTAssertTrue(callbacks.canRelease(fence))
+            XCTAssertFalse(callbacks.drain(stage)) // Duplicate callback cannot drain new work.
+            XCTAssertEqual(fence.claim(phase: 0, userID: "owner", sameSession: true, now: 101), .ignored)
+        }
+    }
+
     func testGoogleReauthenticationAcceptsEachStageExactlyOnce() {
         let fence = GoogleIdentityReauthenticationFence(expectedUserID: "a", now: 100)
         XCTAssertEqual(fence.claim(phase: 1, userID: "a", sameSession: true, now: 101), .ignored)

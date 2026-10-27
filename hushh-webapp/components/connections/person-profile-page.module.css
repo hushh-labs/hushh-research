@@ -58,7 +58,7 @@
 .identityStatus { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 .status { --type-helper-text-size: 11px; --type-helper-text-line: 17px; padding: 4px 9px; }
 .status svg { width: 12px; height: 12px; }
-.overflow { width: 44px; height: 44px; padding: 0; color: var(--muted-foreground); }
+.connectionMenu { min-height: 44px; height: 44px; padding: 0 12px; font-size: 12px; line-height: 15.6px; font-weight: 500; }
 .nameActions { display: flex; justify-content: space-between; align-items: center; gap: 22px; min-width: 0; margin: 13px 0 22px; }
 .identity { min-width: 0; }
 .name { margin: 0; max-width: 100%; overflow-wrap: anywhere; }
@@ -101,7 +101,7 @@
 .manage { --type-compact-button-label-size: 12px; --type-compact-button-label-line: 18px; padding: 8px 0; background: transparent; color: var(--muted-foreground); }
 .manage svg { width: 16px; height: 16px; }
 .manage > span:first-child { gap: 6px; }
-.relationship, .packets { min-width: 0; }
+.relationship { min-width: 0; }
 .relationship[data-voice-control-id="person-profile-cancel-connection"] { color: var(--foreground); }
 .section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .heading { margin: 0; }

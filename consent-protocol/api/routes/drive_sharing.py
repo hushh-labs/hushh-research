@@ -22,6 +22,7 @@ from api.routes.drive_sharing_owner import ContentOwner as ContentOwner
 from api.routes.drive_sharing_owner import Owner as Owner
 from api.routes.drive_sharing_owner import _content_owner as _content_owner
 from api.routes.drive_sharing_owner import _owner as _owner
+from api.routes.drive_sharing_owner import sharing_error as _error
 from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_content_compilation import (
@@ -150,11 +151,19 @@ class CreateRequest(StrictRequest):
     reason: str = Field(default="", max_length=500)
     timeZone: str | None = Field(default=None, min_length=1, max_length=64)
     expectedQuoteVersion: int | None = Field(default=None, ge=0, strict=True)
+    oneCopyRequested: StrictBool = False
+    activityAccepted: StrictBool = False
+    activityDisclosureVersion: Literal["one-document-activity-v1"] | None = None
 
     @model_validator(mode="after")
     def one_owner_target(self):
         if (self.ownerUserId is None) == (self.ownerPersonRef is None):
             raise ValueError("Specify one owner target.")
+        if self.oneCopyRequested and (
+            not self.activityAccepted
+            or self.activityDisclosureVersion != "one-document-activity-v1"
+        ):
+            raise ValueError("Explicit activity disclosure acceptance required.")
         if self.requesterActorType == "ria" and not self.reason.strip():
             raise ValueError("A verified RIA must give a reason.")
         return self
@@ -236,6 +245,7 @@ class BulkShareCreateRequest(StrictRequest):
 
 
 class AllowRequest(DecisionRequest):
+    oneCopyAccepted: StrictBool = False
     packageRevision: int | None = Field(default=None, strict=True, ge=1)
     packageDigest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     # Whole US dollars as cents. Required only for a paid request; the store
@@ -312,86 +322,6 @@ def _query_service():
         sharing=lambda require_owner: DriveSharingService(require_owner=require_owner),
         suggestions=lambda require_owner: DriveSuggestionService(require_owner=require_owner),
     )
-
-
-def _error(error):
-    # Never forward provider/SQL/credential exception strings to the client.
-    known = {
-        "request_unavailable": (404, "This request is unavailable."),
-        "verify_google_identity_required": (
-            409,
-            "Sign in again with your Google account to request files.",
-        ),
-        "review_changed": (409, "Refresh and review the exact files again."),
-        "source_changed": (409, "The files changed. Prepare a new review."),
-        "recipient_changed": (409, "The recipient's Google identity changed."),
-        "reconnect_required": (409, "Reconnect the original Drive account."),
-        "connection_changed": (409, "The Drive connection changed. Refresh this review."),
-        "connection_required": (409, "An active connection with this person is required."),
-        "explicit_approval_required": (409, "Review and explicitly approve these files."),
-        "confirmation_required": (409, "Review and explicitly confirm this removal."),
-        "request_already_decided": (409, "This request already has a decision."),
-        "request_paid": (409, "This request was paid or files were shared. Refresh it."),
-        "request_changed": (409, "This request changed. Refresh its status."),
-        "package_changed": (409, "The document package changed. Review it again."),
-        "package_not_ready": (409, "AgentOne is still preparing the document package."),
-        "package_not_allowed": (409, "Allow the prepared document package before sharing."),
-        "package_review_required": (409, "Review the prepared document package."),
-        "package_incomplete": (409, "The document package is incomplete. Refresh its status."),
-        "price_changed": (409, "The price changed. Review it again."),
-        "payout_unavailable": (503, "Document payments are temporarily unavailable."),
-        "revocation_pending": (409, "Removal is pending. Refresh its status."),
-        "no_revocable_permissions": (409, "There are no recorded permissions available to remove."),
-        "sharing_unavailable": (503, "Document sharing is not available yet."),
-        "rule_not_covered": (
-            409,
-            "Review the complete exact files before trusting future requests.",
-        ),
-        "rule_changed": (409, "This document trust rule changed. Refresh it."),
-        "connector_unavailable": (503, "Document sharing is not available yet."),
-        "request_expired": (409, "This question expired."),
-        "owner_share_expired": (409, "This search expired. Search your Drive again."),
-        "drive_query_unavailable": (503, "Drive didn't answer. Try again."),
-        "recipient_google_identity_required": (
-            409,
-            "Their Google sign-in needs attention in One before files can be shared.",
-        ),
-        "recipient_verified_email_required": (
-            409,
-            "They need a verified email in One before files can be shared with them.",
-        ),
-        "recipient_verification_unavailable": (
-            503,
-            "Couldn't check their Google account. Try again.",
-        ),
-        "drive_share_unavailable": (503, "Couldn't prepare these files. Try again."),
-        "drive_share_in_progress": (409, "Sharing is already in progress."),
-        "bulk_not_found": (404, "This share review is unavailable."),
-        "bulk_expired": (410, "This share review expired. Start a new one."),
-        "bulk_conflict": (409, "This share review changed. Refresh it."),
-        "source_not_shareable": (
-            409,
-            "Google Drive cannot share one of these files. Refresh the results.",
-        ),
-        "bulk_changed": (409, "This share review changed. Refresh it."),
-        "search_in_progress": (409, "Wait for the complete Drive search before sharing all files."),
-        "search_incomplete": (409, "This Drive search is incomplete. Narrow or restart it."),
-        "search_not_found": (404, "This Drive search is unavailable."),
-        "no_recipients": (409, "No one in your Trusted circle can receive these files yet."),
-        "date_range_required": (422, "Choose exact start and end dates before requesting files."),
-        "invalid_payment_amount": (422, "Choose a price from $0.50 to $500."),
-        "owner_price_required": (409, "Set your request price to continue."),
-        "owner_payout_required": (409, "Set up payouts to continue."),
-        "invalid_argument": (422, "Check the document-sharing request."),
-        "packet_unavailable": (404, "This packet is unavailable."),
-        "packet_changed": (409, "This packet changed. Refresh it before continuing."),
-        "packet_not_ready": (409, "This packet is still being verified."),
-    }
-    code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"
-    if code not in known:
-        code = "sharing_unavailable"
-    status, message = known[code]
-    return HTTPException(status, {"code": code, "message": message}, headers=NO_STORE)
 
 
 async def _call(method, *, owner, factory=None, **kwargs):
@@ -554,6 +484,15 @@ async def create_request(
         reason=body.reason.strip(),
         request_time_zone=body.timeZone,
         expected_quote_version=body.expectedQuoteVersion,
+        **(
+            {
+                "one_copy_requested": True,
+                "activity_accepted": True,
+                "activity_disclosure": body.activityDisclosureVersion,
+            }
+            if body.oneCopyRequested
+            else {}
+        ),
     )
 
 
@@ -1130,6 +1069,7 @@ async def allow(request_id: UUID, body: AllowRequest, owner: Owner = Depends(_ow
         request_id=str(request_id),
         revision=body.revision,
         amount_cents=body.amountCents,
+        **({"one_copy_accepted": True} if body.oneCopyAccepted else {}),
         **(
             {"package_revision": body.packageRevision, "package_digest": body.packageDigest}
             if body.packageRevision is not None or body.packageDigest is not None

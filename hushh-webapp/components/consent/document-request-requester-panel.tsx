@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { ExternalLink } from "@/components/icons";
+import { DocumentOriginalLink as OriginalLink } from "./document-original-link";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
+import { BackgroundDocumentLink } from "./background-document-files";
 import { RequesterPaymentSection } from "@/components/consent/requester-payment-section";
 import { formatDocumentRequestPrice } from "@/lib/consent/document-request-price";
 import { periodConflictNote } from "@/lib/consent/document-request-flow";
@@ -126,24 +127,6 @@ function accessTerm(status: SharingStatus): string | null {
   return `${prefix} ${term} · until ${until}`;
 }
 
-function OriginalLink({ url, googleEmail }: { url: string; googleEmail: string | null }) {
-  const target = new URL(url);
-  // Viewer access went to this Google account; open the original as it.
-  if (googleEmail) target.searchParams.set("authuser", googleEmail);
-  return (
-    <Button data-consent-role="compact-action" asChild size="sm" variant="none" effect="fade" className="min-h-11">
-      <a
-        href={target.href}
-        target="_blank"
-        rel="noopener noreferrer"
-        referrerPolicy="no-referrer"
-        aria-label="Open in Google Drive"
-      >
-        Open original <ExternalLink aria-hidden="true" className="ml-1.5 h-4 w-4" />
-      </a>
-    </Button>
-  );
-}
 
 function RequesterOutcome({
   counts,
@@ -393,6 +376,8 @@ export function DocumentRequestRequesterPanel({
         packageDisclosure={context?.requestRevision === status.revision ? context.packageDisclosure ?? null : null}
         onChanged={onChanged}
       />
+
+      {status.oneCopyRequested && (status.payment?.state === "paid" || status.payment?.state === "partially_refunded" || sharedCount > 0 || delivery?.files.some(file => file.openUrl)) ? <BackgroundDocumentLink requestId={requestId} /> : null}
 
       {delivery && !bulkShareId ? (
         <>

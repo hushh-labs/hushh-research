@@ -7,6 +7,7 @@ _Classification = TypeVar("_Classification", bound=StrEnum)
 
 CONNECTOR_INVENTORY = """
 [CONTENT]
+GET /api/connectors/google_drive/sharing/requests/{request_id}/one-copy/files/{file_ref}/content
 GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/source-selection
 POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/approve
 POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/source-session
@@ -60,15 +61,19 @@ POST /api/connectors/{connector_id}/mcp/oauth/complete
 POST /api/connectors/{connector_id}/mcp/review
 POST /api/connectors/{connector_id}/mcp/verify
 [AUTHORITY]
+POST /api/connectors/google_drive/sharing/requests/{request_id}/one-copy/revoke
 GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/recipient-key
 POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/key-challenge
 GET /api/connectors/google_drive/sharing/packet-publications
+GET,PUT /api/connectors/google_drive/sharing/financial-summary-preference
 PUT /api/connectors/google_drive/sharing/packets/{packet_id}/public-summary
 POST /api/connectors/google_drive/documents/{document_id}/processing
 POST /api/connectors/google_drive/live/background
 POST /api/connectors/google_drive/searches/{job_id}/stop
 POST /api/connectors/{connector_id}/mcp/confirm
 [NETWORK]
+GET /api/connectors/google_drive/sharing/requests/{request_id}/one-copy
+GET /api/connectors/google_drive/sharing/requests/{request_id}/one-copy/activity
 POST /api/connectors/google_drive/sharing/delivery-requests
 GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/terms
 POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/recovery-amendment
@@ -130,6 +135,8 @@ POST /api/connectors/registrations
 
 NETWORK_INVENTORY = """
 [NETWORK]
+GET,PUT /api/one/area-discovery/me
+POST /api/one/area-discovery/search
 DELETE /api/one/location/circle-types
 DELETE /api/one/messages/conversations/{conversation_id}
 GET /api/one/people/{person_ref}/relationship

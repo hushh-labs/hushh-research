@@ -1,6 +1,9 @@
 import { ApiService } from "@/lib/services/api-service";
 import { validateChatAttachmentBytes, MAX_CHAT_IMAGE_BYTES } from "@/lib/circle-chat/crypto";
 import { inspectVoiceMessage } from "@/lib/direct-messages/voice-message";
+import { parseDirectMessageReadReceipt, type DirectMessageReadResult } from "@/lib/direct-messages/read-receipt";
+
+export type { DirectMessageReadResult } from "@/lib/direct-messages/read-receipt";
 
 export type DirectMessageKind = "text" | "photo" | "video" | "document" | "audio";
 export type DirectMessageAttachment = {
@@ -79,11 +82,6 @@ export type DirectMessageHistory = {
 export type DirectMessageSendResult = {
   conversation: DirectMessageConversation;
   message: DirectMessage;
-};
-
-export type DirectMessageReadResult = {
-  readCount: number;
-  readAt: string | null;
 };
 
 export class DirectMessagesServiceRequestError extends Error {
@@ -593,9 +591,7 @@ export class DirectMessagesService {
         headers: authHeaders(input.idToken),
       },
     );
-    const payload = await jsonOrThrow<{ readCount?: unknown; readAt?: unknown; readThroughCreatedAt?: unknown; readThroughMessageId?: string; chatBadgeCount?: number; chatBadgeVersion?: number }>(
-      response,
-    );
+    const payload = parseDirectMessageReadReceipt(await jsonOrThrow(response));
     if (keyId) {
       const { ChatSystemNotifications } = await import("@/lib/notifications/chat-system-notifications");
       const cutoff = payload.readThroughCreatedAt ?? input.throughCreatedAt;
@@ -609,8 +605,8 @@ export class DirectMessagesService {
         ...(messageId ? { messageId: `direct-message:${messageId}` } : {}) });
     }
     return {
-      readCount: asNonNegativeInt(payload.readCount),
-      readAt: asTrimmedString(payload.readAt),
+      readCount: payload.readCount,
+      readAt: payload.readAt,
     };
   }
 

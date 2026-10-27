@@ -159,6 +159,15 @@ Referral filtering composes with the existing policy-successor verifier and reta
 the unresolved-genealogy refusal. Changed source, missing successor or changed
 function/trigger definitions refuse replay rather than restoring old authority.
 
+The same checksum-pinned adapter filters migration 135's Circle connection
+backfill when deletion tombstones exist. Both connection endpoints and the Circle
+owner must remain eligible; retained named provenance from an erased owner cannot
+reactivate a pair or cancel its pending request. Independent live direct/import
+provenance, Trusted exclusions and SMS Circle behavior are preserved. Fresh
+installation still executes the immutable historical body before migration 201.
+The normal identity-write guards remain authoritative for concurrent erasure;
+replay never deletes tombstones, disables a guard or changes accepted SQL checksums.
+
 The checksum-pinned `db/private_agent_adoption.py` execution adapter preserves
 420's historical SQL and ledger checksum in replay and pending ledger execution;
 observe and already-applied ledger entries remain unchanged. Before 420's column

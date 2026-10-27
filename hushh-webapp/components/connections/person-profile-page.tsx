@@ -12,11 +12,12 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { CheckCircle2, LockKeyhole, MoreHorizontal, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
+import { ChevronDown, LockKeyhole, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
 import { toast } from "sonner";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import styles from "./person-profile-page.module.css";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -143,7 +144,8 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   const { user, loading: authLoading } = useAuth();
   const { vaultOwnerToken, isVaultUnlocked } = useVault();
   const connectorFeatures = usePersonConnectorFeatures(user?.uid, vaultOwnerToken, isVaultUnlocked);
-  const packetCatalogAvailable = connectorFeatures.availability.status === "ready" && connectorFeatures.availability.agentPackages;
+  const packetCatalogAvailable = connectorFeatures.availability.status === "ready"
+    && (connectorFeatures.availability.agentPackages || connectorFeatures.availability.periodPackets);
   const resolvedPersonRef = useMemo(() => {
     const isNativeIOS =
       Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
@@ -752,11 +754,9 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
     } else if (viewerProfile.relationship.status === "connected") {
       actions.push({ id: "request-card", label: "Request cards", actionId: "people.profile.request_card", purpose: "Review a request for this person to choose and share a card." });
       actions.push({ id: "remove-connection", label: "Remove connection", actionId: "people.profile.remove_connection", purpose: "End the social connection without silently changing consent." });
-      if (isVaultUnlocked && packetCatalogAvailable) actions.push({ id: "browse-packets", label: "Available packets", actionId: "people.profile.browse_packets", purpose: "View document packets this connection has made available to you." });
     }
-    actions.push({ id: "browse-financial-summaries", label: "Financial documents", actionId: "people.profile.browse_financial_summaries", purpose: "View this person’s published financial summaries." });
     return actions;
-  }, [viewerProfile, isVaultUnlocked, packetCatalogAvailable]);
+  }, [viewerProfile]);
 
   usePublishVoiceSurfaceMetadata(
     viewerProfile
@@ -830,12 +830,13 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
         <PersonProfileHero
           profile={profile}
           shareOnly={!viewerProfile}
-          options={viewerProfile?.relationship.status === "connected" ? (
+          status={relationship?.status === "connected" && viewerProfile?.relationship.status === "connected" ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" size="icon-touch" variant="none" effect="fade" className={styles.overflow} aria-label="Profile options">
-                  <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
-                </Button>
+                <ShellActionSurface variant="pill" className={styles.connectionMenu} data-profile-role="action" aria-label="Connected, connection options">
+                  Connected
+                  <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                </ShellActionSurface>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem variant="destructive" disabled={relationshipBusy} onSelect={() => void updateRelationship("remove")} data-voice-control-id="person-profile-remove-connection">
@@ -843,11 +844,9 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : null}
-          status={relationship ? (
+          ) : relationship ? (
             <>
               <StatusPill className={styles.status} tone={relationship.status === "connected" ? "ready" : "neutral"}>
-                {relationship.status === "connected" ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : null}
                 {relationship.status === "connected"
                   ? "Connected"
                   : relationship.status.startsWith("pending")
@@ -929,10 +928,6 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
               </>
             ) : null}
           footer={<>
-            {packets.privateTrigger}
-            {user ? (
-              <Button type="button" size="compact" variant="none" effect="fade" className={styles.packets} data-voice-control-id="person-profile-browse-financial-summaries" onClick={packets.browse}>Financial documents</Button>
-            ) : null}
             {viewerProfile ? (
               <>
                 <Button type="button" size="compact" variant="none" effect="fade" className={styles.manage} data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>

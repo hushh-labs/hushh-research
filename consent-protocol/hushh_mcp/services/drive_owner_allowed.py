@@ -39,7 +39,7 @@ LEGACY_DEFAULT_PRICE_CENTS = 1_000
 # payment with no owner file selection, at a price from $0.50 in cents. Older
 # sealed requests keep their own price and review contract.
 AUTOSHARE_REQUEST_FLOW = "oct17_autoshare"
-SEMANTIC_SEARCH_POLICY_VERSION = 2
+SEMANTIC_SEARCH_POLICY_VERSION = 3
 SEMANTIC_SEARCH_ENROLLMENT_FLAG = "DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED"
 
 
@@ -73,7 +73,7 @@ def semantic_search_request(private: Mapping[str, Any]) -> bool:
     version = private.get("semantic_search_policy_version")
     return (
         type(version) is int
-        and version in {1, SEMANTIC_SEARCH_POLICY_VERSION}
+        and version in {1, 2, SEMANTIC_SEARCH_POLICY_VERSION}
         and autoshare_request(private)
         and private.get("v1_live_request") is not True
     )
@@ -316,6 +316,9 @@ def end_owner_allows_for_disconnected_pair(
             AND attname='owner_allowed_at' AND NOT attisdropped)""")
     ).scalar_one():
         return 0
+    from hushh_mcp.services.document_delivery.background_consent import end_for_pair
+
+    end_for_pair(connection, user_a_id, user_b_id)
     ended = connection.execute(
         text("""
         UPDATE drive_share_requests SET owner_allowed_at=NULL,

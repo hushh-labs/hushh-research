@@ -1,5 +1,6 @@
-/** Browser -> production client -> HTTP router -> SQL -> signed payment ->
- * local PDF -> real download. Only provider/auth/PKM transports are synthetic. */
+/** Historical device-encrypted v1: browser -> production client/API -> SQL ->
+ * signed payment -> local PDF -> real download. Provider/auth/PKM transports are synthetic.
+ * New default Drive + background-copy intake is covered by request-entry regressions. */
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
@@ -7,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { chromium, webkit } from "playwright";
+import { DOCUMENT_DIAGNOSTIC_PREFIX, documentFailureDiagnostic, instrumentDocumentErrors } from "./document-loop-diagnostics.mjs";
 
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
@@ -20,6 +22,15 @@ let server, browser, page;
 const events = [];
 const failures = [];
 const errors = [];
+const caught = [];
+assert.deepEqual(documentFailureDiagnostic(new Error("synthetic-private-key-material")), { name: "Error", code: "unknown" });
+assert.deepEqual(documentFailureDiagnostic({ name: "synthetic-private-owner", message: "synthetic-private-document" }), { name: "unknown", code: "unknown" });
+const diagnosticReads = { name: 0, message: 0 };
+assert.deepEqual(documentFailureDiagnostic({
+  get name() { return diagnosticReads.name++ === 0 ? "Error" : "synthetic-private-owner"; },
+  get message() { return diagnosticReads.message++ === 0 ? "document_key_invalid" : "synthetic-private-document"; },
+}), { name: "Error", code: "document_key_invalid" });
+assert.deepEqual(diagnosticReads, { name: 1, message: 1 });
 let directGoogleReads = 0; let oneUploads = 0;
 let legacyQuoteReads = 0;
 const record = (name, details = {}) => events.push({ name, ...details });
@@ -33,7 +44,11 @@ try {
     define: { "process.env": JSON.stringify({ NEXT_PUBLIC_APP_URL: "https://one.invalid" }) },
     resolve: { alias: [...alias, { find: "@", replacement: root }] },
     server: { host: "127.0.0.1", port: 0, proxy: { "/api": config.backend, "/__document_fixture/settle": config.backend, "/__document_fixture/replace-key": config.backend, "/__document_fixture/pause-intake": config.backend } },
-    plugins: [{ name: "isolated-document-loop", configureServer(vite) {
+    plugins: [{ name: "isolated-document-loop", enforce: "pre", transform(source, id) {
+      // Observe the real error-copy boundary without replacing any operation.
+      if (id.split("?")[0] === path.join(root, "components/consent/hosted-document-reader.tsx")) return instrumentDocumentErrors(source);
+      return null;
+    }, configureServer(vite) {
       vite.middlewares.use((req, res, next) => {
         if (req.url === "/__document_fixture/config") {
           res.setHeader("Content-Type", "application/json"); res.setHeader("Cache-Control", "no-store");
@@ -55,6 +70,11 @@ try {
   browser = await ({ chromium, webkit }[config.engine]).launch({ headless: true });
   const context = await browser.newContext({ acceptDownloads: true, viewport: { width: 390, height: 820 } });
   page = await context.newPage();
+  const switchActor = async actor => {
+    await page.getByRole("button", { name: `Use ${actor} session`, exact: true }).click();
+    await page.waitForFunction(expected => document.querySelector('[data-testid="document-fixture"]')?.getAttribute("data-actor") === expected, actor);
+  };
+  const control = id => page.locator(`[data-voice-control-id="${id}"]`);
   page.on("pageerror", error => errors.push(error.message));
   page.on("response", async response => {
     if (response.status() < 400) return;
@@ -64,7 +84,17 @@ try {
       failures.push({ status: response.status(), code: error?.detail?.code ?? "unavailable", path: url.pathname.replace(/[a-f0-9-]{36}/g, ":id") });
     } else failures.push({ status: response.status(), path: url.pathname.replace(/[a-f0-9-]{36}/g, ":id") });
   });
-  page.on("console", message => { if (message.type() === "error" || message.text().includes("worker")) failures.push({ browser: message.text().slice(0, 300) }); });
+  page.on("console", message => {
+    if (message.text().startsWith(DOCUMENT_DIAGNOSTIC_PREFIX)) {
+      const value = JSON.parse(message.text().slice(DOCUMENT_DIAGNOSTIC_PREFIX.length));
+      if (caught.length < 8) caught.push(documentFailureDiagnostic({ name: value.name, message: value.code }));
+    } else if (message.type() === "error" || message.text().includes("worker")) failures.push({ browser: message.text().slice(0, 300) });
+  });
+  page.on("requestfailed", request => {
+    const pathname = new URL(request.url()).pathname;
+    const endpoint = ["owner-package", "recipient-key", "recovery-amendment"].find(name => pathname.endsWith(`/delivery/${name}`));
+    if (endpoint) failures.push({ network: "failed", endpoint });
+  });
   const sourceBytes = Buffer.from(config.source.pdf, "base64");
   const sourceHash = crypto.createHash("sha256").update(sourceBytes).digest("hex");
   await page.route("https://www.googleapis.com/drive/v3/files/**", async route => {
@@ -100,32 +130,49 @@ try {
   const start = performance.now();
   await page.setViewportSize({ width: 900, height: 900 });
   await page.goto(`${origin}/one/documents/open`);
-  await page.getByRole("button", { name: "Request files", exact: true }).click();
-  await page.getByLabel("Receive through", { exact: true }).selectOption("one");
-  await page.getByLabel("Which files do you need?", { exact: true }).fill("Statements");
-  await page.getByLabel("Start date", { exact: true }).fill("2026-10-01");
-  await page.getByLabel("End date", { exact: true }).fill("2026-10-25");
-  await page.getByRole("checkbox", { name: /I accept that the owner can see access activity/ }).check();
+  await page.getByRole("heading", { name: "Historical device-encrypted document flow", exact: true }).waitFor();
+  // Create a historical v1 record through the real production client/API. The
+  // retired delivery picker is intentionally absent from new request UI.
   const creation = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/sharing/delivery-requests"));
-  await page.getByRole("button", { name: "Send request", exact: true }).click();
+  const historical = await page.evaluate(async () =>
+    (await import("/e2e/fixtures/hosted-document-flow.tsx")).createHistoricalDeviceRequest());
   const created = await creation;
   assert.equal(created.status(), 202);
   assert.equal(created.request().headers().authorization, "Bearer recipient");
   assert.equal(created.request().headers()["x-hushh-consent"], "recipient");
   assert.equal(created.request().postDataJSON().receiveThrough, "one");
+  assert.equal(created.request().postDataJSON().activityAccepted, true);
+  assert.equal(created.request().postDataJSON().version, 1);
+  assert.equal(created.request().postDataJSON().activityDisclosureVersion, "one-document-activity-v1");
+  assert.equal(created.request().postDataJSON().oneCopyRequested, undefined);
   requestId = (await created.json()).requestId;
+  assert.equal(historical.requestId, requestId);
   assert.match(requestId, /^[a-f0-9-]{36}$/);
-  await page.getByText("Request sent.", { exact: true }).waitFor();
-  assert.equal(legacyQuoteReads, 0, "One requests must not depend on legacy Drive quotes");
+  assert.equal(legacyQuoteReads, 0, "Historical One-only intake must not depend on legacy Drive quotes");
   assert.equal(await page.evaluate(async () => (await import("/e2e/fixtures/hosted-document-boundaries.tsx")).getFixtureKeySetupCount()), 1);
   record("request_committed");
   await page.setViewportSize({ width: 390, height: 820 });
   await page.goto(`${origin}/one/documents/open?ref=${requestId}&actor=owner`);
   await page.getByRole("checkbox", { name: "Private statement.pdf · PDF" }).check();
   await page.getByLabel("Price (USD)").fill("25.00");
-  await page.getByRole("checkbox", { name: /One will store an encrypted copy/ }).check();
-  await page.getByRole("button", { name: "Authorize and prepare encrypted copies" }).click();
-  await page.getByRole("button", { name: "Approve these prepared copies and final terms" }).waitFor({ timeout: 30000 });
+  const accessDeadline = page.getByLabel("Access until (your time)", { exact: true });
+  assert.equal(await accessDeadline.getAttribute("type"), "datetime-local");
+  // Enter the browser's local date format, rounded down within the requested
+  // deadline. The client must send this same instant as a canonical UTC value.
+  await accessDeadline.fill((await accessDeadline.inputValue()).slice(0, 16));
+  const expectedDeadline = await accessDeadline.evaluate(node => new Date(node.value).toISOString());
+  const copyPermission = page.getByTestId("hosted-document-panel").locator('[data-consent-role="disclosure"]').getByRole("checkbox");
+  assert.equal(await copyPermission.isChecked(), false);
+  assert.equal(await control("document-hosting-prepare").isEnabled(), false);
+  await copyPermission.check();
+  const preparation = page.waitForResponse(response => response.request().method() === "POST" &&
+    new URL(response.url()).pathname.endsWith("/delivery/approve") && response.request().postDataJSON()?.phase === "prepare");
+  await control("document-hosting-prepare").click();
+  const prepared = await preparation;
+  assert.equal(prepared.status(), 200);
+  assert.equal(prepared.request().postDataJSON().copyAccepted, true);
+  assert.equal(prepared.request().postDataJSON().accessExpiresAt, expectedDeadline);
+  await control("document-hosting-final-approve").waitFor({ timeout: 30000 });
   const selectedFile = page.getByLabel("Approved files", { exact: true }).getByText("Private statement.pdf · PDF", { exact: true });
   await selectedFile.waitFor();
   assert.equal(await page.getByRole("checkbox", { name: "Private statement.pdf · PDF" }).count(), 0);
@@ -134,26 +181,28 @@ try {
   assert.equal(await page.getByRole("checkbox", { name: "Private statement.pdf · PDF" }).count(), 0);
   record("encrypted_package_staged", { directGoogleReads, oneUploads });
   assert.equal(directGoogleReads, 3); assert.equal(oneUploads, 3);
-  await page.getByRole("button", { name: "Approve these prepared copies and final terms" }).click();
-  await page.getByRole("button", { name: "Use recipient session" }).click();
+  await control("document-hosting-final-approve").click();
+  await page.getByText("Waiting for recipient acceptance", { exact: true }).waitFor();
+  await switchActor("recipient");
   await page.getByRole("checkbox", { name: /I accept this approved document version/ }).check();
-  await page.getByRole("button", { name: "Accept and pay $25.00" }).click();
+  assert.equal(await control("document-hosting-pay").textContent(), "Accept and pay $25.00");
+  await control("document-hosting-pay").click();
   await page.waitForURL(`${origin}/one/documents/open?ref=${requestId}`);
   await page.getByRole("region", { name: "Protected documents", exact: true }).waitFor({ timeout: 15000 });
   const reported = kind => page.waitForResponse(response => response.request().method() === "POST" &&
     new URL(response.url()).pathname.endsWith("/delivery/activity") && response.request().postDataJSON()?.kind === kind);
   const renderedEvent = reported("preview_rendered");
-  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await control("document-hosting-preview").click();
   const canvas = page.getByLabel("Document preview, page 1", { exact: true });
   await canvas.waitFor();
   await page.waitForFunction(() => { const node = document.querySelector('canvas[aria-label="Document preview, page 1"]'); return node && node.width > 0 && node.height > 0; });
   assert.ok(await canvas.evaluate(node => node.getContext("2d").getImageData(0, 0, node.width, node.height).data.some((value, index) => index % 4 !== 3 && value < 240)));
   assert.equal((await renderedEvent).status(), 200);
   record("local_preview_rendered");
-  await page.getByRole("button", { name: "Back to documents" }).click();
+  await control("document-hosting-close-preview").click();
   const originalPromise = page.waitForEvent("download");
   const originalHandoff = reported("handoff_reported");
-  await page.getByRole("button", { name: "Download original", exact: true }).click();
+  await control("document-hosting-download-original").click();
   const original = await originalPromise;
   const originalBytes = await fs.readFile(await original.path());
   assert.equal(original.suggestedFilename(), "Private statement.pdf");
@@ -161,7 +210,7 @@ try {
   assert.equal((await originalHandoff).status(), 200);
   const markedPromise = page.waitForEvent("download");
   const markedHandoff = reported("handoff_reported");
-  await page.getByRole("button", { name: "Download watermarked copy", exact: true }).click();
+  await control("document-hosting-download-copy").click();
   const marked = await markedPromise;
   const markedBytes = await fs.readFile(await marked.path());
   assert.ok(markedBytes.subarray(0, 5).equals(Buffer.from("%PDF-")));
@@ -188,34 +237,42 @@ try {
   // eslint-disable-next-line no-restricted-syntax -- Test-only runtime policy boundary.
   const paused = await fetch(`${config.backend}/__document_fixture/pause-intake`, { method: "POST" });
   assert.equal(paused.status, 200); assert.equal((await paused.json()).enabled, false);
+  const retiredSession = await page.evaluateHandle(async () =>
+    (await import("/e2e/fixtures/hosted-document-boundaries.tsx")).fixtureSession("recipient").isCurrent);
   await page.evaluate(async () => (await import("/e2e/fixtures/hosted-document-boundaries.tsx")).loseFixtureRecipientKey());
-  await page.getByRole("button", { name: "Use owner session" }).click();
-  await page.getByRole("button", { name: "Use recipient session" }).click();
-  await page.getByRole("button", { name: "Request key recovery", exact: true }).waitFor();
+  await switchActor("owner");
+  await switchActor("recipient");
+  assert.equal(await retiredSession.evaluate(isCurrent => isCurrent()), false, "Restoring an actor must not revive its retired session");
+  await retiredSession.dispose();
+  await control("document-hosting-recovery-request").waitFor();
   page.once("dialog", dialog => dialog.accept());
-  await page.getByRole("button", { name: "Request key recovery", exact: true }).click();
+  await control("document-hosting-recovery-request").click();
   await page.getByText("Recovery requested. The owner must authorize repairing this copy. Nothing was charged.", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Use owner session" }).click();
-  await page.getByRole("button", { name: "Repair recipient access", exact: true }).waitFor();
-  page.once("dialog", dialog => dialog.accept());
+  await switchActor("owner");
+  await control("document-hosting-repair").waitFor();
   const amendment = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/delivery/recovery-amendment"));
-  await page.getByRole("button", { name: "Repair recipient access", exact: true }).click();
-  assert.equal((await amendment).status(), 200);
-  await page.getByRole("button", { name: "Use recipient session" }).click();
+  await control("document-hosting-repair").click();
+  await page.getByRole("alertdialog", { name: "Repair recipient access?" }).getByRole("button", { name: "Repair access", exact: true }).click();
+  const repaired = await amendment;
+  assert.equal(repaired.status(), 200);
+  await repaired.finished();
+  assert.equal((await repaired.json()).recoveryRequested, false);
+  await control("document-hosting-repair").waitFor({ state: "hidden" });
+  await switchActor("recipient");
   const recoveredDownload = page.waitForEvent("download");
   const recoveredHandoff = reported("handoff_reported");
-  await page.getByRole("button", { name: "Download original", exact: true }).click();
+  await control("document-hosting-download-original").click();
   assert.equal(crypto.createHash("sha256").update(await fs.readFile(await (await recoveredDownload).path())).digest("hex"), sourceHash);
   assert.equal((await recoveredHandoff).status(), 200);
   assert.equal(directGoogleReads, 3); assert.equal(oneUploads, 3);
   record("paid_key_recovery_verified");
-  await page.getByRole("button", { name: "Use owner session" }).click();
-  page.once("dialog", dialog => dialog.accept());
-  await page.getByRole("button", { name: "Stop One access", exact: true }).click();
+  await switchActor("owner");
+  await control("document-hosting-revoke").click();
+  await page.getByRole("alertdialog", { name: "Stop One access?" }).getByRole("button", { name: "Stop access", exact: true }).click();
   await page.getByText("Access revoked", { exact: true }).waitFor();
   record("revoke_committed");
-  await page.getByRole("button", { name: "Use recipient session" }).click();
-  assert.equal(await page.getByRole("button", { name: "Download original", exact: true }).count(), 0);
+  await switchActor("recipient");
+  assert.equal(await control("document-hosting-download-original").count(), 0);
   assert.deepEqual(errors, []);
   const elapsedMs = Math.round(performance.now() - start);
   assert.ok(elapsedMs < 45000, `Production loop exceeded 45s: ${elapsedMs}ms`);
@@ -223,7 +280,7 @@ try {
   await context.close();
 } catch (error) {
   const alerts = await page?.getByRole("alert").allTextContents().catch(() => []);
-  console.error(JSON.stringify({ stage: events.at(-1)?.name ?? "starting", directGoogleReads, oneUploads, failures, alerts, errors }));
+  console.error(JSON.stringify({ stage: events.at(-1)?.name ?? "starting", directGoogleReads, oneUploads, failures, alerts, errors, caught }));
   throw error;
 } finally {
   await browser?.close();

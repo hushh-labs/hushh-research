@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -176,6 +177,9 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(
     step = next(step for step in steps if step["name"] == "Validate candidate build capabilities")
     program = step["run"].split("<<'PYBUILD'\n", 1)[1].rsplit("PYBUILD", 1)[0]
     copy_candidate_tools(ROOT, tmp_path)
+    shutil.copy2(
+        ROOT / "scripts/ci/retention_admission.py", tmp_path / "scripts/ci/retention_admission.py"
+    )
     if legacy_interface == "missing-probe":
         (tmp_path / "scripts/ci/verify-dev-candidate.sh").unlink()
     elif legacy_interface == "unprotected-retention":

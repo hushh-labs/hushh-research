@@ -14,6 +14,7 @@ from hushh_mcp.services.drive_request_review_policy import checkpoint_requires_o
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from tests.services.test_drive_request_search_unit import (
     _checkpoint,
+    _discovery_checkpoint,
     _provider_file,
     _real_rest_service,
     _request_candidate,
@@ -257,3 +258,71 @@ async def test_owner_review_stops_auto_before_freezing_payment_or_approval(share
     bulk.pending_request_reviews.assert_not_awaited()
     bulk.unclaimed_positions.assert_not_awaited()
     payment.ensure_payment_for_frozen_batch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("new_policy", [False, True])
+async def test_provider_results_policy_preserves_google_membership_without_host_narrowing(
+    monkeypatch, new_policy
+):
+    from hushh_mcp.services.drive_request_discovery import DISCOVERY_PROVIDER_RESULTS_POLICY
+
+    originals = [
+        _provider_file("current", "Cedar Rook record", "application/pdf", version="9"),
+        _provider_file("dated", "Cedar Rook 2024-01-01", "application/pdf", version="9"),
+        _provider_file("binary", "Cedar Rook archive", "application/zip", version="9"),
+    ]
+
+    def respond(path, params, keys):
+        return {"drives": []} if path == "/drives" else {"files": originals}
+
+    service, _ = _real_rest_service(monkeypatch, respond)
+    service.reader_factory = lambda **_: pytest.fail("provider membership read document bodies")
+    service.candidate_assessor = AsyncMock(side_effect=AssertionError("assessor invoked"))
+    checkpoint = _discovery_checkpoint()
+    checkpoint["request_file_kind"] = "pdf"
+    if new_policy:
+        checkpoint["discovery_delivery_policy"] = DISCOVERY_PROVIDER_RESULTS_POLICY
+    checkpoint, files, incomplete, _ = await service._page(
+        {"user_id": "owner", "generation": 7, "checkpoint": checkpoint}
+    )
+    assert not incomplete
+    assert {item["id"] for item in files} == (
+        {"current", "dated", "binary"} if new_policy else {"current"}
+    )
+    assert checkpoint["coverage_counts"].get("excludedByDateCount", 0) == (0 if new_policy else 1)
+    assert checkpoint["coverage_counts"].get("excludedByKindCount", 0) == (0 if new_policy else 1)
+    service.candidate_assessor.assert_not_awaited()
+
+
+@pytest.mark.parametrize("policy", ["absent", "drive_query_results_v2", None, "unknown"])
+def test_discovery_evidence_preserves_legacy_default_and_explicit_policy_binding(policy):
+    from hushh_mcp.services.drive_request_discovery import (
+        DISCOVERY_DELIVERY_POLICY,
+        DISCOVERY_PROVIDER_RESULTS_POLICY,
+        discovery_evidence,
+        discovery_evidence_matches,
+    )
+
+    checkpoint = _discovery_checkpoint()
+    checkpoint.pop("discovery_delivery_policy")
+    if policy != "absent":
+        checkpoint["discovery_delivery_policy"] = policy
+    file = _provider_file("source", "Cedar Rook record", "application/pdf")
+    evidence = discovery_evidence(checkpoint, user_id="owner", generation=7, metadata=file)
+    expected = DISCOVERY_DELIVERY_POLICY if policy == "absent" else policy
+    assert evidence["policy"] == expected
+    file["discoveryEvidence"] = evidence
+    assert discovery_evidence_matches(
+        file, user_id="owner", generation=7, checkpoint=checkpoint
+    ) is (policy in {"absent", DISCOVERY_PROVIDER_RESULTS_POLICY})
+    if policy in {"absent", DISCOVERY_PROVIDER_RESULTS_POLICY}:
+        file["discoveryEvidence"] = {
+            **evidence,
+            "policy": DISCOVERY_PROVIDER_RESULTS_POLICY
+            if policy == "absent"
+            else DISCOVERY_DELIVERY_POLICY,
+        }
+        assert not discovery_evidence_matches(
+            file, user_id="owner", generation=7, checkpoint=checkpoint
+        )

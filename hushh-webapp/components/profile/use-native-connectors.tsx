@@ -7,9 +7,8 @@ import { nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 import { NativeConnectorEditor, NativeConnectorForm } from "./native-connector-editor";
 import { nativeMemoryText } from "./use-native-memory";
 import { packetPublicationsNative } from "@/components/consent/packets/packet-publications";
-import { packetPublicSummaryNative } from "@/components/consent/packets/packet-public-summary-native";
 import { ownerPacketSections } from "@/components/consent/drive-packet-catalog";
-import { PACKET_CATEGORY_NAMES, categoryPeriods, packetCategories, ownerPacketTitle, ownerStatusLine, packetPeriod, periodLabel } from "@/components/consent/packets/packet-copy";
+import { PACKET_CATEGORY_NAMES, categoryPeriods, packetCategories, ownerPacketTitle, ownerStatusLine, ownerPeriodTitle, ownerPeriodStatusLine } from "@/components/consent/packets/packet-copy";
 import type { DrivePacket, DrivePacketCategory } from "@/lib/services/drive-packet-service";
 import { connectorArtworkId } from "@/lib/profile/connector-artwork";
 import { DRIVE_GROUP_DISCLOSURE } from "@/components/agent/drive-data-packets";
@@ -126,7 +125,7 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
         ...(detail.background.enabled === null ? [] : [toggle("drive-background", "Background Drive access", detail.background.enabled, !detail.background.busy, detail.background.change)]),
         ...action("drive-background-retry", detail.background.retry)] : []),
       ...(detail.collection ? [bind("drive-preparation", "Prepare packets", () => change(value => ({ ...value, drive: "preparation" })), { detail: detail.collection.caption, chevron: true })] : []),
-      ...packetPublicationsNative(detail.publications, { read, bind }),
+      ...packetPublicationsNative(detail.publications, { read, bind, toggle }),
       ...(detail.packets.enabled || detail.collection?.status ? [bind("drive-packets", "Packets", () => change(value => ({ ...value, drive: "packets" })), { chevron: true })] : []),
       bind("drive-trust", "Trusted documents", () => change(value => ({ ...value, drive: "trust" })), { chevron: true }),
       ...(detail.groups ? [read("drive-groups-heading", "Data packets", detail.groups.caption),
@@ -190,8 +189,8 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
         packetCategories(catalog.packets, catalog.periodPackets).map(key => bind(`packet-category:${key}`, PACKET_CATEGORY_NAMES[key],
           () => change(value => ({ ...value, packetCategory: key })), { chevron: true }))),
       ...pageRows(`packets:${category ?? "legacy"}`, packets, packet => [bind(`packet:${packet.packetId}:${packet.version}:${packet.listingRevision}`,
-        category ? periodLabel(packetPeriod(packet)) ?? ownerPacketTitle(packet) : ownerPacketTitle(packet),
-        () => catalog.open(packet), { detail: ownerStatusLine(packet), chevron: true })]),
+        category ? ownerPeriodTitle(packet) : ownerPacketTitle(packet),
+        () => catalog.open(packet), { detail: category ? ownerPeriodStatusLine(packet) : ownerStatusLine(packet), chevron: true })]),
       ...(catalog.loaded && !catalog.error && (category ? !packets.length : !catalog.periodPackets && !catalog.packets.length) ?
         [read("packets-empty", category ? "No packets yet" : catalog.preparationPaused ? "Preparation paused" : "Agent One is preparing your packets.")] : []),
       ...(catalog.error ? [read("packets-error", "Couldn’t load packets."), bind("packets-retry", "Retry", () => catalog.load(), { enabled: !catalog.busy })] : []),
@@ -202,7 +201,6 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
       ...ownerPacketSections(drive.packet.packet, drive.packet.amount, drive.packet.current).map(section => ({ id: `packet:${section.id}`, title: section.title,
         rows: (section.rows ?? []).map(row => row.onOpen ? bind(`packet:${section.id}:${row.id}`, row.title, row.onOpen, { chevron: true, detail: row.description }) :
           read(`packet:${section.id}:${row.id}`, row.title, [row.description, row.value].filter(Boolean).join("\n") || undefined)) })),
-      ...packetPublicSummaryNative(drive.packet.publication, { text, bind, toggle }),
       { id: "packet-actions", rows: [...drive.packet.actions.map(value => bind(`packet-action:${value.id}`, value.label, () => value.onSelect?.(), { enabled: !value.disabled })), ...text("packet-message", drive.packet.message)] },
     ] });
   }

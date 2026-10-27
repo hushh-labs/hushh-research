@@ -90,7 +90,11 @@ export function DirectMessageVoiceRecorder({ disabled, onRecorded, onRecordingCh
     lease.current = appInteractionCoordinator.acquireVoiceLease({ owner: "direct-message-recording", onRevoked: cancel });
     onRecordingChange(true); setPhase("starting");
     try {
-      await recorder.start(crypto.randomUUID(), () => onLimit.current());
+      await recorder.start(crypto.randomUUID(), () => onLimit.current(), undefined, () => {
+        if (!active.current || current !== generation.current) return;
+        cancel();
+        morphyToast.error("The microphone disconnected. Record your message again.");
+      });
       if (!active.current || current !== generation.current || !lease.current?.isCurrent()) {
         return; // Cancellation already fenced this session; never cancel a newer retry.
       }

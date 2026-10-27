@@ -227,7 +227,8 @@ class CacheService {
         key.startsWith(`connections_first_page_${userId}_`) ||
         key.startsWith(`connect_directory_first_page_${userId}_`) ||
         key.startsWith(`google_connection_${userId}_`) ||
-        key.startsWith(`calendar_invitations_${userId}_`)
+        key.startsWith(`calendar_invitations_${userId}_`) ||
+        key.startsWith(`drive_packet_${userId}_`)
         || key.startsWith(`referral_dashboard_${userId}_`)
       ) {
         keysToDelete.add(key);
@@ -241,16 +242,14 @@ class CacheService {
       }
     }
 
-    if (deletedKeys.length > 0) {
-      this.emit({ type: "invalidate_user", userId, keys: deletedKeys });
-    }
+    // Lifecycle listeners must also retire cold requests with no snapshot yet.
+    this.emit({ type: "invalidate_user", userId, keys: deletedKeys });
   }
 
   /**
    * Clear all cached data
    */
   clear(): void {
-    if (this.cache.size === 0) return;
     this.cache.clear();
     this.emit({ type: "clear" });
   }

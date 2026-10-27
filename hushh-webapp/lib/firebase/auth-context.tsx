@@ -14,6 +14,8 @@
 
 "use client";
 
+import { resolveAccountLifecycleRecovery } from "@/lib/auth/account-lifecycle-recovery";
+
 import { requireUsablePhoneTestStart } from "@/lib/auth/phone-test-eligibility";
 
 import React, {
@@ -94,7 +96,7 @@ import { useOneConversationSession } from "@/lib/agent/one-conversation-session"
 import { settleSignOutNotifications } from "@/lib/auth/sign-out-notifications";
 import { replaceWindowLocation } from "@/lib/utils/browser-navigation";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
-import { parseAccountRegistrationRecovery, type AccountRegistrationRecovery } from "@/lib/auth/account-registration";
+import { type AccountRegistrationRecovery } from "@/lib/auth/account-registration";
 import { parseAccountCleanupOperation, type AccountCleanupOperation } from "@/lib/auth/account-cleanup-operation";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
@@ -713,20 +715,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return { outcome: "active", principal };
       };
 
-      const resolveRegistrationRecovery = async (idToken: string, terminal: AccountSessionValidationResult): Promise<AccountSessionValidationResult> => {
-        try {
-          const response = await withinAccountSessionValidationBudget(ApiService.getAccountRegistrationStatus(idToken), deadlineMs);
-          // Older images and the deliberate rollout-off state keep the original
-          // lifecycle outcome. A network failure never proves cleanup completed.
-          if (response.status === 404) return terminal;
-          if (response.ok && hasJsonResponseContentType(response)) {
-            const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
-            const registration = parseAccountRegistrationRecovery(body);
-            if (registration) return { outcome: "unavailable", registration };
-          }
-        } catch { /* Keep identity for purpose-bound recovery, never admit it. */ }
-        return { outcome: "unavailable" };
-      };
+      const resolveRegistrationRecovery = (idToken: string, terminal: AccountSessionValidationResult): Promise<AccountSessionValidationResult> =>
+        terminal.outcome === "terminal" ? resolveAccountLifecycleRecovery(idToken, deadlineMs, terminal) : Promise.resolve(terminal);
 
       const resolveDeletionInProgress = async (
         idToken: string,

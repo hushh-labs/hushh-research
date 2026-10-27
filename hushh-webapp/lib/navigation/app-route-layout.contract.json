@@ -2661,10 +2661,14 @@
         {
           "href": "/register-phone",
           "expected": null
+        },
+        {
+          "href": "/register-phone?recovery=27b517dc-d694-44e3-a9be-ed8ae0484de2",
+          "expected": null
         }
       ],
       "kind": "surface-owned",
-      "reason": "Mandatory phone verification owns nested Back: transfer review returns to recovery choices, choices return to phone entry, and a dispatched transfer consumes Back until status settles. Behavioral proof: phone-verification-flow-interaction.test.tsx."
+      "reason": "Mandatory phone verification owns nested Back: transfer review returns to recovery choices, choices return to phone entry, and a dispatched transfer consumes Back until status settles. Behavioral proof: phone-verification-flow-interaction.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
     }
   },
   {
@@ -2979,6 +2983,22 @@
         },
         {
           "href": "/one/kai?tab=analysis&view=debate",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis&view=summary",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis&view=detailed",
           "expected": {
             "href": "/one/kai?tab=analysis",
             "mode": "replace",
@@ -3314,6 +3334,22 @@
           "href": "/one/kai/import",
           "expected": {
             "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/kai/import?from=%2Fone%2Fkai%3Ftab%3Dportfolio",
+          "expected": {
+            "href": "/one/kai?tab=portfolio",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/kai/import?from=%2Fone%2Fkai%2Fportfolio%2Fsources",
+          "expected": {
+            "href": "/one/kai/portfolio/sources",
             "mode": "push",
             "transitionMode": "full"
           }
@@ -7543,7 +7579,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.people.person_profile",
-      "purpose": "Review a person, request information, browse permitted document packets, and manage existing access.",
+      "purpose": "Review a person, view financial documents, request information, and manage existing access.",
       "screen": "one_person_profile",
       "entryCue": "",
       "proactivity": "ambient",
@@ -7553,8 +7589,7 @@
         "people.profile.review_information_request",
         "people.profile.cancel_connection_request",
         "people.profile.remove_connection",
-        "people.profile.manage_consent",
-        "people.profile.browse_packets"
+        "people.profile.manage_consent"
       ],
       "requiredInputs": [],
       "recoveries": {
@@ -7905,9 +7940,17 @@
             "mode": "push",
             "transitionMode": "full"
           }
+        },
+        {
+          "href": "/one/documents/open?ref=00000000-0000-4000-8000-000000000001&delivery=background",
+          "expected": {
+            "href": "/one/consent",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
-      "reason": "The protected reader first closes its registered preview layer and clears decrypted bytes; the authored route parent is the access manager. No raw history fallback."
+      "reason": "Back first cancels the One access confirmation, then closes the registered preview and clears readable bytes. The authored route parent is the access manager; no raw history fallback. Behavioral proof: hosted-document-reader.test.tsx."
     }
   }
 ]

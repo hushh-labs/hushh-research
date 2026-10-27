@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { connectedInvitationPeople } from "@/lib/calendar/invitation-people";
+import { connectedInvitationPeople, invitationPhotoUrl } from "@/lib/calendar/invitation-people";
 import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
 
 const connection = (email: string, displayName: string, photoUrl: string | null = null): ConnectionSummaryEntry => ({
@@ -17,5 +17,14 @@ describe("Calendar connected people", () => {
     expect(people.get("jhumma@hushh.ai")).toEqual({ displayName: "Jhumma Kumari", photoUrl: "https://images.example.test/jhumma.jpg" });
     expect(people.has("duplicate@example.com")).toBe(false);
     expect(people.has("unknown@example.com")).toBe(false);
+  });
+
+  it("uses a verified photo only for the selected Calendar account", () => {
+    const people = connectedInvitationPeople([connection("manish@example.test", "Manish", "https://images.example.test/manish.jpg")]);
+    const ownerPhoto = "https://lh3.googleusercontent.com/a/owner=s96-c";
+    expect(invitationPhotoUrl(people, " OWNER@example.test ", "owner@example.test", ownerPhoto)).toBe(ownerPhoto);
+    expect(invitationPhotoUrl(people, "manish@example.test", "owner@example.test", ownerPhoto)).toBe("https://images.example.test/manish.jpg");
+    expect(invitationPhotoUrl(people, "stranger@example.test", "owner@example.test", ownerPhoto)).toBeNull();
+    expect(invitationPhotoUrl(people, "owner@example.test", "owner@example.test", "https://evil.example.test/avatar")).toBeNull();
   });
 });

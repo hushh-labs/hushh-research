@@ -23,9 +23,9 @@
 #
 # Called from deploy-uat.yml / deploy-production.yml only after the release
 # classified healthy (no rollback fired). Requires `contents: write` on the
-# calling workflow and a checkout with push credentials persisted (the
-# actions/checkout default — do not add persist-credentials: false upstream
-# of this step).
+# calling workflow and push credentials at this step. Production supplies a
+# step-scoped GH_TOKEN via an ephemeral Git credential helper; checkout and
+# application build steps retain no persisted Git credentials.
 #
 # Env (all required except RUN_URL/ACTOR):
 #   ENVIRONMENT        uat | production
@@ -50,6 +50,14 @@ FRONTEND_REVISION="${FRONTEND_REVISION:-}"
 FRONTEND_SERVICE_URL="${FRONTEND_SERVICE_URL:-}"
 RUN_URL="${RUN_URL:-}"
 ACTOR="${ACTOR:-unknown}"
+
+# A qualified operational backend is distinct from historical release health.
+# Only the existing confirmed activation receipt can close that transition.
+if [ "$ENVIRONMENT" = production ]; then
+  LATEST_EXPECTED_OID="$(python3 scripts/ci/production_backend_successor_control.py healthy \
+    --sha "$SHA" --revision "$BACKEND_REVISION" \
+    --activation "${OPERATIONAL_BACKEND_ACTIVATION_RECEIPT:-/tmp/prod-account-deletion-activation.json}")"
+fi
 
 SHA8="${SHA:0:8}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -85,6 +93,11 @@ git push origin "refs/tags/${TAG}"
 # Force-move only this one ref, not a general force-push — deliberately
 # scoped so it can never touch a branch or another tag.
 git tag -fa "$LATEST_REF" "$SHA" -m "$MESSAGE"
-git push origin "refs/tags/${LATEST_REF}" --force
+if [ "$ENVIRONMENT" = production ]; then
+  git push origin "refs/tags/${LATEST_REF}" \
+    "--force-with-lease=refs/tags/${LATEST_REF}:${LATEST_EXPECTED_OID}"
+else
+  git push origin "refs/tags/${LATEST_REF}" --force
+fi
 
 echo "[tag-last-known-good] Tagged ${SHA8} as ${TAG} and moved ${LATEST_REF} to it."

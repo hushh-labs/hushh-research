@@ -2186,6 +2186,30 @@
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:people.profile.browse_packets",
+      "from_revision": "9031503093c4ce05",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:people.profile.browse_financial_summaries",
+      "from_revision": "9031503093c4ce05",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:document.hosted.choose_receive_through",
+      "from_revision": "8d6d782606fc5ce1",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
     }
   ]
 }

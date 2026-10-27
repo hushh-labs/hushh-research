@@ -85,8 +85,17 @@ export function registerFinanceScreenChecks(
         const sheetBox = (await holding.boundingBox())!;
         const chartBox = (await holdingChart.boundingBox())!;
         const factsBox = (await facts.boundingBox())!;
-        const closeBox = (await holding.getByRole("button", { name: "Close", exact: true }).boundingBox())!;
-        expect(Math.min(closeBox.width, closeBox.height)).toBeGreaterThanOrEqual(44);
+        const alignment = await holding.evaluate(element => {
+          const close = element.querySelector("[data-slot='drawer-close']")!.getBoundingClientRect();
+          const header = element.querySelector("[data-slot='drawer-header']")!.getBoundingClientRect();
+          const title = element.querySelector("[data-slot='drawer-title']")!.parentElement!.getBoundingClientRect();
+          return { hitSize: Math.min(close.width, close.height),
+            centerGap: Math.abs(close.y + close.height / 2 - title.y - title.height / 2),
+            rightInset: header.right - close.right };
+        });
+        expect(alignment.hitSize).toBeGreaterThanOrEqual(44);
+        expect(alignment.centerGap).toBeLessThanOrEqual(1);
+        expect(Math.abs(alignment.rightInset - 20)).toBeLessThanOrEqual(1);
         if (width >= 1024) {
           expect(sheetBox.width).toBeLessThanOrEqual(1120);
           expect(Math.abs(sheetBox.x - (width - sheetBox.width) / 2)).toBeLessThanOrEqual(2);
@@ -99,7 +108,7 @@ export function registerFinanceScreenChecks(
         await holding.screenshot({ path: test.info().outputPath(`holding-${width}-${theme}.png`) });
         await holding.getByRole("button", { name: "Edit Holding" }).click();
         await expect(page.getByTestId("action-result")).toHaveText("Edit sample");
-        await page.keyboard.press("Escape");
+        await holding.getByRole("button", { name: "Close", exact: true }).click();
         await expect(holding).toHaveCount(0);
         if (width >= 1024) {
           const table = page.getByTestId("holdings-table-fixture");
@@ -149,6 +158,18 @@ export function registerHoldingEntryChecks(mount: (page: Page, width?: number) =
         const editor = page.getByRole("dialog", { name: "Edit Holding", exact: true });
         await expect(editor).toBeVisible();
         await expect(page.getByRole("dialog")).toHaveCount(1);
+        const quantity = editor.getByLabel(/^quantity/i);
+        await quantity.fill("0");
+        await editor.getByRole("button", { name: /save/i }).click();
+        await expect(quantity).toBeFocused();
+        await expect(quantity).toHaveAttribute("aria-invalid", "true");
+        await expect(quantity).toHaveAccessibleDescription("Enter a quantity other than 0.");
+        expect(await quantity.evaluate(element => {
+          const field = element.getBoundingClientRect();
+          const viewport = element.closest(".overflow-y-auto")!.getBoundingClientRect();
+          return field.top >= viewport.top && field.bottom <= viewport.bottom;
+        })).toBe(true);
+        await editor.screenshot({ path: test.info().outputPath(`holding-validation-${width}-${theme}.png`) });
         await editor.getByLabel(/quantity/i).fill("7");
         await editor.getByLabel(/cost basis/i).fill("840");
         await editor.getByRole("button", { name: /save/i }).click();
@@ -203,4 +224,21 @@ export function registerStockQuoteRecoveryChecks(mount: (page: Page, width?: num
       await detail.screenshot({ path: test.info().outputPath(`stock-quote-recovered-${width}-${theme}.png`) });
     });
   }
+}
+
+export async function expectMarketLocalTimes(page: Page, localTime: string): Promise<void> {
+  const movers = page.getByRole("region", { name: "Market movers", exact: true });
+  await expect(movers.locator("[data-market-mover-pair]")).toHaveCount(3);
+  await expect(movers.getByRole("button")).toHaveCount(6);
+  await expect(movers.locator("[data-market-mover-freshness]")).toContainText(localTime);
+  await expect(page.locator("body")).not.toContainText(/\bcached\b/i);
+  const index = page.getByRole("button", { name: /^S&P 500:/ });
+  await expect(index.locator("time")).toHaveText(localTime);
+  await expect(index.locator("time")).toHaveAttribute("datetime", "2026-10-21T14:00:00Z");
+  await index.click();
+  const detail = page.getByRole("dialog", { name: "S&P 500", exact: true });
+  await expect(detail.locator("dl")).toContainText(localTime);
+  await expect(detail).not.toContainText(/\bcached\b/i);
+  await page.keyboard.press("Escape");
+  await expect(detail).toHaveCount(0);
 }

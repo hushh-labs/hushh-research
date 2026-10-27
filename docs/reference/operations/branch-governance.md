@@ -5,6 +5,50 @@ The canonical state-changing operator procedure is the
 This page defines branch policy and governed cohorts; it does not redefine the
 exact-head Admin PR landing or environment dispatch sequence.
 
+## Dev / UAT branch preparation
+
+The selective release transition is staged. **Current Main remains the baseline;
+no source rollback or history rewrite is part of this change.** The existing
+train/main intake and manual deployment selectors below remain active until the
+promotion and acceptance gates are migrated together.
+
+`branch_flow.prepared_branches` in `config/ci-governance.json` declares protection
+policy references for `dev` and `uat`. These are branch policies, separate from
+the top-level `dev` and `uat` environment dispatch cohorts. A declaration does
+not create a branch, apply protection or grant deployment authority.
+
+Preparation provides strict destination freshness, merge-queue event coverage,
+and aggregate CI rejection of skipped freshness for both branches. Main keeps
+its existing bounded PR freshness; queue admission remains strict. The existing
+protection verifier resolves the declared branch policy and exact queue ruleset;
+it refuses undeclared branches rather than silently treating them as Main.
+
+Before enabling intake, preserve existing refs and outstanding work, prepare each
+branch from the then-current Main baseline, and apply/read back its protection.
+The existing `uat` ref must not be reset merely because its history is old.
+Default `apply-governance.py` still reconciles Main/train and teams; it does not
+bootstrap the prepared branches. Verify explicitly after provisioning:
+
+```bash
+GITHUB_BRANCH=dev scripts/ci/verify-main-branch-protection.sh
+GITHUB_BRANCH=uat scripts/ci/verify-main-branch-protection.sh
+```
+
+The following batches must complete before activation:
+
+1. Move ordinary intake to Dev without discarding train or active branch work.
+2. Select dependency-complete changes into UAT; stabilize there and carry fixes
+   back to Dev. Keep both deployments manual. Qualify the final assembled SHA in
+   Dev before UAT; an original cherry-picked commit's receipt cannot qualify it.
+3. Promote the exact UAT-qualified application SHA through a reviewed Main
+   promotion. Record the Main approval merge separately, prove no new content was
+   introduced, and preserve service-specific acceptance and rollback.
+4. Align all selectors, scoped/native release paths and operating instructions,
+   then verify one complete release before retiring legacy routing.
+
+This preparation changes no application content, deployed traffic, image
+selection, WIF authority, scheduled cadence or capacity-maintenance behavior.
+
 ## Lane decision: WHO authored the code (the one rule that prevents drift)
 
 The deciding question for how code reaches `main` is **who wrote it**, never the
@@ -180,6 +224,21 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
    open. A `--self-test` runs in CI so the guard can never silently regress.
 3. **Branch-protection approval.** The standard 1 independent approval plus
    approval-of-most-recent-push still applies underneath the two layers above.
+
+### Production access administration
+
+Production dispatch and protected pipeline edits are limited to the six actors
+in the committed policy: `kushaltrivedi5`, `msainani`,
+`RGlodAkshat`, `ankitkumarsingh1702`, `DamriaNeelesh`, and `imsharukhan`. Dev/UAT dispatch lists are unchanged.
+The managed teams mirror these lists; changing a team alone does not change
+workflow authority. Policy changes take effect after landing on Main.
+
+Deploy-team members must not receive team-maintainer authority. Organization
+owners can still administer teams and repository admins can change protection;
+these are separate trust boundaries, not restrictions enforced by the deploy
+allowlist. When revoking an operator, inspect inherited team grants as well as
+direct repository permissions. A successful API mutation is insufficient:
+read back effective repository permission and organization membership.
 
 ### Concentric privilege rings
 

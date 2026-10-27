@@ -575,11 +575,15 @@ Production facts:
   project roles; the Scheduler service agent mints its short-lived OIDC token.
 - Deploy-identity access beyond the normal deploy roles: the custom project
   role `accountDeletionSchedulerOperator` (Scheduler jobs get, list, create,
-  update, run), `roles/logging.viewer` so the gate can read `AttemptFinished`
+  update, run, pause and enable; locations list), `roles/logging.viewer` so the gate can read `AttemptFinished`
   logs, and `iam.serviceAccounts.actAs` on the cleanup service account only.
   Grant actAs through `roles/iam.serviceAccountUser` on that one account; the
   setup script also needs its `iam.serviceAccounts.get` to describe the
   account instead of trying to create it.
+
+  Release quarantine uses `cloudscheduler.jobs.pause`; restoring a paused job
+  uses `cloudscheduler.jobs.enable` (the permission for the resume API). Both
+  belong to this existing bounded role, not a separate administrator grant.
 
 A production release reports `healthy` only when activation succeeds. A failed
 fenced transition keeps deletion closed (SQLSTATE `55000`) until a proven
@@ -604,6 +608,16 @@ redeploy is not possible, and only in this order:
 
 If the boundary check fails, leave the fence installed. Account deletion that
 fails closed is the safe state.
+
+For the recorded 27 October restoration, a verified application was already
+serving when the hosted activation command selected system Python without its
+database driver. An explicitly recorded admin continuation used the unchanged
+canonical `activate_release.py`, the verified project Python environment and
+the original expected source/run. It repeated the complete schema, document
+barrier, Scheduler delivery, retained-consumer and traffic checks before removing
+the fence. This was a bounded operational exception, not hand-written SQL or
+a successful hosted receipt. Preserve the failed workflow and separate repair
+evidence; do not generalize it into permission to adopt another release's fence.
 
 Before step 7, also prove that operational scripts cannot delete and recreate
 `actor_profiles` or `vault_keys`. Migration 201 deliberately interprets either
@@ -810,3 +824,142 @@ inputs. Infrastructure-only edits therefore run Protocol and Integration,
 including the required deletion pack. The path-contract regression rejects
 excluded lifecycle/runtime inputs. Live console or secret changes still require
 environment-bound runtime attestation; path selection is not deployed proof.
+
+### Staged phone-reader rollout
+
+Production phone recovery is enabled only after every retained backend revision
+qualifies for the strict 425+431 admission floor. The first rollout deploys the
+phone-aware candidate with `AUTH_PHONE_RECOVERY_ENABLED=false`, verifies the
+runtime gates, and retains deletion fences while the canonical lifecycle
+retirement drains incompatible readers. A subsequent backend release may enable recovery when the fresh
+revision inventory passes. `AUTH_PHONE_RECOVERY_PROD_ENABLED=false` remains the
+producer kill switch; it does not erase pending work or stop recovery consumers.
+
+Before the first rollout, `phone_rollback_sha` selects an independently accepted
+UAT backend source. Main-owned tooling verifies its packaged public admission
+chain without cloud credentials, pins the copied production image digest, and
+stages a zero-traffic reader with production bindings and recovery disabled.
+Exact source comparisons preserve phone dispatch, reconciliation and notices.
+The actual revision must pass runtime, health and generation-branch checks before
+creating the primary. The selected revision is revalidated before promotion and
+used by rollback, final classification and retention. Protected-document reader
+authority is independently checked before rebinding only that backend entry.
+
+WorkOS remains directly disabled from revision creation. The initial 427 rollout
+qualifier separately verifies complete issuer history and empty membership and
+SSO mutation authority. A missing history, unknown source or issued authority
+blocks this initial rollout; it does not authorize SSO activation or an older
+reader. Release artifacts retain the plan, exact image probe, selected revision
+and these aggregate checks without phone numbers, OTPs or owner identifiers.
+
+The exact reviewed production restoration may appear in serving state or retained
+history without belonging to main ancestry. Its canonical source proof classifies
+it as pre-phone only after checking that the new phone authority writers are
+absent. WorkOS still requires directly disabled current and historical issuers.
+A healthy restoration serving reference additionally requires its immutable
+operation and release receipts; failed or rolled-back attempts cannot qualify.
+This classification supplies no phone rollback anchor. The independent reader
+still needs the full 425+431 source, image and runtime qualification above.
+
+
+## Phone recovery action admission (431)
+
+Migration `431_phone_recovery_actions.sql` adds bounded, non-authorizing recovery
+continuations and own-device action receipts. Producers use the existing
+`AUTH_PHONE_RECOVERY_ENABLED` flag. Turning it off retains status/readback and
+completed cleanup; it does not erase pending work. Shared codes never grant
+cross-owner transfer, deletion or device authority. Account erasure cascades the
+new metadata. Unknown device dispatches retain their consumed proof event and
+cannot be automatically submitted again.
+
+Production rollback qualification now requires both migrations 425 and 431 in
+its immutable source. A 425-only image exposes the former unguarded device DELETE
+contract and is not an eligible fallback. The packaged reader probe also calls
+the actual legacy DELETE entry with no proof and requires rejection before the
+canonical writer. Primary and independent cold readers must be separately
+qualified against real runtime identity, image, schema and admission state.
+
+Capacity admission counts retained backend and Drive-worker revisions, both
+candidate roles, readiness jobs and the admin reserve. A rejected budget is not
+permission to delete the protected rollback, shrink pools or increase the limit.
+A staged capacity transition requires its own qualified anchor, full request
+drain and worker compatibility evidence before primary admission. Local tests,
+green CI and UAT acceptance do not alone prove this production transition.
+
+### Capacity-bounded first production transition
+
+A cold runtime checkpoint is not a healthy release. The `cold` phase binds a
+qualified independent UAT source to a pinned production image, a pre-published
+schema intent, closed producer history, backup/release fences, installed empty
+phone metadata and the original healthy Git object. Unknown submissions or
+partial migration cannot be retried as a new empty first rollout. The bounded
+health-tag lease is retired and the actual cold revision is revalidated before
+publishing the operational proof.
+
+The production capacity owner counts every retained backend and worker revision,
+readiness jobs and reserve. Keep its existing300-slot limit and pools. Under the
+shared deployment lock, capacity maintenance may publish a separately typed
+operational backend reference from the exact immutable proof; its historical
+healthy commit/message remain unchanged. Preparation is read-only, the intent is
+uploaded before CAS, and uncertain Git/cloud mutations require readback. Later
+passes reuse the same reference rather than republishing or renewing it.
+
+The `worker` phase prepares and immutably publishes the existing private worker
+intent, then stages exactly one zero-traffic revision. It preserves IAM, service
+controls, Scheduler state, current traffic and the candidate configuration version.
+UID/spec, scanner/EICAR and readiness checks remain mandatory. Staging admits no
+backend traffic or healthy application release. Maintenance can retain this
+qualified worker as the explicit fallback while the ordinary300-second worker
+drain retires the obsolete fallback. A staged receipt expires after six hours;
+activation preparation cannot renew that original clock.
+
+The `standard` phase consumes the exact staged image/config/revision without a
+second worker or image build, then runs the ordinary backend gates. If legacy
+readers remain, deletion activation reports `pending_activation`, retains the
+release fences and skips the healthy tag. The canonical3660-second backend drain
+runs outside a hosted wait through the same maintenance owner. Only an exact
+pending receipt grants the distinct pending-retirement context; it is never
+relabelled as healthy.
+
+The `activate` phase names the original deployment run and original application
+SHA. It revalidates runtime UIDs, schema, phone rollback, document mode and normal
+health/provenance gates, then resumes the existing activation owner with the
+original runtime run ID. It executes no build, DDL, backend promotion or worker
+release. Healthy publication requires actual fence removal, zero incompatible
+readers and fresh Scheduler-delivery proof; its Git result is read back.
+
+That continuation still has the original recovery-disabled process environment.
+Complete the transition with a `standard` rollout of the same application SHA,
+using the now-qualified current backend as rollback. The organization switch and
+fresh retained-reader inventory must permit recovery; verify the new revision's
+direct flag and actual journey. Until that standard release replaces the
+continuation, admission preserves its exact backend source and refuses an
+intervening frontend-only release that would discard its activation basis.
+
+### Recurring worker staging
+
+After a healthy release, the same worker phase accepts a typed current-healthy
+basis instead of an operational annotation. It joins the exact current Git tag,
+canonical healthy attempt/archive, actual backend and worker UIDs, protected
+mode and candidate's exact UAT/Dev image acceptance. The registry copy uses that
+accepted immutable digest. The original prepared intent embeds this basis;
+readers and native staging/activation revalidate it before mutation. Source-only
+qualification grants no runtime or cleanup authority.
+
+Maintenance may use this staged worker with the explicit current healthy release
+run, without inventing an operational reference. It preserves the healthy phone
+rollback while retiring only the obsolete worker through the existing drain.
+Then the standard backend rollout fits the unchanged budget. Once the new healthy
+release independently selects the previous backend as rollback, ordinary backend
+retention can drain the older cold reader. Changed tags, attempts, UIDs, image,
+mode, configuration or Scheduler state fail closed. Qualified cleanup-only
+workflow failures retain the existing canonical health classifier; application
+failures and failed activation continuations remain ineligible.
+
+A frontend-only healthy release carries the unchanged backend's exact original
+run, source and revision identities as an untrusted selector. Maintenance and
+worker admission independently qualify that run's immutable ordinary backend
+receipt, activated identity and phone rollback. The current frontend receipt and
+healthy tag remain authoritative. Pending origins, chained frontend origins and
+missing or changed identity proofs refuse cleanup; no historical scan substitutes
+an older apparently healthy release.

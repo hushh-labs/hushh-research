@@ -195,7 +195,7 @@ describe("asking a connection about their Drive", () => {
     mount();
     await open();
     send();
-    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't confirm it was sent. Send again. It won't be sent twice.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't confirm sending. Try again.");
     const firstId = state.createQuery.mock.calls[0][1].clientRequestId;
     send();
     await waitFor(() => expect(state.createQuery).toHaveBeenCalledTimes(2));
@@ -381,9 +381,9 @@ describe("requesting exact files from a connection", () => {
         "owner-b",
         firebaseProof,
         {
-          ownerPersonRef: personRef,
+          ownerPersonRef: personRef, activityDisclosureVersion: "one-document-activity-v1",
           clientRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-          expectedQuoteVersion: 1,
+          expectedQuoteVersion: 1, oneCopyRequested: true, activityAccepted: true,
           purpose: { purpose: "Files modified in the last two days", periodStart: "2026-09-29", periodEnd: "2026-10-01" },
         },
         expect.any(Function),
@@ -422,11 +422,11 @@ describe("requesting exact files from a connection", () => {
     mount();
     await openFiles("Bank statements");
     fireEvent.change(screen.getByLabelText("Access period"), { target: { value: "7" } });
-    fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Financial review" } });
+    expect(screen.queryByLabelText(/Reason/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await waitFor(() => expect(state.create).toHaveBeenCalledWith(
       "owner-b", firebaseProof, expect.objectContaining({
-        accessDays: 7, requesterActorType: "person", reason: "Financial review",
+        accessDays: 7, requesterActorType: "person",
       }), expect.any(Function),
     ));
   });
@@ -629,9 +629,9 @@ describe("chat draft question card", () => {
       "owner-b",
       "synthetic-firebase-proof",
       {
-        ownerPersonRef: personRef,
+        ownerPersonRef: personRef, activityDisclosureVersion: "one-document-activity-v1",
         clientRequestId,
-        expectedQuoteVersion: 1,
+        expectedQuoteVersion: 1, oneCopyRequested: true, activityAccepted: true,
         purpose: { purpose: "Six months of statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
       },
       expect.any(Function),

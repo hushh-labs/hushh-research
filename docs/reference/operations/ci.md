@@ -1,5 +1,12 @@
 # CI Configuration Reference
 
+> **Staged branch preparation:** CI now recognizes `dev` and `uat` for strict
+> destination freshness and merge-queue validation. Existing branch routing and
+> manual deploy source rules remain active. Current Main is preserved; application
+> restoration does not rewind Main or the database. See [branch preparation](./branch-governance.md#dev--uat-branch-preparation)
+> for the activation boundary and remaining promotion work.
+
+
 
 ## Visual Map
 
@@ -68,6 +75,87 @@ Canonical pre-PR command:
 ```
 
 This command runs the same blocking local CI surface that feeds GitHub `PR Validation` and `CI Status Gate`. Use `./bin/hushh codex pre-pr --include-advisory` only when you intentionally want the wider non-blocking readiness lane too.
+
+## Recorded production restoration — 26 October 2026
+
+Normal releases keep their exact application SHA and environment acceptance chain:
+Dev acceptance before UAT; UAT acceptance before production. A normal manually
+requested Main smoke must test the dispatch commit itself. Its check cannot
+certify another checkout. Release checks verify the canonical producer, current
+attempt, complete bounded inventory and job identity; later failed reruns refuse
+stale success.
+
+The one-time Shared-experience restoration uses the pinned
+[`production-restoration.json`](../../../deploy/account-deletion/production-restoration.json)
+record. The separate **Production Recovery Validation Gate** certifies only that
+candidate, with an attempt-bound artifact. It does not create Dev/UAT acceptance
+or authorize other commits. Its result neither replaces nor invalidates ordinary
+Main smoke. Production admission requires both services built from source,
+disabled legacy Drive intake, no new capability activation and a governed manual
+operator. Credentials remain scoped to the production environment; Git push
+credentials are supplied only to the final trusted release-tagging step.
+
+The recovery workflow joins both immutable image builds before lifecycle fences.
+Its database gate inspects the installed contract without replaying migrations;
+a transactional writer barrier drains prior document writers and rejects new
+issuance. Retained storage remains configured while its recovery worker
+maintenance is disabled only after that barrier is verified. Candidate readback
+requires phone recovery, WorkOS, replacement-generation admission, document
+issuance and document work drain to be explicitly off.
+
+An immutable, run-bound artifact records the original serving pair before any
+release mutation. Retries recover that pair and accept only the original
+revisions or this same run's candidate as current traffic. Rollback qualifies the
+original destinations even when the failing candidate is unhealthy. An
+unconfirmed cleanup restoration remains blocked in the release receipt. The
+document barrier stays while a non-reader serves; removing it requires a
+separately qualified reader activation.
+
+**Deployment remains unverified until its release receipt and serving readback
+pass.** Operations source, hosted recovery validation and live application
+restoration are separate outcomes. No historical migration replay, Firebase
+rollback or fabricated UAT receipt is allowed.
+
+On 27 October, operation `40430296874`, attempt 2, promoted the recorded
+`d8a5fa485874` application to both production services at 100% traffic:
+backend `consent-protocol-00309-nir`, frontend `hushh-webapp-00160-2w2`.
+Runtime parity, immutable provenance, health, account-session and native-domain
+checks passed. The workflow remained **blocked** because system Python lacked
+the recovery schema qualifier's database driver. The activation command must
+use the already verified `PROTOCOL_PYTHON` environment.
+
+The administrator continued this same approved operation using the unchanged
+main-owned activation tool at `c9d26ee991`, the verified project environment and
+explicit source/run arguments. Competing production mutation entrypoints were
+paused and restored to their previous states. Canonical activation verified the
+schema, exact document barrier, fresh Scheduler HTTP 200, compatible retained
+revisions and serving traffic before confirming the deletion fence absent.
+This separate admin repair does **not** turn the failed hosted attempt green or
+create a normal promotion receipt. The existing macOS checkpoint retains its
+`production-admin-activation-activation.json` and repair record. Signed-in production acceptance then passed through the existing Google login:
+the returning account reached One without an alert, and its real
+`/api/account/session-status` request returned HTTP 200. Public login and the
+unauthenticated session contract also passed.
+
+A hosted restoration completion can attest that same original operation through
+`restoration_activation_run_id` and its exact `restoration_activation_attempt` on
+the existing production workflow. It accepts only retained activation-only failed
+evidence for the recorded source, with the original immutable serving pair and
+document-barrier owner. It rebuilds no image and changes no traffic or schema.
+Fresh canonical schema, barrier, Scheduler delivery, provenance, health and
+already-absent deletion-fence checks must pass. The new verifier has its own
+receipt and run identity; runtime labels retain the original deployment run.
+The canonical activation configures and triggers the existing cleanup Scheduler;
+this is not a read-only operation. Retained consumers needing retirement are
+refused through the existing lifecycle inventory before activation begins.
+This is a restoration serving reference, not Dev/UAT acceptance or a phone
+rollback anchor. The original failed attempt remains unchanged.
+
+The selective-promotion handoff remains preserved separately. Its branch-baseline
+and application-SHA/approval-SHA mapping are not active. Its maintenance draft
+needs corrections for forced capacity inspection, dry-run checkpoint state and
+pre-mutation preparation failures. Do not import deployment-triggered maintenance
+or use the two historical UAT exceptions as production authority.
 
 ## Workflow catalog and naming
 
@@ -722,12 +810,26 @@ and completed pass counts in the release receipt. A failed pass stops that
 rehearsal; it does not change the existing advisory rollback policy.
 
 UAT backend provider admission runs Azure and Vertex synthetic checks in parallel.
-Either complete application capability bundle (or both) may pass; neither
-passing blocks. The bundle includes streamed structured text, images, PDFs,
+Azure's complete application capability bundle must pass; Vertex results remain
+diagnostic and cannot replace Azure qualification. The bundle includes streamed structured text, images, PDFs,
 public search/source receipts, Location transcription/semantics, narration, Live
 audio with a function round trip, and application-compatible embeddings. Explicit
 PWM attribution/schema failures still block independently. Receipts bind the exact
 candidate image, runtime identity, provider generation and configuration.
+The one-request Azure readiness leaf records its failed stage, elapsed time and
+sanitized exception class. Transport deadlines and network failures retain their
+provider-unavailable classification; that classification does not make a failed
+readiness gate pass. An initial HTTP 200 cannot erase a later nonce, attribution,
+schema or capability failure. Existing deadlines and retry limits remain fixed.
+Actual bounded retries within the same verified execution retain the first
+failure and subsequent outcomes in the receipt. Only an observed failed attempt
+followed by success is marked `recovered_after_retry`; recovery does not establish
+a permanent fix. Separate GitHub reruns are separate evidence: retain the failed
+attempt's artifact and incident context rather than infer lineage from a later
+clean run. Repeated timeouts require incident follow-up. The existing observability
+provisioner owns a separate UAT release-job terminal-timeout policy at two events
+in ten minutes; configuration/readback and actual notification delivery are
+separate evidence. See [the Azure probe alert runbook](../../../deploy/observability/README.md#azure-release-probe-timeouts).
 The UAT artifact collector reads the exact successful backend Cloud Build ID from
 structured CLI output, then retrieves the successful aggregate step's receipt
 from Cloud Logging. It does not depend on streamed build stdout. Collection has
@@ -1192,6 +1294,20 @@ outcomes retain mutation intent and block conflicting deployments until reconcil
 a timeout does not prove that Google stopped the operation. No completion is claimed
 for partial or unresolved work. Cleanup outcome is separate from release health and
 capacity admission; diagnostic reporting does not add another unconditional cloud scan.
+Maintenance publishes an unfinished checkpoint before its worker-health preflight,
+preserving restored service journals and capacity-bridge intent. Historical UAT
+failures without an artifact require exact frozen owner/workflow source, actual
+checkout, completed attempt and runner-output proof that the checkpoint barrier
+was never crossed. This proves no provider mutation; it grants no cleanup or
+release-health authority. Unknown source, incomplete logs, cancellation and failed
+checkpoint uploads remain blocked. Every attempt is inspected, including earlier
+attempts of a currently running retry; never delete failed runs to clear admission.
+A saved maintenance checkpoint may precede the README writer. Only the existing
+attempt/job/source-qualified saved-checkpoint path may restore that shape; legacy
+pending-drain archives still require the marker. Artifact ID, size, digest, bounded
+regular ZIP members and completion receipt remain mandatory. Unfinished journals
+are restored unchanged and continue to block mutation admission. New publishers
+write the README with the initial checkpoint before live health checks.
 Retained database-connected revisions remain in admission accounting until safe
 retirement. Zero minimum instances and aggregate SQL peaks do not prove that older
 generations have finished their admitted requests. A shortage defers deployment.

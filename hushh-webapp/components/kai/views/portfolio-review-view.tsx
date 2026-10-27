@@ -68,6 +68,7 @@ import {
   CardTitle,
 } from "@/lib/morphy-ux/card";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
+import { findHoldingValidationIssue, holdingValueIssue, isCashEquivalentHolding, type HoldingValidationIssue } from "@/lib/kai/holding-validation";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { toInvestorMessage } from "@/lib/copy/investor-language";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
@@ -312,21 +313,6 @@ function deriveRiskBucket(holdings: Holding[]): string {
   if (topHoldingPct > 30) return "aggressive";
   if (topHoldingPct > 15) return "moderate";
   return "conservative";
-}
-
-function isCashEquivalentHolding(holding: Holding): boolean {
-  const symbol = String(holding.symbol || "").trim().toUpperCase();
-  if (["CASH", "MMF", "SWEEP", "QACDS"].includes(symbol)) return true;
-  const assetType = String(holding.asset_type || "").trim().toLowerCase();
-  const name = String(holding.name || "").trim().toLowerCase();
-  return (
-    assetType.includes("cash") ||
-    assetType.includes("money market") ||
-    assetType.includes("sweep") ||
-    name.includes("cash") ||
-    name.includes("money market") ||
-    name.includes("sweep")
-  );
 }
 
 function getPositionSide(holding: Holding): "long" | "short" | "liability" {
@@ -650,11 +636,8 @@ function isCashLikeHolding(holding: Holding): boolean {
 }
 
 function deriveCashFromHoldings(holdings: Holding[]): number | undefined {
-  const total = holdings.reduce((sum, holding) => {
-    if (!isCashLikeHolding(holding)) return sum;
-    return sum + (toFiniteNumber(holding.market_value) ?? 0);
-  }, 0);
-  return total > 0 ? total : undefined;
+  const cash = holdings.filter(isCashLikeHolding);
+  return cash.length ? cash.reduce((sum, holding) => sum + (toFiniteNumber(holding.market_value) ?? 0), 0) : undefined;
 }
 
 function deriveAssetAllocationFromHoldings(holdings: Holding[]): AssetAllocation {
@@ -789,6 +772,7 @@ export function PortfolioReviewView({
   const saveInFlightRef = useRef(false);
   const isMountedRef = useRef(true);
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
+  const [holdingValidationIssue, setHoldingValidationIssue] = useState<HoldingValidationIssue | null>(null);
   const [editingHoldingIndex, setEditingHoldingIndex] = useState<number>(-1);
   const [holdingsTab, setHoldingsTab] = useState<"all" | "analyze" | "non-analyze" | "cash">(
     "all"
@@ -928,12 +912,13 @@ export function PortfolioReviewView({
   );
 
   const liveCashBalance = useMemo(() => {
+    const holdingsCash = deriveCashFromHoldings(activeHoldings);
+    if (hasUnsavedChanges && holdingsCash !== undefined) return holdingsCash;
     // Prefer statement/account summary cash when present.
     // Holdings-derived cash is only a fallback for sparse parses.
     if (reportedCashBalance !== undefined) return reportedCashBalance;
-    const holdingsCash = deriveCashFromHoldings(activeHoldings);
     return holdingsCash ?? 0;
-  }, [activeHoldings, reportedCashBalance]);
+  }, [activeHoldings, hasUnsavedChanges, reportedCashBalance]);
 
   const totalValue = useMemo(() => {
     const holdingsTotal = activeHoldings.reduce(
@@ -1004,6 +989,7 @@ export function PortfolioReviewView({
         toast.info("Restore this holding before editing.");
         return;
       }
+      setHoldingValidationIssue(null);
       setEditingHolding({ ...row, pending_delete: false });
       setEditingHoldingIndex(index);
     },
@@ -1011,6 +997,7 @@ export function PortfolioReviewView({
   );
 
   const closeHoldingModal = useCallback(() => {
+    setHoldingValidationIssue(null);
     setEditingHolding(null);
     setEditingHoldingIndex(-1);
   }, []);
@@ -1022,17 +1009,8 @@ export function PortfolioReviewView({
       const marketValue = Number(updatedHolding.market_value);
       const isAddingNewHolding = editingHoldingIndex < 0;
 
-      if (
-        !Number.isFinite(quantity) ||
-        !Number.isFinite(price) ||
-        !Number.isFinite(marketValue) ||
-        quantity <= 0 ||
-        price <= 0 ||
-        marketValue <= 0
-      ) {
-        toast.error("Quantity, price, and market value must all be greater than 0.");
-        return;
-      }
+      const issue = holdingValueIssue(updatedHolding);
+      if (issue) { setHoldingValidationIssue(issue); return; }
 
       const normalizedHolding: Holding = {
         ...updatedHolding,
@@ -1277,24 +1255,11 @@ export function PortfolioReviewView({
     }
     if (!userId) return;
 
-    const invalidHolding = activeHoldings.find((holding) => {
-      const isCashLike = Boolean(holding.is_cash_equivalent) || isCashEquivalentHolding(holding);
-      const quantity = Number(holding.quantity);
-      const price = Number(holding.price);
-      const marketValue = Number(holding.market_value);
-      if (!Number.isFinite(marketValue) || Math.abs(marketValue) <= 0) return true;
-      if (isCashLike) return false;
-      return (
-        !Number.isFinite(quantity) ||
-        Math.abs(quantity) <= 0 ||
-        !Number.isFinite(price) ||
-        price <= 0
-      );
-    });
-    if (invalidHolding) {
-      toast.error(
-        `${invalidHolding.symbol || invalidHolding.name || "That holding"}: quantity, price and value must all be above zero.`
-      );
+    const invalid = findHoldingValidationIssue(holdings);
+    if (invalid) {
+      setHoldingValidationIssue(invalid.issue);
+      setEditingHolding({ ...invalid.holding, pending_delete: false });
+      setEditingHoldingIndex(invalid.index);
       return;
     }
 
@@ -1302,7 +1267,9 @@ export function PortfolioReviewView({
       const stagedPayload: PortfolioData = {
         ...initialData,
         account_info: accountInfo,
-        account_summary: accountSummary,
+        account_summary: hasUnsavedChanges ? { ...accountSummary, ending_value: totalValue, cash_balance: liveCashBalance } : accountSummary,
+        total_value: totalValue,
+        cash_balance: liveCashBalance,
         asset_allocation: assetAllocation,
         holdings: consolidateHoldingsBySymbol(
           activeHoldings.map((holding) => normalizeHoldingForStorage(holding)) as unknown as Record<
@@ -1511,9 +1478,9 @@ export function PortfolioReviewView({
           ? holdingsTotal +
             (holdingsIncludeCash ? 0 : parsedCashBalance ?? derivedCashBalance ?? 0)
           : undefined);
-      const resolvedCashBalance = parsedCashBalance ?? derivedCashBalance;
+      const resolvedCashBalance = hasUnsavedChanges ? liveCashBalance : parsedCashBalance ?? derivedCashBalance;
       const resolvedTotalValue =
-        statementTotalValue ??
+        (hasUnsavedChanges ? totalValue : statementTotalValue) ??
         (holdingsTotal > 0
           ? holdingsTotal + (holdingsIncludeCash ? 0 : resolvedCashBalance ?? 0)
           : undefined) ??
@@ -2410,6 +2377,7 @@ export function PortfolioReviewView({
         isOpen={Boolean(editingHolding)}
         onClose={closeHoldingModal}
         holding={editingHolding}
+        validationIssue={holdingValidationIssue}
         onSave={handleSaveHolding}
       />
 

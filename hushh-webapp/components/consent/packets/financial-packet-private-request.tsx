@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DrivePacketService, type DrivePacket } from "@/lib/services/drive-packet-service";
+import { DrivePacketResourceService } from "@/lib/services/drive-packet-resource-service";
 import type { FinancialPacketSummary } from "@/lib/services/financial-packet-summary-service";
 import { useDrivePacketSession } from "@/components/consent/drive-packet-catalog";
 import { BuyerPacketPage, useBuyerPacketRequests } from "./buyer-packets";
@@ -22,22 +23,25 @@ export function FinancialPacketPrivateRequest({ summary, personRef, ownerName, o
     if (!token) return;
     void (async () => {
       try {
-        const seen = new Set<string>();
-        let cursor: string | null = null;
-        do {
-          const result = await DrivePacketService.packets(token!, guard, personRef, cursor);
-          guard();
-          const packet = result.packets.find(item => item.packetId === summary.packetId && item.version === summary.version);
-          if (packet) { setValue({ key, packet, failed: false }); return; }
-          cursor = result.nextCursor;
-          if (cursor && seen.has(cursor)) throw new Error("invalid_cursor");
-          if (cursor) seen.add(cursor);
-        } while (cursor && seen.size < 100);
-        throw new Error("packet_unavailable");
+        const packet = await DrivePacketResourceService.load(sessionKey, `financial-request:${summary.packetId}:${summary.version}`, guard, async current => {
+          const seen = new Set<string>();
+          let cursor: string | null = null;
+          do {
+            const result = await DrivePacketService.packets(token!, current, personRef, cursor);
+            current();
+            const packet = result.packets.find(item => item.packetId === summary.packetId && item.version === summary.version);
+            if (packet) return packet;
+            cursor = result.nextCursor;
+            if (cursor && seen.has(cursor)) throw new Error("invalid_cursor");
+            if (cursor) seen.add(cursor);
+          } while (cursor && seen.size < 100);
+          throw new Error("packet_unavailable");
+        }, { force: true });
+        guard(); setValue({ key, packet, failed: false });
       } catch { try { guard(); setValue({ key, packet: null, failed: true }); } catch { /* Retired session. */ } }
     })();
     return () => { live = false; };
-  }, [key, personRef, sessionGuard, token, summary.packetId, summary.version]);
+  }, [key, personRef, sessionGuard, sessionKey, token, summary.packetId, summary.version]);
   const current = value?.key === key ? value : null;
   if (token && current?.packet) return <BuyerPacketPage key={key} packet={current.packet} ownerName={ownerName} token={token}
     guard={sessionGuard} requests={requests} onClose={onClose} onChanged={() => { retry(value => value + 1); onChanged(); }} />;

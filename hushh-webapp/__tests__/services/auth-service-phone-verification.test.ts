@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   auth: { currentUser: null as any },
   capacitor: { isNativePlatform: vi.fn(), getPlatform: () => "ios" },
   phoneProvider: vi.fn(),
-  proof: { startPhoneVerificationProof: vi.fn(), confirmPhoneVerificationProof: vi.fn(), cancelPhoneVerificationProof: vi.fn() },
+  proof: { startPhoneVerificationProof: vi.fn(), confirmPhoneVerificationProof: vi.fn(), cancelPhoneVerificationProof: vi.fn(), reauthenticateAppleIdentity: vi.fn(), signIn: vi.fn() },
   native: { addListener: vi.fn(), linkWithPhoneNumber: vi.fn(),
     confirmVerificationCode: vi.fn(), unlink: vi.fn() },
 }));
@@ -24,12 +24,124 @@ import { AuthService } from "@/lib/services/auth-service";
 const mockAuth = state.auth;
 const mockCapacitor = state.capacitor;
 const mockPhoneAuthProvider = state.phoneProvider;
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(complete => { resolve = complete; });
+  return { promise, resolve };
+}
 describe("AuthService phone proof integration", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     vi.clearAllMocks();
     mockCapacitor.isNativePlatform.mockReturnValue(true);
     state.native.confirmVerificationCode.mockResolvedValue({});
+  });
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+
+  it("uses fresh native Apple reauthentication only for the captured current owner", async () => {
+    state.proof.reauthenticateAppleIdentity.mockResolvedValue({ userId: "owner", idToken: "fresh-apple-proof" });
+    await expect(AuthService.reauthenticateIdentity("owner", "apple.com", () => true)).resolves.toBe("fresh-apple-proof");
+    expect(state.proof.reauthenticateAppleIdentity).toHaveBeenCalledWith({ expectedUserId: "owner" });
+    state.proof.reauthenticateAppleIdentity.mockResolvedValue({ userId: "other", idToken: "foreign-proof" });
+    await expect(AuthService.reauthenticateIdentity("owner", "apple.com", () => true)).rejects.toThrow("identity_mismatch");
+    const late = deferred<any>();
+    state.proof.reauthenticateAppleIdentity.mockReturnValue(late.promise);
+    let current = true;
+    const pending = AuthService.reauthenticateIdentity("owner", "apple.com", () => current);
+    current = false;
+    late.resolve({ userId: "owner", idToken: "retired-proof" });
+    await expect(pending).rejects.toThrow("session_changed");
+    expect(state.proof.signIn).not.toHaveBeenCalled();
+  });
+
+  it("bounds a missing native Apple callback and safely classifies unsupported wrappers", async () => {
+    vi.useFakeTimers();
+    state.proof.reauthenticateAppleIdentity.mockReturnValue(new Promise(() => {}));
+    const pending = AuthService.reauthenticateIdentity("owner", "apple.com", () => true);
+    const rejected = expect(pending).rejects.toThrow("identity_timeout");
+    await vi.advanceTimersByTimeAsync(125_000);
+    await rejected;
+    state.proof.reauthenticateAppleIdentity.mockRejectedValue({ code: "UNIMPLEMENTED", credential: "private-provider-payload" });
+    await expect(AuthService.reauthenticateIdentity("owner", "apple.com", () => true)).rejects.toThrow("native_identity_unavailable");
+    state.proof.reauthenticateAppleIdentity.mockRejectedValue(new Error("private-provider-payload"));
+    await expect(AuthService.reauthenticateIdentity("owner", "apple.com", () => true)).rejects.toThrow("identity_verification_failed");
+    expect(state.proof.signIn).not.toHaveBeenCalled();
+  });
+
+  it("bounds native restore before dispatch and refuses its late result after another owner retries", async () => {
+    vi.useFakeTimers();
+    const oldRestore = deferred<any>();
+    const owner = { uid: "new-native-owner", phoneNumber: null };
+    const restore = vi.spyOn(AuthService, "restoreNativeSession").mockReturnValueOnce(oldRestore.promise).mockResolvedValue(owner as any);
+    state.proof.cancelPhoneVerificationProof.mockResolvedValue(undefined);
+    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId }) => ({ attemptId, verificationId: attemptId }));
+    mockAuth.currentUser = owner;
+    let failure: any;
+    const pending = AuthService.startPhoneLinkVerification("+16505550101").catch(error => { failure = error; });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(failure).toMatchObject({ code: "phone-verification-start-timeout" });
+    await pending;
+    expect(state.proof.startPhoneVerificationProof).not.toHaveBeenCalled();
+    const controller = new AbortController();
+    await expect(AuthService.startPhoneLinkVerification("+16505550101", { signal: controller.signal })).resolves.toMatchObject({ autoVerified: false });
+    oldRestore.resolve({ uid: "retired-native-owner" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state.proof.startPhoneVerificationProof).toHaveBeenCalledTimes(1);
+    expect(restore).toHaveBeenCalledTimes(2);
+    controller.abort();
+  });
+
+  it("uses one send deadline across restore and a stalled previous cancellation", async () => {
+    vi.useFakeTimers();
+    const owner = { uid: "native-owner", phoneNumber: null } as any;
+    mockAuth.currentUser = owner;
+    const restore = vi.spyOn(AuthService, "restoreNativeSession").mockResolvedValue(owner);
+    state.proof.cancelPhoneVerificationProof.mockResolvedValue(undefined);
+    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId }) => ({ attemptId, verificationId: attemptId }));
+    await AuthService.startPhoneLinkVerification("+16505550101");
+    const restoring = deferred<any>(), cancelling = deferred<void>();
+    restore.mockReturnValueOnce(restoring.promise);
+    state.proof.cancelPhoneVerificationProof.mockReturnValueOnce(cancelling.promise);
+    let failure: any;
+    const pending = AuthService.startPhoneLinkVerification("+16505550101", { resendCode: true }).catch(error => { failure = error; });
+    await vi.advanceTimersByTimeAsync(100_000);
+    restoring.resolve(owner);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(failure).toMatchObject({ code: "phone-verification-start-timeout" });
+    await pending;
+    expect(state.proof.startPhoneVerificationProof).toHaveBeenCalledTimes(1);
+    const controller = new AbortController();
+    await AuthService.startPhoneLinkVerification("+16505550101", { signal: controller.signal });
+    cancelling.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state.proof.startPhoneVerificationProof).toHaveBeenCalledTimes(2);
+    controller.abort();
+  });
+
+  it("aborts a pending SDK send promptly without letting its callback replace a resent challenge", async () => {
+    const owner = { uid: "native-owner", phoneNumber: null } as any;
+    mockAuth.currentUser = owner;
+    vi.spyOn(AuthService, "restoreNativeSession").mockResolvedValue(owner);
+    state.proof.cancelPhoneVerificationProof.mockResolvedValue(undefined);
+    const late = deferred<any>();
+    let oldAttempt = "";
+    state.proof.startPhoneVerificationProof.mockImplementationOnce(({ attemptId }) => { oldAttempt = attemptId; return late.promise; });
+    const retired = new AbortController();
+    const pending = AuthService.startPhoneLinkVerification("+16505550101", { signal: retired.signal });
+    await vi.waitFor(() => expect(oldAttempt).not.toBe(""));
+    const rejected = expect(pending).rejects.toMatchObject({ code: "session_changed" });
+    retired.abort();
+    await rejected;
+    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId }) => ({ attemptId, verificationId: attemptId }));
+    const current = new AbortController();
+    const fresh = await AuthService.startPhoneLinkVerification("+16505550101", { resendCode: true, signal: current.signal });
+    expect(state.proof.startPhoneVerificationProof).toHaveBeenLastCalledWith(expect.objectContaining({ resendCode: true }));
+    late.resolve({ attemptId: oldAttempt, verificationId: oldAttempt });
+    await Promise.resolve();
+    state.proof.confirmPhoneVerificationProof.mockImplementation(async ({ attemptId }) => ({ attemptId, phoneIdToken: "current-proof" }));
+    await expect(AuthService.getPhoneClaimIdToken({ verificationId: fresh.verificationId, verificationCode: "123456" })).resolves.toBe("current-proof");
+    current.abort();
   });
   it("@feature_auth_reliability @trace_loop keeps a native verification challenge available after three minutes without a local expiry", async () => {
     vi.useFakeTimers();

@@ -27932,313 +27932,6 @@
     },
     {
       "aliases": [
-        "Browse available document packets",
-        "show available packets",
-        "browse document packets",
-        "what packets can I request"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "vault_unlocked"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "vault_unlocked"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "people.profile.browse_packets",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Shows document packet summaries this connected person has allowed you to see. Requesting a packet still requires owner approval before checkout; browsing grants no document access.",
-      "execution": {
-        "binding_ref": "semantic_action:people.profile.browse_packets",
-        "executor": {
-          "kind": "existing_ui_semantic_action",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "EXECUTE",
-        "target": {
-          "path": "local_handler",
-          "status": "wired",
-          "target": "people.profile.browse_packets"
-        }
-      },
-      "goal_id": "goal.people.profile.browse_packets",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Browse available document packets",
-      "navigation": {
-        "fallback": "people.profile.browse_packets",
-        "routes": [
-          "/people/[personRef]"
-        ],
-        "screens": [
-          "one_person_profile"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "vault_unlocked"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": null,
-      "required_entities": [],
-      "search_keywords": [
-        "packets",
-        "documents",
-        "coverage",
-        "price",
-        "browse"
-      ],
-      "settlement_proof": "directive_ledger_settlement",
-      "side_effect": {
-        "classification": "client_semantic_action"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Browse public Financial summaries",
-        "show financial documents",
-        "browse published Financial packets",
-        "show public Financial summaries"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "people.profile.browse_financial_summaries",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Shows Financial packet summaries this person explicitly published to signed-in people. Connect to request; an accepted connection and unlock are required to request files. Browsing and connecting grant no document access. You pay only after owner approval.",
-      "execution": {
-        "binding_ref": "semantic_action:people.profile.browse_financial_summaries",
-        "executor": {
-          "kind": "existing_ui_semantic_action",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "EXECUTE",
-        "target": {
-          "path": "local_handler",
-          "status": "wired",
-          "target": "people.profile.browse_financial_summaries"
-        }
-      },
-      "goal_id": "goal.people.profile.browse_financial_summaries",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Browse public Financial summaries",
-      "navigation": {
-        "fallback": "people.profile.browse_financial_summaries",
-        "routes": [
-          "/people/[personRef]"
-        ],
-        "screens": [
-          "one_person_profile"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": null,
-      "required_entities": [],
-      "search_keywords": [
-        "financial",
-        "documents",
-        "public",
-        "summary",
-        "period"
-      ],
-      "settlement_proof": "directive_ledger_settlement",
-      "side_effect": {
-        "classification": "client_semantic_action"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
         "Request cards",
         "request a card",
         "ask them to share a card"
@@ -29798,6 +29491,163 @@
       "search_keywords": [
         "phone",
         "recovery"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Review previous device access",
+        "review previous device access"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.review_previous_devices",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Preserve device-review intent through previous-account Google or Apple sign-in. Reviewing devices grants no revocation; each unlink requires fresh own-phone proof and explicit confirmation.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.review_previous_devices",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.review_previous_devices",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Review previous device access",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery",
+        "devices"
       ],
       "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
@@ -39719,166 +39569,6 @@
     },
     {
       "aliases": [
-        "Choose document delivery method"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "vault_owner_token",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "vault_owner_token"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "document.hosted.choose_receive_through",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "The requester manually chooses Google Drive, a secure One link, or both in the file request form. This changes only the draft delivery method: it grants no access to owner files, authorizes no hosted copy and submits no request. Secure One delivery also requires the separate activity disclosure; Drive delivery still requires the existing requester identity proof.",
-      "execution": {
-        "binding_ref": "render:document.hosted.choose_receive_through",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.document.hosted.choose_receive_through",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Choose document delivery method",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/people/[personRef]"
-        ],
-        "screens": [
-          "one_person_profile"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "vault_owner_token",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "documents",
-        "delivery method",
-        "Google Drive",
-        "secure One link"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
         "Open protected One link"
       ],
       "authorization": {
@@ -40334,6 +40024,806 @@
       "search_keywords": [
         "documents",
         "protected copies"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Preview One copy"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "document.copy.preview",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Displays an approved PDF copy in a safe canvas with a visual watermark. Original bytes are unchanged; this does not save a file.",
+      "execution": {
+        "binding_ref": "render:document.copy.preview",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.document.copy.preview",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Preview One copy",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Download original"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "document.copy.download",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Downloads the original file only after an explicit click and a fresh entitlement check. Native uses the existing system share sheet; cancellation does not mean saved.",
+      "execution": {
+        "binding_ref": "render:document.copy.download",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.document.copy.download",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Download original",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Back to files"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "document.copy.close_preview",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Closes the document preview and clears its readable bytes before returning to the file list. Also cancels the pending One access confirmation without revoking access.",
+      "execution": {
+        "binding_ref": "render:document.copy.close_preview",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.document.copy.close_preview",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Back to files",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Refresh One copy"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "document.copy.refresh",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Reads current copy preparation and access status without creating another request or payment. The owner can open, refresh or paginate the private activity list. Requested previews and completed transfers do not prove display or saving.",
+      "execution": {
+        "binding_ref": "render:document.copy.refresh",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.document.copy.refresh",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Refresh One copy",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Stop One access"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "document.copy.revoke",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner confirms stopping hosted One access. Drive access and files already saved are separate.",
+      "execution": {
+        "binding_ref": "render:document.copy.revoke",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.document.copy.revoke",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Stop One access",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
       ],
       "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
@@ -49829,7 +50319,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "6a0ed3ae131a012b0ac2e48ced7c150977a09407bf970f2ab2b0e04bb90f5f83",
+      "projection_digest": "7c7255a18fe9c0c61a945681035b1432a1e2cbdd918e69923280ef7dcb42c1fc",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -49839,7 +50329,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "25a7bb6a3284890be1fa54abad56c6266de5196f0722c2be585375fd3db9d54a",
+        "capability_graph_evolution": "68729d5d98364f790744ad77166bd62c38257b7555742f1a1f541b39f6869a1e",
         "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -49848,7 +50338,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "9e9f9aaa362c179f",
+      "source_revision": "a6a99d8a8ceae915",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -51366,7 +51856,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "9e9f9aaa362c179f",
+    "source_revision": "a6a99d8a8ceae915",
     "web": {
       "actions": [
         {
@@ -51409,7 +51899,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "17b8df943bd8c0482365bcc16b4282e83d86766d7a6365ec2e6c8146ea669fbe",
+      "projection_digest": "8de377edbfd9245a32e606b402e4ae096325e5a97a6e6b6f9b8f28c563cedc6b",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -51419,7 +51909,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "25a7bb6a3284890be1fa54abad56c6266de5196f0722c2be585375fd3db9d54a",
+        "capability_graph_evolution": "68729d5d98364f790744ad77166bd62c38257b7555742f1a1f541b39f6869a1e",
         "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -51428,7 +51918,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "9e9f9aaa362c179f",
+      "source_revision": "a6a99d8a8ceae915",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -52985,7 +53475,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "9e9f9aaa362c179f",
+  "revision": "a6a99d8a8ceae915",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -54690,8 +55180,6 @@
     },
     {
       "action_ids": [
-        "people.profile.browse_financial_summaries",
-        "people.profile.browse_packets",
         "people.profile.cancel_connection_request",
         "people.profile.connect",
         "people.profile.manage_consent",
@@ -54969,14 +55457,24 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:document.copy.close_preview",
+      "actions:document.copy.download",
+      "actions:document.copy.preview",
+      "actions:document.copy.refresh",
+      "actions:document.copy.revoke"
+    ],
     "breaking": [],
     "changed": [],
     "compatible": [],
-    "deprecated": [],
-    "from_revision": "9031503093c4ce05",
+    "deprecated": [
+      "actions:document.hosted.choose_receive_through"
+    ],
+    "from_revision": "8d6d782606fc5ce1",
     "migrated": [],
-    "removed": []
+    "removed": [
+      "actions:document.hosted.choose_receive_through"
+    ]
   },
   "services": [
     {
@@ -57280,21 +57778,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "25a7bb6a3284890be1fa54abad56c6266de5196f0722c2be585375fd3db9d54a",
+    "capability_graph_evolution": "68729d5d98364f790744ad77166bd62c38257b7555742f1a1f541b39f6869a1e",
     "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "a15ef27401abb851953444fc8fc0d51fdb2d2adddb166f47ce4aa7c4a2d055e6",
+    "kai_action_gateway": "00ac4947aa27ed716ee138f157743066fa0f59af3dc52b225e441ddfa48bd79e",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
-    "route_orchestration_index": "0ffc664551a4ceef26722bb9a7947bcd5549e5539b2b7e2c78694e22c347b797",
+    "route_orchestration_index": "9f36cb5a752042829d3497d7ed9dcbc97d6f8481dce542b45842871a3d7a7158",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "9e9f9aaa362c179f",
+  "source_revision": "a6a99d8a8ceae915",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "9e9f9aaa362c179f",
+    "current_graph_revision": "a6a99d8a8ceae915",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -57331,6 +57829,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
           "2748dec227779c3d",
@@ -57371,7 +57870,6 @@
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
-          "452f4b1f355c3a73",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -57397,7 +57895,6 @@
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
-          "60a03f143872a996",
           "60f052ad508244d1",
           "60f9c47270b215a8",
           "62fecdf7944d63a5",
@@ -57464,6 +57961,7 @@
           "8afa7c0f35f622a7",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
+          "8d6d782606fc5ce1",
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
@@ -57549,6 +58047,7 @@
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
+          "c9235cd9b5598475",
           "ca45fcf41af6e723",
           "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
@@ -57645,6 +58144,7 @@
           "101c32b70ab14a4d",
           "141da451575ab2fc",
           "14b86b8e434fc15c",
+          "2168af5df998b238",
           "22194555a3198d88",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -57654,7 +58154,6 @@
           "3b4a692078832301",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
-          "452f4b1f355c3a73",
           "45be718cd9891cd4",
           "49f1882f17ca746a",
           "4be733c76f5be2bb",
@@ -57662,7 +58161,6 @@
           "4f5bda58994aac11",
           "53c411e01494034b",
           "5996287e8a4d4b35",
-          "60a03f143872a996",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
           "6889f5062bd36428",
@@ -57679,6 +58177,7 @@
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8afa7c0f35f622a7",
+          "8d6d782606fc5ce1",
           "8ed4b64eb88ea5b3",
           "9031503093c4ce05",
           "960bad66c0a7f295",
@@ -57694,6 +58193,7 @@
           "bf818f0b3141079a",
           "c19f96c7fd08b9c1",
           "c39f0674bed1fca1",
+          "c9235cd9b5598475",
           "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
           "cd963fae74716e9b",
@@ -57729,6 +58229,7 @@
           "101c32b70ab14a4d",
           "141da451575ab2fc",
           "14b86b8e434fc15c",
+          "2168af5df998b238",
           "22194555a3198d88",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -57737,14 +58238,12 @@
           "35982be19f859840",
           "3b4a692078832301",
           "43c428db7505bdee",
-          "452f4b1f355c3a73",
           "45be718cd9891cd4",
           "4be733c76f5be2bb",
           "4d911004af4b252b",
           "4f5bda58994aac11",
           "53c411e01494034b",
           "5996287e8a4d4b35",
-          "60a03f143872a996",
           "63a45baaa90e4e2f",
           "6889f5062bd36428",
           "6a5e47527ae2308f",
@@ -57754,6 +58253,7 @@
           "77a51f213fb0e5e7",
           "8052e8fc866f98cd",
           "8afa7c0f35f622a7",
+          "8d6d782606fc5ce1",
           "8ed4b64eb88ea5b3",
           "9031503093c4ce05",
           "960bad66c0a7f295",
@@ -57765,6 +58265,7 @@
           "ad3f61d47487e20e",
           "c19f96c7fd08b9c1",
           "c39f0674bed1fca1",
+          "c9235cd9b5598475",
           "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
           "cd963fae74716e9b",
@@ -58046,6 +58547,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
           "22194555a3198d88",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -58081,7 +58583,6 @@
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
-          "452f4b1f355c3a73",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -58100,7 +58601,6 @@
           "594add96607b6147",
           "5996287e8a4d4b35",
           "5dd05b725c815199",
-          "60a03f143872a996",
           "60f052ad508244d1",
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
@@ -58155,6 +58655,7 @@
           "8afa7c0f35f622a7",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
+          "8d6d782606fc5ce1",
           "8d723d6871b7b118",
           "8e7504c56c6fdfc8",
           "8eced9f041d6ab65",
@@ -58215,6 +58716,7 @@
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
+          "c9235cd9b5598475",
           "ca45fcf41af6e723",
           "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
@@ -58387,6 +58889,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
           "2748dec227779c3d",
@@ -58427,7 +58930,6 @@
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
-          "452f4b1f355c3a73",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -58453,7 +58955,6 @@
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
-          "60a03f143872a996",
           "60f052ad508244d1",
           "60f9c47270b215a8",
           "62fecdf7944d63a5",
@@ -58520,6 +59021,7 @@
           "8afa7c0f35f622a7",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
+          "8d6d782606fc5ce1",
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
@@ -58605,6 +59107,7 @@
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
+          "c9235cd9b5598475",
           "ca45fcf41af6e723",
           "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
@@ -58725,6 +59228,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
           "2748dec227779c3d",
@@ -58765,7 +59269,6 @@
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
-          "452f4b1f355c3a73",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -58791,7 +59294,6 @@
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
-          "60a03f143872a996",
           "60f052ad508244d1",
           "60f9c47270b215a8",
           "62fecdf7944d63a5",
@@ -58858,6 +59360,7 @@
           "8afa7c0f35f622a7",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
+          "8d6d782606fc5ce1",
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
@@ -58943,6 +59446,7 @@
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
+          "c9235cd9b5598475",
           "ca45fcf41af6e723",
           "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
@@ -59063,6 +59567,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
           "2748dec227779c3d",
@@ -59103,7 +59608,6 @@
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
-          "452f4b1f355c3a73",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -59129,7 +59633,6 @@
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
-          "60a03f143872a996",
           "60f052ad508244d1",
           "60f9c47270b215a8",
           "62fecdf7944d63a5",
@@ -59196,6 +59699,7 @@
           "8afa7c0f35f622a7",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
+          "8d6d782606fc5ce1",
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
@@ -59280,6 +59784,7 @@
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
+          "c9235cd9b5598475",
           "ca45fcf41af6e723",
           "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
@@ -59399,6 +59904,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
           "2748dec227779c3d",
@@ -59439,7 +59945,6 @@
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
-          "452f4b1f355c3a73",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -59465,7 +59970,6 @@
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
-          "60a03f143872a996",
           "60f052ad508244d1",
           "60f9c47270b215a8",
           "62fecdf7944d63a5",
@@ -59532,6 +60036,7 @@
           "8afa7c0f35f622a7",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
+          "8d6d782606fc5ce1",
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
@@ -59617,6 +60122,7 @@
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
+          "c9235cd9b5598475",
           "ca45fcf41af6e723",
           "ca4e044ae69e49f0",
           "ca681a264a9ac17a",

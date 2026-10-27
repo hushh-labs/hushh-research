@@ -108,6 +108,11 @@ class DrivePeriodPacketStore(DrivePacketStore):
         return await read_preview(self, **kwargs)
 
     async def claim_build(self, *, user_id, packet_id=None):
+        from hushh_mcp.services.drive_period_packet_freeze import (
+            empty_sale_recovery_predicate,
+            recoverable_empty_sale,
+        )
+
         def operation(connection):
             active = self._period_access(connection, owner=user_id)
             # Ordinary live searches own the owner's single active slot first.
@@ -120,14 +125,15 @@ class DrivePeriodPacketStore(DrivePacketStore):
                 return None
             row = self._row(
                 connection,
-                """SELECT * FROM drive_packet_heads
+                f"""SELECT * FROM drive_packet_heads
                 WHERE user_id=:user AND connection_generation=:generation
                   AND packet_kind='provider_discovery'
                   AND (current_version=0 OR (category='financial'
                     AND period_start=ANY(CAST(:period_starts AS date[]))))
                   AND ((dirty AND attempts<8 AND next_at<=clock_timestamp())
                     OR packet_id=ANY(CAST(:legacy_packets AS uuid[]))
-                    OR (category='financial' AND predefined_query_version IS DISTINCT FROM :template))
+                    OR (category='financial' AND predefined_query_version IS DISTINCT FROM :template)
+                    OR {empty_sale_recovery_predicate("drive_packet_heads")})
                   AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
                   AND (:packet IS NULL OR packet_id=CAST(:packet AS uuid))
                   AND NOT EXISTS(SELECT 1 FROM drive_owner_search_jobs j WHERE j.user_id=:user
@@ -136,7 +142,7 @@ class DrivePeriodPacketStore(DrivePacketStore):
                 ORDER BY EXISTS(SELECT 1 FROM drive_owner_search_jobs active WHERE active.user_id=:user
                     AND active.period_packet_id=drive_packet_heads.packet_id AND active.status IN ('queued','running')
                     AND active.expires_at>clock_timestamp()) DESC,
-                  (category='financial') DESC,period_start DESC,updated_at,category LIMIT 1 FOR UPDATE SKIP LOCKED""",
+                  (category='financial') DESC,period_start DESC,updated_at,category LIMIT 1 FOR UPDATE SKIP LOCKED""",  # nosec B608 # only the fixed allowlisted drive_packet_heads predicate is interpolated; runtime values are bound below.
                 {
                     "user": user_id,
                     "generation": active["connection_generation"],
@@ -158,13 +164,18 @@ class DrivePeriodPacketStore(DrivePacketStore):
                 return None
             row, build = migrated
             # The first post-close scan must not reuse a completed open-period job.
-            if build.get("preview", {}).get("complete") and not build.get("refresh_pending"):
+            recovering_empty = recoverable_empty_sale(self, connection, row)
+            if (
+                build.get("preview", {}).get("complete")
+                and not build.get("refresh_pending")
+                and not recovering_empty
+            ):
                 from hushh_mcp.services.drive_period_packet_preview import rotate_preview
 
                 row, build = rotate_preview(self, connection, row, build)
             lease = str(uuid4())
             connection.execute(
-                text("""UPDATE drive_packet_heads SET lease_id=:lease,
+                text("""UPDATE drive_packet_heads SET dirty=TRUE,lease_id=:lease,
               lease_expires_at=clock_timestamp()+INTERVAL '120 seconds',updated_at=clock_timestamp()
               WHERE packet_id=:id"""),
                 {"lease": lease, "id": row["packet_id"]},
@@ -217,18 +228,14 @@ class DrivePeriodPacketStore(DrivePacketStore):
         search = DriveOwnerSearchStore(db=self.db)
 
         def operation(connection):
-            row = self.current_period_head(
-                connection,
-                user_id=job["user_id"],
-                packet_id=job["packet_id"],
-                revision=job["revision"],
-                lease_id=job["lease_id"],
-            )
-            if row["current_version"]:
-                raise DriveReadError("packet_superseded")
             return freeze_locked(self, search, connection, job, search_job_id)
 
         return await self._transaction(operation)
+
+    async def finalize_empty_sale(self, job, *, search_job_id):
+        from hushh_mcp.services.drive_period_packet_freeze import finalize_empty_sale
+
+        return await finalize_empty_sale(self, job, search_job_id=search_job_id)
 
     @staticmethod
     def validate_origin(row, checkpoint):
