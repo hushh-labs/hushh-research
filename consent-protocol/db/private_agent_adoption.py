@@ -12,6 +12,7 @@ import hashlib
 from typing import TYPE_CHECKING, Callable
 
 from db.area_discovery_adoption import area_discovery_qualification_sql
+from db.hosted_custody_adoption import hosted_custody_adoption, hosted_custody_recovery_replay
 
 if TYPE_CHECKING:
     from db.migration_authority import MigrationManifestEntryV2
@@ -405,7 +406,7 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
         raise MigrationAuthorityError("Private-agent adoption column inventory changed")
     preparation = _authorization_attempts_sql() + _predecessor_constraints_sql()
     sql = entry.sql.replace(column_anchor, preparation + column_anchor, 1)
-    sql = _retention_inventory_sql(sql)
+    sql = hosted_custody_adoption(_retention_inventory_sql(sql))
     qualified = block.replace(_ANCHOR, _ANCHOR + additions)
     if not entry.sql.rstrip().endswith("COMMIT;"):
         raise MigrationAuthorityError("Private-agent adoption transaction source changed")
@@ -427,4 +428,5 @@ def execution_sql(
     """Adapt pending420 in either executing mode; caller keeps observe/skip gates."""
     if entry.migration_id == "420":
         return private_agent_adoption_sql(entry)
-    return replay(entry) if replay is not None else entry.sql
+    sql = replay(entry) if replay is not None else entry.sql
+    return hosted_custody_recovery_replay(entry, sql) if entry.migration_id == "421" else sql

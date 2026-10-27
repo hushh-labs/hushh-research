@@ -147,6 +147,16 @@ A bounded relation lock preserves ordinary row writes while fencing trigger DDL.
 Fresh schemas introduce no consumer objects or API. Observe and already-applied
 ledger entries remain unchanged. Historical SQL and checksums remain immutable.
 
+The same execution adapter preserves the complete reviewed managed-custody
+function family already installed in shared Dev. Any new helper or matching
+refined function requires all 60 exact definitions; a missing sentinel, partial
+family, changed function or unknown overload refuses replay. Both 420 and 421
+qualify the family before and after execution, and 421 retains its newer registry
+guard. Public and client execution grants are revoked. The test-only catalog
+fixture contains function definitions without owner records or pilot policy.
+This compatibility installs neither the parked pilot migrations nor private-pod
+runtime behavior, and changes no historical SQL or ledger checksum.
+
 Permanent account cleanup additionally erases retained owner-scoped consumer
 connections before ordinary OAuth/app cleanup. The shared client and neighboring
 owners remain. This compatibility does not publish the consumer-MCP feature.
