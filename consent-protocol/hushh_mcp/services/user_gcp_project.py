@@ -265,6 +265,9 @@ def create_project(
     parent_id: str,
     token: str,
     session: Any = None,
+    tenancy: str = "user-owned",
+    provision_attempt_id: str | None = None,
+    environment: str | None = None,
 ) -> dict[str, Any]:
     """Delegated creation: hushh makes the project inside a parent the person named.
 
@@ -287,6 +290,8 @@ def create_project(
             "delegated creation needs the parent the person authorized; it is never guessed"
         )
 
+    labels = _project_labels(tenancy, provision_attempt_id, environment)
+
     if session is None:
         import requests as session  # noqa: PLC0415
 
@@ -297,7 +302,7 @@ def create_project(
             "projectId": verdict.project_id,
             "name": display_name or verdict.project_id,
             "parent": {"type": parent_type, "id": parent_id},
-            "labels": {"created-by": "hussh-one", "tenancy": "user-owned"},
+            "labels": labels,
         },
         timeout=120,
     )
@@ -362,3 +367,24 @@ __all__ = [
     "suggest_project_id",
     "validate_project_id",
 ]
+
+
+def _project_labels(
+    tenancy: str, provision_attempt_id: str | None, environment: str | None
+) -> dict[str, str]:
+    if tenancy not in {"user-owned", "hussh-hosted"}:
+        raise ValueError("Project tenancy must be explicit")
+    if (tenancy == "hussh-hosted") != (provision_attempt_id is not None):
+        raise ValueError("Managed project creation requires its durable provision attempt")
+    if provision_attempt_id is not None and not re.fullmatch(r"[a-f0-9]{32}", provision_attempt_id):
+        raise ValueError("Managed project operation is invalid")
+    if (tenancy == "hussh-hosted" and environment != "dev") or (
+        tenancy == "user-owned" and environment is not None
+    ):
+        raise ValueError("Managed project creation requires explicit dev authority")
+    labels = {"created-by": "hussh-one", "tenancy": tenancy}
+    if provision_attempt_id is not None:
+        labels["hussh-provision-attempt"] = provision_attempt_id
+        labels["hussh-environment"] = "dev"
+
+    return labels

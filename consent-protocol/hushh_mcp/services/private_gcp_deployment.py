@@ -57,10 +57,17 @@ class PrivateGcpDeployment:
         ):
             raise ValueError("Hosted pod specification differs from assigned authority")
 
-    def validate(self, *, executable: bool = True) -> None:
+    def validate(self, *, executable: bool = True, frozen: bool = False) -> None:
         from hushh_mcp.services.user_gcp_backend import _slug, pod_service_account_id
 
-        _validate_inference_selection(self)
+        if frozen:
+            from hushh_mcp.services.hosted_runtime_configuration import (
+                validate_frozen_inference_selection,
+            )
+
+            validate_frozen_inference_selection(self)
+        else:
+            _validate_inference_selection(self)
 
         if (
             self.hosting_mode not in {"user_gcp", "hussh_hosted"}
@@ -94,7 +101,7 @@ class PrivateGcpDeployment:
             if (
                 self.hosting_mode != "hussh_hosted"
                 or self.environment != "dev"
-                or self.model_project != load_profile("dev")["project"]
+                or (not frozen and self.model_project != load_profile("dev")["project"])
             ):
                 raise ValueError("Private pod inference project is not admitted")
         # Exercise the same identity constructor as bootstrap and IAM binding.
@@ -121,8 +128,8 @@ class PrivateGcpDeployment:
             f"cryptoKeys/one-pod-{_slug(self.owner)}-key"
         )
 
-    def encoded(self) -> str:
-        self.validate()
+    def encoded(self, *, frozen: bool = False) -> str:
+        self.validate(frozen=frozen)
         return json.dumps(
             {
                 "version": 2 if self.inference_model is not None else 1,
@@ -150,7 +157,7 @@ class PrivateGcpDeployment:
         )
 
     @classmethod
-    def decode(cls, raw: str) -> PrivateGcpDeployment:
+    def decode(cls, raw: str, *, frozen: bool = False) -> PrivateGcpDeployment:
         try:
             if len(raw) > 4096:
                 raise ValueError
@@ -197,63 +204,17 @@ class PrivateGcpDeployment:
                 inference_model=model,
                 inference_profile_hash=model_hash,
             )
-            deployment.validate()
+            deployment.validate(frozen=frozen)
             return deployment
         except (ValueError, TypeError, KeyError):
             raise ValueError("Private pod deployment configuration is invalid") from None
 
-    def verify_observation(self, service: dict[str, Any]) -> None:
-        """Check the full Knative service, including environment and ownership.
+    def verify_observation(
+        self, service: dict[str, Any], *, require_uid: bool = True, frozen: bool = False
+    ) -> None:
+        from hushh_mcp.services.private_gcp_observation import verify_private_observation
 
-        Initial create obtains its provider UID separately; maintenance supplies
-        the recorded UID. Labels are checked alongside identity and custody.
-        """
-        self.validate()
-        from hushh_mcp.services.gcp_backend import _service_name
-        from hushh_mcp.services.gcp_run_client import GcpRunClient
-
-        try:
-            metadata = service["metadata"]
-            container = service["spec"]["template"]["spec"]["containers"][0]
-            runtime = service["spec"]["template"]["spec"]["serviceAccountName"]
-            entries = container["env"]
-            env = {entry["name"]: entry.get("value") for entry in entries}
-            valid = (
-                len(env) == len(entries)
-                and metadata["name"] == _service_name(self.owner)
-                and (
-                    metadata["namespace"] == self.project
-                    or (
-                        self.project_number is not None
-                        and metadata["namespace"] == self.project_number
-                    )
-                )
-                and metadata["labels"]["hussh-tenancy"] == self.tenancy
-                and runtime == self.runtime_principal
-                and container["image"] == self.image
-                and (
-                    env.get(HOSTING_ENV) == self.encoded()
-                    if self.hosting_mode == "hussh_hosted" or HOSTING_ENV in env
-                    else True
-                )
-                and env["HUSSH_ID"] == self.owner
-                and env["HUSHH_DEPLOY_ENV"] == self.environment
-                and env["GOOGLE_CLOUD_PROJECT"] == self.project
-                and env["HUSSH_POD_KMS_KEY"] == self.kms_key
-                and env["POD_STORAGE_GCS_BUCKET"] == self.bucket
-                and env["HUSSH_POD_USER_ADC_ENABLED"]
-                == ("true" if self.hosting_mode == "user_gcp" else "false")
-                and not any(key in env for key in FORBIDDEN_PRIVATE_ENV)
-                and "HUSSH_POD_MANAGED_MODEL_ENABLED" not in env
-                and (
-                    self.service_uid is None
-                    or GcpRunClient.service_uid(service) == self.service_uid
-                )
-            )
-        except (KeyError, TypeError, IndexError):
-            valid = False
-        if not valid:
-            raise ValueError("Private pod deployed resources differ from admitted authority")
+        verify_private_observation(self, service, require_uid=require_uid, frozen=frozen)
 
     @property
     def tenancy(self) -> str:
@@ -335,6 +296,7 @@ def render_private_gcp_service(
     spec: Any,
     deployment: PrivateGcpDeployment,
     immutable: bool,
+    frozen: bool = False,
 ) -> dict[str, Any]:
     """Apply common custody and runtime configuration to the existing GCP shape."""
     from hushh_mcp.services.pod_inference_bridge import render_inference_bridge
@@ -372,6 +334,8 @@ def render_private_gcp_service(
             "HUSSH_POD_USER_ADC_ENABLED",
             "HUSSH_POD_MANAGED_MODEL_ENABLED",
             "HUSSH_POD_DEV_INFERENCE_BRIDGE_JSON",
+            "HUSSH_POD_WRITER_PROTOCOL",
+            "HUSSH_POD_WRITER_OPERATION",
             "POD_MEMORY_BACKEND",
             "POD_MEMORY_BANK_LOCATION",
         }
@@ -388,6 +352,9 @@ def render_private_gcp_service(
     if deployment.hosting_mode == "user_gcp":
         env.extend(render_inference_bridge(service_account=deployment.runtime_principal))
     env.extend(_private_resource_environment(deployment, immutable=immutable))
+    from hushh_mcp.services.hosted_runtime_configuration import writer_environment
+
+    env.extend(writer_environment(spec, deployment))
     if spec.files_library_enabled:
         from hushh_mcp.services.pod_files.provisioning import configure_new_service
 
@@ -406,6 +373,7 @@ def _private_resource_environment(
     deployment: PrivateGcpDeployment,
     *,
     immutable: bool,
+    frozen: bool = False,
 ) -> list[dict[str, Any]]:
     """Build resource-local custody references; no credential values enter the image."""
     from hushh_mcp.services.byoc_key_custody import byoc_key_env
@@ -425,7 +393,7 @@ def _private_resource_environment(
         "HUSSH_POD_HUB_CALLER_EMAILS": deployment.hub_principal,
     }
     if immutable and deployment.hosting_mode == "hussh_hosted":
-        values[HOSTING_ENV] = deployment.encoded()
+        values[HOSTING_ENV] = deployment.encoded(frozen=frozen)
         if deployment.inference_model is not None:
             values["HUSHH_GEMINI_TEXT_MODEL"] = deployment.inference_model
     env = [{"name": key, "value": value} for key, value in values.items()]

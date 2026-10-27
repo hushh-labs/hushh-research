@@ -1509,3 +1509,8 @@ tests/services/test_area_discovery_postgres.py
 
 tests/test_hosted_pilot_admission_postgres.py
 tests/test_hosted_pod_bootstrap_postgres.py
+tests/test_hosted_pod_direct_postgres.py
+tests/test_hosted_pod_preparation_postgres.py
+
+tests/test_hosted_private_runtime.py
+tests/test_pod_runtime_writer.py

@@ -12,15 +12,31 @@ import threading
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from hushh_mcp.managed_ai_config import load_profile, profile_hash
 from hushh_mcp.services.compute_backend import PodSpec
+from hushh_mcp.services.hosted_gcp_authority import HostedGcpAuthority
 from hushh_mcp.services.private_gcp_deployment import PrivateGcpDeployment
+from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
 
 
 class AdmissionRepository(Protocol):
+    async def hosted_execution_current(
+        self,
+        *,
+        purpose: str,
+        owner_id: str,
+        attempt_id: str,
+        admission: dict,
+        project_observation: dict | None = None,
+    ) -> bool: ...
+
+    async def publish_hosted_bootstrap_checkpoint(
+        self, *, owner_id: str, attempt_id: str, checkpoint: dict[str, Any]
+    ) -> bool: ...
+
     async def hosted_admission_current(
         self,
         *,
@@ -41,7 +57,8 @@ def deployment_from_reservation(
         profile = load_profile("dev")
         expiry = datetime.fromisoformat(admission["expiresAt"])
         valid = (
-            reservation["phase"] == "reserved"
+            reservation["phase"]
+            in {"reserved", "substrate", "host_requested", "host_acknowledged", "connecting"}
             and reservation["attemptId"] == spec.provision_attempt_id
             and reservation["intent"]["user_id"] == reservation["ownerId"]
             and reservation["intent"]["hushh_id"] == spec.hushh_id
@@ -78,6 +95,7 @@ def deployment_from_reservation(
             image=f"{assignment['region']}-docker.pkg.dev/{assignment['project']}/one-pod/consent-protocol-pod@{admission['imageDigest']}",
             hub_principal=hub_principal,
             project_number=project_number,
+            service_uid=spec.expected_service_uid,
             inference_project=profile["project"],
             inference_model=profile["text_model"],
             inference_profile_hash=profile_hash(profile),
@@ -96,10 +114,13 @@ async def bind_provision_spec(
     registry: AdmissionRepository,
     release: dict[str, Any],
     hub_principal: str,
+    execute: bool = False,
+    purpose: Literal["bootstrap", "provision"] | None = None,
 ) -> PodSpec:
     deployment = deployment_from_reservation(
         spec, reservation, release=release, hub_principal=hub_principal
     )
+    operation_purpose = purpose or _execution_purpose(reservation)
     owner_id, attempt_id = reservation["ownerId"], reservation["attemptId"]
     admission = deepcopy(reservation["hostedAdmission"])
     observation = deepcopy(
@@ -108,35 +129,52 @@ async def bind_provision_spec(
     loop, owner_thread = asyncio.get_running_loop(), threading.get_ident()
 
     async def current() -> None:
-        if not await registry.hosted_admission_current(
+        admitted = await _read_admission(
+            registry,
+            execute=execute,
+            purpose=operation_purpose,
             owner_id=owner_id,
             attempt_id=attempt_id,
             admission=admission,
-            project_observation=observation,
-        ):
-            raise RuntimeError("Hosted pilot admission changed; reconciliation required")
+            observation=observation,
+        )
+        if admitted is not True:
+            raise ProvisionReconciliationRequired(
+                "Hosted pilot admission changed or preparation is incomplete"
+            )
         deployment.validate()
 
     await current()
 
-    def guard() -> None:
-        if threading.get_ident() == owner_thread:
-            raise RuntimeError("Hosted provider admission must execute on its worker thread")
-        if not loop.is_running() or loop.is_closed():
-            raise RuntimeError("Hosted admission coordinator is unavailable")
-        operation = current()
-        try:
-            future = asyncio.run_coroutine_threadsafe(operation, loop)
-        except RuntimeError:
-            operation.close()
-            raise RuntimeError("Hosted admission coordinator is unavailable") from None
-        try:
-            future.result(timeout=20)
-        except TimeoutError:
-            future.cancel()
-            raise RuntimeError("Hosted admission observation timed out") from None
+    guard = _worker_guard(current, loop, owner_thread)
 
-    return replace(spec, private_gcp_deployment=deployment, hosted_admission_guard=guard)
+    bootstrap_sa = (
+        admission["assignment"]
+        .get("bootstrapContract", {})
+        .get("plan", {})
+        .get("federation", {})
+        .get("impersonation", {})
+        .get("bootstrap_service_account", "")
+    )
+    authority = HostedGcpAuthority(
+        deployment,
+        release["image"],
+        bootstrap_sa,
+        guard,
+        operation=operation_purpose,
+        execute=execute,
+        operation_id=attempt_id,
+    )
+    if execute:
+        authority.validate_execution()
+        if reservation["phase"] == "reserved":
+            authority = _bind_bootstrap_execution(authority, spec, reservation, registry)
+    return replace(
+        spec,
+        private_gcp_deployment=deployment,
+        hosted_admission_guard=authority,
+        ingress="direct" if execute else spec.ingress,
+    )
 
 
 def _observed_project_number(reservation: dict, assignment: dict) -> str | None:
@@ -159,3 +197,104 @@ def _observed_project_number(reservation: dict, assignment: dict) -> str | None:
     if not isinstance(observed_number, str):
         raise ValueError
     return observed_number
+
+
+def _bind_bootstrap_execution(
+    authority: HostedGcpAuthority, spec: PodSpec, reservation: dict, registry: AdmissionRepository
+) -> HostedGcpAuthority:
+    from hushh_mcp.services.byoc_bootstrap_execution import BootstrapContinuation
+    from hushh_mcp.services.hosted_gcp_backend import HostedGcpBackend
+    from hushh_mcp.services.hosted_gcp_checkpoint import bind_bootstrap_checkpoint
+
+    bound_spec = replace(
+        spec,
+        private_gcp_deployment=authority.deployment,
+        hosted_admission_guard=authority,
+        ingress="direct",
+    )
+    plan = HostedGcpBackend(
+        deployment=authority.deployment, authority=authority
+    ).render_bootstrap_plan(bound_spec)
+    checkpoint, prefix = bind_bootstrap_checkpoint(
+        registry=registry, reservation=reservation, plan=plan
+    )
+
+    def persist(phase: str, step: str, completed: list[dict[str, Any]]) -> None:
+        if phase == "intent":
+            authority()
+        checkpoint(phase, step, completed)
+
+    return replace(authority, continuation=BootstrapContinuation(persist, prefix))
+
+
+async def _read_admission(
+    registry: AdmissionRepository,
+    *,
+    execute: bool,
+    purpose: str,
+    owner_id: str,
+    attempt_id: str,
+    admission: dict,
+    observation: dict | None,
+) -> bool:
+    try:
+        if execute:
+            return await registry.hosted_execution_current(
+                purpose=purpose,
+                owner_id=owner_id,
+                attempt_id=attempt_id,
+                admission=admission,
+                project_observation=observation,
+            )
+        return await registry.hosted_admission_current(
+            owner_id=owner_id,
+            attempt_id=attempt_id,
+            admission=admission,
+            project_observation=observation,
+        )
+    except Exception:
+        raise ProvisionReconciliationRequired(
+            "Managed preparation admission is unavailable"
+        ) from None
+
+
+def _execution_purpose(reservation: dict) -> Literal["bootstrap", "provision"]:
+    preparation = reservation.get("evidence", {}).get("reserved", {}).get("hostedPreparation") or {}
+    if not isinstance(preparation, dict):
+        return "bootstrap"
+    completed = preparation.get("completed")
+    return (
+        "provision"
+        if preparation.get("phase") == "observed"
+        and isinstance(completed, list)
+        and len(completed) == 5
+        and all(isinstance(item, dict) and item.get("ok") is True for item in completed)
+        else "bootstrap"
+    )
+
+
+def _worker_guard(current: Any, loop: asyncio.AbstractEventLoop, owner_thread: int) -> Any:
+    def guard() -> None:
+        if threading.get_ident() == owner_thread:
+            raise ProvisionReconciliationRequired(
+                "Hosted provider admission must execute on its worker thread"
+            )
+        if not loop.is_running() or loop.is_closed():
+            raise ProvisionReconciliationRequired("Hosted admission coordinator is unavailable")
+        operation = current()
+        try:
+            future = asyncio.run_coroutine_threadsafe(operation, loop)
+        except RuntimeError:
+            operation.close()
+            raise ProvisionReconciliationRequired(
+                "Hosted admission coordinator is unavailable"
+            ) from None
+        try:
+            future.result(timeout=20)
+        except TimeoutError:
+            future.cancel()
+            raise ProvisionReconciliationRequired(
+                "Hosted admission observation timed out"
+            ) from None
+
+    return guard

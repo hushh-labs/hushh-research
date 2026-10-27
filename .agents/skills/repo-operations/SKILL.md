@@ -56,7 +56,12 @@ Non-owned surfaces:
 
 ## Workflow
 
-Private GCP hosting shares one immutable image. Follow `deployment-standard.md` and the dev runbook's hosted-pilot section: rendered assignments or shared inference readiness never replace durable admission, the spend ceiling, per-owner identity/custody and reconciled cleanup.
+Private GCP hosting shares one immutable image. Follow `deployment-standard.md` and the dev runbook's hosted-pilot section: rendered assignments or shared inference readiness never replace durable admission, the spend ceiling, per-owner identity/custody and reconciled cleanup. Managed erasure uses the retained
+operator identity for cross-project model grants and project retirement; never pass
+operator ADC into the serving hub or release bootstrap authority before resource
+and model-grant receipts qualify. Retirement pending provider purge does not prove
+KMS destruction. Read-only recovery keeps frozen model bindings; replacements must
+read back the exact owner-approved writer operation.
 
 For existing private-pod image updates and explicitly authorized legacy bootstrap,
 follow `docs/reference/operations/dev-pod-first-light-runbook.md`, section

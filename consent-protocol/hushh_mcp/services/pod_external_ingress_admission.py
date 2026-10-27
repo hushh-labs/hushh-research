@@ -33,7 +33,7 @@ from typing import Any, Optional
 
 import httpx
 
-from hushh_mcp.services.compute_backend import BACKEND_USER_GCP, is_owner_cloud_target
+from hushh_mcp.services.compute_backend import BACKEND_USER_GCP, is_private_pod_row
 from hushh_mcp.services.pod_wall import POD_WALL_NOT_FOUND_BODY, POD_WALL_STATUS
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ def admission_due(row: Optional[dict]) -> Optional[dict[str, str]]:
         "url": url,
     }
     if (
-        not is_owner_cloud_target(row.get("deployment_target"))
+        not is_private_pod_row(row)
         or _clean(row.get("status")) != "provisioned"
         or not _clean(row.get("pod_pubkey"))
         or "erasure" in metadata
@@ -111,7 +111,12 @@ async def _ingress_holds(client: Any, url: str, origin: str) -> Optional[str]:
 
 async def _cloud_holds(row: dict, due: dict[str, str], cloud_check: Any) -> Optional[str]:
     """For a Google pod, the live IAM and ingress read back; None when they hold."""
-    if _clean(row.get("deployment_target")) != BACKEND_USER_GCP:
+    from hushh_mcp.services.hosted_gcp_placement import retained_hosted_placement
+
+    if (
+        _clean(row.get("deployment_target")) != BACKEND_USER_GCP
+        and retained_hosted_placement(row) is None
+    ):
         return None
     if cloud_check is None:
         from hushh_mcp.services.owner_direct_widen import (  # noqa: PLC0415
@@ -165,7 +170,7 @@ async def admit_external_ingress_if_due(
         db = get_db()
     try:
         admitted = await promote_external_ingress(
-            db, verified_at=datetime.now(timezone.utc).isoformat(), **due
+            db, verified_at=datetime.now(timezone.utc).isoformat(), observed_row=row, **due
         )
     except Exception as exc:  # noqa: BLE001 - the next beat retries
         logger.warning("pod_external_ingress.record_failed %s", type(exc).__name__)

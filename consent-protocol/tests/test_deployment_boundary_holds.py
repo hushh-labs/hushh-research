@@ -40,6 +40,7 @@ _BACKEND = Path(__file__).resolve().parents[1]
 # The common layer. These files orchestrate a fleet they must not be able to name.
 _LAYER_ONE = (
     "hushh_mcp/services/personal_agent_provisioning_service.py",
+    "hushh_mcp/services/personal_agent_provision_execution.py",
     "hushh_mcp/services/personal_agent_registry_repo.py",
     "hushh_mcp/services/personal_agent_reconcile_worker.py",
     # Owner-access erasure is orchestration too: the capability selects it, never a name.

@@ -12,6 +12,8 @@ from typing import Any
 
 
 async def _reserve(registry: Any, user_id: str) -> tuple[dict, dict, str]:
+    from hushh_mcp.services.compute_backend_resolution import frozen_cleanup_coordinates
+
     current = await registry.get(user_id)
     reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
     snapshot = reservation.get("registrySnapshot") or {}
@@ -38,7 +40,7 @@ async def _reserve(registry: Any, user_id: str) -> tuple[dict, dict, str]:
         != {
             "ownerId": user_id,
             "attemptId": attempt,
-            "project": snapshot.get("user_cloud_project"),
+            "project": frozen_cleanup_coordinates(snapshot)[0],
             "status": "reserved",
         }
     ):

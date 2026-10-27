@@ -40,7 +40,9 @@ def pg(monkeypatch):
         server.stop()
 
 
-def _policy(pg, *, expired=False, numbers_known=True, bootstrap=False):
+def _policy(
+    pg, *, expired=False, numbers_known=True, bootstrap=False, preparation=False, ttl="1 day"
+):
     from hushh_mcp.managed_ai_config import load_profile, profile_hash
 
     profile = load_profile("dev")
@@ -64,6 +66,11 @@ def _policy(pg, *, expired=False, numbers_known=True, bootstrap=False):
                     "steps": ["enable_services", "kms_key"],
                 }
             )
+    if preparation:
+        from tests.hosted_pod_support import hosted_preparation_contract
+
+        for assignment in assignments:
+            assignment["preparationContract"] = hosted_preparation_contract()
     pg.execute(
         "INSERT INTO public.hosted_pod_pilot_policy(policy_id,environment,source_revision,"
         "image_digest,assignments,model_binding,work_budget_cents,cleanup_reserve_cents,created_at,expires_at)"
@@ -82,7 +89,7 @@ def _policy(pg, *, expired=False, numbers_known=True, bootstrap=False):
                     "profileHash": profile_hash(profile),
                 }
             ),
-            "-1 day" if expired else "1 day",
+            "-1 day" if expired else ttl,
         ),
     )
 
@@ -356,3 +363,119 @@ def test_project_number_settlement_retains_original_budget_and_assignment(pg):
         asyncio.run(verify_binding())
     finally:
         client._engine.dispose()
+
+
+def test_restart_reuses_exact_reserved_attempt_without_new_allocation(pg):
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
+
+    _policy(pg)
+    original = _claim(pg)
+    observed = pg.execute(
+        "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id='owner-a'"
+    )[0][0]
+    client = _Client(pg)
+
+    async def scenario():
+        repo = PersonalAgentRegistryRepo(client)
+        resumed = await repo.claim_provision(observed=observed, intent=original["intent"])
+        assert resumed == original
+        assert resumed["attemptId"] == "a" * 32
+        with pytest.raises(ProvisionReconciliationRequired):
+            await repo.claim_provision(
+                observed=observed, intent={**original["intent"], "phone_e164_hash": "changed"}
+            )
+        assert pg.execute("SELECT attempt_a,attempt_b FROM hosted_pod_pilot_policy")[0] == (
+            "a" * 32,
+            None,
+        )
+        pg.execute(
+            "SELECT publish_personal_agent_provision('owner-a',%s,'reserved','failed','{}')",
+            ("a" * 32,),
+        )
+        with pytest.raises(ProvisionReconciliationRequired):
+            await repo.claim_provision(observed=observed, intent=original["intent"])
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        client._engine.dispose()
+
+
+def test_frozen_managed_cleanup_coordinates_preserve_real_authorization_history(pg, monkeypatch):
+    from copy import deepcopy
+
+    from tests.test_hosted_pod_bootstrap_postgres import _approved_bootstrap
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    pg.apply_file(ROOT / "db/migrations/parked/974_hosted_pod_custody.sql")
+    _policy(pg, bootstrap=_approved_bootstrap)
+    reservation = _claim(pg)
+    assignment = reservation["hostedAdmission"]["assignment"]
+    project = assignment["project"]
+    from tests.hosted_pod_support import hosted_project_authorization
+
+    authorization = hosted_project_authorization(reservation)
+    reservation["evidence"] = {
+        "reserved": {
+            "projectObservation": {
+                "projectId": project,
+                "projectNumber": assignment["projectNumber"],
+                "lifecycleState": "ACTIVE",
+            },
+            "projectAuthorization": authorization,
+        }
+    }
+    snapshot = {
+        "user_id": "owner-a",
+        "hushh_id": assignment["hushhId"],
+        "deployment_target": "gcp",
+        "backend_metadata": {"tenancy": "hussh-hosted", "provisionAttempt": reservation},
+    }
+
+    def coordinates(value):
+        return pg.execute("SELECT private_gcp_coordinates(%s::jsonb)", (json.dumps(value),))[0][0]
+
+    assert coordinates(snapshot)["project"] == project
+    erasure = {"ownerId": "owner-a", "hushhId": assignment["hushhId"], "registrySnapshot": snapshot}
+    history = pg.execute(
+        "SELECT erasure_authorization_history(%s::jsonb,NULL)", (json.dumps(erasure),)
+    )[0][0]
+    assert history == {reservation["attemptId"]: authorization}
+    for defect in ("owner", "identity", "authority", "project", "foreign"):
+        invalid = deepcopy(snapshot)
+        if defect == "owner":
+            invalid["user_id"] = "owner-b"
+        elif defect == "foreign":
+            invalid["user_cloud_project"] = "foreign-project"
+        else:
+            reserved = invalid["backend_metadata"]["provisionAttempt"]["evidence"]["reserved"]
+            if defect == "project":
+                reserved["projectObservation"]["projectNumber"] = "999999999999"
+            elif defect == "identity":
+                reserved["projectAuthorization"]["receipt"]["bootstrapIdentity"]["email"] = (
+                    "foreign@foreign-project.iam.gserviceaccount.com"
+                )
+            else:
+                reserved["projectAuthorization"]["receipt"]["bindingObservation"]["member"] = (
+                    "serviceAccount:foreign@foreign-project.iam.gserviceaccount.com"
+                )
+        assert coordinates(invalid) is None
+
+
+def test_managed_custody_replay_refuses_unknown_helper_drift(pg):
+    from db.hosted_custody_adoption import _successor_qualification
+
+    pg.apply_file(ROOT / "db/migrations/parked/974_hosted_pod_custody.sql")
+    pg.execute(_successor_qualification())
+    pg.execute(
+        "CREATE OR REPLACE FUNCTION public.private_gcp_coordinates(snapshot jsonb) RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$ BEGIN RETURN '{}'::jsonb; END; $$"
+    )
+    with pytest.raises(
+        psycopg2.errors.RaiseException, match="Unqualified managed custody successor"
+    ):
+        pg.execute(_successor_qualification())
+    with pytest.raises(
+        psycopg2.errors.RaiseException, match="Unqualified managed custody predecessor"
+    ):
+        pg.apply_file(ROOT / "db/migrations/parked/974_hosted_pod_custody.sql")

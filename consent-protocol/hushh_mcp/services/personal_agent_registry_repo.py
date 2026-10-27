@@ -30,6 +30,7 @@ from hushh_mcp.services.compute_backend import (
     owner_cloud_bind,
 )
 from hushh_mcp.services.placement_observation import read_placement_row
+from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
 
 _REGISTRY = "personal_agent_registry"
 _TOMBSTONES = "personal_agent_deletion_tombstones"
@@ -266,7 +267,9 @@ class PersonalAgentRegistryRepo:
         not rediscover or take over an uncertain attempt, even after a restart.
         """
         owner = str(intent.get("user_id") or "")
-        attempt = uuid.uuid4().hex
+        retained = ((observed or {}).get("backend_metadata") or {}).get("provisionAttempt") or {}
+        resuming = bool(retained.get("hostedAdmission"))
+        attempt = str(retained.get("attemptId")) if resuming else uuid.uuid4().hex
         claim_function = (
             "claim_hosted_pod_pilot_provision"
             if is_known_pod_target(intent.get("deployment_target"))
@@ -290,13 +293,37 @@ class PersonalAgentRegistryRepo:
                 not isinstance(reservation, dict)
                 or reservation.get("ownerId") != owner
                 or reservation.get("attemptId") != attempt
-                or reservation.get("phase") != "reserved"
+                or reservation.get("phase")
+                not in (
+                    {"reserved", "substrate", "host_requested", "host_acknowledged", "connecting"}
+                    if resuming
+                    else {"reserved"}
+                )
                 or reservation.get("intent") != intent
             ):
                 raise ValueError("unacknowledged provision reservation")
             return reservation
         except Exception:
+            if resuming:
+                raise ProvisionReconciliationRequired(
+                    "retained provision requires reconciliation"
+                ) from None
             raise RuntimeError("personal agent provision admission unavailable") from None
+
+    async def hosted_upgrade_current(
+        self, *, owner_id: str, lease: str, observed: dict, work: bool = True
+    ) -> bool:
+        return await self._hosted_journal().upgrade_current(
+            owner_id=owner_id, lease=lease, observed=observed, work=work
+        )
+
+    async def hosted_cleanup_current(self, *, owner_id: str, reservation: dict) -> bool:
+        return await self._hosted_journal().cleanup_current(
+            owner_id=owner_id, reservation=reservation
+        )
+
+    async def hosted_retained_current(self, *, owner_id: str, observed: dict) -> bool:
+        return await self._hosted_journal().retained_current(owner_id=owner_id, observed=observed)
 
     async def hosted_admission_current(
         self,
@@ -307,30 +334,42 @@ class PersonalAgentRegistryRepo:
         project_observation: dict | None = None,
     ) -> bool:
         """Re-read pilot authority before a provider call; never hold SQL across it."""
-        result = await asyncio.to_thread(
-            self._db().execute_raw,
-            "SELECT public.hosted_pod_pilot_admission_current(:owner,:attempt,"
-            "CAST(:admission AS jsonb),CAST(:project_observation AS jsonb)) AS current",
-            {
-                "owner": owner_id,
-                "attempt": attempt_id,
-                "admission": json.dumps(admission),
-                "project_observation": json.dumps(project_observation),
-            },
+        return await self._hosted_journal().current(
+            owner_id=owner_id,
+            attempt_id=attempt_id,
+            admission=admission,
+            project_observation=project_observation,
         )
-        return bool(result.data and result.data[0].get("current") is True)
+
+    async def hosted_execution_current(
+        self,
+        *,
+        purpose: str,
+        owner_id: str,
+        attempt_id: str,
+        admission: dict,
+        project_observation: dict | None = None,
+    ) -> bool:
+        return await self._hosted_journal().current(
+            purpose=purpose,
+            owner_id=owner_id,
+            attempt_id=attempt_id,
+            admission=admission,
+            project_observation=project_observation,
+        )
 
     async def publish_hosted_bootstrap_checkpoint(
         self, *, owner_id: str, attempt_id: str, checkpoint: dict[str, Any]
     ) -> bool:
         """CAS one bootstrap intent/result in the existing retained attempt."""
-        result = await asyncio.to_thread(
-            self._db().execute_raw,
-            "SELECT public.publish_hosted_pod_bootstrap_checkpoint(:owner,:attempt,"
-            "CAST(:checkpoint AS jsonb)) AS admitted",
-            {"owner": owner_id, "attempt": attempt_id, "checkpoint": json.dumps(checkpoint)},
+        return await self._hosted_journal().publish(
+            kind="bootstrap", owner_id=owner_id, attempt_id=attempt_id, checkpoint=checkpoint
         )
-        return bool(result.data and result.data[0].get("admitted") is True)
+
+    def _hosted_journal(self) -> Any:
+        from hushh_mcp.services.hosted_pod_journal import HostedPodJournal
+
+        return HostedPodJournal(self._db())
 
     async def publish_provision(
         self,

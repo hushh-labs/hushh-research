@@ -11,7 +11,11 @@ import asyncio
 import json
 from typing import Any, Optional
 
-from hushh_mcp.services.compute_backend import is_owner_cloud_target, owner_cloud_bind
+from hushh_mcp.services.compute_backend import (
+    is_owner_cloud_target,
+    is_private_pod_row,
+    owner_cloud_bind,
+)
 
 
 def _detached_endpoint_floor(metadata: Any) -> int:
@@ -63,7 +67,7 @@ def direct_owner_matches(
     return bool(
         owner["hushh_id"] == hushh_id
         and owner["status"] == "provisioned"
-        and is_owner_cloud_target(owner["deployment_target"])
+        and is_private_pod_row(owner)
         and owner["pod_key_id"] == pod_key_id
         and owner["pod_pubkey"] == pod_public_key
         and "erasure" not in metadata
@@ -101,9 +105,7 @@ async def record_endpoint(
             owner = (
                 conn.execute(
                     text(
-                        "SELECT hushh_id, status, deployment_target, pod_key_id, pod_pubkey, "
-                        "backend_metadata FROM personal_agent_registry "
-                        "WHERE user_id = :user_id FOR UPDATE"
+                        "SELECT * FROM personal_agent_registry WHERE user_id = :user_id FOR UPDATE"
                     ),
                     {"user_id": user_id},
                 )
@@ -178,9 +180,7 @@ async def record_binding(
             owner = (
                 conn.execute(
                     text(
-                        "SELECT hushh_id, status, deployment_target, pod_key_id, pod_pubkey, "
-                        "backend_metadata FROM personal_agent_registry "
-                        "WHERE user_id = :user_id FOR UPDATE"
+                        "SELECT * FROM personal_agent_registry WHERE user_id = :user_id FOR UPDATE"
                     ),
                     {"user_id": user_id},
                 )
@@ -315,6 +315,7 @@ async def promote_external_ingress(
     pod_key_id: str,
     url: str,
     verified_at: str,
+    observed_row: dict | None = None,
 ) -> bool:
     """Promote hub-verified public-by-construction ingress to direct, with its receipt.
 
@@ -322,6 +323,15 @@ async def promote_external_ingress(
     same owner, key, service and address the checks ran against
     (``pod_external_ingress_admission``); an erasure or a replaced pod refuses it.
     """
+    from hushh_mcp.services.hosted_gcp_placement import direct_admission_snapshot
+
+    hosted_snapshot = direct_admission_snapshot(observed_row)
+    if (
+        observed_row is not None
+        and observed_row.get("deployment_target") == "gcp"
+        and hosted_snapshot is None
+    ):
+        return False
     readiness = {
         "verified": True,
         "serviceUid": service_uid,
@@ -338,7 +348,11 @@ async def promote_external_ingress(
             '{directReadiness}', CAST(:readiness AS jsonb), true
         )
         WHERE user_id = :user_id AND hushh_id = :hushh_id
-          AND deployment_target = ANY(:owner_cloud_targets) AND status = 'provisioned'
+          AND (deployment_target = ANY(:owner_cloud_targets) OR (
+              deployment_target = 'gcp' AND :hosted_snapshot IS NOT NULL
+              AND to_jsonb(personal_agent_registry) @> CAST(:hosted_snapshot AS jsonb)
+              AND backend_metadata = CAST(:hosted_metadata AS jsonb)
+          )) AND status = 'provisioned'
           AND pod_key_id = :pod_key_id AND pod_pubkey IS NOT NULL
           AND backend_metadata->>'serviceUid' = :service_uid
           AND backend_metadata->>'url' = :url
@@ -354,6 +368,10 @@ async def promote_external_ingress(
             "pod_key_id": pod_key_id,
             "url": url,
             "readiness": json.dumps(readiness),
+            "hosted_snapshot": json.dumps(hosted_snapshot) if hosted_snapshot is not None else None,
+            "hosted_metadata": json.dumps(hosted_snapshot["backend_metadata"])
+            if hosted_snapshot
+            else None,
         },
     )
     return bool(getattr(response, "data", None))

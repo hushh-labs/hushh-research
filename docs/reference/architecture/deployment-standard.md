@@ -61,9 +61,13 @@ It uses no hub key, does not change custody coordinates and does not widen the
 separate exact-owner BYOC bridge. Native owner-project Vertex remains BYOC's
 default. Memory Bank, Live and connector access retain their separate gates.
 
-The hosted adapter is currently planning-only. Its provisioning, updates and
-erasure refuse until durable project/cost admission and live qualification are
-implemented. New hosted resources remain disabled; successful rendering or a
+An unbound hosted adapter is planning-only. The internal pilot adapter composes
+the existing GCP lifecycle with a typed, retained admission binding, a separately
+frozen publication source and the assigned bootstrap identity. Bootstrap resumes
+only its durably observed prefix; uncertain outcomes refuse further mutation.
+Cleanup requires its own fresh erasure authority before borrowing credentials.
+The general hosted tier remains disabled while project preparation, complete
+cleanup and live qualification are unfinished. Successful rendering or a
 shared-model response cannot qualify the tier. The
 [dev runbook](../operations/dev-pod-first-light-runbook.md#hosted-private-pod-pilot)
 owns the operational evidence and spending boundary.

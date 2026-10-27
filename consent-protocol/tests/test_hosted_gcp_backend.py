@@ -5,7 +5,14 @@ from __future__ import annotations
 import pytest
 
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
-from tests.test_user_gcp_model_access_boundary import _env_of, _spec
+from tests.test_user_gcp_model_access_boundary import _env_of
+from tests.test_user_gcp_model_access_boundary import _spec as _base_spec
+
+
+def _spec():
+    from dataclasses import replace
+
+    return replace(_base_spec(), provision_attempt_id="d" * 32)
 
 
 def _hosted_deployment():
@@ -37,7 +44,7 @@ def test_hosted_bootstrap_is_pure_and_retains_managed_custody(monkeypatch):
     assert plan["target"]["project"] == deployment.project
     assert "Hussh retains infrastructure administration" in plan["authorization"]
     with pytest.raises(RuntimeError, match="admission is unavailable"):
-        adapter._inner._client()
+        adapter._client()
     with pytest.raises(ValueError, match="assigned authority"):
         adapter.render_bootstrap_plan(replace(spec, hushh_id="another-owner"))
 
@@ -50,7 +57,11 @@ def test_numeric_cloud_run_namespace_requires_independent_project_mapping(monkey
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
     deployment = replace(_hosted_deployment(), project_number="123456789012")
     service = HostedGcpBackend(deployment=deployment).render_deploy_config(
-        replace(_spec(), hushh_id=deployment.owner, deployment_target="gcp")
+        replace(
+            _spec(),
+            hushh_id=deployment.owner,
+            deployment_target="gcp",
+        )
     )
     service["metadata"]["namespace"] = deployment.project_number
     deployment.verify_observation(service)
@@ -124,7 +135,11 @@ def test_private_deployment_rejects_changed_provider_binding(monkeypatch, defect
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
     deployment = _hosted_deployment()
     service = HostedGcpBackend(deployment=deployment).render_deploy_config(
-        replace(_spec(), hushh_id=deployment.owner, deployment_target="gcp")
+        replace(
+            _spec(),
+            hushh_id=deployment.owner,
+            deployment_target="gcp",
+        )
     )
     deployment.verify_observation(service)
     template = service["spec"]["template"]["spec"]
@@ -182,7 +197,11 @@ async def test_hosted_rendering_never_authorizes_resource_creation(monkeypatch):
     backend = HostedGcpBackend(deployment=deployment)
     with pytest.raises(HostedTierNotPermittedError, match="transactional"):
         await backend.provision(
-            replace(_spec(), hushh_id=deployment.owner, deployment_target="gcp")
+            replace(
+                _spec(),
+                hushh_id=deployment.owner,
+                deployment_target="gcp",
+            )
         )
 
 
@@ -418,3 +437,27 @@ def test_invalid_private_marker_cannot_reopen_legacy_session_path(monkeypatch, h
     monkeypatch.setenv(HOSTING_ENV, "{}")
     with pytest.raises(ValueError):
         _require_local_session("synthetic-hub-token", None)
+
+
+def test_initial_marker_remains_bound_to_the_independently_recorded_service_uid(monkeypatch):
+    from copy import deepcopy
+    from dataclasses import replace
+
+    from hushh_mcp.services.hosted_gcp_backend import HostedGcpBackend
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    deployment = _hosted_deployment()
+    service = HostedGcpBackend(deployment=deployment).render_deploy_config(
+        replace(
+            _spec(),
+            hushh_id=deployment.owner,
+            deployment_target="gcp",
+        )
+    )
+    service["metadata"]["uid"] = "first-provider-uid"
+    installed = replace(deployment, service_uid="first-provider-uid")
+    installed.verify_observation(service)
+    replacement = deepcopy(service)
+    replacement["metadata"]["uid"] = "replacement-provider-uid"
+    with pytest.raises(ValueError, match="admitted authority"):
+        installed.verify_observation(replacement)

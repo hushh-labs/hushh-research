@@ -673,8 +673,9 @@ into each project; do not rebuild per owner or claim an older digest contains ne
 runtime changes.
 
 `PrivateGcpDeployment` is the common rendering/readback contract. The hosted
-adapter currently supports pure planning through the existing spec resolver and
-refuses resource creation, updates and erasure. Dev migration 973 adds two fixed
+adapter preserves pure planning for unbound specifications. An internal spec with
+a typed controller binding delegates to the existing private GCP lifecycle;
+it is not a public hosted activation switch. Dev migration 973 adds two fixed
 project assignments and retained cost-reservation references around the existing
 provision journal, without seeding a policy. Each owner holds US$200 for work and
 US$50 for cleanup. A lost journal or retry cannot replenish that allocation.
@@ -693,6 +694,46 @@ observations. A duplicate intent grants no second mutation. Missing acknowledgme
 or a failed step requires reconciliation; it never terminates a concurrent winner.
 Only successful observed prefixes can resume. A fully observed plan needs a fresh
 SQL acknowledgment to settle, with no cloud token mint or provider mutation.
+The admitted bootstrap plan must name the qualified distribution image as its
+source and the assigned project repository as its destination, with equal digests.
+Record direct ingress before freezing the plan; changing it afterward invalidates
+the checkpoint contract. The existing spec resolver binds this exact plan and
+continuation to the existing substrate executor. The same reserved attempt can
+resume only while its intent, allocation and observed row still match.
+
+Existing hosted access uses its retained owner, project, runtime principal and
+service UID rather than new-work admission expiry. The shared fleet identity
+cannot assert a dedicated hosted owner. Direct endpoint publication still needs
+the pod wall, app preflight and live Google IAM/incarnation checks, then compares
+the full observed metadata under the registry write. An appended authority field
+invalidates that comparison. These changes do not widen BYOC-only Puppy admission.
+The initial deployment marker may omit Google's not-yet-assigned UID; later
+readback accepts that exact initial marker only for the independently recorded UID.
+
+Managed cleanup credential acquisition requires a cleanup-scoped fresh guard,
+including the inherited bucket/key/account/grant paths and operator mail cleanup.
+Provisioning authority cannot mint deletion credentials. Candidate migration 974
+refines the existing erasure validators through frozen managed coordinates and
+the actual retained bootstrap authorization. It is registered in the dev migration
+manifest; it has not been applied to the live pilot database.
+Managed model-grant cleanup uses the exact retained bridge policy/member and
+preserves pre-existing grants. Project retirement uses the retained operator;
+it disables billing only after independently proved resource erasure and bootstrap
+release. `DELETE_REQUESTED` means retirement pending provider purge, never proof
+that key material was destroyed. Both helpers recheck SQL authority before each
+mutation and reconcile an uncertain write through native readback. The serving
+hub receives no operator ADC credential. The erasure coordinator requires a
+separately bound operator stage, or already verified retained receipts.
+
+The committed runtime writer uses the existing sealed log and head CAS. An expired
+lease permits a competing CAS; it does not prove that the old process died or
+provide exactly-once external effects. Every append checks ownership. Approved
+handoff fences generic expiry takeover; an upgraded revision must carry that exact
+writer operation. Read-only recovery uses frozen retained model bindings so retiring
+a model profile cannot strand inspection; new mutations still require current policy.
+
+Complete partial-provision cleanup, operator adapter, archive and reconciliation
+acceptance remains required before either pilot owner is provisioned.
 Hosted notification work requires both general and notification-specific intent
 acknowledgments; its specialized observation must persist before general progress
 can be reused. Existing notification SQL remains BYOC-only, so this composition

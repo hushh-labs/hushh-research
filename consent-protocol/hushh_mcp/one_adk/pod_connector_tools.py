@@ -23,7 +23,11 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent, pod_owner_user_id
+from hushh_mcp.services.pod_owner_cloud import (
+    owner_cloud_agent,
+    pod_owner_user_id,
+    private_pod_runtime,
+)
 
 _PROVIDERS = frozenset({"drive", "gmail", "contacts", "calendar"})
 
@@ -62,14 +66,16 @@ async def pod_tool_owner(tool_context: Any, provider: str) -> Optional[str]:
 
 
 def calendar_reads_via_door() -> bool:
-    """True only in a Hussh-hosted pod: Calendar uses the consented read door."""
+    """The legacy pod door excludes private placements, even with missing keys."""
     from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
 
-    return pod_mode() and not owner_cloud_agent()
+    return pod_mode() and not private_pod_runtime()
 
 
 async def calendar_turn_refusal(tool_context: Any) -> Optional[dict[str, Any]]:
     """Refuse a local Calendar call outside the owner's own verified chat."""
+    if private_pod_runtime() and not owner_cloud_agent():
+        return {"status": "failed", "message": "Calendar is not connected in this agent."}
     if not owner_cloud_agent():
         return None
     if await pod_tool_owner(tool_context, "calendar") is None:

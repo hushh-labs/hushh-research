@@ -197,8 +197,11 @@ def _approved_bootstrap(assignment):
         image=f"us-central1-docker.pkg.dev/{assignment['project']}/one-pod/consent-protocol-pod@sha256:"
         + "b" * 64,
     )
-    plan = HostedGcpBackend(deployment=deployment).render_bootstrap_plan(
-        replace(_spec(), hushh_id=deployment.owner, deployment_target="gcp")
+    plan = HostedGcpBackend(
+        deployment=deployment,
+        publication_source="gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:" + "b" * 64,
+    ).render_bootstrap_plan(
+        replace(_spec(), hushh_id=deployment.owner, deployment_target="gcp", ingress="direct")
     )
     return bootstrap_contract(plan)
 
@@ -352,3 +355,66 @@ async def test_checkpoint_conflict_does_not_terminate_the_current_provision_atte
         assert registry.rows[-1]["backend_metadata"]["provisionAttempt"]["phase"] == "reserved"
     finally:
         get_core_security_settings.cache_clear()
+
+
+def test_admitted_spec_routes_to_the_existing_durable_substrate_executor(pg, monkeypatch):
+    from dataclasses import replace
+
+    from hushh_mcp.services.byoc_substrate import resolve_substrate_ensurer
+    from hushh_mcp.services.compute_backend_resolution import bind_reserved_spec
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from tests.test_hosted_pilot_admission_postgres import ROOT, _Client
+    from tests.test_user_gcp_model_access_boundary import _spec
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://dev.one.hussh.si")
+
+    pg.apply_file(ROOT / "db/migrations/parked/974_hosted_pod_custody.sql")
+    _policy(pg, bootstrap=_approved_bootstrap, preparation=True)
+    reservation = _claim(pg)
+    client = _Client(pg)
+
+    async def scenario():
+        from tests.hosted_pod_support import prepared_project_journal
+
+        retained = await prepared_project_journal(pg, reservation, client)
+        repo = PersonalAgentRegistryRepo(client)
+        assert not await repo.hosted_execution_current(
+            purpose="provision",
+            owner_id=retained["ownerId"],
+            attempt_id=retained["attemptId"],
+            admission=retained["hostedAdmission"],
+            project_observation=retained["evidence"]["reserved"]["projectObservation"],
+        )
+        bound = await bind_reserved_spec(
+            replace(
+                _spec(),
+                hushh_id=reservation["intent"]["hushh_id"],
+                deployment_target="gcp",
+                provision_attempt_id=reservation["attemptId"],
+            ),
+            retained,
+            registry=PersonalAgentRegistryRepo(client),
+            purpose="bootstrap",
+            release={
+                "sourceRevision": "a" * 40,
+                "image": "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:" + "b" * 64,
+            },
+        )
+        assert bound.ingress == "direct"
+        substrate = resolve_substrate_ensurer(bound)
+        authority = bound.hosted_admission_guard
+        assert substrate._continuation is authority.continuation
+        assert (
+            substrate._render_plan(bound)
+            == reservation["hostedAdmission"]["assignment"]["bootstrapContract"]["plan"]
+        )
+        assert substrate._dry_run is False
+        # Classification/plan construction must never authenticate or mutate.
+        with pytest.raises(RuntimeError, match="worker"):
+            authority()
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        client._engine.dispose()

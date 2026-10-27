@@ -33,7 +33,7 @@ from typing import Any, Optional
 
 from hushh_mcp.consent.token_signing import sign_payload
 from hushh_mcp.constants import ConsentScope
-from hushh_mcp.services.compute_backend import is_owner_cloud_target
+from hushh_mcp.services.compute_backend import is_owner_cloud_target, is_private_pod_row
 from hushh_mcp.services.personal_agent_grant_service import PersonalAgentDisabledError
 from hushh_mcp.services.pod_access_audit import (
     PERSONAL_AGENT_ID,
@@ -387,7 +387,7 @@ class PodBindingService:
         )
         readiness = metadata.get("directReadiness")
         if (
-            not is_owner_cloud_target(row.get("deployment_target"))
+            not is_private_pod_row(row)
             or _clean(row.get("status")) != "provisioned"
             or _clean(metadata.get("ingress")) != "direct"
             or not isinstance(readiness, dict)
