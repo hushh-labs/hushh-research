@@ -1246,9 +1246,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
         retainCleanupStatus(expectedUid, validation);
         if (validation.outcome === "unavailable") {
-          console.warn(
-            "🔒 [AuthProvider] Session validation unavailable; preserving session",
-          );
+          // A pending account cleanup is an expected, durable state, not an outage.
+          if (!validation.cleanup) {
+            console.warn(
+              "🔒 [AuthProvider] Session validation unavailable; preserving session",
+            );
+          }
           if (validation.registration || validation.cleanup) applyAuthUser(currentUser, null);
           setSessionVerificationRequired(true);
         } else {
@@ -1394,6 +1397,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
         void UserLocalStateService.clearDeviceSecretsForDeletedAccount(
           invalidatedUserId,
         );
+        // Durable device copies follow only a backend-confirmed erasure, never
+        // the broader Firebase account_not_found. Deletion settles after a 202
+        // handoff, so delete-account.ts's own terminal purge never runs.
+        if (code !== "account_not_found") {
+          CacheSyncService.onAccountDeleted(invalidatedUserId);
+          void UserLocalStateService.clearForUser(invalidatedUserId, {
+            deleteDurableReceipts: true,
+          }).catch((error: unknown) => {
+            console.warn("[AuthProvider] Deleted-account device cleanup incomplete:", error);
+          });
+        }
       }
       if (
         terminalInvalidationLatchRef.current ||
