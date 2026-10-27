@@ -107,8 +107,7 @@ class HubSpotCompanySync:
             text("DELETE FROM one_company_crm_deliveries WHERE item_id=:id"), {"id": row["item_id"]}
         )
 
-    def _fetch_record(self, user_id):
-        return projection.fetch_record(user_id)
+    _fetch_record = staticmethod(projection.fetch_record)
 
     def _sync_contact(self, conn, row, record):
         identity = (
@@ -124,6 +123,8 @@ class HubSpotCompanySync:
         properties = contact_properties(record, row["owner_hash"])
 
         def prepare_create(email_hash):
+            if row["state"] == "unknown":
+                raise CompanyCrmError("company_contact_outcome_unknown", uncertain=True)
             # Commit the intended email ownership before the remote request. A
             # lost response must still allow erasing only our unchanged value.
             conn.execute(
@@ -182,8 +183,7 @@ class HubSpotCompanySync:
         )
         return contact_id
 
-    def _note_content(self, conn, row):
-        return projection.note_content(conn, row)
+    _note_content = staticmethod(projection.note_content)
 
     @staticmethod
     def _transaction_bounds(conn):
@@ -217,9 +217,9 @@ class HubSpotCompanySync:
             if not current:
                 return
             current = dict(current)
+            current["state"] = row["state"]
             if current["cleanup_requested"]:
                 # Preserve pre-reservation uncertainty for safe reconciliation.
-                current["state"] = row["state"]
                 self._cleanup(conn, current)
                 return
             if not active:

@@ -313,3 +313,32 @@ def test_firebase_read_uses_the_captured_application_owner(monkeypatch):
     with pytest.raises(CompanyCrmError, match="company_identity_read_unavailable"):
         worker._fetch_record(owner)
     read.assert_not_called()
+
+
+def test_unknown_contact_create_cannot_replace_email_ownership_evidence():
+    conn = Mock()
+    conn.execute.return_value.mappings.return_value.first.return_value = None
+    record = SimpleNamespace(
+        email="changed@example.test",
+        email_verified=True,
+        display_name=None,
+        phone_number=None,
+        provider_data=[],
+        user_metadata=SimpleNamespace(
+            creation_timestamp=1700000000000, last_sign_in_timestamp=1700000000000
+        ),
+    )
+    client = Mock()
+
+    def attempt(_properties, **kwargs):
+        kwargs["prepare_create"](email_fingerprint("changed@example.test"))
+
+    client.ensure_contact.side_effect = attempt
+    worker = HubSpotCompanySync(client)
+    with pytest.raises(CompanyCrmError, match="company_contact_outcome_unknown"):
+        worker._sync_contact(
+            conn,
+            {"state": "unknown", "owner_user_id": "owner", "owner_hash": OWNER, "item_id": ITEM},
+            record,
+        )
+    conn.commit.assert_not_called()
