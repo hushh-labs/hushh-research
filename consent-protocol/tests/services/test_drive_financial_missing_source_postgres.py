@@ -210,3 +210,213 @@ async def test_present_source_hint_cannot_consume_another_owners_due_slot(reusab
             ).scalar_one()
             == "completed"
         )
+
+
+async def pending_runtime(reusable, monkeypatch):
+    service, head, packet = await legacy_frozen_runtime(reusable, monkeypatch)
+    from hushh_mcp.services.drive_period_packet_contract import PacketPeriod
+
+    period = PacketPeriod(start=head["period_start"], end=head["period_end"], timezone="UTC")
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_period_packet_contract.current_year_periods", lambda *_: [period]
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_financial_packet_tagging.FinancialPacketTagger.run_one",
+        AsyncMock(return_value="idle"),
+    )
+
+    async def provider(*, user_id, tool_name, arguments):
+        if tool_name == "list_shared_drives":
+            return ExternalMcpToolResult(False, {"drives": []}, False)
+        offset = 100 if arguments.get("pageToken") else 0
+        files = [
+            {
+                "id": f"pending-{i}",
+                "title": f"Statement {i}",
+                "version": "1",
+                "mimeType": "application/pdf",
+                "createdTime": f"{head['period_start']}T12:00:00Z",
+            }
+            for i in range(offset, min(130, offset + 100))
+        ]
+        return ExternalMcpToolResult(
+            False, {"files": files, "nextPageToken": "tail" if offset == 0 else None}, False
+        )
+
+    service.search.transport.read_tool.side_effect = provider
+    before = frozen_sale_snapshot(service.store, packet)
+    assert (
+        await service.run_one(
+            user_id="owner", packet_id=packet, deadline_seconds=20, first_results_only=True
+        )
+        == "queued"
+    )
+    with service.store.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_packet_heads SET dirty=FALSE,
+            next_at=clock_timestamp(),tagging_next_at=clock_timestamp() WHERE packet_id=:id"""),
+            {"id": packet},
+        )
+        row = service.store._row(
+            connection, "SELECT * FROM drive_packet_heads WHERE packet_id=:id", {"id": packet}
+        )
+        source = service.store._build(row)["search_job_id"]
+        retained = connection.execute(
+            text(
+                "SELECT position,metadata_envelope FROM drive_owner_search_results WHERE job_id=:id ORDER BY position"
+            ),
+            {"id": source},
+        ).all()
+    assert len(retained) == 100
+    service.search.transport.read_tool.reset_mock()
+    return service, packet, source, before, retained
+
+
+async def test_scheduled_pending_child_resumes_without_rotating_saved_originals(
+    reusable, monkeypatch
+):
+    service, packet, source, frozen, retained = await pending_runtime(reusable, monkeypatch)
+    preparation = preparation_snapshot(service.store, packet)
+    assert await service.store.due_owners(limit=1) == ["owner"]
+    assert preparation_snapshot(service.store, packet) == preparation
+    outcome = await service.run(max_jobs=1, deadline_seconds=20)
+    assert outcome["outcomes"]["completed"] == 1
+    assert frozen_sale_snapshot(service.store, packet) == frozen
+    service.planner.assert_not_awaited()
+    with service.store.db.engine.connect() as connection:
+        row = service.store._row(
+            connection, "SELECT * FROM drive_packet_heads WHERE packet_id=:id", {"id": packet}
+        )
+        assert row["revision"] == preparation[0]
+        assert service.store._build(row)["search_job_id"] == source
+        results = connection.execute(
+            text(
+                "SELECT position,metadata_envelope FROM drive_owner_search_results WHERE job_id=:id ORDER BY position"
+            ),
+            {"id": source},
+        ).all()
+        assert len(results) == 130 and results[:100] == retained
+    calls = service.search.transport.read_tool.call_args_list
+    assert calls[0].kwargs["arguments"]["pageToken"] == "tail"
+
+
+async def test_clean_exceptional_claim_keeps_next_search_slice_runnable(reusable, monkeypatch):
+    service, packet, source, frozen, _ = await pending_runtime(reusable, monkeypatch)
+    with service.store.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_packet_heads SET predefined_query_version='financial-records-v0' WHERE packet_id=:id"
+            ),
+            {"id": packet},
+        )
+    claimed = await service.store.claim_build(user_id="owner", packet_id=packet)
+    assert claimed["build"]["search_job_id"] == source
+    await service.store.save_build(claimed, claimed["build"])
+    with service.store.db.engine.begin() as connection:
+        assert connection.execute(
+            text("SELECT dirty FROM drive_packet_heads WHERE packet_id=:id"), {"id": packet}
+        ).scalar_one()
+        connection.execute(
+            text("UPDATE drive_packet_heads SET next_at=clock_timestamp() WHERE packet_id=:id"),
+            {"id": packet},
+        )
+    assert (await service.run(max_jobs=1, deadline_seconds=20))["outcomes"]["completed"] == 1
+    assert frozen_sale_snapshot(service.store, packet) == frozen
+    with service.store.db.engine.connect() as connection:
+        row = service.store._row(
+            connection, "SELECT * FROM drive_packet_heads WHERE packet_id=:id", {"id": packet}
+        )
+        assert service.store._build(row)["search_job_id"] == source
+
+
+@pytest.mark.parametrize(
+    "fence",
+    [
+        "head_lease",
+        "job_lease",
+        "stale",
+        "origin",
+        "client",
+        "job_future",
+        "background_off",
+        "revoked",
+        "foreground",
+    ],
+)
+async def test_pending_child_continuation_retains_authority_fences(reusable, monkeypatch, fence):
+    from hushh_mcp.services.drive_period_packet_preview import write_build
+
+    service, packet, source, frozen, _ = await pending_runtime(reusable, monkeypatch)
+    with service.store.db.engine.begin() as connection:
+        if fence in {"head_lease", "job_lease"}:
+            table, key, identity = (
+                ("drive_packet_heads", "packet_id", packet)
+                if fence == "head_lease"
+                else ("drive_owner_search_jobs", "job_id", source)
+            )
+            connection.execute(
+                text(
+                    f"UPDATE {table} SET lease_id=gen_random_uuid(),lease_expires_at=clock_timestamp()+INTERVAL '1 minute' WHERE {key}=:id"
+                ),
+                {"id": identity},
+            )
+        elif fence == "stale":
+            row = service.store._row(
+                connection, "SELECT * FROM drive_packet_heads WHERE packet_id=:id", {"id": packet}
+            )
+            build = service.store._build(row)
+            build["search_job_id"] = str(uuid4())
+            write_build(service.store, connection, row, build)
+        elif fence == "background_off":
+            connection.exec_driver_sql(
+                "UPDATE drive_live_preferences SET background_enabled=FALSE WHERE user_id='owner'"
+            )
+        elif fence == "revoked":
+            connection.exec_driver_sql(
+                "UPDATE user_external_connector_connections SET status='revoked' WHERE user_id='owner'"
+            )
+        elif fence == "client":
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_jobs SET client_request_id=:client WHERE job_id=:id"
+                ),
+                {"client": str(uuid4()), "id": source},
+            )
+        elif fence == "job_future":
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_jobs SET next_at=clock_timestamp()+INTERVAL '1 day' WHERE job_id=:id"
+                ),
+                {"id": source},
+            )
+        elif fence == "origin":
+            child = service.store._row(
+                connection, "SELECT * FROM drive_owner_search_jobs WHERE job_id=:id", {"id": source}
+            )
+            checkpoint = service.search.store._checkpoint(child)
+            checkpoint["period_packet_origin"]["revision"] += 1
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:envelope AS jsonb) WHERE job_id=:id"
+                ),
+                {
+                    "id": source,
+                    "envelope": service.search.store._seal(
+                        checkpoint, "owner", source, "owner-search-checkpoint"
+                    ),
+                },
+            )
+    if fence == "foreground":
+        # The real foreground admission stops the unleased preparation child.
+        await service.search.store.create(
+            user_id="owner",
+            client_request_id=str(uuid4()),
+            request={"query": "ordinary"},
+            checkpoint={},
+            confirmed=True,
+        )
+    preparation = preparation_snapshot(service.store, packet)
+    assert await service.store.due_owners(limit=1) == []
+    assert preparation_snapshot(service.store, packet) == preparation
+    assert frozen_sale_snapshot(service.store, packet) == frozen
+    service.search.transport.read_tool.assert_not_awaited()
