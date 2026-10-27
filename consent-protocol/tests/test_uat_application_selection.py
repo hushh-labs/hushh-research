@@ -50,6 +50,23 @@ def test_current_receipt_uses_application_identity_not_main_workflow_sha(monkeyp
 
 
 @pytest.mark.parametrize(
+    "inventory",
+    [
+        {"total_count": 2, "artifacts": [{"name": "receipt"}]},
+        {"total_count": True, "artifacts": [{"name": "receipt"}]},
+        {"total_count": 1, "artifacts": [None]},
+        {"total_count": 1, "artifacts": [{"name": None}]},
+        {"artifacts": []},
+    ],
+)
+def test_truncated_or_malformed_receipt_inventory_is_refused(inventory):
+    module, acceptance, _, responses, _ = _acceptance_fixture()
+    responses["runs/20/artifacts?per_page=100"] = inventory
+    with pytest.raises(module.Refused, match="Artifact inventory"):
+        acceptance.attempt_pins("uat", 20)
+
+
+@pytest.mark.parametrize(
     "case", ["failed_rerun", "pending_rerun", "status_failure", "lost_artifact", "dev_failure"]
 )
 def test_current_failure_never_reuses_an_older_green_receipt(monkeypatch, case):
