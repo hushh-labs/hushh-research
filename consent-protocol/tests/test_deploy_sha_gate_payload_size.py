@@ -220,7 +220,7 @@ def test_release_verdict_requires_exact_workflow_provenance(
     assert result.returncode != 0, mutation
 
 
-def test_only_dev_workflow_accepts_branch_validation_gate() -> None:
+def test_branch_validation_is_limited_to_dev_and_explicit_curated_uat() -> None:
     # Cross-lane release authority has no runtime API: authored workflow inputs
     # are its contract. Exercise the actual SHA verifier above as well.
     import yaml
@@ -234,6 +234,18 @@ def test_only_dev_workflow_accepts_branch_validation_gate() -> None:
                 if "Branch Validation Gate" in accepted.split(","):
                     consumers.append(path.name)
     assert consumers == ["deploy-dev.yml"]
+    uat = yaml.safe_load((REPO_ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    steps = uat["jobs"]["deploy"]["steps"]
+    selector = next(step for step in steps if step.get("id") == "application-authority")
+    assert "promotion_approval.py uat" in selector["run"]
+    admission = next(
+        step for step in steps if step.get("name") == "Validate deployment SHA against main"
+    )
+    assert (
+        admission["env"]["REQUIRED_CHECK_NAME"]
+        == "${{ steps.application-authority.outputs.checks || 'Main Post-Merge Smoke Gate' }}"
+    )
+    assert "scripts/ci/require-deploy-sha-on-main.sh" in admission["run"]
     policy = json.loads((REPO_ROOT / "config/ci-governance.json").read_text())
     assert "Branch Validation Gate" not in json.dumps(policy)
 
@@ -327,5 +339,40 @@ def test_later_attempt_of_older_run_refuses_stale_green(tmp_path, state):
         older.pop("run_started_at")
     result = _run_gate(
         tmp_path, {"check_runs": [check]}, accepted=check["name"], workflow_runs=[older, green]
+    )
+    assert result.returncode != 0, result.stdout
+
+
+def test_late_completion_cannot_hide_a_newer_failed_release_attempt(tmp_path):
+    check, green = _branch_receipt("Main Post-Merge Smoke Gate")
+    green["updated_at"] = "2026-10-26T11:00:00Z"
+    failure = {
+        **green,
+        "id": green["id"] + 1,
+        "conclusion": "failure",
+        "run_started_at": "2026-10-26T10:30:00Z",
+        "updated_at": "2026-10-26T10:31:00Z",
+    }
+    result = _run_gate(
+        tmp_path, {"check_runs": [check]}, accepted=check["name"], workflow_runs=[green, failure]
+    )
+    assert result.returncode != 0, result.stdout
+
+
+def test_competing_release_attempt_appearing_during_admission_refuses(tmp_path):
+    check, green = _branch_receipt("Main Post-Merge Smoke Gate")
+    failure = {
+        **green,
+        "id": green["id"] + 1,
+        "conclusion": "failure",
+        "run_started_at": "2026-10-26T11:00:00Z",
+        "updated_at": "2026-10-26T11:01:00Z",
+    }
+    result = _run_gate(
+        tmp_path,
+        {"check_runs": [check]},
+        accepted=check["name"],
+        workflow_runs=[green],
+        later_workflow_runs=[green, failure],
     )
     assert result.returncode != 0, result.stdout

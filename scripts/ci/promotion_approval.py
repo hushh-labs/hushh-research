@@ -85,7 +85,9 @@ def main() -> int:
                 raise ValueError("UAT selection requires the workflow output port")
             with args.github_output.open("a", encoding="utf-8") as output:
                 output.write(f"branch={branch}\nchecks={checks}\n")
-            print(f"Selected {branch} source authority; canonical CI and Dev acceptance remain required.")
+            print(
+                f"Selected {branch} source authority; canonical CI and Dev acceptance remain required."
+            )
             return 0
         if args.output is None:
             raise ValueError("Main approval requires an output receipt")
