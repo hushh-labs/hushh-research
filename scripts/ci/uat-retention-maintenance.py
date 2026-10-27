@@ -22,6 +22,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Literal
 from zipfile import BadZipFile, ZipFile
 
 import release_artifact_receipts
@@ -1043,9 +1044,16 @@ def trusted_pending_uat_state(repository: str, run: dict, artifact: dict) -> boo
 
 
 def download_pending_uat_state(
-    repository: str, artifact: dict, directory: Path, *, environment: str = "uat"
+    repository: str, artifact: dict, directory: Path, *, environment: str = "uat",
+    source_kind: Literal["pending_drain", "saved_checkpoint"] = "pending_drain",
 ) -> None:
-    """Fetch the checked immutable artifact ID, rejecting overwrite and ZIP races."""
+    """Fetch the checked immutable artifact ID, rejecting overwrite and ZIP races.
+
+    A proven saved checkpoint may precede the post-preflight README writer.
+    Legacy pending-drain evidence must still contain its README.
+    """
+    if source_kind not in {"pending_drain", "saved_checkpoint"}:
+        raise retention.UnsafeState("checkpoint artifact source kind is invalid")
     if (
         type(artifact.get("id")) is not int
         or artifact["id"] < 1
@@ -1076,7 +1084,7 @@ def download_pending_uat_state(
             if (
                 len(names) != len(set(names))
                 or "completed.json" not in names
-                or "README.txt" not in names
+                or (source_kind == "pending_drain" and "README.txt" not in names)
                 or any(
                     entry.filename not in allowed
                     or entry.is_dir()
@@ -1228,8 +1236,8 @@ def restore_state(
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary)
             if pending_uat or checkpoint_source:
-                download_pending_uat_state(
-                    repository, item, source, environment=environment
+                download_pending_uat_state(repository, item, source, environment=environment,
+                    source_kind="saved_checkpoint" if checkpoint_source else "pending_drain",
                 )
             else:
                 download(repository, run["id"], artifact, source)
