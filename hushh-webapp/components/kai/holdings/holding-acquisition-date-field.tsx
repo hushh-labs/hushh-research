@@ -38,6 +38,8 @@ export function HoldingAcquisitionDateField({
         </span>
         <input
           id="holding-acquisition-date"
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? "holding-acquisition-date-error" : undefined}
           type="date"
           value={value || ""}
           onChange={(event) => onChange(event.target.value)}
@@ -46,7 +48,7 @@ export function HoldingAcquisitionDateField({
           className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer"
         />
       </div>
-      {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
+      {error && <p id="holding-acquisition-date-error" className="text-sm text-red-500 mt-1">{error}</p>}
     </div>
   );
 }

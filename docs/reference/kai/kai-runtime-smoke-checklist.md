@@ -87,6 +87,12 @@ The microphone now enters the Location command runtime. Ordinary typed Kai text 
    - `Open Dashboard` blue gradient fill
    - `Refresh` fade style
 
+## Holding corrections
+1. In Portfolio holdings, add a stock entry and save with an existing cash/sweep balance whose quantity and price are zero. The cash balance must remain intact.
+2. With an invalid entry filtered out or on another page, save the holdings. The existing editor must open that original entry, scroll to the invalid field, focus it and show a plain inline correction.
+3. Correct the field and save again. Confirm other draft entries survive, no write occurs before successful validation, and any edited cash balance agrees with the portfolio total and cash summary.
+4. Repeat confirmation in the import review. Cancel or Back must use the existing editor dismissal and retain the portfolio draft.
+
 ## 3a) Consent Center
 1. From the signed-in shell, open Consent and confirm it reaches `/one/consent` with the shared Back and Profile controls.
 2. Confirm Requests, Active, History and Connections keep their current query, pager and selected-detail behavior.
