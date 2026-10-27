@@ -5703,17 +5703,20 @@ final class AppUITests: XCTestCase {
                         // native modal ownership. Read current UIKit flags and
                         // resolve a fresh query rather than a covered snapshot.
                         let probe = app.buttons["native-vault-layout"].firstMatch
-                        var interactive = false, hidden = true
+                        var interactive = false, hidden = true, probeSeen = false, sampleSeen = false, isolated = false
                         let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                            guard probe.exists, let json = probe.value as? String, let data = json.data(using: .utf8),
+                            probeSeen = probe.exists
+                            guard probeSeen, let json = probe.value as? String, let data = json.data(using: .utf8),
                                   let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] else { return false }
+                            sampleSeen = packet["nativeWebInteractive"] != nil
+                            isolated = packet["nativeIsolation"]?.boolValue == true
                             interactive = packet["nativeWebInteractive"]?.boolValue == true
                             hidden = packet["nativeWebAXHidden"]?.boolValue != false
                             return interactive && !hidden && packet["nativeWebInWindow"]?.boolValue == true
                         }, object: probe)
                         guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
-                            print("WORKSPACE_CHOICE_RECOVERY interactive=\(interactive) ax_hidden=\(hidden)")
-                            XCTFail("WORKSPACE_WALLET_WEB_NOT_RESTORED"); return
+                            print("WORKSPACE_CHOICE_RECOVERY interactive=\(interactive) ax_hidden=\(hidden) probe_seen=\(probeSeen) sample_seen=\(sampleSeen) isolated=\(isolated)")
+                            XCTFail(probeSeen && sampleSeen ? "WORKSPACE_WALLET_WEB_NOT_RESTORED" : "WORKSPACE_WALLET_RECOVERY_PROBE_UNAVAILABLE"); return
                         }
                         web = app.webViews.matching(identifier: "native-webview").firstMatch
                         guard web.waitForExistence(timeout: 10) else { XCTFail("WORKSPACE_WALLET_WEB_AX_NOT_RESTORED"); return }
