@@ -39,6 +39,33 @@ class FakeClock:
 
 
 class CapacityAdmissionTests(unittest.TestCase):
+    def test_application_authority_matches_deploy_for_main_and_curated_uat(self):
+        for history in ("main", "uat", "unplaced"):
+            with self.subTest(history=history):
+                target = "a" * 40
+                calls = []
+
+                def run(arguments, *, env=None):
+                    calls.append((arguments, env))
+                    output = ""
+                    if arguments[:2] == ["git", "merge-base"]:
+                        output = target if arguments[-1] == f"origin/{history}" else "b" * 40
+                    return subprocess.CompletedProcess(arguments, 0, output, "")
+
+                with patch.dict(wait.os.environ, {"GITHUB_REF_NAME": "main", "GITHUB_ACTOR": "operator"}), patch.object(wait, "command", side_effect=run):
+                    if history == "unplaced":
+                        with self.assertRaisesRegex(wait.AdmissionError, "source history"):
+                            wait.verify_request(target)
+                        self.assertFalse(any(item[1] for item in calls))
+                    else:
+                        wait.verify_request(target)
+                        authority = calls[-1][1]
+                        self.assertEqual(authority["REQUIRED_BRANCH"], history)
+                        self.assertEqual(authority["REQUIRE_CI_SUCCESS"], "1")
+                        self.assertEqual(authority["REQUIRED_CHECK_NAME"],
+                            "Main Post-Merge Smoke Gate" if history == "main"
+                            else "CI Status Gate,Queue Validation,Branch Validation Gate")
+
     def test_default_wait_defers_in_five_minutes_without_dispatching_cleanup(self):
         clock = FakeClock()
         blocked = {
