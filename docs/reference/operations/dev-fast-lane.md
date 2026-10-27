@@ -97,9 +97,11 @@ flowchart LR
   main -->|"signed-off green SHA"| prod
 ```
 
-1. **`main` = signoff authority.** Only `main` SHAs reach UAT and production, exactly
-   as before. UAT is where humans sign off `main` work before production. Nothing in
-   the dev lane weakens this.
+1. **`main` owns release control.** Default UAT selection still uses Main.
+   Explicit curated UAT candidates require canonical CI and matching Dev
+   acceptance. Production additionally requires Main approval; distinct
+   application/approval SHAs must have identical complete trees. See the
+   [selective-promotion boundary](./branch-governance.md#dev--uat-branch-preparation).
 2. **Dev deploys the train, not `main`.** The default dev deploy target is
    `integration/pr-train` — the branch agent and contributor work already lands on.
    Dev is where the train is proven against real infrastructure *before* promotion to
@@ -111,9 +113,9 @@ flowchart LR
    branch runs publish a distinct `Branch Validation Gate`, accepted only by dev
    after exact workflow, event, check-suite and SHA verification. The branch gate
    cannot authorize a main merge, UAT or production. Partial diagnostic scopes fail.
-5. **Dev never promotes.** There is no dev→UAT or dev→prod path. Promotion is only
-   `integration/pr-train` → `main` → UAT signoff → production. Dev is evidence, not
-   authority (no second decision-maker).
+5. **Dev acceptance never deploys another environment.** Curated UAT selection
+   and production approval remain separate governed operations. Dev supplies
+   exact-application evidence, not independent release authority.
 
 ## Why this is safe (gate-by-gate correctness)
 
@@ -130,9 +132,9 @@ flowchart LR
 
 ## What we deliberately did NOT add (overkill avoidance)
 
-- **No new branch.** The train already exists, is already governed, and is already
-  where agent work lands. A dedicated `dev` branch would be a second intake lane to
-  keep fresh — pure maintenance cost.
+- **Preserve existing history.** The legacy train remains intact while protected
+  Dev/UAT branches are prepared. Intake and automatic selectors change only at
+  the coordinated promotion transition; branch creation does not deploy.
 - **No new review or approval step.** Landing on the train already requires review +
   merge queue + `CI Status Gate`. Dev deploy adds zero human steps to that.
 - **No dev-specific CI workflow.** Existing PR Validation owns both event-specific

@@ -10,7 +10,7 @@ import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { useVault } from "@/lib/vault/vault-context";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { usePathname } from "next/navigation";
-import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
 import { GoogleCalendarError, type CalendarAttendanceResult, type CalendarInvitation } from "@/lib/services/google-calendar-service";
@@ -40,8 +40,7 @@ type Props = {
 
 export function CalendarInvitations(props: Props) {
   const { vaultOwnerToken } = useVault();
-  const epoch = snapshotVaultSessionEpoch();
-  return <Invitations key={`${props.userId}:${props.accountId || "default"}:${props.accountEmail}:${epoch}:${props.initialCalendarId}:${props.initialEventId}:${props.initialDecision}:${props.startAt}:${props.endAt}:${JSON.stringify(props.initialTerms)}`} {...props} token={vaultOwnerToken} />;
+  return <Invitations key={`${props.userId}:${props.accountId || "default"}:${props.accountEmail}:${props.initialCalendarId}:${props.initialEventId}:${props.initialDecision}:${props.startAt}:${props.endAt}:${JSON.stringify(props.initialTerms)}`} {...props} token={vaultOwnerToken} />;
 }
 
 function Invitations({ workspaceLayout = false, connectedProfiles = false, accountPhotoUrl, userId, accountId = "default", accountEmail, zone, getIdToken, initialFilter, initialEventId, initialCalendarId, initialDecision, initialTerms, startAt, endAt, connectionRevision, busy, onConnect, onMailConnect, onOfferTimes, onSend, onResult, onBusyChange, token }: Props & { token: string | null }) {
@@ -49,7 +48,8 @@ function Invitations({ workspaceLayout = false, connectedProfiles = false, accou
   // UTC padding covers the selected local day even across DST and extreme offsets.
   const queryStart = workspaceLayout ? `${shiftCalendarDate(date, -1)}T00:00:00Z` : startAt;
   const queryEnd = workspaceLayout ? `${shiftCalendarDate(date, 2)}T00:00:00Z` : endAt;
-  const resourceKey = workspaceLayout ? invitationResourceKey(userId, [accountId, accountEmail?.toLowerCase(), snapshotVaultSessionEpoch(), connectionRevision, calendarDate(Date.now(), zone), zone, queryStart, queryEnd, initialCalendarId, initialEventId]) : "";
+  const owner = snapshotValidatedAuthSessionOwner();
+  const resourceKey = workspaceLayout ? invitationResourceKey(userId, [accountId, accountEmail?.toLowerCase(), owner?.generation, connectionRevision, calendarDate(Date.now(), zone), zone, queryStart, queryEnd, initialCalendarId, initialEventId]) : "";
   const [filter, setFilter] = useState(initialFilter === "all" || initialFilter === "responded" ? initialFilter : "pending");
   const [snapshot, setSnapshot] = useState(() => ({ key: resourceKey, data: invitationSnapshot(resourceKey)?.data ?? null }));
   const data = snapshot.key === resourceKey ? snapshot.data : invitationSnapshot(resourceKey)?.data ?? null;
@@ -66,13 +66,13 @@ function Invitations({ workspaceLayout = false, connectedProfiles = false, accou
   useEffect(() => {
     if (!connectedProfiles) return;
     let active = true;
-    const currentEpoch = snapshotVaultSessionEpoch();
+    const currentOwner = snapshotValidatedAuthSessionOwner();
     void (async () => {
       try {
         const idToken = await tokenGetter.current();
-        if (!active || !isVaultSessionEpochCurrent(currentEpoch)) return;
+        if (!active || (currentOwner && !isValidatedAuthSessionOwnerCurrent(currentOwner))) return;
         const connections = await ConnectionsService.listConnections({ idToken });
-        if (active && isVaultSessionEpochCurrent(currentEpoch)) setPeople(connectedInvitationPeople(connections));
+        if (active && (!currentOwner || isValidatedAuthSessionOwnerCurrent(currentOwner))) setPeople(connectedInvitationPeople(connections));
       } catch {
         // Calendar invitations remain usable when connected-person photos are unavailable.
       }
@@ -82,8 +82,8 @@ function Invitations({ workspaceLayout = false, connectedProfiles = false, accou
   const load = useCallback(async (force = false) => {
     controller.current?.abort();
     const abort = new AbortController(); controller.current = abort;
-    const number = ++request.current, epoch = snapshotVaultSessionEpoch();
-    const current = () => !abort.signal.aborted && number === request.current && isVaultSessionEpochCurrent(epoch);
+    const number = ++request.current, currentOwner = snapshotValidatedAuthSessionOwner();
+    const current = () => !abort.signal.aborted && number === request.current && (!currentOwner || isValidatedAuthSessionOwnerCurrent(currentOwner));
     setError(null);
     const cached = invitationSnapshot(resourceKey);
     if (!force && cached?.isFresh) { setSnapshot({ key: resourceKey, data: cached.data }); setLoading(false); return; }

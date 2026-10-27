@@ -118,6 +118,12 @@ Back uses one hierarchy across shell, iOS edge gesture and Android system Back: 
 
 Every route declares `backVerification` in `hushh-webapp/lib/navigation/app-route-layout.contract.json`, including query parents or an explained entry/redirect/hidden boundary. Add behavior cases when changing query state or nested interactions. Before editing, read [the UI contract contributor scaffold](../docs/reference/architecture/ui-contract-contributor-guide.md) and run `cd hushh-webapp && npm run ui:doctor`. After reviewing behavior, run `npm run build:ui-contracts` (Back before Search), then `npm run verify:ui-contracts` and the owning behavioral tests. The mandatory UI Contracts job and aggregate gates reject failures and skipped checks. A source stamp proves freshness, not the meaning of a new interaction.
 
+Before adding or relocating a control, apply the existing
+[surface placement review](../docs/reference/quality/pr-impact-checklist.md#surface-placement-review):
+identify the person's job, owning screen, return destination and runtime availability.
+Keep technical settings out of primary task surfaces and verify locked, waiting,
+error and responsive states through the existing UI owners.
+
 ## Project-Wide Bacterial Software Architecture Gate
 
 Parent and child agents must apply [Bacterial Software Architecture](../docs/vision/bacterial-software-architecture.md) as a top-level engineering north star.

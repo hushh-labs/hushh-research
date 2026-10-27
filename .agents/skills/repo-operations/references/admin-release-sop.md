@@ -127,6 +127,11 @@ a normal UAT catch-up before retrying this service-only lane.
 
 ### 5. Dispatch only the requested environment
 
+Curated UAT requires protected source history and exact-application Dev acceptance.
+Production retains that application's UAT receipt. A distinct `main_approval_sha`
+must incorporate the application with an identical Git tree and Main smoke;
+see the [promotion contract](../../../../docs/reference/operations/branch-governance.md#dev--uat-branch-preparation).
+
 UAT:
 
 ```bash
@@ -141,6 +146,9 @@ gh workflow run deploy-production.yml --ref main -f scope=<frontend|backend|all>
 
 Production requires an explicit production request and an actor in
 `production.manual_dispatch_users`. UAT success does not authorize production.
+
+Approved manual incidents follow the [incident contract](../../../../docs/reference/operations/branch-governance.md#manual-emergency-production).
+Only Dev/UAT deployment acceptance is waived; all other release gates remain.
 
 ### 6. Monitor and prove
 
@@ -204,8 +212,9 @@ Production requires an explicit production request and an actor in
 
 Stop rather than improvise when the exact head changes, required checks are not
 terminal green, actor authority is absent, environment identity is ambiguous,
-provenance does not match, or a rollback target cannot be proved. UAT and production
-also require reachability from `main` and successful post-merge smoke. Dev follows
+provenance does not match, or a rollback target cannot be proved. Ordinary Main
+promotion requires reachability from `main` and successful post-merge smoke;
+curated/incident source exceptions follow section 5. Dev follows
 [Dev Fast Lane](../../../../docs/reference/operations/dev-fast-lane.md): its exact
 CI-green SHA must be reachable from the requested branch, while the workflow
 definition runs from `main`. Dev does not require an application merge to `main`.

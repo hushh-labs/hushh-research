@@ -361,6 +361,75 @@ def test_live_verifier_distinguishes_pending_activation_without_granting_authori
             assert rejected.returncode != 0, "Pending activation concealed an authority/protection failure"
 
 
+def test_prepared_branch_reconciliation_is_scoped_and_fail_closed(module) -> None:
+    import copy
+    import importlib
+
+    prepared = importlib.import_module("prepared_branch_governance")
+    policy = _policy()
+    rulesets = [{"name": policy["pr_train"]["merge_queue_ruleset_name"], "id": 1}]
+    template = {"enforcement": "active", "rules": [{"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}]}
+    reads, writes = [], []
+
+    def read(args):
+        endpoint = args[1]
+        reads.append(endpoint)
+        if "rulesets?" in endpoint:
+            return rulesets
+        if endpoint.endswith("rulesets/1"):
+            return template
+        if "/teams/" in endpoint:
+            return {"id": 2}
+        if "/git/ref/" in endpoint:
+            return {"object": {"sha": "a" * 40}}
+        raise AssertionError(f"Unexpected authority read: {endpoint}")
+
+    def raw(args, *, check):
+        assert not check and args[1].endswith("branches/dev/protection")
+        return 1, "", "Branch not protected (HTTP 404)"
+
+    original = prepared._write
+    prepared._write = lambda endpoint, payload, method: writes.append((endpoint, payload, method))
+    try:
+        prepared.reconcile(policy, ["dev"], repo=module.REPO, read=read, raw=raw, apply=False)
+        assert not writes, "Dry-run mutated GitHub"
+        prepared.reconcile(policy, ["dev"], repo=module.REPO, read=read, raw=raw, apply=True)
+        assert len(writes) == 2
+        assert writes[0][0].endswith("branches/dev/protection")
+        queue = writes[1][1]
+        assert queue["conditions"]["ref_name"] == {"include": ["refs/heads/dev"], "exclude": []}
+        assert queue["bypass_actors"] == [{"actor_id": 2, "actor_type": "Team", "bypass_mode": "pull_request"}]
+        assert not any("/branches/main" in value or "/members" in value for value in reads)
+        writes.clear()
+        reads.clear()
+        try:
+            prepared.reconcile(policy, ["main"], repo=module.REPO, read=read, raw=raw, apply=True)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("Undeclared selection accepted")
+        assert not reads and not writes
+        for current in ({"restrictions": {"users": ["owner"]}},
+                        {"required_pull_request_reviews": {"require_code_owner_reviews": True}}):
+            try:
+                prepared._assert_no_unowned_protection(current)
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError("Unowned stronger protection would be removed")
+        duplicate = {"name": policy["branch_flow"]["prepared_branches"]["dev"]["merge_queue_ruleset_name"], "id": 3}
+        rulesets.extend([duplicate, copy.deepcopy(duplicate)])
+        try:
+            prepared.reconcile(policy, ["dev"], repo=module.REPO, read=read, raw=raw, apply=True)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("Ambiguous rulesets accepted")
+        assert not writes
+    finally:
+        prepared._write = original
+
+
 def main() -> int:
     module = _module()
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
