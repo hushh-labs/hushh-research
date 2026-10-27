@@ -1,6 +1,6 @@
 "use client";
 
-import { MapPin } from "@/components/icons";
+import { CheckCircle, MapPin } from "@/components/icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import type { CalendarInvitation } from "@/lib/services/google-calendar-service";
@@ -94,7 +94,10 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), work
         const name = attendee.self ? "You" : (organizer ? event.organizer?.displayName : null) || attendee.display_name || person?.displayName || attendee.email || "Guest";
         const photo = invitationGooglePhoto(attendee.email, accountEmail, accountPhotoUrl, googlePhotos);
         return <li key={`${attendee.email || "guest"}:${index}`} title={attendee.email || undefined}>
-          <InvitationAvatar name={name} email={attendee.email} photoUrl={photo?.url} photoSource={photo?.source} />
+          <span className={styles.guestAvatar} data-guest-avatar>
+            <InvitationAvatar name={name} email={attendee.email} photoUrl={photo?.url} photoSource={photo?.source} />
+            {attendee.response_status === "accepted" ? <CheckCircle aria-hidden="true" weight="fill" data-accepted-indicator className={styles.guestAccepted} /> : null}
+          </span>
           <span className={styles.guestCopy}><span>{name}</span>{photo ? <span className="sr-only">{photo.source === "google_contact" || photo.source === "workspace_contact" ? "Saved Google contact photo" : "Google profile photo"}</span> : null}{organizer && attendee.email && name !== attendee.email ? <small>{attendee.email}</small> : null}<small>{organizer ? `Organiser · ${guestStatus(attendee.response_status)}` : guestStatus(attendee.response_status)}</small></span>
         </li>;
       })}</ul>

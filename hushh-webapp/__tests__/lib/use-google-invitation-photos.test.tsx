@@ -1,5 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { publishPendingAuthSessionIdentity, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { forgetGoogleInvitationPhotoGrant, useGoogleInvitationPhotos } from "@/lib/calendar/use-google-invitation-photos";
 import type { GooglePhotoGrant } from "@/lib/services/google-invitation-photo-token";
 import { GooglePhotoProviderError } from "@/lib/services/google-invitation-photos";
@@ -26,7 +28,10 @@ const account = (accountId: string) => ({
   subjectSha256: "a".repeat(64), grantGeneration: `${accountId}-generation`,
   grantedScopes: "https://www.googleapis.com/auth/calendar.readonly", guestEmails: [guest],
 });
-afterEach(() => { forgetGoogleInvitationPhotoGrant(); vi.clearAllMocks(); });
+const signedIn = (firebaseUid = "owner", ownerId = "owner", accountGeneration = 0) =>
+  publishValidatedAuthSessionPrincipal({ firebaseUid, ownerId, accountGeneration });
+beforeEach(() => { publishValidatedAuthSessionPrincipal(null); signedIn(); });
+afterEach(() => { forgetGoogleInvitationPhotoGrant(); publishValidatedAuthSessionPrincipal(null); vi.clearAllMocks(); });
 
 describe("invitation photo account isolation", () => {
   it("reuses only the selected account's valid in-memory grant after a tab remount", async () => {
@@ -67,6 +72,87 @@ describe("invitation photo account isolation", () => {
     expect(changed.result.current.permission).toBeNull();
     expect(changed.result.current.photos.size).toBe(0);
     changed.unmount();
+  });
+
+  it("accepts a migrated principal and keeps a valid grant across vault renewal", async () => {
+    signedIn("owner", `acct_${"a".repeat(32)}`, 1);
+    mocks.request.mockImplementation(async (email: string) => ({ token: "photo-only", accountEmail: email, subject: email,
+      hostedDomain: null, permission: "contacts", expiresAt: Date.now() + 60_000 } satisfies GooglePhotoGrant));
+    mocks.lookup.mockResolvedValue(photo);
+    const view = renderHook(() => useGoogleInvitationPhotos(account("first")));
+    expect(view.result.current.available).toBe(true);
+    await act(async () => { await view.result.current.authorize("contacts"); });
+    await waitFor(() => expect(view.result.current.photos.get(guest)).toEqual(photo));
+    act(() => advanceVaultSessionEpoch());
+    view.rerender();
+    expect(view.result.current.photos.get(guest)).toEqual(photo);
+    await act(async () => { await view.result.current.authorize("contacts"); });
+    expect(mocks.request).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  it("forgets a retained grant after sign-out and same-owner reauthentication", async () => {
+    mocks.request.mockImplementation(async (email: string) => ({ token: "photo-only", accountEmail: email, subject: email,
+      hostedDomain: null, permission: "contacts", expiresAt: Date.now() + 60_000 } satisfies GooglePhotoGrant));
+    mocks.lookup.mockResolvedValue(photo);
+    const first = renderHook(() => useGoogleInvitationPhotos(account("first")));
+    await act(async () => { await first.result.current.authorize("contacts"); });
+    await waitFor(() => expect(first.result.current.photos.get(guest)).toEqual(photo));
+    first.unmount();
+
+    publishValidatedAuthSessionPrincipal(null);
+    signedIn();
+    const reopened = renderHook(() => useGoogleInvitationPhotos(account("first")));
+    expect(reopened.result.current.permission).toBeNull();
+    expect(reopened.result.current.photos.size).toBe(0);
+    expect(mocks.request).toHaveBeenCalledTimes(1);
+    reopened.unmount();
+  });
+
+  it("refuses old photos during pending, wrong-account, and A to B to A identity changes", async () => {
+    mocks.request.mockImplementation(async (email: string) => ({ token: "photo-only", accountEmail: email, subject: email,
+      hostedDomain: null, permission: "contacts", expiresAt: Date.now() + 60_000 } satisfies GooglePhotoGrant));
+    mocks.lookup.mockResolvedValue(photo);
+    const view = renderHook(() => useGoogleInvitationPhotos(account("first")));
+    await act(async () => { await view.result.current.authorize("contacts"); });
+    await waitFor(() => expect(view.result.current.photos.get(guest)).toEqual(photo));
+
+    act(() => publishPendingAuthSessionIdentity("owner", true));
+    expect(view.result.current.available).toBe(false);
+    expect(view.result.current.permission).toBeNull();
+    expect(view.result.current.photos.size).toBe(0);
+    act(() => signedIn("different-owner", "different-owner"));
+    expect(view.result.current.available).toBe(false);
+    act(() => signedIn());
+    expect(view.result.current.permission).toBeNull();
+    expect(view.result.current.photos.size).toBe(0);
+    view.unmount();
+  });
+
+  it("discards late OAuth and People results after identity changes", async () => {
+    let resolveGrant: ((grant: GooglePhotoGrant) => void) | undefined;
+    const pendingGrant = new Promise<GooglePhotoGrant>(resolve => { resolveGrant = resolve; });
+    const grant = { token: "photo-only", accountEmail: "first@example.com", subject: "first@example.com",
+      hostedDomain: null, permission: "contacts", expiresAt: Date.now() + 60_000 } satisfies GooglePhotoGrant;
+    mocks.request.mockReturnValueOnce(pendingGrant).mockResolvedValue(grant);
+    let resolvePhoto: ((result: typeof photo) => void) | undefined;
+    mocks.lookup.mockImplementationOnce(() => new Promise<typeof photo>(resolve => { resolvePhoto = resolve; }));
+    const view = renderHook(() => useGoogleInvitationPhotos(account("first")));
+    let authorization: Promise<void> | undefined;
+    act(() => { authorization = view.result.current.authorize("contacts"); });
+    act(() => publishValidatedAuthSessionPrincipal(null));
+    await act(async () => { resolveGrant?.(grant); await authorization; });
+    expect(view.result.current.permission).toBeNull();
+    expect(view.result.current.photos.size).toBe(0);
+
+    act(() => signedIn());
+    await act(async () => { await view.result.current.authorize("contacts"); });
+    await waitFor(() => expect(mocks.lookup).toHaveBeenCalledTimes(1));
+    act(() => publishValidatedAuthSessionPrincipal(null));
+    await act(async () => { resolvePhoto?.(photo); });
+    expect(view.result.current.permission).toBeNull();
+    expect(view.result.current.photos.size).toBe(0);
+    view.unmount();
   });
 
   it("forgets a retained grant after Google revokes it on a reopened tab", async () => {

@@ -15,6 +15,7 @@ import { assertCalendarAccountLabel, assertCalendarBoardGeometry, assertCalendar
 registerCalendarConnectedFixture();
 
 test("Calendar product font and real action targets survive responsive boundaries", async ({ page }) => {
+  test.setTimeout(60_000);
   const { errors, unexpectedRequests } = await openFixture(page, 393);
   for (const width of [350, 351, 360, 393, 430, 520, 521, 620, 621, 639, 640, 759, 760, 767, 768, 900, 901, 1024, 1440]) {
     await page.setViewportSize({ width, height: 950 });
@@ -43,11 +44,33 @@ test("Calendar product font and real action targets survive responsive boundarie
   await expect(invitationJoin).toHaveCSS("background-color", /rgb/);
   for (const name of ["Accept", "Decline", "Decline & offer another time"]) {
     const button = dialog.getByRole("button", { name, exact: true });
-    const outer = (await button.boundingBox())!;
-    const inner = await button.locator(":scope > span > span").first().boundingBox();
-    expect(outer.height, `${name} target`).toBeGreaterThanOrEqual(44);
-    expect(inner?.height, `${name} pill`).toBeGreaterThanOrEqual(44);
+    await page.mouse.move(0, 0);
+    await expect.poll(() => button.evaluate(element => getComputedStyle(element).backgroundColor)).toBeTruthy();
+    const restingBackground = await button.evaluate(element => getComputedStyle(element).backgroundColor);
+    const normal = (await button.boundingBox())!;
+    expect(normal.height, `${name} target`).toBeGreaterThanOrEqual(44);
+    await button.hover();
+    const hovered = (await button.boundingBox())!;
+    expect(hovered.width, `${name} hover width`).toBe(normal.width);
+    expect(hovered.height, `${name} hover height`).toBe(normal.height);
+    expect(hovered.x, `${name} hover alignment`).toBe(normal.x);
+    await expect.poll(() => button.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(restingBackground);
+    expect(await button.evaluate(element => getComputedStyle(element).borderRadius)).toBe("999px");
   }
+  const accept = dialog.getByRole("button", { name: "Accept", exact: true });
+  await accept.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  await expect(accept).toBeFocused();
+  expect(await accept.evaluate(element => getComputedStyle(element).outlineStyle)).toBe("solid");
+  await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, "calendar-invitation-keyboard-focus-393.png") });
+  await accept.evaluate(element => element.blur());
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  const darkRestingBackground = await accept.evaluate(element => getComputedStyle(element).backgroundColor);
+  await accept.hover();
+  await expect.poll(() => accept.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(darkRestingBackground);
+  await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, "calendar-invitation-dark-hover-393.png") });
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -63,11 +86,10 @@ test("three-account Board keeps its measure, heading roles and account actions a
     const overlap = (await page.getByRole("button", { name: /^Review 1 overlapping meeting for QA Design Review/ }).boundingBox())!;
     expect(overlap.height, `overlap target at ${width}px`).toBeGreaterThanOrEqual(44);
   }
-  const addPill = page.getByRole("button", { name: "Add account" }).locator(":scope > span > span").first();
+  const addPill = page.getByRole("button", { name: "Add account" });
   const lightPill = await addPill.evaluate(element => getComputedStyle(element).backgroundColor);
   await page.evaluate(() => document.documentElement.classList.add("dark"));
-  const darkPill = await addPill.evaluate(element => getComputedStyle(element).backgroundColor);
-  expect(darkPill).not.toBe(lightPill);
+  await expect(addPill).not.toHaveCSS("background-color", lightPill);
   expect((await addPill.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, "calendar-board-dark-1440.png") });
   await page.getByRole("button", { name: /^Open QA Design Review/ }).click();
@@ -111,8 +133,8 @@ for (const width of [390, 1440]) {
     await dialog.getByRole("button", { name: "Confirm selected changes" }).click();
     await expect(dialog.getByText("Calendar: declined · Mail: sent")).toBeVisible();
     expect(page.url()).toContain("/calendar-connected-fixture?board=1");
-    expect(calls.some(call => call.path.endsWith("/conflicts/review"))).toBe(true);
-    expect(calls.some(call => call.path.endsWith("/conflicts/confirm"))).toBe(true);
+    expect(calls.some(call => call.path.endsWith("/conflicts/workspace/review"))).toBe(true);
+    expect(calls.some(call => call.path.endsWith("/conflicts/workspace/confirm"))).toBe(true);
     expect(unexpectedRequests).toEqual([]);
     expect(errors).toEqual([]);
   });
@@ -176,13 +198,19 @@ for (const width of [320, 390, 1440]) {
     await assertActionsClearChrome(page, width, "today");
     await page.getByTestId("calendar-scroll-root").evaluate(element => { element.scrollTop = 0; });
     await page.getByRole("button", { name: /^QA Product Sync/ }).click();
-    await expect(page.getByRole("dialog")).toContainText("Synthetic event details for rendered QA.");
-    for (let index = 0; index < 5; index++) { await page.keyboard.press("Tab"); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
+    const eventDialog = page.getByRole("dialog");
+    await expect(eventDialog).toContainText("Synthetic event details for rendered QA.");
+    for (let index = 0; index < 5; index++) { await page.keyboard.press("Tab"); expect(await eventDialog.evaluate(element => element.contains(document.activeElement))).toBe(true); }
+    const readsBeforeVaultLock = calls.filter(call => call.path.endsWith("/schedule/today")).length;
     await page.getByTestId("calendar-fixture-lock").dispatchEvent("click");
-    await expect.poll(() => page.evaluate(() => document.body.textContent?.includes("Synthetic event details for rendered QA."))).toBe(false);
+    await expect(eventDialog).toContainText("Synthetic event details for rendered QA.");
+    expect(calls.filter(call => call.path.endsWith("/schedule/today"))).toHaveLength(readsBeforeVaultLock);
     await expect(page.getByText("Calendar session unavailable.", { exact: false })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /unlock/i })).toHaveCount(0);
     await page.getByTestId("calendar-fixture-authorize").dispatchEvent("click");
+    await expect(eventDialog).toContainText("Synthetic event details for rendered QA.");
+    await page.keyboard.press("Escape");
+    await expect(eventDialog).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^QA Product Sync/ })).toBeVisible();
     const menu = page.getByRole("button", { name: "Calendar settings and actions", exact: true });
     await menu.focus(); await page.keyboard.press("Enter");
@@ -271,14 +299,16 @@ for (const width of [320, 390, 1440]) {
     const previousReads = long.calls.filter(call => call.path.endsWith("/schedule/today")).length;
     const releaseSchedule = long.holdSchedule();
     try {
-      await page.getByTestId("calendar-fixture-lock").dispatchEvent("click");
+      await page.getByTestId("calendar-fixture-switch-owner").dispatchEvent("click");
       await expect.poll(() => long.calls.filter(call => call.path.endsWith("/schedule/today")).length).toBeGreaterThan(previousReads);
-      // Distinguish retained private DOM from a new Firebase-authorized read.
+      expect(long.calls.filter(call => call.path.endsWith("/schedule/today")).at(-1)?.authorization).toBe("Bearer synthetic-firebase-other-owner-token");
+      // A new owner never sees the prior owner's details while their read is held.
       await expect.poll(() => page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
     } finally {
       releaseSchedule("standard");
     }
-    await expect(page.getByRole("button", { name: /^QA Product Sync/ })).toBeVisible();
+    await expect(page.getByText("other-owner@example.com", { exact: true })).toBeVisible();
+    await expect(page.getByText("No events today.", { exact: true })).toBeVisible();
     expect(await page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
     expect(long.errors).toEqual([]);
     expect(long.unexpectedRequests).toEqual([]);
@@ -385,6 +415,22 @@ for (const width of [320, 390, 1440]) {
     const guests = dialog.getByRole("list", { name: "Guests" }).getByRole("listitem");
     await expect(guests).toHaveCount(9);
     await expect(dialog.getByText("3 yes, 6 awaiting")).toBeVisible();
+    const acceptedBadges = guests.locator("[data-accepted-indicator]");
+    await expect(acceptedBadges).toHaveCount(3);
+    expect(await acceptedBadges.evaluateAll(badges => badges.every(badge => {
+      const avatar = badge.parentElement?.querySelector('[data-slot="avatar"]');
+      if (!avatar) return false;
+      const image = avatar.getBoundingClientRect();
+      const tick = badge.getBoundingClientRect();
+      return tick.width <= 14 && tick.height <= 14
+        && tick.left >= image.right - 6 && tick.left < image.right
+        && tick.top >= image.bottom - 10 && tick.top < image.bottom
+        && tick.right > image.right && tick.bottom > image.bottom;
+    }))).toBe(true);
+    expect(await guests.evaluateAll(items => items.every(item => {
+      const accepted = item.textContent?.includes("Accepted") ?? false;
+      return Boolean(item.querySelector("[data-accepted-indicator]")) === accepted;
+    }))).toBe(true);
     // A Hussh connection photo must not be presented as the guest's Google photo.
     await expect(guests.filter({ hasText: "Manish" }).locator("img")).toHaveCount(0);
     const guestBounds = await guests.evaluateAll(items => items.map(item => {
@@ -395,15 +441,19 @@ for (const width of [320, 390, 1440]) {
     expect(guestBounds.every(row => row.x + row.rowWidth <= bounds.x + bounds.width + 1)).toBe(true);
     const actionButtons = dialog.getByRole("button", { name: /^(Accept|Decline|Decline & offer another time)$/ });
     for (const button of await actionButtons.all()) {
-      const buttonBounds = (await button.boundingBox())!;
-      const pillBounds = (await button.locator(":scope > span > span").boundingBox())!;
-      expect(Math.abs(buttonBounds.x - pillBounds.x)).toBeLessThanOrEqual(1);
-      expect(Math.abs(buttonBounds.width - pillBounds.width)).toBeLessThanOrEqual(1);
-      expect(buttonBounds.height).toBeGreaterThanOrEqual(44);
+      const normal = (await button.boundingBox())!;
+      expect(normal.height).toBeGreaterThanOrEqual(44);
+      await button.hover();
+      const hovered = (await button.boundingBox())!;
+      expect(hovered.width).toBe(normal.width);
+      expect(hovered.height).toBe(normal.height);
+      expect(hovered.x).toBe(normal.x);
+      expect(await button.evaluate(element => getComputedStyle(element).borderRadius)).toBe("999px");
     }
     await expect(page.locator('[data-slot="dialog-overlay"]')).toBeVisible();
     expect(await page.locator('[data-slot="dialog-overlay"]').evaluate(node => getComputedStyle(node).backdropFilter)).not.toBe("none");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await dialog.evaluate(element => { element.scrollTop = 0; });
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-detail-top-${testInfo.project.name}-${width}.png`) });
     await page.getByRole("button", { name: "Decline & offer another time" }).scrollIntoViewIfNeeded();
     const offerBounds = (await page.getByRole("button", { name: "Decline & offer another time" }).boundingBox())!;
@@ -419,10 +469,10 @@ for (const width of [320, 390, 1440]) {
     await accept.scrollIntoViewIfNeeded();
     await accept.click();
     await expect(page.getByText("This time is already booked")).toBeVisible();
-    expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(0);
+    expect(calls.filter(call => call.path.endsWith("/attendance/rsvp/confirm"))).toHaveLength(0);
     await page.getByRole("button", { name: "Accept anyway" }).click();
     await expect(dialog).toBeHidden();
-    expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(1);
+    expect(calls.filter(call => call.path.endsWith("/attendance/rsvp/confirm"))).toHaveLength(1);
     await page.getByRole("tab", { name: "Responded", exact: true }).click();
     await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" })).toBeVisible();
     await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
@@ -588,11 +638,11 @@ test("decline reason sends once and returns to the same Calendar page", async ({
   await page.getByRole("button", { name: "Review decline email" }).click();
   await expect(page.getByText("To: qa-organizer-0@example.test")).toBeVisible();
   await expect(page.getByText(/I have another commitment\./)).toBeVisible();
-  expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(0);
+  expect(calls.filter(call => call.path.endsWith("/attendance/workspace/confirm"))).toHaveLength(0);
   await page.getByRole("button", { name: "Decline & send email" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByTestId("calendar-action")).toHaveText("");
   expect(page.url()).toContain("/calendar-connected-fixture");
-  expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(1);
+  expect(calls.filter(call => call.path.endsWith("/attendance/workspace/confirm"))).toHaveLength(1);
   expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
 });

@@ -11,7 +11,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
-import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { notifyCalendarChanged, calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
@@ -104,8 +105,10 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
   const [views, setViews] = useState<Record<string, "events" | "free">>({});
   const [revision, setRevision] = useState(0);
   const epoch = snapshotVaultSessionEpoch();
+  const owner = snapshotValidatedAuthSessionOwner();
+  const ownerKey = owner ? `${owner.userId}:${owner.generation}` : userId;
   const accountGeneration = (status.accounts || []).map(account => `${account.account_id}:${account.status}:${account.google_email}:${account.access_level}:${account.calendar_list_access}`).join("|");
-  const key = `${userId}:${date}:${zone}:${epoch}:${connectionRevision || 0}:${accountGeneration}`;
+  const key = `${userId}:${date}:${zone}:${ownerKey}:${connectionRevision || 0}:${accountGeneration}`;
   const requestKey = `${key}:${revision}`;
   const currentKey = useRef(requestKey); currentKey.current = requestKey;
   const request = useRef(0);
@@ -141,7 +144,8 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
   useEffect(() => {
     const controller = new AbortController();
     const number = ++request.current;
-    const isCurrent = () => !controller.signal.aborted && currentKey.current === requestKey && number === request.current && isVaultSessionEpochCurrent(epoch);
+    const requestOwner = snapshotValidatedAuthSessionOwner();
+    const isCurrent = () => !controller.signal.aborted && currentKey.current === requestKey && number === request.current && (!requestOwner || isValidatedAuthSessionOwnerCurrent(requestOwner));
     void (async () => {
       try {
         const firebaseIdToken = await tokenGetter.current();
@@ -153,7 +157,7 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
       }
     })();
     return () => { controller.abort(); request.current += 1; };
-  }, [requestKey, key, date, zone, epoch]);
+  }, [requestKey, key, date, zone]);
   usePeriodicTask(`calendar-board:${userId}`, 60_000, () => {
     if (tab === "board" && !selectedRef.current && !actionBusy && !busy) setRevision(value => value + 1);
   }, { enabled: tab === "board" });
@@ -301,12 +305,12 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
         <DialogContent className={styles.detail} onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} onEscapeKeyDown={event => { if (actionBusy) event.preventDefault(); }} onInteractOutside={event => { if (actionBusy) event.preventDefault(); }}>
           {selected && selectedEvent && selectedAccount ? <>
             <DialogHeader className={styles.detailHeader}><DialogTitle className={styles.detailTitle}>{resolving ? "Resolve overlapping meetings" : selectedEvent.title}</DialogTitle><DialogDescription>{accountLabel(selectedAccount.google_email)} · {eventTime(selectedEvent, zone)}</DialogDescription>{!resolving && isCalendarEventEnded(selectedEvent, now, zone) ? <span className={styles.detailEnded}><Clock aria-hidden className="size-3" />Ended</span> : null}{!resolving && selectedOrganizer ? <p className={styles.detailSource}>Organized by {selectedOrganizer}</p> : null}</DialogHeader>
-            {resolving && board ? <CalendarConflictPanel key={identity(selected)} board={board} keep={{ account_id: selected.accountId, calendar_id: selected.calendarId, event_id: selected.eventId }} token={token} getIdToken={getIdToken} initialDraft={conflictDraft} onDraftChange={setConflictDraft} onBusyChange={setActionBusy} onChooseKeep={ref => setSelected({ accountId: ref.account_id, calendarId: ref.calendar_id, eventId: ref.event_id })} onMailConnect={onMailConnect} onConfirmed={() => { refreshOnClose.current = true; }} onDone={close} /> : <>
+            {resolving && board ? <CalendarConflictPanel key={identity(selected)} board={board} keep={{ account_id: selected.accountId, calendar_id: selected.calendarId, event_id: selected.eventId }} getIdToken={getIdToken} initialDraft={conflictDraft} onDraftChange={setConflictDraft} onBusyChange={setActionBusy} onChooseKeep={ref => setSelected({ accountId: ref.account_id, calendarId: ref.calendar_id, eventId: ref.event_id })} onMailConnect={onMailConnect} onConfirmed={() => { refreshOnClose.current = true; }} onDone={close} /> : <>
             {selectedEvent.location ? <p className={styles.detailSource}>Location: {selectedEvent.location}</p> : null}
             {selectedEvent.description ? <p className={styles.detailDescription}>{selectedEvent.description}</p> : null}
             {!isCalendarEventEnded(selectedEvent, now, zone) && safeMeetingUrl(selectedEvent.conference_url) ? <a className={styles.join} href={safeMeetingUrl(selectedEvent.conference_url)!} target="_blank" rel="noopener noreferrer">Join meeting</a> : null}
             {overlaps.length ? <div className={styles.overlapDetail}><h3><AlertTriangle aria-hidden className="size-4" />Overlapping meetings</h3>{overlaps.map(pair => { const other = otherSide(pair, selected); const event = findEvent({ accountId: other.account_id, calendarId: other.calendar_id, eventId: other.event_id }); const account = accounts.find(item => item.account_id === other.account_id); return <div key={identity(other)} className={styles.overlapItem}><strong>{event?.title || "Another meeting"}</strong><p>{accountLabel(account?.google_email || null)} · {event ? eventTime(event, zone) : "Time unavailable"}</p><p>Overlap: {availabilityTimeRangeLabel(pair.start_at, pair.end_at, zone, date)}</p></div>; })}{!board?.conflicts_complete || error ? <p role="alert">Refresh every account before resolving conflicts.</p> : <CalendarCompactAction disabled={actionBusy || busy} onClick={() => setResolving(true)}>Resolve these overlaps</CalendarCompactAction>}</div> : null}
-            {selectedEvent.can_decline ? <CalendarInvitationActions key={eventIdentity(selectedEvent)} event={toInvitation(selectedEvent, selectedAccount)} userId={userId} accountId={selectedAccount.account_id} token={token} zone={zone} getIdToken={getIdToken} expectedAccountEmail={selectedAccount.google_email} onBusyChange={setActionBusy} onConnect={selectedAccount.account_id === "default" ? onConnect : () => onReconnectAccount(selectedAccount.account_id)} onMailConnect={onMailConnect} onResult={() => { refreshOnClose.current = true; }} /> : <p className={styles.readOnly}>This event stays on its calendar. Attendance changes are available for invitations to this account.</p>}
+            {selectedEvent.can_decline ? <CalendarInvitationActions key={eventIdentity(selectedEvent)} event={toInvitation(selectedEvent, selectedAccount)} userId={userId} accountId={selectedAccount.account_id} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout expectedAccountEmail={selectedAccount.google_email} onBusyChange={setActionBusy} onConnect={selectedAccount.account_id === "default" ? onConnect : () => onReconnectAccount(selectedAccount.account_id)} onMailConnect={onMailConnect} onResult={() => { refreshOnClose.current = true; }} /> : <p className={styles.readOnly}>This event stays on its calendar. Attendance changes are available for invitations to this account.</p>}
             </>}
           </> : null}
         </DialogContent>

@@ -61,6 +61,17 @@ let browserUserId: string | null = null;
 let browserGeneration = 0;
 let browserPrincipal: AccountPrincipalBinding | null = null;
 let browserFirebaseUid: string | null = null;
+const generationListeners = new Set<() => void>();
+
+/** Identity payloads stay in this module; subscribers only learn that it changed. */
+export function subscribeAuthSessionGeneration(listener: () => void): () => void {
+  generationListeners.add(listener);
+  return () => generationListeners.delete(listener);
+}
+
+function notifyAuthSessionGeneration(): void {
+  for (const listener of generationListeners) listener();
+}
 
 /** Includes anonymous periods, so A -> signed out -> A cannot reuse old work. */
 export function getAuthSessionGeneration(): number | null {
@@ -75,6 +86,7 @@ export function publishValidatedAuthSessionOwner(userId: string | null): void {
   browserFirebaseUid = normalizedUserId;
   browserUserId = normalizedUserId;
   browserGeneration += 1;
+  notifyAuthSessionGeneration();
 }
 
 /** A pending identity can own recovery, never application information. */
@@ -85,6 +97,7 @@ export function publishPendingAuthSessionIdentity(firebaseUid: string, forceNewE
   browserPrincipal = null;
   browserFirebaseUid = firebaseUid;
   browserGeneration += 1;
+  notifyAuthSessionGeneration();
 }
 
 export function publishValidatedAuthSessionPrincipal(principal: AccountPrincipalBinding | null): void {
@@ -97,6 +110,7 @@ export function publishValidatedAuthSessionPrincipal(principal: AccountPrincipal
   browserFirebaseUid = principal.firebaseUid;
   browserPrincipal = { ...principal };
   browserGeneration += 1;
+  notifyAuthSessionGeneration();
 }
 
 export function snapshotValidatedAuthSessionPrincipal(): (AccountPrincipalBinding & AuthSessionOwnerSnapshot) | null {

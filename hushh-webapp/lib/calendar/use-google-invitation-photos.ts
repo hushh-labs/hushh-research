@@ -1,20 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { getAuthSessionGeneration, isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionPrincipal, subscribeAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { exactInvitationEmails, GooglePhotoProviderError, lookupGoogleInvitationPhoto, warmGoogleContactsPhotoSearch, type GoogleInvitationPhoto } from "@/lib/services/google-invitation-photos";
 import { googleInvitationPhotosAvailable, isGoogleContactsConsentCancelled, preloadGoogleInvitationPhotoAuth, requestGoogleInvitationPhotoGrant, type GooglePhotoGrant, type GooglePhotoPermission } from "@/lib/services/google-invitation-photo-token";
 
 type Cached = { photo: GoogleInvitationPhoto | null; checkedAt: number };
 const FRESH_MS = 60_000;
 const MAX_AGE_MS = 5 * 60_000;
-type RetainedGrant = { accountKey: string; grant: GooglePhotoGrant; expiryTimer: ReturnType<typeof setTimeout> };
+type RetainedGrant = { accountKey: string; grant: GooglePhotoGrant; expiryTimer: ReturnType<typeof setTimeout>; unsubscribe: () => void };
 let retainedGrant: RetainedGrant | null = null;
 
 /** A single browser-memory grant survives an Invitations tab remount, never an account change. */
 export function forgetGoogleInvitationPhotoGrant(accountKey?: string): void {
   if (!retainedGrant || (accountKey && retainedGrant.accountKey !== accountKey)) return;
   clearTimeout(retainedGrant.expiryTimer);
+  retainedGrant.unsubscribe();
   retainedGrant = null;
 }
 
@@ -25,8 +26,12 @@ function restoreGoogleInvitationPhotoGrant(accountKey: string): GooglePhotoGrant
 function rememberGoogleInvitationPhotoGrant(accountKey: string, grant: GooglePhotoGrant): void {
   forgetGoogleInvitationPhotoGrant();
   const remaining = grant.expiresAt - Date.now();
-  if (remaining <= 0) return;
-  retainedGrant = { accountKey, grant, expiryTimer: setTimeout(() => forgetGoogleInvitationPhotoGrant(accountKey), remaining) };
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  if (remaining <= 0 || !principal) return;
+  const unsubscribe = subscribeAuthSessionGeneration(() => {
+    if (!isValidatedAuthSessionOwnerCurrent(principal)) forgetGoogleInvitationPhotoGrant(accountKey);
+  });
+  retainedGrant = { accountKey, grant, expiryTimer: setTimeout(() => forgetGoogleInvitationPhotoGrant(accountKey), remaining), unsubscribe };
 }
 
 type Options = {
@@ -38,8 +43,13 @@ type Options = {
 
 export function useGoogleInvitationPhotos({ enabled, ownerId, accountId, accountEmail, grantGeneration = "", grantedScopes = "", subjectSha256 = "", hostedDomain, guestEmails }: Options) {
   const emailsKey = exactInvitationEmails(guestEmails).join("\n");
-  const accountKey = JSON.stringify([ownerId, accountId, accountEmail?.trim().toLowerCase() || "", grantGeneration, grantedScopes, subjectSha256, hostedDomain || ""]);
-  const grantRef = useRef<GooglePhotoGrant | null>(enabled ? restoreGoogleInvitationPhotoGrant(accountKey) : null);
+  useSyncExternalStore(subscribeAuthSessionGeneration, getAuthSessionGeneration, () => null);
+  // Calendar receives the Firebase UID. The validated principal also binds it to
+  // the application owner and changes generation across sign-out and reauth.
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  const selectedPrincipal = principal?.firebaseUid === ownerId ? principal : null;
+  const accountKey = JSON.stringify([ownerId, selectedPrincipal?.ownerId, selectedPrincipal?.accountGeneration, selectedPrincipal?.generation, accountId, accountEmail?.trim().toLowerCase() || "", grantGeneration, grantedScopes, subjectSha256, hostedDomain || ""]);
+  const grantRef = useRef<GooglePhotoGrant | null>(enabled && selectedPrincipal ? restoreGoogleInvitationPhotoGrant(accountKey) : null);
   const [photos, setPhotos] = useState<ReadonlyMap<string, GoogleInvitationPhoto>>(() => new Map());
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -54,7 +64,7 @@ export function useGoogleInvitationPhotos({ enabled, ownerId, accountId, account
   const currentAccount = useRef(accountKey);
   currentAccount.current = accountKey;
 
-  useEffect(() => { if (enabled) void preloadGoogleInvitationPhotoAuth().catch(() => undefined); }, [enabled]);
+  useEffect(() => { if (enabled && selectedPrincipal) void preloadGoogleInvitationPhotoAuth().catch(() => undefined); }, [enabled, selectedPrincipal?.generation]);
   useEffect(() => {
     if (retainedGrant && (retainedGrant.accountKey !== accountKey || retainedGrant.grant.expiresAt <= Date.now())) {
       forgetGoogleInvitationPhotoGrant();
@@ -118,19 +128,19 @@ export function useGoogleInvitationPhotos({ enabled, ownerId, accountId, account
   }, [grantVersion, clear]);
 
   const authorize = useCallback(async (mode: GooglePhotoPermission) => {
-    if (!enabled || !accountEmail || !subjectSha256 || !googleInvitationPhotosAvailable()) return;
+    if (!enabled || !selectedPrincipal || !accountEmail || !subjectSha256 || !googleInvitationPhotosAvailable() || displayKey !== accountKey) return;
     if (grantRef.current?.permission === mode && grantRef.current.expiresAt > Date.now()) return;
     authAbort.current?.abort();
     readAbort.current?.abort();
     const controller = new AbortController();
     authAbort.current = controller;
     const expectedAccount = accountKey;
-    const epoch = snapshotVaultSessionEpoch();
+    const expectedPrincipal = selectedPrincipal;
     setLoading(true);
     setMessage(null);
     try {
       const grant = await requestGoogleInvitationPhotoGrant(accountEmail, subjectSha256, hostedDomain, mode, controller.signal);
-      if (controller.signal.aborted || currentAccount.current !== expectedAccount || !isVaultSessionEpochCurrent(epoch)) return;
+      if (controller.signal.aborted || currentAccount.current !== expectedAccount || !isValidatedAuthSessionOwnerCurrent(expectedPrincipal)) return;
       grantRef.current = grant;
       rememberGoogleInvitationPhotoGrant(accountKey, grant);
       warmedGrant.current = null;
@@ -139,24 +149,25 @@ export function useGoogleInvitationPhotos({ enabled, ownerId, accountId, account
       setPermission(mode);
       setGrantVersion(value => value + 1);
     } catch (error) {
-      if (!controller.signal.aborted && currentAccount.current === expectedAccount && !isGoogleContactsConsentCancelled(error)) {
+      if (!controller.signal.aborted && currentAccount.current === expectedAccount && isValidatedAuthSessionOwnerCurrent(expectedPrincipal) && !isGoogleContactsConsentCancelled(error)) {
         setMessage(error instanceof Error ? error.message : "Google photo access was unavailable.");
       }
     } finally {
-      if (!controller.signal.aborted && currentAccount.current === expectedAccount) setLoading(false);
+      if (!controller.signal.aborted && currentAccount.current === expectedAccount && isValidatedAuthSessionOwnerCurrent(expectedPrincipal)) setLoading(false);
     }
-  }, [enabled, accountEmail, subjectSha256, hostedDomain, accountKey]);
+  }, [enabled, selectedPrincipal, accountEmail, subjectSha256, hostedDomain, accountKey, displayKey]);
 
   useEffect(() => {
     const grant = grantRef.current;
     if (!grant) return;
+    if (!selectedPrincipal || displayKey !== accountKey) return;
     if (grant.expiresAt <= Date.now()) { clear(); setMessage("Google photo access expired. Choose the account again."); return; }
     if (!emailsKey) { setPhotos(new Map()); return; }
     readAbort.current?.abort();
     const controller = new AbortController();
     readAbort.current = controller;
-    const epoch = snapshotVaultSessionEpoch();
-    const stillCurrent = () => !controller.signal.aborted && currentAccount.current === accountKey && grantRef.current === grant && isVaultSessionEpochCurrent(epoch);
+    const expectedPrincipal = selectedPrincipal;
+    const stillCurrent = () => !controller.signal.aborted && currentAccount.current === accountKey && grantRef.current === grant && isValidatedAuthSessionOwnerCurrent(expectedPrincipal);
     const emails = emailsKey.split("\n");
     const now = Date.now();
     const cachedPhotos = new Map<string, GoogleInvitationPhoto>();
@@ -210,8 +221,9 @@ export function useGoogleInvitationPhotos({ enabled, ownerId, accountId, account
       }
     })();
     return () => controller.abort();
-  }, [accountKey, emailsKey, grantVersion, refreshTick, clear]);
+  }, [accountKey, displayKey, emailsKey, grantVersion, refreshTick, clear]);
 
-  return { photos: displayKey === accountKey && (grantRef.current?.expiresAt || 0) > Date.now() ? photos : new Map<string, GoogleInvitationPhoto>(), message, loading, permission, authorize, clear,
-    available: enabled && Boolean(accountEmail) && /^[a-f0-9]{64}$/.test(subjectSha256) && googleInvitationPhotosAvailable() };
+  const current = Boolean(selectedPrincipal && isValidatedAuthSessionOwnerCurrent(selectedPrincipal) && displayKey === accountKey);
+  return { photos: current && (grantRef.current?.expiresAt || 0) > Date.now() ? photos : new Map<string, GoogleInvitationPhoto>(), message, loading, permission: current ? permission : null, authorize, clear,
+    available: current && enabled && Boolean(accountEmail) && /^[a-f0-9]{64}$/.test(subjectSha256) && googleInvitationPhotosAvailable() };
 }

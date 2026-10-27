@@ -668,7 +668,17 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
         step for step in deploy["steps"] if step["name"] == "Validate deployment SHA against main"
     )
     assert validator["env"]["REQUIRE_CI_SUCCESS"] == "1"
-    assert validator["env"]["REQUIRED_CHECK_NAME"] == "Main Post-Merge Smoke Gate"
+    assert (
+        validator["env"]["REQUIRED_BRANCH"] == "${{ steps.application-authority.outputs.branch }}"
+    )
+    assert (
+        validator["env"]["REQUIRED_CHECK_NAME"]
+        == "${{ steps.application-authority.outputs.checks || 'Main Post-Merge Smoke Gate' }}"
+    )
+    authority = next(step for step in deploy["steps"] if step.get("id") == "application-authority")
+    assert deploy["steps"].index(authority) < deploy["steps"].index(validator)
+    assert "promotion_approval.py uat" in authority["run"]
+    assert "require-deploy-sha-on-main.sh" in validator["run"]
 
 
 def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
