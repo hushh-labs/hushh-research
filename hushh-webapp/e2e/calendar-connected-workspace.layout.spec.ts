@@ -63,6 +63,8 @@ test("Calendar product font and real action targets survive responsive boundarie
   await page.keyboard.press("Tab");
   await expect(accept).toBeFocused();
   expect(await accept.evaluate(element => getComputedStyle(element).outlineStyle)).toBe("solid");
+  await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, "calendar-invitation-keyboard-focus-393.png") });
+  await accept.evaluate(element => element.blur());
   await page.mouse.move(0, 0);
   await page.evaluate(() => document.documentElement.classList.add("dark"));
   const darkRestingBackground = await accept.evaluate(element => getComputedStyle(element).backgroundColor);
