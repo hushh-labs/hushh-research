@@ -306,6 +306,19 @@ Subagents improve evidence quality; they do not replace repo skills, workflow ch
 3. Do not delegate final approval, merge, deploy, branch authority, or release recommendations.
 4. Require delegated handoffs to include claim inspected, classification, evidence checked, current repo truth, real gap, suggested boundary, blind-acceptance risk, scope, inspected surfaces, assumptions, validations, and unresolved risks.
 
+## Project-Wide Signed-in Browser Default
+
+Use the developer's existing signed-in Chrome session as the primary interactive
+surface for authorized engineering and cloud troubleshooting when available.
+Reuse established task authorization and session state; inspect available tools
+before asking for login or readiness confirmation. Verify the relevant origin,
+account, project/environment and serving revision. Ask only for a genuinely
+missing human action or new authority. A signed-in session grants no additional
+access or mutation authority. Preserve memory-only protected information,
+canonical reviewer preflight, parent-only credential/release authority and all
+required release checks. Browser access does not replace the application's
+runtime identity or prove that a deployment is healthy.
+
 ## Project-Wide BYOK Reviewer Browser Gate
 
 For browser tests that depend on an unlocked vault, decrypted information, or a BYOK key:

@@ -159,6 +159,8 @@ async def test_one_real_sdk_request_requires_exact_nonce_and_never_reports_it(mo
         "error_class": None,
         "stage": "response_validation",
         "classification": "dependency_ok",
+        "phase_ms": result["phase_ms"],
+        "deadline_expired": False,
     }
     assert len(requests) == 1 and clients[0].is_closed()
     loader.assert_called_once_with()
@@ -226,6 +228,7 @@ async def test_total_deadline_cancels_request_and_closes_the_sdk_client(monkeypa
     assert result["stage"] == "primary_http" and result["classification"] == "provider_unavailable"
     assert 0 < result["latency_ms"] < 1000
     assert cancelled.is_set() and len(requests) == 1 and clients[0].is_closed()
+    assert result["deadline_expired"] is True and result["phase_ms"]["primary_http"] > 0
 
 
 @pytest.mark.parametrize("timeout", [0, 31, True, float("nan"), float("inf")])
@@ -428,3 +431,27 @@ async def test_recording_cleanup_retrieves_failure_and_preserves_primary_error(c
         assert orphaned == []
     finally:
         loop.set_exception_handler(previous)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("phase_ms", {**dict.fromkeys(probe.TIMING_PHASES, 0), "PRIVATE_PROVIDER_BODY": 1}),
+        ("phase_ms", dict.fromkeys(probe.TIMING_PHASES, True)),
+        ("phase_ms", dict.fromkeys(probe.TIMING_PHASES, -1)),
+        ("deadline_expired", "PRIVATE_PROVIDER_BODY"),
+    ],
+)
+def test_readiness_timings_reject_private_or_invalid_fields(field, value):
+    from tests.scripts.test_managed_provider_receipt import _managed_provider_gate
+
+    attempt = {
+        "ok": False,
+        "classification": "provider_unavailable",
+        "elapsed_ms": 30,
+        field: value,
+    }
+    with pytest.raises(ValueError):
+        _managed_provider_gate()._capability_proof().sanitize_probe_history(
+            [{"probe": "primary_http", "attempts": [attempt]}], provider="azure_openai"
+        )
