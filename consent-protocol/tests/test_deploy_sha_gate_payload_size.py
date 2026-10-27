@@ -225,15 +225,30 @@ def test_branch_validation_is_limited_to_dev_and_explicit_curated_uat() -> None:
     # are its contract. Exercise the actual SHA verifier above as well.
     import yaml
 
-    consumers = []
+    consumers: dict[str, list[str]] = {}
     for path in (REPO_ROOT / ".github/workflows").glob("*.yml"):
         workflow = yaml.safe_load(path.read_text())
         for job in workflow.get("jobs", {}).values():
             for step in job.get("steps", []):
                 accepted = str(step.get("env", {}).get("REQUIRED_CHECK_NAME", ""))
-                if "Branch Validation Gate" in accepted.split(","):
-                    consumers.append(path.name)
-    assert consumers == ["deploy-dev.yml"]
+                if "Branch Validation Gate" in accepted:
+                    consumers.setdefault(path.name, []).append(accepted)
+    # Dev accepts a dispatched branch gate outright. Production accepts it only
+    # for the explicit manual incident route, always paired with CI Status Gate.
+    assert sorted(consumers) == ["deploy-dev.yml", "deploy-production.yml"]
+    assert all(
+        "Branch Validation Gate" in accepted.split(",") for accepted in consumers["deploy-dev.yml"]
+    )
+    for accepted in consumers["deploy-production.yml"]:
+        assert "CI Status Gate,Branch Validation Gate" in accepted
+    assert any(
+        "steps.dispatch-authority.outputs.mode == 'manual-emergency'" in accepted
+        for accepted in consumers["deploy-production.yml"]
+    )
+    assert all(
+        "manual-emergency" in accepted or accepted == "CI Status Gate,Branch Validation Gate"
+        for accepted in consumers["deploy-production.yml"]
+    )
     uat = yaml.safe_load((REPO_ROOT / ".github/workflows/deploy-uat.yml").read_text())
     steps = uat["jobs"]["deploy"]["steps"]
     selector = next(step for step in steps if step.get("id") == "application-authority")
