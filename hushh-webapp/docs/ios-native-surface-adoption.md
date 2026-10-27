@@ -46,10 +46,18 @@ semantic, not route-specific. AlertDialog's busy/refused confirmation and rich
 Popover content require their own complete presentation contracts; they are not
 silently converted into immediate choices. This extension does not qualify those
 families or change ordinary Release/TestFlight admission, which remains off.
-Current evidence: twelve shared Select/privacy contract cases, the existing native
+Current evidence: thirteen shared Select/privacy contract cases, the existing native
 Chrome/Popover suites and plugin-contract mutation controls pass. Native Release
 compilation passes. The new UIKit retirement regression and adjacent alert test
-pass on iPhone; integrated route-picker device acceptance is pending.
+pass on iPhone, including adjacent retirement followed by a 251-option list.
+The installed qualification candidate also passes the real Wallet journey:
+two short-picker open/cancel cycles, the adjacent country picker, parent-form
+Cancel and return with the same WebView/session and warm draft. XCTest targets
+passively measured shared-control geometry with current hit admission; WebKit's
+generic label elements are insufficient to establish a delivered control tap.
+Missing diagnostic evidence is reported as unobserved, never as a blocked page.
+This functional proof does not establish the separate visual, accessibility or
+physical performance qualification, nor convert rich/busy overlay families.
 
 Overlay repair belongs to the shared primitive/presenter, not to Wallet or another
 route. `useNativeNavigationOverlayRef` now observes the registered primitive’s

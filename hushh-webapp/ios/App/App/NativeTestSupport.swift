@@ -816,7 +816,10 @@ final class NativeVaultLayoutProbe {
                             "bottomProgress", "appScrollTop", "appScrollRange", "appScrollHeight", "appScrollClientHeight", "appScrollRootCount", "windowScrollRange", "oneRosterPresent",
                             "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
                             "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial",
-                            "routeKind", "globalErrorKind", "phoneGate", "nativeChoiceBootstrap", "nativeChoiceReady", "nativeChoicePresented", "nativeChoiceBlocked"])
+                            "routeKind", "globalErrorKind", "phoneGate", "nativeChoiceBootstrap", "nativeChoiceReady", "nativeChoicePresented", "nativeChoiceBlocked",
+                            "nativeChoiceCount", "nativeChoiceViewportWidth",
+                            "nativeChoice0X", "nativeChoice0Y", "nativeChoice0Width", "nativeChoice0Height", "nativeChoice0Hit", "nativeChoice0Mode",
+                            "nativeChoice1X", "nativeChoice1Y", "nativeChoice1Width", "nativeChoice1Height", "nativeChoice1Hit", "nativeChoice1Mode"])
             var payload = [String: Any]()
             for (key, value) in values where keys.contains(key) {
                 guard let number = value as? NSNumber,
@@ -952,6 +955,21 @@ final class NativeVaultLayoutProbe {
         dockFailureStage: finite(dockFailure?.dataset.nativeDockFailureStage),
         dockFailureCode: finite(dockFailure?.dataset.nativeDockFailureCode)
       };
+      // Public shared-control geometry only. No labels, values, selection,
+      // account information or executable UI commands cross this probe.
+      const choices = Array.from(document.querySelectorAll('[data-slot="select-trigger"]'))
+        .filter(node => node.getClientRects().length && !node.closest('[inert], [aria-hidden="true"]'));
+      result.nativeChoiceCount = choices.length;
+      result.nativeChoiceViewportWidth = innerWidth;
+      choices.slice(0, 2).forEach((node, index) => {
+        const rect = node.getBoundingClientRect();
+        result[`nativeChoice${index}X`] = rect.left;
+        result[`nativeChoice${index}Y`] = rect.top;
+        result[`nativeChoice${index}Width`] = rect.width;
+        result[`nativeChoice${index}Height`] = rect.height;
+        result[`nativeChoice${index}Hit`] = node.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+        result[`nativeChoice${index}Mode`] = ({ ready: 1, presented: 2, blocked: 3 })[node.getAttribute('data-native-owned-choice')] || 0;
+      });
       // Authored public pane geometry, not a named AX heading or inferred
       // operation. Neither contents nor account/route labels are read.
       const profile = document.querySelector('[data-testid="profile-pane"][data-state="open"]') ||

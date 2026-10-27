@@ -5670,16 +5670,37 @@ final class AppUITests: XCTestCase {
                     // Exercise the shared Select adapter, not a Wallet-owned
                     // native picker. No card entry, save or backend mutation.
                     for (choiceIndex, label) in ["Card network", "Card network", "Issuing region"].enumerated() {
-                        let trigger = web.descendants(matching: .any).matching(NSPredicate(
-                            format: "(elementType == %d OR elementType == %d OR elementType == %d OR elementType == %d) AND label == %@",
-                            XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.popUpButton.rawValue,
-                            XCUIElement.ElementType.comboBox.rawValue, XCUIElement.ElementType.other.rawValue, label)).firstMatch
+                        // The passive shared probe supplies actual control
+                        // geometry and DOM hit admission, not labels or values.
+                        // XCTest still delivers a normal trusted screen tap.
+                        let slot = label == "Card network" ? 0 : 1
+                        let geometry = app.buttons["native-vault-layout"].firstMatch
+                        func triggerPoint() -> CGPoint? {
+                            guard geometry.exists, let json = geometry.value as? String, let data = json.data(using: .utf8),
+                                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber],
+                                  packet["nativeChoiceCount"]?.intValue == 2,
+                                  packet["nativeWebInteractive"]?.boolValue == true,
+                                  packet["nativeChoice\(slot)Hit"]?.boolValue == true,
+                                  let x = packet["nativeChoice\(slot)X"]?.doubleValue,
+                                  let y = packet["nativeChoice\(slot)Y"]?.doubleValue,
+                                  let width = packet["nativeChoice\(slot)Width"]?.doubleValue,
+                                  let height = packet["nativeChoice\(slot)Height"]?.doubleValue,
+                                  let viewportWidth = packet["nativeChoiceViewportWidth"]?.doubleValue,
+                                  let viewportHeight = packet["innerHeight"]?.doubleValue,
+                                  viewportWidth > 0, viewportHeight > 0, width > 0, height >= 32,
+                                  x >= 0, y >= 0, x + width <= viewportWidth + 1, y + height <= viewportHeight + 1 else { return nil }
+                            let frame = web.frame
+                            return CGPoint(x: frame.minX + (x + width / 2) * frame.width / viewportWidth,
+                                           y: frame.minY + (y + height / 2) * frame.height / viewportHeight)
+                        }
                         for _ in 0..<4 {
-                            if trigger.exists && trigger.isHittable { break }
+                            if triggerPoint() != nil { break }
                             web.swipeUp()
                         }
-                        guard waitForAdmittedControl(trigger) else { XCTFail("WORKSPACE_WALLET_CHOICE_TRIGGER_UNAVAILABLE"); return }
-                        trigger.tap()
+                        let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in triggerPoint() != nil }, object: geometry)
+                        guard XCTWaiter.wait(for: [admitted], timeout: 10) == .completed,
+                              let point = triggerPoint() else { XCTFail("WORKSPACE_WALLET_CHOICE_TRIGGER_UNAVAILABLE"); return }
+                        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).tap()
                         let sheet = app.descendants(matching: .any).matching(identifier: "native-owned-choice").firstMatch
                         guard sheet.waitForExistence(timeout: 10) else {
                             let probe = app.buttons["native-vault-layout"].firstMatch
@@ -5689,6 +5710,7 @@ final class AppUITests: XCTestCase {
                                 let nativeCancel = app.buttons.matching(namedCancel).count > web.buttons.matching(namedCancel).count
                                 print("WORKSPACE_CHOICE_ADMISSION bootstrap=\(packet["nativeChoiceBootstrap"]?.boolValue == true) ready=\(packet["nativeChoiceReady"]?.intValue ?? 0) presented=\(packet["nativeChoicePresented"]?.intValue ?? 0) blocked=\(packet["nativeChoiceBlocked"]?.intValue ?? 0) native_cancel=\(nativeCancel)")
                                 print("WORKSPACE_CHOICE_NATIVE prepares=\(packet["nativeChoicePreparationCount"]?.intValue ?? -1) stage=\(packet["nativeChoicePreparationStage"]?.intValue ?? -1)")
+                                print("WORKSPACE_CHOICE_MODES count=\(packet["nativeChoiceCount"]?.intValue ?? -1) first=\(packet["nativeChoice0Mode"]?.intValue ?? -1) second=\(packet["nativeChoice1Mode"]?.intValue ?? -1)")
                             }
                             XCTFail("WORKSPACE_WALLET_CHOICE_NOT_NATIVE"); return
                         }
