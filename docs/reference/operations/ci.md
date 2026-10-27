@@ -116,6 +116,26 @@ pass.** Operations source, hosted recovery validation and live application
 restoration are separate outcomes. No historical migration replay, Firebase
 rollback or fabricated UAT receipt is allowed.
 
+On 27 October, operation `40430296874`, attempt 2, promoted the recorded
+`d8a5fa485874` application to both production services at 100% traffic:
+backend `consent-protocol-00309-nir`, frontend `hushh-webapp-00160-2w2`.
+Runtime parity, immutable provenance, health, account-session and native-domain
+checks passed. The workflow remained **blocked** because system Python lacked
+the recovery schema qualifier's database driver. The activation command must
+use the already verified `PROTOCOL_PYTHON` environment.
+
+The administrator continued this same approved operation using the unchanged
+main-owned activation tool at `c9d26ee991`, the verified project environment and
+explicit source/run arguments. Competing production mutation entrypoints were
+paused and restored to their previous states. Canonical activation verified the
+schema, exact document barrier, fresh Scheduler HTTP 200, compatible retained
+revisions and serving traffic before confirming the deletion fence absent.
+This separate admin repair does **not** turn the failed hosted attempt green or
+create a normal promotion receipt. The existing macOS checkpoint retains its
+`production-admin-activation-activation.json` and repair record. Full signed-in
+browser acceptance remains pending a genuine Google popup interaction; the
+public login page and deployed account-session contract are verified.
+
 The selective-promotion handoff remains preserved separately. Its branch-baseline
 and application-SHA/approval-SHA mapping are not active. Its maintenance draft
 needs corrections for forced capacity inspection, dry-run checkpoint state and

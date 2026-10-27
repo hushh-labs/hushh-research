@@ -2235,7 +2235,7 @@ jobs:
           set -euo pipefail
           restoration=()
           if [ -n "${{ inputs.restoration_validation_run }}" ]; then restoration=(--production-restoration); fi
-          python3 deploy/account-deletion/activate_release.py "${restoration[@]}" \
+          "${{ env.PROTOCOL_PYTHON }}" deploy/account-deletion/activate_release.py "${restoration[@]}" \
             --project "${{ env.GCP_PROJECT_ID }}" --region "${{ env.GCP_REGION }}" \
             --backend-service "${{ env.BACKEND_SERVICE }}" \
             --backend-url "${{ env.CONSENT_API_PUBLIC_ORIGIN }}" \

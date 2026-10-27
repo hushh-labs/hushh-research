@@ -1170,7 +1170,12 @@ def test_production_activation_uses_the_same_qualified_lifecycle_owner() -> None
         "steps.classify.outputs.release_failed == 'false' && "
         "steps.scope.outputs.deploy_backend == 'true'"
     )
-    assert "python3 deploy/account-deletion/activate_release.py" in activation["run"]
+    # Recovery qualification imports the database driver installed in this venv;
+    # the runner's system Python cannot execute that installed-schema boundary.
+    assert (
+        '"${{ env.PROTOCOL_PYTHON }}" deploy/account-deletion/activate_release.py'
+        in activation["run"]
+    )
     assert '--expected-sha "${{ github.event.inputs.sha }}"' in activation["run"]
     assert '--cloudsql-instance "${{ env.PROD_CLOUDSQL_INSTANCE }}"' in activation["run"]
     assert _production_workflow()["env"]["CONSENT_API_PUBLIC_ORIGIN"] == "https://api.hushh.ai"

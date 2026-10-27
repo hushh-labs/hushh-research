@@ -73,15 +73,19 @@ exempting their bindings from the live comparison:
 | `roles/cloudsql.client` | Cloud SQL Auth Proxy connections for migration, producer qualification and activation |
 | `roles/cloudsql.viewer` | Backup/PITR posture and recent successful backup reads |
 | `roles/logging.viewer` | Fresh Scheduler `AttemptFinished` evidence for cleanup activation |
-| `projects/hushh-pda/roles/accountDeletionSchedulerOperator` | Cleanup Scheduler jobs get, list, create, update and run; locations list |
+| `projects/hushh-pda/roles/accountDeletionSchedulerOperator` | Cleanup Scheduler jobs get, list, create, update and run; release quarantine pause/resume; locations list |
 | `projects/hushh-pda/roles/predeployBackupOperator` | Optional predeploy backup runs create, get and list |
 
 The two project custom roles are already provisioned in production. Their
 observed permissions are limited respectively to
-`cloudscheduler.jobs.{get,list,create,update,run}` plus
+`cloudscheduler.jobs.{get,list,create,update,run,pause,enable}` plus
 `cloudscheduler.locations.list`, and
 `cloudsql.backupRuns.{create,get,list}`. Reconciliation records these existing
-bindings; it does not require new live grants. The provider still accepts only
+bindings. The 27 October recovery repaired the existing Scheduler role with
+`pause` and `enable`, preserving its other permissions and bindings. The resume
+API requires `cloudscheduler.jobs.enable`, not a `jobs.resume` permission. These
+permissions let the existing release workflow quarantine document jobs and
+restore them after rollback. The provider still accepts only
 this repository's production environment on `main`, and the detector continues
 to reject every undeclared project role, including privilege escalation.
 See the [cleanup activation contract](../../docs/reference/operations/account-deletion-rollout.md#production-procedure)
