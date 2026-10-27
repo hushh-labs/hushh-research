@@ -9,8 +9,9 @@ execution rather than degrade to an ungrounded provider request.
 The existing text runtime collects events into a JSON response. Its transient
 ADK session uses InMemorySessionService; persistent agent experience belongs to
 the separately resolved pod memory service. PKM remains the information authority.
-Own-cloud owners reach this route browser to agent (the hub relay refuses them);
-a Hussh-hosted pod is still reached through the hub relay, which sees that turn.
+Private owners reach this route through admitted browser-to-pod authority. A
+managed dev pod requires its signed hosting binding; it never falls back to a
+Shared turn or borrows the hub's model identity.
 
 Mounting and execution require pod mode and HUSSH_POD_TURN_ENABLED. The hub's
 shared turn implementation is separate. The pod Live endpoint reuses the existing
