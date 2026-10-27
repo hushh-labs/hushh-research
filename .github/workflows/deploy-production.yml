@@ -231,9 +231,10 @@ jobs:
           APPROVAL_SHA: ${{ inputs.main_approval_sha }}
           RESTORATION_RUN: ${{ inputs.restoration_validation_run }}
           CADENCE_ORIGIN: ${{ inputs.cadence_origin }}
+          OTHER_OPERATION: ${{ inputs.restoration_activation_run_id }}${{ inputs.restoration_activation_attempt }}${{ inputs.phone_activation_run_id }}${{ inputs.phone_worker_stage_run_id }}${{ inputs.phone_schema_origin_run_id }}${{ inputs.phone_schema_origin_attempt }}${{ inputs.phone_rollback_sha }}
         run: |
           set -euo pipefail
-          [[ -z "$RESTORATION_RUN$CADENCE_ORIGIN" && "$PHONE_DEPLOY_PHASE" == standard ]] || {
+          [[ -z "$RESTORATION_RUN$CADENCE_ORIGIN$OTHER_OPERATION" && "$PHONE_DEPLOY_PHASE" == standard ]] || {
             echo "Curated approval cannot change restoration, cadence or phone-transition authority." >&2; exit 1;
           }
           python3 scripts/ci/promotion_approval.py --application-sha "$APPLICATION_SHA" \
@@ -3048,11 +3049,12 @@ jobs:
           REQUESTED_DRIVE_MODE: ${{ inputs.drive_live_mode }}
           CADENCE_ORIGIN: ${{ inputs.cadence_origin }}
           CADENCE_ORDINAL: ${{ inputs.cadence_ordinal }}
+          MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF_NAME" == main ]] || exit 1
           [[ "$REQUESTED_PHASE" == worker && "$REQUESTED_SCOPE" == backend ]] || exit 1
-          [[ "$REQUESTED_DRIVE_MODE" == preserve && -z "$CADENCE_ORIGIN$CADENCE_ORDINAL" ]] || exit 1
+          [[ "$REQUESTED_DRIVE_MODE" == preserve && -z "$CADENCE_ORIGIN$CADENCE_ORDINAL$MAIN_APPROVAL_SHA" ]] || exit 1
 
       - name: Checkout current release tooling
         uses: actions/checkout@v6
@@ -3363,13 +3365,14 @@ jobs:
           PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
           SCHEMA_ORIGIN_RUN: ${{ inputs.phone_schema_origin_run_id }}
           SCHEMA_ORIGIN_ATTEMPT: ${{ inputs.phone_schema_origin_attempt }}
+          MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF_NAME" == main && "$PHONE_DEPLOY_PHASE" == activate ]]
           [[ "$ORIGINAL_RUN_ID" =~ ^[1-9][0-9]*$ && "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$REQUESTED_SCOPE" == backend || "$REQUESTED_SCOPE" == all ]]
           [[ "$REQUESTED_DRIVE_MODE" == preserve ]]
-          [[ -z "$CADENCE_ORIGIN$PHONE_ROLLBACK_SHA$SCHEMA_ORIGIN_RUN$SCHEMA_ORIGIN_ATTEMPT" ]]
+          [[ -z "$CADENCE_ORIGIN$PHONE_ROLLBACK_SHA$SCHEMA_ORIGIN_RUN$SCHEMA_ORIGIN_ATTEMPT$MAIN_APPROVAL_SHA" ]]
 
       - name: Checkout current release tooling
         uses: actions/checkout@v6
@@ -3972,7 +3975,7 @@ jobs:
         env:
           REQUESTED_SCOPE: ${{ inputs.scope }}
           DRIVE_MODE: ${{ inputs.drive_live_mode }}
-          OTHER_ORIGINS: ${{ inputs.restoration_validation_run }}${{ inputs.phone_activation_run_id }}${{ inputs.phone_worker_stage_run_id }}${{ inputs.phone_schema_origin_run_id }}${{ inputs.phone_schema_origin_attempt }}${{ inputs.phone_rollback_sha }}${{ inputs.cadence_origin }}${{ inputs.cadence_ordinal }}
+          OTHER_ORIGINS: ${{ inputs.restoration_validation_run }}${{ inputs.phone_activation_run_id }}${{ inputs.phone_worker_stage_run_id }}${{ inputs.phone_schema_origin_run_id }}${{ inputs.phone_schema_origin_attempt }}${{ inputs.phone_rollback_sha }}${{ inputs.cadence_origin }}${{ inputs.cadence_ordinal }}${{ inputs.main_approval_sha }}
           EMAIL_KYC: ${{ inputs.enable_one_email_kyc }}
         run: |
           set -euo pipefail
