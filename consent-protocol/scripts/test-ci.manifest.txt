@@ -9,6 +9,8 @@ tests/test_server_startup_guards.py
 tests/services/test_plg_evidence.py
 tests/services/test_product_activity_postgres.py
 tests/test_plg_deploy_bindings.py
+tests/test_plg_release_source.py
+tests/test_plg_source_validation_workflow.py
 
 # Store releases must retain the selected track, exact source and private binaries.
 tests/test_native_ship_artifact_workflows.py

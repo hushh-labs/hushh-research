@@ -51,6 +51,10 @@ For the owner-pod library, see [Private Files library](./private-files-library.m
 for storage, analysis consent, recovery, on-demand operation and cost assumptions.
 One-time rollout notes belong in PRs, issues, or git history, not in the active operations surface.
 
+For the fixed PLG successor's read-only hosted checks, see
+[PLG source qualification](./plg-only-source-validation.md). Source validation
+does not replace environment acceptance or grant deployment authority.
+
 Within the seven-layer architecture, operations is the primary Layer 1 governance surface and the cross-layer enforcement surface for documentation, release, and compatibility rules.
 
 ## Codex OS
