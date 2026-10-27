@@ -132,9 +132,10 @@ schema, exact document barrier, fresh Scheduler HTTP 200, compatible retained
 revisions and serving traffic before confirming the deletion fence absent.
 This separate admin repair does **not** turn the failed hosted attempt green or
 create a normal promotion receipt. The existing macOS checkpoint retains its
-`production-admin-activation-activation.json` and repair record. Full signed-in
-browser acceptance remains pending a genuine Google popup interaction; the
-public login page and deployed account-session contract are verified.
+`production-admin-activation-activation.json` and repair record. Signed-in production acceptance then passed through the existing Google login:
+the returning account reached One without an alert, and its real
+`/api/account/session-status` request returned HTTP 200. Public login and the
+unauthenticated session contract also passed.
 
 The selective-promotion handoff remains preserved separately. Its branch-baseline
 and application-SHA/approval-SHA mapping are not active. Its maintenance draft
