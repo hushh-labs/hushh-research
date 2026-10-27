@@ -10,19 +10,16 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib
-from io import BytesIO
 import json
 import math
 import os
 import re
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
-from zipfile import BadZipFile, ZipFile
 
 import release_artifact_receipts
 import production_phone_receipt
@@ -1008,9 +1005,10 @@ def trusted_pending_uat_state(repository: str, run: dict, artifact: dict) -> boo
 
 
 def download_pending_uat_state(
-    repository: str, artifact: dict, directory: Path, *, environment: str = "uat"
-) -> None:
-    """Fetch the checked immutable artifact ID, rejecting overwrite and ZIP races."""
+    repository: str, artifact: dict, directory: Path, *, environment: str = "uat",
+    allow_missing_readme: bool = False,
+) -> dict[str, bytes] | None:
+    """Fetch immutable checkpoint bytes; only full archives are materialized."""
     if (
         type(artifact.get("id")) is not int
         or artifact["id"] < 1
@@ -1029,34 +1027,15 @@ def download_pending_uat_state(
         archive
     ).hexdigest() != artifact["digest"].removeprefix("sha256:"):
         raise retention.UnsafeState("pending UAT drain artifact digest changed")
-    allowed = {
-        "README.txt",
-        "completed.json",
-        *(f"{name}.json" for name in LANES[environment]["services"]),
-    }
-    try:
-        with ZipFile(BytesIO(archive)) as bundle:
-            entries = bundle.infolist()
-            names = [entry.filename for entry in entries]
-            if (
-                len(names) != len(set(names))
-                or "completed.json" not in names
-                or "README.txt" not in names
-                or any(
-                    entry.filename not in allowed
-                    or entry.is_dir()
-                    or stat.S_IFMT(entry.external_attr >> 16) == stat.S_IFLNK
-                    or entry.file_size > 1024 * 1024
-                    for entry in entries
-                )
-            ):
-                raise retention.UnsafeState(
-                    "pending UAT drain artifact has unsafe files"
-                )
-            for entry in entries:
-                (directory / entry.filename).write_bytes(bundle.read(entry))
-    except BadZipFile as exc:
-        raise retention.UnsafeState("pending UAT drain artifact is not a ZIP") from exc
+    files = release_artifact_receipts.checkpoint_archive(
+        archive, LANES[environment]["services"],
+        allow_missing_readme=allow_missing_readme and environment == "uat",
+    )
+    if "README.txt" not in files:
+        return files
+    for name, content in files.items():
+        (directory / name).write_bytes(content)
+    return None
 
 
 def carry_earlier_uat_clock(current: Path, older: Path) -> bool:
@@ -1150,6 +1129,33 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
     return False
 
 
+def _restore_checkpoint_source(repository, item, source, environment, immutable, unmatched):
+    """Materialize only complete trusted sources; hold incomplete metadata in memory."""
+    if immutable or unmatched is not None:
+        contents = download_pending_uat_state(
+            repository, item, source, environment=environment,
+            allow_missing_readme=environment == "uat",
+        )
+        if contents is not None:
+            if unmatched is not None and contents != unmatched[1]:
+                raise retention.UnsafeState("Incomplete checkpoint copies differ")
+            return unmatched or (item["id"], contents), True
+    else:
+        download(repository, item["workflow_run"]["id"], LANES[environment]["state_artifact"], source)
+    if unmatched is not None:
+        prior = release_artifact_receipts.checkpoint_directory(source, LANES[environment]["services"])
+        release_artifact_receipts.verify_checkpoint_copy(unmatched[1], prior, LANES[environment]["services"])
+        print(json.dumps({"maintenance_metadata_recovery": {
+            "kind": "identical_checkpoint_readme", "artifact_id": unmatched[0],
+            "prior_artifact_id": item["id"],
+        }}, sort_keys=True))
+    return None, False
+
+
+def _existing_service_states(directory, services):
+    return {service for service in services if (directory / f"{service}.json").exists()}
+
+
 def restore_state(
     repository: str, directory: Path, *, environment: str = "uat"
 ) -> None:
@@ -1163,11 +1169,8 @@ def restore_state(
     artifacts.sort(key=lambda item: _github_timestamp(item.get("created_at"))
                    or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     selected = False
-    active = {
-        service
-        for service in lane["services"]
-        if (directory / f"{service}.json").exists()
-    }
+    unmatched = None
+    active = _existing_service_states(directory, lane["services"])
     for item in artifacts:
         if item.get("name") != artifact or item.get("expired") is not False:
             continue
@@ -1192,12 +1195,11 @@ def restore_state(
             continue
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary)
-            if pending_uat or checkpoint_source:
-                download_pending_uat_state(
-                    repository, item, source, environment=environment
-                )
-            else:
-                download(repository, run["id"], artifact, source)
+            unmatched, deferred = _restore_checkpoint_source(
+                repository, item, source, environment, pending_uat or checkpoint_source, unmatched
+            )
+            if deferred:
+                continue
             if not selected and environment == "uat":
                 receipt = source / "completed.json"
                 if not receipt.is_file() or receipt.is_symlink():
@@ -1265,14 +1267,12 @@ def restore_state(
             selected = True
             if environment == "production":
                 return
-            active = {
-                service
-                for service in lane["services"]
-                if (directory / f"{service}.json").exists()
-            }
+            active = _existing_service_states(directory, lane["services"])
             if not active:
                 # A newer empty pass must supersede older pending receipts.
                 return
+    if unmatched is not None:
+        raise retention.UnsafeState("Incomplete checkpoint has no identical trusted prior")
 
 
 def latest_deploy_observation(repository: str, environment: str) -> int:

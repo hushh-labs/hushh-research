@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 from zipfile import ZipFile
+from test_release_artifact_receipts import CheckpointArchiveFixture
 
 
 maintenance = importlib.import_module("uat-retention-maintenance")
@@ -148,7 +149,7 @@ class PendingUatStateTests(unittest.TestCase):
             run_id = int(endpoint.split('/')[1])
             return jobs[run_id] if endpoint.endswith('/jobs?filter=latest&per_page=100') else runs[run_id]
 
-        def download(_repository: str, item: dict, directory: Path, *, environment: str = "uat") -> None:
+        def download(_repository: str, item: dict, directory: Path, *, environment: str = "uat", allow_missing_readme: bool = False) -> None:
             backend_at, worker_at = states[item['id']]
             (directory / 'README.txt').write_text('drain evidence')
             for service, observed_at, duration in (
@@ -222,7 +223,7 @@ class PendingUatStateTests(unittest.TestCase):
                 return jobs
             raise AssertionError(endpoint)
 
-        def download(_repository: str, selected: dict, directory: Path, *, environment: str = "uat") -> None:
+        def download(_repository: str, selected: dict, directory: Path, *, environment: str = "uat", allow_missing_readme: bool = False) -> None:
             self.assertEqual(selected['id'], artifact['id'])
             (directory / 'README.txt').write_text('drain evidence')
             (directory / 'consent-protocol.json').write_text(json.dumps(saved))
@@ -323,7 +324,7 @@ class PendingUatStateTests(unittest.TestCase):
         def api(_repository: str, endpoint: str) -> dict:
             return {'artifacts': [artifact]} if endpoint.startswith('artifacts?') else run
 
-        def download(_repository: str, _run_id: int, _name: str, directory: Path, *, environment: str = "uat") -> None:
+        def download(_repository: str, _run_id: int, _name: str, directory: Path, *, environment: str = "uat", allow_missing_readme: bool = False) -> None:
             (directory / 'README.txt').write_text('empty pass')
             (directory / 'completed.json').write_text(json.dumps({
                 'schema_version': 1, 'observed_run_id': 200,
@@ -392,6 +393,60 @@ class PendingUatStateTests(unittest.TestCase):
             )):
                 with self.assertRaisesRegex(maintenance.retention.UnsafeState, 'digest changed'):
                     maintenance.download_pending_uat_state('org/repo', bad_digest, directory)
+
+
+class CheckpointRestoreCopyTest(CheckpointArchiveFixture, unittest.TestCase):
+    def test_restore_holds_missing_archive_until_real_prior_copy_proof(self):
+        for defect in (None, "changed", "no_prior", "prior_digest"):
+            with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temporary:
+                destination = Path(temporary)
+                archive = self.archive(self.missing)
+                run, item, jobs = fixture()
+                run.update(status="completed", conclusion="failure", event="workflow_dispatch", run_attempt=4)
+                saved = jobs["jobs"][1]["steps"][1]
+                jobs = {"total_count": 1, "jobs": [{"name": "UAT bounded revision cleanup", "status": "completed",
+                    "conclusion": "failure", "run_id": run["id"], "run_attempt": 4, "steps": [
+                        {**saved, "name": name} for name in ("Checkout mutation tooling and rollback history",
+                        "Recheck due source under the deployment lock", "Authenticate to uat", "Save uat cleanup checkpoint")]}]}
+                item.update(size_in_bytes=len(archive), digest="sha256:" + hashlib.sha256(archive).hexdigest())
+                prior = {**run, "id": run["id"] - 1, "run_attempt": 1, "status": "completed", "conclusion": "success"}
+                old_artifact = {**item, "id": item["id"] - 1, "created_at": "2026-10-14T12:30:00Z",
+                                "workflow_run": {"id": prior["id"]}}
+                previous = dict(self.full)
+                if defect == "changed":
+                    previous["completed.json"] += b" "
+                old_archive = self.archive(previous)
+                old_artifact.update(size_in_bytes=len(old_archive), digest="sha256:" + hashlib.sha256(old_archive).hexdigest())
+                self.assertNotEqual(item["digest"], old_artifact["digest"])
+                if defect == "prior_digest":
+                    old_artifact["digest"] = "sha256:" + "0" * 64
+                downloads = []
+                def api(_repository, endpoint):
+                    if endpoint.startswith("artifacts?"):
+                        return {"artifacts": [item, *([] if defect == "no_prior" else [old_artifact])]}
+                    if "/jobs?" in endpoint:
+                        return jobs
+                    return run if endpoint == f"runs/{run['id']}" else prior
+                def download(arguments, **_kwargs):
+                    self.assertEqual(list(destination.iterdir()), [])
+                    selected = int(arguments[-1].split("/")[-2])
+                    self.assertEqual(arguments, ["gh", "api", f"repos/org/repo/actions/artifacts/{selected}/zip"])
+                    self.assertIn(selected, (item["id"], old_artifact["id"]))
+                    downloads.append(selected)
+                    content = archive if selected == item["id"] else old_archive
+                    return subprocess.CompletedProcess(arguments, 0, content, b"")
+                with mock.patch.object(maintenance, "api", side_effect=api), mock.patch.object(
+                    maintenance, "download", side_effect=AssertionError("repair must use immutable artifact ID")
+                ) as legacy, mock.patch.object(maintenance.retention, "run_command", side_effect=download):
+                    if defect:
+                        with self.assertRaises(maintenance.retention.UnsafeState):
+                            maintenance.restore_state("org/repo", destination)
+                        self.assertEqual(list(destination.iterdir()), [])
+                    else:
+                        maintenance.restore_state("org/repo", destination)
+                        self.assertEqual({path.name: path.read_bytes() for path in destination.iterdir()}, self.missing)
+                    legacy.assert_not_called()
+                self.assertEqual(downloads, [item["id"]] if defect == "no_prior" else [item["id"], old_artifact["id"]])
 
 
 if __name__ == '__main__':

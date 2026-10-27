@@ -17,6 +17,7 @@ from unittest import mock
 from retention_publication_cases import ExistingPublicationCases, LegacyPublicationCases
 
 from test_release_artifact_receipts import (
+    CheckpointArchiveCopyTest as CheckpointArchiveCopyTest,
     ReplayedProductionReleaseArtifactTest as ReplayedProductionReleaseArtifactTest,
     ReplayedUatReleaseArtifactTest as ReplayedUatReleaseArtifactTest,
     ProductionStagedWorkerCases as ProductionStagedWorkerCases,

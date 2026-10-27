@@ -1267,6 +1267,12 @@ was never crossed. This proves no provider mutation; it grants no cleanup or
 release-health authority. Unknown source, incomplete logs, cancellation and failed
 checkpoint uploads remain blocked. Every attempt is inspected, including earlier
 attempts of a currently running retry; never delete failed runs to clear admission.
+A historical UAT checkpoint missing only its README remains unmaterialized until
+an independently trusted full checkpoint proves every JSON file byte-identical,
+complete and free of pending mutations. Unknown files, changed copies and missing
+prior evidence refuse admission. This repairs informational metadata only; it does
+not advance a receipt, discard a journal or grant cleanup authority. New passes
+publish the README with their initial checkpoint before live health checks.
 Retained database-connected revisions remain in admission accounting until safe
 retirement. Zero minimum instances and aggregate SQL peaks do not prove that older
 generations have finished their admitted requests. A shortage defers deployment.

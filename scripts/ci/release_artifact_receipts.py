@@ -10,8 +10,10 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 import hashlib
 import importlib
+import json
 from io import BytesIO
 from pathlib import Path
+import os
 import re
 import stat
 from typing import Any
@@ -305,3 +307,167 @@ def download_replayed_artifact(
     with target.open("xb") as output:
         output.write(status)
     target.chmod(0o600)
+
+
+_CHECKPOINT_LIMIT = 1024 * 1024
+
+
+def _checkpoint_names(services) -> set[str]:
+    if isinstance(services, (str, bytes)):
+        raise retention.UnsafeState("checkpoint services are invalid")
+    names = tuple(services)
+    if (
+        not 1 <= len(names) <= 100
+        or len(names) != len(set(names))
+        or any(
+            not isinstance(name, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,127}", name) is None
+            for name in names
+        )
+    ):
+        raise retention.UnsafeState("checkpoint services are invalid")
+    return {"completed.json", *(f"{name}.json" for name in names)}
+
+
+def _checkpoint_shape(members, services, allow_missing_readme=False):
+    allowed = _checkpoint_names(services) | {"README.txt"}
+    required = (
+        {"completed.json"} if allow_missing_readme else {"completed.json", "README.txt"}
+    )
+    if (
+        not isinstance(members, dict)
+        or not required.issubset(members)
+        or not set(members).issubset(allowed)
+        or any(
+            not isinstance(value, bytes) or len(value) > _CHECKPOINT_LIMIT
+            for value in members.values()
+        )
+    ):
+        raise retention.UnsafeState("checkpoint file set is invalid")
+    return members
+
+
+def checkpoint_archive(
+    archive: bytes, services, *, allow_missing_readme: bool = False
+) -> dict[str, bytes]:
+    """Decode a closed in-memory ZIP; the explicit missing marker grants no authority."""
+    if type(allow_missing_readme) is not bool:
+        raise retention.UnsafeState("checkpoint compatibility flag must be boolean")
+    allowed = _checkpoint_names(services) | {"README.txt"}
+    try:
+        with ZipFile(BytesIO(archive)) as bundle:
+            entries = bundle.infolist()
+            if (
+                len(entries) > len(allowed)
+                or len({entry.filename for entry in entries}) != len(entries)
+                or any(
+                    entry.filename not in allowed
+                    or entry.is_dir()
+                    or bool(entry.external_attr & 0x10)
+                    or stat.S_IFMT(entry.external_attr >> 16) not in {0, stat.S_IFREG}
+                    or entry.file_size > _CHECKPOINT_LIMIT
+                    for entry in entries
+                )
+            ):
+                raise retention.UnsafeState("checkpoint ZIP has unsafe files")
+            members = {}
+            for entry in entries:
+                with bundle.open(entry) as stream:
+                    value = stream.read(_CHECKPOINT_LIMIT + 1)
+                if len(value) != entry.file_size or len(value) > _CHECKPOINT_LIMIT:
+                    raise retention.UnsafeState("checkpoint ZIP member changed")
+                members[entry.filename] = value
+    except (
+        BadZipFile,
+        OSError,
+        ValueError,
+        RuntimeError,
+        NotImplementedError,
+    ) as error:
+        raise retention.UnsafeState("checkpoint ZIP is invalid") from error
+    return _checkpoint_shape(members, services, allow_missing_readme)
+
+
+def checkpoint_directory(directory: Path, services) -> dict[str, bytes]:
+    """Read only a complete regular bounded checkpoint; never synthesize its marker."""
+    if directory.is_symlink() or not directory.is_dir():
+        raise retention.UnsafeState("checkpoint directory is invalid")
+    allowed = _checkpoint_names(services) | {"README.txt"}
+    members = {}
+    try:
+        for path in directory.iterdir():
+            if path.name not in allowed:
+                raise retention.UnsafeState("checkpoint directory has unsafe files")
+            with os.fdopen(
+                os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb"
+            ) as stream:
+                metadata = os.fstat(stream.fileno())
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_size > _CHECKPOINT_LIMIT
+                ):
+                    raise retention.UnsafeState(
+                        "checkpoint member is not regular or bounded"
+                    )
+                value = stream.read(_CHECKPOINT_LIMIT + 1)
+                if len(value) != metadata.st_size or len(value) > _CHECKPOINT_LIMIT:
+                    raise retention.UnsafeState("checkpoint member changed")
+                members[path.name] = value
+    except OSError as error:
+        raise retention.UnsafeState(
+            "checkpoint directory cannot be verified"
+        ) from error
+    return _checkpoint_shape(members, services)
+
+
+def _checkpoint_json(value):
+    def unique(pairs):
+        result = {}
+        for key, item in pairs:
+            if key in result:
+                raise ValueError("duplicate checkpoint JSON key")
+            result[key] = item
+        return result
+
+    try:
+        result = json.loads(value, object_pairs_hook=unique)
+    except (ValueError, UnicodeError, RecursionError) as error:
+        raise retention.UnsafeState("checkpoint JSON is invalid") from error
+    if not isinstance(result, dict):
+        raise retention.UnsafeState("checkpoint JSON is not an object")
+    return result
+
+
+def verify_checkpoint_copy(
+    missing: dict[str, bytes], previous: dict[str, bytes], services
+) -> None:
+    """Prove an unchanged settled JSON copy; the caller independently proves both origins."""
+    _checkpoint_shape(missing, services, True)
+    _checkpoint_shape(previous, services)
+    expected = _checkpoint_names(services)
+    if set(missing) != expected or set(previous) != expected | {"README.txt"}:
+        raise retention.UnsafeState(
+            "checkpoint copy lacks the complete independent file set"
+        )
+    if any(missing[name] != previous[name] for name in expected):
+        raise retention.UnsafeState("checkpoint copy bytes changed")
+    completed = _checkpoint_json(missing["completed.json"])
+    run_id, observed = (
+        completed.get(key) for key in ("release_run_id", "observed_run_id")
+    )
+    if (
+        type(completed.get("schema_version")) is not int
+        or completed["schema_version"] != 1
+        or completed.get("pass_status") != "complete"
+        or completed.get("pending_services") != []
+        or (
+            type(run_id) is not int
+            or run_id < 1
+            or type(observed) is not int
+            or observed != run_id
+        )
+    ):
+        raise retention.UnsafeState("checkpoint copy is not settled")
+    for name in expected - {"completed.json"}:
+        if _checkpoint_json(missing[name]).get("pending_mutation") is not None:
+            raise retention.UnsafeState("checkpoint copy has pending provider mutation")

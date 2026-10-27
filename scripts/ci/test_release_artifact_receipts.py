@@ -188,16 +188,18 @@ class ReplayedReleaseFixture:
         elif defect == "lane":
             self.run["path"] = (
                 ".github/workflows/"
-                + MAINTENANCE.LANES["production" if self.environment == "uat" else "uat"][
-                    "workflow"
-                ]
+                + MAINTENANCE.LANES[
+                    "production" if self.environment == "uat" else "uat"
+                ]["workflow"]
             )
         elif defect == "job_name":
             self.jobs["jobs"][0]["name"] = "Another lane's deployment"
         elif defect == "upload_name":
             self.upload["name"] = "Another lane's upload"
         elif defect == "name":
-            self.name = "prod-release-300" if self.environment == "uat" else "uat-release-300"
+            self.name = (
+                "prod-release-300" if self.environment == "uat" else "uat-release-300"
+            )
 
 
 class ReplayedUatReleaseArtifactTest(ReplayedReleaseFixture, unittest.TestCase):
@@ -258,7 +260,9 @@ class ReplayedUatReleaseArtifactTest(ReplayedReleaseFixture, unittest.TestCase):
                     return_value=subprocess.CompletedProcess([], 0, archive, b""),
                 ) as fetch,
             ):
-                result = MAINTENANCE.load_release(self.repo, 300, directory, self.environment)
+                result = MAINTENANCE.load_release(
+                    self.repo, 300, directory, self.environment
+                )
                 self.assertEqual(result["marker"], "attempt-two")
                 self.assertIn("/artifacts/100/zip", fetch.call_args.args[0][-1])
                 self.assertEqual(
@@ -305,3 +309,156 @@ class ReplayedProductionReleaseArtifactTest(
 ):
     environment = "production"
     maintenance = MAINTENANCE
+
+
+class CheckpointArchiveFixture:
+    def setUp(self):
+        self.receipts = MAINTENANCE.release_artifact_receipts
+        self.services = tuple(MAINTENANCE.LANES["uat"]["services"])
+        completed = {
+            "schema_version": 1,
+            "checkpoint_version": 2,
+            "environment": "uat",
+            "project": "hushh-pda-uat",
+            "release_run_id": 123,
+            "observed_run_id": 123,
+            "pass_status": "complete",
+            "pending_services": [],
+        }
+        self.full = {
+            "README.txt": b"uat checkpoint\n",
+            "completed.json": json.dumps(completed).encode(),
+            **{name + ".json": b'{"pending_mutation":null}' for name in self.services},
+        }
+        self.missing = {
+            name: value for name, value in self.full.items() if name != "README.txt"
+        }
+
+    def archive(self, members, *, mode=None):
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as bundle:
+            for name, value in members.items():
+                entry = zipfile.ZipInfo(name)
+                entry.external_attr = (
+                    mode if name == "README.txt" and mode is not None else 0o100600
+                ) << 16
+                bundle.writestr(entry, value)
+        return stream.getvalue()
+
+
+class CheckpointArchiveCopyTest(CheckpointArchiveFixture, unittest.TestCase):
+    def test_explicit_in_memory_copy_requires_prior_marker_and_exact_settled_bytes(
+        self,
+    ):
+        archive = self.archive(self.missing)
+        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+            self.receipts.checkpoint_archive(archive, self.services)
+        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+            self.receipts.checkpoint_archive(
+                archive, self.services, allow_missing_readme="true"
+            )
+        missing = self.receipts.checkpoint_archive(
+            archive, self.services, allow_missing_readme=True
+        )
+        self.receipts.verify_checkpoint_copy(missing, self.full, self.services)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            artifact = {
+                "id": 2,
+                "digest": "sha256:" + hashlib.sha256(archive).hexdigest(),
+                "size_in_bytes": len(archive),
+            }
+            with mock.patch.object(
+                MAINTENANCE.retention,
+                "run_command",
+                return_value=subprocess.CompletedProcess([], 0, archive, b""),
+            ):
+                self.assertEqual(
+                    MAINTENANCE.download_pending_uat_state(
+                        "org/repo", artifact, directory, allow_missing_readme=True
+                    ),
+                    missing,
+                )
+            self.assertEqual(list(directory.iterdir()), [])
+            for name, value in self.full.items():
+                (directory / name).write_bytes(value)
+            self.assertEqual(
+                self.receipts.checkpoint_directory(directory, self.services), self.full
+            )
+            (directory / "README.txt").unlink()
+            (directory / "README.txt").symlink_to(directory / "completed.json")
+            with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                self.receipts.checkpoint_directory(directory, self.services)
+
+    def test_changed_incomplete_or_pending_copies_never_qualify(self):
+        for defect in (
+            "bytes",
+            "missing_prior",
+            "journal",
+            "pending",
+            "run",
+            "mutation",
+            "json",
+        ):
+            missing, previous = dict(self.missing), dict(self.full)
+            if defect == "bytes":
+                missing[self.services[0] + ".json"] += b" "
+            elif defect == "missing_prior":
+                previous = {}
+            elif defect == "journal":
+                missing.pop(self.services[0] + ".json")
+            elif defect in {"pending", "run"}:
+                completed = json.loads(missing["completed.json"])
+                completed[
+                    "pending_services" if defect == "pending" else "observed_run_id"
+                ] = [self.services[0]] if defect == "pending" else 124
+                missing["completed.json"] = previous["completed.json"] = json.dumps(
+                    completed
+                ).encode()
+            else:
+                value = (
+                    b'{"pending_mutation":{"action":"delete"}}'
+                    if defect == "mutation"
+                    else b'{"pending_mutation":null,"pending_mutation":null}'
+                )
+                missing[self.services[0] + ".json"] = previous[
+                    self.services[0] + ".json"
+                ] = value
+            with (
+                self.subTest(defect=defect),
+                self.assertRaises(MAINTENANCE.retention.UnsafeState),
+            ):
+                self.receipts.verify_checkpoint_copy(missing, previous, self.services)
+
+    def test_zip_boundary_refuses_unsafe_members_and_missing_completion(self):
+        for defect in (
+            "path",
+            "symlink",
+            "fifo",
+            "oversize",
+            "completion",
+            "duplicate",
+        ):
+            members, mode = dict(self.full), None
+            if defect == "path":
+                members["../escape"] = b"unsafe"
+            elif defect in {"symlink", "fifo"}:
+                mode = 0o120600 if defect == "symlink" else 0o010600
+            elif defect == "oversize":
+                members["README.txt"] = b"x" * (1024 * 1024 + 1)
+            elif defect == "completion":
+                members.pop("completed.json")
+            archive = self.archive(members, mode=mode)
+            if defect == "duplicate":
+                stream = io.BytesIO(archive)
+                with (
+                    self.assertWarns(UserWarning),
+                    zipfile.ZipFile(stream, "a") as bundle,
+                ):
+                    bundle.writestr("README.txt", b"duplicate")
+                archive = stream.getvalue()
+            with (
+                self.subTest(defect=defect),
+                self.assertRaises(MAINTENANCE.retention.UnsafeState),
+            ):
+                self.receipts.checkpoint_archive(archive, self.services)
