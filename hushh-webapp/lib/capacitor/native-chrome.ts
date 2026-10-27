@@ -1,3 +1,4 @@
+import { chromeControlId, type ChromeControlId, type ChromeFamily, type ChromeAgentSurface, type ChromeOption, type ChromeAccentPalette, type ChromeControl } from "./native-chrome-controls";
 "use client";
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
@@ -11,18 +12,8 @@ import { nativePresentationAdmission, syncNativePresentationRegions, type Native
 
 // Presentation only. No route, UID, token, credential or content body crosses this bridge.
 export type ChromeFrame = { x: number; y: number; width: number; height: number };
-export type ChromeControlId = "top-shell-back" | "profile-back" | "chat-history-toggle" | "chat-history-close" | "chat-agent-surface" | "stationary-more" | "stationary-add" | "bounded-selection" | "bounded-date" | "profile-close" | "profile-appearance" | "profile-accent";
-export type ChromeFamily = "back" | "profile-back" | "history" | "history-close" | "agent-surface" | "more" | "add" | "selection" | "date" | "close" | "appearance" | "accent";
-export type ChromeAgentSurface = "one" | "puppy";
-export type ChromeOption = { value: string; label: string; disabled?: boolean };
-export type ChromeAccentPalette = { blue: string; gold: string };
-export type ChromeControl = { kind: "back" | "profile-back" | "close" | "add" } | { kind: "history" | "history-close"; expanded?: boolean } |
-  { kind: "agent-surface"; value: ChromeAgentSurface } |
-  { kind: "appearance"; value: "light" | "dark" | "system" } |
-  { kind: "accent"; value: "blue" | "gold"; fullTrigger?: boolean; palette?: ChromeAccentPalette } |
-  { kind: "more"; options: readonly ChromeOption[] } |
-  { kind: "selection"; value: string; options: readonly ChromeOption[] } |
-  { kind: "date"; value: string; minimum: string; maximum: string };
+export { chromeControlId } from "./native-chrome-controls";
+export type { ChromeControlId, ChromeFamily, ChromeAgentSurface, ChromeOption, ChromeAccentPalette, ChromeControl } from "./native-chrome-controls";
 export type ChromeIdentity = {
   documentId: string;
   ownerEpoch: string;
@@ -238,20 +229,6 @@ export async function canResumeNativeChrome(projection: ChromeControlProjection,
       retainedShape(entry.projection) !== retainedShape(projection)) return false;
   await entry.ready;
   return suspended.get(id) === entry && outstanding.get(id)?.revision === entry.projection.revision;
-}
-export function chromeControlId(kind: ChromeFamily): ChromeControlId {
-  if (kind === "add") return "stationary-add";
-  if (kind === "history-close") return "chat-history-close";
-  if (kind === "profile-back") return "profile-back";
-  if (kind === "history") return "chat-history-toggle";
-  if (kind === "agent-surface") return "chat-agent-surface";
-  if (kind === "appearance") return "profile-appearance";
-  if (kind === "accent") return "profile-accent";
-  if (kind === "more") return "stationary-more";
-  if (kind === "selection") return "bounded-selection";
-  if (kind === "date") return "bounded-date";
-  if (kind === "close") return "profile-close";
-  return "top-shell-back";
 }
 
 function admittedValue(projection: ChromeControlProjection, value: string | undefined): boolean {

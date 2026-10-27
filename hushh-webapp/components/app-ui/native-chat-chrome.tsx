@@ -59,11 +59,9 @@ type Props = {
   { kind: "selection"; label: string; value: string; options: readonly ChromeOption[]; onValueChange: (value: string) => void } |
   { kind: "date"; label: string; value: string; minimum: string; maximum: string; onValueChange: (value: string) => void });
 
-/** Opt-in presentation only. The caller retains its DOM control, layout and action
- * owner. Public preferences use supported native capabilities; chat families
- * require --hushh-native-chat-chrome on a Debug iPhone.
- * Authored native/gesture dismissal can request acknowledged native focus;
- * DOM keyboard return keeps its fallback active until focus leaves the slot. */
+/** Authored native presentation; callers retain layout, actions and fallback.
+ * Qualified wrappers negotiate families before admission. A focused DOM control
+ * retains input until native retirement/focus transfer is confirmed. */
 export function NativeChatChrome(props: Props) {
   const { ref: handleRef, className, children } = props;
   const slot = useRef<HTMLDivElement>(null);
