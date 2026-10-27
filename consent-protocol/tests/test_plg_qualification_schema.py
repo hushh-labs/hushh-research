@@ -288,7 +288,9 @@ def test_canonical_failure_is_not_retried_and_never_logs_credentials(schema, mon
         return SimpleNamespace(returncode=1)
 
     monkeypatch.setattr(schema.subprocess, "run", failed)
-    with pytest.raises(ValueError, match="qualification_canonical_source_operation_unverified"):
+    with pytest.raises(
+        ValueError, match="qualification_canonical_initializer_operation_unverified"
+    ):
         schema.run_source(
             tmp_path,
             schema.Target("uat"),
@@ -409,6 +411,8 @@ def test_uncertain_write_preserves_intent_and_refuses_blind_retry(schema, monkey
     with pytest.raises(ValueError, match="qualification_schema_operation_unverified"):
         schema.execute(schema.Target("uat"), tmp_path, output, action="initialize")
     assert json.loads(output.read_text())["status"] == "needs-reconciliation"
+    assert json.loads(output.read_text())["safeErrorClass"] == "TimeoutError"
+    assert "refusalCode" not in json.loads(output.read_text())
     assert "synthetic-password" not in output.read_text()
     with pytest.raises(FileExistsError):
         schema.execute(schema.Target("uat"), tmp_path, output, action="initialize")

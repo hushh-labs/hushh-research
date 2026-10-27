@@ -226,10 +226,8 @@ def run_source(
             timeout=1800 if initializer else 120,
             check=False,
         )
-        require(
-            result.returncode == 0,
-            "qualification_canonical_source_operation_unverified",
-        )
+        phase = "vault" if vault else "initializer" if initializer else "verifier"
+        require(result.returncode == 0, f"qualification_canonical_{phase}_operation_unverified")
     finally:
         environment.clear()
 
@@ -442,11 +440,18 @@ def execute(target: Target, root: Path, output: Path, *, action: str) -> dict:
             operation = initialize if action == "initialize" else preflight
             proof["schemaBoundary"] = operation(connection, target, root.resolve(), user, password)
         proof["status"] = "synthetic-schema-verified"
-    except Exception:
+    except Exception as error:
         proof.update(
             status="needs-reconciliation",
             error="qualification_schema_operation_unverified",
+            safeErrorClass=type(error).__name__,
         )
+        if isinstance(error, QualificationError) and re.fullmatch(
+            r"qualification_[a-z0-9_]{1,160}", str(error)
+        ):
+            proof["refusalCode"] = str(error)
+        if re.fullmatch(r"[0-9A-Z]{5}", getattr(error, "pgcode", "") or ""):
+            proof["sqlState"] = error.pgcode
         raise QualificationError("qualification_schema_operation_unverified") from None
     finally:
         user = password = None
