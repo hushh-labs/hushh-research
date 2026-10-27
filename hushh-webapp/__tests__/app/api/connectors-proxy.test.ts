@@ -38,6 +38,33 @@ describe("connector proxy privacy", () => {
     expect(downloaded.headers.get("cache-control")).toContain("no-store");
   });
 
+  it("streams an original One copy byte-exact with private attachment headers", async () => {
+    const path = ["google_drive", "sharing", "requests", "11111111-1111-4111-8111-111111111111", "one-copy", "files", "22222222-2222-4222-8222-222222222222", "content"];
+    const bytes = new Uint8Array([0, 255, 13, 10, 128, 60, 62]);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(bytes, { headers: { "Content-Type": "text/html", "Content-Disposition": "inline" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await proxyExternalConnectorRequest(new NextRequest(`https://app.test/api/connectors/${path.join("/")}?disposition=download`, { headers: { authorization: "Bearer synthetic-owner" } }), path);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(response.headers.get("content-disposition")).toContain("attachment;");
+    expect(response.headers.get("cache-control")).toContain("private, no-store");
+    expect(response.headers.get("content-security-policy")).toContain("sandbox");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(fetchMock.mock.calls[0][1].headers.get("authorization")).toBe("Bearer synthetic-owner");
+    expect(fetchMock.mock.calls[0][1].redirect).toBe("error");
+  });
+  it("rejects non-PDF preview and anonymous original access", async () => {
+    const path = ["google_drive", "sharing", "requests", "11111111-1111-4111-8111-111111111111", "one-copy", "files", "22222222-2222-4222-8222-222222222222", "content"];
+    const fetchMock = vi.fn().mockResolvedValue(new Response("<script>untrusted</script>", { headers: { "Content-Type": "text/html" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const url = `https://app.test/api/connectors/${path.join("/")}?disposition=preview`;
+    const refused = await proxyExternalConnectorRequest(new NextRequest(url, { headers: { authorization: "Bearer synthetic-owner" } }), path);
+    expect(refused.status).toBe(415);
+    expect(await refused.text()).not.toContain("untrusted");
+    fetchMock.mockClear();
+    expect((await proxyExternalConnectorRequest(new NextRequest(url), path)).status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects unauthenticated ciphertext access before forwarding", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

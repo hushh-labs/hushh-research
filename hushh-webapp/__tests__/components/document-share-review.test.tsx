@@ -1299,9 +1299,9 @@ describe("exact-file document review", () => {
       expect(priceSheet.props?.moneyPolicy).toBe("drive_cents");
     });
 
-    it("allows at the requester's estimate in one tap, with Edit price beside it", async () => {
+    it.each([false, true])("allows at the requester's estimate in one tap, with copy consent=%s", async (oneCopyRequested) => {
       state.status.mockResolvedValue(pending());
-      state.review.mockResolvedValue(decision({ autoshare: true, estimateCents: 50,
+      state.review.mockResolvedValue(decision({ autoshare: true, oneCopyRequested, estimateCents: 50,
         periodConflict: "request_mentions_longer_span",
         purpose: { purpose: "last 3 months meeting notes", periodStart: "2026-09-02", periodEnd: "2026-10-02" } }));
       state.allow.mockResolvedValue({ requestId, status: "pending", revision: 0 });
@@ -1320,7 +1320,7 @@ describe("exact-file document review", () => {
       expect(screen.getByText("You get this minus a 3% fee and Stripe's fee.")).toBeVisible();
       fireEvent.click(allow);
       await waitFor(() => expect(state.allow).toHaveBeenCalledExactlyOnceWith(
-        "owner-a", requestId, { revision: 0, amountCents: 50 }, expect.any(Function)));
+        "owner-a", requestId, { revision: 0, amountCents: 50, ...(oneCopyRequested ? { oneCopyAccepted: true } : {}) }, expect.any(Function)));
       expect(screen.queryByRole("dialog", { name: "Set a price" })).toBeNull();
     });
 

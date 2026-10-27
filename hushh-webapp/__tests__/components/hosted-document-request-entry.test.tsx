@@ -91,7 +91,7 @@ describe("@feature_one_document_hosting real file-request entrypoint", () => {
     state.uid = "b"; state.epoch = 1; state.token = "owner-b"; state.unlocked = true;
     state.getToken.mockImplementation(() => state.token);
     state.hostingSession = { userId: "b", vaultKey: "a".repeat(64), vaultOwnerToken: "owner-b", isCurrent: () => state.uid === "b" && state.epoch === 1 && state.token === "owner-b" };
-    state.overview.mockResolvedValue({ features: { drive_document_sharing: false }, connectors: [] });
+    state.overview.mockResolvedValue({ features: { drive_document_sharing: true }, connectors: [] });
     state.quote.mockResolvedValue({ amountCents: 1000, version: 1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
     state.googleIdentity.mockResolvedValue(firebaseProof);
     state.recipientIdentity.mockResolvedValue({ email: "b@gmail.test", provider: "google.com" });
@@ -129,6 +129,7 @@ describe("@feature_one_document_hosting real file-request entrypoint", () => {
       ownerPersonRef: personRef,
       purpose: { purpose: "Bank statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
       expectedQuoteVersion: 1,
+      oneCopyRequested: true, activityAccepted: true, activityDisclosureVersion: "one-document-activity-v1",
     });
     expect(JSON.parse(options!.body as string)).not.toHaveProperty("accessDays");
     expect(JSON.parse(options!.body as string)).not.toHaveProperty("requesterActorType");
@@ -153,84 +154,28 @@ describe("@feature_one_document_hosting real file-request entrypoint", () => {
       }), expect.any(Function),
     ));
   });
-  const openOne = async () => {
-    mount(); fireEvent.click(await screen.findByRole("button", { name: "Request files", exact: true }));
-    await waitFor(() => expect(screen.getByLabelText("Receive through")).toHaveValue("one"));
-    fireEvent.change(screen.getByLabelText("Which files do you need?"), { target: { value: "Approved statements" } });
-    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-03-01" } });
-    fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-08-31" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: /I accept that the owner sees access activity/ }));
-  };
-  it("sends One-only with matching Firebase and consent headers when legacy Drive is disabled, without a quote or Google prompt", async () => {
-    await openOne();
-    expect(screen.getByText(/The owner approves the files, price and access deadline/)).toBeVisible();
-    expect(screen.getByLabelText("Access period")).toHaveValue("30");
-    expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
-    expect(await screen.findByText("Request sent.")).toBeVisible();
-    const calls = state.apiFetch.mock.calls.filter(([path]) => path.endsWith("/delivery-requests"));
-    expect(calls).toHaveLength(1);
-    const options = calls[0][1];
-    expect(options.headers).toMatchObject({ Authorization: "Bearer existing-one-firebase-id-token", "X-Hushh-Consent": "owner-b" });
-    expect(JSON.parse(options.body)).toMatchObject({ receiveThrough: "one", ownerPersonRef: personRef, activityAccepted: true, recipientKeyId: "recipient-key" });
-    expect(JSON.parse(options.body)).not.toHaveProperty("expectedQuoteVersion");
-    expect(state.oneIdentity).toHaveBeenCalledWith({ expectedUserId: "b", retries: 0 });
-    expect(state.quote).not.toHaveBeenCalled(); expect(state.googleIdentity).not.toHaveBeenCalled(); expect(state.linkGoogle).not.toHaveBeenCalled(); expect(state.recipientIdentity).not.toHaveBeenCalled(); expect(state.create).not.toHaveBeenCalled();
-  });
-  it("keeps intake disabled when both hosted readiness and legacy Drive are off", async () => {
-    state.apiFetch.mockImplementation(async () => new Response(JSON.stringify({ enabled: false }), { status: 200 }));
-    mount(); fireEvent.click(await screen.findByRole("button", { name: "Request files", exact: true }));
-    await waitFor(() => expect(state.apiFetch).toHaveBeenCalled());
-    fireEvent.change(screen.getByLabelText("Which files do you need?"), { target: { value: "Approved statements" } });
-    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-03-01" } });
-    fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-08-31" } });
-    expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
+  it("keeps One copies in the existing request without a mode picker, recipient key, or extra payment", async () => {
+    state.create.mockResolvedValue({ requestId });
+    mount(); await openDrive("Approved statements");
     expect(screen.queryByLabelText("Receive through")).not.toBeInTheDocument();
-    expect(state.quote).not.toHaveBeenCalled(); expect(state.googleIdentity).not.toHaveBeenCalled(); expect(state.ensureConnector).not.toHaveBeenCalled();
-  });
-  it("does not carry a legacy RIA claim into a personal secure-link request", async () => {
-    state.overview.mockResolvedValue({
-      features: { drive_document_sharing: true }, connectors: [], driveAgentPackagesEnabled: true,
-    });
-    state.quote.mockResolvedValue({ amountCents: null, version: 0, paymentRequired: false });
-    state.googleIdentity.mockResolvedValue("synthetic-google-proof");
-    state.recipientIdentity.mockResolvedValue({ email: "b@gmail.test" });
-    mount(); fireEvent.click(await screen.findByRole("button", { name: "Request files", exact: true }));
-    await screen.findByLabelText("Receive through");
-    fireEvent.change(screen.getByLabelText("Which files do you need?"), { target: { value: "Approved statements" } });
-    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-03-01" } });
-    fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-08-31" } });
-    fireEvent.change(screen.getByLabelText("Requesting as"), { target: { value: "ria" } });
-    fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "Financial review" } });
-    fireEvent.change(screen.getByLabelText("Receive through"), { target: { value: "one" } });
-    expect(screen.queryByLabelText("Requesting as")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/Reason/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("checkbox", { name: /I accept that the owner sees access activity/ }));
+    expect(screen.getByText(/Sending accepts owner-visible access activity/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await screen.findByText("Request sent.");
-    const [, options] = state.apiFetch.mock.calls.find(([path]) => path.endsWith("/delivery-requests"))!;
-    expect(JSON.parse(options.body)).toMatchObject({ requesterActorType: "person", receiveThrough: "one" });
-    expect(JSON.parse(options.body)).not.toHaveProperty("reason");
+    expect(state.create).toHaveBeenCalledTimes(1);
+    expect(state.create.mock.calls[0][2]).toMatchObject({ oneCopyRequested: true, activityAccepted: true, activityDisclosureVersion: "one-document-activity-v1" });
+    expect(state.ensureConnector).not.toHaveBeenCalled();
+    expect(state.oneIdentity).not.toHaveBeenCalled();
+    expect(state.apiFetch).not.toHaveBeenCalled();
   });
-  it.each(["delivery_unavailable", "delivery_schema_unavailable"])("explains %s without claiming delivery", async (code) => {
-    const sendResponse = state.apiFetch.getMockImplementation()!;
-    state.apiFetch.mockImplementation(async (path: string, ...args: unknown[]) => path.endsWith("/delivery-requests")
-      ? new Response(JSON.stringify({ detail: { code } }), { status: 503 })
-      : sendResponse(path, ...args));
-    await openOne();
-    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Secure One links are unavailable. Try again later.");
-    expect(screen.queryByText("Request sent.")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Which files do you need?")).toHaveValue("Approved statements");
-  });
-  it("refuses a late One identity response after an owner or vault session change", async () => {
+  it("drops a late identity result after the vault session changes", async () => {
     let resolve!: (token: string) => void;
-    state.oneIdentity.mockReturnValueOnce(new Promise<string>(done => { resolve = done; }));
-    await openOne(); fireEvent.click(screen.getByRole("button", { name: "Send request" }));
-    await waitFor(() => expect(state.oneIdentity).toHaveBeenCalled());
+    mount(); await openDrive("Approved statements");
+    state.googleIdentity.mockReturnValueOnce(new Promise<string>(done => { resolve = done; }));
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() => expect(state.googleIdentity).toHaveBeenCalled());
     state.uid = "another-owner"; state.epoch++;
     await act(async () => resolve("late-previous-owner-token"));
-    expect(state.apiFetch.mock.calls.filter(([path]) => path.endsWith("/delivery-requests"))).toHaveLength(0);
+    expect(state.create).not.toHaveBeenCalled();
     expect(screen.queryByText("Request sent.")).not.toBeInTheDocument();
   });
 });

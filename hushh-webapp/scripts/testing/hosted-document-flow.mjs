@@ -1,5 +1,6 @@
-/** Browser -> production client -> HTTP router -> SQL -> signed payment ->
- * local PDF -> real download. Only provider/auth/PKM transports are synthetic. */
+/** Historical device-encrypted v1: browser -> production client/API -> SQL ->
+ * signed payment -> local PDF -> real download. Provider/auth/PKM transports are synthetic.
+ * New default Drive + background-copy intake is covered by request-entry regressions. */
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
@@ -129,25 +130,25 @@ try {
   const start = performance.now();
   await page.setViewportSize({ width: 900, height: 900 });
   await page.goto(`${origin}/one/documents/open`);
-  await page.getByRole("button", { name: "Request files", exact: true }).click();
-  await control("document-hosting-receive-through").selectOption("one");
-  await page.getByLabel("Which files do you need?", { exact: true }).fill("Statements");
-  await page.getByLabel("Start date", { exact: true }).fill("2026-10-01");
-  await page.getByLabel("End date", { exact: true }).fill("2026-10-25");
-  await page.locator("#document-activity-accepted").check();
-  assert.equal(await page.locator("#document-activity-accepted").isChecked(), true);
+  await page.getByRole("heading", { name: "Historical device-encrypted document flow", exact: true }).waitFor();
+  // Create a historical v1 record through the real production client/API. The
+  // retired delivery picker is intentionally absent from new request UI.
   const creation = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/sharing/delivery-requests"));
-  await page.getByRole("button", { name: "Send request", exact: true }).click();
+  const historical = await page.evaluate(async () =>
+    (await import("/e2e/fixtures/hosted-document-flow.tsx")).createHistoricalDeviceRequest());
   const created = await creation;
   assert.equal(created.status(), 202);
   assert.equal(created.request().headers().authorization, "Bearer recipient");
   assert.equal(created.request().headers()["x-hushh-consent"], "recipient");
   assert.equal(created.request().postDataJSON().receiveThrough, "one");
   assert.equal(created.request().postDataJSON().activityAccepted, true);
+  assert.equal(created.request().postDataJSON().version, 1);
+  assert.equal(created.request().postDataJSON().activityDisclosureVersion, "one-document-activity-v1");
+  assert.equal(created.request().postDataJSON().oneCopyRequested, undefined);
   requestId = (await created.json()).requestId;
+  assert.equal(historical.requestId, requestId);
   assert.match(requestId, /^[a-f0-9-]{36}$/);
-  await page.getByText("Request sent.", { exact: true }).waitFor();
-  assert.equal(legacyQuoteReads, 0, "One requests must not depend on legacy Drive quotes");
+  assert.equal(legacyQuoteReads, 0, "Historical One-only intake must not depend on legacy Drive quotes");
   assert.equal(await page.evaluate(async () => (await import("/e2e/fixtures/hosted-document-boundaries.tsx")).getFixtureKeySetupCount()), 1);
   record("request_committed");
   await page.setViewportSize({ width: 390, height: 820 });

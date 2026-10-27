@@ -108,7 +108,7 @@ export function UnlockedRequestButton({
   // A chat card whose file request was sent keeps showing that request.
   const [fileRequestId, setFileRequestId] = useState<string | null>(null);
   const draftTerms = draft
-    ? { purpose: draft.purpose, periodStart: draft.periodStart, periodEnd: draft.periodEnd }
+    ? { purpose: draft.purpose, periodStart: draft.periodStart, periodEnd: draft.periodEnd, oneCopyRequested: true, activityAccepted: true, activityDisclosureVersion: "one-document-activity-v1" }
     : null;
   const draftNeedsDates = Boolean(draftTerms && (!draftTerms.periodStart || !draftTerms.periodEnd));
   const fileQuote = useDocumentRequestQuote({
@@ -303,6 +303,7 @@ export function UnlockedRequestButton({
           Ask {personName}: “{question}”
         </BodyText>
         <HelperText>Request files: {FILE_REQUEST_HELPER}</HelperText>
+        <HelperText>Request a One copy when available. Sending accepts owner-visible access activity. Saved files can’t be recalled.</HelperText>
         <RecipientIdentityNotice preview={fileIdentity} />
         <DocumentRequestQuoteNotice quote={fileQuote.quote} loading={fileQuote.loading}
           error={fileQuote.error} onRetry={fileQuote.refresh} personName={personName} />

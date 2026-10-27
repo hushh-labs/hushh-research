@@ -381,9 +381,9 @@ describe("requesting exact files from a connection", () => {
         "owner-b",
         firebaseProof,
         {
-          ownerPersonRef: personRef,
+          ownerPersonRef: personRef, activityDisclosureVersion: "one-document-activity-v1",
           clientRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-          expectedQuoteVersion: 1,
+          expectedQuoteVersion: 1, oneCopyRequested: true, activityAccepted: true,
           purpose: { purpose: "Files modified in the last two days", periodStart: "2026-09-29", periodEnd: "2026-10-01" },
         },
         expect.any(Function),
@@ -629,9 +629,9 @@ describe("chat draft question card", () => {
       "owner-b",
       "synthetic-firebase-proof",
       {
-        ownerPersonRef: personRef,
+        ownerPersonRef: personRef, activityDisclosureVersion: "one-document-activity-v1",
         clientRequestId,
-        expectedQuoteVersion: 1,
+        expectedQuoteVersion: 1, oneCopyRequested: true, activityAccepted: true,
         purpose: { purpose: "Six months of statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
       },
       expect.any(Function),

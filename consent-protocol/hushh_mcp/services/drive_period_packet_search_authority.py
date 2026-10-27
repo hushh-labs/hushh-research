@@ -100,8 +100,13 @@ def require_request_semantics(store, job, row, private, evidence_manifest):
 
         validate_buyer_checkpoint(evidence_manifest, private, claimed, frozen)
     else:
-        if (private.get("semantic_search_policy_version") == 2) != discovery_delivery(claimed):
+        if (private.get("semantic_search_policy_version") in {2, 3}) != discovery_delivery(claimed):
             raise DriveReadError("search_superseded")
+        if private.get("semantic_search_policy_version") == 3:
+            from hushh_mcp.services.drive_request_discovery import provider_results_only
+
+            if not provider_results_only(claimed):
+                raise DriveReadError("search_superseded")
         if semantic_search_request(private) != (semantic is not None):
             raise DriveReadError("search_superseded")
         if semantic is not None:
