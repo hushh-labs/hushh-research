@@ -294,6 +294,19 @@ def test_isolated_child_refuses_dotenv_admission_before_loading_any_source(schem
     assert "qualification_source_dotenv_version_required" in result.stderr
 
 
+def test_canonical_child_handles_unicode_under_isolated_redirected_execution(schema, tmp_path):
+    """Windows cp1252 failed before DDL even though the parent used UTF-8."""
+    script = tmp_path / "consent-protocol/db/migrate.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "import sys\nassert sys.flags.utf8_mode == 1\nprint('\\u2705')\n",
+        encoding="utf-8",
+    )
+    schema.run_source(
+        tmp_path, schema.Target("dev"), "synthetic_admin", "synthetic", initializer=True
+    )
+
+
 def test_disabled_dotenv_cannot_fill_missing_provider_material(schema, monkeypatch, tmp_path):
     from dotenv import load_dotenv
 

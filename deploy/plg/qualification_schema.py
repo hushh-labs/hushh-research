@@ -121,7 +121,9 @@ def empty_start(connection) -> None:
     require(connection.autocommit, "qualification_schema_autocommit_required")
     with connection.cursor() as cursor:
         cursor.execute("SHOW transaction_read_only")
-        require(cursor.fetchone() == ("off",), "qualification_schema_write_session_required")
+        require(
+            cursor.fetchone() == ("off",), "qualification_schema_write_session_required"
+        )
         cursor.execute(
             "SELECT pg_has_role(current_user,'cloudsqlsuperuser','USAGE'),"
             "pg_has_role(current_user,%s,'USAGE')",
@@ -141,7 +143,9 @@ def empty_start(connection) -> None:
             "NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname NOT IN "
             "('public','information_schema') AND nspname !~ '^pg_')"
         )
-        require(cursor.fetchone() == (True,) * 5, "qualification_schema_start_not_empty")
+        require(
+            cursor.fetchone() == (True,) * 5, "qualification_schema_start_not_empty"
+        )
 
 
 @contextmanager
@@ -155,7 +159,9 @@ def schema_lock(connection):
             cursor.execute("SELECT pg_advisory_unlock(%s,%s)", LOCK)
 
 
-def child_environment(target: Target, user: str, password: str, *, initializer: bool) -> dict:
+def child_environment(
+    target: Target, user: str, password: str, *, initializer: bool
+) -> dict:
     require(
         bool(user and password) and user not in {MIGRATOR_ROLE, RUNTIME_ROLE},
         "qualification_canonical_admin_required",
@@ -191,7 +197,9 @@ def child_environment(target: Target, user: str, password: str, *, initializer: 
     return environment
 
 
-def run_source(root: Path, target: Target, user: str, password: str, *, initializer: bool) -> None:
+def run_source(
+    root: Path, target: Target, user: str, password: str, *, initializer: bool
+) -> None:
     # The canonical initializer concatenates credentials into its URL; only that
     # child URI-encodes them. The source verifier already performs encoding.
     script = (
@@ -206,6 +214,8 @@ def run_source(root: Path, target: Target, user: str, password: str, *, initiali
             [
                 sys.executable,
                 "-I",
+                "-X",
+                "utf8",
                 "-c",
                 SOURCE_CHILD,
                 str(root / script),
@@ -234,7 +244,9 @@ def runtime_grants(connection) -> None:
 
     with connection.cursor() as cursor:
         cursor.execute(
-            sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(sql.Identifier(RUNTIME_ROLE))
+            sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(
+                sql.Identifier(RUNTIME_ROLE)
+            )
         )
         cursor.execute(
             "SELECT tablename FROM pg_tables WHERE schemaname='public' "
@@ -257,9 +269,9 @@ def runtime_grants(connection) -> None:
                 )
             )
         cursor.execute(
-            sql.SQL("GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO {}").format(
-                sql.Identifier(RUNTIME_ROLE)
-            )
+            sql.SQL(
+                "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO {}"
+            ).format(sql.Identifier(RUNTIME_ROLE))
         )
         # Preserve the source's explicit service_role routine admission without
         # inheriting the shared role or re-enabling routines revoked from PUBLIC.
@@ -277,9 +289,13 @@ def runtime_grants(connection) -> None:
                 )
             )
             cursor.execute(
-                "SELECT has_function_privilege(%s,%s,'EXECUTE')", (RUNTIME_ROLE, signature)
+                "SELECT has_function_privilege(%s,%s,'EXECUTE')",
+                (RUNTIME_ROLE, signature),
             )
-            require(cursor.fetchone() == (True,), "qualification_runtime_routine_grant_unverified")
+            require(
+                cursor.fetchone() == (True,),
+                "qualification_runtime_routine_grant_unverified",
+            )
     verify_runtime_grants(connection)
 
 
@@ -394,7 +410,9 @@ def preflight(connection, target: Target, root: Path, user: str, password: str) 
     }
 
 
-def initialize(connection, target: Target, root: Path, user: str, password: str) -> dict:
+def initialize(
+    connection, target: Target, root: Path, user: str, password: str
+) -> dict:
     reviewed_source(root)
     identity(connection, target, user)
     with schema_lock(connection):
@@ -410,7 +428,9 @@ def initialize(connection, target: Target, root: Path, user: str, password: str)
 
 
 def execute(target: Target, root: Path, output: Path, *, action: str) -> dict:
-    require(action in {"initialize", "preflight"}, "qualification_schema_action_invalid")
+    require(
+        action in {"initialize", "preflight"}, "qualification_schema_action_invalid"
+    )
     _record, digest = reviewed_source(root)
     proof = target.plan() | {
         "phase": action,
@@ -429,7 +449,9 @@ def execute(target: Target, root: Path, output: Path, *, action: str) -> dict:
         ) as connection:
             connection.autocommit = True
             operation = initialize if action == "initialize" else preflight
-            proof["schemaBoundary"] = operation(connection, target, root.resolve(), user, password)
+            proof["schemaBoundary"] = operation(
+                connection, target, root.resolve(), user, password
+            )
         proof["status"] = "synthetic-schema-verified"
     except Exception:
         proof.update(
@@ -446,12 +468,16 @@ def execute(target: Target, root: Path, output: Path, *, action: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment", choices=("dev", "uat"), required=True)
-    parser.add_argument("--action", choices=("initialize", "preflight"), default="preflight")
+    parser.add_argument(
+        "--action", choices=("initialize", "preflight"), default="preflight"
+    )
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
-        execute(Target(args.environment), args.source_root, args.output, action=args.action)
+        execute(
+            Target(args.environment), args.source_root, args.output, action=args.action
+        )
     except Exception:
         parser.exit(
             1,
