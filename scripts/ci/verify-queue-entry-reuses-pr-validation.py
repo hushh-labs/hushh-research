@@ -207,6 +207,31 @@ def _expect(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def _attempt_order_self_test(run, older, newer, sha) -> WorkflowRun:
+    rerun = run(1, older.created_at, attempt=2, status="in_progress",
+                started_at="2026-09-03T00:00:00Z", updated_at="2026-09-03T00:00:00Z")
+    _expect(latest_pr_validation_run([rerun, newer], sha) == rerun,
+            "later rerun of an older run supersedes newer green evidence")
+    late_completion = run(1, older.created_at, updated_at="2026-09-03T00:00:00Z")
+    newer_failure = run(2, newer.created_at, conclusion="failure")
+    _expect(latest_pr_validation_run([late_completion, newer_failure], sha) == newer_failure,
+            "older run finishing later cannot hide a newer failed attempt")
+    try:
+        require_unchanged_authority(newer, [rerun, newer], sha)
+    except QueueEntryRejected:
+        pass
+    else:
+        raise AssertionError("accepted a competing attempt appearing during admission")
+    for bad in (run(1, older.created_at, attempt=0), run(1, older.created_at, updated_at="")):
+        try:
+            latest_pr_validation_run([bad, newer], sha)
+        except QueueEntryRejected:
+            pass
+        else:
+            raise AssertionError("accepted unverifiable attempt chronology")
+    return rerun
+
+
 def self_test() -> int:
     sha = "a" * 40
     _expect(parse_pr_number(f"refs/heads/gh-readonly-queue/main/pr-7140-{sha}") == 7140, "main queue ref")
@@ -256,27 +281,7 @@ def self_test() -> int:
         run(7, "2026-09-09T00:00:00Z", head_sha="b" * 40),
     ]
     _expect(latest_pr_validation_run([older, newer, *decoys], sha) == newer, "newest PR Validation run wins")
-    rerun = run(1, older.created_at, attempt=2, status="in_progress",
-                started_at="2026-09-03T00:00:00Z", updated_at="2026-09-03T00:00:00Z")
-    _expect(latest_pr_validation_run([rerun, newer], sha) == rerun,
-            "later rerun of an older run supersedes newer green evidence")
-    late_completion = run(1, older.created_at, updated_at="2026-09-03T00:00:00Z")
-    newer_failure = run(2, newer.created_at, conclusion="failure")
-    _expect(latest_pr_validation_run([late_completion, newer_failure], sha) == newer_failure,
-            "older run finishing later cannot hide a newer failed attempt")
-    try:
-        require_unchanged_authority(newer, [rerun, newer], sha)
-    except QueueEntryRejected:
-        pass
-    else:
-        raise AssertionError("accepted a competing attempt appearing during admission")
-    for bad in (run(1, older.created_at, attempt=0), run(1, older.created_at, updated_at="")):
-        try:
-            latest_pr_validation_run([bad, newer], sha)
-        except QueueEntryRejected:
-            pass
-        else:
-            raise AssertionError("accepted unverifiable attempt chronology")
+    rerun = _attempt_order_self_test(run, older, newer, sha)
     try:
         latest_pr_validation_run(decoys, sha)
     except QueueEntryRejected:
