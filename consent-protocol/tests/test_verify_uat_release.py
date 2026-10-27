@@ -43,6 +43,7 @@ def test_http_probe_returns_structured_failure_on_transport_error(monkeypatch) -
 def test_semantic_verifier_probes_location_command_recovery(monkeypatch, tmp_path) -> None:
     verifier = _load_verifier()
     request_paths: list[str] = []
+    developer_token_mutations: list[bool] = []
 
     class _Response:
         def __init__(self, payload: dict[str, object]) -> None:
@@ -58,8 +59,8 @@ def test_semantic_verifier_probes_location_command_recovery(monkeypatch, tmp_pat
         def __init__(self, **_kwargs) -> None:
             pass
 
-        def authenticate(self) -> None:
-            pass
+        def authenticate(self, *, ensure_developer_token: bool = True) -> None:
+            developer_token_mutations.append(ensure_developer_token)
 
         def _firebase_auth_headers(self) -> dict[str, str]:
             return {"Authorization": "Bearer test-token"}
@@ -93,10 +94,12 @@ def test_semantic_verifier_probes_location_command_recovery(monkeypatch, tmp_pat
             "https://frontend.example",
             "--report-path",
             str(report_path),
+            "--no-developer-token-mutation",
         ],
     )
 
     assert verifier.main() == 0
+    assert developer_token_mutations == [False]
     assert "GET /api/one/action-proposals" in request_paths
     assert "POST /api/ria/onboarding/verify-name" not in request_paths
     assert all("/api/one/adk/" not in path for path in request_paths)

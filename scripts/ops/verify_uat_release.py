@@ -140,6 +140,11 @@ def main() -> int:
     parser.add_argument("--web-env", default=DEFAULT_WEBAPP_ENV)
     parser.add_argument("--report-path", required=True)
     parser.add_argument(
+        "--no-developer-token-mutation",
+        action="store_true",
+        help="Authenticate without creating or rotating a developer token unused by this smoke.",
+    )
+    parser.add_argument(
         "--run-live-model-checks",
         choices=("true", "false"),
         default="false",
@@ -184,7 +189,10 @@ def main() -> int:
             protocol_env=args.protocol_env,
             web_env=args.web_env,
         )
-        smoke.authenticate()
+        if args.no_developer_token_mutation:
+            smoke.authenticate(ensure_developer_token=False)
+        else:
+            smoke.authenticate()
         report["checks"].append(
             {"name": "smoke_auth", "ok": True, "user_id": smoke.user_id}
         )
