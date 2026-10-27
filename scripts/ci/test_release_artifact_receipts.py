@@ -12,6 +12,24 @@ import unittest
 import zipfile
 from unittest import mock
 
+from production_activation_continuation_cases import ActivationContinuationCases
+from production_backend_inheritance_cases import BackendInheritanceCases
+from production_backend_successor_cases import OperationalBackendReferenceCases
+from production_pending_activation_cases import PendingActivationCases
+from production_phone_lease_cases import (
+    ProductionPhoneIntentGateCases,
+    ProductionPhoneLeaseCases,
+    ProductionPhoneSkippedLeaseCases,
+)
+from production_phone_receipt_cases import ProductionPhoneReceiptCases
+from production_staged_worker_cases import (
+    ProductionHealthyStagedWorkerCases as ProductionHealthyStagedWorkerCases,
+)
+from production_staged_worker_cases import (
+    ProductionStagedWorkerCases as ProductionStagedWorkerCases,
+)
+from production_worker_basis_cases import WorkerBasisCases
+
 MAINTENANCE = importlib.import_module("uat-retention-maintenance")
 
 
@@ -277,5 +295,90 @@ class ReplayedUatReleaseArtifactTest(ReplayedReleaseFixture, unittest.TestCase):
                         )
 
 
-class ReplayedProductionReleaseArtifactTest(ReplayedUatReleaseArtifactTest):
+class ReplayedProductionReleaseArtifactTest(
+    BackendInheritanceCases,
+    PendingActivationCases,
+    ActivationContinuationCases,
+    OperationalBackendReferenceCases,
+    ProductionPhoneIntentGateCases,
+    ProductionPhoneLeaseCases,
+    ProductionPhoneSkippedLeaseCases,
+    ProductionPhoneReceiptCases,
+    WorkerBasisCases,
+    ReplayedUatReleaseArtifactTest,
+):
     environment = "production"
+    maintenance = MAINTENANCE
+
+
+class CheckpointArchiveFixture:
+    def setUp(self):
+        self.receipts = MAINTENANCE.release_artifact_receipts
+        self.services = tuple(MAINTENANCE.LANES["uat"]["services"])
+        completed = {
+            "schema_version": 1,
+            "checkpoint_version": 2,
+            "environment": "uat",
+            "project": "hushh-pda-uat",
+            "release_run_id": 123,
+            "observed_run_id": 123,
+            "pass_status": "complete",
+            "pending_services": [],
+        }
+        self.full = {
+            "README.txt": b"uat checkpoint\n",
+            "completed.json": json.dumps(completed).encode(),
+            **{name + ".json": b'{"pending_mutation":null}' for name in self.services},
+        }
+        self.missing = {
+            name: value for name, value in self.full.items() if name != "README.txt"
+        }
+
+    def archive(self, members, *, mode=None):
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as bundle:
+            for name, value in members.items():
+                entry = zipfile.ZipInfo(name)
+                entry.external_attr = (
+                    mode if name == "README.txt" and mode is not None else 0o100600
+                ) << 16
+                bundle.writestr(entry, value)
+        return stream.getvalue()
+
+
+class CheckpointArchiveCopyTest(CheckpointArchiveFixture, unittest.TestCase):
+    def test_checkpoint_archive_explicit_marker_policy_and_closed_file_set(self):
+        archive = self.archive(self.missing)
+        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+            self.receipts.checkpoint_archive(archive, self.services)
+        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+            self.receipts.checkpoint_archive(
+                archive, self.services, allow_missing_readme="true"
+            )
+        self.assertEqual(
+            self.receipts.checkpoint_archive(
+                archive, self.services, allow_missing_readme=True
+            ),
+            self.missing,
+        )
+        for members, mode in (
+            ({**self.full, "../outside.json": b"{}"}, None),
+            (self.full, 0o120777),
+            (
+                {
+                    name: value
+                    for name, value in self.missing.items()
+                    if name != "completed.json"
+                },
+                None,
+            ),
+        ):
+            with (
+                self.subTest(mode=mode),
+                self.assertRaises(MAINTENANCE.retention.UnsafeState),
+            ):
+                self.receipts.checkpoint_archive(
+                    self.archive(members, mode=mode),
+                    self.services,
+                    allow_missing_readme=True,
+                )

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
+import re
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 _REVISION_MAX_SCALE = "autoscaling.knative.dev/maxScale"
@@ -128,6 +132,201 @@ def verify_revision(
         raise ValueError("Drive worker scanner image digest mismatch")
     if max_instances is not None or concurrency is not None:
         _verify_scaling(revision, max_instances=max_instances, concurrency=concurrency)
+
+
+RUNTIME = "consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com"
+SCANNER_INDEX = (
+    "sha256:0e31ce089574268aefa0b543767d66b70240ab51ed49eec53e07f18d5629d817"
+)
+SCANNER_AMD64 = (
+    "sha256:e8388295191bff0893fb889d9415ae975491201c989b205e30c9057b1985d36a"
+)
+SERVICE = "consent-protocol-drive-worker"
+
+
+def scheduler_command(action: str, path: Path, origin: str) -> list[str]:
+    if action not in {"capture", "verify"}:
+        raise ValueError("worker_scheduler_action_invalid")
+    return [
+        "python3",
+        str(Path(__file__).with_name("work_drain_scheduler_snapshot_prod.py")),
+        action,
+        "--snapshot",
+        str(path),
+        "--worker-origin",
+        origin,
+    ]
+
+
+def _stage_fingerprint(value: object) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def service_controls(value: dict) -> str:
+    ignored = {
+        "run.googleapis.com/operation-id",
+        "run.googleapis.com/client-name",
+        "run.googleapis.com/client-version",
+        "serving.knative.dev/creator",
+        "serving.knative.dev/lastModifier",
+    }
+    metadata = value.get("metadata") or {}
+    return _stage_fingerprint(
+        {
+            "spec": {
+                k: v
+                for k, v in value["spec"].items()
+                if k not in {"template", "traffic"}
+            },
+            "labels": metadata.get("labels", {}),
+            "annotations": {
+                k: v
+                for k, v in metadata.get("annotations", {}).items()
+                if k not in ignored
+            },
+        }
+    )
+
+
+def _verify_staged_launcher(value: dict, worker: dict) -> None:
+    annotations = value.get("metadata", {}).get("annotations", {})
+    if (
+        value["spec"].get("timeoutSeconds") != 240
+        or annotations.get("run.googleapis.com/cloudsql-instances")
+        != "hushh-pda:us-central1:hushh-vault-db"
+    ):
+        raise ValueError("worker_database_or_timeout_contract_mismatch")
+    if (
+        worker.get("command") != ["gunicorn"]
+        or worker.get("args")
+        != [
+            "server_drive_worker:app",
+            "-w",
+            "1",
+            "-k",
+            "uvicorn.workers.UvicornWorker",
+            "--timeout",
+            "220",
+            "--worker-tmp-dir",
+            "/tmp",
+            "-b",
+            "0.0.0.0:8080",
+        ]
+        or worker.get("startupProbe", {}).get("httpGet")
+        != {"path": "/ready", "port": 8080}
+    ):
+        raise ValueError("worker_readiness_launcher_mismatch")
+    for container in value["spec"]["containers"]:
+        limits = container.get("resources", {}).get("limits", {})
+        if limits.get("cpu") not in {"2", "2000m"} or limits.get("memory") not in {
+            "4Gi",
+            "4096Mi",
+        }:
+            raise ValueError("worker_resource_contract_mismatch")
+
+
+def verify_staged_revision(
+    value: dict, expected: dict, version: str | None = None
+) -> None:
+    verify_revision(
+        value,
+        deploy_sha=expected["source"],
+        app_image=expected["image"],
+        scanner_index_digest=SCANNER_INDEX,
+        scanner_amd64_digest=SCANNER_AMD64,
+        drain_enabled="true",
+        max_instances="2",
+        concurrency="1",
+    )
+    spec = value["spec"]
+    worker = next(item for item in spec["containers"] if item["name"] == "drive-worker")
+    env = worker.get("env", [])
+    names = [item.get("name") for item in env]
+    values = {item["name"]: item.get("value") for item in env}
+    refs = {item["name"]: item.get("valueFrom", {}).get("secretKeyRef") for item in env}
+    if len(set(names)) != len(names) or spec.get("serviceAccountName") != RUNTIME:
+        raise ValueError("worker_identity_or_environment_invalid")
+    if any(
+        values.get(key) != expected_value
+        for key, expected_value in {
+            "DRIVE_WORKER_MODE": "true",
+            "DB_POOL_MIN_SIZE": "0",
+            "DB_POOL_MAX_SIZE": "2",
+            "DB_SQLALCHEMY_POOL_SIZE": "1",
+            "DB_SQLALCHEMY_MAX_OVERFLOW": "0",
+        }.items()
+    ):
+        raise ValueError("worker_capacity_contract_mismatch")
+    _verify_staged_launcher(value, worker)
+    if version is not None and (
+        values.get("PROTECTED_DOCUMENT_DELIVERY_ENABLED") != expected["protected"]
+        or refs.get("BACKEND_RUNTIME_CONFIG_JSON")
+        != {"name": expected["config_secret"], "key": version}
+    ):
+        raise ValueError("worker_immutable_config_mismatch")
+
+
+def verify_scanner_startup(value: dict, fields: dict, *, read, pause) -> None:
+    if fields["protected"] != "true":
+        return
+    name = value["metadata"]["name"]
+    created = value["metadata"].get("creationTimestamp")
+    if not created or not re.fullmatch(r"[0-9TZ:.-]+", created):
+        raise ValueError("worker_creation_timestamp_unavailable")
+    for attempt in range(12):
+        rows = read(
+            "logging",
+            "read",
+            f'resource.type="cloud_run_revision" AND resource.labels.service_name="{SERVICE}" AND resource.labels.revision_name="{name}" AND timestamp>="{created}" AND textPayload:"drive_worker_startup stage=scanner outcome=ready"',
+            "--limit=100",
+        )
+        if not isinstance(rows, list):
+            raise ValueError("worker_eicar_evidence_invalid")
+        if any(
+            "drive_worker_startup stage=scanner outcome=ready"
+            in str(row.get("textPayload", ""))
+            and row.get("resource", {}).get("labels", {}).get("revision_name") == name
+            for row in rows
+        ):
+            return
+        if attempt < 11:
+            pause(5)
+    raise ValueError("worker_eicar_startup_attestation_unavailable")
+
+
+def staged_template(value: dict, fields: dict, version: str, name: str) -> dict:
+    template = copy.deepcopy(value["spec"]["template"])
+    metadata = {
+        key: template.get("metadata", {}).get(key, {})
+        for key in ("labels", "annotations")
+    }
+    template["metadata"] = metadata
+    metadata["name"] = name
+    metadata.setdefault("labels", {}).update(
+        {"deploy-sha": fields["source"], "github-run-id": fields["run_id"]}
+    )
+    worker = next(
+        item
+        for item in template["spec"]["containers"]
+        if item["name"] == "drive-worker"
+    )
+    worker["image"] = fields["image"]
+    env = [
+        item
+        for item in worker["env"]
+        if item["name"]
+        not in {"BACKEND_RUNTIME_CONFIG_JSON", "PROTECTED_DOCUMENT_DELIVERY_ENABLED"}
+    ]
+    worker["env"] = env + [
+        {
+            "name": "BACKEND_RUNTIME_CONFIG_JSON",
+            "valueFrom": {
+                "secretKeyRef": {"name": fields["config_secret"], "key": version}
+            },
+        },
+        {"name": "PROTECTED_DOCUMENT_DELIVERY_ENABLED", "value": fields["protected"]},
+    ]
+    return template
 
 
 def main() -> int:

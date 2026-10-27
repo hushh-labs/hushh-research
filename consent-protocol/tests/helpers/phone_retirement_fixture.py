@@ -16,15 +16,17 @@ def lifecycle_retirement_revisions(
             name=f"consent-protocol-{name}", service="consent-protocol", sha=sha
         )
         revision["metadata"]["labels"]["account-deletion-contract"] = "v201"
+        revision["metadata"]["uid"] = "fixture-" + name
         revisions.append(revision)
     revisions[0]["metadata"]["labels"]["github-run-id"] = "123"
     service = {
+        "metadata": {"uid": "fixture-service"},
         "status": {
             "traffic": [
                 {"revisionName": "consent-protocol-current", "percent": 100},
                 {"revisionName": "consent-protocol-legacy", "tag": "legacy-test"},
                 {"revisionName": "consent-protocol-prephone", "tag": "prephone-test"},
             ]
-        }
+        },
     }
     return service, revisions

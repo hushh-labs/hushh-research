@@ -442,5 +442,50 @@ class ImmutableStateArchiveTests(unittest.TestCase):
                         self.assertEqual(list(directory.iterdir()), [])
 
 
+class CheckpointRestoreCopyTest(unittest.TestCase):
+    def test_trusted_missing_readme_preserves_pending_journal_and_blocks_mutation(self):
+        for defect in (None, "digest"):
+            with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temporary:
+                destination = Path(temporary)
+                entries = {"completed.json": json.dumps({"schema_version": 1, "environment": "uat",
+                    "project": "hushh-pda-uat", "release_run_id": 40375889792,
+                    "observed_run_id": 40375889792, "pass_status": "in_progress"}).encode(),
+                    "consent-protocol.json": b'{"pending_mutation":{"operation":"delete","revision":"backend-old"}}'}
+                memory = BytesIO()
+                with ZipFile(memory, "w") as bundle:
+                    for name, content in entries.items():
+                        bundle.writestr(name, content)
+                archive = memory.getvalue()
+                run, item, jobs = fixture()
+                run.update(status="completed", conclusion="failure", event="workflow_dispatch", run_attempt=4)
+                saved = jobs["jobs"][1]["steps"][1]
+                jobs = {"total_count": 1, "jobs": [{"name": "UAT bounded revision cleanup", "status": "completed",
+                    "conclusion": "failure", "run_id": run["id"], "run_attempt": 4, "steps": [
+                        {**saved, "name": name} for name in ("Checkout mutation tooling and rollback history",
+                        "Recheck due source under the deployment lock", "Authenticate to uat", "Save uat cleanup checkpoint")]}]}
+                item.update(size_in_bytes=len(archive), digest="sha256:" + hashlib.sha256(archive).hexdigest())
+                if defect == "digest":
+                    item["digest"] = "sha256:" + "0" * 64
+                def api(_repository, endpoint):
+                    if endpoint.startswith("artifacts?"):
+                        return {"artifacts": [item]}
+                    return jobs if "/jobs?" in endpoint else run
+                def download(arguments, **_kwargs):
+                    self.assertEqual(list(destination.iterdir()), [])
+                    self.assertEqual(arguments, ["gh", "api", f"repos/org/repo/actions/artifacts/{item['id']}/zip"])
+                    return subprocess.CompletedProcess(arguments, 0, archive, b"")
+                with mock.patch.object(maintenance, "api", side_effect=api), mock.patch.object(
+                    maintenance, "download", side_effect=AssertionError("saved checkpoint must use artifact ID")
+                ) as legacy, mock.patch.object(maintenance.retention, "run_command", side_effect=download) as fetch, \
+                    mock.patch.object(maintenance, "assert_checkpoint_publication"):
+                    expected = "digest changed" if defect else "provider outcome is unresolved"
+                    with self.assertRaisesRegex(maintenance.retention.UnsafeState, expected):
+                        maintenance.assert_no_pending_mutations("org/repo", destination, "uat")
+                    fetch.assert_called_once()
+                    legacy.assert_not_called()
+                self.assertEqual({path.name: path.read_bytes() for path in destination.iterdir()},
+                                 {} if defect else entries)
+
+
 if __name__ == '__main__':
     unittest.main()

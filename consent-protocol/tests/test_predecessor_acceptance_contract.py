@@ -1,7 +1,7 @@
 """Exact-SHA predecessor acceptance across the dev, UAT and production lanes."""
 
 import hashlib
-import importlib.util
+import importlib
 import json
 import os
 import re
@@ -10,13 +10,17 @@ import subprocess
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 from zipfile import ZipFile
 
 import pytest
 import yaml
 
+from tests.helpers.predecessor_acceptance import SHA as SHA
+from tests.helpers.predecessor_acceptance import _acceptance_fixture as _acceptance_fixture
+from tests.helpers.predecessor_acceptance import _serving_receipt as _serving_receipt
+
 ROOT = Path(__file__).resolve().parents[2]
-SHA = "f" * 40
 
 
 def _bash() -> str:
@@ -25,127 +29,32 @@ def _bash() -> str:
     return bash
 
 
-def _serving_receipt(module, env, run_id):
-    expected = {
-        "HUSHH_DEPLOY_ENV": env,
-        "HUSHH_DEPLOY_SOURCE": f"deploy-{env}",
-        "HUSHH_DEPLOY_SHA": SHA,
-        "HUSHH_DEPLOY_RUN_ID": str(run_id),
-    }
-    release = {
-        "status": "healthy",
-        "sha": SHA,
-        "scope": "all",
-        "final": {},
-        "current": {},
-        "verification": {
-            "parity_success": "true",
-            "semantic_success": "true",
-            "provenance_success": "true",
-            "backend_provenance": "success",
-            "frontend_provenance": "success",
-            "db_contract": "success",
-        },
-    }
-    receipt = {
-        "schema_version": 1,
-        "repository": module.REPOSITORY,
-        "environment": env,
-        "workflow": f".github/workflows/deploy-{env}.yml",
-        "target": "shared-dev" if env == "dev" else "uat",
-        "run_id": run_id,
-        "run_attempt": 2,
-        "resolved_services": ["backend", "frontend"],
-        "release": release,
-        "provenance": {},
-        "classification": {
-            "status": "healthy",
-            "release_failed": False,
-            "blocking_classifications": [],
-            "semantic": {"success": True, "report_present": True, "blocking_failures": []},
-        },
-        "required_checks": {
-            "pkm": {"required": True, "outcome": "success"},
-            "reviewer": {"required": True, "outcome": "success"},
-        },
-    }
-    for service, name in module.SERVICES.items():
-        revision = name + "-00042-abc"
-        release["final"].update({f"{service}_revision": revision, f"{service}_sha": SHA})
-        release["current"][f"{service}_candidate_revision"] = revision
-        receipt["provenance"][service] = {
-            "project": module.LANES[env],
-            "region": "us-central1",
-            "service": name,
-            "status": "healthy",
-            "ok": True,
-            "mode": "live_traffic",
-            "expected": expected,
-            "failures": [],
-            "checked_revisions": [
-                {
-                    "revision": revision,
-                    "traffic_percent": 100,
-                    "env": expected,
-                    "ok": True,
-                    "mismatches": [],
-                },
-            ],
-        }
-    return receipt
-
-
-def _acceptance_fixture():
-    path = ROOT / "scripts/ci/verify-predecessor-acceptance.py"
-    spec = importlib.util.spec_from_file_location("predecessor_acceptance", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    receipts, responses, pins = {}, {}, {}
-    for env, run_id in (("dev", 10), ("uat", 20)):
-        receipt = _serving_receipt(module, env, run_id)
-        if env == "uat":
-            receipt["predecessor"] = {
-                "status": "accepted",
-                "environment": "dev",
-                "sha": SHA,
-                "services": {name: pins["dev"] for name in module.SERVICES},
-            }
-        archive = BytesIO()
-        with ZipFile(archive, "w") as bundle:
-            bundle.writestr("acceptance.json", json.dumps(receipt))
-        digest = "sha256:" + hashlib.sha256(archive.getvalue()).hexdigest()
-        pin = {
-            "run_id": run_id,
-            "run_attempt": 2,
-            "artifact_id": run_id + 1,
-            "artifact_digest": digest,
-        }
-        pins[env], receipts[env] = pin, receipt
-        responses[f"runs/{run_id}/attempts/2"] = {
-            "id": run_id,
-            "run_attempt": 2,
-            "path": receipt["workflow"],
-            "head_branch": "main",
-            "event": "workflow_dispatch",
-            "status": "completed",
-            "conclusion": "success",
-            "repository": {"full_name": module.REPOSITORY},
-            "head_repository": {"full_name": module.REPOSITORY},
-            # Dispatch source differs from accepted application source.
-            "head_sha": "a" * 40,
-        }
-        responses[f"artifacts/{run_id + 1}"] = {
-            "id": run_id + 1,
-            "name": f"release-acceptance-{env}-{run_id}-2",
-            "expired": False,
-            "workflow_run": {"id": run_id},
-            "digest": digest,
-            "size_in_bytes": len(archive.getvalue()),
-        }
-        responses[f"artifacts/{run_id + 1}/zip"] = archive.getvalue()
-    client = module.GitHub()
-    client.read = lambda path, **_: responses[path]
-    return module, client, receipts, responses, pins
+@pytest.mark.parametrize("supports_escape_flag", [True, False])
+def test_bounded_reader_keeps_raw_job_logs_in_its_pipe_and_rejects_other_paths(
+    tmp_path, monkeypatch, supports_escape_flag
+):
+    module, *_ = _acceptance_fixture()
+    executable = tmp_path / "gh"
+    executable.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        f"supports = {supports_escape_flag!r}\n"
+        "if '--help' in sys.argv:\n"
+        "    print('--allow-escape-sequences' if supports else 'usage'); sys.exit(0)\n"
+        "if supports != ('--allow-escape-sequences' in sys.argv): sys.exit(1)\n"
+        "sys.stdout.buffer.write(b'\\x1b[31mfixed synthetic log\\x1b[0m\\n')\n"
+    )
+    executable.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    if supports_escape_flag:
+        with pytest.raises(module.Refused, match="GitHub lookup failed"):
+            module.bounded_github_read("jobs/42/logs", 5)
+    assert module.bounded_github_read("jobs/42/logs", 5, allow_escape_sequences=True) == (
+        b"\x1b[31mfixed synthetic log\x1b[0m\n"
+    )
+    for path in ("jobs/0/logs", "jobs/42/logs?redirect=1", "artifacts/42/zip"):
+        with pytest.raises(module.Refused, match="exact job log"):
+            module.bounded_github_read(path, 5, allow_escape_sequences=True)
 
 
 def test_predecessor_requires_exact_application_sha_and_pinned_dev_chain():
@@ -396,7 +305,9 @@ def test_every_release_image_mode_requires_predecessor_before_mutation(environme
 
 @pytest.mark.parametrize("environment", ["dev", "uat", "production"])
 @pytest.mark.parametrize("classified", [False, True])
-def test_release_status_never_treats_a_missing_classifier_as_healthy(environment, classified):
+def test_release_status_never_treats_a_missing_classifier_as_healthy(
+    environment, classified, tmp_path
+):
     workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
     steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
     step = next(step for step in steps if "release status artifact" in step.get("name", ""))
@@ -409,6 +320,7 @@ def test_release_status_never_treats_a_missing_classifier_as_healthy(environment
     environment_variables = os.environ.copy()
     environment_variables.pop("BASH_ENV", None)
     environment_variables["DEV_TARGET"] = "shared-dev"
+    environment_variables["GITHUB_OUTPUT"] = str(tmp_path / "github-output")
     result = subprocess.run(  # noqa: S603 - actual classification shell with fixed synthetic observations
         [_bash(), "-c", script + '\nprintf "%s" "$STATUS"\n'],
         env=environment_variables,
@@ -468,3 +380,57 @@ def test_acceptance_producer_fences_failed_final_readback_and_missing_verificati
         module.validate(
             json.loads(output.read_text()), environment="dev", sha=SHA, service="frontend"
         )
+
+
+def _maintenance_log_ports(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+    return (
+        importlib.import_module("retention_publication"),
+        importlib.import_module("uat-retention-maintenance"),
+        importlib.import_module("verify-predecessor-acceptance"),
+    )
+
+
+@pytest.mark.parametrize("supports_escape_flag", [False, True])
+def test_maintenance_raw_transport_never_prints_private_log_payloads(
+    monkeypatch, capsys, supports_escape_flag
+):
+    publication, maintenance, reader = _maintenance_log_ports(monkeypatch)
+    calls = []
+
+    def read(arguments, timeout):
+        calls.append((arguments, timeout))
+        if arguments == ["gh", "api", "--help"]:
+            return b"--allow-escape-sequences" if supports_escape_flag else b"usage"
+        return b"PRIVATE_LOG_SENTINEL"
+
+    with mock.patch.object(reader, "_bounded_process_read", side_effect=read):
+        assert publication._log(maintenance, {"id": 200}) == "PRIVATE_LOG_SENTINEL"
+    assert calls[0][0] == ["gh", "api", "--help"]
+    assert calls[1][0][-1] == "repos/hushh-labs/hushh-research/actions/jobs/200/logs"
+    assert ("--allow-escape-sequences" in calls[1][0]) == supports_escape_flag
+    assert "PRIVATE_LOG_SENTINEL" not in capsys.readouterr().out
+
+
+def test_maintenance_transport_failure_keeps_private_diagnostics_closed(monkeypatch, capsys):
+    publication, maintenance, reader = _maintenance_log_ports(monkeypatch)
+    with mock.patch.object(
+        reader, "bounded_github_read", side_effect=reader.Refused("PRIVATE_CREDENTIAL_SENTINEL")
+    ):
+        with pytest.raises(
+            maintenance.retention.UnsafeState, match="bounded log lookup failed"
+        ) as error:
+            publication._log(maintenance, {"id": 200})
+    assert "PRIVATE_CREDENTIAL_SENTINEL" not in str(error.value)
+    assert "PRIVATE_CREDENTIAL_SENTINEL" not in capsys.readouterr().out
+
+
+def test_cli_capability_probe_shares_the_original_read_deadline(monkeypatch):
+    _, _, reader = _maintenance_log_ports(monkeypatch)
+    with (
+        mock.patch.object(reader.time, "monotonic", side_effect=[10.0, 11.0]),
+        mock.patch.object(reader, "_bounded_process_read", side_effect=[b"usage", b"log"]) as read,
+    ):
+        assert reader.bounded_github_read("jobs/200/logs", 5, allow_escape_sequences=True) == b"log"
+    assert read.call_args_list[0].args[1] == 5
+    assert read.call_args_list[1].args[1] == 4
