@@ -48,7 +48,9 @@ export function useGoogleInvitationPhotos({ enabled, ownerId, accountId, account
   // the application owner and changes generation across sign-out and reauth.
   const principal = snapshotValidatedAuthSessionPrincipal();
   const selectedPrincipal = principal?.firebaseUid === ownerId ? principal : null;
+  const selectedGeneration = selectedPrincipal?.generation;
   const accountKey = JSON.stringify([ownerId, selectedPrincipal?.ownerId, selectedPrincipal?.accountGeneration, selectedPrincipal?.generation, accountId, accountEmail?.trim().toLowerCase() || "", grantGeneration, grantedScopes, subjectSha256, hostedDomain || ""]);
+  const canPreloadAuth = enabled && Boolean(selectedPrincipal);
   const grantRef = useRef<GooglePhotoGrant | null>(enabled && selectedPrincipal ? restoreGoogleInvitationPhotoGrant(accountKey) : null);
   const [photos, setPhotos] = useState<ReadonlyMap<string, GoogleInvitationPhoto>>(() => new Map());
   const [message, setMessage] = useState<string | null>(null);
@@ -64,7 +66,7 @@ export function useGoogleInvitationPhotos({ enabled, ownerId, accountId, account
   const currentAccount = useRef(accountKey);
   currentAccount.current = accountKey;
 
-  useEffect(() => { if (enabled && selectedPrincipal) void preloadGoogleInvitationPhotoAuth().catch(() => undefined); }, [enabled, selectedPrincipal?.generation]);
+  useEffect(() => { if (canPreloadAuth) void preloadGoogleInvitationPhotoAuth().catch(() => undefined); }, [canPreloadAuth, accountKey]);
   useEffect(() => {
     if (retainedGrant && (retainedGrant.accountKey !== accountKey || retainedGrant.grant.expiresAt <= Date.now())) {
       forgetGoogleInvitationPhotoGrant();
@@ -160,13 +162,14 @@ export function useGoogleInvitationPhotos({ enabled, ownerId, accountId, account
   useEffect(() => {
     const grant = grantRef.current;
     if (!grant) return;
-    if (!selectedPrincipal || displayKey !== accountKey) return;
+    const readPrincipal = snapshotValidatedAuthSessionPrincipal();
+    if (!readPrincipal || readPrincipal.firebaseUid !== ownerId || readPrincipal.generation !== selectedGeneration || displayKey !== accountKey) return;
     if (grant.expiresAt <= Date.now()) { clear(); setMessage("Google photo access expired. Choose the account again."); return; }
     if (!emailsKey) { setPhotos(new Map()); return; }
     readAbort.current?.abort();
     const controller = new AbortController();
     readAbort.current = controller;
-    const expectedPrincipal = selectedPrincipal;
+    const expectedPrincipal = readPrincipal;
     const stillCurrent = () => !controller.signal.aborted && currentAccount.current === accountKey && grantRef.current === grant && isValidatedAuthSessionOwnerCurrent(expectedPrincipal);
     const emails = emailsKey.split("\n");
     const now = Date.now();
@@ -221,7 +224,7 @@ export function useGoogleInvitationPhotos({ enabled, ownerId, accountId, account
       }
     })();
     return () => controller.abort();
-  }, [accountKey, displayKey, emailsKey, grantVersion, refreshTick, clear]);
+  }, [accountKey, displayKey, emailsKey, grantVersion, refreshTick, clear, ownerId, selectedGeneration]);
 
   const current = Boolean(selectedPrincipal && isValidatedAuthSessionOwnerCurrent(selectedPrincipal) && displayKey === accountKey);
   return { photos: current && (grantRef.current?.expiresAt || 0) > Date.now() ? photos : new Map<string, GoogleInvitationPhoto>(), message, loading, permission: current ? permission : null, authorize, clear,

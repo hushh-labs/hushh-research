@@ -8,6 +8,8 @@ import type { CalendarInvitation } from "@/lib/services/google-calendar-service"
 // each presentation path without relying on a browser image-load event.
 vi.mock("@/components/ui/avatar", () => ({
   Avatar: ({ children, ...props }: HTMLAttributes<HTMLSpanElement>) => <span {...props}>{children}</span>,
+  // This test mock needs a raw img to inspect its source without Next image loading.
+  // eslint-disable-next-line @next/next/no-img-element
   AvatarImage: ({ src }: { src: string }) => <img src={src} alt="" />,
   AvatarFallback: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
