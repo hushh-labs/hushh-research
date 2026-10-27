@@ -323,7 +323,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
           mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"
           cp deploy/account-deletion/{install,remove}_release_fence.sql \
-            deploy/account-deletion/activate_release.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
+            deploy/account-deletion/activate_release.py deploy/account-deletion/release_source.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
             deploy/account-deletion/verify_release_boundary.sql \
             "${RUNNER_TEMP}/release-tools/account-deletion/"
           cp config/runtime-capacity.json \
@@ -349,6 +349,7 @@ jobs:
             printf '%s\n' \
               scripts/deploy/backend-deploy.sh \
               scripts/deploy/backend-capacity-settings.sh \
+              scripts/deploy/backend-app-surface-settings.sh \
               scripts/deploy/verify-managed-vertex-runtime.sh \
               scripts/deploy/commerce-preview-bindings.sh \
               scripts/deploy/backend-model-settings.sh \
@@ -413,7 +414,7 @@ jobs:
               cp "${RUNNER_TEMP}/release-tools/$tool" "$tool"
             done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
             printf '\n!deploy/email-auth/bind_secrets.sh\n' >> .gcloudignore
-            printf '\n!deploy/plg/bind_secrets.sh\n!scripts/deploy/backend-capacity-settings.sh\n' >> .gcloudignore
+            printf '\n!deploy/plg/bind_secrets.sh\n!scripts/deploy/backend-capacity-settings.sh\n!scripts/deploy/backend-app-surface-settings.sh\n' >> .gcloudignore
           fi
 
       - name: Validate Google Cloud workload identity configuration

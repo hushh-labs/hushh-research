@@ -63,6 +63,30 @@ def qualify_source(sha: str) -> dict:
     return record
 
 
+def qualify_deployment(
+    sha: str,
+    *,
+    scope: str,
+    image_source: str,
+    drive_mode: str,
+    cadence_origin: str,
+    phone_rollback_sha: str,
+    enable_email_kyc: str,
+) -> dict:
+    """Bound the exceptional receipt to the paired, manually requested restore."""
+    record = qualify_source(sha)
+    require(
+        scope == "all"
+        and image_source == "build-from-source"
+        and drive_mode == "disable"
+        and cadence_origin == ""
+        and phone_rollback_sha == ""
+        and enable_email_kyc == "false",
+        "Restoration requires paired source builds, disabled Drive intake and no new capabilities or cadence",
+    )
+    return record
+
+
 def qualify_schema(connection, record: dict, *, require_empty_documents: bool) -> dict:
     """Inspect the installed production contract without DDL or data writes."""
     from psycopg2 import sql
@@ -84,7 +108,12 @@ def qualify_schema(connection, record: dict, *, require_empty_documents: bool) -
         )
         require(
             record.get("requiredAbsentTables")
-            == ["account_phone_transfers", "account_phone_auth_fences"],
+            == [
+                "account_phone_transfers",
+                "account_phone_auth_fences",
+                "account_phone_recovery_continuations",
+                "account_device_actions",
+            ],
             "Phone compatibility boundary changed",
         )
         for table in record["requiredAbsentTables"]:
