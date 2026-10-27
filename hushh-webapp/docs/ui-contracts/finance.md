@@ -6,6 +6,18 @@ Source owners: `components/kai/kai-market-hub-page.tsx`,
 Evidence date: 2026-10-23. This contract describes source behavior; browser
 fixtures use synthetic holdings and prices, not a signed-in account.
 
+## Back navigation
+
+The shared top-left Back arrow closes an open detail sheet first. From a saved,
+completed or running analysis it returns to Stocks on the same mounted Finance
+page. Retained results cannot reopen that workspace after its query selection
+is cleared. A running analysis continues in the task manager and can be reopened
+with Open active analysis; only Cancel cancels it. Debate, Summary and Detailed
+view selections each return to Stocks before the next Back leaves Finance.
+Statement import opened from Portfolio preserves its opening Finance screen.
+Focused evidence: `kai-analysis-back.test.tsx`, `top-shell-back.test.ts` and the
+authored route Back cases; this is not deployed or physical-device acceptance.
+
 ## Visual Map
 
 ```mermaid

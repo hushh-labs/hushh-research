@@ -397,7 +397,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           ],
         };
       }
-      if (view === "debate") {
+      if (["debate", "summary", "detailed"].includes(view)) {
         return {
           backHref: ROUTES.KAI_ANALYSIS,
           width: "content",
@@ -405,7 +405,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
             { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
-            { label: "Debate" },
+            { label: view === "debate" ? "Debate" : view === "detailed" ? "Detailed analysis" : "Summary" },
           ],
         };
       }
