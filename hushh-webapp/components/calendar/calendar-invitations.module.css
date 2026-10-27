@@ -4,6 +4,13 @@
 @media (max-width: 620px) { .calendarTypography { --type-input-value-size: 16px; } }
 .invitations { min-width: 0; font-family: var(--font-app-body); color: var(--app-label); }
 .filters { margin: 4px 0 24px; }
+.photoAccess { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; padding: 10px 12px; border: 1px solid var(--app-separator); border-radius: 12px; background: var(--app-card-surface-default-solid); color: var(--app-secondary-label); font-size: 12px; line-height: 18px; }
+.photoAccess > span { flex: 1 1 220px; }
+.photoAccess > button { flex: 0 0 auto; max-width: 100%; min-height: 40px; padding: 7px 12px; border: 1px solid var(--app-accent-ring); border-radius: 999px; color: var(--app-accent); background: var(--app-card-surface-default-solid); font-size: 12px; font-weight: 600; cursor: pointer; }
+.photoAccess > button:hover { background: var(--app-accent-surface); }
+.photoAccess > button:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.photoAccess > button:disabled { opacity: .55; cursor: wait; }
+.photoAccess > small { flex-basis: 100%; overflow-wrap: anywhere; }
 .workspace { display: grid; gap: 24px; min-width: 0; }
 .listPane, .detailPane, .copy { min-width: 0; }
 .copy { display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
@@ -83,6 +90,7 @@
 .empty { padding: 32px 16px; color: var(--app-secondary-label); font-size: 14px; }
 @media (min-width:768px) { .detailPane { padding-top: 0; } .inviteCard { grid-template-columns: 50px minmax(0,1fr) 12px; gap: 10px; } .inviteCard .dateBlock { width: 50px; } }
 @media (max-width:620px) { .meeting > a { min-width: 78px; padding-inline: 11px; } }
+@media (max-width:620px) { .photoAccess > button { flex: 1 1 100%; } }
 @media (max-width:350px) { .meeting > a { min-width: 72px; padding-inline: 9px; } }
 
 .invitations[data-workspace=true] { display: grid; gap: 16px; }

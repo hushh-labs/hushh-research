@@ -21,9 +21,10 @@ import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 import { boardOccasionKind, isCountedBoardEvent } from "@/lib/calendar/calendar-board-event";
 import { googleAvatarSource } from "@/lib/profile/provider-avatar";
+import type { CalendarPhotoStatus } from "@/lib/calendar/calendar-photo-account-status";
 import { connectionAvatarInitials } from "@/components/connections/connection-person-avatar";
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
-import { GoogleCalendarService, type CalendarBoardAccount, type CalendarBoardConflict, type CalendarBoardDay, type CalendarEventSummary, type CalendarInvitation, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
+import { GoogleCalendarService, type CalendarBoardAccount, type CalendarBoardConflict, type CalendarBoardDay, type CalendarEventSummary, type CalendarInvitation } from "@/lib/services/google-calendar-service";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
 import { CalendarInvitationActions } from "./calendar-invitation-actions";
 import { CalendarConflictPanel } from "./calendar-conflict-panel";
@@ -35,7 +36,7 @@ import styles from "./calendar-account-board.module.css";
 
 type Props = {
   userId: string;
-  status: GoogleCalendarStatus;
+  status: CalendarPhotoStatus;
   busy: boolean;
   connectionRevision?: number;
   connectionNotice?: React.ReactNode;
@@ -280,7 +281,7 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
         </> : null}
       </> : tab === "invitations" ? <section className={styles.secondary} aria-label="Invitations">
         <label className={styles.accountPicker}>Calendar account<span className={styles.accountPickerControl}><select value={invitationAccount} onChange={event => setInvitationAccount(event.target.value)}>{(status.accounts || []).map(account => <option key={account.account_id} value={account.account_id}>{accountLabel(account.google_email)}</option>)}</select><ChevronDown aria-hidden="true" className={styles.accountPickerChevron} /></span></label>
-        {status.accounts?.find(account => account.account_id === invitationAccount)?.connected ? <CalendarInvitations key={invitationAccount} workspaceLayout connectedProfiles userId={userId} accountId={invitationAccount} accountEmail={status.accounts.find(account => account.account_id === invitationAccount)?.google_email} accountPhotoUrl={status.accounts.find(account => account.account_id === invitationAccount)?.profile_photo_url} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={invitationAccount === "default" ? onConnect : () => onReconnectAccount(invitationAccount)} onMailConnect={onMailConnect} onResult={() => { notifyCalendarChanged(userId); setRevision(value => value + 1); }} /> : <p role="alert">Reconnect this account to see its invitations.</p>}
+        {status.accounts?.find(account => account.account_id === invitationAccount)?.connected ? <CalendarInvitations key={invitationAccount} workspaceLayout connectedProfiles userId={userId} accountId={invitationAccount} accountEmail={status.accounts.find(account => account.account_id === invitationAccount)?.google_email} accountPhotoUrl={status.accounts.find(account => account.account_id === invitationAccount)?.profile_photo_url} accountGrantedScopes={status.accounts.find(account => account.account_id === invitationAccount)?.scope_csv} accountGrantGeneration={status.accounts.find(account => account.account_id === invitationAccount)?.grant_generation} accountSubjectSha256={status.accounts.find(account => account.account_id === invitationAccount)?.provider_subject_sha256} accountHostedDomain={status.accounts.find(account => account.account_id === invitationAccount)?.hosted_domain} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={invitationAccount === "default" ? onConnect : () => onReconnectAccount(invitationAccount)} onMailConnect={onMailConnect} onResult={() => { notifyCalendarChanged(userId); setRevision(value => value + 1); }} /> : <p role="alert">Reconnect this account to see its invitations.</p>}
       </section> : <section className={styles.secondary} aria-label="Calendar insights">
         {board ? <SurfaceCard className={styles.insightSummary}><h2>Across your connected accounts today</h2><p>{board.accounts.reduce((sum, account) => sum + account.events.filter(isCountedBoardEvent).length, 0)} events · {board.conflicts.length} cross-account overlaps · {board.complete ? `${board.shared_free_windows.length} shared openings` : "shared availability incomplete"}</p></SurfaceCard> : null}
         {defaultConnected ? <CalendarInsights key={`${userId}:default:${epoch}:${zone}`} userId={userId} accountKey={`${status.google_email}:default:${connectionRevision || 0}`} date={today} zone={zone} getIdToken={getIdToken} vaultOwnerToken={token} /> : <p>Weekly insights for the default Google account are available when that account is connected.</p>}
