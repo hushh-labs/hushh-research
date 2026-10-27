@@ -128,7 +128,7 @@ def _normal_work_due():
                 OR EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
                   AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
                   AND h.category='financial' AND h.current_version>0 AND h.build_envelope IS NOT NULL
-                  AND h.tagging_next_at IS NULL))"""
+                  AND h.tagging_next_at IS NULL))"""  # nosec B608 # interpolates only the internal fixed h predicate; all runtime values remain bound.
 
 
 async def candidate_owners(store):
