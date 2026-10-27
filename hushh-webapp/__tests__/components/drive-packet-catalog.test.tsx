@@ -41,7 +41,14 @@ beforeEach(() => {
   state.preview.mockResolvedValue(preview); state.preparePreview.mockResolvedValue(preview);
   state.collection.mockImplementation(async (_token, guard) => { guard(); return status; });
 });
-afterEach(() => { cleanup(); advanceVaultSessionEpoch(); publishValidatedAuthSessionPrincipal(null); });
+afterEach(async () => {
+  cleanup();
+  // Radix restores focus in a zero-delay timer. Settle it before this JSDOM
+  // realm is retired, so its CustomEvent belongs to the dialog's document.
+  await act(async () => { await new Promise<void>(resolve => setTimeout(resolve, 0)); });
+  advanceVaultSessionEpoch();
+  publishValidatedAuthSessionPrincipal(null);
+});
 describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
   it("shows four owner category entrypoints before packets exist without starting preparation", async () => {
     state.packets.mockResolvedValue({ packets: [], nextCursor: null });
