@@ -5669,9 +5669,9 @@ final class AppUITests: XCTestCase {
                 if ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                     // Exercise the shared Select adapter, not a Wallet-owned
                     // native picker. No card entry, save or backend mutation.
-                    for (choiceIndex, label) in ["Card network", "Issuing region"].enumerated() {
+                    for (choiceIndex, label) in ["Card network", "Card network", "Issuing region"].enumerated() {
                         let trigger = web.descendants(matching: .any).matching(NSPredicate(
-                            format: "(elementType == %d OR elementType == %d OR elementType == %d OR elementType == %d) AND label CONTAINS %@",
+                            format: "(elementType == %d OR elementType == %d OR elementType == %d OR elementType == %d) AND label == %@",
                             XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.popUpButton.rawValue,
                             XCUIElement.ElementType.comboBox.rawValue, XCUIElement.ElementType.other.rawValue, label)).firstMatch
                         for _ in 0..<4 {
@@ -5688,6 +5688,7 @@ final class AppUITests: XCTestCase {
                                 let namedCancel = NSPredicate(format: "label == %@", "Cancel")
                                 let nativeCancel = app.buttons.matching(namedCancel).count > web.buttons.matching(namedCancel).count
                                 print("WORKSPACE_CHOICE_ADMISSION bootstrap=\(packet["nativeChoiceBootstrap"]?.boolValue == true) ready=\(packet["nativeChoiceReady"]?.intValue ?? 0) presented=\(packet["nativeChoicePresented"]?.intValue ?? 0) blocked=\(packet["nativeChoiceBlocked"]?.intValue ?? 0) native_cancel=\(nativeCancel)")
+                                print("WORKSPACE_CHOICE_NATIVE prepares=\(packet["nativeChoicePreparationCount"]?.intValue ?? -1) stage=\(packet["nativeChoicePreparationStage"]?.intValue ?? -1)")
                             }
                             XCTFail("WORKSPACE_WALLET_CHOICE_NOT_NATIVE"); return
                         }
@@ -5721,6 +5722,7 @@ final class AppUITests: XCTestCase {
                         web = app.webViews.matching(identifier: "native-webview").firstMatch
                         guard web.waitForExistence(timeout: 10) else { XCTFail("WORKSPACE_WALLET_WEB_AX_NOT_RESTORED"); return }
                         print("WORKSPACE_CHOICE_STAGE choice=\(choiceIndex) stage=restored")
+                        print("WORKSPACE_CHOICE_PARENT form=\(web.textFields["Name on card"].firstMatch.exists) add=\(web.buttons["Add a card"].firstMatch.exists)")
                     }
                     // Return to the form's authored Cancel without closing its
                     // parent while an owned native picker is still attached.

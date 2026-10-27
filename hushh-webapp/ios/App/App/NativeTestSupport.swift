@@ -828,6 +828,8 @@ final class NativeVaultLayoutProbe {
             payload["nativeWebInteractive"] = webView.isUserInteractionEnabled
             payload["nativeWebAXHidden"] = webView.accessibilityElementsHidden
             payload["nativeWebInWindow"] = webView.window != nil
+            payload["nativeChoicePreparationCount"] = NativeOwnedChoiceCoordinator.preparationCount
+            payload["nativeChoicePreparationStage"] = NativeOwnedChoiceCoordinator.preparationStage
             // Read UIKit's current docked-keyboard layout guide independently
             // of the Capacitor height event consumed by CSS. A hardware/floating
             // keyboard need not reserve a full-width inset.

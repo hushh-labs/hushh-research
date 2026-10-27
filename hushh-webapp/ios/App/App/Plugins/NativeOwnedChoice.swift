@@ -112,6 +112,10 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
 /// Reuses the native presentation owner and dismissal proof. This coordinator
 /// admits only a web-owned route whose bridge root is not already covered.
 @MainActor final class NativeOwnedChoiceCoordinator {
+    #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+    private(set) static var preparationCount = 0
+    private(set) static var preparationStage = 0
+    #endif
     private let privacyShield: HushhSessionPrivacyShield
     init(privacyShield: HushhSessionPrivacyShield = .shared) { self.privacyShield = privacyShield }
     var parent: () -> UIViewController? = { nil }
@@ -163,6 +167,10 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
         return try? JSONDecoder().decode(type, from: bytes)
     }
     func prepare(_ call: CAPPluginCall) {
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+        Self.preparationCount = min(100_000, Self.preparationCount + 1)
+        Self.preparationStage = 1
+        #endif
         guard let options = call.options as? [String: Any], NativeOwnedChoiceProjection.closed(options),
               let next = decode(call, keys: NativeOwnedChoiceProjection.keys, as: NativeOwnedChoiceProjection.self), next.valid,
               next.updateSequence == 1, privacyMatches(next), admitOwner(next.identity), permitted(next) else {
@@ -180,6 +188,9 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
               let parent = parent(), parent.view.window != nil, parent.presentedViewController == nil else {
             call.reject("OWNED_CHOICE_PRESENTATION_REFUSED"); return
         }
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+        Self.preparationStage = 2
+        #endif
         let model = OwnedChoiceModel(next)
         let host = UIHostingController(rootView: OwnedChoiceBody(model: model))
         host.view.accessibilityIdentifier = "native-owned-choice"
@@ -205,6 +216,9 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
                 self.retire(); return
             }
             session.active = true
+            #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+            Self.preparationStage = 3
+            #endif
             self.changed()
             let calls = session.pending; session.pending = []
             calls.forEach { $0.resolve(session.state.receipt("active", sequence: session.updateSequence)) }

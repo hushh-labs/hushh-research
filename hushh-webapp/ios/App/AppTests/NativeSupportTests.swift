@@ -96,6 +96,23 @@ final class NativeSupportTests: XCTestCase {
                 if case let .dictionary(value)? = result?.resultData { confirmed = value["phase"] as? String == "retired" }
             }, error: { _ in XCTFail("CHOICE_ABSENCE_REFUSED") }))
         choice.readState(absent); XCTAssertTrue(confirmed); XCTAssertEqual(events, 0)
+        var larger = projection
+        larger["revision"] = 2; larger["visitId"] = "public-large-visit"
+        larger["options"] = (0..<251).map { ["handle": "public-option-\($0)", "label": "Public option \($0)", "selected": $0 == 0, "disabled": false] as [String: Any] }
+        let largeActive = expectation(description: "Large native list presents after adjacent retirement")
+        let prepareLarge = try XCTUnwrap(CAPPluginCall(callbackId: "public-large", methodName: "prepareOwnedChoice", options: larger,
+            success: { _, _ in largeActive.fulfill() }, error: { _ in XCTFail("CHOICE_LARGE_PREPARE_REFUSED"); largeActive.fulfill() }))
+        choice.prepare(prepareLarge)
+        await fulfillment(of: [largeActive], timeout: 5)
+        XCTAssertTrue(choice.coversPresentation)
+        var largeIdentity = identity
+        largeIdentity["revision"] = 2; largeIdentity["visitId"] = "public-large-visit"
+        let largeDetached = expectation(description: "Large native list actually disappears")
+        let retireLarge = try XCTUnwrap(CAPPluginCall(callbackId: "public-large-retire", methodName: "retireOwnedChoice", options: largeIdentity,
+            success: { _, _ in largeDetached.fulfill() }, error: { _ in XCTFail("CHOICE_LARGE_RETIRE_REFUSED"); largeDetached.fulfill() }))
+        choice.retire(retireLarge)
+        await fulfillment(of: [largeDetached], timeout: 5)
+        XCTAssertTrue(web.isUserInteractionEnabled); XCTAssertFalse(web.accessibilityElementsHidden)
         shield.protectForAppInactive()
         container.conceal()
         container.isolateForOwnedDrawer(true)

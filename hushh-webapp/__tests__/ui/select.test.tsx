@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { renderToString } from "react-dom/server";
 import { hydrateRoot, type Root } from "react-dom/client";
+import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import { NativeOwnedChoiceLease, validOwnedChoiceProjection, type OwnedChoiceEvent, type OwnedChoiceProjection, type OwnedChoiceReceipt } from "@/lib/capacitor/native-owned-choice";
 
 const runtime = vi.hoisted(() => ({
@@ -68,6 +69,26 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("shared Select native presentation", () => {
+  it("opens the country selector after cancelling an adjacent native choice without replacing either form owner", async () => {
+    render(<form><Field /><Select value="none"><SelectTrigger aria-label="Issuing region"><SelectValue /></SelectTrigger>
+      <SelectContent><SelectItem value="none">Select region…</SelectItem>
+        {COUNTRY_PHONE_OPTIONS.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+      </SelectContent></Select></form>);
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Visibility" }), { key: "Enter" });
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+    const first = runtime.prepare.mock.calls[0][0] as OwnedChoiceProjection;
+    await act(async () => { for (const callback of runtime.events) {
+      const { phase: _, ...identity } = receipt(first);
+      callback({ ...identity, sequence: 1, outcome: "cancelled" });
+    } });
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Issuing region" }), { key: "Enter" });
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledTimes(2));
+    const second = runtime.prepare.mock.calls[1][0] as OwnedChoiceProjection;
+    expect(second.options).toHaveLength(COUNTRY_PHONE_OPTIONS.length + 1);
+    expect(validOwnedChoiceProjection(second)).toBe(true);
+    expect(second.visitId).not.toBe(first.visitId);
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
   it.each(["private-a", undefined])("hydrates a form initialized with %s without replacing its trigger or changing its option owner", async defaultValue => {
     runtime.native = false;
     const container = document.createElement("div");
