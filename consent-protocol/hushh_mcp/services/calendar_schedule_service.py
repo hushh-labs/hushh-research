@@ -23,8 +23,11 @@ from zoneinfo import ZoneInfo
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from hushh_mcp.runtime_settings import get_app_runtime_settings, get_core_security_settings
-from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, get_gmail_delivery_service
-from hushh_mcp.services.gmail_receipts_service import GmailApiError
+from hushh_mcp.services.calendar_attendance_confirmation import (
+    claim_attendance_review,
+    send_reviewed_organizer_mail,
+)
+from hushh_mcp.services.gmail_delivery_service import get_gmail_delivery_service
 from hushh_mcp.services.google_calendar_service import (
     GoogleCalendarService,
     get_google_calendar_service,
@@ -1062,23 +1065,9 @@ class CalendarScheduleService:
                 "The connected Calendar account changed. Review this invitation again.", 409
             )
         params = {"review_id": review_id, "user_id": user_id}
-        claim = await self._sql(
-            "UPDATE calendar_attendance_reviews SET state = 'executing' WHERE review_id = :review_id AND user_id = :user_id AND state = 'prepared' AND expires_at > NOW() RETURNING review_id",
-            params,
-        )
-        if not claim.data:
-            current = await self._sql(
-                "SELECT result_json FROM calendar_attendance_reviews WHERE review_id = :review_id AND user_id = :user_id",
-                params,
-            )
-            if current.data and current.data[0].get("result_json"):
-                result = current.data[0]["result_json"]
-                return json.loads(result) if isinstance(result, str) else result
-            raise _error(
-                "This confirmation is in progress or expired. Check Calendar before retrying.",
-                409,
-                "calendar_confirmation_pending",
-            )
+        replay = await claim_attendance_review(self, user_id=user_id, review_id=review_id)
+        if replay is not None:
+            return replay
         value_epoch = await capture_value_epoch(user_id)
         patch_attempted = False
         result = {
@@ -1175,28 +1164,7 @@ class CalendarScheduleService:
                 if isinstance(exc, GoogleConnectionError)
                 else "Calendar could not confirm your response."
             )
-        if result["calendar"] == "declined" and plan.get("mail"):
-            try:
-                await self.calendar._check_read_binding(user_id, tuple(plan["binding"]))
-                sent = await (self.mail or get_gmail_delivery_service()).execute(
-                    user_id=user_id,
-                    action_id=plan["mail"]["action_id"],
-                    draft_payload=plan["mail"]["draft"],
-                )
-                result["email"] = "sent" if sent.get("state") == "sent" else "unknown"
-                if result["email"] == "unknown":
-                    result["email_error"] = (
-                        "Delivery could not be confirmed. Check Sent Mail before sending again."
-                    )
-            except (GmailDeliveryError, GmailApiError) as exc:
-                code = exc.code or ""
-                result["email"] = "unknown" if "UNKNOWN" in code or "ALREADY" in code else "failed"
-                result["email_error"] = str(exc)
-            except Exception:
-                result["email"] = "unknown"
-                result["email_error"] = (
-                    "Your attendance was declined, but email delivery could not be confirmed. Check Sent Mail before trying again."
-                )
+        await send_reviewed_organizer_mail(self, user_id=user_id, plan=plan, result=result)
         await self._sql(
             "UPDATE calendar_attendance_reviews SET state = 'complete', result_json = CAST(:result AS jsonb) WHERE review_id = :review_id AND user_id = :user_id",
             {**params, "result": json.dumps(result)},
