@@ -924,6 +924,13 @@ for (const width of [320, 1440]) {
       const qr = page.getByRole("img", { name: kind === "Referral" ? "Your referral QR code" : "Your Wallet Profile QR code", exact: true });
       const originalQr = await qr.evaluate(el => el.innerHTML);
       const qrActions = page.getByTestId("wallet-qr-actions");
+      // The containing dialog enters at 95% scale. Measure the settled hit
+      // targets rather than sampling its first animation frame; a permanently
+      // undersized target still fails this bounded assertion.
+      await expect.poll(async () => qrActions.evaluate(el => {
+        const heights = [...el.querySelectorAll("button")].map(button => button.getBoundingClientRect().height);
+        return heights.length === 4 ? Math.min(...heights) : 0;
+      })).toBeGreaterThanOrEqual(44 - 0.001);
       const geometry = await qrActions.evaluate(el => {
         const qr = el.querySelector('svg[role="img"]')!.getBoundingClientRect();
         const actions = [...el.querySelectorAll("button")].map(button => {
