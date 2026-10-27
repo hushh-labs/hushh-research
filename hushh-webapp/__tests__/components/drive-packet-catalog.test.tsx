@@ -43,9 +43,11 @@ beforeEach(() => {
 });
 afterEach(async () => {
   cleanup();
-  // Radix defers unmount autofocus; settle it before jsdom releases this realm.
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-  advanceVaultSessionEpoch(); publishValidatedAuthSessionPrincipal(null);
+  // Radix restores focus in a zero-delay timer. Settle it before this JSDOM
+  // realm is retired, so its CustomEvent belongs to the dialog's document.
+  await act(async () => { await new Promise<void>(resolve => setTimeout(resolve, 0)); });
+  advanceVaultSessionEpoch();
+  publishValidatedAuthSessionPrincipal(null);
 });
 describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
   it("shows four owner category entrypoints before packets exist without starting preparation", async () => {
