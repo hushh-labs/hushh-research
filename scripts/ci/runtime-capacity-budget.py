@@ -2,7 +2,8 @@
 """Fail-closed Cloud Run to Cloud SQL connection admission check.
 
 This command is read only. The default pre-deploy phase reserves one new
-revision of each configured database-using service during deployment overlap.
+revision of each ordinary database-using service during deployment overlap.
+Isolated qualification candidates require an explicit candidate-service request.
 Scoped releases may name only the services that will create a new revision.
 Use --phase post-release to check retained capacity without another hypothetical
 candidate. Both phases include retained revisions, jobs and administrative reserve.
@@ -590,8 +591,20 @@ def candidate_reservations(
     maintenance: dict[str, Any] | None,
 ) -> tuple[frozenset[str], list[dict[str, Any]]]:
     """Resolve the candidate set before reserving any additional revision."""
+    opt_in = {
+        name
+        for name, settings in config["services"].items()
+        if "candidate_opt_in" in settings
+    }
+    if opt_in and (
+        environment not in {"dev", "uat"}
+        or opt_in != {"consent-protocol-plg-qual"}
+        or config["services"]["consent-protocol-plg-qual"]["candidate_opt_in"]
+        is not True
+    ):
+        raise BudgetError("candidate opt-in is limited to isolated qualification")
     if candidates is None:
-        candidates = frozenset(config["services"])
+        candidates = frozenset(config["services"].keys() - opt_in)
     if candidates - config["services"].keys():
         raise BudgetError("candidate service is not in the capacity profile")
     if inherited - candidates:
@@ -627,6 +640,9 @@ def evaluate(
         raise BudgetError(f"unsupported capacity phase: {phase}")
     policy = connection_policy(profile, environment)
     config = profile["environments"][environment]
+    non_target_services, non_target_jobs = _inventory.non_target_rows(
+        inventory.get("non_target_workloads"), config, environment, profile["region"]
+    )
     maintenance = None
     if maintenance_profile is not None:
         bootstrap_recovery = maintenance_profile in {"serving_backend_clone_v2", "serving_backend_clone_v3"}
@@ -663,7 +679,7 @@ def evaluate(
         f"{config['project']}:{profile['region']}:{config['database_instance']}"
     )
     service_rows: list[dict[str, Any]] = []
-    expected_services = set(config["services"])
+    expected_services = set(config["services"]) | {row["name"] for row in non_target_services}
     optional_services = {
         name
         for name, settings in config["services"].items()
@@ -703,9 +719,10 @@ def evaluate(
             else:
                 effective = {**settings, "candidate": maintenance["candidate"]} if maintenance and name == maintenance["service"] else settings
                 service_rows.append(candidate_connections(name, effective))
-    if set(inventory["jobs"]) != set(config["jobs"]):
-        extra = set(inventory["jobs"]) - set(config["jobs"])
-        missing = set(config["jobs"]) - set(inventory["jobs"])
+    expected_jobs = set(config["jobs"]) | {row["name"] for row in non_target_jobs}
+    if set(inventory["jobs"]) != expected_jobs:
+        extra = set(inventory["jobs"]) - expected_jobs
+        missing = expected_jobs - set(inventory["jobs"])
         raise BudgetError(
             f"job inventory drift: unprofiled={sorted(extra)}, missing={sorted(missing)}"
         )
@@ -713,6 +730,8 @@ def evaluate(
         job_budget(inventory["jobs"][name], settings, connection_name)
         for name, settings in config["jobs"].items()
     ]
+    service_rows.extend(non_target_services)
+    job_rows.extend(non_target_jobs)
     service_rows.extend(extra_rows)
     projected = reserve + sum(row["connections"] for row in service_rows + job_rows)
     return {
@@ -731,12 +750,16 @@ def evaluate(
     }
 
 
-def collect(profile: dict[str, Any], environment: str) -> dict[str, Any]:
+def collect(
+    profile: dict[str, Any], environment: str, *, resolve_secret=None
+) -> dict[str, Any]:
     return _inventory.collect_inventory(
         profile["environments"][environment],
         profile["region"],
         gcloud_json,
         parallel=environment == "uat",
+        environment=environment,
+        resolve_secret=resolve_secret,
     )
 
 
@@ -764,10 +787,12 @@ def main() -> int:
                 if args.inherit_candidate_service is not None
                 else None
             )
+            reader = _cli.dev_route_secret_reader(profile, args.environment, _inventory)
+            reader_options = {"resolve_secret": reader} if reader is not None else {}
             report = evaluate(
                 profile,
                 args.environment,
-                collect(profile, args.environment),
+                collect(profile, args.environment, **reader_options),
                 phase=args.phase,
                 candidate_services=candidate_services,
                 inherited_candidate_services=frozenset(args.inherit_candidate_service or ()),

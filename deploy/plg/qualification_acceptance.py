@@ -60,6 +60,7 @@ AUTHORITY_PATHS = tuple(
                     "base",
                     "foundation",
                     "schema",
+                    "image",
                 )
             ),
             foundation.PATH,
@@ -71,6 +72,7 @@ AUTHORITY_PATHS = tuple(
             "scripts/ci/runtime-capacity-budget.py",
             "scripts/ci/runtime_capacity_inventory.py",
             "scripts/ci/runtime_capacity_cli.py",
+            "scripts/ci/runtime_capacity_target_scope.py",
             "config/runtime-capacity.json",
         }
     )
