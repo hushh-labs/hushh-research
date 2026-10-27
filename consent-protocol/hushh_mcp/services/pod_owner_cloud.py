@@ -65,6 +65,17 @@ def owner_cloud_agent() -> bool:
     return owner_cloud_provider() is not None
 
 
+def private_pod_runtime() -> bool:
+    """Require private custody/session behavior without claiming owner-cloud placement.
+
+    Invalid managed configuration raises instead of reopening a legacy hub path.
+    This is runtime configuration classification, not remote attestation.
+    """
+    from hushh_mcp.services.private_gcp_deployment import hosted_runtime_deployment
+
+    return hosted_runtime_deployment() is not None or owner_cloud_agent()
+
+
 def pod_owner_user_id() -> str:
     """The one person this agent serves, from the hub-signed bindings it trusts.
 
@@ -87,4 +98,4 @@ def pod_owner_user_id() -> str:
     return owners.pop() if len(owners) == 1 else ""
 
 
-__all__ = ["owner_cloud_agent", "owner_cloud_provider", "pod_owner_user_id"]
+__all__ = ["owner_cloud_agent", "owner_cloud_provider", "pod_owner_user_id", "private_pod_runtime"]

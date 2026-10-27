@@ -680,6 +680,12 @@ provision journal, without seeding a policy. Each owner holds US$200 for work an
 US$50 for cleanup. A lost journal or retry cannot replenish that allocation.
 Project IDs can be reserved before creation; capture Resource Manager's actual
 project number in the provision evidence before accepting numeric readback.
+The candidate `retain_hosted_pod_project_observation` port records an ACTIVE
+Resource Manager readback on the same reserved attempt. Repeated matching reads
+are idempotent; changed numbers, owners or attempts refuse. It preserves the
+original assignment and spend slot. A fresh admission check compares that exact
+record before worker-side provider operations, without holding SQL connections
+across cloud work. This port is not yet connected to a live project creator.
 These ceilings are not usage metering or provider spending enforcement.
 Completing live operations still needs exact image/model admission, bounded cost
 checks, retained project creation outcomes, per-owner custody and verified cleanup. A deployment marker,
@@ -701,7 +707,11 @@ selected model project; do not copy hub credentials. Compute, storage, KMS and
 Memory Bank keep their assigned owner-project coordinates. BYOC retains its native
 project and separately approved exact-owner dev bridge. Neither policy is an
 automatic fallback for the other. Live, Files and connector acceptance remain
-independent of text inference.
+independent of text inference. Version 2 deployment markers also bind the exact
+model and profile hash: both ADK and recorded-command transports reject another
+model before constructing a client, and resolve fleet aliases before admission.
+Hosted private chat and memory require verified owner sessions; this does not
+reclassify managed hosting as BYOC or enable the BYOC-only Contacts capability.
 
 Read-only administrative checks on October 26 verified ADC for `kushal@hushh.ai`,
 an active consent-platform folder, project-create authority and one visible open

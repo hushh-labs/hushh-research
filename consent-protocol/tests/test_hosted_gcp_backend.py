@@ -23,6 +23,25 @@ def _hosted_deployment():
     )
 
 
+def test_hosted_bootstrap_is_pure_and_retains_managed_custody(monkeypatch):
+    from dataclasses import replace
+
+    from hushh_mcp.services.hosted_gcp_backend import HostedGcpBackend
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    deployment = _hosted_deployment()
+    adapter = HostedGcpBackend(deployment=deployment)
+    spec = replace(_spec(), hushh_id=deployment.owner, deployment_target="gcp")
+    plan = adapter.render_bootstrap_plan(spec)
+    assert plan["tenancy"] == "hussh-hosted"
+    assert plan["target"]["project"] == deployment.project
+    assert "Hussh retains infrastructure administration" in plan["authorization"]
+    with pytest.raises(RuntimeError, match="admission is unavailable"):
+        adapter._inner._client()
+    with pytest.raises(ValueError, match="assigned authority"):
+        adapter.render_bootstrap_plan(replace(spec, hushh_id="another-owner"))
+
+
 def test_numeric_cloud_run_namespace_requires_independent_project_mapping(monkeypatch):
     from dataclasses import replace
 
@@ -171,10 +190,16 @@ async def test_hosted_rendering_never_authorizes_resource_creation(monkeypatch):
 def hosted_runtime(monkeypatch):
     from dataclasses import replace
 
-    from hushh_mcp.managed_ai_config import load_profile
+    from hushh_mcp.managed_ai_config import load_profile, profile_hash
     from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV
 
-    deployment = replace(_hosted_deployment(), inference_project=load_profile("dev")["project"])
+    profile = load_profile("dev")
+    deployment = replace(
+        _hosted_deployment(),
+        inference_project=profile["project"],
+        inference_model=profile["text_model"],
+        inference_profile_hash=profile_hash(profile),
+    )
     values = {
         "HUSSH_POD_MODE": "true",
         "HUSSH_ID": deployment.owner,
@@ -184,6 +209,7 @@ def hosted_runtime(monkeypatch):
         "HUSSH_POD_KMS_KEY": deployment.kms_key,
         "POD_STORAGE_GCS_BUCKET": deployment.bucket,
         "HUSSH_POD_USER_ADC_ENABLED": "false",
+        "HUSHH_GEMINI_TEXT_MODEL": deployment.inference_model,
         HOSTING_ENV: deployment.encoded(),
     }
     for key in (
@@ -203,6 +229,18 @@ def hosted_runtime(monkeypatch):
     return deployment
 
 
+def test_hosted_model_selection_is_versioned_and_cannot_drift(monkeypatch, hosted_runtime):
+    from hushh_mcp.services.private_gcp_deployment import (
+        PrivateGcpDeployment,
+        hosted_runtime_deployment,
+    )
+
+    assert PrivateGcpDeployment.decode(hosted_runtime.encoded()) == hosted_runtime
+    monkeypatch.setenv("HUSHH_GEMINI_TEXT_MODEL", "gemini-unapproved-model")
+    with pytest.raises(RuntimeError, match="authority could not be verified"):
+        hosted_runtime_deployment()
+
+
 def test_hosted_text_uses_shared_project_with_its_own_workload(monkeypatch, hosted_runtime):
     from api.routes.one.pod_turn import PodTurnRequest, _resolve_runtime_mode
     from hushh_mcp.one_adk.text_runtime import _runtime_model
@@ -218,17 +256,28 @@ def test_hosted_text_uses_shared_project_with_its_own_workload(monkeypatch, host
     monkeypatch.setenv("GEMINI_API_KEY", "synthetic-hub-key-must-not-be-used")
     assert _resolve_runtime_mode(PodTurnRequest(message="Hello"), "gemini") == "hosted_pod_adc"
     model = _runtime_model(
-        runtime_model="gemini-3.7-flash", runtime_mode="hosted_pod_adc", runtime_credential=None
+        runtime_model=hosted_runtime.inference_model,
+        runtime_mode="hosted_pod_adc",
+        runtime_credential=None,
     )
     assert model.client_kwargs["project"] == hosted_runtime.model_project
     assert isinstance(model.client_kwargs["credentials"], _AttachedPodCredentials)
     specialist = ProviderAdkModel(
-        provider="gemini", model="gemini-3.7-flash", credential="", runtime_mode="hosted_pod_adc"
+        provider="gemini",
+        model=hosted_runtime.inference_model,
+        credential="",
+        runtime_mode="hosted_pod_adc",
     )._client()
     assert specialist["project"] == hosted_runtime.model_project
     assert isinstance(specialist["credentials"], _AttachedPodCredentials)
     assert "api_key" not in specialist
     assert managed_ai_settings().project == hosted_runtime.model_project
+    monkeypatch.setattr("hushh_mcp.constants.GEMINI_MODEL", hosted_runtime.inference_model)
+    aliased = ProviderAdkModel(
+        provider="gemini", model="gemini-default", credential="", runtime_mode="hosted_pod_adc"
+    )
+    aliased._client()
+    assert aliased.model == hosted_runtime.inference_model
     assert not owner_cloud_agent()
 
 
@@ -268,7 +317,11 @@ def test_hosted_native_binding_is_still_refused_outside_dev(monkeypatch, hosted_
     from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV
 
     deployment = replace(
-        hosted_runtime, environment="uat", inference_project=hosted_runtime.project
+        hosted_runtime,
+        environment="uat",
+        inference_project=hosted_runtime.project,
+        inference_model=None,
+        inference_profile_hash=None,
     )
     monkeypatch.setenv(HOSTING_ENV, deployment.encoded())
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
@@ -319,3 +372,49 @@ def test_byoc_cannot_select_the_hosted_shared_inference_project():
             hosting_mode="user_gcp",
             inference_project=load_profile("dev")["project"],
         ).validate()
+
+
+def test_hosted_requests_cannot_override_the_reserved_model(monkeypatch, hosted_runtime):
+    from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
+    from hushh_mcp.runtime_providers.owner_gemini import build_owner_gemini_adk_model
+
+    def unexpected_client(**kwargs):
+        pytest.fail("An unadmitted model must be rejected before client creation")
+
+    monkeypatch.setattr("google.genai.Client", unexpected_client)
+    with pytest.raises(ValueError, match="admitted selection"):
+        build_owner_gemini_adk_model("gemini-unapproved", require_hosted=True)
+    with pytest.raises(ValueError, match="admitted selection"):
+        ProviderAdkModel(
+            provider="gemini",
+            model="gemini-unapproved",
+            credential="",
+            runtime_mode="hosted_pod_adc",
+        )._client()
+
+
+@pytest.mark.parametrize("route", ["pod_turn", "pod_memory"])
+def test_hosted_private_calls_require_owner_session(hosted_runtime, route):
+    from importlib import import_module
+
+    from fastapi import HTTPException
+
+    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent, private_pod_runtime
+
+    assert private_pod_runtime()
+    assert not owner_cloud_agent()
+    module = import_module(f"api.routes.one.{route}")
+    with pytest.raises(HTTPException) as error:
+        module._require_local_session("synthetic-hub-token", None)
+    assert error.value.status_code == 403
+    assert error.value.detail == {"code": "POD_OWNER_SESSION_REQUIRED"}
+    module._require_local_session("synthetic-owner-token", {"role": "app"})
+
+
+def test_invalid_private_marker_cannot_reopen_legacy_session_path(monkeypatch, hosted_runtime):
+    from api.routes.one.pod_turn import _require_local_session
+    from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV
+
+    monkeypatch.setenv(HOSTING_ENV, "{}")
+    with pytest.raises(ValueError):
+        _require_local_session("synthetic-hub-token", None)

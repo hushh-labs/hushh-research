@@ -125,8 +125,11 @@ class ProviderAdkModel(BaseLlm):
             if self.runtime_mode == "hosted_pod_adc":
                 from hushh_mcp.runtime_settings import pod_hosted_adc_enabled
 
+                from .owner_gemini import require_admitted_model
+
                 if not pod_hosted_adc_enabled():
                     raise RuntimeError("Hosted pod model authority is unavailable")
+                self.model = require_admitted_model(self.model)
             from .owner_gemini import build_owner_gemini_client
 
             return build_owner_gemini_client()

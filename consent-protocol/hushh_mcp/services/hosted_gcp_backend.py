@@ -10,9 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 from hushh_mcp.services.compute_backend import BACKEND_GCP, BackendHandle, BackendStatus, PodSpec
-from hushh_mcp.services.gcp_backend import GcpBackend
 from hushh_mcp.services.hosted_tier_guard import HostedTierNotPermittedError
 from hushh_mcp.services.private_gcp_deployment import PrivateGcpDeployment
+from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
 
 class HostedGcpBackend:
@@ -25,13 +25,15 @@ class HostedGcpBackend:
         if deployment.hosting_mode != "hussh_hosted" or deployment.environment != "dev":
             raise ValueError("Hosted pod qualification is restricted to explicit dev authority")
         self._deployment = deployment
-        self._inner = GcpBackend(
-            project=deployment.project,
-            region=deployment.region,
+        self._inner = UserGcpBackend(
+            user_project=deployment.project,
+            user_region=deployment.region,
             image=deployment.image,
+            hushh_invoker_sa=deployment.hub_principal,
+            hushh_id=deployment.owner,
             min_instances=0,
-            max_instances=1,
             live=False,
+            private_deployment=deployment,
         )
 
     @property
@@ -52,35 +54,21 @@ class HostedGcpBackend:
         *,
         image_digest: str | None = None,
     ) -> dict[str, Any]:
-        from hushh_mcp.services.private_gcp_deployment import render_private_gcp_service
-
         expected = self._deployment
         digest = expected.image.rsplit("@", 1)[1]
-        if (
-            spec.hushh_id != expected.owner
-            or spec.deployment_target != BACKEND_GCP
-            or spec.region not in {None, expected.region}
-            or spec.expected_service_uid != expected.service_uid
-            or image_digest not in {None, digest}
-            or any(
-                (
-                    spec.user_cloud_project,
-                    spec.user_cloud_region,
-                    spec.user_cloud_bootstrap_sa,
-                    spec.user_cloud_tenant_id,
-                    spec.user_cloud_subscription_id,
-                    spec.user_cloud_resource_group,
-                    spec.azure_vm_host,
-                )
-            )
-        ):
+        expected.require_hosted_spec(spec)
+        if image_digest not in {None, digest}:
             raise ValueError("Hosted pod specification differs from assigned authority")
-        config = self._inner.render_deploy_config(spec)
-        result = render_private_gcp_service(config, spec=spec, deployment=expected, immutable=True)
+        result: dict[str, Any] = self._inner.render_deploy_config(spec, image_digest=digest)
         # The shared base renderer reads the current deployment lane. It may never
         # override the environment captured in the managed assignment.
         expected.verify_observation(result)
         return result
+
+    def render_bootstrap_plan(self, spec: PodSpec) -> dict[str, Any]:
+        self.render_deploy_config(spec)
+        plan: dict[str, Any] = self._inner.render_bootstrap_plan(spec)
+        return plan
 
     async def provision(self, spec: PodSpec) -> BackendHandle:
         raise HostedTierNotPermittedError(
@@ -95,3 +83,12 @@ class HostedGcpBackend:
 
     async def deprovision(self, external_agent_id: str) -> None:
         raise HostedTierNotPermittedError("Hosted pod erasure receipts are not yet qualified")
+
+
+def hosted_backend_for_spec(spec: PodSpec) -> HostedGcpBackend:
+    """Resolve only an explicitly bound managed placement, then validate its spec."""
+    if spec.deployment_target != BACKEND_GCP or spec.private_gcp_deployment is None:
+        raise ValueError("Managed GCP deployment cannot override another hosting target")
+    backend = HostedGcpBackend(deployment=spec.private_gcp_deployment)
+    backend.render_deploy_config(spec)
+    return backend

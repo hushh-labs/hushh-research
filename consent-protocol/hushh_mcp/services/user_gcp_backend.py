@@ -18,7 +18,10 @@ import base64
 import hashlib
 import logging
 import re
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.private_gcp_deployment import PrivateGcpDeployment
 
 from hushh_mcp.services.compute_backend import (
     BACKEND_USER_GCP,
@@ -282,6 +285,8 @@ class UserGcpBackend:
         live: Optional[bool] = None,
         bootstrap_sa: Optional[str] = None,
         hushh_id: Optional[str] = None,
+        private_deployment: PrivateGcpDeployment | None = None,
+        require_private_admission: Callable[[], None] | None = None,
     ) -> None:
         self._user_project = (
             user_project if user_project is not None else _env("HUSSH_USER_GCP_PROJECT")
@@ -309,6 +314,23 @@ class UserGcpBackend:
             bootstrap_sa if bootstrap_sa is not None else _env("HUSSH_USER_GCP_BOOTSTRAP_SA")
         )
         self._owner_hushh_id = hushh_id
+        self._private_deployment = private_deployment
+        self._require_private_admission = require_private_admission
+        self._tenancy = "user-owned"
+        if private_deployment is not None:
+            private_deployment.validate()
+            if (
+                private_deployment.hosting_mode != "hussh_hosted"
+                or private_deployment.environment != "dev"
+                or private_deployment.project != self._user_project
+                or private_deployment.region != self._user_region
+                or private_deployment.hub_principal != self._hushh_invoker_sa
+                or private_deployment.owner != hushh_id
+                or (self._live and require_private_admission is None)
+            ):
+                raise ValueError("Managed private lifecycle requires its admitted dev assignment")
+            self._tenancy = private_deployment.tenancy
+            self.backend_id = "gcp"
         # Reuse the GCP renderer, pinned to the USER's project/region (never live here;
         # the inner backend only renders — this class owns provisioning semantics).
         self._inner = GcpBackend(
@@ -331,6 +353,13 @@ class UserGcpBackend:
         """
         return bool(self._live)
 
+    def _validate_private_spec(self, spec: PodSpec) -> None:
+        deployment = self._private_deployment
+        if deployment is None:
+            return
+        deployment.require_hosted_spec(spec)
+        self.render_deploy_config(spec, image_digest=deployment.image.rsplit("@", 1)[1])
+
     def render_deploy_config(
         self, spec: PodSpec, *, image_digest: Optional[str] = None
     ) -> dict[str, Any]:
@@ -340,7 +369,7 @@ class UserGcpBackend:
             render_private_gcp_service,
         )
 
-        deployment = PrivateGcpDeployment(
+        deployment = self._private_deployment or PrivateGcpDeployment(
             owner=spec.hushh_id,
             hosting_mode="user_gcp",
             environment=_deploy_env_label(),
@@ -397,6 +426,11 @@ class UserGcpBackend:
         never a fresh resolution of the mutable source tag -- so a heal can never silently
         roll the pod's image forward. Only a FIRST provision resolves the tag.
         """
+        if self._private_deployment is not None:
+            self._validate_private_spec(spec)
+            if self._require_private_admission is None:
+                raise RuntimeError("Managed private lifecycle admission is unavailable")
+            self._require_private_admission()
         from hushh_mcp.services import pod_image_copy  # noqa: PLC0415
 
         source = self._image
@@ -417,6 +451,11 @@ class UserGcpBackend:
         project = self._user_project or "<user-project>"
         dest_base = f"{region}-docker.pkg.dev/{project}/one-pod/consent-protocol-pod"
         digest = recorded_digest or pod_image_copy.resolve_source_digest(source, token)
+        if (
+            self._private_deployment is not None
+            and digest != self._private_deployment.image.rsplit("@", 1)[1]
+        ):
+            raise RuntimeError("Managed private image differs from its admitted digest")
         dest_ref = f"{dest_base}@{digest}"
         if not pod_image_copy.image_exists(dest_ref, token):
             pod_image_copy.copy_image(source, dest_ref, token)
@@ -431,7 +470,7 @@ class UserGcpBackend:
         The impersonation grant remains until the owner revokes it.
         """
         slug = _slug(spec.hushh_id)
-        name = _service_name(spec.hushh_id)
+        name = self._private_service_name(spec)
         project = self._user_project or "<user-project>"
         from hushh_mcp.services.gcp_runtime_grants import runtime_grant_plan
 
@@ -459,7 +498,7 @@ class UserGcpBackend:
         mail_dead_letter = f"{mail_topic}-dead-letter"
         mail_dead_letter_sub = f"{mail_topic}-dead-letter-sub"
         plan = {
-            "tenancy": "user-owned",
+            "tenancy": self._tenancy,
             "target": {"project": project, "region": self._user_region},
             "resources": [
                 {
@@ -737,7 +776,26 @@ class UserGcpBackend:
                 service=name,
                 bucket=bucket,
             )
+        return self._private_bootstrap_plan(plan, spec)
+
+    def _private_bootstrap_plan(self, plan: dict[str, Any], spec: PodSpec) -> dict[str, Any]:
+        self._validate_private_spec(spec)
+        if self._private_deployment is not None:
+            plan["authorization"] = (
+                "Hussh-managed dev project, admitted per owner through the retained pilot reservation. "
+                "Hussh retains infrastructure administration; no user-owned cloud claim is made."
+            )
+            for binding in plan["iam"]:
+                if binding.get("role") == "roles/aiplatform.user":
+                    binding["note"] = (
+                        "Assigned-project Vertex authority on Hussh-funded quota; "
+                        "does not authorize the separately bound inference bridge."
+                    )
         return plan
+
+    def _private_service_name(self, spec: PodSpec) -> str:
+        self._validate_private_spec(spec)
+        return _service_name(spec.hushh_id)
 
     def provision_target_for(self, spec: PodSpec) -> dict[str, Any]:
         return {
@@ -755,16 +813,17 @@ class UserGcpBackend:
         from ``UserGcpBootstrap``, and a pod created without them would boot into a
         project with nowhere to write and no key to write with.
         """
+        self._validate_private_spec(spec)
         if self._live:
             return await self._execute_live(spec)
-        name = _service_name(spec.hushh_id)
+        name = self._private_service_name(spec)
         return BackendHandle(
             external_agent_id=name,
             a2a_route=f"{A2A_ADDRESS_BASE}/{spec.hushh_id}",
             status="planned",
             backend=self.backend_id,
             backend_metadata={
-                "tenancy": "user-owned",
+                "tenancy": self._tenancy,
                 "project": self._user_project,
                 "region": spec.region or self._user_region,
                 "service": name,
@@ -790,6 +849,11 @@ class UserGcpBackend:
         different project and a different credential. Two clients would drift, and the
         whole value of the managed tier is that behaviour observed there transfers.
         """
+        if self._private_deployment is not None:
+            if self._require_private_admission is None:
+                raise RuntimeError("Managed private lifecycle admission is unavailable")
+            self._require_private_admission()
+
         from hushh_mcp.services.gcp_run_client import GcpRunClient  # noqa: PLC0415
         from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token  # noqa: PLC0415
 
@@ -1010,7 +1074,7 @@ class UserGcpBackend:
 
         from hushh_mcp.services.gcp_run_client import GcpRunClient
 
-        name = _service_name(spec.hushh_id)
+        name = self._private_service_name(spec)
         client = await asyncio.to_thread(self._client)
 
         # Fetch the existing service FIRST: it is both the create-vs-replace signal and,
@@ -1136,7 +1200,7 @@ class UserGcpBackend:
             status="live" if ready else "deploying",
             backend=self.backend_id,
             backend_metadata={
-                "tenancy": "user-owned",
+                "tenancy": self._tenancy,
                 "project": self._user_project,
                 "region": spec.region or self._user_region,
                 "service": name,
@@ -1180,7 +1244,7 @@ class UserGcpBackend:
 
         from hushh_mcp.services.gcp_run_client import GcpRunClient
 
-        name = _service_name(spec.hushh_id)
+        name = self._private_service_name(spec)
         client = await asyncio.to_thread(self._client)
         service = await asyncio.to_thread(client.get_service, name)
         return GcpRunClient.erasure_fence_target(
@@ -1695,7 +1759,7 @@ class UserGcpBackend:
         A pod already on the current digest is a no-op that reports ``upgraded``
         False. No service at all is a refusal: an upgrade is not a create.
         """
-        name = _service_name(spec.hushh_id)
+        name = self._private_service_name(spec)
         route = f"{A2A_ADDRESS_BASE}/{spec.hushh_id}"
         if not self._live:
             return BackendHandle(
@@ -1704,7 +1768,7 @@ class UserGcpBackend:
                 status="planned",
                 backend=self.backend_id,
                 backend_metadata={
-                    "tenancy": "user-owned",
+                    "tenancy": self._tenancy,
                     "service": name,
                     "source_image": self._image,
                     "upgraded": False,
@@ -1979,7 +2043,7 @@ class UserGcpBackend:
             status="live",
             backend=self.backend_id,
             backend_metadata={
-                "tenancy": "user-owned",
+                "tenancy": self._tenancy,
                 "project": self._user_project,
                 "region": spec.region or self._user_region,
                 "service": name,
@@ -2061,7 +2125,7 @@ class UserGcpBackend:
         if svc is None:
             return None
         labels = ((svc.get("metadata") or {}).get("labels")) or {}
-        if labels.get("hussh-tenancy") != "user-owned":
+        if labels.get("hussh-tenancy") != self._tenancy:
             # A name collision on something we did not create. Not adoptable.
             logger.warning(
                 "user_gcp_backend.discover_foreign service=%s tenancy=%s",
@@ -2081,7 +2145,7 @@ class UserGcpBackend:
             status="live" if ready else "deploying",
             backend=self.backend_id,
             backend_metadata={
-                "tenancy": "user-owned",
+                "tenancy": self._tenancy,
                 "project": self._user_project,
                 "region": self._user_region,
                 "service": name,

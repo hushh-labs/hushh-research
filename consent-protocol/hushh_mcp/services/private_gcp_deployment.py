@@ -30,9 +30,37 @@ class PrivateGcpDeployment:
     # Resource Manager's immutable mapping, captured independently at admission.
     # Cloud Run v1 returns a numeric namespace even when creation used a project ID.
     project_number: str | None = None
+    inference_model: str | None = None
+    inference_profile_hash: str | None = None
+
+    def require_hosted_spec(self, spec: Any) -> None:
+        if (
+            self.hosting_mode != "hussh_hosted"
+            or self.environment != "dev"
+            or spec.hushh_id != self.owner
+            or spec.deployment_target != "gcp"
+            or spec.region not in {None, self.region}
+            or spec.expected_service_uid != self.service_uid
+            or spec.model_credential_mode not in {None, "fleet_adc"}
+            or any(
+                getattr(spec, name, None)
+                for name in (
+                    "user_cloud_project",
+                    "user_cloud_region",
+                    "user_cloud_bootstrap_sa",
+                    "user_cloud_tenant_id",
+                    "user_cloud_subscription_id",
+                    "user_cloud_resource_group",
+                    "azure_vm_host",
+                )
+            )
+        ):
+            raise ValueError("Hosted pod specification differs from assigned authority")
 
     def validate(self, *, executable: bool = True) -> None:
         from hushh_mcp.services.user_gcp_backend import _slug, pod_service_account_id
+
+        _validate_inference_selection(self)
 
         if (
             self.hosting_mode not in {"user_gcp", "hussh_hosted"}
@@ -97,7 +125,7 @@ class PrivateGcpDeployment:
         self.validate()
         return json.dumps(
             {
-                "version": 1,
+                "version": 2 if self.inference_model is not None else 1,
                 "owner": self.owner,
                 "hostingMode": self.hosting_mode,
                 "environment": self.environment,
@@ -108,6 +136,14 @@ class PrivateGcpDeployment:
                 "serviceUid": self.service_uid,
                 "inferenceProject": self.model_project,
                 "projectNumber": self.project_number,
+                **(
+                    {
+                        "inferenceModel": self.inference_model,
+                        "inferenceProfileHash": self.inference_profile_hash,
+                    }
+                    if self.inference_model is not None
+                    else {}
+                ),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -119,6 +155,7 @@ class PrivateGcpDeployment:
             if len(raw) > 4096:
                 raise ValueError
             value = json.loads(raw)
+            model, model_hash = _decode_inference_selection(value)
             if not isinstance(value, dict) or set(value) != {
                 "version",
                 "owner",
@@ -138,7 +175,9 @@ class PrivateGcpDeployment:
                 for key in set(value) - {"serviceUid", "projectNumber", "version"}
             ):
                 raise ValueError
-            if type(value["version"]) is not int or value["version"] != 1:
+            if type(value["version"]) is not int or value["version"] != (
+                2 if model is not None else 1
+            ):
                 raise ValueError
             if value["serviceUid"] is not None and not isinstance(value["serviceUid"], str):
                 raise ValueError
@@ -155,6 +194,8 @@ class PrivateGcpDeployment:
                 service_uid=value["serviceUid"],
                 inference_project=value["inferenceProject"],
                 project_number=value["projectNumber"],
+                inference_model=model,
+                inference_profile_hash=model_hash,
             )
             deployment.validate()
             return deployment
@@ -233,6 +274,15 @@ FORBIDDEN_PRIVATE_ENV = frozenset(
 )
 
 
+def _decode_inference_selection(value: Any) -> tuple[str | None, str | None]:
+    if not isinstance(value, dict) or value.get("version") != 2:
+        return None, None
+    model, model_hash = value.pop("inferenceModel"), value.pop("inferenceProfileHash")
+    if not isinstance(model, str) or not isinstance(model_hash, str):
+        raise ValueError("Hosted inference selection is invalid")
+    return model, model_hash
+
+
 def hosted_runtime_deployment() -> PrivateGcpDeployment | None:
     """Resolve a configured hosted runtime without granting owner-cloud status.
 
@@ -258,6 +308,10 @@ def hosted_runtime_deployment() -> PrivateGcpDeployment | None:
         or deployment.environment != os.getenv("HUSHH_DEPLOY_ENV")
         or deployment.kms_key != os.getenv("HUSSH_POD_KMS_KEY")
         or deployment.bucket != os.getenv("POD_STORAGE_GCS_BUCKET")
+        or (
+            deployment.inference_model is not None
+            and deployment.inference_model != os.getenv("HUSHH_GEMINI_TEXT_MODEL")
+        )
         or os.getenv("HUSSH_POD_USER_ADC_ENABLED", "false").lower() not in {"false", "0"}
         or any(name in os.environ for name in FORBIDDEN_PRIVATE_ENV)
         or any(
@@ -322,6 +376,8 @@ def render_private_gcp_service(
             "POD_MEMORY_BANK_LOCATION",
         }
     )
+    if deployment.inference_model is not None:
+        controlled = controlled | {"HUSHH_GEMINI_TEXT_MODEL"}
     env = [entry for entry in container.get("env", []) if entry["name"] not in controlled]
     env.extend(
         {"name": key, "value": value}
@@ -370,6 +426,8 @@ def _private_resource_environment(
     }
     if immutable and deployment.hosting_mode == "hussh_hosted":
         values[HOSTING_ENV] = deployment.encoded()
+        if deployment.inference_model is not None:
+            values["HUSHH_GEMINI_TEXT_MODEL"] = deployment.inference_model
     env = [{"name": key, "value": value} for key, value in values.items()]
     env.extend(byoc_key_env(kms_key=deployment.kms_key))
     env.append(
@@ -384,3 +442,19 @@ def _private_resource_environment(
         }
     )
     return env
+
+
+def _validate_inference_selection(deployment: PrivateGcpDeployment) -> None:
+    if deployment.inference_model is None and deployment.inference_profile_hash is None:
+        return
+    from hushh_mcp.managed_ai_config import load_profile, profile_hash
+
+    profile = load_profile("dev")
+    if (
+        deployment.hosting_mode != "hussh_hosted"
+        or deployment.environment != "dev"
+        or deployment.inference_model != profile["text_model"]
+        or deployment.inference_profile_hash != profile_hash(profile)
+        or deployment.model_project != profile["project"]
+    ):
+        raise ValueError("Hosted inference selection differs from the approved dev profile")

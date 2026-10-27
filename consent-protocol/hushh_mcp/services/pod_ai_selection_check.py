@@ -185,7 +185,10 @@ async def verify_cloud_default(*, gemini_default: str) -> dict[str, str | int]:
 
     from hushh_mcp.runtime_providers import azure_openai  # noqa: PLC0415
     from hushh_mcp.runtime_providers.factory import build_managed_runtime_client  # noqa: PLC0415
-    from hushh_mcp.runtime_providers.owner_gemini import build_owner_gemini_client
+    from hushh_mcp.runtime_providers.owner_gemini import (
+        build_owner_gemini_client,
+        require_admitted_model,
+    )
     from hushh_mcp.services.pod_ai_effective_connection import cloud_default_fingerprint
     from hushh_mcp.services.pod_ai_selection import AiSelectionRefused  # noqa: PLC0415
 
@@ -208,7 +211,7 @@ async def verify_cloud_default(*, gemini_default: str) -> dict[str, str | int]:
         # fleet configuration alone must not discard an owner's key.
         if not (pod_hosted_adc_enabled() or pod_user_adc_enabled() or pod_managed_model_enabled()):
             raise AiSelectionRefused("AI_DEFAULT_UNAVAILABLE")
-        provider, model = "gemini", gemini_default
+        provider, model = "gemini", require_admitted_model(gemini_default)
         client = (
             build_owner_gemini_client()
             if pod_hosted_adc_enabled() or pod_user_adc_enabled()

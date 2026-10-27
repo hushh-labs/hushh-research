@@ -24,7 +24,11 @@ from typing import Any, Optional
 
 from db.db_client import get_db
 from hushh_mcp.services import personal_agent_direct_admission as direct_admission
-from hushh_mcp.services.compute_backend import owner_cloud_bind
+from hushh_mcp.services.compute_backend import (
+    is_known_pod_target,
+    is_owner_cloud_target,
+    owner_cloud_bind,
+)
 from hushh_mcp.services.placement_observation import read_placement_row
 
 _REGISTRY = "personal_agent_registry"
@@ -265,7 +269,8 @@ class PersonalAgentRegistryRepo:
         attempt = uuid.uuid4().hex
         claim_function = (
             "claim_hosted_pod_pilot_provision"
-            if intent.get("deployment_target") == "gcp"
+            if is_known_pod_target(intent.get("deployment_target"))
+            and not is_owner_cloud_target(intent.get("deployment_target"))
             else "claim_personal_agent_provision"
         )
         try:
@@ -292,6 +297,28 @@ class PersonalAgentRegistryRepo:
             return reservation
         except Exception:
             raise RuntimeError("personal agent provision admission unavailable") from None
+
+    async def hosted_admission_current(
+        self,
+        *,
+        owner_id: str,
+        attempt_id: str,
+        admission: dict,
+        project_observation: dict | None = None,
+    ) -> bool:
+        """Re-read pilot authority before a provider call; never hold SQL across it."""
+        result = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.hosted_pod_pilot_admission_current(:owner,:attempt,"
+            "CAST(:admission AS jsonb),CAST(:project_observation AS jsonb)) AS current",
+            {
+                "owner": owner_id,
+                "attempt": attempt_id,
+                "admission": json.dumps(admission),
+                "project_observation": json.dumps(project_observation),
+            },
+        )
+        return bool(result.data and result.data[0].get("current") is True)
 
     async def publish_provision(
         self,

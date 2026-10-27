@@ -68,6 +68,7 @@ def build_owner_gemini_adk_model(
     vertex_location: str | None = None,
     require_hosted: bool = False,
 ) -> Any:
+    model = require_admitted_model(model)
     binding, credentials = _binding(require_hosted=require_hosted)
     return binding.build_adk_model(model, location=vertex_location, credentials=credentials)
 
@@ -75,3 +76,18 @@ def build_owner_gemini_adk_model(
 def build_owner_gemini_client() -> Any:
     binding, credentials = _binding()
     return binding.build_direct_client(credentials=credentials)
+
+
+def require_admitted_model(model: str) -> str:
+    """Resolve aliases before enforcing the hosted pilot's exact model admission."""
+    from hushh_mcp.services.private_gcp_deployment import hosted_runtime_deployment
+
+    from .gemini_config import resolve_fleet_model_name
+
+    hosted = hosted_runtime_deployment()
+    if hosted is None:
+        return model
+    resolved = resolve_fleet_model_name(model)
+    if not hosted.inference_model or resolved != hosted.inference_model:
+        raise ValueError("Hosted pod model differs from the admitted selection")
+    return resolved

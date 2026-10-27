@@ -5,6 +5,8 @@ DO $$ BEGIN
    RAISE EXCEPTION 'retain admitted pilot allocation; disable new admission and preserve recovery';
  END IF;
 END $$;
+DROP FUNCTION public.hosted_pod_pilot_admission_current(text,text,jsonb,jsonb);
+DROP FUNCTION public.retain_hosted_pod_project_observation(text,text,jsonb);
 DROP FUNCTION public.claim_hosted_pod_pilot_provision(text,text,jsonb,jsonb);
 DROP TABLE public.hosted_pod_pilot_policy;
 DROP FUNCTION public.guard_hosted_pod_pilot_policy();
