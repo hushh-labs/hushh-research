@@ -10,6 +10,7 @@ import time
 
 import production_phone_receipt as phone
 import production_phone_lease_receipts as lease_documents
+import production_phone_nonproducer as nonproducer
 import release_artifact_receipts as receipts
 
 retention = receipts.retention
@@ -23,6 +24,8 @@ MARKER = "prod-phone-health-lease-"
 GUARD = "Require reconciled maintenance mutations under deployment lock"
 INTENT = "Publish initial cold health-tag intent"
 BUILD_IF = "steps.scope.outputs.deploy_backend == 'true' && (env.PHONE_DEPLOY_PHASE != 'cold' || (steps.cold-lease.outcome == 'success' && steps.cold-lease-intent.outcome == 'success'))"
+RESTORATION_JOB = nonproducer.JOB_ID
+RESTORATION_ADMIT = nonproducer.ADMISSION_STEP
 
 
 def _require(condition, reason):
@@ -112,19 +115,23 @@ def _run(repository, listed, api):
     return run
 
 
-def _protocol(sha, newer, source):
-    _source(["git", "merge-base", "--is-ancestor", sha, newer or "origin/main"], source)
+def _workflow_source(sha, source):
     raw = _source(["git", "show", f"{sha}:{WORKFLOW}"], source)
     _require(
         isinstance(raw, bytes) and 0 < len(raw) <= 1024 * 1024,
         "workflow source is unavailable",
     )
     try:
-        text = raw.decode("utf-8")
+        return raw.decode("utf-8")
     except UnicodeDecodeError as error:
         raise retention.UnsafeState(
             "Cold health lease reconciliation required: workflow source is invalid"
         ) from error
+
+
+def _protocol(sha, newer, source):
+    _source(["git", "merge-base", "--is-ancestor", sha, newer or "origin/main"], source)
+    text = _workflow_source(sha, source)
     markers = (MARKER, BEGIN, CLEANUP, UPLOAD, "bootstrap.py")
     if not any(marker in text for marker in markers):
         # A later revert is not the historical policy boundary.
@@ -132,15 +139,15 @@ def _protocol(sha, newer, source):
             ["git", "log", "-S", MARKER, "--format=%H", sha, "--", WORKFLOW], source
         )
         _require(not history.strip(), "workflow is not a pre-protocol boundary")
-        return False
+        return False, text
     _require(
         all(marker in text for marker in markers),
         "workflow lease protocol is ambiguous",
     )
     if INTENT in text:
         _intent_gate(text)
-        return "intent"
-    return True
+        return "intent", text
+    return True, text
 
 
 def _intent_gate(text):
@@ -225,7 +232,7 @@ def _attempt(repository, run, number, api):
     return attempt, result, matches[0]
 
 
-def _steps(job, current=False, source_gated=False):
+def _steps(job, current=False, source_gated=False, nonproducer=False):
     steps = job.get("steps")
     _require(
         isinstance(steps, list)
@@ -251,7 +258,7 @@ def _steps(job, current=False, source_gated=False):
         and sum(step.get("status") == "in_progress" for step in steps) == 1
     )
     if BEGIN not in by_name:
-        _require(guard, "attempt lease step is missing")
+        _require(guard or nonproducer, "attempt lease step is missing")
         return None
     begin = by_name[BEGIN]
     if begin.get("conclusion") == "skipped":
@@ -286,10 +293,11 @@ def _steps(job, current=False, source_gated=False):
     return by_name
 
 
-def _current(repository, attempt, job, trusted):
+def _current(repository, attempt, job, trusted, restoration=False):
+    jobs = {RESTORATION_JOB} if restoration else {"deploy", "complete-phone-activation"}
     return (
         trusted
-        and os.environ.get("GITHUB_JOB") in {"deploy", "complete-phone-activation"}
+        and os.environ.get("GITHUB_JOB") in jobs
         and attempt.get("status") == job.get("status") == "in_progress"
         and all(
             os.environ.get(key) == value
@@ -298,9 +306,44 @@ def _current(repository, attempt, job, trusted):
                 "GITHUB_RUN_ATTEMPT": str(attempt["run_attempt"]),
                 "GITHUB_REPOSITORY": repository,
                 "GITHUB_REF_NAME": "main",
+                **({"GITHUB_SHA": attempt["head_sha"]} if restoration else {}),
             }.items()
         )
     )
+
+
+def _restoration_nonproducer(repository, attempt, job, trusted, text, source):
+    if not nonproducer.recognizes(job):
+        return False
+    _require(trusted, "restoration nonproducer is not governed")
+    reference = os.environ.get("GITHUB_SHA") or "origin/main"
+    _require(
+        reference == "origin/main" or re.fullmatch(r"[0-9a-f]{40}", reference),
+        "trusted workflow reference is invalid",
+    )
+    try:
+        nonproducer.qualify(
+            job,
+            attempt,
+            text,
+            _workflow_source(reference, source),
+            current=_current(repository, attempt, job, trusted, restoration=True),
+            lease_markers=(
+                BEGIN,
+                INTENT,
+                DEPLOY,
+                CLEANUP,
+                UPLOAD,
+                MARKER,
+                "bootstrap.py",
+            ),
+            guard=GUARD,
+        )
+    except ValueError as error:
+        raise retention.UnsafeState(
+            "Cold health lease reconciliation required: restoration nonproducer proof refused"
+        ) from error
+    return True
 
 
 def _artifact(repository, attempt, result, api, timestamp):
@@ -372,7 +415,7 @@ def assert_reconciled(
     newer = None
     for listed in _history(repository, api, timestamp):
         run = _run(repository, listed, api)
-        protocol = _protocol(run["head_sha"], newer, source_command)
+        protocol, text = _protocol(run["head_sha"], newer, source_command)
         newer = run["head_sha"]
         governed_view = {**run, "status": "completed"}
         trusted = governed(governed_view, repository, "production")
@@ -388,6 +431,9 @@ def assert_reconciled(
                     job,
                     _current(repository, attempt, job, trusted),
                     protocol == "intent",
+                    _restoration_nonproducer(
+                        repository, attempt, job, trusted, text, source_command
+                    ),
                 )
                 is None
             ):

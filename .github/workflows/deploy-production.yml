@@ -21,6 +21,14 @@ on:
         required: false
         default: ""
         type: string
+      restoration_activation_run_id:
+        description: "Exact original recorded restoration run to verify and activate without redeployment"
+        type: string
+        default: ""
+      restoration_activation_attempt:
+        description: "Exact retained activation-only failed attempt of that restoration"
+        type: string
+        default: ""
       scope:
         description: "Auto-detect changed services, or force backend/frontend/all"
         required: true
@@ -144,9 +152,9 @@ concurrency:
 
 jobs:
   deploy:
-    name: ${{ inputs.phone_phase == 'activate' && 'Ordinary production deploy (not selected)' || 'Deploy Production Scope' }}
+    name: ${{ (inputs.phone_phase == 'activate' || inputs.restoration_activation_run_id != '') && 'Ordinary production deploy (not selected)' || 'Deploy Production Scope' }}
     runs-on: ubuntu-24.04
-    if: github.event_name == 'workflow_dispatch' && inputs.phone_phase != 'worker' && inputs.phone_phase != 'activate'
+    if: github.event_name == 'workflow_dispatch' && inputs.phone_phase != 'worker' && inputs.phone_phase != 'activate' && inputs.restoration_activation_run_id == ''
     environment: production
 
     steps:
@@ -159,8 +167,10 @@ jobs:
           PHONE_DRIVE_MODE: ${{ inputs.drive_live_mode }}
           SCHEMA_ORIGIN_RUN: ${{ inputs.phone_schema_origin_run_id }}
           SCHEMA_ORIGIN_ATTEMPT: ${{ inputs.phone_schema_origin_attempt }}
+          RESTORATION_ACTIVATION_ATTEMPT: ${{ inputs.restoration_activation_attempt }}
         run: |
           set -euo pipefail
+          [[ -z "$RESTORATION_ACTIVATION_ATTEMPT" ]] || exit 1
           case "$PHONE_DEPLOY_PHASE" in standard|cold) ;; *) exit 1 ;; esac
           origin_run="$SCHEMA_ORIGIN_RUN"
           origin_attempt="$SCHEMA_ORIGIN_ATTEMPT"
@@ -310,7 +320,7 @@ jobs:
           cp scripts/ops/verify-env-secrets-parity.py \
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
           for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py retention_publication.py retention_preflight_evidence.py \
-            production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
+            production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
             cp "scripts/ci/$tool" "${RUNNER_TEMP}/release-tools/$tool"
@@ -389,7 +399,7 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
             scripts/ops/verify-env-secrets-parity.py
           for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py retention_publication.py retention_preflight_evidence.py \
-            production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
+            production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
             cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ci/$tool"
@@ -2993,7 +3003,7 @@ jobs:
 
   stage-drive-worker:
     name: Stage qualified production Drive worker
-    if: github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'worker'
+    if: github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'worker' && inputs.restoration_activation_run_id == ''
     runs-on: ubuntu-24.04
     environment: production
     permissions:
@@ -3305,8 +3315,8 @@ jobs:
 
 
   complete-phone-activation:
-    name: ${{ inputs.phone_phase == 'activate' && 'Deploy Production Scope' || 'Activation continuation not selected' }}
-    if: github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'activate'
+    name: ${{ inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == '' && 'Deploy Production Scope' || 'Activation continuation not selected' }}
+    if: github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == ''
     runs-on: ubuntu-24.04
     environment: production
     timeout-minutes: 45
@@ -3917,3 +3927,235 @@ jobs:
           if json.loads(Path("/tmp/prod-release-status.json").read_text())["status"] != "healthy":
               raise SystemExit("Activation continuation is blocked; no healthy result or rollback is claimed")
           PY
+
+  complete-restoration-activation:
+    name: ${{ inputs.restoration_activation_run_id != '' && 'Deploy Production Scope' || 'Restoration continuation not selected' }}
+    if: github.event_name == 'workflow_dispatch' && inputs.restoration_activation_run_id != ''
+    runs-on: ubuntu-24.04
+    environment: production
+    env:
+      ORIGINAL_RUN_ID: ${{ inputs.restoration_activation_run_id }}
+      ORIGINAL_ATTEMPT: ${{ inputs.restoration_activation_attempt }}
+      TARGET_SHA: ${{ inputs.sha }}
+      GH_TOKEN: ${{ github.token }}
+      PYTHONPATH: ${{ github.workspace }}/scripts/ci
+    steps:
+      - name: Admit manual restoration verification only
+        env:
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+          DRIVE_MODE: ${{ inputs.drive_live_mode }}
+          OTHER_ORIGINS: ${{ inputs.restoration_validation_run }}${{ inputs.phone_activation_run_id }}${{ inputs.phone_worker_stage_run_id }}${{ inputs.phone_schema_origin_run_id }}${{ inputs.phone_schema_origin_attempt }}${{ inputs.phone_rollback_sha }}${{ inputs.cadence_origin }}${{ inputs.cadence_ordinal }}
+          EMAIL_KYC: ${{ inputs.enable_one_email_kyc }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" == main && "$PHONE_DEPLOY_PHASE" == standard ]]
+          [[ "$REQUESTED_SCOPE" == all && "$DRIVE_MODE" == preserve && "$EMAIL_KYC" == false ]]
+          [[ -z "$OTHER_ORIGINS" && "$ORIGINAL_RUN_ID" =~ ^[1-9][0-9]*$ && "$ORIGINAL_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+
+      - name: Checkout immutable Main verification tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert production dispatch actor policy
+        run: |
+          python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
+          python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_TRIGGERING_ACTOR"
+
+      - name: Require reconciled maintenance mutations under deployment lock
+        run: python3 scripts/ci/uat-retention-maintenance.py --environment production --check-mutations --state-dir "$RUNNER_TEMP/production-maintenance-guard"
+
+      - name: Set up Python + uv runtime
+        uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "false"
+
+      - name: Validate production WIF configuration
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: test -n "$WIF_PROVIDER" && test -n "$DEPLOY_SERVICE_ACCOUNT"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Assert GCP project scope
+        run: |
+          gcloud config set project "$GCP_PROJECT_ID"
+          [[ "$(gcloud config get-value project 2>/dev/null)" == hushh-pda ]]
+
+      - name: Install Cloud SQL Auth Proxy
+        run: |
+          curl -fsSL https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 -o /usr/local/bin/cloud-sql-proxy
+          chmod +x /usr/local/bin/cloud-sql-proxy
+
+      - name: Require exact recorded restoration continuation
+        id: origin
+        run: |
+          "$PROTOCOL_PYTHON" scripts/ci/production_restoration_continuation.py prepare \
+            --run-id "$ORIGINAL_RUN_ID" --attempt "$ORIGINAL_ATTEMPT" --sha "$TARGET_SHA" --directory /tmp/restoration-continuation
+
+      - name: Verify unchanged restoration serving pair
+        run: |
+          "$PROTOCOL_PYTHON" scripts/ci/production_restoration_continuation.py verify \
+            --run-id "$ORIGINAL_RUN_ID" --attempt "$ORIGINAL_ATTEMPT" --sha "$TARGET_SHA" --directory /tmp/restoration-continuation
+
+      - name: Verify restoration schema and original document barrier
+        run: |
+          "$PROTOCOL_PYTHON" deploy/account-deletion/restoration_database.py verify \
+            --owned-proxy --sha "$TARGET_SHA" --run-id "$ORIGINAL_RUN_ID" \
+            --output /tmp/restoration-continuation/prod-restoration-schema.json
+
+      - name: Verify restoration WorkOS remains closed
+        run: |
+          "$PROTOCOL_PYTHON" deploy/phone/workos_rollout.py --project "$GCP_PROJECT_ID" \
+            --restoration-sha "$TARGET_SHA" --output /tmp/restoration-continuation/prod-restoration-workos.json
+
+      - name: Resolve retained document restoration mode
+        run: |
+          "$PROTOCOL_PYTHON" deploy/drive/resolve_protected_document_release.py --production-restoration \
+            --project "$GCP_PROJECT_ID" --environment production --target-sha "$TARGET_SHA" \
+            > /tmp/restoration-continuation/prod-protected-document-release.json
+
+      - name: Resolve current hosted CRM product availability
+        id: crm-availability
+        run: |
+          "$PROTOCOL_PYTHON" - <<'PY'
+          import os, runpy
+          owner = runpy.run_path("consent-protocol/hushh_mcp/services/crm_product_availability.py")
+          value = owner["crm_product_available"](environment="production")
+          assert type(value) is bool
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"required={str(value).lower()}\n")
+          PY
+
+      - name: Verify production candidate runtime env parity
+        env:
+          CRM_REQUIRED: ${{ steps.crm-availability.outputs.required }}
+        run: |
+          set -euo pipefail
+          extra=()
+          case "$CRM_REQUIRED" in true) extra=(--require-connected-systems) ;; false) ;; *) exit 1 ;; esac
+          "$PROTOCOL_PYTHON" scripts/ops/verify-env-secrets-parity.py --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" --backend-service "$BACKEND_SERVICE" --frontend-service "$FRONTEND_SERVICE" \
+            --backend-revision "${{ steps.origin.outputs.backend_revision }}" --frontend-revision "${{ steps.origin.outputs.frontend_revision }}" \
+            --require-plaid --require-market-data --require-gmail --require-calendar "${extra[@]}" \
+            --require-prod-phone-test --assert-runtime-env-contract --report-path /tmp/restoration-continuation/prod-runtime-parity.json
+
+      - name: Verify production Connected Systems Omni Gateway
+        env:
+          CRM_REQUIRED: ${{ steps.crm-availability.outputs.required }}
+        run: |
+          set -euo pipefail
+          case "$CRM_REQUIRED" in false) exit 0 ;; true) ;; *) exit 1 ;; esac
+          "$PROTOCOL_PYTHON" scripts/ops/verify_connected_systems_gateway.py --project "$GCP_PROJECT_ID"
+
+      - name: Verify production backend deployment provenance
+        run: |
+          "$PROTOCOL_PYTHON" scripts/ci/verify-cloudrun-revision-provenance.py \
+            --project "$GCP_PROJECT_ID" --region "$GCP_REGION" --service "$BACKEND_SERVICE" \
+            --expected-env production --expected-source deploy-production --expected-sha "$TARGET_SHA" \
+            --expected-run-id "$ORIGINAL_RUN_ID" --expected-image-reference "${{ steps.origin.outputs.backend_image }}" \
+            --report-path /tmp/restoration-continuation/prod-backend-provenance.json
+
+      - name: Verify production frontend deployment provenance
+        run: |
+          "$PROTOCOL_PYTHON" scripts/ci/verify-cloudrun-revision-provenance.py \
+            --project "$GCP_PROJECT_ID" --region "$GCP_REGION" --service "$FRONTEND_SERVICE" \
+            --expected-env production --expected-source deploy-production --expected-sha "$TARGET_SHA" \
+            --expected-run-id "$ORIGINAL_RUN_ID" --expected-image-reference "${{ steps.origin.outputs.frontend_image }}" \
+            --report-path /tmp/restoration-continuation/prod-frontend-provenance.json
+
+      - name: Post-deploy backend runtime health gate
+        run: bash scripts/ci/cloudrun-http-health.sh "$CONSENT_API_PUBLIC_ORIGIN" /health 5 30 5 200
+      - name: Post-deploy frontend runtime health gate
+        run: bash scripts/ci/cloudrun-http-health.sh "$APP_FRONTEND_ORIGIN" / 3 30 5 200
+      - name: Verify production account-session contract
+        run: bash scripts/ci/cloudrun-http-health.sh "$CONSENT_API_PUBLIC_ORIGIN" /api/account/session-status 3 30 5 401
+      - name: Verify production native passkey domain associations
+        run: |
+          "$PROTOCOL_PYTHON" scripts/ops/verify_passkey_domain_associations.py --project "$GCP_PROJECT_ID" --origin "$APP_FRONTEND_ORIGIN"
+
+      - name: Activate tombstone-aware account deletion
+        run: |
+          "$PROTOCOL_PYTHON" scripts/ci/production_restoration_continuation.py verify \
+            --run-id "$ORIGINAL_RUN_ID" --attempt "$ORIGINAL_ATTEMPT" --sha "$TARGET_SHA" --directory /tmp/restoration-continuation
+          "$PROTOCOL_PYTHON" deploy/account-deletion/activate_release.py --production-restoration \
+            --project "$GCP_PROJECT_ID" --region "$GCP_REGION" --backend-service "$BACKEND_SERVICE" \
+            --backend-url "$CONSENT_API_PUBLIC_ORIGIN" --oidc-audience "$CONSENT_API_PUBLIC_ORIGIN" \
+            --scheduler-job "$ACCOUNT_DELETION_SCHEDULER_JOB" --scheduler-service-account "$ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID" \
+            --expected-sha "$TARGET_SHA" --expected-run-id "$ORIGINAL_RUN_ID" \
+            --cloudsql-instance "$PROD_CLOUDSQL_INSTANCE" --db-name "$PROD_DB_NAME" --db-port 6544 \
+            --fence-required false --evidence-prefix /tmp/restoration-continuation/prod-account-deletion
+
+      - name: Verify restoration completion and unchanged serving pair
+        run: |
+          "$PROTOCOL_PYTHON" scripts/ci/production_restoration_continuation.py finish \
+            --run-id "$ORIGINAL_RUN_ID" --attempt "$ORIGINAL_ATTEMPT" --sha "$TARGET_SHA" --directory /tmp/restoration-continuation
+
+      - name: Write production release status artifact
+        id: release-status
+        if: always()
+        env:
+          PREVIOUS_STATUS: ${{ job.status }}
+        run: |
+          mkdir -p /tmp/restoration-continuation
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path("/tmp/restoration-continuation/prod-release-status.json")
+          healthy = os.environ["PREVIOUS_STATUS"] == "success" and path.exists()
+          if not healthy:
+              path.write_text(json.dumps({"status": "blocked", "sha": os.environ["TARGET_SHA"], "scope": "all"}))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"status={'healthy' if healthy else 'blocked'}\n")
+          PY
+
+      - name: Upload production deploy artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: prod-release-${{ github.run_id }}
+          if-no-files-found: error
+          path: /tmp/restoration-continuation/
+
+      - name: Tag this release as last known good
+        if: success() && steps.release-status.outputs.status == 'healthy'
+        env:
+          OPERATIONAL_BACKEND_ACTIVATION_RECEIPT: /tmp/restoration-continuation/prod-account-deletion-activation.json
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: credential.helper
+          GIT_CONFIG_VALUE_0: ""
+          GIT_CONFIG_KEY_1: credential.https://github.com.helper
+          GIT_CONFIG_VALUE_1: "!gh auth git-credential"
+          ENVIRONMENT: production
+          SHA: ${{ inputs.sha }}
+          BACKEND_REVISION: ${{ steps.origin.outputs.backend_revision }}
+          FRONTEND_REVISION: ${{ steps.origin.outputs.frontend_revision }}
+          BACKEND_SERVICE_URL: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
+          FRONTEND_SERVICE_URL: ${{ env.APP_FRONTEND_ORIGIN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          "$PROTOCOL_PYTHON" scripts/ci/production_restoration_continuation.py verify \
+            --run-id "$ORIGINAL_RUN_ID" --attempt "$ORIGINAL_ATTEMPT" --sha "$TARGET_SHA" --directory /tmp/restoration-continuation
+          bash scripts/ci/tag-last-known-good.sh
+
+      - name: Fail workflow when production release did not end healthy
+        if: always()
+        env:
+          RELEASE_STATUS: ${{ steps.release-status.outputs.status }}
+        run: test "$RELEASE_STATUS" == healthy
