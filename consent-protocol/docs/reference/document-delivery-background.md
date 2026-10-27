@@ -68,6 +68,12 @@ Active chunks hold cleanup with both a custody flag and PostgreSQL literal
 `infinity` scheduling, so a compatible older application also cannot delete them.
 Withdrawal or erasure releases both holds. A stale producer cannot publish,
 change successor state or schedule deletion after its lease is replaced.
+Release guards recognize the v2 reader separately from the historical v1 reader.
+The first v2 deployment may retain a v1 baseline, but using it for rollback
+requires a known pre-v2 serving API and empty v2 inventory, checked afresh;
+any retained request or background cleanup row requires v2 readers. The legacy
+intake flag does not fence v2 consent. Once a v2 API is serving, recovery preserves
+v2 readers through a forward release rather than restoring an incompatible image.
 Revoke, source connection changes, explicit grant expiry and account/request
 deletion prevent late publication and future content reads. A request checkout
 TTL or bulk receipt-retention deadline does not itself expire a One copy; absent

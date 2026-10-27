@@ -150,6 +150,7 @@ printf '%s' "$code"
 DRIVE_PRODUCTION_TOOLS = (
     "resolve_prod_release_mode.py",
     "resolve_protected_document_release.py",
+    "document_reader_compatibility.py",
     "verify_prod_prerequisites.py",
     "verify_hashcoin_config.sh",
     "setup_native_callback_log_exclusion.sh",
@@ -184,7 +185,6 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "scripts/ci/verify-cloudrun-revision-provenance.py",
         "scripts/ci/account-deletion-fence-decision.py",
         "scripts/ci/verify-cloud-scheduler-attempt.py",
-        "scripts/ci/cloudrun-rollback.sh",
         "deploy/drive/rollback_after_worker_failure.sh",
         "deploy/drive/rebind_protected_document_backend.py",
         *(

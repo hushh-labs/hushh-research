@@ -164,7 +164,12 @@ async def sale(flow, *, accept=True, paid=True):
 
 @pytest.mark.asyncio
 async def test_same_paid_sale_generic_original_stream_and_revoke(flow, copies, monkeypatch):
+    from contextlib import closing
+
+    from tests.helpers.document_delivery_browser import reader_inventory
+
     service, original = copies
+    policy, schema = reader_inventory(flow)
     await sale(flow)
     original_order, original_effect_count = flow.order(), flow.effect_count()
     assert len(original.data) > 4 * 1024 * 1024
@@ -178,6 +183,8 @@ async def test_same_paid_sale_generic_original_stream_and_revoke(flow, copies, m
     assert file["mimeType"] == "application/javascript" and not file["previewAvailable"]
     assert file["sha256"] == hashlib.sha256(original.data).hexdigest()
     assert flow.order() == original_order and flow.effect_count() == original_effect_count
+    with closing(flow.db.engine.raw_connection()) as connection:
+        assert not policy["inventory_empty"](connection, schema=schema, background_only=True)
     assert flow.create_session.call_count == 1
     assert all(
         original.data[:100] not in ciphertext for ciphertext, _ in service.objects.objects.values()
@@ -222,6 +229,14 @@ async def test_same_paid_sale_generic_original_stream_and_revoke(flow, copies, m
         owner.user_id = "recipient"
         assert (await client.get(url)).status_code == 404
     assert flow.order() == original_order and flow.effect_count() == original_effect_count
+    # Revocation and request erasure retain opaque cleanup custody. They cannot
+    # make a v1-only rollback look safe while those obligations remain.
+    with closing(flow.db.engine.raw_connection()) as connection:
+        assert not policy["inventory_empty"](connection, schema=schema, background_only=True)
+    with flow.db.engine.begin() as connection:
+        connection.execute(text("DELETE FROM document_delivery_background_requests"))
+    with closing(flow.db.engine.raw_connection()) as connection:
+        assert not policy["inventory_empty"](connection, schema=schema, background_only=True)
 
 
 async def withdraw_boundary(flow, service, original, boundary, monkeypatch):

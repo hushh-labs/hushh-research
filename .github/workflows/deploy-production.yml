@@ -245,7 +245,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/managed_capability_proof.py"
           # Orchestration must remain current when rolling back to an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/drive"
-          for tool in resolve_prod_release_mode.py resolve_protected_document_release.py rebind_protected_document_backend.py verify_prod_prerequisites.py verify_hashcoin_config.sh setup_native_callback_log_exclusion.sh \
+          for tool in resolve_prod_release_mode.py resolve_protected_document_release.py document_reader_compatibility.py rebind_protected_document_backend.py verify_prod_prerequisites.py verify_hashcoin_config.sh setup_native_callback_log_exclusion.sh \
             deploy_worker_service_prod.sh setup_work_drain_scheduler_prod.sh \
             work_drain_scheduler_snapshot_prod.py restore_prod_after_release_failure.sh; do
             cp "deploy/drive/${tool}" "${RUNNER_TEMP}/release-tools/drive/${tool}"
