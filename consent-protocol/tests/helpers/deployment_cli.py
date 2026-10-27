@@ -165,6 +165,8 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
     return [
         *old_paths,
         "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ci/tag-last-known-good.sh",
+        "config/ci-governance.json",
         "scripts/ci/release_acceptance_provenance.py",
         "scripts/ci/resolve-deploy-scope.py",
         "scripts/ops/runtime_config_retention.py",
@@ -190,11 +192,14 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
             for name in (
                 "install_release_fence.sql",
                 "remove_release_fence.sql",
-                "activate_release.py",
-                "release_target.py",
+                "production-restoration.json",
                 "setup_cleanup_scheduler.sh",
                 "verify_release_boundary.sql",
             )
+        ),
+        *(
+            path.relative_to(root).as_posix()
+            for path in (root / "deploy/account-deletion").glob("*.py")
         ),
         "scripts/ci/managed_provider_readiness.py",
         "scripts/ci/managed_capability_proof.py",
