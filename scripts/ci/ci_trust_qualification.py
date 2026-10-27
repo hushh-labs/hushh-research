@@ -30,6 +30,20 @@ def observe(environment: dict, api: GitHub) -> dict:
     jobs = api.read(
         f"repos/{REPOSITORY}/actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100"
     )
+    require(
+        run.get("id") == int(environment["GITHUB_RUN_ID"])
+        and run.get("run_attempt") == int(environment["GITHUB_RUN_ATTEMPT"])
+        and run.get("path") == WORKFLOW
+        and run.get("event") == "pull_request_target"
+        and run.get("repository", {}).get("full_name") == REPOSITORY,
+        "Qualification run identity or attempt changed",
+    )
+    require(
+        isinstance(jobs.get("jobs"), list)
+        and type(jobs.get("total_count")) is int
+        and jobs["total_count"] == len(jobs["jobs"]) <= 100,
+        "Qualification job snapshot is incomplete",
+    )
     checkout = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()  # noqa: S603
     return {
         "schema_version": 1,
