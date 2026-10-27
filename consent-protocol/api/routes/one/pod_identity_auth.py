@@ -326,4 +326,4 @@ async def _verify_google_pod_claims(token: str) -> dict[str, Any] | None:
         logger.info("pod_hub_auth.verify_failed %s", type(exc).__name__)
         return None
 
-    return claims
+    return dict(claims) if isinstance(claims, dict) else None
