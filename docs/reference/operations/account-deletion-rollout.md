@@ -568,11 +568,15 @@ Production facts:
   project roles; the Scheduler service agent mints its short-lived OIDC token.
 - Deploy-identity access beyond the normal deploy roles: the custom project
   role `accountDeletionSchedulerOperator` (Scheduler jobs get, list, create,
-  update, run), `roles/logging.viewer` so the gate can read `AttemptFinished`
+  update, run, pause and enable; locations list), `roles/logging.viewer` so the gate can read `AttemptFinished`
   logs, and `iam.serviceAccounts.actAs` on the cleanup service account only.
   Grant actAs through `roles/iam.serviceAccountUser` on that one account; the
   setup script also needs its `iam.serviceAccounts.get` to describe the
   account instead of trying to create it.
+
+  Release quarantine uses `cloudscheduler.jobs.pause`; restoring a paused job
+  uses `cloudscheduler.jobs.enable` (the permission for the resume API). Both
+  belong to this existing bounded role, not a separate administrator grant.
 
 A production release reports `healthy` only when activation succeeds. A failed
 fenced transition keeps deletion closed (SQLSTATE `55000`) until a proven
@@ -597,6 +601,16 @@ redeploy is not possible, and only in this order:
 
 If the boundary check fails, leave the fence installed. Account deletion that
 fails closed is the safe state.
+
+For the recorded 27 October restoration, a verified application was already
+serving when the hosted activation command selected system Python without its
+database driver. An explicitly recorded admin continuation used the unchanged
+canonical `activate_release.py`, the verified project Python environment and
+the original expected source/run. It repeated the complete schema, document
+barrier, Scheduler delivery, retained-consumer and traffic checks before removing
+the fence. This was a bounded operational exception, not hand-written SQL or
+a successful hosted receipt. Preserve the failed workflow and separate repair
+evidence; do not generalize it into permission to adopt another release's fence.
 
 Before step 7, also prove that operational scripts cannot delete and recreate
 `actor_profiles` or `vault_keys`. Migration 201 deliberately interprets either

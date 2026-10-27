@@ -235,12 +235,12 @@ main tooling before checking out the application. A later recheck must preserve
 its companion modules, current governance policy and existing bounded artifact
 reader in the release-tool bundle; historical application policy is not authority.
 
-This validation does **not** enable production cutover. The existing production
-workflow still needs the reviewed no-migration compatibility path, actual
-protected-document writer quiescence, installed-schema qualification and paired
-image/rollback verification. Empty tables alone do not prove that an older
-in-flight request cannot commit. Preserve the current database and its erasure
-receipts throughout application restoration.
+This validation alone does **not** enable production cutover. The production
+workflow now joins both source-built images before installing lifecycle fences,
+then uses the no-migration compatibility path, protected-document writer
+quiescence, installed-schema qualification and paired image/rollback verification.
+Empty tables alone do not prove that an older in-flight request cannot commit.
+Preserve the current database and its erasure receipts throughout restoration.
 
 The prepared `document_restoration_fence.py` is the bounded operational writer
 barrier for this path. It locks all three empty document inventory tables,
@@ -248,8 +248,8 @@ waits for prior writers, then installs insert-refusal triggers atomically. Empty
 cascade deletions remain available to account cleanup. A lost-response retry
 must match the original source/run and exact enabled trigger definitions;
 another operation or altered trigger is refused. This is operational database
-DDL, not a migration replay. It has disposable PostgreSQL evidence but is not
-yet wired into production deployment or installed there. Keep it in place while
+DDL, not a migration replay. It is wired into production recovery and was
+installed by operation `40430296874`. Keep it in place while
 a non-reader serves; removal needs a separately qualified reader activation.
 The schema qualifier also refuses the phone-recovery tables introduced by
 migrations 425 and 431.

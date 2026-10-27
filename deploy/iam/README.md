@@ -81,7 +81,11 @@ observed permissions are limited respectively to
 `cloudscheduler.jobs.{create,enable,get,list,pause,run,update}` plus
 `cloudscheduler.locations.list`, and
 `cloudsql.backupRuns.{create,get,list}`. Reconciliation records these existing
-bindings; it does not require new live grants. The provider still accepts only
+bindings. The 27 October recovery repaired the existing Scheduler role with
+`pause` and `enable`, preserving its other permissions and bindings. The resume
+API requires `cloudscheduler.jobs.enable`, not a `jobs.resume` permission. These
+permissions let the existing release workflow quarantine document jobs and
+restore them after rollback. The provider still accepts only
 this repository's production environment on `main`, and the detector continues
 to reject every undeclared project role, including privilege escalation.
 See the [cleanup activation contract](../../docs/reference/operations/account-deletion-rollout.md#production-procedure)
