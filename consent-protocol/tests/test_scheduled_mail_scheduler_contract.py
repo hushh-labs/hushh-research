@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.helpers.production_runtime_profile import production_runtime_profile
+
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "deploy" / "gmail" / "setup_scheduled_mail_scheduler.sh"
 UAT_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat.yml"
@@ -267,4 +269,4 @@ def test_production_has_no_scheduled_mail_job():
 
     assert "setup_scheduled_mail_scheduler" not in production
     assert "mail-scheduled-send" not in production
-    assert '--mail-scheduled-drain-enabled "false"' in production
+    assert '--mail-scheduled-drain-enabled "false"' in production_runtime_profile(production)

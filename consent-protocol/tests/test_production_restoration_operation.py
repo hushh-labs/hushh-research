@@ -234,6 +234,51 @@ def test_recovery_workflow_joins_images_and_preserves_ordinary_migrations():
     assert "restoration_operation.py verify" in steps[ids["phone-rollback-qualified"]]["run"]
 
 
+def test_hosted_restoration_completion_reuses_lock_and_canonical_checks_without_deployment(
+    tmp_path, monkeypatch
+):
+    import subprocess
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    job = workflow["jobs"]["complete-restoration-activation"]
+    assert workflow["concurrency"]["group"] == "deploy-production"
+    assert workflow["concurrency"]["cancel-in-progress"] is False
+    assert job["environment"] == "production"
+    steps = {step["name"]: step for step in job["steps"]}
+    activation = steps["Activate tombstone-aware account deletion"]["run"]
+    assert (
+        '"$PROTOCOL_PYTHON" deploy/account-deletion/activate_release.py --production-restoration'
+        in activation
+    )
+    assert '--expected-run-id "$ORIGINAL_RUN_ID"' in activation
+    assert "--fence-required false" in activation
+    commands = "\n".join(step.get("run", "") for step in job["steps"])
+    for forbidden in (
+        "builds submit",
+        "update-traffic",
+        "db/migrate.py",
+        "restoration_database.py prepare",
+    ):
+        assert forbidden not in commands
+    assert "restoration_activation_run_id == ''" in workflow["jobs"]["deploy"]["if"]
+    assert "production_restoration_continuation.py" in commands
+    assert steps["Upload production deploy artifacts"]["if"] == "always()"
+    assert (
+        steps["Tag this release as last known good"]["if"]
+        == "success() && steps.release-status.outputs.status == 'healthy'"
+    )
+    port = tmp_path / "python-port"
+    port.write_text("#!/bin/sh\ncase \" $* \" in *' --owned-proxy '*) exit 0;; *) exit 19;; esac\n")
+    port.chmod(0o700)
+    monkeypatch.setenv("PROTOCOL_PYTHON", str(port))
+    monkeypatch.setenv("TARGET_SHA", "a" * 40)
+    monkeypatch.setenv("ORIGINAL_RUN_ID", "42")
+    schema = steps["Verify restoration schema and original document barrier"]["run"]
+    subprocess.run(["bash", "-euc", schema], check=True, cwd=ROOT)  # noqa: S603 - authored workflow, synthetic command port.
+    with pytest.raises(subprocess.CalledProcessError):
+        subprocess.run(["bash", "-euc", schema.replace("--owned-proxy", "")], check=True, cwd=ROOT)  # noqa: S603 - negative control for the same authored command.
+
+
 def test_cleanup_failure_recovery_requires_both_original_readers(operation):
     plan = operation.module["initial_plan"](**operation.args)
     operation.services["hushh-webapp"]["status"]["traffic"][0]["revisionName"] = (
@@ -308,3 +353,147 @@ def test_recovery_health_failure_rolls_back_the_pair_and_preserves_normal_scope(
     other = "frontend" if failed_service == "backend" else "backend"
     assert observed[other + "_failure"] == ("true" if recovery == "true" else "false")
     assert observed["release_failed"] == "true"
+
+
+@pytest.mark.parametrize(
+    ("restoration", "fallback", "reservation"),
+    [
+        ("42", "", ["--candidate-service", "consent-protocol"]),
+        ("", "", []),
+        ("", "a" * 40, ["--additional-candidate-service", "consent-protocol"]),
+    ],
+)
+def test_recovery_reserves_only_its_real_candidate(tmp_path, restoration, fallback, reservation):
+    import os
+    import subprocess
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    step = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Enforce production database connection budget before deployment"
+    )
+    assert "RESTORATION_RUN" in step["env"]
+    # Capture the actual authored invocation without contacting a cloud provider.
+    timeout = tmp_path / "timeout"
+    timeout.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$CAPTURE"\n')
+    timeout.chmod(0o755)
+    capture = tmp_path / "args"
+    subprocess.run(  # noqa: S603 -- authored workflow with the provider command replaced.
+        ["bash", "-euc", step["run"]],
+        check=True,
+        timeout=5,
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RESTORATION_RUN": restoration,
+            "PHONE_DEPLOY_PHASE": "standard",
+            "STAGED_WORKER_LOADED": "false",
+            "PHONE_ROLLBACK_SHA": fallback,
+            "CAPTURE": str(capture),
+        },
+    )
+    assert capture.read_text().splitlines() == [
+        "--signal=TERM",
+        "--kill-after=2s",
+        "295s",
+        "python3",
+        "scripts/ci/runtime-capacity-budget.py",
+        "--environment",
+        "production",
+        *reservation,
+    ]
+
+
+def _history_authority(monkeypatch, tmp_path):
+    authority = runpy.run_path(str(ROOT / "deploy/account-deletion/compatibility_restoration.py"))
+    record = json.loads((ROOT / "deploy/account-deletion/production-restoration.json").read_text())
+    policy = '{"version": 1}\n'
+    record["authorityPolicySha256"] = hashlib.sha256(policy.encode()).hexdigest()
+    selected = tmp_path / "restoration.json"
+    selected.write_text(json.dumps(record))
+    globals_ = authority["qualify_source"].__globals__
+    monkeypatch.setitem(globals_, "RECORD", selected)
+
+    def git(*args):
+        assert args in (
+            ("merge-base", "--is-ancestor", record["baselineSha"], record["sourceSha"]),
+            ("show", f"{record['sourceSha']}:{authority['POLICY']}"),
+        )
+        return policy if args[0] == "show" else ""
+
+    monkeypatch.setitem(globals_, "git", git)
+    return authority, record
+
+
+@pytest.mark.parametrize(
+    "changed", [None, "enabled", "missing", "secret", "birth-enabled", "unknown", "dev", "uat"]
+)
+def test_workos_default_history_admits_only_production_exact_closed_restoration(
+    operation, monkeypatch, tmp_path, changed
+):
+    import subprocess
+
+    monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
+    import workos_rollout as closed
+
+    authority, record = _history_authority(monkeypatch, tmp_path)
+    source = record["sourceSha"]
+    revision = copy.deepcopy(next(iter(operation.revisions.values())))
+    revision["metadata"].update(creationTimestamp="2026-10-26T06:00:00Z")
+    revision["metadata"]["labels"]["deploy-sha"] = "e" * 40 if changed == "unknown" else source
+    env = revision["spec"]["containers"][0]["env"]
+    flag = {"name": "WORKOS_SSO_ENABLED", "value": "true" if changed == "enabled" else "false"}
+    if changed == "secret":
+        flag = {"name": "WORKOS_SSO_ENABLED", "valueFrom": {"secretKeyRef": {"name": "flag"}}}
+    if changed != "missing":
+        env.append(flag)
+    birth = copy.deepcopy(revision)
+    if changed == "birth-enabled":
+        birth["spec"]["containers"][0]["env"][-1]["value"] = "true"
+    event = {
+        "resource": {"labels": {"service_name": closed.SERVICE}},
+        "timestamp": birth["metadata"]["creationTimestamp"],
+        "logName": "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Factivity",
+        "protoPayload": {
+            "serviceName": "run.googleapis.com",
+            "methodName": "/Services.ReplaceService",
+            "response": {
+                "kind": "Service",
+                "spec": {"template": birth},
+                "status": {"latestCreatedRevisionName": birth["metadata"]["name"]},
+            },
+        },
+    }
+    monkeypatch.setattr(closed, "run_path", lambda _path: authority)
+
+    def main_only(_sha):
+        raise subprocess.CalledProcessError(1, ["git", "merge-base"])
+
+    monkeypatch.setattr(closed, "source_capable", main_only)
+    monkeypatch.setattr(
+        closed,
+        "_document",
+        lambda command: [event] if command[1:3] == ["logging", "read"] else [revision],
+    )
+    databases = []
+    monkeypatch.setattr(
+        closed, "database_evidence", lambda project: databases.append(project) or {}
+    )
+    project = "hushh-pda-" + changed if changed in {"dev", "uat"} else "hushh-pda"
+    with pytest.raises(ValueError, match="reviewed production restoration"):
+        closed._capable("e" * 40, "e" * 40)
+    if changed in {"dev", "uat"}:
+        with pytest.raises(ValueError, match="restoration_project_invalid"):
+            closed.qualify(project, source)
+    if changed:
+        with pytest.raises((ValueError, subprocess.CalledProcessError)):
+            closed.qualify(project)
+        assert databases == []
+    else:
+        result = closed.qualify(project)
+        assert result["restoration_source"] == source
+        assert result["revisions"][0]["capable"] is True
+        assert result["revisions"][0]["direct_sso_false"] is True
+        assert databases == ["hushh-pda"]
+        assert result["sso_activation_qualified"] is False

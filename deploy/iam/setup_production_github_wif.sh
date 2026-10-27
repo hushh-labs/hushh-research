@@ -24,6 +24,19 @@ readonly -a PREREQUISITE_READ_PERMISSIONS=(
   "apikeys.keys.getKeyString"
   "resourcemanager.projects.getIamPolicy"
 )
+readonly CLEANUP_SCHEDULER_ROLE_ID="accountDeletionSchedulerOperator"
+readonly CLEANUP_SCHEDULER_ROLE="projects/${PROD_PROJECT_ID}/roles/${CLEANUP_SCHEDULER_ROLE_ID}"
+readonly CLEANUP_SCHEDULER_ROLE_STAGE="GA"
+readonly -a CLEANUP_SCHEDULER_PERMISSIONS=(
+  "cloudscheduler.jobs.create"
+  "cloudscheduler.jobs.enable"
+  "cloudscheduler.jobs.get"
+  "cloudscheduler.jobs.list"
+  "cloudscheduler.jobs.pause"
+  "cloudscheduler.jobs.run"
+  "cloudscheduler.jobs.update"
+  "cloudscheduler.locations.list"
+)
 
 readonly -a DEPLOY_PROJECT_ROLES=(
   "roles/cloudbuild.builds.editor"
@@ -36,38 +49,53 @@ readonly -a DEPLOY_PROJECT_ROLES=(
   "roles/secretmanager.secretAccessor"
   "roles/serviceusage.serviceUsageConsumer"
   "roles/storage.admin"
-  "projects/${PROD_PROJECT_ID}/roles/accountDeletionSchedulerOperator"
+  "${CLEANUP_SCHEDULER_ROLE}"
   "projects/${PROD_PROJECT_ID}/roles/predeployBackupOperator"
   "${PREREQUISITE_READ_ROLE}"
 )
 
-configure_prerequisite_read_role() {
-  local permissions existing_role
-  permissions="$(IFS=,; printf '%s' "${PREREQUISITE_READ_PERMISSIONS[*]}")"
+configure_custom_role() {
+  local role_id="$1" role="$2" stage="$3" permissions="$4" title="$5" description="$6" label="$7"
+  local existing_role
   if ! existing_role="$(gcloud iam roles list --project="${PROD_PROJECT_ID}" \
-    --filter="name=${PREREQUISITE_READ_ROLE}" --format='value(name)' 2>/dev/null)"; then
-    echo "Unable to inspect the production prerequisite read role." >&2
+    --filter="name=${role}" --format='value(name)' 2>/dev/null)"; then
+    echo "Unable to inspect the ${label}." >&2
     return 1
   fi
   local role_action
   case "${existing_role}" in
     '') role_action=create ;;
-    "${PREREQUISITE_READ_ROLE}") role_action=update ;;
-    *) echo "Unexpected production prerequisite role metadata." >&2; return 1 ;;
+    "${role}") role_action=update ;;
+    *) echo "Unexpected ${label} metadata." >&2; return 1 ;;
   esac
-  # API-key string reads disclose project key material. This is deliberately
-  # separate from write/grant authority and bound only to the fixed deployer.
-  if ! gcloud iam roles "${role_action}" "${PREREQUISITE_READ_ROLE_ID}" \
+  if ! gcloud iam roles "${role_action}" "${role_id}" \
     --project="${PROD_PROJECT_ID}" \
-    --title="Production Drive prerequisite reader" \
-    --description="Read API keys and project IAM policy for production deploy prerequisite checks." \
+    --title="${title}" \
+    --description="${description}" \
     --permissions="${permissions}" \
-    --stage="${PREREQUISITE_READ_ROLE_STAGE}" \
+    --stage="${stage}" \
     --quiet \
     --format=none >/dev/null 2>&1; then
-    echo "Unable to configure the production prerequisite read role." >&2
+    echo "Unable to configure the ${label}." >&2
     return 1
   fi
+}
+
+configure_prerequisite_read_role() {
+  # API-key reads remain separate from Scheduler control and grant authority.
+  configure_custom_role "$PREREQUISITE_READ_ROLE_ID" "$PREREQUISITE_READ_ROLE" \
+    "$PREREQUISITE_READ_ROLE_STAGE" "$(IFS=,; printf '%s' "${PREREQUISITE_READ_PERMISSIONS[*]}")" \
+    "Production Drive prerequisite reader" \
+    "Read API keys and project IAM policy for production deploy prerequisite checks." \
+    "production prerequisite read role"
+}
+
+configure_cleanup_scheduler_role() {
+  configure_custom_role "$CLEANUP_SCHEDULER_ROLE_ID" "$CLEANUP_SCHEDULER_ROLE" \
+    "$CLEANUP_SCHEDULER_ROLE_STAGE" "$(IFS=,; printf '%s' "${CLEANUP_SCHEDULER_PERMISSIONS[*]}")" \
+    "Production cleanup Scheduler operator" \
+    "Configure, invoke, pause and resume production cleanup and Drive Scheduler jobs." \
+    "production cleanup Scheduler role"
 }
 
 add_project_role_binding() {
@@ -175,6 +203,7 @@ gcloud iam service-accounts add-iam-policy-binding "${RUNTIME_SERVICE_ACCOUNT_EM
   --format=none
 
 configure_prerequisite_read_role
+configure_cleanup_scheduler_role
 
 for deploy_role in "${DEPLOY_PROJECT_ROLES[@]}"; do
   add_project_role_binding "${deploy_role}"

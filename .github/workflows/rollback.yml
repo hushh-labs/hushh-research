@@ -197,6 +197,10 @@ jobs:
 
   rollback-production:
     name: "Rollback — Production"
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
     if: github.event.inputs.environment == 'production'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -209,6 +213,7 @@ jobs:
       GCP_PROJECT_ID: hushh-pda
       GCP_REGION: us-central1
       HUSHH_DOCUMENT_MANUAL_ROLLBACK_GUARD: "true"
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BACKEND_SERVICE: consent-protocol
       FRONTEND_SERVICE: hushh-webapp
     steps:

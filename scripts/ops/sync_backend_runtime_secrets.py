@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -209,6 +208,7 @@ def _normalize_passkey_rp_ids(value: str) -> tuple[str, ...]:
 
 def _validate_connector_rollout(args: argparse.Namespace) -> None:
     """Fail before touching Secret Manager on an unsafe hosted rollout."""
+    _production_drive_candidate["validate_candidate_only"](args)
     if getattr(args, "drive_period_packets", "false") == "true" and args.environment != "uat":
         raise ValueError("Drive period packets rollout is limited to UAT")
     enabled = any(getattr(args, name, "false") == "true" for name in CONNECTOR_ROLLOUT_FLAGS)
@@ -241,10 +241,7 @@ def _validate_connector_rollout(args: argparse.Namespace) -> None:
         (enabled and not candidate_secret)
         or (
             candidate_secret
-            and not re.fullmatch(
-                r"BACKEND_RUNTIME_CONFIG_JSON_DRIVE_[1-9][0-9]*_[1-9][0-9]*",
-                candidate_secret,
-            )
+            and not _production_drive_candidate["valid_candidate_secret"](candidate_secret)
         )
     ):
         raise ValueError("Production Drive rollout requires a per-release candidate secret")
@@ -389,16 +386,8 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
-def _split_production_drive_candidate_config(
-    args: argparse.Namespace, config: dict[str, Any]
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    if args.environment != "production" or not args.production_drive_candidate_secret:
-        return config, None
-    # Existing serving revisions may read canonical :latest at runtime.
-    # Every backend release writes only its own candidate, even when Drive is
-    # disabled, so any new config flag becomes live only with the new revision.
-    return None, dict(config)
-
+_production_drive_candidate = run_path(str(Path(__file__).with_name("production_drive_candidate_config.py")))
+_split_production_drive_candidate_config = _production_drive_candidate["split_candidate_config"]
 
 # One NWS v4 credential per lane, because the upstream registry binds each key
 # to exactly one consumer and one project. An unlisted lane resolves to blank,
@@ -545,6 +534,7 @@ def main() -> int:
         "--connector-production-all-users", default="false", choices=["true", "false"]
     )
     parser.add_argument("--production-drive-candidate-secret", default="")
+    parser.add_argument("--production-drive-candidate-only", action="store_true", help="Create or reuse only the production per-release config; leave canonical/provider secrets unchanged.")
     _scope_commerce_runtime_policy()["register_arguments"](parser)
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
@@ -664,6 +654,14 @@ def main() -> int:
             args.project, ""
         )
 
+    config = _build_backend_runtime_config(args)
+    config.update(retained_settings)
+    config = run_path(str(Path(__file__).with_name("shared_files_runtime_policy.py")))[
+        "apply_policy"
+    ](config, retained_runtime_config if args.environment == "dev" else {})
+    if args.production_drive_candidate_only:
+        return _production_drive_candidate["sync_candidate_only"](args, config, _run, _upsert_secret)
+
     sync_summary: list[str] = []
 
     for target_secret, source_project, source_secret in (
@@ -714,11 +712,6 @@ def main() -> int:
 
     sync_summary.extend(_sync_oauth_redirects(args.project, args.app_frontend_origin))
 
-    config = _build_backend_runtime_config(args)
-    config.update(retained_settings)
-    config = run_path(str(Path(__file__).with_name("shared_files_runtime_policy.py")))[
-        "apply_policy"
-    ](config, retained_runtime_config if args.environment == "dev" else {})
     backend_runtime_config, candidate_runtime_config = _split_production_drive_candidate_config(
         args, config
     )
@@ -743,16 +736,7 @@ def main() -> int:
     runtime_config_for_summary = candidate_runtime_config or backend_runtime_config
     if runtime_config_for_summary is None:
         raise ValueError("Backend runtime config target is unavailable")
-    print(
-        json.dumps(
-            {
-                "project": args.project,
-                "synced_secrets": sorted(set(sync_summary)),
-                "backend_runtime_config_keys": sorted(runtime_config_for_summary.keys()),
-            },
-            indent=2,
-        )
-    )
+    _production_drive_candidate["print_sync_summary"](args.project, sync_summary, runtime_config_for_summary)
     return 0
 
 

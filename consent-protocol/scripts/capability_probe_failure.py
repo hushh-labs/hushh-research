@@ -1,0 +1,63 @@
+"""Closed synthetic probe diagnostics and settlement; no provider authority."""
+
+from __future__ import annotations
+
+import asyncio
+
+_REASONS = {
+    (
+        "live_audio",
+        RuntimeError,
+        ("Azure Live is not the selected managed processor",),
+    ): "live.binding_unavailable",
+    ("live_audio", RuntimeError, ("Azure Live transcription failed",)): "live.transcription_failed",
+    (
+        "live_audio",
+        RuntimeError,
+        ("Azure Live response did not complete",),
+    ): "live.response_incomplete",
+    (
+        "live_audio",
+        RuntimeError,
+        ("Azure Live provider rejected the operation",),
+    ): "live.provider_operation_failed",
+    (
+        "one_text_root",
+        ValueError,
+        ("Root qualification did not select its exact admitted model",),
+    ): "root.model_contract",
+    (
+        "one_text_root",
+        ValueError,
+        ("Root qualification omitted the production tool roster",),
+    ): "root.tool_roster",
+    (
+        "one_text_root",
+        ValueError,
+        ("Root full-roster function selection failed",),
+    ): "root.clock_selection",
+    (
+        "one_text_root",
+        ValueError,
+        ("Root structured, media or streaming round trip failed",),
+    ): "root.roundtrip_failed",
+}
+FAILURE_REASONS = frozenset({"unlisted", *_REASONS.values()})
+
+
+def failure_reason(capability: str, error: Exception) -> str:
+    """Match exact authored types/arguments, never provider text or attributes."""
+    if type(error) not in {RuntimeError, ValueError}:
+        return "unlisted"
+    if len(error.args) != 1 or type(error.args[0]) is not str:
+        return "unlisted"
+    return _REASONS.get((capability, type(error), error.args), "unlisted")
+
+
+async def settle_recording(producer: asyncio.Task[None] | None) -> None:
+    """Retrieve completed failures and settle cancellation without replacing the caller's error."""
+    if producer is None:
+        return
+    if not producer.done():
+        producer.cancel()
+    await asyncio.gather(producer, return_exceptions=True)

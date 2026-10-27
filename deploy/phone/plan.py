@@ -13,6 +13,8 @@ from pathlib import Path
 
 import qualify_image
 from consumer_compatibility import qualify_consumers
+from operational_reference import current as _operational
+from operational_reference import revalidate as _verify_operational
 from production_receipt import qualify_release
 from revision_qualification import (
     PROJECT,
@@ -200,16 +202,32 @@ def prepare(args) -> dict:
     current = json.loads(args.current_json.read_text())
     labels = (current.get("metadata") or {}).get("labels") or {}
     # A cold rollback belongs to a failed run, never a healthy production receipt.
-    # An explicit source restages independently; it does not reuse that revision.
+    # An explicit source can restage only when no active qualified reference exists.
     restage = args.fallback_sha and labels.get("deploy-source") == (
         "deploy-production-phone-rollback"
     )
-    chosen = None if restage else _existing(current, args.output.parent)
-    if chosen is None:
-        chosen = _independent(args.fallback_sha, args.release_tools, args.output.parent)
-    elif args.fallback_sha:
-        raise ValueError("phone_rollback_independent_source_unnecessary")
-    if chosen["mode"] == "cold" and chosen["source"] == args.primary_sha:
+    if getattr(args, "operational_only", False):
+        if args.fallback_sha:
+            raise ValueError("phone_rollback_operational_source_must_be_retained")
+        chosen = _operational()
+        if chosen is None:
+            raise ValueError("phone_rollback_operational_reference_required")
+    else:
+        chosen = None if restage else _existing(current, args.output.parent)
+        if chosen is None:
+            chosen = _operational()
+        if chosen is None:
+            chosen = _independent(
+                args.fallback_sha, args.release_tools, args.output.parent
+            )
+        elif args.fallback_sha:
+            raise ValueError("phone_rollback_independent_source_unnecessary")
+    if chosen["mode"] == "operational" and not _source_supported(chosen["source"]):
+        raise ValueError("phone_rollback_operational_source_lacks_current_admission")
+    if (
+        chosen["mode"] in {"cold", "operational"}
+        and chosen["source"] == args.primary_sha
+    ):
         raise ValueError("phone_rollback_requires_independent_source")
     compatibility = qualify_consumers(chosen["source"], args.primary_sha)
     recovery_enabled = args.enable_recovery == "true" and _readers_qualified()
@@ -254,7 +272,9 @@ def verify(args) -> dict:
         or (plan.get("recovery_enabled") is True and not _readers_qualified())
     ):
         raise ValueError("phone_rollback_preparation_evidence_mismatch")
-    if plan["mode"] == "cold":
+    if plan["mode"] == "operational":
+        qualified = _verify_operational(plan)
+    elif plan["mode"] == "cold":
         qualified = inspect_cold(
             sha=plan["source"], image=plan["image"], run_id=args.run_id
         )
@@ -295,6 +315,7 @@ def main() -> int:
     parser.add_argument("--enable-recovery", choices=("true", "false"), default="false")
     parser.add_argument("--release-tools", type=Path)
     parser.add_argument("--plan", type=Path)
+    parser.add_argument("--operational-only", action="store_true")
     args = parser.parse_args()
     try:
         if not re.fullmatch(r"[1-9][0-9]*", args.run_id):
@@ -307,6 +328,7 @@ def main() -> int:
         TypeError,
         KeyError,
         AttributeError,
+        RuntimeError,
         OSError,
         subprocess.SubprocessError,
     ) as exc:

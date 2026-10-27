@@ -116,6 +116,41 @@ pass.** Operations source, hosted recovery validation and live application
 restoration are separate outcomes. No historical migration replay, Firebase
 rollback or fabricated UAT receipt is allowed.
 
+On 27 October, operation `40430296874`, attempt 2, promoted the recorded
+`d8a5fa485874` application to both production services at 100% traffic:
+backend `consent-protocol-00309-nir`, frontend `hushh-webapp-00160-2w2`.
+Runtime parity, immutable provenance, health, account-session and native-domain
+checks passed. The workflow remained **blocked** because system Python lacked
+the recovery schema qualifier's database driver. The activation command must
+use the already verified `PROTOCOL_PYTHON` environment.
+
+The administrator continued this same approved operation using the unchanged
+main-owned activation tool at `c9d26ee991`, the verified project environment and
+explicit source/run arguments. Competing production mutation entrypoints were
+paused and restored to their previous states. Canonical activation verified the
+schema, exact document barrier, fresh Scheduler HTTP 200, compatible retained
+revisions and serving traffic before confirming the deletion fence absent.
+This separate admin repair does **not** turn the failed hosted attempt green or
+create a normal promotion receipt. The existing macOS checkpoint retains its
+`production-admin-activation-activation.json` and repair record. Signed-in production acceptance then passed through the existing Google login:
+the returning account reached One without an alert, and its real
+`/api/account/session-status` request returned HTTP 200. Public login and the
+unauthenticated session contract also passed.
+
+A hosted restoration completion can attest that same original operation through
+`restoration_activation_run_id` and its exact `restoration_activation_attempt` on
+the existing production workflow. It accepts only retained activation-only failed
+evidence for the recorded source, with the original immutable serving pair and
+document-barrier owner. It rebuilds no image and changes no traffic or schema.
+Fresh canonical schema, barrier, Scheduler delivery, provenance, health and
+already-absent deletion-fence checks must pass. The new verifier has its own
+receipt and run identity; runtime labels retain the original deployment run.
+The canonical activation configures and triggers the existing cleanup Scheduler;
+this is not a read-only operation. Retained consumers needing retirement are
+refused through the existing lifecycle inventory before activation begins.
+This is a restoration serving reference, not Dev/UAT acceptance or a phone
+rollback anchor. The original failed attempt remains unchanged.
+
 The selective-promotion handoff remains preserved separately. Its branch-baseline
 and application-SHA/approval-SHA mapping are not active. Its maintenance draft
 needs corrections for forced capacity inspection, dry-run checkpoint state and
@@ -1259,6 +1294,20 @@ outcomes retain mutation intent and block conflicting deployments until reconcil
 a timeout does not prove that Google stopped the operation. No completion is claimed
 for partial or unresolved work. Cleanup outcome is separate from release health and
 capacity admission; diagnostic reporting does not add another unconditional cloud scan.
+Maintenance publishes an unfinished checkpoint before its worker-health preflight,
+preserving restored service journals and capacity-bridge intent. Historical UAT
+failures without an artifact require exact frozen owner/workflow source, actual
+checkout, completed attempt and runner-output proof that the checkpoint barrier
+was never crossed. This proves no provider mutation; it grants no cleanup or
+release-health authority. Unknown source, incomplete logs, cancellation and failed
+checkpoint uploads remain blocked. Every attempt is inspected, including earlier
+attempts of a currently running retry; never delete failed runs to clear admission.
+A saved maintenance checkpoint may precede the README writer. Only the existing
+attempt/job/source-qualified saved-checkpoint path may restore that shape; legacy
+pending-drain archives still require the marker. Artifact ID, size, digest, bounded
+regular ZIP members and completion receipt remain mandatory. Unfinished journals
+are restored unchanged and continue to block mutation admission. New publishers
+write the README with the initial checkpoint before live health checks.
 Retained database-connected revisions remain in admission accounting until safe
 retirement. Zero minimum instances and aggregate SQL peaks do not prove that older
 generations have finished their admitted requests. A shortage defers deployment.

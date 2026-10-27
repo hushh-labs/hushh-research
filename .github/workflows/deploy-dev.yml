@@ -163,7 +163,7 @@ jobs:
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"
           cp deploy/account-deletion/{install,remove}_release_fence.sql \
-            deploy/account-deletion/activate_release.py deploy/account-deletion/release_source.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
+            deploy/account-deletion/activate_release.py deploy/account-deletion/activation_retirement.py deploy/account-deletion/release_source.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
             deploy/account-deletion/verify_release_boundary.sql "${RUNNER_TEMP}/release-tools/account-deletion/"
           cp scripts/ci/verify-cloud-scheduler-attempt.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"

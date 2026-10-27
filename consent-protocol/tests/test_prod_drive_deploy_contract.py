@@ -54,7 +54,9 @@ def test_production_dispatch_is_opt_in_and_worker_precedes_app_traffic():
     )
     worker = next(step for step in steps if step.get("id") == "deploy-drive-worker")
     assert "steps.drive-mode.outputs.active == 'true'" in worker["if"]
-    assert worker["env"]["RELEASE_RUN_ATTEMPT"] == "${{ github.run_attempt }}"
+    assert worker["env"]["RELEASE_RUN_ATTEMPT"] == (
+        "${{ steps.staged-worker.outputs.loaded == 'true' && steps.staged-worker.outputs.attempt || github.run_attempt }}"
+    )
     promote = next(step for step in steps if step.get("id") == "promote-traffic")
     assert "steps.deploy-drive-worker.outcome == 'success'" in promote["if"]
     assert any(step.get("id") == "rollback-drive-worker" for step in steps)
@@ -142,9 +144,17 @@ def test_production_backend_config_stays_on_candidate_and_frontend_scope_skips_p
     assert "steps.scope.outputs.deploy_backend == 'true'" in places["if"]
     backend_sync = by_name["Sync canonical hosted runtime secrets"]
     frontend_sync = by_name["Sync frontend hosted runtime secrets"]
-    assert backend_sync["if"] == "steps.scope.outputs.deploy_backend == 'true'"
-    assert frontend_sync["if"] == "steps.scope.outputs.deploy_frontend == 'true'"
-    assert "sync_backend_runtime_secrets.py" in backend_sync["run"]
+    assert (
+        backend_sync["if"]
+        == "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_backend == 'true')"
+    )
+    assert (
+        frontend_sync["if"]
+        == "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true')"
+    )
+    assert backend_sync["run"] == "bash deploy/drive/sync_runtime_config_prod.sh"
+    common_sync = (ROOT / "deploy/drive/sync_runtime_config_prod.sh").read_text()
+    assert "sync_backend_runtime_secrets.py" in common_sync
     assert "sync_frontend_runtime_secrets.py" not in backend_sync["run"]
     assert "sync_frontend_runtime_secrets.py" in frontend_sync["run"]
     deploy = by_name["Deploy backend using Cloud Build"]["run"]
@@ -454,12 +464,10 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     subprocess.run(  # noqa: S603 - execute the repo-authored release steps in an isolated fixture
         ["bash", "-c", checkout], cwd=repo, env=env, capture_output=True, text=True, check=True
     )
-    scope_tool = runner / "release-tools/resolve-deploy-scope.py"
-    assert scope_tool.read_text() == (ROOT / "scripts/ci/resolve-deploy-scope.py").read_text()
-    companion = "release_acceptance_provenance.py"
-    assert (runner / "release-tools" / companion).read_text() == (
-        ROOT / "scripts/ci" / companion
-    ).read_text()
+    for companion in ("resolve-deploy-scope.py", "release_acceptance_provenance.py"):
+        assert (runner / "release-tools" / companion).read_text() == (
+            ROOT / "scripts/ci" / companion
+        ).read_text()
     for path in current_paths:
         # Main-owned helpers are consumed directly from RUNNER_TEMP.
         if path.endswith(

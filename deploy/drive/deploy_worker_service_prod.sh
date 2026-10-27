@@ -8,6 +8,7 @@ readonly PROJECT_ID="hushh-pda"
 readonly REGION="us-central1"
 readonly SERVICE="consent-protocol-drive-worker"
 readonly SCHEDULER_STATE_HELPER="deploy/drive/work_drain_scheduler_snapshot_prod.py"
+readonly STAGED_WORKER_HELPER="deploy/drive/staged_worker.py"
 readonly SCHEDULER_AUDIENCE="https://api.hushh.ai"
 readonly SCHEDULER_ID="drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com"
 # Preserve the exact intake setting as immutable revision provenance.
@@ -62,6 +63,23 @@ fi
 fixed_jobs=(drive-work-sharing-prod)
 if [[ "${legacy_drive}" == true ]]; then
   fixed_jobs=(drive-work-drain-prod drive-work-suggestions-prod drive-work-sharing-prod)
+fi
+release_phase="${DRIVE_WORKER_RELEASE_PHASE:-standard}"
+case "${release_phase}" in
+  standard) ;;
+  prepare|stage|prepare-activation|activate)
+    : "${DRIVE_WORKER_STAGE_RECEIPT:?staged worker receipt path required}"
+    ;;
+  *) echo "Unknown Drive worker release phase" >&2; exit 1 ;;
+esac
+if [[ "${release_phase}" == prepare || "${release_phase}" == stage ]]; then
+  basis_args=()
+  if [[ "$release_phase" == prepare && -n "${DRIVE_WORKER_RELEASE_BASIS:-}" ]]; then
+    basis_args=(--release-basis "$DRIVE_WORKER_RELEASE_BASIS")
+  fi
+  python3 "${STAGED_WORKER_HELPER}" "${release_phase}" \
+    --receipt "${DRIVE_WORKER_STAGE_RECEIPT}" "${basis_args[@]}"
+  exit 0
 fi
 
 # An existing service needs a known rollback revision before deploying an
@@ -127,6 +145,17 @@ if ! python3 "${SCHEDULER_STATE_HELPER}" "${capture_args[@]}"; then
   echo "Drive scheduler pre-release state is unavailable; refusing worker release" >&2
   exit 1
 fi
+if [[ "${release_phase}" == prepare-activation || "${release_phase}" == activate ]]; then
+  if ! candidate_revision="$(python3 "${STAGED_WORKER_HELPER}" "${release_phase}" \
+    --receipt "${DRIVE_WORKER_STAGE_RECEIPT}" --scheduler-snapshot "${scheduler_snapshot}")"; then
+    rm -f "${scheduler_snapshot}"
+    exit 1
+  fi
+  if [[ "${release_phase}" == prepare-activation ]]; then
+    rm -f "${scheduler_snapshot}"
+    exit 0
+  fi
+fi
 promoted=false
 retargeted=false
 invoker_granted=false
@@ -185,6 +214,7 @@ trap rollback EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+if [[ "${release_phase}" != activate ]]; then
 payment_secret_bindings=""
 stripe_secret_ready=true
 for payment_secret in STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET APP_FRONTEND_ORIGIN; do
@@ -269,6 +299,7 @@ refs = {
 if refs.get("BACKEND_RUNTIME_CONFIG_JSON") != os.environ["EXPECTED_RUNTIME_SECRET"]:
     raise SystemExit("Production Drive worker is not bound to its isolated runtime config")
 '
+fi
 
 # The private service admits only this scheduler identity. The route repeats
 # the exact issuer/email/audience check after Cloud Run IAM verification.
