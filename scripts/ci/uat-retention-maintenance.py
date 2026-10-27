@@ -904,13 +904,16 @@ def find_release(
             verify_post_release_failure(repository, run, release)
             # Local verified context only; never accepted from an artifact.
             release["_maintenance_source_run"] = run_id
-        if (
-            requested
-            or not require_live
-            or live_release_matches(release, environment=environment)
-        ):
+        restoration_continuation = environment == "production" and "restoration_activation" in release
+        if restoration_continuation:
+            # This verifier did not deploy the serving pair. Derive its original
+            # runtime-run identities from the receipt before matching live labels.
             production_retention_context.healthy_phone(
                 sys.modules[__name__], repository, run, release, lane_config, on_phone_rollback)
+        if requested or not require_live or live_release_matches(release, environment=environment):
+            if not restoration_continuation:
+                production_retention_context.healthy_phone(
+                    sys.modules[__name__], repository, run, release, lane_config, on_phone_rollback)
             return run_id, release
     return None
 
@@ -1371,40 +1374,9 @@ def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
             ]
             if len(matches) != 1:
                 return False
-            revision = matches[0]
-            labels = revision.get("metadata", {}).get("labels") or {}
-            containers = revision.get("spec", {}).get("containers") or []
-            if len(containers) != 1:
-                return False
-            container = containers[0]
-            deploy_sha = [
-                entry.get("value")
-                for entry in container.get("env", [])
-                if entry.get("name") == "HUSHH_DEPLOY_SHA"
-            ]
-            deploy_source = [
-                entry.get("value")
-                for entry in container.get("env", [])
-                if entry.get("name") == "HUSHH_DEPLOY_SOURCE"
-            ]
-            if (
-                labels.get("deploy-sha") != provenance["sha"]
-                or labels.get("github-run-id") != str(provenance["run_id"])
-                or deploy_sha != [provenance["sha"]]
-                or (
-                    provenance.get("source")
-                    and (
-                        labels.get("deploy-source") != provenance["source"]
-                        or deploy_source != [provenance["source"]]
-                    )
-                )
-                or not re.fullmatch(
-                    r"[^\s]+@sha256:[a-f0-9]{64}", container.get("image", "")
-                )
-                or not any(
-                    c.get("type") == "Ready" and c.get("status") == "True"
-                    for c in revision.get("status", {}).get("conditions", [])
-                )
+            identity = (release.get("_maintenance_restoration_runtime") or {}).get(lane)
+            if not production_retention_context.selected_revision_matches(
+                state, matches[0], provenance, identity=identity
             ):
                 return False
     if environment == "production":

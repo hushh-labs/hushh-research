@@ -212,6 +212,135 @@ class ProductionPhoneLeaseCases:
 
 
 class ProductionPhoneSkippedLeaseCases:
+    def restoration_lease(self, conclusion="success", *, active=False):
+        case = LeaseFixture(self)
+        case.intent_protocol()
+        text = case.sources[case.runs[0]["head_sha"]]
+        case.sources.update({"origin/main": text, "e" * 40: text})
+        job = case.jobs[(300, 2)]["jobs"][0]
+        case.artifacts = [item for item in case.artifacts if item["id"] in {901, 1901}]
+        admission = {
+            "name": lease.RESTORATION_ADMIT,
+            "status": "completed",
+            "conclusion": "success",
+        }
+        if active:
+            environment = case.active_guard()
+            environment.update(
+                GITHUB_JOB=lease.RESTORATION_JOB, GITHUB_SHA=case.runs[0]["head_sha"]
+            )
+            job["steps"].insert(0, admission)
+        else:
+            environment = {"GITHUB_SHA": "e" * 40}
+            case.runs[0]["conclusion"] = conclusion
+            case.attempts[(300, 2)]["conclusion"] = conclusion
+            job.update(
+                conclusion=conclusion,
+                steps=[
+                    admission,
+                    {
+                        "name": "Verify unchanged restoration serving pair",
+                        "status": "completed",
+                        "conclusion": conclusion,
+                    },
+                ],
+            )
+        return case, environment
+
+    def test_restoration_nonproducer_keeps_current_metadata_and_every_older_lease(self):
+        self.setUp()
+        for conclusion, admission in (
+            ("success", "success"),
+            ("failure", "failure"),
+            ("cancelled", "cancelled"),
+            ("cancelled", "skipped"),
+            (None, "success"),
+        ):
+            case, environment = self.restoration_lease(
+                conclusion, active=conclusion is None
+            )
+            case.jobs[(300, 2)]["jobs"][0]["steps"][0]["conclusion"] = admission
+            with (
+                self.subTest(conclusion=conclusion),
+                mock.patch.dict("os.environ", environment),
+            ):
+                # Preserved release tools may run over a historical application checkout.
+                with (
+                    tempfile.TemporaryDirectory() as directory,
+                    mock.patch.object(lease.phone, "ROOT", Path(directory)),
+                ):
+                    self.assertIsNone(self.lease_check(case))
+                self.assertIn("runs/300/attempts/1/jobs?per_page=100", case.calls)
+                self.lease_defect(case, "older_pending")
+                with self.assertRaises(lease.retention.UnsafeState):
+                    self.lease_check(case)
+
+    def test_restoration_nonproducer_refuses_changed_source_or_any_producer_ambiguity(
+        self,
+    ):
+        self.setUp()
+        for defect in (
+            "source",
+            "exclusion",
+            "marker",
+            "admission",
+            "foreign_job",
+            "job",
+            "ordinary_job",
+            "sha",
+            "guard",
+            "empty_steps",
+            "cold_source",
+        ):
+            case, environment = self.restoration_lease(
+                active=defect in {"job", "ordinary_job", "sha", "guard", "admission"}
+            )
+            job = case.jobs[(300, 2)]["jobs"][0]
+            if defect == "source":
+                case.sources[case.runs[0]["head_sha"]] = case.sources["e" * 40].replace(
+                    b"--fence-required false", b"--fence-required true"
+                )
+            elif defect == "exclusion":
+                case.sources[case.runs[0]["head_sha"]] = case.sources["e" * 40].replace(
+                    b" && inputs.restoration_activation_run_id == ''", b"", 1
+                )
+            elif defect == "marker":
+                job["steps"].append(
+                    {
+                        "name": lease.INTENT,
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                )
+            elif defect == "admission":
+                job["steps"][0]["conclusion"] = "skipped"
+            elif defect == "cold_source":
+                text = case.sources["e" * 40].replace(
+                    b"Admit manual restoration verification only",
+                    b"Admit manual restoration verification only\n        # gcloud builds submit",
+                    1,
+                )
+                case.sources.update({"e" * 40: text, case.runs[0]["head_sha"]: text})
+            elif defect == "empty_steps":
+                job["steps"] = []
+            elif defect == "foreign_job":
+                job["run_attempt"] = 1
+            elif defect in {"job", "ordinary_job", "sha"}:
+                key = "GITHUB_SHA" if defect == "sha" else "GITHUB_JOB"
+                environment[key] = {
+                    "job": "other",
+                    "ordinary_job": "deploy",
+                    "sha": "e" * 40,
+                }[defect]
+            else:
+                job["steps"][-1]["status"] = "completed"
+            with (
+                self.subTest(defect=defect),
+                mock.patch.dict("os.environ", environment),
+                self.assertRaises(lease.retention.UnsafeState),
+            ):
+                self.lease_check(case)
+
     def test_only_completed_skipped_empty_job_is_nonexecuted_and_prior_attempt_still_fences(
         self,
     ):
