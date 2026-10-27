@@ -42,6 +42,35 @@ def unique(pairs: list[tuple[str, object]]) -> dict:
     return result
 
 
+def healthy_fields(healthy: str, commit: str) -> dict[str, str]:
+    """Parse legacy fields without rewriting the bytes covered by receipts.
+
+    Git strips the trailing space of an empty tag field. Only informational
+    service URLs may use that spelling; authority keys and duplicates refuse.
+    """
+    require(
+        len(healthy.encode()) <= 65536 and bool(HEX40.fullmatch(commit)),
+        "operational_backend_healthy_annotation_invalid",
+    )
+    values = {}
+    for line in healthy.splitlines()[1:]:
+        key, separator, value = line.partition(": ")
+        if line in {"backend_url:", "frontend_url:"}:
+            key, separator, value = line[:-1], ":", ""
+        require(
+            bool(separator) and key in HEALTHY_FIELDS and key not in values,
+            "operational_backend_healthy_annotation_invalid",
+        )
+        values[key] = value
+    require(
+        healthy.startswith("Last known good — production\n")
+        and set(values) == HEALTHY_FIELDS
+        and values["sha"] == commit,
+        "operational_backend_healthy_annotation_invalid",
+    )
+    return values
+
+
 def split(message: str, commit: str) -> tuple[str, dict | None]:
     """Preserve the exact healthy message, including its existing newlines."""
     require(len(message.encode()) <= 65536, "operational_backend_annotation_too_large")
@@ -61,20 +90,7 @@ def split(message: str, commit: str) -> tuple[str, dict | None]:
         record = json.loads(lines[index][len(FIELD) :], object_pairs_hook=unique)
         lines = lines[:index]
     healthy = "".join(lines)
-    values = {}
-    for line in healthy.splitlines()[1:]:
-        key, separator, value = line.partition(": ")
-        require(
-            bool(separator) and key in HEALTHY_FIELDS and key not in values,
-            "operational_backend_healthy_annotation_invalid",
-        )
-        values[key] = value
-    require(
-        healthy.startswith("Last known good — production\n")
-        and set(values) == HEALTHY_FIELDS
-        and values["sha"] == commit,
-        "operational_backend_healthy_annotation_invalid",
-    )
+    healthy_fields(healthy, commit)
     if indices:
         validate(record, healthy, commit)
     return healthy, record
