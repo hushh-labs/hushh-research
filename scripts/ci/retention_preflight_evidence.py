@@ -20,6 +20,7 @@ AUDITED_SOURCE_SHAS = frozenset(
         AUDITED_SOURCE_SHA,
         "2c720061b7a711ded7d3f822f67c72d73d98e6e2",
         "c738ff0b975d9a326664f9af356eea2dc7d90125",
+        "dce2e32866b6ff7369b58e6695b599e57c946ad7",
     }
 )
 # Verified with git show <sha>:<path> | git hash-object --stdin. In this source,
@@ -87,7 +88,7 @@ def _steps_match(job: dict[str, Any]) -> bool:
     return numbers == sorted(set(numbers))
 
 
-def _log_matches(log: str, source_sha: str) -> bool:
+def _log_matches(log: str, source_sha: str, job: dict[str, Any]) -> bool:
     if not isinstance(log, str) or not log or len(log) > MAX_LOG_BYTES:
         return False
     try:
@@ -95,6 +96,8 @@ def _log_matches(log: str, source_sha: str) -> bool:
             return False
     except UnicodeError:
         return False
+    if _stamp(log.splitlines()[0].lstrip("\ufeff").partition(" ")[0]) is not None:
+        return raw_log_matches(log, job, source_sha)
     records: dict[str, list[str]] = {}
     last_step = -1
     errors = []
@@ -155,7 +158,7 @@ def qualify_guard_only_run(
         or not isinstance(run, dict)
         or not isinstance(job, dict)
         or not isinstance(source_blobs, dict)
-        or source_blobs != AUDITED_SOURCE_BLOBS
+        or source_blobs != expected_source_blobs(run.get("head_sha"))
         or run.get("path") != ".github/workflows/capacity-maintenance.yml"
         or run.get("head_branch") != "main"
         or run.get("event") not in ("repository_dispatch", "workflow_dispatch")
@@ -183,7 +186,7 @@ def qualify_guard_only_run(
             for key in ("repository", "head_repository")
         )
         or not _steps_match(job)
-        or not _log_matches(log, run["head_sha"])
+        or not _log_matches(log, run["head_sha"], job)
     ):
         return None
     return {
@@ -193,10 +196,8 @@ def qualify_guard_only_run(
         "job_id": job["id"],
         "run_attempt": run["run_attempt"],
         "source_sha": run["head_sha"],
-        "script_blob": AUDITED_SOURCE_BLOBS["scripts/ci/uat-retention-maintenance.py"],
-        "workflow_blob": AUDITED_SOURCE_BLOBS[
-            ".github/workflows/capacity-maintenance.yml"
-        ],
+        "script_blob": source_blobs["scripts/ci/uat-retention-maintenance.py"],
+        "workflow_blob": source_blobs[".github/workflows/capacity-maintenance.yml"],
     }
 
 
@@ -224,7 +225,39 @@ RUNNER_WARNING = "##[warning]Node.js 20 is deprecated. The following actions tar
 REPORT_GROUP = '##[group]Run echo "Cleanup: ${CLEANUP_OUTCOME:-failed}. This is not a deployment-capacity or release-health result." >> "$GITHUB_STEP_SUMMARY"'
 
 
+def expected_source_blobs(source_sha: object) -> dict[str, str] | None:
+    if not isinstance(source_sha, str) or source_sha not in AUDITED_SOURCE_SHAS:
+        return None
+    digest = (
+        "34050aa25db19afe6004d97fdc76bda7de9c6471"
+        if source_sha == "dce2e32866b6ff7369b58e6695b599e57c946ad7"
+        else AUDITED_SOURCE_BLOBS[OWNER]
+    )
+    return {path: value[0] for path, value in SOURCE_PROFILES[digest].items()}
+
+
+def raw_log_matches(log: str, job: dict[str, Any], source_sha: str) -> bool:
+    """Compatibility diagnostic delegates to the single complete raw classifier."""
+    expected = expected_source_blobs(source_sha)
+    if expected is None or not isinstance(job, dict) or not _steps_match(job):
+        return False
+    rows = _raw_rows(log, job)
+    return bool(
+        rows is not None
+        and actual_checkout(log, job) == source_sha
+        and [body for _, body in rows if body.startswith("Hosted maintenance stopped:")]
+        == [_DIAGNOSTIC]
+        and _raw_failure(rows, job, expected[OWNER])
+    )
+
+
 def _stamp(value):
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", value)
+        is None
+    ):
+        return None
     try:
         stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
         return stamp if stamp.utcoffset() is not None else None
@@ -249,7 +282,7 @@ def _raw_rows(log, job):
         "The operation was cancelled",
         "checkpoint_ready=true",
     )
-    for line in log.splitlines():
+    for line in log.removeprefix("\ufeff").splitlines():
         stamp, separator, body = line.partition(" ")
         at = _stamp(stamp)
         if not (
@@ -278,10 +311,10 @@ def _raw_rows(log, job):
 
 def _step_rows(rows, step):
     start, end = (_stamp(step.get(key)) for key in ("started_at", "completed_at"))
-    if start is None or end is None:
+    if start is None or end is None or end < start:
         return []
     # Actions metadata has second precision; actual transcript stamps have fractions.
-    return [body for at, body in rows if start <= at <= end + timedelta(seconds=1)]
+    return [body for at, body in rows if start <= at < end + timedelta(seconds=1)]
 
 
 def actual_checkout(log, job):
@@ -301,18 +334,27 @@ def _prepare_segment(rows, job):
     report = job["steps"][8]
     start, end = (_stamp(report.get(key)) for key in ("started_at", "completed_at"))
     begin = _stamp(job["steps"][6].get("started_at"))
+    finish = _stamp(job["steps"][6].get("completed_at"))
     markers = [
         (index, at) for index, (at, body) in enumerate(rows) if body == REPORT_GROUP
     ]
     if not (
         begin
+        and finish
+        and begin <= finish
         and start
         and end
         and len(markers) == 1
-        and start <= markers[0][1] <= end + timedelta(seconds=1)
+        and start <= end
+        and start <= markers[0][1] < end + timedelta(seconds=1)
     ):
         return []
-    return [body for at, body in rows[: markers[0][0]] if at >= begin]
+    segment = [(at, body) for at, body in rows[: markers[0][0]] if at >= begin]
+    return (
+        [body for _, body in segment]
+        if all(at < finish + timedelta(seconds=1) for at, _ in segment)
+        else []
+    )
 
 
 def _raw_failure(rows, job, profile):

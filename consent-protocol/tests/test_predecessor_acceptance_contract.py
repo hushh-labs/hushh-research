@@ -1,6 +1,7 @@
 """Exact-SHA predecessor acceptance across the dev, UAT and production lanes."""
 
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -9,6 +10,7 @@ import subprocess
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 from zipfile import ZipFile
 
 import pytest
@@ -27,21 +29,26 @@ def _bash() -> str:
     return bash
 
 
+@pytest.mark.parametrize("supports_escape_flag", [True, False])
 def test_bounded_reader_keeps_raw_job_logs_in_its_pipe_and_rejects_other_paths(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, supports_escape_flag
 ):
     module, *_ = _acceptance_fixture()
     executable = tmp_path / "gh"
     executable.write_text(
         "#!/usr/bin/env python3\n"
         "import sys\n"
-        "if '--allow-escape-sequences' not in sys.argv: sys.exit(1)\n"
+        f"supports = {supports_escape_flag!r}\n"
+        "if '--help' in sys.argv:\n"
+        "    print('--allow-escape-sequences' if supports else 'usage'); sys.exit(0)\n"
+        "if supports != ('--allow-escape-sequences' in sys.argv): sys.exit(1)\n"
         "sys.stdout.buffer.write(b'\\x1b[31mfixed synthetic log\\x1b[0m\\n')\n"
     )
     executable.chmod(0o755)
     monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
-    with pytest.raises(module.Refused, match="GitHub lookup failed"):
-        module.bounded_github_read("jobs/42/logs", 5)
+    if supports_escape_flag:
+        with pytest.raises(module.Refused, match="GitHub lookup failed"):
+            module.bounded_github_read("jobs/42/logs", 5)
     assert module.bounded_github_read("jobs/42/logs", 5, allow_escape_sequences=True) == (
         b"\x1b[31mfixed synthetic log\x1b[0m\n"
     )
@@ -373,3 +380,57 @@ def test_acceptance_producer_fences_failed_final_readback_and_missing_verificati
         module.validate(
             json.loads(output.read_text()), environment="dev", sha=SHA, service="frontend"
         )
+
+
+def _maintenance_log_ports(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+    return (
+        importlib.import_module("retention_publication"),
+        importlib.import_module("uat-retention-maintenance"),
+        importlib.import_module("verify-predecessor-acceptance"),
+    )
+
+
+@pytest.mark.parametrize("supports_escape_flag", [False, True])
+def test_maintenance_raw_transport_never_prints_private_log_payloads(
+    monkeypatch, capsys, supports_escape_flag
+):
+    publication, maintenance, reader = _maintenance_log_ports(monkeypatch)
+    calls = []
+
+    def read(arguments, timeout):
+        calls.append((arguments, timeout))
+        if arguments == ["gh", "api", "--help"]:
+            return b"--allow-escape-sequences" if supports_escape_flag else b"usage"
+        return b"PRIVATE_LOG_SENTINEL"
+
+    with mock.patch.object(reader, "_bounded_process_read", side_effect=read):
+        assert publication._log(maintenance, {"id": 200}) == "PRIVATE_LOG_SENTINEL"
+    assert calls[0][0] == ["gh", "api", "--help"]
+    assert calls[1][0][-1] == "repos/hushh-labs/hushh-research/actions/jobs/200/logs"
+    assert ("--allow-escape-sequences" in calls[1][0]) == supports_escape_flag
+    assert "PRIVATE_LOG_SENTINEL" not in capsys.readouterr().out
+
+
+def test_maintenance_transport_failure_keeps_private_diagnostics_closed(monkeypatch, capsys):
+    publication, maintenance, reader = _maintenance_log_ports(monkeypatch)
+    with mock.patch.object(
+        reader, "bounded_github_read", side_effect=reader.Refused("PRIVATE_CREDENTIAL_SENTINEL")
+    ):
+        with pytest.raises(
+            maintenance.retention.UnsafeState, match="bounded log lookup failed"
+        ) as error:
+            publication._log(maintenance, {"id": 200})
+    assert "PRIVATE_CREDENTIAL_SENTINEL" not in str(error.value)
+    assert "PRIVATE_CREDENTIAL_SENTINEL" not in capsys.readouterr().out
+
+
+def test_cli_capability_probe_shares_the_original_read_deadline(monkeypatch):
+    _, _, reader = _maintenance_log_ports(monkeypatch)
+    with (
+        mock.patch.object(reader.time, "monotonic", side_effect=[10.0, 11.0]),
+        mock.patch.object(reader, "_bounded_process_read", side_effect=[b"usage", b"log"]) as read,
+    ):
+        assert reader.bounded_github_read("jobs/200/logs", 5, allow_escape_sequences=True) == b"log"
+    assert read.call_args_list[0].args[1] == 5
+    assert read.call_args_list[1].args[1] == 4

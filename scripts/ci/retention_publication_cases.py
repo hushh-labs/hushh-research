@@ -223,6 +223,29 @@ def legacy_fixture():
     return run, job, raw
 
 
+def raw_fixture():
+    """One realistic whole-run fixture, shared by transport and canonical proof cases."""
+    run, job, raw = legacy_fixture()
+    run.update(
+        id=100,
+        head_sha=evidence.AUDITED_SOURCE_SHA,
+        repository={"full_name": "org/repo"},
+        head_repository={"full_name": "org/repo"},
+    )
+    job.update(id=200, run_id=100, head_sha=run["head_sha"])
+    log = raw.decode().replace("a" * 40, run["head_sha"])
+    log = log.replace(
+        "Hosted maintenance stopped: Drive worker is not ready", evidence._DIAGNOSTIC
+    )
+    log = log.replace(
+        "  APPLY: true",
+        "  PRIVATE_CANARY: PRIVATE_SYNTHETIC_SENTINEL\n2026-10-27T00:00:06Z   APPLY: true",
+    )
+    for command in evidence._PREPARE_COMMAND:
+        log = log.replace(command, "^[[36;1m" + command + "^[[0m")
+    return run, job, "\ufeff" + log, evidence.expected_source_blobs(run["head_sha"])
+
+
 class LegacyPublicationCases:
     def test_exact_observed_runner_warning_may_follow_finalized_orphan_cleanup(self):
         run, job, raw = legacy_fixture()
