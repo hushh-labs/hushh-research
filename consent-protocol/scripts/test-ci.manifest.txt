@@ -455,6 +455,7 @@ tests/test_frontend_prebuilt_image_contract.py
 tests/test_production_image_promotion_contract.py
 tests/test_uat_backend_image_promotion.py
 tests/test_predecessor_acceptance_contract.py
+tests/test_uat_application_selection.py
 tests/test_production_emergency.py
 
 # First-party document renewal: expiry is not revocation, but revoked lineage

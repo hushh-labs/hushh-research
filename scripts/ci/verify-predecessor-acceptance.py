@@ -170,7 +170,7 @@ class GitHub:
         self.cache[path] = value
         return value
 
-    def accept(self, pin: dict, environment: str, sha: str, service: str) -> dict:
+    def _receipt(self, pin: dict, environment: str) -> tuple[dict, dict, dict]:
         run_id, attempt, artifact_id = (
             pin.get(key) for key in ("run_id", "run_attempt", "artifact_id")
         )
@@ -202,6 +202,13 @@ class GitHub:
         require(
             receipt.get("run_id") == run_id and receipt.get("run_attempt") == attempt,
             "Receipt belongs to another attempt",
+        )
+        return run, artifact, receipt
+
+    def accept(self, pin: dict, environment: str, sha: str, service: str) -> dict:
+        run, artifact, receipt = self._receipt(pin, environment)
+        run_id, attempt, artifact_id = (
+            pin[key] for key in ("run_id", "run_attempt", "artifact_id")
         )
         image_reference = validate(
             receipt, environment=environment, sha=sha, service=service
@@ -236,6 +243,28 @@ class GitHub:
                 if image_reference is not None
                 else {}
             ),
+        }
+
+    def accepted_application(self, pin: dict, environment: str) -> dict:
+        """Inspect a pinned receipt without conflating its Main workflow SHA.
+
+        This is historical acceptance only. A current-state caller must also
+        bind the latest relevant deployment and the current run attempt.
+        """
+        _, _, receipt = self._receipt(pin, environment)
+        release = receipt.get("release", {})
+        sha = release.get("sha", "")
+        services = selected(release.get("scope"))
+        require(
+            sorted(services) == receipt.get("resolved_services"),
+            "Accepted service scope is inconsistent",
+        )
+        return {
+            "sha": sha,
+            "services": {
+                service: self.accept(pin, environment, sha, service)
+                for service in sorted(services)
+            },
         }
 
     def find(self, environment: str, sha: str, scope: str) -> dict:
