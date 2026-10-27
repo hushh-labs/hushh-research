@@ -20,6 +20,7 @@ from hushh_mcp.services.pod_adoption import adoption_expectations as adoption_ex
 
 if TYPE_CHECKING:
     from hushh_mcp.services.azure_vm_host_binding import AzureVmHostBinding
+    from hushh_mcp.services.private_gcp_deployment import PrivateGcpDeployment
 
 # Tiers a pod can run at: a logical stamp against a shared runtime (mass tier, no
 # per-user deploy), or a dedicated/attested instance (premium/regulated tier).
@@ -209,6 +210,9 @@ class PodSpec:
     user_cloud_resource_group: Optional[str] = None
     # Frozen owner setup selection; a fleet flag cannot grant this capability.
     files_library_enabled: bool = False
+    # Reviewed managed-project assignment. This is internal deployment input,
+    # never an owner-supplied authorization or a replacement for admission.
+    private_gcp_deployment: PrivateGcpDeployment | None = dataclass_field(default=None, repr=False)
 
     # -- the third axis: how warm THIS person's pod is kept -----------------------
     #
@@ -433,6 +437,14 @@ def resolve_compute_backend_for_spec(spec: PodSpec) -> ComputeBackend:
     instead of their own. That is the one failure mode worth being noisy about.
     """
     target = (spec.deployment_target or "").strip() or None
+    if spec.private_gcp_deployment is not None:
+        from hushh_mcp.services.hosted_gcp_backend import HostedGcpBackend
+
+        if target != BACKEND_GCP:
+            raise ValueError("Managed GCP deployment cannot override another hosting target")
+        backend = HostedGcpBackend(deployment=spec.private_gcp_deployment)
+        backend.render_deploy_config(spec)
+        return backend
     if spec.azure_vm_host is not None and target != BACKEND_USER_AZURE:
         raise ValueError("Azure VM host cannot be used with another deployment target")
     if target == BACKEND_USER_AZURE:

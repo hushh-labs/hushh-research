@@ -725,6 +725,13 @@ def pod_user_adc_enabled() -> bool:
     return _bool_from_value(_clean_env("HUSSH_POD_USER_ADC_ENABLED"), default=False)
 
 
+def pod_hosted_adc_enabled() -> bool:
+    """Hosted private inference uses an explicit project and its own pod identity."""
+    from hushh_mcp.services.private_gcp_deployment import hosted_runtime_deployment
+
+    return hosted_runtime_deployment() is not None
+
+
 def pod_turn_enabled() -> bool:
     """Let a POD serve an Agent One turn from its own process.
 
@@ -1373,7 +1380,13 @@ def managed_ai_settings() -> ManagedAISettings:
         env, env
     )
     value = load_profile(env)
-    if pod_user_adc_enabled():
+    from hushh_mcp.services.private_gcp_deployment import hosted_runtime_deployment
+
+    hosted = hosted_runtime_deployment()
+    if hosted is not None:
+        value["project"] = hosted.model_project
+        value["auth_mode"] = "vertex_adc"
+    elif pod_user_adc_enabled():
         project = _owner_adc_project()
         value["project"] = project
         value["auth_mode"] = "vertex_adc"

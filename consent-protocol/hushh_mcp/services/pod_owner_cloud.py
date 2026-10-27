@@ -33,6 +33,25 @@ def owner_cloud_provider() -> Optional[str]:
 
     if not pod_mode():
         return None
+    # Hosted private pods reuse KMS envelope custody. A key's presence describes
+    # encryption, not who owns the cloud account. Explicit hosted or malformed
+    # deployment markers must never acquire legacy owner-cloud capabilities.
+    from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV, PrivateGcpDeployment
+
+    marker = os.environ.get(HOSTING_ENV)
+    if marker is not None:
+        try:
+            deployment = PrivateGcpDeployment.decode(marker)
+            if (
+                deployment.hosting_mode != BACKEND_USER_GCP
+                or deployment.owner != os.getenv("HUSSH_ID")
+                or deployment.project != os.getenv("GOOGLE_CLOUD_PROJECT")
+                or deployment.kms_key != os.getenv(_GCP_KEY_ENV)
+                or deployment.environment != os.getenv("HUSHH_DEPLOY_ENV")
+            ):
+                return None
+        except ValueError:
+            return None
     gcp = bool((os.environ.get(_GCP_KEY_ENV) or "").strip())
     azure = bool((os.environ.get(_AZURE_KEY_ENV) or "").strip())
     if gcp == azure:

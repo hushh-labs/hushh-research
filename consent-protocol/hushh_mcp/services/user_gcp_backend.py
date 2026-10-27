@@ -20,7 +20,6 @@ import logging
 import re
 from typing import Any, Callable, Optional
 
-from hushh_mcp.services.byoc_key_custody import byoc_key_env
 from hushh_mcp.services.compute_backend import (
     BACKEND_USER_GCP,
     BackendHandle,
@@ -47,7 +46,6 @@ from hushh_mcp.services.owner_direct_ingress import (
     update_ingress_record,
 )
 from hushh_mcp.services.pod_gmail_push_config import gmail_notification_resources
-from hushh_mcp.services.pod_inference_bridge import render_inference_bridge
 
 logger = logging.getLogger(__name__)
 
@@ -336,143 +334,28 @@ class UserGcpBackend:
     def render_deploy_config(
         self, spec: PodSpec, *, image_digest: Optional[str] = None
     ) -> dict[str, Any]:
-        """Render owner-cloud custody and identity over the shared service shape.
-
-        Strip managed storage, plaintext key derivations and model coordinates.
-        Use the owner's bucket, KMS wrapping and least-privilege runtime account.
-        Only an explicit, identity-bound dev policy permits bridge inference;
-        recovery, Memory Bank and storage retain the owner's project.
-        """
-        cfg: dict[str, Any] = self._inner.render_deploy_config(spec)
-        if (
-            cfg["spec"]["template"]["metadata"]["annotations"].get(
-                "autoscaling.knative.dev/maxScale"
-            )
-            != "1"
-        ):
-            raise ValueError("An owner pod requires one instance; review its hosting configuration")
-        # Mark tenancy so the artifact is unambiguously user-owned.
-        cfg["metadata"]["labels"]["hussh-tenancy"] = "user-owned"
-
-        slug = _slug(spec.hushh_id)
-        project = self._user_project or "<user-project>"
-        region = spec.region or self._user_region
-        container = cfg["spec"]["template"]["spec"]["containers"][0]
-
-        # The pod runs the person's OWN copy of the image, pulled from their own Artifact
-        # Registry and pinned by digest -- never hushh's cross-project image. The inner
-        # renderer emits hushh's source ref; this is the single seam that rewrites it, so
-        # create AND replace (both consume this config) get the user image in one place.
-        container["image"] = self._user_pod_image_ref(spec, image_digest)
-        from hushh_mcp.services.pod_release import browser_qualification_environment
-
-        browser_environment = browser_qualification_environment(
-            spec.browser_qualification, target_image=container["image"], host_kind="gcp_cloud_run"
+        """Render the common private runtime with this adapter's resource authority."""
+        from hushh_mcp.services.private_gcp_deployment import (
+            PrivateGcpDeployment,
+            render_private_gcp_service,
         )
 
-        # The pod runs as its own least-privilege identity, the one the bootstrap
-        # created and bound to this person's key and bucket.
-        service_account = (
-            f"{pod_service_account_id(spec.hushh_id)}@{project}.iam.gserviceaccount.com"
+        deployment = PrivateGcpDeployment(
+            owner=spec.hushh_id,
+            hosting_mode="user_gcp",
+            environment=_deploy_env_label(),
+            project=self._user_project or "<user-project>",
+            region=spec.region or self._user_region,
+            image=self._user_pod_image_ref(spec, image_digest),
+            hub_principal=self._hushh_invoker_sa,
+            service_uid=spec.expected_service_uid,
         )
-        cfg["spec"]["template"]["spec"]["serviceAccountName"] = service_account
-
-        kept = [e for e in container.get("env", []) if e["name"] not in _MANAGED_ONLY_ENV]
-        kept.extend({"name": name, "value": value} for name, value in browser_environment.items())
-        kept.extend(render_inference_bridge(service_account=service_account))
-        kept.extend(
-            [
-                {"name": "POD_STORAGE_BACKEND", "value": "commit_log"},
-                # Owner-local encrypted recovery also owns the stable pod identity.
-                {"name": "POD_DURABLE_IDENTITY_ENABLED", "value": "true"},
-                # The user's own CMEK bucket, created by their own bootstrap.
-                {"name": "POD_STORAGE_GCS_BUCKET", "value": f"one-pod-{slug}-blobs"},
-                {"name": "POD_STORAGE_GCS_PREFIX", "value": f"pods/{spec.hushh_id}"},
-                {"name": "POD_AGENT_MEMORY_ENABLED", "value": "true"},
-                # Memory Bank on the person's own Vertex (founder decision 2026-09-03).
-                # The pod creates its engine itself, under its own identity, at its
-                # own region: Agent Engine is regional, unlike the model location
-                # below. See pod_memory_bank.py for why the pod and not the bootstrap.
-                {"name": "POD_MEMORY_BACKEND", "value": "memory_bank"},
-                {"name": "POD_MEMORY_BANK_LOCATION", "value": region},
-                # Vertex resolves against the USER's project, always. This pod runs as
-                # the user's own service account in the user's own project, so its
-                # native ADC is theirs -- which is precisely why a BYO GCP person does
-                # not need to hand hushh a separate model key. Re-added here rather
-                # than inherited so the hub's Vertex address can never reach a pod it
-                # does not own.
-                {"name": "GOOGLE_CLOUD_PROJECT", "value": project},
-                # A Vertex location is a property of the MODEL, not of where the pod
-                # happens to run. This used to render `region`, the pod's Cloud Run
-                # region, so every BYOC pod addressed Vertex at us-central1 while the
-                # default model is declared `global`-only -- a 404 on the first turn,
-                # surfacing as the same opaque error every other turn failure produces.
-                # The hub gets this right for itself (`GOOGLE_CLOUD_LOCATION=global`);
-                # nothing carried that fact into a pod.
-                {"name": "GOOGLE_CLOUD_LOCATION", "value": _pod_vertex_location(region)},
-                # The NAME for what the two lines above already make true. Without it
-                # `_resolve_runtime_mode` has no branch for "serve on my own ADC" and a
-                # credential-less turn 400s -- so a BYOC pod, whose model access is
-                # complete, refused every turn for want of a vocabulary entry.
-                #
-                # Rendered ONLY here, never by `GcpBackend`, and never propagated from
-                # the hub's own environment the way `HUSSH_POD_TURN_ENABLED` is. This is
-                # a fact about ONE person's pod: it is true because this renderer is
-                # building into that person's project, and it would be false anywhere
-                # hushh owns the ambient identity.
-                {"name": "HUSSH_POD_USER_ADC_ENABLED", "value": "true"},
-                # WHO may present a hub proof to this pod, stated here rather than
-                # inherited. The managed renderer derives it from
-                # `HUSSH_POD_INVOKER_MEMBER` and BYOC binds `run.invoker` from
-                # `HUSSH_CONSENT_PLANE_SA`; those happen to be the same account
-                # today, and inheriting would make this pod's in-app lock depend
-                # on that coincidence. Deriving it from the principal THIS
-                # renderer actually binds keeps the two locks naming one identity
-                # even if the two variables ever diverge.
-                {"name": "HUSSH_POD_HUB_CALLER_EMAILS", "value": self._hushh_invoker_sa},
-            ]
+        return render_private_gcp_service(
+            self._inner.render_deploy_config(spec),
+            spec=spec,
+            deployment=deployment,
+            immutable=bool(image_digest),
         )
-        # Two addresses in place of two secrets. The pod mints and wraps its own key on
-        # first boot; the memory key is derived from it inside the pod.
-        kept.extend(
-            byoc_key_env(
-                kms_key=(
-                    f"projects/{project}/locations/{region}"
-                    f"/keyRings/hushh-one/cryptoKeys/one-pod-{slug}-key"
-                )
-            )
-        )
-        # The pod's own signing key, from the person's own Secret Manager, created by
-        # their own bootstrap. Mounted by reference: the value never enters the artifact.
-        kept.append(
-            {
-                "name": "APP_SIGNING_KEY",
-                "valueFrom": {
-                    # Named from `pod_service_account_id`, NOT the raw slug. The bootstrap
-                    # creates, seeds and IAM-binds `{pod_service_account_id(hushh_id)}
-                    # -signing-key`, which truncates and hashes to fit Google's 30-char
-                    # service-account limit. The raw slug agrees with that only for SHORT
-                    # ids -- exactly the synthetic ids every BYOC test uses -- so for every
-                    # real 36-character HusshID this mounted a secret nothing ever creates.
-                    # The revision then crash-loops on `APP_SIGNING_KEY must be set`, and
-                    # Cloud Run reports an unresolvable secretKeyRef as a PERMISSION error
-                    # naming the pod account, which sends an operator to a secretAccessor
-                    # binding that is present and correct on the other name.
-                    "secretKeyRef": {
-                        "name": f"{pod_service_account_id(spec.hushh_id)}-signing-key",
-                        "key": "latest",
-                    }
-                },
-            }
-        )
-        if spec.files_library_enabled:
-            from hushh_mcp.services.pod_files.provisioning import configure_new_service
-
-            configure_new_service(
-                cfg, owner=spec.hushh_id, project=project, region=region, env=kept
-            )
-        container["env"] = kept
-        return cfg
 
     def _user_pod_image_ref(self, spec: PodSpec, image_digest: Optional[str]) -> str:
         """The pod's image, IN THE USER'S OWN Artifact Registry, pinned by digest.

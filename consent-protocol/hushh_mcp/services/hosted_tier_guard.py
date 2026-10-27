@@ -1,4 +1,4 @@
-"""Managed hosting remains unavailable until shard admission and custody qualify.
+"""Managed hosting remains unavailable until project admission and custody qualify.
 
 Deployment flags name intent and a project; they do not prove capacity or sibling
 isolation. BYOC and reviewer phone-verification retain their separate authorities.
@@ -34,8 +34,8 @@ def hosted_pod_project() -> str:
 
 def hosted_pod_creates_permitted() -> bool:
     # Deliberate qualification gate, not an operator-configurable bypass. The
-    # existing renderer uses development master-key derivation and a shared
-    # identity. Replace this refusal only with authoritative shard reservations
+    # legacy renderer uses development master-key derivation and a shared
+    # identity. Replace this refusal only with authoritative project reservations
     # and qualified per-owner key custody, together with their negative controls.
     return False
 
@@ -64,7 +64,7 @@ def require_hosted_pod_creates_permitted(what: str = "hosted pod provisioning") 
     if hosted_pod_creates_permitted():
         return
     raise HostedTierNotPermittedError(
-        f"{what} is unavailable until project-shard capacity admission and per-pod "
+        f"{what} is unavailable until project capacity admission and per-pod "
         f"custody are qualified. {_OPT_IN_FLAG} and {_POD_PROJECT_VAR} are configuration "
         f"intent, not qualification. Observed opt_in={_flag(_OPT_IN_FLAG)} "
         f"lane={deploy_lane()!r} project={hosted_pod_project()!r} "

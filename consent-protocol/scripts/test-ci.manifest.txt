@@ -948,6 +948,7 @@ tests/test_health_ready.py
 tests/test_health_ready_pod_fleet.py
 tests/test_hosted_cloud_choice.py
 tests/test_hosted_tier_guard.py
+tests/test_hosted_gcp_backend.py
 tests/test_journey_is_traceable.py
 tests/test_journey_parity.py
 tests/test_kms_key_resolver.py

@@ -199,18 +199,19 @@ async def verify_cloud_default(*, gemini_default: str) -> dict[str, str | int]:
         if workload_platform() == "azure":
             raise AiSelectionRefused("AI_DEFAULT_UNAVAILABLE")
         from hushh_mcp.runtime_settings import (  # noqa: PLC0415
+            pod_hosted_adc_enabled,
             pod_managed_model_enabled,
             pod_user_adc_enabled,
         )
 
         # Verification has the same default authority as ordinary turns;
         # fleet configuration alone must not discard an owner's key.
-        if not (pod_user_adc_enabled() or pod_managed_model_enabled()):
+        if not (pod_hosted_adc_enabled() or pod_user_adc_enabled() or pod_managed_model_enabled()):
             raise AiSelectionRefused("AI_DEFAULT_UNAVAILABLE")
         provider, model = "gemini", gemini_default
         client = (
             build_owner_gemini_client()
-            if pod_user_adc_enabled()
+            if pod_hosted_adc_enabled() or pod_user_adc_enabled()
             else build_managed_runtime_client(provider)
         )
     fingerprint = cloud_default_fingerprint(provider, model)

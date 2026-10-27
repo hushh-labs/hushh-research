@@ -838,6 +838,7 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
     if owner_azure_model() is not None:
         return "user_azure_mi"
     from hushh_mcp.runtime_settings import (  # noqa: PLC0415
+        pod_hosted_adc_enabled,
         pod_managed_model_enabled,
         pod_user_adc_enabled,
     )
@@ -853,6 +854,8 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
     # identity. Putting it earlier would let a mis-set FLEET flag capture a BYOC pod
     # and quietly bill a person's thinking to hushh while their own project sat idle,
     # and nothing in the answer would look wrong.
+    if pod_hosted_adc_enabled():
+        return "hosted_pod_adc"
     if pod_user_adc_enabled():
         return "user_adc"
     if pod_managed_model_enabled():

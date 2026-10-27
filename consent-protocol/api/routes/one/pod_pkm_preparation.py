@@ -65,6 +65,7 @@ def _owner_model():
     if (provider, mode) not in {
         ("gemini", "byok"),
         ("gemini", "user_adc"),
+        ("gemini", "hosted_pod_adc"),
         ("gemini", "hushh_managed_vertex"),
         ("openai", "byok"),
         ("azure_openai", "user_azure_mi"),

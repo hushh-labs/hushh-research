@@ -664,6 +664,54 @@ owner response separately. Describe this as approved dev bridge processing, not
 native owner-project Vertex. The local implementation and synthetic checks do not
 establish installed owner acceptance.
 
+### Hosted private-pod pilot
+
+The October 26 pilot keeps two synthetic hosted owners in separate Hussh-funded
+projects. Shared and BYOC remain separate choices. Use the existing image build,
+release catalog and upgrade approval contracts. Copy the same immutable digest
+into each project; do not rebuild per owner or claim an older digest contains new
+runtime changes.
+
+`PrivateGcpDeployment` is the common rendering/readback contract. The hosted
+adapter currently supports pure planning through the existing spec resolver and
+refuses resource creation, updates and erasure. Completing those operations needs
+transactional admission in the existing provisioning authority, retained project
+creation outcomes, per-owner custody and verified cleanup. A deployment marker,
+an environment flag or a successful model request supplies none of that authority.
+
+For the temporarily shared dev AI connection, pin `inferenceProject` to the current
+dev managed profile. Runtime mode `hosted_pod_adc` uses the hosted pod's own attached
+service account and verifies the metadata principal before releasing a token to
+Vertex. Grant that exact account only the reviewed inference permissions in the
+selected model project; do not copy hub credentials. Compute, storage, KMS and
+Memory Bank keep their assigned owner-project coordinates. BYOC retains its native
+project and separately approved exact-owner dev bridge. Neither policy is an
+automatic fallback for the other. Live, Files and connector acceptance remain
+independent of text inference.
+
+Read-only administrative checks on October 26 verified ADC for `kushal@hushh.ai`,
+an active consent-platform folder, project-create authority and one visible open
+billing account with association authority. A synthetic dev-project Vertex request
+returned HTTP 403 with a billing-related refusal. After the owner authorized use
+of the existing shared AI route, one synthetic request to the dev profile's
+`hushh-gemini-bridge`, model `gemini-3.7-flash`, returned HTTP 200 and a nonempty
+reply. Its reported usage was 4 prompt tokens, 1 output token and 58 thinking
+tokens. This was an operator request, not a pod-identity proof or settled charge.
+It qualifies endpoint availability only. No hosted project was created by these
+checks.
+
+Reserve US$100 for cleanup and uncertainty; permit at most US$400 of conservatively
+projected implementation/verification work under the US$500 total ceiling. Count
+models, memory services, compute, storage, KMS, builds, logs and networking. Budget
+notifications do not enforce this ceiling. Require current tariffs, retained
+reservations and conservative accrued usage before each billable operation.
+
+Before enabling the cohort, prove sibling invoke/read/decrypt/memory refusal,
+exact pod model identity, restart and interrupted-create recovery, single-writer
+fencing, owner-approved update/rollback and complete erasure. Record source SHA,
+image digest, serving incarnation, configuration, usage and cleanup receipts.
+Until then, keep enrollment disabled and report each unmet acceptance separately.
+
 ### One-time legacy bootstrap exception
 
 An installed release may predate the handoff protocol. Check with the configured

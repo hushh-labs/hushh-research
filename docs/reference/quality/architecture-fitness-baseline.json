@@ -1657,7 +1657,7 @@
       }
     ],
     "evidence_revision": "3c28325791",
-    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248\u2192252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication."
+    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248→252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication."
   },
   "browser_schedule_core_fixture_review_20261013": {
     "findings": [
@@ -18280,7 +18280,8 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/pod_turn.py",
       "symbol": null,
-      "value": 1196
+      "value": 1199,
+      "review": "Reviewed hosted_pod_adc source foundation: explicit managed placement with exact attached identity, unchanged BYOC bridge/upgrade custody, default-off hosted enrollment. Focused adapter/model negatives pass; no live hosted acceptance claimed."
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18568,7 +18569,8 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/text_runtime.py",
       "symbol": null,
-      "value": 1143
+      "value": 1143,
+      "review": "Reviewed hosted_pod_adc source foundation: explicit managed placement with exact attached identity, unchanged BYOC bridge/upgrade custody, default-off hosted enrollment. Focused adapter/model negatives pass; no live hosted acceptance claimed."
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -34512,7 +34514,7 @@
           "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
           "multiset_slot": 0,
           "previous": 546,
-          "rationale": "Owner A\u2192B\u2192A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
+          "rationale": "Owner A→B→A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
           "reviewed": 652,
           "source_sha256": "3c96b63943a6e971e4842d207b38e1daefba6ace756d6e531f13a5687d21cfca"
         },
@@ -41655,7 +41657,7 @@
         "disposition": "reviewed coupled contract",
         "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
         "measured": 782,
-        "rationale": "The three-line net increase preserves an existing Azure job\u2019s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
+        "rationale": "The three-line net increase preserves an existing Azure job’s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
         "slot": 0
       },
       {
@@ -57172,7 +57174,7 @@
         "value": 824
       }
     ],
-    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822\u2192824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
+    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822→824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
     "source_bindings": [
       {
         "git_blob": "1290d629bbccaf71af72949bfe4c15a9bfb4e5f1",
@@ -85428,7 +85430,7 @@
   "surgical_lifecycle_review_20261024": {
     "source_revision": "bfb00e7d97f9bddbf56ded2199e3a10ddcd39900",
     "integrated_main": "a0c594353997b83924b05bbacf9bacd09374d6aa",
-    "review": "Independent backend and frontend reviewers admit exactly 72 backend/test entries and 21 frontend module ceilings. Parent reviews three existing CI/data-model consumer entries: exact-attempt refusal coverage and quoted SQL identifier parsing. The one import-initialization observation is the existing db_proxy getenv call relocated40\u219241 with unchanged call/arguments, not a new initializer. This records bounded measured debt; global budgets, scanner, exclusions, unrelated keys, multiplicity and future-growth enforcement stay unchanged. It is not core, deployed or installed-owner acceptance.",
+    "review": "Independent backend and frontend reviewers admit exactly 72 backend/test entries and 21 frontend module ceilings. Parent reviews three existing CI/data-model consumer entries: exact-attempt refusal coverage and quoted SQL identifier parsing. The one import-initialization observation is the existing db_proxy getenv call relocated40→41 with unchanged call/arguments, not a new initializer. This records bounded measured debt; global budgets, scanner, exclusions, unrelated keys, multiplicity and future-growth enforcement stay unchanged. It is not core, deployed or installed-owner acceptance.",
     "evidence": [
       "pod-canonical-release-tests.log:82 passed",
       "main-combined-schema-tests.log:2 passed",
@@ -86546,5 +86548,14 @@
         "review": "Extend existing zero-effect teardown matrix with explicit managed, legacy managed and reserved-snapshot race. No duplicate test or oversized function introduced."
       }
     ]
+  },
+  "hosted_private_image_review_20261026": {
+    "scope": [
+      "consent-protocol/api/routes/one/pod_turn.py",
+      "consent-protocol/hushh_mcp/one_adk/text_runtime.py"
+    ],
+    "reason": "Bounded hosted mode dispatch in retained legacy modules. New private renderer functions remain below the gene budget; hosted tests are in their dedicated sub-500-line module. Legacy BYOC validation and fixtures are preserved.",
+    "independent_review": "hosted_custody_review: no remaining blocking security finding in the source foundation; live admission, IAM/custody and erasure remain unqualified.",
+    "acceptance": "Focused common-renderer, exact identity, environment refusal and BYOC custom-custody upgrade regressions; not whole-pilot completion."
   }
 }
