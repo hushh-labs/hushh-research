@@ -67,7 +67,9 @@ board identically.
 
 ## Concise task presentation
 
-Keep one outcome-focused title, a short acceptance checklist and a link to the
-existing evidence owner. Update that checklist as proof changes; avoid repeated
-status comments or copying full implementation logs into the board. Preserve
-material blockers and release gates rather than shortening away their meaning.
+Keep one outcome-focused title, a brief current status, a short acceptance
+checklist and a link to the existing evidence owner. Make the next action clear
+to a person; keep source/build identity and detailed receipts in the linked
+reference for agents and reviewers. Update the checklist as proof changes rather
+than adding repeated status comments or copying implementation logs. Preserve
+material blockers, unverified work and release gates.

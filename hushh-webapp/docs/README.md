@@ -50,6 +50,7 @@ Brand contract: [`docs/reference/operations/brand-and-compatibility-contract.md`
 | [Navigation contract](./ui-contracts/navigation.md) and [Font schema](./ui-contracts/typography.md) | Shared navigation CTAs and when to use each Profile, nav and Feed typography role |
 | [Product UI contracts](./ui-contracts/README.md) | Maintained product-surface contracts and their authoring requirements |
 | [ios-native-surface-adoption.md](./ios-native-surface-adoption.md) | Source-backed native-control inventory, Liquid Glass candidates, fallback boundaries and physical verification limits |
+| [iOS native adoption history](./ios-native-surface-adoption-historical.md) | Dated candidate evidence and superseded experiments; not current qualification guidance |
 
 ## Source Tree Indexes
 
