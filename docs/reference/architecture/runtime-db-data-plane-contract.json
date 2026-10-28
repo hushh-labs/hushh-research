@@ -2300,7 +2300,7 @@
       ],
       "primary_access_path": "AccountGenerationService and purpose-bound enrollment under identity namespace199; normal admission resolves independently verified Firebase identity to one immutable application owner.",
       "retention_policy": "Active bindings retain external UID and application owner for that generation. Retirement scrubs those raw bindings, preserving hashes, generation, cleanup references and immutable enrollment evidence to prevent resurrection.",
-      "deletion_behavior": "Retire only after committed, qualified erasure. Re-registration explicitly creates the next opaque owner after fresh proof; old callbacks, sessions and jobs never acquire a replacement owner by looking up the latest generation.",
+      "deletion_behavior": "Retire only after committed, qualified erasure; a legacy erasure counts only when migration 437's reviewed rule accepts it for re-enrollment (UAT overlay 438, reviewed operator runs). Re-registration explicitly creates the next opaque owner after fresh proof; old callbacks, sessions and jobs never acquire a replacement owner by looking up the latest generation.",
       "trust_boundary": "Environment-local identity/ownership metadata; no passwords, provider tokens, vault/library keys or private content. No global Firebase generation claims and no email-based owner relinking.",
       "plaintext_posture": "metadata_and_hashes_only",
       "expected_row_growth": "one immutable row per explicitly admitted account generation"

@@ -7,6 +7,7 @@ tests/test_server_startup_guards.py
 
 # PLG exports are signed, production-only and limited to enrolled task metadata.
 tests/services/test_plg_evidence.py
+tests/services/test_plg_audience_index.py
 tests/services/test_product_activity_postgres.py
 tests/test_plg_deploy_bindings.py
 tests/test_plg_release_source.py
@@ -643,6 +644,7 @@ tests/test_adk_pin_contract.py
 tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
 tests/test_tmp_cleanup_preserves_worktrees.py
 tests/test_capability_graph_gate_compares_against_base.py
+tests/test_capability_graph_dev_phone_history.py
 # (2026-09-26) scripts/ci is split between the frontend and backend path
 # filters by the lane that runs each script; this proves every script a lane
 # runs, or its own code names, still schedules that lane. The TestFlight guard
@@ -829,6 +831,7 @@ tests/integration/test_public_profile_bridge.py
 tests/services/test_public_profile_prepared_boundary.py
 
 tests/test_pod_release.py
+tests/test_pod_publication.py
 # Person-to-person export readback binds on the status owner (2026-09-25 regression),
 # the second chat turn survives empty replayed history parts, and governed custom
 # connector calls pause for exact-call review without leaking arguments or results.

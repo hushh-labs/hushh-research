@@ -21567,7 +21567,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_hushh_tech_client_migration.py",
       "symbol": null,
-      "value": 588
+      "value": 590
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32167,7 +32167,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_migrations_are_replay_safe.py",
       "symbol": "test_private_agent_graduation_preserves_owners_and_refuses_drift",
-      "value": 192
+      "value": 194
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -32293,7 +32293,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
       "symbol": null,
-      "value": 2225
+      "value": 2246
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32329,7 +32329,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_migrations_are_replay_safe.py",
       "symbol": null,
-      "value": 584
+      "value": 586
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -86721,6 +86721,44 @@
         "source_sha256": "d2a9d97d65c8745835e147d0133a4f0f20c86864352f473a6aade0464861a66b",
         "reviewer": "owner-split migration; per-group adversarial review",
         "review": "Single-connection probe proves the external identity read runs outside the locked claim transaction, and the locked rechecks reuse that record (both fail if regressed)."
+      }
+    ]
+  },
+  "legacy_generation_settlement_review_20261029": {
+    "base_revision": "03ea47511c35f938ef19da8acf314e6543be472d",
+    "scope": "4 exact test ceilings only, each +2 to +21 lines, from the reviewed legacy-erasure acceptance (migration 437 dormant everywhere, UAT overlay 438) and its replay and rollback pins. No new findings, no production-code growth, no function exceptions and no global 500/250/80 budget changes.",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py||module exceeds the advisory operon budget",
+        "before": 2225,
+        "after": 2246,
+        "source_sha256": "7bcf44002f53d8463810cc813044c7dc696b44dc8c7590040fedb26ff3910e6c",
+        "reviewer": "legacy settlement design review; four-lens adversarial workflow",
+        "review": "Adds the legacy-erasure acceptance rehearsal (437 dormant, UAT overlay 438) and runs the existing erase/enroll generation cycles under the 437 guard; scenarios live in tests/helpers/legacy_generation_rehearsal.py."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_hushh_tech_client_migration.py||module exceeds the advisory operon budget",
+        "before": 588,
+        "after": 590,
+        "source_sha256": "3dd66aceeba92e3abfe21444ace3483fb0ee3e787f0a262cb68aedaabbec93b8",
+        "reviewer": "legacy settlement design review; four-lens adversarial workflow",
+        "review": "Pins the UAT overlay lane to 174, 360 and the 438 legacy settlement overlay."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_migrations_are_replay_safe.py||module exceeds the advisory operon budget",
+        "before": 584,
+        "after": 586,
+        "source_sha256": "107a7e2eedfc420bb3698d94a128c0edf7a4f801121df2de2a143c2c62c09b53",
+        "reviewer": "legacy settlement design review; four-lens adversarial workflow",
+        "review": "Requires the 437 and 438 rollbacks to refuse with forward recovery, like 418-421."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_migrations_are_replay_safe.py|test_private_agent_graduation_preserves_owners_and_refuses_drift|function exceeds the advisory gene budget",
+        "before": 192,
+        "after": 194,
+        "source_sha256": "107a7e2eedfc420bb3698d94a128c0edf7a4f801121df2de2a143c2c62c09b53",
+        "reviewer": "legacy settlement design review; four-lens adversarial workflow",
+        "review": "Two forward-recovery rollback stems (437, 438) added to the existing refusal loop."
       }
     ]
   }

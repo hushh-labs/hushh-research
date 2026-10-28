@@ -1,71 +1,32 @@
 # Fixed PLG source qualification
 
-These helpers attach to the existing Main-owned `Deploy to Dev` and `Deploy to
-UAT` workflows. Their `plg-isolated-qualification` target never replaces the
-shared application or changes production traffic. Default shared deployments
-retain their existing admission and mutation locks.
+The Main-owned validate-plg-source.yml and validate-plg-frontend-source.yml
+workflows validate the exact sources recorded in production-source.json and
+frontend-source.json. Source validation checks immutable content, security,
+DCO and tests. It does not grant environment acceptance, production traffic
+or customer-delivery authority.
 
-The application is exactly `5de6ee29abe3b00642bd6b745c608279091810b3` (S), recorded
-against the serving D8 baseline in `production-source.json`. The genuine
-`validate-plg-source.yml` receipt is required; local reports are not admission.
-The frontend leaf separately records W2 in `frontend-source.json` and executes
-`validate-plg-frontend-source.yml`. Neither source receipt authorizes deployment.
+The backend record binds S to the D8 baseline. The frontend record binds W4
+to S and preserves the recorded backend. These source records remain useful
+for reviewing the PLG-only release independently of unrelated Main changes.
 
-## Isolated Dev, then UAT
+## Retired deployment lane
 
-After the tooling PR is merged, exact Main smoke passes, and environment setup
-is verified, dispatch the existing workflows from Main. Supply actual run IDs:
+The separate plg-isolated jobs, target options and setup inputs have been
+removed from Deploy to Dev and Deploy to UAT. Do not dispatch the old
+plg-isolated-qualification target or create another private qualification lane.
 
-```sh
-gh workflow run deploy-dev.yml --ref main \
-  -f target=plg-isolated-qualification -f scope=backend \
-  -f sha=5de6ee29abe3b00642bd6b745c608279091810b3 \
-  -f plg_source_validation_run=<successful-source-run> \
-  -f plg_schema_action=reconcile-bootstrap
+Use the existing standard release workflows and the
+[Admin merge and release SOP](../../.agents/skills/repo-operations/references/admin-release-sop.md).
+Their actual source approval, CI, schema, capacity, provenance, predecessor
+acceptance and rollback requirements remain mandatory. Removing the private
+jobs does not make an older source eligible for standard promotion.
 
-gh workflow run deploy-uat.yml --ref main \
-  -f target=plg-isolated-qualification -f scope=backend \
-  -f sha=5de6ee29abe3b00642bd6b745c608279091810b3 \
-  -f plg_source_validation_run=<successful-source-run> \
-  -f plg_dev_run=<accepted-isolated-dev-run> \
-  -f plg_schema_action=initialize
-```
+Legacy qualification helpers and typed receipts remain for bounded inspection,
+capacity accounting and reconciliation of already-created resources. They
+cannot substitute for ordinary exact-source Dev or UAT acceptance. No former
+isolated receipt authorizes production traffic.
 
-The initial owned Dev namespace has the installed source schema, so its explicit
-bootstrap reconciliation must not replay the initializer. Initial UAT requires
-an actually empty owned namespace. Later qualification uses `preflight`.
-Interrupted or partially initialized schemas require operator reconciliation;
-changing the action to `initialize` never resets them. The canonical source
-verifier's 120-second limit remains unchanged.
-
-Dev builds the exact Git archive. UAT promotes that accepted executable digest
-without rebuilding. Source, cluster identity, schema, Memory index, provider
-contract, absence of replacement accounts, runtime roles, global capacity,
-allow-policy bindings and private revision provenance are checked. Actual
-runtime secret/SQL access and private health are independent of IAM allow-binding
-evidence; deny/PAB/group memberships are not inferred from allow policies.
-
-S performs startup DDL. This disposable fixture explicitly permits schema-wide
-CREATE to its runtime role and ownership of five startup tables plus genuine
-internal dependents. It does not claim a no-DDL runtime. The role has no role
-memberships/admin capability or migration-ledger writes; ownership is verified
-again after real private startup. Shared/production runtime permissions are not
-changed or proven equivalent by this fixture.
-
-Temporary canonical-administrator memberships use a fixed generation-bound
-journal in the existing environment Cloud Build bucket before any GRANT. The
-next locked execution restores a valid owned interrupted intent before another
-admission. Unknown memberships or changed journals refuse automatic adoption.
-Journal objects contain no credentials. Normal workflow identity must already
-have the required bucket/secret/SQL/deploy access; these helpers do not grant it.
-
-The exact per-attempt artifact is `plg-isolated-acceptance-<env>-<run>-<attempt>`.
-`qualification_acceptance.verify()` checks the actual latest successful hosted
-attempt, executed steps, producer definitions and artifact digest. Checkpoint
-artifacts aid reconciliation; they never grant acceptance. A fresh private
-service can have 100% of its own namespace traffic. This is not shared UAT
-acceptance or production-promotion authority.
-
-PROD fixed-source promotion and One frontend environment promotion remain
-separate release transitions. This change does not dispatch them, publish email
-editions, enroll contacts or send messages.
+See [retirement boundaries](../../docs/reference/operations/plg-isolated-qualification.md)
+before changing retained resources. Preserve customer information and unrelated
+shared services; never reset a shared database to fit an older source.
