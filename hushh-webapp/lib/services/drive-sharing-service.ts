@@ -1,3 +1,4 @@
+import { traceDriveRequest, observeDriveRequestState } from "@/lib/consent/drive-request-diagnostics";
 import { DriveSharingError, record, string, revision, digest, bulkCount, bulkText } from "@/lib/services/drive-sharing-wire";
 import { parseAgentDocumentPackage, type AgentDocumentPackage } from "@/lib/services/drive-request-package-contract";
 export { DriveSharingError } from "@/lib/services/drive-sharing-wire";
@@ -1087,51 +1088,57 @@ export class DriveSharingService {
     maxLength = VIEW_MAX_LENGTH,
   ): Promise<RecordValue> {
     guard();
-    const response = await ApiService.apiFetch(
-      path,
-      {
-        isEffectCurrent: () => {
-          guard();
-          return guard.canDispatch?.() !== false;
+    return traceDriveRequest(path, body === undefined ? "GET" : "POST", async (diagnosticHeaders, observe) => {
+      guard();
+      const response = await ApiService.apiFetch(
+        path,
+        {
+          isEffectCurrent: () => {
+            guard();
+            return guard.canDispatch?.() !== false;
+          },
+          method: body === undefined ? "GET" : "POST",
+          cache: "no-store",
+          headers: {
+            ...(firebaseToken
+              ? {
+                  Authorization: `Bearer ${firebaseToken}`,
+                  "X-Hushh-Consent": token,
+                }
+              : ApiService.getAuthHeaders(token)),
+            "Content-Type": "application/json",
+            ...diagnosticHeaders,
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         },
-        method: body === undefined ? "GET" : "POST",
-        cache: "no-store",
-        headers: {
-          ...(firebaseToken
-            ? {
-                Authorization: `Bearer ${firebaseToken}`,
-                "X-Hushh-Consent": token,
-              }
-            : ApiService.getAuthHeaders(token)),
-          "Content-Type": "application/json",
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      },
-    );
-    guard();
-    const serialized = await response.text();
-    guard();
-    if (serialized.length > maxLength)
-      throw new DriveSharingError("invalid_response");
-    let payload: RecordValue;
-    try {
-      payload = record(JSON.parse(serialized));
-    } catch {
-      throw new DriveSharingError("invalid_response", response.status);
-    }
-    if (!response.ok) {
-      const detail =
-        payload.detail && typeof payload.detail === "object"
-          ? record(payload.detail)
-          : payload;
-      const code =
-        typeof detail.code === "string" && /^[a-z_]{1,80}$/.test(detail.code)
-          ? detail.code
-          : "request_failed";
-      // Never render arbitrary provider/HTTP messages or log response contents.
-      throw new DriveSharingError(code, response.status);
-    }
-    return payload;
+      );
+      guard();
+      observe(response);
+      const serialized = await response.text();
+      guard();
+      if (serialized.length > maxLength)
+        throw new DriveSharingError("invalid_response");
+      let payload: RecordValue;
+      try {
+        payload = record(JSON.parse(serialized));
+      } catch {
+        throw new DriveSharingError("invalid_response", response.status);
+      }
+      observe(response, payload);
+      if (!response.ok) {
+        const detail =
+          payload.detail && typeof payload.detail === "object"
+            ? record(payload.detail)
+            : payload;
+        const code =
+          typeof detail.code === "string" && /^[a-z_]{1,80}$/.test(detail.code)
+            ? detail.code
+            : "request_failed";
+        // Never render arbitrary provider/HTTP messages or log response contents.
+        throw new DriveSharingError(code, response.status);
+      }
+      return payload;
+    }, body);
   }
 
   static async create(
@@ -1203,7 +1210,7 @@ export class DriveSharingService {
     if (requestedAccessDays === 0 || approvedAccessDays === 0 ||
       approvedAccessDays !== null && (requestedAccessDays === null || approvedAccessDays > requestedAccessDays))
       throw new DriveSharingError("invalid_response");
-    return {
+    const view: SharingStatus = {
       requestId,
       revision: revision(result.revision),
       status: string(result.status, 80),
@@ -1234,6 +1241,8 @@ export class DriveSharingService {
       ...parseRequestSetup(result),
       ...parseRequestQueue(result),
     };
+    observeDriveRequestState(`${SHARING_PATH}/requests/${requestId}`, view, guard);
+    return view;
   }
 
   static async lookupClient(
@@ -1458,7 +1467,7 @@ export class DriveSharingService {
     const ownerPayout = result.ownerPayout == null
       ? null
       : parseOwnerPayout(result.ownerPayout, requestId);
-    return {
+    const view: SharingReview = {
       ...(result.agentPackage === undefined ? {} : { agentPackage: parseAgentDocumentPackage(result.agentPackage) }),
       revision: revision(result.revision),
       status: string(result.status, 80),
@@ -1527,6 +1536,8 @@ export class DriveSharingService {
       ...parseRequestSetup(result),
       ...parseRequestQueue(result),
     };
+    observeDriveRequestState(`${SHARING_PATH}/requests/${requestId}/review`, view, guard);
+    return view;
   }
 
   /** Start or recover the durable search bound to this incoming request. */
@@ -1602,7 +1613,7 @@ export class DriveSharingService {
     const counts = result.counts === undefined || fileCount === null ? undefined : parseBulkCounts(result.counts, fileCount);
     if (counts && counts.shared + counts.alreadyShared !== sharedCount)
       throw new DriveSharingError("invalid_response");
-    return {
+    const view: SharingDelivery = {
       status: string(result.status, 80),
       ...(result.noChargeReason === "existing_access" ? { noChargeReason: "existing_access" as const } : {}),
       ...(result.accessStopStatus == null ? {} : {
@@ -1629,6 +1640,8 @@ export class DriveSharingService {
         ? {}
         : { reviewRequest: parseOwnerReviewRequest(result.reviewRequest) }),
     };
+    observeDriveRequestState(`${SHARING_PATH}/requests/${requestId}/delivery`, view, guard);
+    return view;
   }
 
   static async deliveryFiles(
