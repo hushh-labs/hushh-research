@@ -7,6 +7,7 @@ tests/test_server_startup_guards.py
 
 # PLG exports are signed, production-only and limited to enrolled task metadata.
 tests/services/test_plg_evidence.py
+tests/services/test_plg_audience_index.py
 tests/services/test_product_activity_postgres.py
 tests/test_plg_deploy_bindings.py
 tests/test_plg_release_source.py

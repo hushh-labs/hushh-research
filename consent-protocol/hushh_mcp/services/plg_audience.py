@@ -12,6 +12,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Literal
@@ -20,8 +21,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.utils.firebase_admin import get_firebase_auth_app
 from db.connection import get_pool
+from hushh_mcp.services import plg_audience_index
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
 from hushh_mcp.services.actor_identity_service import ActorIdentityService, resolve_firebase_email
+from hushh_mcp.services.plg_audience_identity import current_records
 from hushh_mcp.services.plg_catalog import activity_catalog, public_activity_catalog
 from hushh_mcp.services.plg_outcomes import value_summaries
 from hushh_mcp.services.plg_reporting import reporting_identifiers, reporting_policy
@@ -99,6 +102,10 @@ def _cursor(request: AudienceRequest, secret: str, now: datetime) -> tuple[str |
             or now - at > timedelta(minutes=15)
         ):
             raise ValueError
+        if payload["page"].startswith(plg_audience_index.PREFIX) != (
+            request.segment in plg_audience_index.SEGMENTS
+        ):
+            raise ValueError
         return payload["page"], at
     except Exception:
         raise AudienceCursorError("invalid audience cursor") from None
@@ -140,7 +147,17 @@ def _firebase_page(page: str | None):
     app = get_firebase_auth_app()
     if app is None or app.project_id != "hushh-pda":
         raise RuntimeError("audience identity source unavailable")
-    return auth.list_users(page_token=page, max_results=PAGE_SIZE, app=app)
+    source = auth.list_users(page_token=page, max_results=PAGE_SIZE, app=app)
+    if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true":
+        from types import SimpleNamespace
+
+        records = list(source.users)
+        return SimpleNamespace(
+            users=current_records(records),
+            next_page_token=source.next_page_token,
+            scanned=len(records),
+        )
+    return source
 
 
 def _registered(record) -> bool:
@@ -323,12 +340,21 @@ def _matches(row: dict, request: AudienceRequest) -> bool:
 async def audience_page(request: AudienceRequest, secret: str, now: datetime) -> dict:
     policy = reporting_policy()
     page, at = _cursor(request, secret, now)
-    source = await asyncio.wait_for(asyncio.to_thread(_firebase_page, page), timeout=6)
+    source = (
+        await plg_audience_index.source_page(request, page, at, PAGE_SIZE)
+        if request.segment in plg_audience_index.SEGMENTS
+        else await asyncio.wait_for(asyncio.to_thread(_firebase_page, page), timeout=6)
+    )
     records = list(source.users)
-    if len(records) > PAGE_SIZE or len({r.uid for r in records}) != len(records):
+    scanned = getattr(source, "scanned", len(records))
+    if (
+        not isinstance(scanned, int)
+        or not len(records) <= scanned <= PAGE_SIZE
+        or len({r.uid for r in records}) != len(records)
+    ):
         raise ValueError("invalid audience source page")
     eligible = {r.uid: r for r in records if _registered(r)}
-    excluded = len(records) - len(eligible)
+    excluded = scanned - len(eligible)
     result = []
     since = at - timedelta(days=7)
     if eligible:
@@ -418,7 +444,7 @@ async def audience_page(request: AudienceRequest, secret: str, now: datetime) ->
         "graceMinutes": request.graceMinutes,
         "source": "firebase_registered_accounts",
         "traversal": "live",
-        "scanned": len(records),
+        "scanned": scanned,
         "excluded": excluded,
         "rows": result,
         "nextCursor": _next_cursor(source.next_page_token, request, secret, at),
