@@ -174,6 +174,7 @@ jobs:
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"

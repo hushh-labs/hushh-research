@@ -74,6 +74,7 @@ AUTHORITY_PATHS = tuple(
             foundation.PATH,
             "deploy/backend-image.cloudbuild.yaml",
             "scripts/ci/verify-predecessor-acceptance.py",
+            "scripts/ci/process_group.py",
             "scripts/ci/release_acceptance_provenance.py",
             "scripts/ci/resolve-cloud-run-image.py",
             "scripts/ci/verify-cloudrun-revision-provenance.py",

@@ -100,6 +100,7 @@ jobs:
           cp config/runtime-capacity.json "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json"
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py"
+          cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
 
       - name: Validate exact main SHA and actor

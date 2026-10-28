@@ -63,6 +63,7 @@ AUTHORITY_PATHS = (
     "scripts/ci/github_security_authority.py",
     "scripts/ci/github_security_receipt.py",
     "scripts/ci/verify-predecessor-acceptance.py",
+    "scripts/ci/process_group.py",
     "scripts/ci/release_acceptance_provenance.py",
     "scripts/ci/assert-governed-actor.py",
     "scripts/ci/check-dco-signoff.sh",
