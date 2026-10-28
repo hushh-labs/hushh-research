@@ -125,6 +125,11 @@ async def run_ai_selection_put(
         if code:
             store.note_ai_selection_failure(code)
             return _refused(code)
+        # The provider call can outlive the owner's session or its revocation.
+        # Recheck before replacing the working selection, as the clear path does.
+        await _admit_owner_local(
+            consent_token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG
+        )
         selection = await store.record_ai_selection(
             log, hushh_id=hushh_id, opened=opened, checked_at_ms=now
         )
