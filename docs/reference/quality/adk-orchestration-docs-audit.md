@@ -17,7 +17,30 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 26 October 2026, 09:25 UTC
+## Current decision — 27 October 2026
+
+**Production recovery is verified. Release-system activation and installed-owner
+Browser acceptance remain open.** The compatible pre-pod Shared application
+`d8a5fa485874` serves the recorded production pair; its
+[hosted completion](https://github.com/hushh-labs/hushh-research/actions/runs/40475676949)
+passed. Historical failed attempts remain intact. No new production application
+rollout is part of this workstream.
+
+| Boundary | Verified | Remaining |
+|---|---|---|
+| Release controls | Dev/UAT refs and protection; historical UAT ancestry preserved; [#8520](https://github.com/hushh-labs/hushh-research/pull/8520) implements application/Main-approval mapping, current-attempt refusal and manual incident admission | Exact-head CI, Admin landing, qualified branch-default activation and one Dev-to-UAT acceptance |
+| CI security | Protected Main-owned worker remains active; compatible patches target 19 of 22 current dependency alerts; 151 affected Python and 27 mail checks pass | Prove the temporary target-event/cache boundary, activate one trusted workflow and retire standalone worker entries; verify alert closure on Main |
+| Maintenance | Production maintenance passed; duplicate monitor discovery resolved | UAT candidate `00892-pax` times out during embedding startup; prior worker `00889-tof` remains Ready at 100% traffic; cleanup checkpoint is retained |
+| Installed pods | Latest retained owner receipts show Dev 30, digest `6e57f251…eeac423`; new exact-predecessor synthetic seeds on both clouds preserve memory, revocation and 245,763 file bytes | Final-image recovery, exact owner-approved updates and installed Browser/core journeys |
+
+The three older dependency alerts remain constrained by upstream OpenTelemetry
+and nested Zod dependencies; mitigation and exposure remain explicit. A source
+patch does not prove deployment of the separate mail service. Scope sharing,
+general scheduling, coding execution and managed-hosting expansion are outside
+this execution lane. The dated evidence below remains historical qualification,
+not current installed-owner acceptance.
+
+## Accepted checkpoint — 26 October 2026, 09:25 UTC
 
 **The application correction is accepted on Dev and UAT. Both clouds pass the new
 Browser image's component and encrypted-recovery checks. Installed-owner Browser
