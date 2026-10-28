@@ -211,7 +211,7 @@ interface AuthContextType {
     options?: { resendCode?: boolean; transport?: "sms" },
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmPhoneVerification: (otp: string) => Promise<User>;
-  confirmPhoneTransfer: () => Promise<User>; confirmPhoneLinkedDeletion: (input: LinkedDeletionInput) => Promise<User>;
+  confirmPhoneTransfer: () => Promise<User>; confirmPhoneLinkedDeletion: (input: LinkedDeletionInput, isCurrent: () => boolean) => Promise<User>;
   startPhoneReplacement: (
     phoneNumber: string,
     options?: { resendCode?: boolean; transport?: "sms" },
@@ -2187,10 +2187,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
     phoneVerificationOwnerRef.current = null;
     return currentUser;
   }, [requirePhoneVerificationOwner]);
-  const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput) => {
+  const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput, visitIsCurrent: () => boolean) => {
     const principal = principalRef.current;
+    const owner = snapshotValidatedAuthSessionOwner();
+    const uid = userRef.current?.uid;
+    const epoch = phoneVerificationEpochRef.current;
+    const proof = phoneTransferProofRef.current;
+    const isCurrent = () => {
+      const live = principalRef.current;
+      if (!owner || !principal || !uid || !visitIsCurrent() || !isValidatedAuthSessionOwnerCurrent(owner) ||
+          live?.firebaseUid !== principal.firebaseUid || live.ownerId !== principal.ownerId ||
+          live.accountGeneration !== principal.accountGeneration || userRef.current?.uid !== uid ||
+          (!input.testCode && phoneTransferProofRef.current !== proof)) return false;
+      try { requirePhoneVerificationOwner(uid, epoch); return true; } catch { return false; }
+    };
     return confirmLinkedDeletion(input, { user: () => userRef.current, retained: () => phoneTransferProofRef.current,
-      requireOwner: requirePhoneVerificationOwner, finalize: (verified) => {
+      isCurrent, requireOwner: requirePhoneVerificationOwner, finalize: (verified) => {
+        if (!isCurrent()) throw new Error("Your account changed. Sign in again.");
         phoneTransferProofRef.current = null; setConfirmationResult(null); setNativeVerificationId(null); setPhoneVerificationPhoneNumber(null);
         if (!Capacitor.isNativePlatform()) resetRecaptcha(); applyAuthUser(verified, principal); phoneVerificationOwnerRef.current = null; } });
   }, [applyAuthUser, requirePhoneVerificationOwner]);

@@ -4,12 +4,13 @@ import { AccountIdentityService } from "@/lib/services/account-identity-service"
 import { requireUsablePhoneTestStart } from "@/lib/auth/phone-test-eligibility";
 import { PhoneRecoveryService, type LinkedDeletionProof, type LinkedDeletionReceipt } from "@/lib/services/phone-recovery-service";
 
-export type LinkedDeletionInput = { operationId: string; phoneNumber: string; testCode?: string };
+export type LinkedDeletionInput = { operationId: string; phoneNumber: string; testCode?: string; readbackOnly?: boolean };
 type RetainedProof = { token: string; userId: string; epoch: number } | null;
 /** AuthProvider keeps identity authority; this module only sequences existing calls. */
 export type LinkedDeletionPorts = {
   user: () => User | null;
   retained: () => RetainedProof;
+  isCurrent: () => boolean;
   requireOwner: (uid: string, epoch: number) => void;
   finalize: (user: User) => void;
 };
@@ -36,6 +37,7 @@ const MESSAGES: Record<string, string> = {
   PHONE_LINKED_DELETION_SUPPORT_REQUIRED: "We couldn’t confirm the deletion. Check again, or contact one@hushh.ai.",
   PHONE_LINKED_DELETION_PREPARED: "Couldn’t reach One. Try again.",
   PHONE_LINKED_CLAIM_REQUIRED: "The other account was deleted. Verify this number again to continue.",
+  PHONE_LINKED_CLAIM_UNCONFIRMED: "We couldn’t confirm that this number was linked. Verify it again, or contact one@hushh.ai.",
 };
 
 export function linkedDeletionNeedsFreshProof(code: string | null | undefined): boolean {
@@ -55,13 +57,12 @@ function linkedError(code: string): ApiError {
   return new ApiError(linkedDeletionMessage(code), 409, { code });
 }
 
-const unsettled = (receipt: LinkedDeletionReceipt | null) => !receipt || ["pending", "action_required"].includes(receipt.state);
+const unsettled = (receipt: LinkedDeletionReceipt | null) => !receipt || ["prepared", "pending", "action_required"].includes(receipt.state);
 
 /** Delete the holder with the proof already in hand, then claim the number through existing routes. */
 export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: LinkedDeletionPorts): Promise<User> {
   const user = ports.user();
   if (!user) throw new Error("Sign in before verifying a phone number.");
-  const current = () => ports.user()?.uid === user.uid;
   const retained = input.testCode ? null : ports.retained();
   if (!input.testCode) {
     // AuthProvider's owner fence binds the retained proof to this signed-in attempt.
@@ -72,10 +73,25 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
       throw linkedError("PHONE_LINKED_PROOF_REQUIRED");
     }
   }
+  const current = () => {
+    if (!ports.isCurrent() || ports.user()?.uid !== user.uid) return false;
+    if (!retained) return Boolean(input.testCode);
+    if (ports.retained() !== retained) return false;
+    try { ports.requireOwner(retained.userId, retained.epoch); return true; } catch { return false; }
+  };
+  if (!current()) throw new Error("Your account changed. Sign in again.");
   const proof: LinkedDeletionProof = input.testCode ? { test_code: input.testCode } : { phone_id_token: retained!.token };
   // A typed refusal is definite; a lost response is read back, never re-sent.
-  let receipt = await PhoneRecoveryService.confirmLinkedDeletion(user, input.operationId, input.phoneNumber, proof, current)
-    .catch((error: unknown) => { if (apiErrorCode(error)) throw error; return null; });
+  let receipt = await (input.readbackOnly
+    ? PhoneRecoveryService.linkedDeletionStatus(user, input.operationId, current)
+    : PhoneRecoveryService.confirmLinkedDeletion(user, input.operationId, input.phoneNumber, proof, current))
+    .catch((error: unknown) => {
+      const code = apiErrorCode(error);
+      if (code && !input.readbackOnly && code !== "PHONE_LINKED_DELETION_NOT_FOUND" &&
+          (!(error instanceof ApiError) || error.status < 500)) throw error;
+      return null;
+    });
+  if (!current()) throw new Error("Your account changed. Sign in again.");
   for (let attempt = 0; attempt < 3 && unsettled(receipt); attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 1_000));
     if (!current()) throw new Error("Your account changed. Sign in again.");
@@ -89,9 +105,12 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
     throw linkedError(receipt!.code ?? `PHONE_LINKED_DELETION_${receipt!.state.toUpperCase()}`);
   }
   try {
-    await claimNumber(user, input.phoneNumber, proof);
+    await claimNumber(user, input.phoneNumber, proof, current);
   } catch (error) {
     if (!current()) throw error;
+    // The claim may have committed before a network or server failure. Do not
+    // turn an unknown outcome into a definite refusal or replay the proof.
+    if (!(error instanceof ApiError) || error.status >= 500) throw linkedError("PHONE_LINKED_CLAIM_UNCONFIRMED");
     throw linkedError(deleted ? "PHONE_LINKED_CLAIM_REQUIRED" : "PHONE_LINKED_ACCOUNT_CHANGED");
   }
   if (!current()) throw new Error("Your account changed. Sign in again.");
@@ -99,16 +118,18 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
   return user;
 }
 
-async function claimNumber(user: User, phone: string, proof: LinkedDeletionProof): Promise<void> {
+async function claimNumber(user: User, phone: string, proof: LinkedDeletionProof, current: () => boolean): Promise<void> {
   let identity;
   if (proof.test_code) {
-    const start = await AccountIdentityService.startUatTestPhoneVerification(user, phone);
+    const start = await AccountIdentityService.startUatTestPhoneVerification(user, phone, current);
+    if (!current()) throw new Error("Your account changed. Sign in again.");
     requireUsablePhoneTestStart(start);
     if (!start?.eligible || !start.verification_id) throw new Error("Phone verification is unavailable.");
     identity = await AccountIdentityService.confirmUatTestPhoneVerification(user,
-      { phoneNumber: phone, verificationCode: proof.test_code, verificationId: start.verification_id });
+      { phoneNumber: phone, verificationCode: proof.test_code, verificationId: start.verification_id }, current);
   } else {
-    identity = await AccountIdentityService.claimCurrentUserPhone(user, proof.phone_id_token!);
+    identity = await AccountIdentityService.claimCurrentUserPhone(user, proof.phone_id_token!, current);
   }
+  if (!current()) throw new Error("Your account changed. Sign in again.");
   if (!AccountIdentityService.hasVerifiedPhone(identity)) throw new Error("Phone verification could not be completed.");
 }

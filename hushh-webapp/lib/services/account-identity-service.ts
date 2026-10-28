@@ -233,7 +233,8 @@ export class AccountIdentityService {
 
   static async claimCurrentUserPhone(
     user: User | null | undefined,
-    phoneIdToken: string
+    phoneIdToken: string,
+    isCurrent?: () => boolean,
   ): Promise<AccountIdentity | null> {
     if (!user) {
       return null;
@@ -241,11 +242,12 @@ export class AccountIdentityService {
     const work = beginUserIdentityWork(user);
     if (!work) return null;
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken || !identitySessionIsCurrent(work.userId, work.generation)) {
+    const current = () => identitySessionIsCurrent(work.userId, work.generation) && isCurrent?.() !== false;
+    if (!idToken || !current()) {
       return null;
     }
 
-    const identity = await claimPhoneForOwner(idToken, phoneIdToken, work.userId, () => identitySessionIsCurrent(work.userId, work.generation));
+    const identity = await claimPhoneForOwner(idToken, phoneIdToken, work.userId, current, isCurrent ? "never" : undefined);
     if (!identity) return null;
     // Write through so guards immediately see the newly verified phone.
     // A committed phone save outranks every read started before it completed,
@@ -404,18 +406,19 @@ export class AccountIdentityService {
 
   static async startUatTestPhoneVerification(
     user: User | null | undefined,
-    phoneNumber: string
+    phoneNumber: string,
+    isCurrent?: () => boolean,
   ): Promise<AccountPhoneTestStartResponse | null> {
     if (!user) {
       return null;
     }
 
     const idToken = await user.getIdToken().catch(() => undefined);
-    if (!idToken) {
+    if (!idToken || isCurrent?.() === false) {
       return null;
     }
 
-    return ApiService.startUatPhoneTestVerification(phoneNumber, idToken);
+    return ApiService.startUatPhoneTestVerification(phoneNumber, idToken, isCurrent);
   }
 
   static async confirmUatTestPhoneVerification(
@@ -424,7 +427,8 @@ export class AccountIdentityService {
       phoneNumber: string;
       verificationCode: string;
       verificationId: string;
-    }
+    },
+    isCurrent?: () => boolean,
   ): Promise<AccountIdentity | null> {
     if (!user) {
       return null;
@@ -432,7 +436,8 @@ export class AccountIdentityService {
     const work = beginUserIdentityWork(user);
     if (!work) return null;
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken || !identitySessionIsCurrent(work.userId, work.generation)) {
+    const current = () => identitySessionIsCurrent(work.userId, work.generation) && isCurrent?.() !== false;
+    if (!idToken || !current()) {
       return null;
     }
 
@@ -441,9 +446,11 @@ export class AccountIdentityService {
       params.verificationCode,
       params.verificationId,
       idToken,
-      work.userId
+      work.userId,
+      current,
+      isCurrent ? "never" : undefined,
     );
-    if (!identitySessionIsCurrent(work.userId, work.generation)) return null;
+    if (!current()) return null;
     const identity = response.identity ?? null;
     if (identity?.user_id !== work.userId) {
       throw new Error("Phone verification could not be completed for this account.");

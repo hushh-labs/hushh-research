@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { googlePlacement, capacitorMocks, nativeStreamFetch, previewMocks, kaiMocks } from "../fixtures/api-service-mocks";
 import { ApiService } from "@/lib/services/api-service";
 import { GoogleConnectionService } from "@/lib/services/google-connection-service";
+import { PhoneRecoveryService } from "@/lib/services/phone-recovery-service";
 import { AuthService } from "@/lib/services/auth-service";
 
 import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
@@ -14,6 +15,44 @@ const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 import { jsonResponse, makeUnsignedToken, deferred } from "../fixtures/api-service-responses";
 
 describe("ApiService.apiFetch", () => {
+  it("does not replay a linked-account deletion confirmation after a 401", async () => {
+    const initial = makeUnsignedToken({ user_id: "account-a", version: 1 });
+    const refreshed = makeUnsignedToken({ user_id: "account-a", version: 2 });
+    const user = { uid: "account-a", getIdToken: vi.fn().mockResolvedValue(initial) };
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(user as never);
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(refreshed);
+    mockFetch.mockResolvedValueOnce(jsonResponse({ detail: { code: "UAT_PHONE_TEST_INVALID_CODE" } }, 401));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ operation_id: "op-1", state: "admitted" }));
+    await expect(PhoneRecoveryService.confirmLinkedDeletion(user as never, "op-1", "+16505550101", { test_code: "123456" }, () => true)).rejects.toMatchObject({ status: 401 });
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it.each(["sms", "test"] as const)("does not replay the linked-account %s phone claim after a 401", async transport => {
+    const initial = makeUnsignedToken({ user_id: "account-a", version: 1 });
+    const refreshed = makeUnsignedToken({ user_id: "account-a", version: 2 });
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "account-a" } as never);
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(refreshed);
+    mockFetch.mockResolvedValueOnce(jsonResponse({ error: "Unauthorized" }, 401));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
+    const current = () => true;
+    const claim = transport === "sms"
+      ? ApiService.claimAccountPhone("synthetic-proof", initial, "account-a", current, "never")
+      : ApiService.confirmUatPhoneTestVerification("+16505550101", "123456", "synthetic-verification", initial, "account-a", current, "never");
+    await expect(claim).rejects.toMatchObject({ status: 401 });
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("does not dispatch a linked-account deletion after its review is retired during token acquisition", async () => {
+    let active = true;
+    const token = deferred<string>();
+    const user = { uid: "account-a", getIdToken: vi.fn().mockReturnValue(token.promise) };
+    const pending = PhoneRecoveryService.confirmLinkedDeletion(user as never, "op-1", "+16505550101", { test_code: "123456" }, () => active);
+    active = false;
+    token.resolve(makeUnsignedToken({ user_id: "account-a" }));
+    await expect(pending).rejects.toThrow();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])("preserves cookie-free pod requests (stream=%s) and hub cookies", async (streaming) => {
     const url = "https://owner-pod.example/api/one/pod/status";
     mockFetch.mockResolvedValue(jsonResponse({ ok: true }));

@@ -1,7 +1,9 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
+import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderPhoneVerificationFlow, reachCodeStep } from "@/__tests__/fixtures/phone-verification-flow";
 import { ApiError } from "@/lib/services/api-client";
+import { usePhoneLinkedDeletion } from "@/components/auth/use-phone-linked-deletion";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/register-phone" }));
 
@@ -99,6 +101,80 @@ describe("in-place deletion of the account linked to the number", () => {
   const prepared = (transport: "sms" | "configured_test") => vi.fn().mockResolvedValue({
     operation_id: "op-1", state: "prepared", expires_at: "2099-01-01T00:00:00Z", phone_hint: "••01", transport });
 
+  it("rejects a retained confirmation after the deletion review is cancelled", async () => {
+    const confirm = vi.fn().mockResolvedValue({ uid: "synthetic-owner" });
+    const prepare = prepared("configured_test");
+    const { result } = renderHook(() => {
+      const [conflict, setConflict] = useState<"choices" | "review" | "delete" | null>("choices");
+      const inFlight = useRef(false), guard = useRef({ pending: false });
+      const deletion = usePhoneLinkedDeletion({ phone: "+16505550101", conflict, busy: false, guard: guard.current,
+        current: () => true, entryIsCurrent: () => true, inFlight, setBusy: () => undefined, setConflict, setError: () => undefined,
+        prepare, confirm, cancel: vi.fn(), fallback: async () => undefined,
+        onDeleted: async () => undefined });
+      return { ...deletion, setConflict };
+    });
+    await act(async () => result.current.review());
+    const staleSubmit = result.current.submit;
+    act(() => { expect(result.current.leave()).toBe(true); result.current.setConflict("choices"); });
+    await act(async () => result.current.review());
+    await act(async () => staleSubmit("123456"));
+    expect(confirm).not.toHaveBeenCalled();
+    await act(async () => result.current.submit("123456"));
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an older confirmation callback in readback mode after an uncertain result", async () => {
+    const confirm = vi.fn().mockRejectedValueOnce(new ApiError("unknown", 409, { code: "PHONE_LINKED_DELETION_SUPPORT_REQUIRED" }))
+      .mockResolvedValue({ uid: "synthetic-owner" });
+    const prepare = prepared("configured_test");
+    const { result } = renderHook(() => {
+      const [conflict, setConflict] = useState<"choices" | "review" | "delete" | null>("choices");
+      const inFlight = useRef(false), guard = useRef({ pending: false });
+      return usePhoneLinkedDeletion({ phone: "+16505550101", conflict, busy: false, guard: guard.current,
+        current: () => true, entryIsCurrent: () => true, inFlight, setBusy: () => undefined, setConflict, setError: () => undefined,
+        prepare, confirm, fallback: async () => undefined, onDeleted: async () => undefined });
+    });
+    await act(async () => result.current.review());
+    const oldSubmit = result.current.submit;
+    await act(async () => oldSubmit("123456"));
+    await act(async () => oldSubmit("123456"));
+    expect(confirm).toHaveBeenLastCalledWith(expect.objectContaining({ readbackOnly: true }), expect.any(Function));
+  });
+
+  it("never repeats a phone claim after its outcome became uncertain", async () => {
+    const confirm = vi.fn().mockRejectedValue(new ApiError("unknown", 409, { code: "PHONE_LINKED_CLAIM_UNCONFIRMED" }));
+    const { result } = renderHook(() => {
+      const [conflict, setConflict] = useState<"choices" | "review" | "delete" | null>("choices");
+      const inFlight = useRef(false), guard = useRef({ pending: false });
+      return usePhoneLinkedDeletion({ phone: "+16505550101", conflict, busy: false, guard: guard.current,
+        current: () => true, entryIsCurrent: () => true, inFlight, setBusy: () => undefined, setConflict, setError: () => undefined,
+        prepare: prepared("sms"), confirm, fallback: async () => undefined, onDeleted: async () => undefined });
+    });
+    await act(async () => result.current.review());
+    const oldSubmit = result.current.submit;
+    await act(async () => oldSubmit());
+    await act(async () => oldSubmit());
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(result.current.freshProof).toBe(true);
+  });
+
+  it("does not open a deletion review from a retired phone-entry callback", async () => {
+    let entry = 0;
+    const prepare = prepared("configured_test");
+    const { result, rerender } = renderHook(() => {
+      const captured = entry;
+      const inFlight = useRef(false), guard = useRef({ pending: false });
+      return usePhoneLinkedDeletion({ phone: "+16505550101", conflict: "choices", busy: false, guard: guard.current,
+        current: () => true, entryIsCurrent: () => captured === entry, inFlight, setBusy: () => undefined,
+        setConflict: () => undefined, setError: () => undefined, prepare, confirm: vi.fn(),
+        fallback: async () => undefined, onDeleted: async () => undefined });
+    });
+    const staleReview = result.current.review;
+    entry += 1; rerender();
+    await act(async () => staleReview());
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
   it("deletes with the fixture code only after explicit acknowledgement, then continues", async () => {
     const verified = { uid: "user_1" };
     const prepare = prepared("configured_test");
@@ -115,7 +191,7 @@ describe("in-place deletion of the account linked to the number", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "I understand this can’t be undone." }));
     fireEvent.click(remove);
     await waitFor(() => expect(flow.onCompleted).toHaveBeenCalledWith(verified));
-    expect(confirmLinkedDeletion).toHaveBeenCalledExactlyOnceWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: "123456" });
+    expect(confirmLinkedDeletion).toHaveBeenCalledExactlyOnceWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: "123456" }, expect.any(Function));
   });
 
   it("cancels from the review, and an unconfirmed deletion offers Check again without trapping Back", async () => {
@@ -138,8 +214,8 @@ describe("in-place deletion of the account linked to the number", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("We couldn’t confirm the deletion. Check again, or contact one@hushh.ai."));
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     await waitFor(() => expect(confirmLinkedDeletion).toHaveBeenCalledTimes(2));
-    // Re-reading the same operation is safe: the server never dispatches it twice.
-    expect(confirmLinkedDeletion).toHaveBeenLastCalledWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: undefined });
+    // An uncertain result is checked by status, without resubmitting confirmation.
+    expect(confirmLinkedDeletion).toHaveBeenLastCalledWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: undefined, readbackOnly: true }, expect.any(Function));
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
     await screen.findByRole("heading", { name: "This number is linked to another account" });
     expect(flow.onCompleted).not.toHaveBeenCalled();

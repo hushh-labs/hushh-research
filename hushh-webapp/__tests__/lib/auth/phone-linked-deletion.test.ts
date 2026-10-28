@@ -10,12 +10,66 @@ const input = { operationId: "op-1", phoneNumber: "+16505550101" };
 const verified = { user_id: "owner", phone_number: "+16505550101", phone_verified: true };
 
 function ports(retained: { token: string; userId: string; epoch: number } | null = { token: "sms-proof", userId: "owner", epoch: 3 }) {
-  return { user: () => user, retained: () => retained, requireOwner: vi.fn(), finalize: vi.fn() } satisfies LinkedDeletionPorts;
+  return { user: () => user, retained: () => retained, isCurrent: () => true, requireOwner: vi.fn(), finalize: vi.fn() } satisfies LinkedDeletionPorts;
 }
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("confirmLinkedDeletion", () => {
+  it.each([undefined, "123456"])("does not claim or finalize after a retired visit (fixture code: %s)", async testCode => {
+    let active = true;
+    let finish!: (receipt: { operation_id: string; state: "admitted" }) => void;
+    vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockResolvedValue(verified as never);
+    const start = vi.spyOn(AccountIdentityService, "startUatTestPhoneVerification");
+    const owner = { ...ports(), isCurrent: () => active };
+    const pending = confirmLinkedDeletion({ ...input, testCode }, owner);
+    active = false;
+    finish({ operation_id: "op-1", state: "admitted" });
+    await expect(pending).rejects.toThrow();
+    expect(claim).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(owner.finalize).not.toHaveBeenCalled();
+  });
+
+  it("does not claim after a newer phone proof replaces the original", async () => {
+    let proof = { token: "sms-proof", userId: "owner", epoch: 3 };
+    let finish!: (receipt: { operation_id: string; state: "admitted" }) => void;
+    vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockResolvedValue(verified as never);
+    const owner = { ...ports(), retained: () => proof };
+    const pending = confirmLinkedDeletion(input, owner);
+    proof = { token: "new-proof", userId: "owner", epoch: 4 };
+    finish({ operation_id: "op-1", state: "admitted" });
+    await expect(pending).rejects.toThrow();
+    expect(claim).not.toHaveBeenCalled();
+    expect(owner.finalize).not.toHaveBeenCalled();
+  });
+
+  it("checks an uncertain deletion by status without re-sending confirmation", async () => {
+    const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
+    const status = vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
+    vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockResolvedValue(verified as never);
+    await confirmLinkedDeletion({ ...input, readbackOnly: true }, ports());
+    expect(status).toHaveBeenCalledOnce();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it.each(["prepared", "not-found", "confirm-not-found", "confirm-server-error", "status-unavailable"])("keeps an uncertain %s result unconfirmed", async state => {
+    vi.useFakeTimers();
+    const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion");
+    const status = vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus");
+    if (state === "prepared") status.mockResolvedValue({ operation_id: "op-1", state: "prepared" });
+    else status.mockRejectedValue(new ApiError("unavailable", 503, { code: state === "status-unavailable" ? "ACCOUNT_DELETE_VERIFICATION_UNAVAILABLE" : "PHONE_LINKED_DELETION_NOT_FOUND" }));
+    if (state === "confirm-not-found") confirm.mockRejectedValue(new ApiError("missing", 404, { code: "PHONE_LINKED_DELETION_NOT_FOUND" }));
+    if (state === "confirm-server-error") confirm.mockRejectedValue(new ApiError("unavailable", 503, { code: "UPSTREAM_FAILED" }));
+    const confirming = state.startsWith("confirm-");
+    const pending = confirmLinkedDeletion({ ...input, readbackOnly: !confirming }, ports()).catch(error => error);
+    await vi.runAllTimersAsync();
+    expect(apiErrorCode(await pending)).toBe("PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
+    expect(confirm).toHaveBeenCalledTimes(confirming ? 1 : 0);
+  });
+
   it("reads a lost response back instead of re-sending the deletion, then claims with the same proof", async () => {
     vi.useFakeTimers();
     const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockRejectedValue(new TypeError("Failed to fetch"));
@@ -27,7 +81,7 @@ describe("confirmLinkedDeletion", () => {
     await expect(result).resolves.toBe(user);
     expect(confirm).toHaveBeenCalledOnce();
     expect(status).toHaveBeenCalledOnce();
-    expect(claim).toHaveBeenCalledExactlyOnceWith(user, "sms-proof");
+    expect(claim).toHaveBeenCalledExactlyOnceWith(user, "sms-proof", expect.any(Function));
     expect(owner.requireOwner).toHaveBeenCalledWith("owner", 3);
     expect(owner.finalize).toHaveBeenCalledExactlyOnceWith(user);
   });
@@ -49,6 +103,15 @@ describe("confirmLinkedDeletion", () => {
     const failure = await confirmLinkedDeletion(input, ports()).catch(error => error);
     expect(apiErrorCode(failure)).toBe("PHONE_LINKED_ACCOUNT_CHANGED");
     expect(failure.message).not.toMatch(/deleted/i);
+  });
+
+  it("keeps a lost phone-claim response unconfirmed after deletion admission", async () => {
+    vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
+    vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockRejectedValue(new TypeError("Failed to fetch"));
+    const owner = ports();
+    const failure = await confirmLinkedDeletion(input, owner).catch(error => error);
+    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_CLAIM_UNCONFIRMED");
+    expect(owner.finalize).not.toHaveBeenCalled();
   });
 
   it.each(["PHONE_LINKED_ACCOUNT_PROTECTED", "PHONE_LINKED_DELETION_STALE"])("never claims after a %s refusal", async code => {

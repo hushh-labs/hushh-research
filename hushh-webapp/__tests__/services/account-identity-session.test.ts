@@ -39,6 +39,30 @@ describe("account identity session admission", () => {
     await expect(AccountIdentityService.startUatTestPhoneVerification(user, "+12025550101")).rejects.toBe(failure);
   });
 
+  it("does not dispatch a phone claim when its originating verification visit retires during token acquisition", async () => {
+    let active = true;
+    let finish!: (token: string) => void;
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockReturnValue(new Promise<string>(resolve => { finish = resolve; })) } as unknown as User;
+    const pending = AccountIdentityService.claimCurrentUserPhone(user, "phone-token", () => active);
+    active = false;
+    finish("owner-token");
+    await expect(pending).resolves.toBeNull();
+    expect(claimPhone).not.toHaveBeenCalled();
+  });
+
+  it("does not cache a phone claim that settles after its verification visit retires", async () => {
+    let active = true;
+    let finish!: (payload: object) => void;
+    claimPhone.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockResolvedValue("owner-token") } as unknown as User;
+    const pending = AccountIdentityService.claimCurrentUserPhone(user, "phone-token", () => active);
+    await vi.waitFor(() => expect(claimPhone).toHaveBeenCalledOnce());
+    active = false;
+    finish({ identity: { user_id: "owner-a", phone_verified: true, phone_number: "+12025550101" } });
+    await expect(pending).resolves.toBeNull();
+    expect(AccountIdentityService.peekCachedIdentity("owner-a")).toBeNull();
+  });
+
   it("keeps an avatar save eligible during token refresh and reconciles its delayed old phone snapshot", async () => {
     publishValidatedAuthSessionOwner("owner-a");
     let finishToken!: (token: string) => void;

@@ -2417,6 +2417,8 @@ export class ApiService {
     phoneIdToken: string,
     idToken?: string,
     expectedUserId?: string,
+    isCurrent?: () => boolean,
+    authRefreshRetry?: "never",
   ): Promise<AccountPhoneClaimResponse> {
     const normalizedPhoneIdToken = String(phoneIdToken || "").trim();
     if (!normalizedPhoneIdToken) {
@@ -2430,6 +2432,10 @@ export class ApiService {
 
     const response = await apiFetch("/api/account/phone/claim", {
       method: "POST",
+      isEffectCurrent: isCurrent,
+      // A linked-deletion claim carries a one-time proof. Its owner must
+      // reconcile an uncertain result rather than replay the mutation.
+      authRefreshRetry,
       headers: {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
@@ -2467,6 +2473,7 @@ export class ApiService {
   static async startUatPhoneTestVerification(
     phoneNumber: string,
     idToken?: string,
+    isCurrent?: () => boolean,
   ): Promise<AccountPhoneTestStartResponse> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -2479,6 +2486,7 @@ export class ApiService {
 
     const response = await apiFetch("/api/account/phone/uat-test/start", {
       method: "POST",
+      isEffectCurrent: isCurrent,
       headers: {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
@@ -2525,6 +2533,8 @@ export class ApiService {
     verificationId: string,
     idToken?: string,
     expectedUserId?: string,
+    isCurrent?: () => boolean,
+    authRefreshRetry?: "never",
   ): Promise<AccountPhoneClaimResponse> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -2533,6 +2543,8 @@ export class ApiService {
 
     const response = await apiFetch("/api/account/phone/uat-test/confirm", {
       method: "POST",
+      isEffectCurrent: isCurrent,
+      authRefreshRetry,
       headers: {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
