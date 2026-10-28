@@ -155,7 +155,7 @@ flowchart LR
 11. Production deploys only the explicitly approved application through its Main approval or separately governed emergency admission. Cadence remains disabled until it understands the same mapping.
 12. Prepared-branch baseline and curated-selection PRs preserve history. Their merge does not deploy an environment; release tooling remains Main-owned.
 
-## Codex Branch Preservation Gate
+## Engineering Branch Preservation Gate
 
 Coding agents must run this gate before CI, deploy, PR, hotfix, or validation work:
 
@@ -165,7 +165,7 @@ Coding agents must run this gate before CI, deploy, PR, hotfix, or validation wo
 4. Use a temporary branch only when branch isolation is explicitly requested, an isolated `main` hotfix is required, or unrelated in-flight work makes the preserved branch unsafe for the fix.
 5. If a temporary branch is used, delete it locally AND remotely after the work is safely preserved on the kept branches, then switch back to the preserved developer branch. Before deleting, verify every unique commit/file is represented on a kept branch, and close any throwaway PR opened from the temp branch.
 6. If a normal fix lands on `integration/pr-train`, merge or rebase the landed train commits into the preserved developer branch before handoff.
-7. If an emergency hotfix lands on `main`, merge or rebase the landed `origin/main` commits into `integration/pr-train` and the preserved developer branch before handoff.
+7. If an emergency hotfix lands on `main`, reconcile it into `dev` and affected active branches without overwriting their unique work. Reconcile the legacy train when its active work requires it.
 8. Do not end a task detached, on `main`, or on a temporary branch unless the user explicitly requested that final state or a concrete conflict blocks restoration. If branch switching happened mid-task (including from a parallel terminal), switch back to the developer's starting branch before handoff and state that you did.
 9. HARD RULE — leave the tree clean at handoff: developer on their branch, no stray local temp branches, no stray remote temp branches, no dangling throwaway PRs. Auto-creating branches, abandoning the developer on a stray branch, or leaving temp branches behind is a defect to correct immediately, not an acceptable shortcut.
 
@@ -174,16 +174,17 @@ Coding agents must run this gate before CI, deploy, PR, hotfix, or validation wo
 | Branch type | Naming pattern | Retention |
 |---|---|---|
 | Developer branch | `feature/*`, `feat/*`, `agent_*`, developer-owned names | Keep while active |
-| PR train branch | `integration/pr-train` | Durable protected intake branch |
-| Hotfix branch | `fix/*` | Delete after merge to `main`, sync back to `integration/pr-train`, and successful UAT validation |
-| Deployment artifact | exact green `main` SHA | Keep in Git history and deployment logs |
+| Development intake | `dev` | Durable protected branch for new development |
+| Legacy train branch | `integration/pr-train` | Preserve its protected history and active work |
+| Hotfix branch | `fix/*` | Delete after merge, required validation and safe back-sync |
+| Deployment artifact | exact qualified application SHA and release provenance | Keep in Git history and deployment logs |
 | Local backup branch | `backup/*`, `publishable/*` | Audit unique commits, salvage if needed, then delete |
 
 Before deleting a local backup branch, classify its unique commits as:
 
 1. already represented in `main`
 2. obsolete and safe to drop
-3. still valuable and worth promoting onto a fresh salvage branch from current `integration/pr-train`
+3. still valuable and worth promoting onto a reviewed branch from the appropriate current baseline
 
 ## Deployment Lanes
 
@@ -191,10 +192,10 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. Dev deploys through `Deploy to Dev` (manual dispatch from `main`, governed actor
    cohort identical to UAT).
-2. The deployed content is `integration/pr-train` by default, or any requested ref;
+2. The deployed content is `dev` by default, or any requested ref;
    the exact SHA must be reachable from that ref and carry a green `CI Status Gate`.
 3. Dev never requires `main` ancestry or `Main Post-Merge Smoke` — `main` stays the
-   UAT → production signoff lane, and dev proves the train BEFORE promotion.
+   UAT → production signoff lane, and Dev proves selected changes before promotion.
 4. Dev has no promotion authority: nothing deploys to UAT or production from dev.
 5. Full contract: [dev-fast-lane.md](./dev-fast-lane.md).
 
@@ -465,10 +466,10 @@ at workflow runtime.
 1. Preserve the active developer branch before switching away.
 2. Create the hotfix branch from the latest `main` only when an isolated hotfix is materially required.
 3. Merge the hotfix into `main`.
-4. Immediately sync the landed hotfix back into `integration/pr-train` so the train branch does not drift behind the promotion branch.
-5. If hosted validation is required, manually deploy that same green `main` SHA to UAT.
-6. Delete the hotfix branch locally and remotely after merge and rollout validation when safe.
-7. Switch back to the preserved developer branch and merge or rebase the landed train/main commits into it.
+4. Reconcile the landed hotfix into `dev` and affected active branches through their governed paths; preserve unique work and legacy train history.
+5. Deploy only to an explicitly authorized environment, using its qualified source and release workflow.
+6. Delete the hotfix branch locally and remotely after the required validation when safe.
+7. Return to the preserved developer branch and incorporate the relevant landed changes without overwriting peer work.
 8. If another blocker appears after that rollout, create a new hotfix branch from the updated `main` only when the same isolation criteria still applies.
 9. Do not reuse an already-merged hotfix branch for a second fix.
 

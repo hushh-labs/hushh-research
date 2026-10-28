@@ -1151,6 +1151,13 @@ with a qualified trusted check in the normal CI flow. Preserve exact source and
 attempt binding, isolated credentials, rerun precedence, and missing-receipt
 refusal. Do not remove the worker merely by hiding, renaming, or bypassing it.
 
+A replacement using `pull_request_target` also needs an applicable Actions
+event policy. GitHub documents a public-repository default block scheduled for
+2 December 2026; repository readback on 28 October found no local policies, and
+the inherited organization policy could not be verified. Qualify the effective
+policy and protected-secret boundary before adopting this event. The current
+worker does not use it. [GitHub's event guidance](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
+
 The replacement credential was qualified on 22 October 2026 using worker
 39861716513. On 23 October, PR8365 passed all 26 checks and landed as `51a5a86675`.
 Main worker `39889655505` then verified receipt reuse without another inventory
