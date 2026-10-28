@@ -4643,7 +4643,7 @@ class OneLocationAgentService:
             ) recipient_key ON TRUE
             ORDER BY page_rows.match_rank, page_rows.normalized_name,
                      page_rows.user_id
-            """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
+            """,  # nosec B608 - directory SQL fragments are static; values are bound.
             {
                 "owner_user_id": owner_user_id,
                 "query": normalized_query,

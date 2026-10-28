@@ -4080,7 +4080,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/kai/portfolio/analysis",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fanalysis",
+        "expectedMarker": "native-route-kai-portfolio-analysis",
+        "expectedRoute": "/one/kai/portfolio/analysis",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -11055,5 +11066,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "7d98ee0a5652a6e1676b819a5ab0adc0592bc84c4e985cf855f1f7dbf5f23ca6"
+  "content_sha256": "81262939761ae018b55d963f07218de1a95071f5e4ec15d86dea0f22bf70db25"
 }

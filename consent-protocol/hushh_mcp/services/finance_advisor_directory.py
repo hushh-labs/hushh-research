@@ -1,11 +1,11 @@
 """Connection-scoped Finance advisor candidates; final authority remains the grant service."""
 
 from hushh_mcp.services.ria_iam_service import RIAIAMService
-from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 
-LOCATION_RIA_ANNOTATION_SQL = f"""EXISTS (
+LOCATION_RIA_ANNOTATION_SQL = """EXISTS (
   SELECT 1 FROM ria_profiles ria_annotation
-  WHERE ria_annotation.user_id = identity.user_id AND {RIA_VERIFIED_STATUS_SQL}
+  WHERE ria_annotation.user_id = identity.user_id
+    AND ria_annotation.verification_status = ANY(:finance_verified_statuses)
 )"""
 FINANCE_ADVISOR_ANNOTATION_SQL = """(EXISTS (
   SELECT 1 FROM ria_profiles finance_ria WHERE finance_ria.user_id = identity.user_id
