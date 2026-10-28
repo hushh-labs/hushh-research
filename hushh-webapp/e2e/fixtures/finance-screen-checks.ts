@@ -54,6 +54,12 @@ export function registerFinanceScreenChecks(
         const manageAction = overview.getByRole("button", { name: "Manage portfolio", exact: true });
         const importBox = (await importAction.boundingBox())!;
         const manageBox = (await manageAction.boundingBox())!;
+        const optionsBox = (await overview.getByTestId("portfolio-overview-options").boundingBox())!;
+        const valueBox = (await overview.getByTestId("portfolio-value-card").boundingBox())!;
+        expect(importBox.y).toBeGreaterThanOrEqual(optionsBox.y + optionsBox.height);
+        expect(manageBox.y).toBeGreaterThanOrEqual(optionsBox.y + optionsBox.height);
+        expect(importBox.y).toBeGreaterThanOrEqual(valueBox.y + valueBox.height);
+        expect(manageBox.y).toBeGreaterThanOrEqual(valueBox.y + valueBox.height);
         expect(importBox.x + importBox.width).toBeLessThanOrEqual(manageBox.x);
         expect(Math.abs(importBox.y - manageBox.y)).toBeLessThanOrEqual(1);
         await importAction.click();
@@ -65,6 +71,15 @@ export function registerFinanceScreenChecks(
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
         await expect(overview.getByText("Balance snapshot · This source hasn’t supplied dated balance history.")).toBeVisible();
         if (width >= 1024) {
+          // The workspace should use the available content width rather than
+          // introducing a second, narrower reading measure below the tabs.
+          const widths = await overview.evaluate(element => {
+            const parent = element.parentElement!;
+            const style = getComputedStyle(parent);
+            const available = parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+            return { available, workspace: element.getBoundingClientRect().width };
+          });
+          expect(Math.abs(widths.workspace - widths.available)).toBeLessThanOrEqual(1);
           const value = await overview.getByTestId("portfolio-value-card").boundingBox();
           const options = await overview.getByTestId("portfolio-overview-options").boundingBox();
           expect(Math.abs(value!.y - options!.y)).toBeLessThanOrEqual(2);

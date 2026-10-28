@@ -136,6 +136,46 @@
       "speaker_persona": "kai"
     },
     {
+      "action_id": "route.kai_portfolio_analysis",
+      "label": "Show portfolio analysis",
+      "meaning": "Opens the source-backed portfolio analysis.",
+      "aliases": [
+        "show my portfolio analysis",
+        "open portfolio briefing"
+      ],
+      "search_keywords": [
+        "portfolio",
+        "analysis",
+        "briefing"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/analysis"
+        ],
+        "screens": [
+          "kai_portfolio_analysis"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/analysis"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
       "action_id": "route.kai_portfolio_sources",
       "label": "Show Connected Sources",
       "meaning": "Navigates to the portfolio's connected data sources.",

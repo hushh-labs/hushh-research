@@ -5,7 +5,7 @@ import { openRecipientPayload, sealRecipientPayload, RecipientPayloadKeyUnavaila
 import type { OneLocationRecipient } from "@/lib/one-location/types";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { financeConfigContext, financeContext, financeDigest, readFinanceProjection, financeGrantSchema, financeHistorySchema, financeOwnerConfigSchema, committedFinanceProjection, committedFinanceConfig, financeInformation,
-  type FinanceGrant, type FinanceOwnerConfig, type FinancePolicy, type FinanceProjection } from "@/lib/finance-sharing/contract";
+  type FinanceGrant, type FinanceOwnerConfig, type FinancePolicy, type FinancePolicyInput, type FinanceProjection } from "@/lib/finance-sharing/contract";
 
 export type FinanceShareContext = {
   userId: string; vaultKey: string; vaultOwnerToken: string;
@@ -13,7 +13,9 @@ export type FinanceShareContext = {
 };
 export class FinanceSharingError extends Error {
   constructor(readonly code: string, readonly status: number) {
-    super(code === "FINANCE_SHARE_NOT_READY" ? "Finance sharing is not available on this server yet."
+    super(code === "FINANCE_ADVISOR_NOT_VERIFIED" ? "This connection is not currently eligible for advisor review."
+      : code === "DIRECT_MESSAGE_BLOCKED" || code === "DIRECT_MESSAGE_CONNECTION_REQUIRED" ? "This person is blocked or no longer connected. Check your Connections."
+      : code === "FINANCE_SHARE_NOT_READY" ? "Finance sharing is not available on this server yet."
       : code === "FINANCE_SHARE_KEY_CHANGED" ? "Secure access changed. Review the recipient again."
       : status === 409 ? "Sharing changed. Refresh and review before retrying."
       : "Sharing could not be confirmed. Check Manage sharing before retrying.");
@@ -114,24 +116,44 @@ export const FinanceSharingService = {
     const previous = pendingFinanceShare(context);
     if (previous && previous.requestId !== prepared.requestId) throw new Error("Check the previous sharing confirmation before creating another.");
     pending.set(context.userId, { epoch: snapshotVaultSessionEpoch(), body: prepared });
+    let postAccepted = false;
     try {
       const result = await request<{ items: unknown[] }>(context, "", "POST", prepared);
+      postAccepted = true;
       const items = result.items.map(value => financeGrantSchema.parse(value) as FinanceGrant);
-      const refs = new Set(prepared.recipients.map(r => r.personRef));
-      if (items.length !== refs.size || items.some(g => g.ownerUserId !== context.userId || g.requestId !== prepared.requestId || !refs.has(g.recipientPersonRef)
-        || g.policy.selectionHash !== prepared.policy.selectionHash || g.policy.mode !== prepared.policy.mode
+      const expected = new Map(prepared.recipients.map(recipient => [recipient.grantId, recipient]));
+      const seen = new Set<string>();
+      if (expected.size !== prepared.recipients.length || items.length !== expected.size || items.some(g => {
+        const recipient = expected.get(g.id);
+        if (!recipient || seen.has(g.id) || g.ownerUserId !== context.userId || g.requestId !== prepared.requestId
+          || g.recipientPersonRef !== recipient.personRef || g.recipientKeyId !== recipient.envelope.recipientKeyId
+          || g.direction !== "outgoing" || (g.revision === 1 && g.contentHash !== recipient.contentHash)
+          || (g.revision !== 1 && (g.policy.version !== 1 || g.policy.mode !== "ongoing"))) return true;
+        seen.add(g.id);
+        return false;
+      }) || items.some(g =>
+        g.policy.selectionHash !== prepared.policy.selectionHash || g.policy.version !== prepared.policy.version || (g.policy.version === 2 && (prepared.policy.version !== 2 || g.policy.purpose !== prepared.policy.purpose)) || g.policy.mode !== prepared.policy.mode
         || g.policy.durationSeconds !== prepared.policy.durationSeconds || g.policy.showAmounts !== prepared.policy.showAmounts
         || g.policy.model_processing.allowed !== prepared.policy.model_processing.allowed
         || [...g.policy.sections].sort().join() !== [...prepared.policy.sections].sort().join())) throw new Error("The sharing receipt did not match the confirmation.");
+      // An earlier acknowledgement can arrive after an ongoing share refreshed.
+      // Recheck its current authority before treating that retry as confirmed.
+      for (const item of items.filter(g => g.revision > 1)) {
+        const current = await FinanceSharingService.view(context, item.id);
+        if (current.id !== item.id || current.direction !== "outgoing" || current.ownerUserId !== context.userId || current.requestId !== item.requestId
+          || current.revision !== item.revision || current.contentHash !== item.contentHash || current.status !== item.status
+          || current.recipientPersonRef !== item.recipientPersonRef || current.recipientKeyId !== item.recipientKeyId
+          || JSON.stringify(current.policy) !== JSON.stringify(item.policy)) throw new Error("The sharing receipt did not match the current access.");
+      }
       pending.delete(context.userId);
       return { items };
     } catch (e) {
-      if (e instanceof FinanceSharingError && e.status >= 400 && e.status < 500 && ![408, 429].includes(e.status)) pending.delete(context.userId);
+      if (!postAccepted && e instanceof FinanceSharingError && e.status >= 400 && e.status < 500 && ![408, 429].includes(e.status)) pending.delete(context.userId);
       throw e;
     }
   },
   async prepare(context: FinanceShareContext, config: FinanceOwnerConfig, projection: FinanceProjection,
-    policy: Omit<FinancePolicy, "selectionHash">, selected: OneLocationRecipient[]): Promise<PreparedFinanceShare> {
+    policy: FinancePolicyInput, selected: OneLocationRecipient[]): Promise<PreparedFinanceShare> {
     requireFinanceSession(context);
     const recipientRows = await currentRecipients(context, selected.map(r => r.publicPersonRef!));
     for (const recipient of recipientRows) {

@@ -56,6 +56,46 @@ describe("Finance encrypted publication", () => {
     expect(mocks.api.mock.calls[0]![1].body).toBe(mocks.api.mock.calls[1]![1].body);
     expect(pendingFinanceShare(context)).toBeNull();
   });
+  it("does not confirm a receipt for a different grant, key, or content", async () => {
+    const body: PreparedFinanceShare = { requestId, policy, ownerConfig: envelope("owner-key"), recipients: [{ personRef: ref, grantId: id, envelope: envelope("recipient-key"), ownerEnvelope: envelope("owner-key"), contentHash: "b".repeat(64) }] };
+    for (const altered of [
+      { ...grant, id: "44444444-4444-4444-8444-444444444444" },
+      { ...grant, recipientKeyId: "wrong-key" },
+      { ...grant, contentHash: "c".repeat(64) },
+    ]) {
+      clearPendingFinanceShares("owner");
+      mocks.api.mockResolvedValueOnce({ ok: true, json: async () => ({ items: [altered] }) });
+      await expect(FinanceSharingService.publish(context, body)).rejects.toThrow(/receipt/);
+      expect(pendingFinanceShare(context)).toBe(body);
+    }
+  });
+  it("rejects duplicate receipts in a multi-recipient confirmation", async () => {
+    const body: PreparedFinanceShare = { requestId, policy, ownerConfig: envelope("owner-key"), recipients: [
+      { personRef: ref, grantId: id, envelope: envelope("recipient-key"), ownerEnvelope: envelope("owner-key"), contentHash: "b".repeat(64) },
+      { personRef: "55555555-5555-4555-8555-555555555555", grantId: "44444444-4444-4444-8444-444444444444", envelope: envelope("other-key"), ownerEnvelope: envelope("owner-key"), contentHash: "b".repeat(64) },
+    ] };
+    mocks.api.mockResolvedValueOnce({ ok: true, json: async () => ({ items: [grant, grant] }) });
+    await expect(FinanceSharingService.publish(context, body)).rejects.toThrow(/receipt/);
+    expect(pendingFinanceShare(context)).toBe(body);
+  });
+  it("reconciles a lost acknowledgement after an ongoing share has refreshed", async () => {
+    const body: PreparedFinanceShare = { requestId, policy, ownerConfig: envelope("owner-key"), recipients: [{ personRef: ref, grantId: id, envelope: envelope("recipient-key"), ownerEnvelope: envelope("owner-key"), contentHash: "b".repeat(64) }] };
+    const refreshed = { ...grant, revision: 2, contentHash: "c".repeat(64) };
+    mocks.api.mockRejectedValueOnce(new Error("network unavailable"));
+    await expect(FinanceSharingService.publish(context, body)).rejects.toThrow();
+    mocks.api.mockResolvedValueOnce({ ok: true, json: async () => ({ items: [refreshed] }) });
+    mocks.api.mockResolvedValueOnce({ ok: true, json: async () => refreshed });
+    expect((await FinanceSharingService.publish(context, body)).items[0]?.revision).toBe(2);
+    expect(pendingFinanceShare(context)).toBeNull();
+  });
+  it("keeps the pending confirmation if a follow-up access check fails after POST", async () => {
+    const body: PreparedFinanceShare = { requestId, policy, ownerConfig: envelope("owner-key"), recipients: [{ personRef: ref, grantId: id, envelope: envelope("recipient-key"), ownerEnvelope: envelope("owner-key"), contentHash: "b".repeat(64) }] };
+    const refreshed = { ...grant, revision: 2, contentHash: "c".repeat(64) };
+    mocks.api.mockResolvedValueOnce({ ok: true, json: async () => ({ items: [refreshed] }) });
+    mocks.api.mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ detail: "FINANCE_SHARE_UNAVAILABLE" }) });
+    await expect(FinanceSharingService.publish(context, body)).rejects.toThrow();
+    expect(pendingFinanceShare(context)).toBe(body);
+  });
   it("discards a JSON read that completes after owner retirement", async () => {
     mocks.api.mockResolvedValueOnce({ ok: true, json: async () => { current = false; return { items: [], nextCursor: null }; } });
     await expect(FinanceSharingService.history(context)).rejects.toThrow(/session changed/);

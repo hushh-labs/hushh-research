@@ -71,6 +71,8 @@ export const prepareRecaptchaVerifier = async () => undefined;
 export const resetRecaptcha = () => undefined;
 export const executeLostVaultAccountDeletion = async () => { throw new Error("Deletion is disabled in the visual fixture"); };
 export const lostVaultDeletionErrorMessage = () => "Deletion is disabled in the visual fixture";
+export const linkedDeletionMessage = () => "Deletion is disabled in the visual fixture";
+export const linkedDeletionNeedsFreshProof = () => false;
 
 /* eslint-disable @next/next/no-img-element -- Browser fixture preserves image geometry. */
 export default function Image({ alt = "", unoptimized: _unoptimized, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { unoptimized?: boolean }) {

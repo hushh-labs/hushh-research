@@ -77,6 +77,30 @@ def grant_projection(row, viewer, *, include_envelope=False):
     return result
 
 
+def require_advisor(conn, recipient):
+    """Lock and recheck the canonical RIA status before issuing ciphertext."""
+    from hushh_mcp.services.ria_iam_service import _IAM_REQUIRED_TABLES, RIAIAMService
+
+    ready = one(
+        conn,
+        """SELECT count(*) AS count FROM pg_catalog.pg_tables
+      WHERE schemaname='public' AND tablename = ANY(:tables)""",
+        {"tables": list(_IAM_REQUIRED_TABLES)},
+    )
+    if not ready or ready["count"] != len(_IAM_REQUIRED_TABLES):
+        raise FinanceSharingError("FINANCE_SHARE_NOT_READY", 503)
+    profile = one(
+        conn,
+        """SELECT COALESCE(to_jsonb(rp)->>'advisory_status',
+      rp.verification_status, 'draft') AS status FROM ria_profiles rp
+      WHERE rp.user_id=:uid FOR SHARE""",
+        {"uid": recipient},
+    )
+    status = str(profile["status"] if profile else "").strip().lower()
+    if status not in RIAIAMService._RIA_VERIFIED_STATUSES:
+        raise FinanceSharingError("FINANCE_ADVISOR_NOT_VERIFIED", 403)
+
+
 def request_grants(conn, select, owner, request_id):
     return {
         "items": [
@@ -179,6 +203,9 @@ class FinanceSharingService:
                     raise FinanceSharingError("FINANCE_SHARE_RECIPIENT_INVALID")
                 recipients.append((person["user_id"], item))
             lock_connection_graph_users(conn, user_ids=sorted([owner, *[r[0] for r in recipients]]))
+            if body.policy.version == 2:
+                for uid in sorted(r[0] for r in recipients):
+                    require_advisor(conn, uid)
             self._key(conn, owner, body.ownerConfig.recipientKeyId)
             dm = DirectMessagesService(db=self.db, connection=conn, defer_notifications=True)
             for uid, item in recipients:
@@ -254,6 +281,8 @@ class FinanceSharingService:
                 raise FinanceSharingError("FINANCE_SHARE_NOT_FOUND", 404)
             # Acquire graph locks before grant locks, exactly as create/refresh/revoke.
             self._connection(conn, self.db, row["owner_user_id"], row["recipient_user_id"])
+            if viewer == row["recipient_user_id"] and decoded(row["policy"])["version"] == 2:
+                require_advisor(conn, viewer)
             self._purge(conn, viewer)
             row = one(
                 conn,
