@@ -81,7 +81,6 @@ AUTHORITY_PATHS = tuple(
             "scripts/ci/verify-cloudrun-revision-provenance.py",
             "scripts/ci/runtime-capacity-budget.py",
             "scripts/ci/runtime_capacity_inventory.py",
-            "scripts/ci/runtime_capacity_frontend.py",
             "scripts/ci/runtime_capacity_cli.py",
             "scripts/ci/runtime_capacity_target_scope.py",
             "scripts/ci/runtime_capacity_volume.py",

@@ -11,6 +11,7 @@ regression shows up as a behaviour change rather than a missing string.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -23,13 +24,6 @@ import yaml
 
 from tests.helpers.deployment_cli import frontend_deploy_script
 from tests.helpers.deployment_cli import manifest_index as _manifest_index
-from tests.helpers.frontend_cloudbuild import (
-    _body,
-    _run,
-    _steps,
-    _substitute,
-    _without_first_line,
-)
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_BUILD = ROOT / "deploy" / "frontend.cloudbuild.yaml"
@@ -42,6 +36,53 @@ LANES = {
 }
 DIGEST = "sha256:" + "a" * 64
 BUILD_ID = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
+
+
+def _bash() -> str:
+    bash = shutil.which("bash")
+    assert bash is not None, "Bash is required to run the deploy step bodies"
+    return bash
+
+
+def _steps(path: Path) -> dict[str, dict]:
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return {step["id"]: step for step in config["steps"]}
+
+
+def _body(step: dict) -> str:
+    assert step["entrypoint"] == "bash"
+    assert step["args"][0] == "-c"
+    return str(step["args"][1])
+
+
+def _without_first_line(script: str) -> str:
+    first, _, rest = script.partition("\n")
+    assert first == "set -euo pipefail"
+    return rest
+
+
+def _substitute(script: str, values: dict[str, str]) -> str:
+    """Apply Cloud Build's simple ${_NAME} substitution, nothing else."""
+
+    def replace(match: re.Match[str]) -> str:
+        return values[match.group(1)]
+
+    return re.sub(r"\$\{(_[A-Z0-9_]+)\}", replace, script)
+
+
+def _run(script: str, *, env: dict[str, str] | None = None, cwd: Path = ROOT):
+    environment = os.environ.copy()
+    environment.pop("BASH_ENV", None)
+    environment.update(env or {})
+    return subprocess.run(  # noqa: S603 - trusted repo scripts, fixed inputs, guarded commands
+        [_bash(), "-c", script],
+        cwd=cwd,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
 
 
 # --- Cloud Build configs -----------------------------------------------------
@@ -62,7 +103,7 @@ def test_image_build_steps_stay_identical_to_the_combined_build() -> None:
         # The combined config may only PREPEND checks (Cloud Run sizing, the
         # prebuilt guard); the build logic itself must be byte-identical.
         assert _body(combined[step_id]).endswith(shared), step_id
-        for key in ("name", "secretEnv", "env"):
+        for key in ("name", "secretEnv"):
             assert image_only[step_id].get(key) == combined[step_id].get(key), (step_id, key)
 
     image_config = yaml.safe_load(FRONTEND_IMAGE_BUILD.read_text(encoding="utf-8"))
@@ -83,23 +124,18 @@ def test_image_build_steps_stay_identical_to_the_combined_build() -> None:
 def test_image_build_accepts_only_registered_environment_origins(environment, prefix, domain):
     step = _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"])
     # Run the actual catalog guard without cloud calls or writes to /workspace.
-    guard = step[
-        step.index('python3 - "$${PLG_FRONTEND_DEPLOY_ENV}"') : step.index("\nPY_RP")
-        + len("\nPY_RP")
-    ]
-    guard = guard.replace("$$", "$")
+    guard = step[step.index('python3 - "${_DEPLOY_ENV}"') : step.index("\nPY_RP") + len("\nPY_RP")]
+    guard = guard.replace("${_DEPLOY_ENV}", environment).replace("$$", "$")
     hostname = f"{prefix}.{domain}"
     allowed = _run(
         "set -e\n" + guard + '\nprintf "%s" "$PASSKEY_RP_ID_VAL"',
-        env={"PASSKEY_RP_ID_VAL": hostname, "PLG_FRONTEND_DEPLOY_ENV": environment},
+        env={"PASSKEY_RP_ID_VAL": hostname},
     )
     assert allowed.returncode == 0, allowed.stderr
     assert allowed.stdout == hostname  # Validation must not change an existing RP.
     foreign_prefix = "one" if environment != "production" else "uat.one"
     for hostname in (f"{foreign_prefix}.{domain}", f"evil.{prefix}.{domain}"):
-        refused = _run(
-            guard, env={"PASSKEY_RP_ID_VAL": hostname, "PLG_FRONTEND_DEPLOY_ENV": environment}
-        )
+        refused = _run(guard, env={"PASSKEY_RP_ID_VAL": hostname})
         assert refused.returncode != 0
         assert "does not match the deployment environment" in refused.stderr
 

@@ -58,37 +58,3 @@ resolve_google_native_public_clients() {
     fi
   fi
 }
-
-# Load only resolver-produced public build inputs in the Docker-only step.
-load_frontend_public_client_artifacts() {
-  local workspace="${1%/}"
-  google_contacts_client_id_file="${workspace}/.google-contacts-client-id"
-  if [[ ! -f "${google_contacts_client_id_file}" ]]; then
-    echo "Google Contacts OAuth client resolver artifact is missing."
-    exit 1
-  fi
-  passkey_rp_id_file="${workspace}/.passkey-rp-id"
-  if [[ ! -s "${passkey_rp_id_file}" ]]; then
-    echo "Frontend passkey RP ID resolver artifact is missing."
-    exit 1
-  fi
-  PASSKEY_RP_ID="$(cat "${passkey_rp_id_file}")"
-  GOOGLE_CONTACTS_CLIENT_ID_VAL="$(cat "${google_contacts_client_id_file}")"
-  native_config_dir="${workspace}/.google-native-connectors"
-  GOOGLE_IOS_CONNECTOR_CLIENT_ID_VAL="$(cat "${native_config_dir}/NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID")"
-  GOOGLE_ANDROID_CONNECTOR_CLIENT_ID_VAL="$(cat "${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID")"
-  GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI_VAL="$(cat "${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI")"
-  GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED_VAL="$(cat "${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED")"
-  google_sign_in_client_id_file="${workspace}/.google-sign-in-client-id"
-  if [[ ! -f "${google_sign_in_client_id_file}" ]]; then
-    echo "Google sign-in OAuth client resolver artifact is missing."
-    exit 1
-  fi
-  GOOGLE_SIGN_IN_CLIENT_ID_VAL="$(cat "${google_sign_in_client_id_file}")"
-  receipt_logo_url_template_file="${workspace}/.receipt-logo-url-template"
-  if [[ ! -f "${receipt_logo_url_template_file}" ]]; then
-    echo "Receipt-logo resolver artifact is missing."
-    exit 1
-  fi
-  RECEIPT_LOGO_URL_TEMPLATE_VAL="$(cat "${receipt_logo_url_template_file}")"
-}

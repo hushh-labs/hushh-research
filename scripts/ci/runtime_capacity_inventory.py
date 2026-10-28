@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import importlib.util
 import ipaddress
-import sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -28,7 +27,6 @@ ISOLATED_DEV_CONNECTION = _scope.ISOLATED_DEV_CONNECTION
 isolated_dev_scope = _scope.isolated_dev_scope
 non_target_rows = _scope.non_target_rows
 _non_target_routing = _scope.non_target_routing
-FRONTEND_FIXTURE = "hushh-webapp-plg-qual"
 
 
 def positive_int(value: Any, label: str, *, zero_ok: bool = False) -> int:
@@ -77,98 +75,6 @@ def _database_maximum(sql: dict[str, Any]) -> int:
     return positive_int(values[0], "Cloud SQL max_connections")
 
 
-def _fixture_inventory(
-    service,
-    revisions,
-    read,
-    opts,
-    *,
-    environment,
-    isolated,
-    endpoints,
-    aliases,
-    resolve_secret,
-    pending_latest,
-):
-    import importlib
-
-    helpers = Path(__file__).resolve().parents[2] / "deploy" / "plg"
-    if str(helpers) not in sys.path:
-        sys.path.insert(0, str(helpers))
-    try:
-        history = importlib.import_module("frontend_fixture_retained")
-        verifier = importlib.import_module("runtime_capacity_frontend")
-        proof = verifier.verify(service, revisions, environment, history, BudgetError)
-        if isolated:
-            versions = set()
-            for workload in (service, *revisions):
-                versions.update(
-                    _non_target_routing(
-                        workload, endpoints, aliases, resolve_secret, pending_latest
-                    )
-                )
-            proof["resolved_secret_versions"] = sorted(versions)
-        refreshed = read("run", "services", "describe", FRONTEND_FIXTURE, *opts)
-        if (
-            not (service.get("metadata") or {}).get("resourceVersion")
-            or (refreshed.get("metadata") or {}).get("name") != FRONTEND_FIXTURE
-            or (refreshed.get("metadata") or {}).get("uid")
-            != (service.get("metadata") or {}).get("uid")
-            or (refreshed.get("metadata") or {}).get("resourceVersion")
-            != (service.get("metadata") or {}).get("resourceVersion")
-            or refreshed.get("spec") != service.get("spec")
-            or (refreshed.get("status") or {}).get("traffic")
-            != (service.get("status") or {}).get("traffic")
-        ):
-            raise BudgetError("fixture service changed during inventory")
-    except BudgetError:
-        raise
-    except Exception:
-        raise BudgetError("fixture retained capacity identity is unverified") from None
-    return {"service": service, "revisions": revisions, "non_target": proof}
-
-
-def _isolated_non_target(
-    name,
-    service,
-    revisions,
-    by_name,
-    endpoints,
-    aliases,
-    resolve_secret,
-    pending_latest,
-):
-    if not isinstance(service.get("spec", {}).get("template"), dict) or len(
-        by_name
-    ) != len(revisions):
-        raise BudgetError(
-            "non-target service template/revision inventory is incomplete"
-        )
-    if any(
-        not isinstance(key, str) or not key.startswith(name + "-") for key in by_name
-    ):
-        raise BudgetError("non-target retained revision identity is ambiguous")
-    versions: set[str] = set()
-    for workload in (service, *revisions):
-        versions.update(
-            _non_target_routing(
-                workload, endpoints, aliases, resolve_secret, pending_latest
-            )
-        )
-    return {
-        "service": service,
-        "revisions": revisions,
-        "non_target": {
-            "name": name,
-            "connections": 0,
-            "capacity_classification": "not-target-instance",
-            "checked_revisions": sorted(by_name),
-            "template_checked": True,
-            "resolved_secret_versions": sorted(versions),
-        },
-    }
-
-
 def _read_service_inventory(
     name: str,
     read: Callable[..., Any],
@@ -181,25 +87,11 @@ def _read_service_inventory(
     aliases: set[str] | None = None,
     resolve_secret: Callable | None = None,
     pending_latest: list | None = None,
-    environment: str | None = None,
 ) -> dict[str, Any]:
     service = read("run", "services", "describe", name, *opts)
     revisions = read("run", "revisions", "list", f"--service={name}", *opts)
     if not isinstance(revisions, list):
         raise BudgetError(f"{name}: revision inventory unavailable")
-    if name == FRONTEND_FIXTURE:
-        return _fixture_inventory(
-            service,
-            revisions,
-            read,
-            opts,
-            environment=environment,
-            isolated=isolated,
-            endpoints=endpoints,
-            aliases=aliases,
-            resolve_secret=resolve_secret,
-            pending_latest=pending_latest,
-        )
     if name in non_database:
         traffic = (service.get("status") or {}).get("traffic")
         if not isinstance(traffic, list):
@@ -229,16 +121,36 @@ def _read_service_inventory(
                     f"{name}: reachable revision attaches to budgeted Cloud SQL"
                 )
         if isolated:
-            return _isolated_non_target(
-                name,
-                service,
-                revisions,
-                by_name,
-                endpoints,
-                aliases,
-                resolve_secret,
-                pending_latest,
-            )
+            if not isinstance(service.get("spec", {}).get("template"), dict) or len(
+                by_name
+            ) != len(revisions):
+                raise BudgetError(
+                    "non-target service template/revision inventory is incomplete"
+                )
+            if any(
+                not isinstance(key, str) or not key.startswith(name + "-")
+                for key in by_name
+            ):
+                raise BudgetError("non-target retained revision identity is ambiguous")
+            versions: set[str] = set()
+            for workload in (service, *revisions):
+                versions.update(
+                    _non_target_routing(
+                        workload, endpoints, aliases, resolve_secret, pending_latest
+                    )
+                )
+            return {
+                "service": service,
+                "revisions": revisions,
+                "non_target": {
+                    "name": name,
+                    "connections": 0,
+                    "capacity_classification": "not-target-instance",
+                    "checked_revisions": sorted(by_name),
+                    "template_checked": True,
+                    "resolved_secret_versions": sorted(versions),
+                },
+            }
     return {"service": service, "revisions": revisions}
 
 
@@ -275,12 +187,6 @@ def _service_partition(config, read, opts):
     }
     profiled = set(config["services"])
     non_database = set(config["non_database_services"])
-    if (
-        FRONTEND_FIXTURE in service_names
-        and config.get("project") in {"hushh-pda-dev", "hushh-pda-uat"}
-        and "--region=us-central1" in opts
-    ):
-        non_database.add(FRONTEND_FIXTURE)
     if None in service_names:
         raise BudgetError("Cloud Run service inventory contains an unnamed service")
     if service_names - profiled != non_database:
@@ -440,7 +346,6 @@ def collect_inventory(
             aliases=aliases,
             resolve_secret=resolve_secret,
             pending_latest=pending_latest,
-            environment=environment,
         ),
         parallel=parallel,
     )

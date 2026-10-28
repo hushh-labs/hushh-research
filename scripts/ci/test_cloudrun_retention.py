@@ -2145,11 +2145,10 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
 
         def check_deadlines(text):
             calls = [line for line in text.splitlines()
-                     if "runtime-capacity-budget.py" in line
-                     and ("python3 " in line or '"$CAPACITY_PYTHON"' in line)]
+                     if "python3 scripts/ci/runtime-capacity-budget.py" in line]
             self.assertTrue(calls)
             for line in calls:
-                self.assertIn(prefix, line)
+                self.assertIn(prefix + "python3 scripts/ci/runtime-capacity-budget.py", line)
                 self.assertNotIn("--foreground", line)
 
         for name in ("deploy-uat.yml", "deploy-uat-one-chat.yml", "deploy-production.yml"):
@@ -3529,11 +3528,9 @@ class CommandLifecycleTest(unittest.TestCase):
                 process = mock.Mock(pid=123)
                 process.poll.return_value = returncode
                 with (
-                    mock.patch.object(process_group.os, "name", "posix"),
                     mock.patch.object(process_group.sys, "platform", platform),
-                    mock.patch.object(process_group.signal, "SIGKILL", 9, create=True),
                     mock.patch.object(process_group.subprocess, "Popen", return_value=process),
-                    mock.patch.object(process_group.os, "killpg", side_effect=PermissionError, create=True),
+                    mock.patch.object(process_group.os, "killpg", side_effect=PermissionError),
                     mock.patch.object(process_group, "_group_is_absent", return_value=absent, create=True),
                 ):
                     if accepted:

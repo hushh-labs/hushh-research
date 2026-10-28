@@ -297,8 +297,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git worktree add --detach "${RUNNER_TEMP}/capacity-main" "$GITHUB_SHA"
-          test "$(git -C "${RUNNER_TEMP}/capacity-main" rev-parse HEAD)" = "$GITHUB_SHA"
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/tag-last-known-good.sh "${RUNNER_TEMP}/release-tools/"
@@ -585,7 +583,7 @@ jobs:
           elif [ -n "$PHONE_ROLLBACK_SHA" ]; then
             extra=(--additional-candidate-service consent-protocol)
           fi
-          timeout --signal=TERM --kill-after=2s 295s python3 "${RUNNER_TEMP}/capacity-main/scripts/ci/runtime-capacity-budget.py" --environment production "${extra[@]}"
+          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production "${extra[@]}"
 
       - name: Capture predeploy Cloud Run state
         id: predeploy-state
@@ -3066,7 +3064,7 @@ jobs:
           bash scripts/ci/cloudrun-retention.sh "$FRONTEND_SERVICE" "$GCP_REGION" "$FRONTEND_REVISION_RETENTION" \
             "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
             --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy --tags-only
-          timeout --signal=TERM --kill-after=2s 295s python3 "${RUNNER_TEMP}/capacity-main/scripts/ci/runtime-capacity-budget.py" --environment production --phase post-release
+          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production --phase post-release
 
       - name: Fail workflow when production release did not end healthy
         if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
