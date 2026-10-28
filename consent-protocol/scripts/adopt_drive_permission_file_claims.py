@@ -30,7 +30,7 @@ def release_keys(environment):
             )
             os.environ[name] = value.payload.data.decode()
     finally:
-        client.close()
+        client.transport.close()
 
 
 async def main():

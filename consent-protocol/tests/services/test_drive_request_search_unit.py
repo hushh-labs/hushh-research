@@ -4130,3 +4130,72 @@ def test_incident_report_never_fabricates_raw_identity_or_copy_delivery():
     assert report["timestamp_only_comparison_patterns"] == 0
     assert report["live_copy_delivery_verified"] is False
     assert report["original_copy_jobs_recreated"] is False
+
+
+def test_live_activity_planner_grade_rejects_unexecuted_aliases_and_relaxed_quotes():
+    from hushh_mcp.services.drive_request_semantic_plan import parse_semantic_plan
+    from scripts.probe_drive_activity_planner import grade_plan
+
+    plan = _activity_checkpoint()["semantic_plan"]
+    entity = plan["clauses"][0]["predicates"][0]
+    entity["value"] = "Cedar Vale"
+    plan["clauses"] = [
+        {
+            "predicates": [
+                {**entity, "id": "person_" + term},
+                {
+                    **entity,
+                    "id": "concept_" + term,
+                    "value": term,
+                    "kind": "semantic",
+                    "sparse_fallback_any_token": False,
+                },
+            ]
+        }
+        for term in ("resume", "cv")
+    ]
+    assert len(grade_plan(parse_semantic_plan(plan), "ordinary")) == 2
+    plan["clauses"][1]["predicates"][1]["value"] = "resume"
+    with pytest.raises(AssertionError):
+        grade_plan(parse_semantic_plan(plan), "ordinary")
+    plan["date_basis"] = "created"
+    plan["clauses"] = [
+        {
+            "predicates": [
+                {
+                    **entity,
+                    "id": "title",
+                    "kind": "title",
+                    "value": "Research Charter.pdf",
+                    "match": "exact",
+                    "sparse_fallback_any_token": False,
+                },
+                {
+                    **entity,
+                    "id": "draft",
+                    "kind": "content",
+                    "value": "draft",
+                    "negated": True,
+                    "sparse_fallback_any_token": False,
+                },
+            ]
+        }
+    ]
+    assert len(grade_plan(parse_semantic_plan(plan), "explicit")) == 1
+    extra = deepcopy(plan["clauses"][0])
+    extra["predicates"] = [
+        {
+            **extra["predicates"][0],
+            "id": "unconstrained",
+            "kind": "semantic",
+            "match": "token",
+            "value": "resume",
+        }
+    ]
+    plan["clauses"].append(extra)
+    with pytest.raises(AssertionError):
+        grade_plan(parse_semantic_plan(plan), "explicit")
+    plan["clauses"].pop()
+    plan["clauses"][0]["predicates"][0]["match"] = "token"
+    with pytest.raises(AssertionError):
+        grade_plan(parse_semantic_plan(plan), "explicit")

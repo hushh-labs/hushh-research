@@ -23,7 +23,16 @@ def grade_plan(plan, case):
     if case == "ordinary":
         assert plan.date_basis == "activity_union"
         assert len(plan.clauses) >= 2
+        concepts = {
+            p.value.casefold()
+            for p in predicates
+            if not p.negated and p.kind in {"semantic", "content"}
+        }
+        assert len(concepts) >= 2
         for clause in plan.clauses:
+            assert any(
+                p.kind in {"semantic", "content"} and not p.negated for p in clause.predicates
+            )
             assert any(
                 p.kind == "entity"
                 and p.match == "token"
@@ -35,11 +44,12 @@ def grade_plan(plan, case):
         assert not any(p.kind == "title" for p in predicates)
     else:
         assert plan.date_basis == "created"
-        assert any(
-            p.kind == "title" and p.match == "exact" and p.value == "Research Charter.pdf"
-            for p in predicates
-        )
-        assert any(p.negated and "draft" in p.value.casefold() for p in predicates)
+        for clause in plan.clauses:
+            assert any(
+                p.kind == "title" and p.match == "exact" and p.value == "Research Charter.pdf"
+                for p in clause.predicates
+            )
+            assert any(p.negated and "draft" in p.value.casefold() for p in clause.predicates)
         assert not any(p.sparse_fallback_any_token for p in predicates)
     queries = compile_discovery_queries(
         plan, period_start="2026-06-02", period_end="2026-10-02", timezone="Asia/Kolkata"
