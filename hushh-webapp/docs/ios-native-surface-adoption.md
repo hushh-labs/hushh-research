@@ -18,16 +18,18 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated audit — 2026-10-28
 
-The local integrated source through `46ee7ba445` includes main and the shared branch.
+The local integrated source through `cf2416ea35` includes main and the shared branch.
 Its generated map contains 161 routes and 17 separately enumerated query-driven
 views; enumeration is discovery, not acceptance. The iPhone now has the
-Dev-backed qualification build from `9f1b59c394` installed (app executable
-SHA-256 `6108b6ddeb2b78b9e85972f71f6fdb6eaac17cb751ae80fd1ba612c5c6394d7d`;
-test bundle SHA-256 `6611ac40058344bc1a783443654630da7dffa86d56a841089888e0868263dac0`).
-Its 1,783 exported web assets match the signed bundle, and its backend and
+Dev-backed qualification build from `cf2416ea35` installed (signed source app executable
+SHA-256 `40e9e9d7ee866888d47ba69a0ce3448099fca1baef17dc9bd2b2e346f73bd9fb`;
+test bundle SHA-256 `cb85b9aaf58943970f1d80d4455f8c3201058ab2abc70eee1c91167cdc32222c`).
+Its 1,783 exported web assets match the signed source bundle, and its backend and
 Firebase identity match the Dev profile. This Release qualification build uses
 `ENABLE_TESTABILITY=YES`; it is not performance proof for a differently compiled
-distribution binary. Functional evidence in the table is from the earlier
+distribution binary. The app and matching runner installed and One launched, but
+XCTest timed out enabling automation before its test body; installed executable
+bytes were not read back. Functional evidence in the table is from the earlier
 `773bd90a6f` app and does not transfer to the installed build.
 Ordinary builds retain the established renderer and the qualification switch.
 
@@ -65,7 +67,7 @@ password, pricing and runtime editors. A Release iPhone simulator run preserved
 selection, shortening, Unicode and marked text; a secure-field case and three
 existing editor-lifecycle checks also passed. A negative control reproducing the
 old collapsed selection failed as expected. This is not physical-device or
-real-keyboard/IME acceptance. The installed device build is `9f1b59c394`.
+real-keyboard/IME acceptance. The installed device build is `cf2416ea35`.
 The same projection was subsequently applied to native phone-number and OTP
 fields; its simulator check and the existing phone-scene lifecycle check passed.
 Main through `f103c68b38` was integrated in `46ee7ba445`, retaining both sides
