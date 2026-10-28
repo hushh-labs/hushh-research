@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { shouldRetryReviewerBootstrap } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { summarizeReviewerRoutes, verifyReviewerRoute } from "../../scripts/testing/reviewer-route-outcomes.mjs";
 
 const scripts = [
   "../../scripts/testing/verify-signed-in-routes.mjs",
@@ -10,6 +11,28 @@ const scripts = [
 ];
 
 describe("reviewer route bootstrap contract", () => {
+  it("does not report skipped or unobserved routes as covered", async () => {
+    let visits = 0;
+    const skipped = await verifyReviewerRoute({ requiresColdEntry: true }, async () => { visits++; });
+    const passed = await verifyReviewerRoute({}, async () => { visits++; });
+    expect(visits).toBe(1);
+    const summary = summarizeReviewerRoutes(["phone", "tablet"], { sameSession: ["/one"], directEntry: ["/legacy"] }, [
+      { viewport: "phone", lane: "sameSession", route: "/one", ...passed },
+      { viewport: "tablet", lane: "sameSession", route: "/one", ...passed },
+      { viewport: "phone", lane: "directEntry", route: "/legacy", ...skipped },
+    ]);
+    expect(summary.ok).toBe(false);
+    expect(summary.sameSessionShellRoutesCovered).toEqual(["/one"]);
+    expect(summary.directEntryRoutesCovered).toEqual([]);
+    expect(summary.skippedRoutes).toHaveLength(1);
+    expect(summary.missingRoutes).toEqual([{ viewport: "tablet", lane: "directEntry", route: "/legacy" }]);
+    const complete = summarizeReviewerRoutes(["phone"], { sameSession: ["/one"], directEntry: [] }, [
+      { viewport: "phone", lane: "sameSession", route: "/one", ...passed },
+    ]);
+    expect(complete.ok).toBe(true);
+    expect(complete.sameSessionShellRoutesCovered).toEqual(["/one"]);
+    expect(summarizeReviewerRoutes(["phone"], { sameSession: [], directEntry: [] }, []).ok).toBe(false);
+  });
   it("does not repeat a terminal reviewer authentication or vault failure", () => {
     expect(shouldRetryReviewerBootstrap({ code: "REVIEWER_TERMINAL_BOOTSTRAP" })).toBe(false);
     expect(shouldRetryReviewerBootstrap({ code: "TRANSIENT_NAVIGATION_ERROR" })).toBe(true);

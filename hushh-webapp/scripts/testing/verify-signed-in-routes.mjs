@@ -15,6 +15,7 @@ import {
   resolveReviewerTestIdentity,
 } from "./reviewer-test-identity.mjs";
 import { waitForReviewerVaultAdmission } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { summarizeReviewerRoutes, verifyReviewerRoute } from "./reviewer-route-outcomes.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1827,13 +1828,6 @@ async function verifyRoute(page, viewport, spec) {
 
   const { issues, dispose } = collectPageIssues(page);
   try {
-    if (spec.requiresColdEntry) {
-      process.stdout.write(
-        `↷ [${viewport}] ${spec.route} requires cold-entry verification; skipping from signed-in sweep\n`,
-      );
-      return;
-    }
-
     const contextProbe = isSameSessionShellRoute(spec.route)
       ? await installClientNavigationContextProbe(page)
       : null;
@@ -1997,7 +1991,7 @@ async function verifyMarketplaceFlow(page, viewport) {
         `↷ [${viewport}] marketplace workspace flow skipped; no eligible workspace card\n`,
       );
       assertNoIssues("marketplace-workspace-flow", viewport, issues);
-      return;
+      return false;
     }
     await openWorkspace.click();
     await waitForRouteBeacon(page, ["/ria/clients/[userId]"]);
@@ -2009,12 +2003,13 @@ async function verifyMarketplaceFlow(page, viewport) {
       viewport,
     );
     assertNoIssues("marketplace-workspace-flow", viewport, issues);
+    return true;
   } finally {
     dispose();
   }
 }
 
-async function runViewportSweep(viewport, contract) {
+async function runViewportSweep(viewport, contract, observations) {
   let context = null;
   let page = null;
   let browser = null;
@@ -2061,8 +2056,9 @@ async function runViewportSweep(viewport, contract) {
       process.stdout.write(
         `→ [${viewport.name}] ${route.route} (same-session shell)\n`,
       );
-      await verifyRoute(page, viewport.name, spec);
-      process.stdout.write(`✓ [${viewport.name}] ${route.route}\n`);
+      const result = await verifyReviewerRoute(spec, () => verifyRoute(page, viewport.name, spec));
+      observations.push({ viewport: viewport.name, lane: "sameSession", route: route.route, ...result });
+      process.stdout.write(`${result.status === "passed" ? "✓" : "↷"} [${viewport.name}] ${route.route}${result.status === "skipped" ? " (requires cold-entry verification)" : ""}\n`);
     }
 
     if (shouldRunExtraFlow("ria")) {
@@ -2070,17 +2066,19 @@ async function runViewportSweep(viewport, contract) {
       process.stdout.write(`✓ [${viewport.name}] ria workspace flow\n`);
     }
     if (shouldRunExtraFlow("marketplace")) {
-      await verifyMarketplaceFlow(page, viewport.name);
-      process.stdout.write(`✓ [${viewport.name}] marketplace workspace flow\n`);
+      const passed = await verifyMarketplaceFlow(page, viewport.name);
+      if (passed) process.stdout.write(`✓ [${viewport.name}] marketplace workspace flow\n`);
+      else observations.push({ viewport: viewport.name, lane: "flow", route: "marketplace-workspace-flow", status: "skipped", reason: "no-eligible-workspace" });
     }
 
     for (const route of coldEntry) {
       const spec = routeSpec(route);
       process.stdout.write(
-        `→ [${viewport.name}] ${route.route} (cold-entry/direct)\n`,
+        `→ [${viewport.name}] ${route.route} (direct entry in reviewer session)\n`,
       );
-      await verifyRoute(page, viewport.name, spec);
-      process.stdout.write(`✓ [${viewport.name}] ${route.route}\n`);
+      const result = await verifyReviewerRoute(spec, () => verifyRoute(page, viewport.name, spec));
+      observations.push({ viewport: viewport.name, lane: "directEntry", route: route.route, ...result });
+      process.stdout.write(`${result.status === "passed" ? "✓" : "↷"} [${viewport.name}] ${route.route}${result.status === "skipped" ? " (requires cold-entry verification)" : ""}\n`);
     }
   } finally {
     if (context) {
@@ -2093,43 +2091,44 @@ async function runViewportSweep(viewport, contract) {
 }
 
 async function main() {
-  const server = startDevServerIfNeeded();
-  const startedChild = await server.ensure();
   const contract = loadRouteContract();
   const selectedViewports = includedViewports();
+  const includedRoutes = contract.filter(shouldIncludeRoute);
 
   if (selectedViewports.length === 0) {
     throw new Error(
       `No viewport matched HUSHH_VIEWPORT_FILTER=${viewportFilter}`,
     );
   }
+  if (includedRoutes.length === 0) throw new Error("No route matched HUSHH_ROUTE_FILTER");
 
+  const server = startDevServerIfNeeded();
   try {
+    await server.ensure();
+    const observations = [];
     for (const viewport of selectedViewports) {
-      await runViewportSweep(viewport, contract);
+      await runViewportSweep(viewport, contract, observations);
     }
-    const includedRoutes = contract.filter(shouldIncludeRoute);
     const { sameSession, coldEntry } =
       splitRoutesByVerificationLane(includedRoutes);
+    const summary = summarizeReviewerRoutes(selectedViewports.map(viewport => viewport.name), {
+      sameSession: sameSession.map(route => route.route),
+      directEntry: coldEntry.map(route => route.route),
+    }, observations);
     process.stdout.write(
       JSON.stringify(
         {
-          ok: true,
+          ...summary,
           origin: appOrigin,
           viewports: selectedViewports.map((viewport) => viewport.name),
-          sameSessionShellRoutesCovered: sameSession.map(
-            (route) => route.route,
-          ),
-          coldEntryRoutesCovered: coldEntry.map((route) => route.route),
         },
         null,
         2,
       ) + "\n",
     );
+    if (!summary.ok) process.exitCode = 2;
   } finally {
-    if (startedChild) {
-      await server.stop();
-    }
+    await server.stop();
   }
 }
 
