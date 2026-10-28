@@ -18,13 +18,47 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated audit — 2026-10-28
 
-The local source integrates main through `84b80bcab6` in `b7fbe3c56a`. The
-generated map contains 162 routes and 17 separately enumerated query-driven
+The local source integrates main through `84b80bcab6` and the shared upstream
+branch in `b3dff87177`. The iPhone has a Dev-backed Release qualification build
+from `b3dff87177` installed: its signed source app executable SHA-256 is
+`edbb637b7471e99abddf1414e0f62278158243a4073c61ab635448fe427e2365` and its
+matching signed source test executable SHA-256 is
+`40a5f3ef560a4a4f89b220bdd88520848f5827e332ed9c8f22be05b72cb291ab`.
+The committed Swift package manifest and lockfile remained unchanged during
+the pinned build; all 1,789 exported web assets match the signed app bundle,
+and the bundled backend and Firebase identity match Dev. Installed executable
+bytes were not read back. A prior `1d57d467d9` candidate passed normal
+passphrase entry and reached protected Chat. On `b3dff87177`, two attempts did
+not acknowledge the complete secure-field input and did not submit Unlock;
+the public whole-value probe passed and the field was cleared. After a
+diagnostic restart and another public probe, whole-value entry was acknowledged
+and normal Unlock reached protected Chat. The earlier failures were automation
+input failures, not authentication rejections.
+With the public geometry probe enabled, a test-only runner with executable
+SHA-256 `db0096168a835733b9cd8a15613d500bb9dff77f7663240eb1e7dd98873cf709`
+passed the locked Vault's keyboard, recovery and sign-out reachability, portrait
+and background/resume checks. The first lookup wrongly restricted the pressed
+visibility control to XCUI buttons; the corrected accessible-name lookup found
+one hittable control. These checks do not qualify a SwiftUI Vault or visual parity.
+An updated test-only runner (`3f68aa038c41d61d4b5d00459c2c7c029895f0e41a5e1daf4e0e0a9001e8f020`)
+retired the Wallet detail sheet left open by an interrupted journey, then
+verified the four Consent tabs while preserving the same WebView and Chat draft.
+Connect's two tabs also passed on this build. Both tab families were exercised
+as their current React surfaces; this is not evidence of native tab conversion.
+Finance opened its existing setup introduction; the Portfolio, Analysis and
+Market tabs were not reached because this reviewer has not completed setup.
+The Wallet Profile panel reported its existing unavailable state, so its editor
+journey was not qualified. Separately, a synthetic regression reproduced a
+blank Wallet Profile when an older card was rejected against a newer local
+share-link version. The shared owner now exposes a retryable error in that case;
+that fix was not in the installed `b3dff87177` app.
+
+The generated map contains 162 routes and 17 separately enumerated query-driven
 views; the native inventory contains 147 entries, of which 119 are required.
-Enumeration is discovery, not acceptance. The iPhone has the
-Dev-backed qualification build from `cf2416ea35` installed (signed source app executable
+Enumeration is discovery, not acceptance. The earlier `cf2416ea35` candidate had
+signed source app executable
 SHA-256 `40e9e9d7ee866888d47ba69a0ce3448099fca1baef17dc9bd2b2e346f73bd9fb`;
-the original test bundle SHA-256 was `cb85b9aaf58943970f1d80d4455f8c3201058ab2abc70eee1c91167cdc32222c`).
+its original test bundle SHA-256 was `cb85b9aaf58943970f1d80d4455f8c3201058ab2abc70eee1c91167cdc32222c`.
 Its 1,783 exported web assets match the signed source bundle, and its backend and
 Firebase identity match the Dev profile. This Release qualification build uses
 `ENABLE_TESTABILITY=YES`; it is not performance proof for a differently compiled
@@ -33,7 +67,8 @@ the protected Chat session; installed executable bytes were not read back. The
 later test-only runner, built with the bidirectional Profile search correction,
 has test executable SHA-256 `08f443294097a5a1393c80478b9837824d77bd8ad6c445655f676a74e631c04b`.
 The subsequent provider-diagnostic runner is `c959ebc528c511e43fbbc8d613b5ef77a34822fa8e73918e6e79b457912d35db`.
-The merged main changes and later commits are not in the installed app.
+The Profile table below records earlier `cf2416ea35` evidence, not acceptance
+of the currently installed build.
 Ordinary builds retain the established renderer and the qualification switch.
 
 | Family | Renderer and operation owner | Evidence and remaining qualification |
@@ -85,7 +120,7 @@ password, pricing and runtime editors. A Release iPhone simulator run preserved
 selection, shortening, Unicode and marked text; a secure-field case and three
 existing editor-lifecycle checks also passed. A negative control reproducing the
 old collapsed selection failed as expected. This is not physical-device or
-real-keyboard/IME acceptance. The installed device build is `cf2416ea35`.
+real-keyboard/IME acceptance. The installed device build is `b3dff87177`.
 The same projection was subsequently applied to native phone-number and OTP
 fields; its simulator check and the existing phone-scene lifecycle check passed.
 Main through `f103c68b38` was integrated in `46ee7ba445`, retaining both sides

@@ -19,6 +19,17 @@ another reviewer store or a privileged app-unlock route.
    Serialize dependency installation, web export, native resource sync and
    packaging. Compare exported application files with the signed bundle before
    installation; a successful native build can still contain stale web assets.
+   Compare the Swift package manifest and `Package.resolved` with the candidate
+   source after Capacitor sync and again after building. A symlinked
+   `node_modules` can rewrite package paths and cause Xcode to resolve newer
+   versions. Restore the committed manifest and lockfile before building, use
+   Xcode's `-onlyUsePackageVersionsFromResolvedFile`, and fail if either changes.
+   If package versions changed during an earlier build, use clean derived data;
+   restoring the lockfile after that build does not prove its dependency identity.
+   For the public Vault geometry check, prepare the app with
+   `--hushh-vault-layout-diagnostics` and confirm its probe is present before
+   interpreting geometry. An absent probe is a test-admission failure, not
+   evidence that the Vault layout is broken.
    When adding a qualification compilation condition, preserve `$(inherited)`:
    replacing package conditions can remove `SWIFT_PACKAGE` and break resource
    accessors. A Release build-for-testing that includes `@testable import App`

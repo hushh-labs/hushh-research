@@ -972,13 +972,20 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(entry.waitForExistence(timeout: 30) && entry.isHittable, "VAULT_LAYOUT_ENTRY_CLIPPED")
         func assertFieldHitRegions() {
             XCTAssertGreaterThanOrEqual(entry.frame.height, 44, "VAULT_LAYOUT_ENTRY_TARGET_TOO_SMALL")
-            let visibility = web.buttons.matching(NSPredicate(format: "label IN %@", ["Show password", "Show passphrase"])).firstMatch
+            // WebKit may expose an aria-pressed button as a toggle rather
+            // than an XCUI button. Match its authored accessible name first.
+            let visibilityMatches = web.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["Show password", "Show passphrase"]))
+            let visibility = visibilityMatches.allElementsBoundByIndex.first(where: { $0.isHittable }) ?? visibilityMatches.firstMatch
+            print("VAULT_VISIBILITY_ADMISSION count=\(visibilityMatches.count) visible=\(visibility.exists && visibility.isHittable) keyboard=\(softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app))")
             XCTAssertTrue(visibility.exists && visibility.isHittable, "VAULT_LAYOUT_VISIBILITY_CLIPPED")
             XCTAssertGreaterThanOrEqual(visibility.frame.width, 44, "VAULT_LAYOUT_VISIBILITY_TARGET_TOO_NARROW")
             XCTAssertGreaterThanOrEqual(visibility.frame.height, 44, "VAULT_LAYOUT_VISIBILITY_TARGET_TOO_SHORT")
         }
         assertFieldHitRegions()
         let probe = app.buttons["native-vault-layout"]
+        guard probe.waitForExistence(timeout: 5) else {
+            XCTFail("VAULT_LAYOUT_PROBE_UNAVAILABLE"); return
+        }
         func geometry() -> [String: NSNumber]? {
             guard probe.exists, let json = probe.value as? String,
                   let data = json.data(using: .utf8),
@@ -5567,6 +5574,9 @@ final class AppUITests: XCTestCase {
             XCTFail("WORKSPACE_REQUIRES_RUNNING_SESSION"); return
         }
         app.activate()
+        guard dismissRehearsalWalletPanel(app) else {
+            XCTFail("WORKSPACE_WALLET_PANEL_NOT_RETIRED"); return
+        }
         if ProcessInfo.processInfo.environment["HUSHH_WORKSPACE_FAMILY"] == "wallet" {
             // Recover only this harness's known, local unsaved card scene after
             // an interrupted check; no account or saved-card operation runs.
@@ -8759,6 +8769,7 @@ final class AppUITests: XCTestCase {
         // Recover only authored dismissals left by this rehearsal. A failed
         // XCTest assertion can interrupt Swift defer, so do not assume a prior
         // drawer test restored its warm entry state. No account/fixture reset.
+        guard dismissRehearsalWalletPanel(app) else { return }
         let supportCancel = app.buttons["native-support-cancel"].firstMatch
         if supportCancel.exists {
             guard waitForAdmittedControl(supportCancel) else { return }
@@ -8808,6 +8819,24 @@ final class AppUITests: XCTestCase {
             guard back.exists && back.isHittable else { return }
             back.tap()
         }
+    }
+
+    private func dismissRehearsalWalletPanel(_ app: XCUIApplication) -> Bool {
+        let close = app.buttons["native-wallet-detail-close"].firstMatch
+        guard close.exists else { return true }
+        let edit = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Edit shared information")).firstMatch
+        let setup = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Set up Wallet Profile")).firstMatch
+        let knownStates = [
+            ("loading", "Loading your Wallet Profile…"),
+            ("locked", "Unlock your vault to set up your Wallet Profile."),
+            ("unavailable", "Wallet Profile isn't available on this account yet."),
+            ("error", "We couldn't load your Wallet Profile. Please try again in a moment."),
+        ]
+        let visibleStates = knownStates.filter { app.staticTexts[$0.1].firstMatch.exists }.map { $0.0 }.joined(separator: ",")
+        print("WALLET_PANEL_RECOVERY edit=\(edit.exists) edit_hittable=\(edit.exists && edit.isHittable) setup=\(setup.exists) states=\(visibleStates)")
+        guard waitForAdmittedControl(close) else { return false }
+        close.tap()
+        return close.waitForNonExistence(timeout: 10)
     }
 
     /// Types a fixed prompt into the chat composer and sends it. Best effort:
