@@ -368,7 +368,20 @@ async def test_recorded_phone_browser_journeys(
             except AssertionError as error:
                 if not readback_failure:
                     raise
-                report = json.loads(str(error).splitlines()[-1])
+                report = None
+                for line in reversed(str(error).splitlines()):
+                    try:
+                        candidate = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if (
+                        isinstance(candidate, dict)
+                        and candidate.get("code") == "PHONE_BROWSER_LOOP_FAILED"
+                    ):
+                        report = candidate
+                        break
+                if report is None:
+                    raise
                 assert report["code"] == "PHONE_BROWSER_LOOP_FAILED"
                 assert report["stage"] == "transfer_readback"
                 assert report["diagnostics"]["transfer"] == {
