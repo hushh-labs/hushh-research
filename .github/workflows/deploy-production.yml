@@ -377,6 +377,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/runtime_capacity_inventory.py"
           cp scripts/ci/runtime_capacity_cli.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/runtime_capacity_target_scope.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/runtime_capacity_volume.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloud-scheduler-attempt.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp deploy/drive/rollback_after_worker_failure.sh "${RUNNER_TEMP}/release-tools/"
@@ -455,6 +456,7 @@ jobs:
             scripts/ci/runtime_capacity_inventory.py
           cp "${RUNNER_TEMP}/release-tools/runtime_capacity_cli.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/runtime_capacity_target_scope.py" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/runtime_capacity_volume.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
           mkdir -p deploy/drive

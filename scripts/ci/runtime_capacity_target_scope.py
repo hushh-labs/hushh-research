@@ -1,11 +1,20 @@
 """Target routing and reviewed reservation scopes; no cloud or budget math."""
 
+import importlib.util
 import json
 import re
+from pathlib import Path
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 from urllib.parse import unquote
+
+_VOLUME_SPEC = importlib.util.spec_from_file_location(
+    "runtime_capacity_volume", Path(__file__).with_name("runtime_capacity_volume.py")
+)
+assert _VOLUME_SPEC and _VOLUME_SPEC.loader
+_volume = importlib.util.module_from_spec(_VOLUME_SPEC)
+_VOLUME_SPEC.loader.exec_module(_volume)
 
 ISOLATED_DEV_SCOPE = "plg-isolated-dev-v1"
 ISOLATED_DEV_CONNECTION = "hushh-pda-dev:us-central1:plg-qualification-pg"
@@ -328,6 +337,33 @@ def _route_payload(resolved, reference, aliases):
     return resolved.payload
 
 
+def _decoded_route(value: str) -> str:
+    for _ in range(4):
+        next_value = unquote(value)
+        if next_value == value:
+            return value
+        value = next_value
+    raise BudgetError("unresolved non-target encoded routing")
+
+
+def _inspect_route(value: Any, endpoints: set[str]) -> None:
+    for item in _walk(value):
+        candidates = (
+            [item]
+            if isinstance(item, str)
+            else list(item)
+            if isinstance(item, dict)
+            else []
+        )
+        for candidate in candidates:
+            if isinstance(candidate, str) and any(
+                endpoint in _decoded_route(candidate) for endpoint in endpoints
+            ):
+                raise BudgetError(
+                    "non-target workload references isolated DEV instance"
+                )
+
+
 def non_target_routing(
     workload: dict[str, Any],
     endpoints: set[str],
@@ -337,29 +373,38 @@ def non_target_routing(
 ) -> set[str]:
     """Inspect declared routing, including opaque route-bearing config in memory."""
     versions: set[str] = set()
+    volume = _volume.VolumeInspector(
+        workload,
+        aliases,
+        resolve_secret,
+        pending_latest,
+        _walk,
+        route_secret_reference,
+        observe_route_secret,
+        _route_payload,
+        BudgetError,
+    )
+    projected_by_env = volume.projected_paths()
 
     def inspect(value: Any) -> None:
-        for item in _walk(value):
-            if isinstance(item, str) and any(
-                endpoint in unquote(item) for endpoint in endpoints
-            ):
-                raise BudgetError(
-                    "non-target workload references isolated DEV instance"
-                )
+        _inspect_route(value, endpoints)
 
     inspect(workload)
     for node in _walk(workload):
         if not isinstance(node, dict):
             continue
-        # A secret/config volume needs an explicit route adapter; don't infer
-        # zero demand from an absent Cloud SQL annotation alone.
-        if node.get("volumes"):
-            raise BudgetError("unresolved non-target volume routing")
+        volume.inspect_node(node, inspect, _decoded_route)
         name = node.get("name")
         if not isinstance(name, str) or not _route_setting(name):
             continue
         if "value" in node:
             value = node["value"]
+            if isinstance(value, str) and value in projected_by_env.get(
+                id(node), set()
+            ):
+                # The owning container points to this exact projected file;
+                # its secret version and JSON contents were checked above.
+                continue
         elif "valueFrom" in node:
             origin = node["valueFrom"]
             reference = origin.get("secretKeyRef") if isinstance(origin, dict) else None
@@ -396,7 +441,7 @@ def non_target_routing(
         elif "$" in value:
             raise BudgetError("unresolved non-target interpolated routing")
         inspect(value)
-    return versions
+    return versions | volume.versions
 
 
 def non_target_rows(proof: Any, config: dict[str, Any], environment: str, region: str):

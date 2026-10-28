@@ -50,6 +50,7 @@ AUTHORITY_PATHS = tuple(
             "deploy/plg/validation.py",
             "deploy/plg/qualification_acceptance.py",
             "deploy/plg/qualification_acceptance_contract.py",
+            "deploy/plg/qualification_attachment.py",
             *(
                 f"deploy/plg/qualification_{name}.py"
                 for name in (
@@ -82,6 +83,7 @@ AUTHORITY_PATHS = tuple(
             "scripts/ci/runtime_capacity_inventory.py",
             "scripts/ci/runtime_capacity_cli.py",
             "scripts/ci/runtime_capacity_target_scope.py",
+            "scripts/ci/runtime_capacity_volume.py",
             "config/runtime-capacity.json",
         }
     )
