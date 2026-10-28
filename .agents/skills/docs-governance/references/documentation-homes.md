@@ -72,6 +72,6 @@ Default bias:
 
 For a living implementation reference, make the outcome, current status,
 remaining work and evidence easy to scan. Keep the contracts an agent needs in
-the maintained guide; link detailed receipts or a clearly dated historical
-snapshot only when that provenance has a distinct lifecycle. Preserve source
-identity and failed or unverified results when summarizing.
+the maintained guide. Use Git history for prior versions instead of checking in
+stale or duplicate copies. Preserve unique uncommitted work, required evidence,
+source identity and failed or unverified results before removing a copy.

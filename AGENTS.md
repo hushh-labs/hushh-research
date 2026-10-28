@@ -13,6 +13,11 @@ for this repository and inherited by every development subagent.
 Package-local instructions refine that contract within their scope. Every coding
 agent uses this same entrypoint and reads the canonical sources directly.
 
+Keep one concise current source for documentation and agent guidance. Do not
+create or retain stale, duplicate, or bloated copies. Preserve unique uncommitted
+work and required evidence before removing a copy; use Git history for prior
+versions instead of checking in historical snapshots.
+
 All development sources belong in **`.agents/`**:
 
 - [skills](.agents/skills/): reusable procedures and their supporting tools.

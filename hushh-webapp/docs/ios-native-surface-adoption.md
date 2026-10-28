@@ -2,7 +2,7 @@
 
 This guide describes the native presentation boundary, current evidence and
 release gates for One. It is maintained by the frontend/native shell owners.
-For earlier candidates and detailed receipts, see the [historical snapshot](./ios-native-surface-adoption-historical.md).
+Earlier candidates and detailed receipts remain in [Git history](#evidence-and-history).
 
 ## Visual Context
 
@@ -27,8 +27,7 @@ background/resume. It did not exercise a protected journey. The signed source
 app executable SHA-256 was
 `0bec8298086f3ca99b943cc1e8b0abcd6fc264803d12904da5d103ef4f2e6c85`;
 installed executable bytes were not read back. This is not physical Release
-performance evidence. Earlier build identities and results are in the
-[historical snapshot](./ios-native-surface-adoption-historical.md#integrated-audit--2026-10-28).
+performance evidence. Earlier build identities and results are in Git history.
 
 The shared pane fence rejects a late retirement from an old document after a
 replacement is bound. Its focused simulator regression passed. A source review
@@ -157,8 +156,14 @@ of artifacts. A partial or uncertain secure-field entry is not an unlock result.
 
 ## Evidence and history
 
-The [historical snapshot](./ios-native-surface-adoption-historical.md) preserves
-previous candidates, experiments, negative controls and dated receipts. Treat
-it as provenance, not current qualification. Update this guide's current status
-when evidence changes the decision; update an existing board task when that is
-part of the authorized workflow. Do not append a chronological log to this page.
+Earlier candidates and receipts remain in Git, not a duplicate document. A
+[pre-consolidation main snapshot](https://github.com/hushh-labs/hushh-research/blob/6b8ec6c63e4d5556b9e44ad2e4836b3927ba22aa/hushh-webapp/docs/ios-native-surface-adoption.md)
+is available on GitHub. The complete pre-consolidation record on this branch is:
+
+```bash
+git show 895fe02536:hushh-webapp/docs/ios-native-surface-adoption.md
+```
+
+Treat older receipts as provenance, not current qualification. Update this
+guide when evidence changes the decision, and update an existing board task
+when authorized. Do not append a chronological log to this page.

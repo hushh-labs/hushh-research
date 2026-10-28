@@ -86,7 +86,7 @@ Non-owned surfaces:
 19. In human-facing prose, call One the private agent and use `information` or a specific noun in place of generic `data`. Preserve exact code, API, route, schema, protocol, and compatibility identifiers.
 20. Treat long-doc findings as navigation prompts, not automatic split orders. Add subfolders or child docs only when a bounded subtopic has its own owner, lifecycle, or reusable entrypoint.
 21. Route documentation updates must follow the route contract cascade: route contracts, frontend/native surface map docs, cache coherence, One Voice, mobile parity, and owning skill reads/checks must agree before calling a route change documented.
-22. Lead living references with a concise, dated status and actionable guidance; link detailed evidence and clearly label historical provenance.
+22. Lead living references with a concise, dated status and actionable guidance; use Git history for prior versions instead of retaining stale copies.
 
 ## Handoff Rules
 
