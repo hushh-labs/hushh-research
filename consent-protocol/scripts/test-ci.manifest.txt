@@ -27,6 +27,7 @@ tests/test_native_ship_artifact_workflows.py
 
 # Mail/Drive connector lifecycle: real PostgreSQL in the existing test-only CI service.
 tests/services/test_external_connector_lifecycle_postgres.py
+tests/test_isolated_postgres_guard.py
 # Shared ciphertext writes cannot outlive account-erasure fencing.
 tests/services/test_shared_files_lifecycle_postgres.py
 tests/services/test_shared_files_upload_receipts_postgres.py
