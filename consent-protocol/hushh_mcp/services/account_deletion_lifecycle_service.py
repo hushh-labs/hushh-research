@@ -1448,17 +1448,6 @@ async def drain_account_deletion_cleanup_with_report(
     return AccountDeletionDrainReport(settled, paused_reason)
 
 
-async def _account_deletion_cleanup_loop(interval_seconds: float) -> None:
-    while True:
-        try:
-            await drain_account_deletion_cleanup_intents()
-        except asyncio.CancelledError:
-            return
-        except Exception:
-            logger.exception("account_deletion.cleanup_loop_failed")
-        await asyncio.sleep(interval_seconds)
-
-
 def start_account_deletion_cleanup_loop(
     *, interval_seconds: float = _CLEANUP_LOOP_INTERVAL_SECONDS
 ) -> asyncio.Task[None]:

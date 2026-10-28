@@ -53,7 +53,7 @@ function ProgressStatusIcon({ status }: { status: AppStreamProgressStatus }) {
     return <AlertCircle className="h-3.5 w-3.5 text-destructive" />;
   }
   if (status === "waiting") return <Clock className="h-3.5 w-3.5 text-accent-strong" />;
-  return <Loader2 className="h-3.5 w-3.5 animate-spin text-accent-strong" />;
+  return <Loader2 className="h-3.5 w-3.5 animate-spin text-accent-strong motion-reduce:animate-none" />;
 }
 
 export const AppStreamEventList = memo(function AppStreamEventList({

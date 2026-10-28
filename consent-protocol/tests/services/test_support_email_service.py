@@ -186,3 +186,33 @@ def test_account_notice_test_mode_never_sends_to_real_user(monkeypatch) -> None:
     service.send_account_notice(kind="welcome", to_email="new-user@example.com")
     assert captured[0]["To"] == "kushal@hushh.ai"
     assert captured[0]["Subject"] == "[TEST] Welcome to One"
+
+
+def test_account_deleted_notice_never_claims_the_retained_sign_in_or_names_anyone(
+    monkeypatch,
+) -> None:
+    service = SupportEmailService()
+    service._config = SupportEmailConfig(
+        service_account_info={},
+        service_account_email="fixture@example.com",
+        private_key="fixture",
+        project_id=None,
+        client_id=None,
+        delegated_user="one@hushh.ai",
+        from_email="one@hushh.ai",
+        support_to_email="one@hushh.ai",
+        test_to_email=None,
+        delivery_mode="live",
+        configured=True,
+    )
+    captured = []
+    monkeypatch.setattr(service, "_send_email", lambda mail: captured.append(mail))
+    service.send_account_notice(kind="account_deleted", to_email="deleted-owner@example.com")
+    (mail,) = captured
+    body = mail.get_content()
+    assert mail["To"] == "deleted-owner@example.com" and mail.get("Bcc") is None
+    assert "deleted" in mail["Subject"] and "erased" in body and "one@hushh.ai" in body
+    # Full-account deletion keeps the sign-in, and a phone-linked deletion must
+    # not reveal who deleted it or which number proved it.
+    for claim in ("Google", "Apple", "sign-in", "phone", "deleted-owner@example.com"):
+        assert claim not in body

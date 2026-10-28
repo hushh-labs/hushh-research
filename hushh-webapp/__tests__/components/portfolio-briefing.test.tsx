@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PortfolioOverview } from "@/components/kai/views/portfolio-overview";
 import { PortfolioAnalysis, PortfolioBriefing } from "@/components/kai/views/portfolio-briefing";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 
@@ -29,4 +30,18 @@ describe("portfolio briefing", () => {
     expect(screen.getByText("Value history", { selector: "dt" }).nextElementSibling?.textContent).toBe("Unavailable");
     expect(screen.getByText(/Larger · 90.0%/)).toBeTruthy();
   });
+  it("shows saved positions and allocation without inventing performance contributions", () => {
+    const model = mapPortfolioToDashboardViewModel({ total_value: 1000, holdings: [
+      { symbol: "ABC", name: "Example", quantity: 1, price: 1000, market_value: 1000 },
+    ] });
+    const open = vi.fn();
+    render(<PortfolioOverview model={model} source="Statement" period="Saved snapshot" onOpenSection={open} />);
+    expect(screen.getByText("Example")).toBeTruthy();
+    expect(screen.getByText("Position contributions to your change are not available from this source.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "View performance" }));
+    expect(open).toHaveBeenCalledWith("performance");
+    fireEvent.click(screen.getByRole("button", { name: "View allocation" }));
+    expect(open).toHaveBeenCalledWith("allocation");
+  });
+
 });

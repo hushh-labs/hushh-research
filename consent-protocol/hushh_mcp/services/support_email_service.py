@@ -20,7 +20,12 @@ logger = logging.getLogger(__name__)
 
 SupportMessageKind = Literal["bug_report", "support_request", "developer_reachout"]
 AccountNoticeKind = Literal[
-    "welcome", "passkey_added", "passkey_removed", "passphrase_changed", "phone_link_changed"
+    "welcome",
+    "passkey_added",
+    "passkey_removed",
+    "passphrase_changed",
+    "phone_link_changed",
+    "account_deleted",
 ]
 SupportDeliveryMode = Literal["live", "test"]
 
@@ -347,6 +352,12 @@ class SupportEmailService:
             "passphrase_changed": (
                 "One vault password updated",
                 "Your One vault password unlock was updated.",
+            ),
+            # Sent only after erasure commits. The sign-in itself is retained, so
+            # the copy never claims the Google or Apple account was deleted.
+            "account_deleted": (
+                "Your One account was deleted",
+                "Your One account was deleted. Your private agent and the information it held were erased, and this can't be undone.",
             ),
         }
         subject, body = copy[kind]

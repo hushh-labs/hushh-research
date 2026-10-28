@@ -27,7 +27,7 @@ import {
   SurfaceInset,
 } from "@/components/app-ui/surfaces";
 import { PortfolioReportAction } from "@/components/kai/cards/portfolio-report-action";
-import { FinanceAdvisorAction } from "@/components/kai/sharing/finance-advisor-action";
+import { FinancePortfolioSharing } from "@/components/kai/sharing/finance-portfolio-sharing";
 import { FinanceSharingHistoryAction } from "@/components/kai/sharing/finance-sharing-history-action";
 import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card";
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
@@ -1985,11 +1985,12 @@ export function DashboardMasterView({
           title="Portfolio"
         />
         <AppPageContentRegion className="min-w-0 max-w-full space-y-4">
-          <PortfolioBriefing model={model} onOpen={() => router.push(buildKaiPortfolioSectionRoute("analysis"))} advisorAction={<FinanceAdvisorAction model={model} source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }} />} />
           <PortfolioOverview model={model} portfolio={displayedPortfolio} source={sourceDisplayLabel} onImport={onReupload}
+            briefing={<PortfolioBriefing model={model} onOpen={() => router.push(buildKaiPortfolioSectionRoute("analysis"))} />}
+            sharing={<FinancePortfolioSharing model={model} source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }} />}
             period={model.hero.statementPeriod || (freshness?.lastSyncedAt ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}` : "Current portfolio snapshot")}
             onOpenSection={section => router.push(buildKaiPortfolioSectionRoute(section))}
-            action={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"} sharingSource={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
+            action={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"}
               disabled={!hasShareablePortfolioData} busy={isSharingPortfolioPdf} onExport={() => void handleSharePortfolioPdf()} />} />
 
           {deletePortfolioDialog}

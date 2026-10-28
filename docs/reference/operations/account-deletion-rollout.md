@@ -800,6 +800,37 @@ not authority for broad follow-on deletes or removal of append-only evidence.
 Shared backups and any separately retained evidence remain subject to their
 existing retention review; this operation is not a claim of legal clearance.
 
+## Deletion completion: early drain and owner notice
+
+A committed full-account admission (self, lost-vault or phone-linked deletion)
+wakes the serving instance's in-process cleanup loop, so erasure starts at once
+instead of at the next 60 s tick. The wake only shortens the wait: the same
+release admission, `SKIP LOCKED` lease and single erasure transaction run, and
+the `*/2` scheduler drain stays the authority. Done means the committed
+`erasure_phase='erased'` transition. Every full-account erasure then settles as
+`quarantined` with `firebase_shared_identity_retained`, in every environment,
+because the sign-in identity is retained; that is the designed success state,
+not a failure.
+
+After that commit, and outside release admission, the worker sends the
+`account_deleted` notice from `one@hushh.ai` to the retained sign-in's verified
+email. Delivery is at most once: the erased transition commits once and is never
+claimed again, Hussh never stores the address (the One mailbox keeps its Sent
+copy, as for every account notice), and an uncertain or failed send is logged
+rather than replayed. An erasure that commits after the worker's 90 s claim
+budget sends no notice; that loss is accepted. There is no backfill. Outside production the notice
+goes only to the test-mode `SUPPORT_EMAIL_TEST_TO` inbox (UAT); shared Dev runs
+in live mode and skips it. Look for `account_security_email.accepted
+kind=account_deleted`, `account_deletion.notice_skipped reason=...` or
+`account_deletion.notice_failed`. None of these lines carries a recipient or
+identifier.
+
+The web follows the cleanup status's `retry_after_seconds` (3 s) while erasure
+runs, then re-checks registration once just after `retry_at`. The 60 s identity
+wait after erasure is a security gate and is not shortened. Registration review,
+verification and attention states are never polled automatically; cleanup
+attention and confirmation states keep the read-only 2/5/10/30 s status ladder.
+
 ## Required monitoring
 
 Retiring a feature does not retire its erasure obligation. Historical

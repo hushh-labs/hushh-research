@@ -12,6 +12,7 @@ vi.mock("@/components/app-ui/kai-control-surface", () => ({ KaiControlSurface: (
 vi.mock("@/components/app-ui/shell-action-surface", () => ({ ShellActionSurface: ({ children, onClick, disabled }: { children: ReactNode; onClick?: () => void; disabled?: boolean }) => <button disabled={disabled} onClick={onClick}>{children}</button> }));
 vi.mock("@/components/kai/sharing/finance-sharing-preview", () => ({ FinanceSharingPreview: ({ projection }: { projection: unknown }) => <pre>{JSON.stringify(projection)}</pre> }));
 import { FinanceShareFlow } from "@/components/kai/sharing/finance-share-flow";
+import { FinancePortfolioSharing } from "@/components/kai/sharing/finance-portfolio-sharing";
 import { FinanceSharedDetail } from "@/components/kai/sharing/finance-shared-detail";
 import { FinanceSharingManager } from "@/components/kai/sharing/finance-sharing-manager";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
@@ -32,6 +33,22 @@ beforeEach(() => {
   mocks.review.mockResolvedValue("derived-review-sentinel");
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+it("opens the existing advisor, sharing and access-management flows from Portfolio", async () => {
+  const view = () => render(<FinancePortfolioSharing model={model} source={source} />);
+  view();
+  fireEvent.click(screen.getByRole("button", { name: "Ask an advisor" }));
+  expect(screen.getByRole("dialog", { name: "Ask an advisor" })).toBeTruthy();
+  cleanup();
+  view();
+  fireEvent.click(screen.getByRole("button", { name: "Share portfolio" }));
+  expect(screen.getByRole("dialog", { name: "Share Finance" })).toBeTruthy();
+  cleanup();
+  view();
+  fireEvent.click(screen.getByRole("button", { name: "Manage sharing" }));
+  expect(screen.getByRole("dialog", { name: "Finance sharing" })).toBeTruthy();
+  await waitFor(() => expect(mocks.history).toHaveBeenCalled());
+});
 
 it("previews a finite full portfolio for an advisor before confirmation", async () => {
   const portfolio = { total_value: 10000, holdings: [{ symbol: "AAPL", name: "Apple", quantity: 10, price: 1000, market_value: 10000 }] };

@@ -280,6 +280,9 @@ async def _dispatch(owner: str, operation: str, row: Any, delete: DeletePort) ->
         await conn.execute(_FINISH, operation, state, code or None)
         finished = await _row(conn, owner, operation)
     if finished["state"] == "admitted":
+        from hushh_mcp.services.account_cleanup_runtime import wake_cleanup_worker
+
+        wake_cleanup_worker()  # Erase the holder now, not at the next cleanup tick.
         logger.info(
             "phone_linked_deletion.admitted operation=%s requester=%s target=%s proof=%s",
             operation,

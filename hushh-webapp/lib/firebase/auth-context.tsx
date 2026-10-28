@@ -101,11 +101,11 @@ import { replaceWindowLocation } from "@/lib/utils/browser-navigation";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { type AccountRegistrationRecovery } from "@/lib/auth/account-registration";
 import { parseAccountCleanupOperation, type AccountCleanupOperation } from "@/lib/auth/account-cleanup-operation";
+import { nextRecoveryCheckDelay, recoveryPollPhase, registrationAdvancesAlone } from "@/lib/auth/account-recovery-cadence";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
 const WEB_AUTH_OBSERVER_WATCHDOG_MS = 10_000;
-const SESSION_VERIFICATION_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 30_000] as const;
 const PHONE_RECOVERY_RETRY_DELAYS_MS = [2_000, 5_000, 15_000] as const;
 const PHONE_RECOVERY_REQUEST_BUDGET_MS = 10_000;
 const NATIVE_SESSION_PRIVACY_READ_BUDGET_MS = 2_000;
@@ -1329,19 +1329,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     await validateActiveSession({ force: true });
   }, [checkAuth, validateActiveSession]);
 
+  // Restart the poller only when its plan changes, not on every identical re-read.
+  const ownRecovery = registrationStatus && registrationStatus.identityUid === user?.uid ? registrationStatus.recovery : null;
+  const ownRecoveryRef = useRef(ownRecovery);
+  ownRecoveryRef.current = ownRecovery;
+  const recoveryPhase = recoveryPollPhase(ownRecovery);
   useEffect(() => {
     if (!sessionVerificationRequired || (!user?.uid && !IS_NATIVE)
-        || registrationStatus && registrationStatus.identityUid === user?.uid) return;
+        || ownRecoveryRef.current && !registrationAdvancesAlone(ownRecoveryRef.current)) return;
 
     let cancelled = false;
     let attempt = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const scheduleRetry = () => {
-      const delay =
-        SESSION_VERIFICATION_RETRY_DELAYS_MS[
-          Math.min(attempt, SESSION_VERIFICATION_RETRY_DELAYS_MS.length - 1)
-        ];
+      const delay = nextRecoveryCheckDelay(attempt, cleanupStatusRef.current?.operation, ownRecoveryRef.current, Date.now());
       retryTimer = globalThis.setTimeout(() => {
         retryTimer = null;
         if (cancelled) return;
@@ -1349,8 +1351,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const canReachBackend =
           document.visibilityState === "visible" && navigator.onLine !== false;
         if (!canReachBackend) {
-          attempt += 1;
-          scheduleRetry();
+          scheduleRetry(); // Hidden or offline ticks re-arm without counting as checks.
           return;
         }
 
@@ -1371,7 +1372,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       cancelled = true;
       if (retryTimer !== null) globalThis.clearTimeout(retryTimer);
     };
-  }, [sessionVerificationRequired, user?.uid, retrySessionVerification, registrationStatus]);
+  }, [sessionVerificationRequired, user?.uid, retrySessionVerification, recoveryPhase]);
 
   useEffect(() => {
     const handleAuthInvalidated = (event: Event) => {

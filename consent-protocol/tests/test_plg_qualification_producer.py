@@ -292,82 +292,60 @@ def test_acceptance_emits_post_health_schema_not_initial_proof(modules, monkeypa
 
 
 @pytest.mark.parametrize("environment", ["dev", "uat"])
-def test_isolated_jobs_execute_required_gates_without_routing_shared_jobs(modules, environment):
+def test_retired_isolated_lane_leaves_standard_release_gates_intact(environment):
     import yaml
 
     document = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
-    job = document["jobs"]["plg-isolated"]
-    assert job["name"] == modules.producer.acceptance.GATES[environment]
-    assert job["if"] == "inputs.target == 'plg-isolated-qualification'"
-    steps = job["steps"]
-    names = [step.get("name") for step in steps]
-    assert modules.producer.acceptance.STEPS <= set(names)
-    assert modules.producer.acceptance.IMAGE_STEPS[environment] in names
-    phases = []
-    import re
-
-    for step in steps:
-        match = re.search(r"--phase ([a-z-]+)", step.get("run", ""))
-        if match:
-            phases.append(match[1])
-    assert phases == [
-        "require",
-        "source",
-        "schema",
-        "iam-pre",
-        *(["capacity-early"] if environment == "dev" else []),
-        "image",
-        "capacity",
-        "deploy",
-        "iam",
-        "health",
-        "schema-post",
-        "record",
-    ]
-    normal = document["jobs"]["deploy" if environment == "dev" else "select-target"]
-    assert normal["if"] == "inputs.target != 'plg-isolated-qualification'"
+    assert "plg-isolated" not in document["jobs"]
+    trigger = document.get("on", document.get(True))["workflow_dispatch"]["inputs"]
+    assert "plg-isolated-qualification" not in trigger["target"]["options"]
+    assert not {"plg_source_validation_run", "plg_schema_action", "plg_dev_run"} & trigger.keys()
+    entry = document["jobs"]["deploy" if environment == "dev" else "select-target"]
+    assert "inputs.target" not in entry.get("if", "")
+    steps = document["jobs"]["deploy"]["steps"]
+    names = {step.get("name") for step in steps}
+    assert {
+        "Validate deployment SHA against requested ref"
+        if environment == "dev"
+        else "Validate deployment SHA against main",
+        f"Produce exact-SHA {environment.upper() if environment == 'uat' else 'dev'} acceptance",
+        "Post-deploy dev schema contract gate"
+        if environment == "dev"
+        else "Post-deploy UAT schema contract gate",
+    } <= names
+    assert not any(
+        "qualification_producer.py" in step.get("run", "")
+        for job in document["jobs"].values()
+        for step in job.get("steps", [])
+    )
 
 
-@pytest.mark.parametrize("environment", ["dev", "uat"])
-def test_isolated_workspace_is_selected_after_runner_assignment(environment, tmp_path):
+@pytest.mark.parametrize("target,expected", [("shared-uat", 0), ("plg-isolated-qualification", 1)])
+def test_retired_uat_target_cannot_fall_through_to_a_shared_release(target, expected):
     import os
     import shutil
     import subprocess
 
     import yaml
 
-    document = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
-    job = document["jobs"]["plg-isolated"]
-    # GitHub does not expose the runner context at jobs.<job_id>.env.
-    assert all("runner." not in str(value) for value in job.get("env", {}).values())
-    steps = job["steps"]
-    select = next(step for step in steps if "PLG_FOLDER=" in step.get("run", ""))
-    require = next(step for step in steps if "--phase require" in step.get("run", ""))
-    assert steps.index(select) < steps.index(require)
-    shell = shutil.which("bash")
-    if os.name == "nt" and (git := shutil.which("git")):
-        git_bash = Path(git).parents[1] / "bin/bash.exe"
-        if git_bash.is_file():
-            shell = str(git_bash)
-    if not shell:
-        pytest.skip("Bash runtime unavailable")
-    runner_temp = tmp_path / "runner temp"
-    runner_temp.mkdir()
-    exports = tmp_path / "runner.env"
-    env = {
+    document = yaml.safe_load((ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    guard = document["jobs"]["select-target"]["steps"][0]
+    assert guard["name"] == "Assert manual dispatch originates from main"
+    environment = {
         "PATH": os.environ.get("PATH", ""),
-        "RUNNER_TEMP": runner_temp.as_posix(),
-        "GITHUB_ENV": exports.as_posix(),
+        "GITHUB_REF_NAME": "main",
+        "REQUESTED_TARGET": target,
     }
     if "SYSTEMROOT" in os.environ:
-        env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
-    subprocess.run(  # noqa: S603 -- Reviewed workspace-selector step, isolated test environment.
-        [shell, "--noprofile", "--norc", "-c", select["run"]],
-        env=env,
-        check=True,
+        environment["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
+    result = subprocess.run(  # noqa: S603 - actual pre-credential guard with fixed synthetic targets.
+        [shutil.which("bash"), "--noprofile", "--norc", "-c", guard["run"]],
+        cwd=ROOT,
+        env=environment,
         capture_output=True,
+        text=True,
         timeout=10,
+        check=False,
     )
-    assert exports.read_text().splitlines() == [
-        f"PLG_FOLDER={runner_temp.as_posix()}/plg-isolated-qualification"
-    ]
+    assert result.returncode == expected, result.stderr
+    assert guard.get("env", {}).get("REQUESTED_TARGET") == "${{ inputs.target || 'shared-uat' }}"
