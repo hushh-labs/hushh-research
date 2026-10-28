@@ -25,10 +25,13 @@ _SETTLED = frozenset({"revoked", "covered_by_group", "local_erasure_approved"})
 
 async def run_claim(claim: journal.ProviderCleanupClaim) -> bool:
     """No implicit OAuth-failure exception, provider fallback or effect replay."""
-    async with release_admission() as admission:
-        erased = await _run_admitted_claim(claim, admission)
-    if erased:
-        await _notify_erased(claim)
+    erased = False
+    try:
+        async with release_admission() as admission:
+            erased = await _run_admitted_claim(claim, admission)
+    finally:
+        if erased:
+            await _notify_erased(claim)
     return erased
 
 
@@ -233,8 +236,11 @@ async def drain_with_outcome(*, limit: int = 5) -> DrainOutcome:
             # Known release pauses do not consume claims/attempts or turn a
             # healthy pending operation into provider-action quarantine.
             paused_reason = exc.reason
-        if erased is not None:
-            await _notify_erased(erased)  # Committed erasure; admission and timeout are closed.
+        finally:
+            # A committed erasure is owed its notice even if leaving the
+            # admission scope raises; admission and timeout are closed here.
+            if erased is not None:
+                await _notify_erased(erased)
         if paused_reason is not None:
             break
     return DrainOutcome(settled, paused_reason)

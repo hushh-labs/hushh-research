@@ -110,6 +110,29 @@ async def test_drain_sends_one_notice_per_erasure_and_contains_a_failed_send(mon
     assert released == ["pending-uid"]  # An erased claim is final, never released.
 
 
+async def test_a_failed_admission_exit_still_sends_the_owed_notice(monkeypatch, notices):
+    @asynccontextmanager
+    async def unlock_fails():
+        yield SimpleNamespace(check=AsyncMock())
+        raise TimeoutError("synthetic advisory unlock timeout")
+
+    async def store_call(fn, *args, **kwargs):
+        if fn is journal.available:
+            return True
+        if fn is journal.claim_due:
+            return [_claim("erased-uid")]
+        raise AssertionError(fn)
+
+    monkeypatch.setattr(worker, "release_admission", unlock_fails)
+    monkeypatch.setattr(worker, "_store_call", store_call)
+    monkeypatch.setattr(worker, "_run_admitted_claim", AsyncMock(return_value=True))
+
+    with pytest.raises(TimeoutError):
+        await worker.drain_with_outcome(limit=1)
+    # The erasure committed, so its notice is sent before the failure propagates.
+    assert notices[-1] == "notice:erased-uid:account_deleted"
+
+
 async def test_wake_drains_before_the_next_tick(monkeypatch):
     calls: list[int] = []
     second = asyncio.Event()
