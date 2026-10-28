@@ -39,6 +39,7 @@ describe("account deletion Google credential reauthentication", () => {
   const verify = (current = () => true) => AuthService.reauthenticateAccountDeletionIdentity("recipient", "google.com", current);
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(window, "focus").mockImplementation(() => {});
     vi.stubEnv("NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID", "synthetic-client-id");
     ports.auth.currentUser = {
       uid: "recipient", providerData: [{ providerId: "google.com" }],
@@ -55,6 +56,7 @@ describe("account deletion Google credential reauthentication", () => {
     const gestureCalls = [...ports.grant.mock.calls];
     await expect(pending).resolves.toBe("fresh-firebase-proof");
     expect(gestureCalls).toEqual([[{ includeContacts: false }]]);
+    expect(window.focus).toHaveBeenCalledOnce();
     expect(GoogleAuthProvider.credential).toHaveBeenCalledWith(null, grant.accessToken);
     expect(ports.reauthenticate).toHaveBeenCalledWith(ports.auth.currentUser, credential);
     expect(ports.auth.currentUser.getIdToken).toHaveBeenCalledWith(true);
@@ -104,6 +106,7 @@ describe("account deletion Google credential reauthentication", () => {
     });
     await expect(verify(() => current)).rejects.toThrow("session_changed");
     if (stage === "grant") expect(ports.reauthenticate).not.toHaveBeenCalled();
+    if (stage === "grant") expect(window.focus).not.toHaveBeenCalled();
     if (stage !== "refresh") expect(ports.auth.currentUser.getIdToken).not.toHaveBeenCalled();
     expect(ports.signIn).not.toHaveBeenCalled();
   });

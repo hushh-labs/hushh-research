@@ -27,10 +27,6 @@ export function PortfolioOverview({ model, portfolio, source, period, action, on
     { section: "sources" as const, icon: Database, title: "Portfolio source", description: model.sourceBrokerage || "Manage statements and connections", value: source },
   ];
   return <div className={styles.overviewGrid} data-testid="portfolio-overview">
-    <div className="col-span-full flex items-center justify-between gap-3" aria-label="Portfolio actions">
-      {onImport ? <ShellActionSurface variant="pill" className="min-h-11" data-voice-control-id="import_portfolio" onClick={onImport}>Import portfolio</ShellActionSurface> : <span />}
-      <ShellActionSurface variant="pill" className="min-h-11" data-voice-control-id="manage_portfolio" onClick={() => onOpenSection("sources")}>Manage portfolio</ShellActionSurface>
-    </div>
     <SectionLabel role="heading" aria-level={2} className="col-span-full">Your portfolio</SectionLabel>
     <PortfolioValueCard source={source} value={model.hero.totalValue} {...facts} period={period} history={model.quality.historyReady ? model.history : []} action={action} />
     <SettingsGroup embedded separatorInset rowSizing="uniform" className="h-full" shellClassName="h-full" contentClassName="h-full" testId="portfolio-overview-options">
@@ -38,5 +34,9 @@ export function PortfolioOverview({ model, portfolio, source, period, action, on
         trailing={<span className="max-w-32 text-right text-xs leading-[18px] tabular-nums text-muted-foreground">{row.value}</span>}
         onClick={() => onOpenSection(row.section)} chevron testId={`portfolio-open-${row.section}`} />)}
     </SettingsGroup>
+    <div className="col-span-full flex items-center justify-between gap-3" aria-label="Portfolio actions">
+      {onImport ? <ShellActionSurface variant="pill" className="min-h-11" data-voice-control-id="import_portfolio" onClick={onImport}>Import portfolio</ShellActionSurface> : <span />}
+      <ShellActionSurface variant="pill" className="min-h-11" data-voice-control-id="manage_portfolio" onClick={() => onOpenSection("sources")}>Manage portfolio</ShellActionSurface>
+    </div>
   </div>;
 }

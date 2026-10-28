@@ -33,10 +33,50 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
+it("previews a finite full portfolio for an advisor before confirmation", async () => {
+  const portfolio = { total_value: 10000, holdings: [{ symbol: "AAPL", name: "Apple", quantity: 10, price: 1000, market_value: 10000 }] };
+  mocks.recipients.mockResolvedValue({ items: [
+    { userId: "recipient", publicPersonRef: "person", keyId: "key", publicKeyJwk: {}, displayName: "Advisor", isFinanceAdvisor: true },
+    { userId: "other", publicPersonRef: "other", keyId: "other-key", publicKeyJwk: {}, displayName: "Other person", isFinanceAdvisor: false },
+  ], hasMore: false });
+  mocks.saved.mockResolvedValue({ model, portfolio, source, sourceFence: "a".repeat(64) });
+  mocks.prepare.mockResolvedValue({ requestId: "request" });
+  mocks.publish.mockResolvedValue({ items: [{ requestId: "request", status: "active" }] });
+  render(<FinanceShareFlow advisorOnly open onOpenChange={vi.fn()} model={model} source={source} />);
+  fireEvent.click(await screen.findByRole("checkbox", { name: /^Advisor/ }));
+  expect(screen.queryByRole("checkbox", { name: /^Other person/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true }));
+  expect(await screen.findByText(/finance-share-v2/)).toBeTruthy();
+  expect(mocks.publish).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Share with 1 person" }));
+  await waitFor(() => expect(mocks.prepare).toHaveBeenCalled());
+  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 2, purpose: "verified_ria_review", mode: "snapshot", durationSeconds: 86400, showAmounts: true, model_processing: { allowed: false } });
+});
+
+it("does not report an ended confirmation as active sharing", async () => {
+  mocks.prepare.mockResolvedValue({ requestId: "request" });
+  mocks.publish.mockResolvedValue({ items: [{ requestId: "request", status: "stopped" }] });
+  render(<FinanceShareFlow open onOpenChange={vi.fn()} model={model} source={source} />);
+  fireEvent.click(await screen.findByRole("checkbox", { name: /^Synthetic connection/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true }));
+  fireEvent.click(await screen.findByRole("button", { name: "Share with 1 person" }));
+  expect(await screen.findByRole("heading", { name: "Sharing ended" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Finance shared" })).toBeNull();
+});
+
+it("opens an advisor snapshot in the recipient account without offering AI processing", async () => {
+  const advisorGrant = { ...grant, policy: { version: 2, purpose: "verified_ria_review", mode: "snapshot", sections: ["allocation", "performance", "holdings"], selectionHash: "a".repeat(64), showAmounts: true, model_processing: { version: 1, allowed: false }, durationSeconds: 3600 }, expiresAt: "2026-10-27T01:00:00Z" };
+  mocks.view.mockResolvedValue(advisorGrant);
+  mocks.decrypt.mockResolvedValue({ schema: "finance-share-v2", source: "statement", sourcePeriod: null, allocation: [], performance: { balanceChangePct: null, unit: "USD", history: [] }, holdings: [], cashBalance: { value: 100, currency: "USD" } });
+  render(<FinanceSharedDetail grantId="grant" onClose={vi.fn()} />);
+  expect(await screen.findByText(/reply to the owner in your connection conversation/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Review with my private agent" })).toBeNull();
+});
+
 it("requires the exact preview and explicit confirmation, with synchronous duplicate-send protection", async () => {
   let complete!: (value: unknown) => void;
   mocks.prepare.mockImplementation(() => new Promise(resolve => { complete = resolve; }));
-  mocks.publish.mockResolvedValue({ items: [{ requestId: "request" }] });
+  mocks.publish.mockResolvedValue({ items: [{ requestId: "request", status: "active" }] });
   render(<FinanceShareFlow open onOpenChange={vi.fn()} model={model} source={source} />);
   fireEvent.click(await screen.findByRole("checkbox", { name: /^Synthetic connection/ }));
   expect(screen.getByRole("checkbox", { name: /^Show dollar amounts/ })).not.toBeChecked();

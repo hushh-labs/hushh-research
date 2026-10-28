@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
   routerReplace: vi.fn(),
   restoreNativeSession: vi.fn(),
   authServiceSignOut: vi.fn(),
+  apiDeleteSession: vi.fn().mockResolvedValue(undefined),
+  replaceDocument: vi.fn(),
+  clearLocalChatNotificationState: vi.fn().mockResolvedValue(undefined),
+  deleteFCMToken: vi.fn().mockResolvedValue(undefined),
   apiGetAccountSessionStatus: vi.fn(),
   completePrivacyValidation: vi.fn(),
   preparePrivacyValidation: vi.fn(async () => undefined),
@@ -21,6 +25,15 @@ const mocks = vi.hoisted(() => ({
   phoneTestConfirm: vi.fn(),
   identityRefresh: vi.fn(),
   identityPeek: vi.fn(),
+}));
+
+vi.mock("@/lib/utils/browser-navigation", () => ({
+  replaceWindowLocation: mocks.replaceDocument,
+}));
+
+vi.mock("@/lib/notifications/fcm-service", () => ({
+  clearLocalChatNotificationState: mocks.clearLocalChatNotificationState,
+  deleteFCMToken: mocks.deleteFCMToken,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -120,7 +133,7 @@ vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     getAccountSessionStatus: mocks.apiGetAccountSessionStatus,
     getAccountRegistrationStatus: vi.fn(async () => new Response(null, { status: 404 })),
-    deleteSession: vi.fn().mockResolvedValue(undefined),
+    deleteSession: mocks.apiDeleteSession,
   },
 }));
 
@@ -176,6 +189,13 @@ function NativePhoneProbe({ transport }: { transport?: "sms" } = {}) {
     <button onClick={() => void confirm(false)}>Confirm native phone</button>
     <button onClick={() => void confirm(true)}>Confirm native replacement</button>
   </>;
+}
+
+function NativeDeletionHandoffProbe() {
+  const { signOut } = useAuth();
+  return <button type="button" onClick={() => void signOut({
+    redirectTo: "/login?auth_notice=account_deletion_requested",
+  })}>Finish pending deletion</button>;
 }
 
 function SessionProbe() {
@@ -264,4 +284,4 @@ function cleanupNativeAuthMocks() {
     vi.useRealTimers();
 }
 
-export { mocks, deferred, makeUser, NativePhoneProbe, SessionProbe, emitPrivacy, activeSessionResponse, resetNativeAuthMocks, cleanupNativeAuthMocks };
+export { mocks, deferred, makeUser, NativePhoneProbe, NativeDeletionHandoffProbe, SessionProbe, emitPrivacy, activeSessionResponse, resetNativeAuthMocks, cleanupNativeAuthMocks };

@@ -44,6 +44,7 @@ python3 scripts/ci/test_retention_preflight_evidence.py
 python3 scripts/ci/test_wait_uat_capacity.py
 python3 scripts/ci/test_runtime_capacity_budget.py
 python3 scripts/ci/test_runtime_capacity_inventory.py
+python3 scripts/ci/test_runtime_capacity_volume.py
 python3 scripts/ci/test_runtime_capacity_isolated.py
 python3 scripts/ci/test_runtime_capacity_route_secrets.py
 python3 scripts/ci/test_production_capacity_bridge.py

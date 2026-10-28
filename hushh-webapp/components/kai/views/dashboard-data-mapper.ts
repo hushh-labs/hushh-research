@@ -133,7 +133,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function isSpecificSectorLabel(value: string | null | undefined): boolean {
+export function isSpecificSectorLabel(value: string | null | undefined): boolean {
   const text = String(value || "").trim();
   if (!text) return false;
   return !GENERIC_SECTOR_LABELS.has(text.toLowerCase());
