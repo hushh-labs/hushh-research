@@ -141,13 +141,7 @@ struct NativePasswordProjection: Decodable {
     func updateUIView(_ field: UITextField, context: Context) {
         field.isEnabled = model.canEdit; field.textColor = .label; field.tintColor = model.accent
         let text = confirmation ? model.confirmation : model.password
-        if field.markedTextRange == nil && field.text != text {
-            let offset = field.selectedTextRange.map { field.offset(from: field.beginningOfDocument, to: $0.start) }
-            field.text = text
-            if let offset, let position = field.position(from: field.beginningOfDocument, offset: min(offset, text.utf16.count)) {
-                field.selectedTextRange = field.textRange(from: position, to: position)
-            }
-        }
+        NativeTextFieldProjection.apply(text, to: field)
     }
     func makeCoordinator() -> Coordinator { Coordinator(model, confirmation) }
     static func dismantleUIView(_ field: UITextField, coordinator: Coordinator) {

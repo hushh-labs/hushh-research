@@ -16,6 +16,54 @@ private final class ZeroSafeAreaView: UIView {
 
 final class NativeSupportTests: XCTestCase {
     @MainActor
+    func testNativeTextFieldProjectionPreservesSelectionAndMarkedText() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene), parent = UIViewController()
+        window.rootViewController = parent; window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        let field = UITextField(frame: CGRect(x: 20, y: 20, width: 240, height: 44))
+        parent.view.addSubview(field); field.text = "abcdef"
+        XCTAssertTrue(field.becomeFirstResponder())
+        defer { field.resignFirstResponder() }
+        let start = try XCTUnwrap(field.position(from: field.beginningOfDocument, offset: 1))
+        let end = try XCTUnwrap(field.position(from: field.beginningOfDocument, offset: 4))
+        field.selectedTextRange = field.textRange(from: start, to: end)
+        NativeTextFieldProjection.apply("abcdefg", to: field)
+        let retained = try XCTUnwrap(field.selectedTextRange)
+        XCTAssertEqual(field.offset(from: field.beginningOfDocument, to: retained.start), 1)
+        XCTAssertEqual(field.offset(from: field.beginningOfDocument, to: retained.end), 4)
+        NativeTextFieldProjection.apply("ab", to: field)
+        let clamped = try XCTUnwrap(field.selectedTextRange)
+        XCTAssertEqual(field.offset(from: field.beginningOfDocument, to: clamped.start), 1)
+        XCTAssertEqual(field.offset(from: field.beginningOfDocument, to: clamped.end), 2)
+        field.text = "A👩🏽‍💻BC"
+        let unicodeStart = try XCTUnwrap(field.position(from: field.beginningOfDocument, offset: 1))
+        let unicodeEnd = try XCTUnwrap(field.position(from: field.endOfDocument, offset: -1))
+        let unicodeEndOffset = field.offset(from: field.beginningOfDocument, to: unicodeEnd)
+        field.selectedTextRange = field.textRange(from: unicodeStart, to: unicodeEnd)
+        NativeTextFieldProjection.apply("A👩🏽‍💻BCD", to: field)
+        let unicodeSelection = try XCTUnwrap(field.selectedTextRange)
+        XCTAssertEqual(field.offset(from: field.beginningOfDocument, to: unicodeSelection.start), 1)
+        XCTAssertEqual(field.offset(from: field.beginningOfDocument, to: unicodeSelection.end), unicodeEndOffset)
+        field.setMarkedText("xy", selectedRange: NSRange(location: 2, length: 0))
+        XCTAssertNotNil(field.markedTextRange)
+        let composing = field.text
+        NativeTextFieldProjection.apply("replacement", to: field)
+        XCTAssertEqual(field.text, composing)
+        field.unmarkText()
+        field.isSecureTextEntry = true
+        field.text = "abcdefgh"
+        let secureStart = try XCTUnwrap(field.position(from: field.beginningOfDocument, offset: 2))
+        let secureEnd = try XCTUnwrap(field.position(from: field.beginningOfDocument, offset: 5))
+        field.selectedTextRange = field.textRange(from: secureStart, to: secureEnd)
+        NativeTextFieldProjection.apply("abcdefghi", to: field)
+        let secureSelection = try XCTUnwrap(field.selectedTextRange)
+        XCTAssertEqual(field.offset(from: field.beginningOfDocument, to: secureSelection.start), 2)
+        XCTAssertEqual(field.offset(from: field.beginningOfDocument, to: secureSelection.end), 5)
+    }
+
+    @MainActor
     func testOwnedChoiceReadbackCannotRetireAnAttachedSheet() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let previous = scene.windows.first(where: \.isKeyWindow)

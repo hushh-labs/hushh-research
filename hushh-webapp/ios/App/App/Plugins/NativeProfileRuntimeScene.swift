@@ -210,12 +210,7 @@ typealias NativeRuntimeModel = NativeProfileEditorModel<NativeRuntimeProjection>
     func updateUIView(_ field: UITextField, context: Context) {
         context.coordinator.owner = self; field.isEnabled = model.canEdit; field.textColor = .label; field.tintColor = model.accent
         let text = model.draft[name]
-        if field.markedTextRange == nil && field.text != text {
-            let selection = field.selectedTextRange.map { (field.offset(from: field.beginningOfDocument, to: $0.start), field.offset(from: field.beginningOfDocument, to: $0.end)) }
-            field.text = text
-            if let selection, let start = field.position(from: field.beginningOfDocument, offset: min(selection.0, text.utf16.count)),
-               let end = field.position(from: field.beginningOfDocument, offset: min(selection.1, text.utf16.count)) { field.selectedTextRange = field.textRange(from: start, to: end) }
-        }
+        NativeTextFieldProjection.apply(text, to: field)
     }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     static func dismantleUIView(_ field: UITextField, coordinator: Coordinator) {
