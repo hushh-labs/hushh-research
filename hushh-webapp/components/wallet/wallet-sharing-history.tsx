@@ -51,11 +51,11 @@ function accessLabel(item: CardSharingHistoryItem, serverNow: string) {
 }
 
 /** History is display metadata; the existing recipient viewer authorizes every reveal. */
-export function WalletSharingHistory({ ownerId, active, getContext, direction = "outgoing", presentation = "list" }: {
-  direction?: "outgoing" | "received";
-  presentation?: "list" | "cards";
+export type WalletSharingHistoryProps = {
+  direction?: "outgoing" | "received"; presentation?: "list" | "cards";
   ownerId: string; active: boolean; getContext: (cardId: string) => CardShareContext | null;
-}) {
+};
+export function useWalletSharingHistoryOwner({ ownerId, active, getContext, direction = "outgoing" }: WalletSharingHistoryProps, native = false) {
   const [viewer, setViewer] = useState<{ ownerId: string; grantId: string; request: number } | null>(null);
   const [state, setState] = useState<State | null>(null);
   const [profile, setProfile] = useState<{ context: CardShareContext; cardId: string } | null>(null);
@@ -89,8 +89,8 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
   const detail = current?.page.items.find(item => item.id === opened?.id && item.cardType === opened.cardType);
   const loadedCount = useRef(0);
   loadedCount.current = retained?.page.items.length ?? 0;
-  useBackLayer(ROUTES.ONE_WALLET, detail ? 2 : 0, () => { if (!busy) setOpened(null); return true; });
-  useBackLayer(ROUTES.ONE_WALLET, selection && current ? 3 : 0, () => { if (!busy) setSelection(null); return true; });
+  useBackLayer(ROUTES.ONE_WALLET, !native && detail ? 2 : 0, () => { if (!busy) setOpened(null); return true; });
+  useBackLayer(ROUTES.ONE_WALLET, !native && selection && current ? 3 : 0, () => { if (!busy) setSelection(null); return true; });
   useEffect(() => { setSelection(null); setOpened(null); setBusy(null); setViewer(null); }, [active, ownerId, direction]);
 
   useEffect(() => WalletCardAccessService.subscribe(ownerId, retry), [ownerId, retry]);
@@ -197,6 +197,10 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       || origin.activation !== activation.current.revision || !target?.isConnected || target.disabled) return;
     target.focus({ preventScroll: true });
   };
+  return { viewer, setViewer, current, profile, failed, unavailable, loading, moreFailed, busy, opened, detail, selection, setSelection, setOpened, returnTarget, detailBack, revokeButton, revoked, end, activation, loadMore, retry, revoke, restoreFocus, beginRevoke: (item: CardSharingHistoryItem) => { revoked.current = false; setSelection(item); } };
+}
+export function WalletSharingHistory({ ownerId, active, getContext, direction = "outgoing", presentation = "list" }: WalletSharingHistoryProps) {
+  const { viewer, setViewer, current, profile, failed, unavailable, loading, moreFailed, busy, opened, detail, selection, setSelection, setOpened, returnTarget, detailBack, revokeButton, revoked, end, activation, loadMore, retry, revoke, restoreFocus, beginRevoke } = useWalletSharingHistoryOwner({ ownerId, active, getContext, direction });
   return <SettingsPresentationProvider density="compact"><section aria-label={direction === "outgoing" ? "Card sharing history" : "Received card history"} className={`space-y-3.5 ${styles.history}`}>
     {direction === "outgoing" && active && profile?.context.isCurrent() && profile.context.userId === ownerId ? <WalletSavedCardSharing card={{ cardId: profile.cardId }} getContext={getContext} disabled={Boolean(busy)} showHistory={false} /> : null}
     {presentation === "cards" && direction === "received" ? <>
@@ -243,7 +247,7 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       description={detail?.displayLabel} eyebrow={direction === "outgoing" ? "Shared card" : "Received card"}
       leading={<Button ref={detailBack} variant="ghost" size="icon-touch" aria-label="Back to sharing history" disabled={Boolean(busy)} onClick={() => { setSelection(null); setOpened(null); }}><ArrowLeft aria-hidden="true" className="size-5 text-[var(--app-accent)]" /></Button>} showCloseButton={false} headerTextOverflow="wrap" surfaceClassName={`${styles.history} ${styles.historyDetail} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`}
       bodyClassName="space-y-5"
-      footer={detail && direction === "outgoing" && detail.status === "active" ? <Button ref={revokeButton} size="compact" variant="destructive" className={presentationStyles.modalAction} aria-label={`Revoke ${detail.displayLabel} shared with ${detail.recipientName}`} disabled={Boolean(busy)} onClick={() => { revoked.current = false; setSelection(detail); }}>Revoke access</Button> : undefined}>
+      footer={detail && direction === "outgoing" && detail.status === "active" ? <Button ref={revokeButton} size="compact" variant="destructive" className={presentationStyles.modalAction} aria-label={`Revoke ${detail.displayLabel} shared with ${detail.recipientName}`} disabled={Boolean(busy)} onClick={() => beginRevoke(detail)}>Revoke access</Button> : undefined}>
       {detail ? <>
         {presentation === "cards" ? <><SharedCardPreview item={detail} /><div className={styles.receivedDetailCaption}><span>From {detail.senderName}</span><span className={styles.accessStatus} data-ended={detail.status !== "active"}>{accessLabel(detail, current!.page.serverNow)}</span></div>
           {detail.status === "active" ? <>{Capacitor.isNativePlatform() ? <p className="text-sm text-muted-foreground">Open this card in your browser to view its details.</p> : <Button className="w-full" onClick={() => setViewer(previous => ({ ownerId, grantId: detail.id, request: (previous?.request ?? 0) + 1 }))}>View card</Button>}</> : <p role="status" className="py-3 text-sm text-muted-foreground">{detail.status === "revoked" ? "The owner stopped sharing this card." : "This share has expired. Ask the sender for a new share."}</p>}

@@ -79,6 +79,15 @@ class RoleAwareCommitLog(PodCommitLog):
             ) from exc
         if role.is_standby and not in_sync_import():
             raise PodRoleRefused(CODE_STANDBY, "a standby's log changes only by sync import")
+        from hushh_mcp.services.pod_runtime_writer import runtime_writer
+
+        writer = runtime_writer()
+        if writer is not None:
+            if role.is_standby:
+                raise PodRoleRefused(
+                    CODE_STANDBY, "Managed standby writer activation is not qualified"
+                )
+            return await writer.append(self, kind, payload, expected_seq)
         return await super().append(kind, payload, expected_seq=expected_seq)
 
     async def verified_head(self) -> Optional[PodLogCursor]:

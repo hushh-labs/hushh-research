@@ -113,7 +113,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   onWorldModelCapability?: (supported: boolean) => void;
   onRuntimeCapability?: (supported: boolean) => void;
   onConnectorsCapability?: (supported: boolean) => void;
-  workspace?: { kind: "request-pricing" | "payouts" | "memory" | "world-model" | "connectors"; visitKey?: string; active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; back?: () => void; ancestor?: NativeDrawerActions["ancestor"];
+  workspace?: { kind: "hosting" | "software-updates" | "request-pricing" | "payouts" | "memory" | "world-model" | "connectors"; visitKey?: string; active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; back?: () => void; ancestor?: NativeDrawerActions["ancestor"];
     formScene?: ProfilePreparationScene | null; editor?: (destinationId: string) => ReactNode; onPresented?: () => void };
   support?: { active: boolean; editor: (destinationId: string, onFallback: () => void) => ReactNode };
   phone?: { active: boolean; editor: (options: { native: boolean; destinationId?: string; onFallback: () => void }) => ReactNode };
@@ -138,6 +138,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const [worldModelSupported, setWorldModelSupported] = useState(false);
   const [runtimeSupported, setRuntimeSupported] = useState(false);
   const [connectorsSupported, setConnectorsSupported] = useState(false);
+  const [agentSettingsSupported, setAgentSettingsSupported] = useState({ hosting: false, "software-updates": false });
   const [phoneSupported, setPhoneSupported] = useState(false);
   const [phoneFailedVisit, setPhoneFailedVisit] = useState<string | null>(null);
   const [supportFailedOwner, setSupportFailedOwner] = useState<string | null>(null);
@@ -173,7 +174,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         setVaultSupported(vault); onVaultCapability?.(vault);
         const pricing = stack && capability.profilePricingScene === true && hasNativeProfileScene(plugin, "request-price");
         setPricingSupported(pricing); onPricingCapability?.(pricing);
-        const payout = stack && capability.profilePayoutPages === true;
+        const payout = stack && capability.profilePaymentsPages === true && capability.profilePaymentsScene === true && hasNativeProfileScene(plugin, "payments");
         setPayoutSupported(payout); onPayoutCapability?.(payout);
         const memory = stack && capability.profileMemoryPages === true && capability.profileMemoryScene === true && hasNativeProfileScene(plugin, "memory-financial-context");
         setMemorySupported(memory); onMemoryCapability?.(memory);
@@ -187,6 +188,8 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         setRuntimeSupported(runtime); onRuntimeCapability?.(runtime);
         const connectors = stack && capability.profileConnectorPages === true && capability.profileConnectorScene === true && hasNativeProfileScene(plugin, "connector-custom-server");
         setConnectorsSupported(connectors); onConnectorsCapability?.(connectors);
+        setAgentSettingsSupported({ hosting: stack && capability.profileHostingPages === true,
+          "software-updates": stack && capability.profileSoftwareUpdatePages === true });
       }
     }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); setDevicesSupported(false); onDevicesCapability?.(false); setVaultSupported(false); onVaultCapability?.(false); setPricingSupported(false); onPricingCapability?.(false); setPayoutSupported(false); onPayoutCapability?.(false); setMemorySupported(false); onMemoryCapability?.(false); onSharedMemoryCapability?.(false); onSecretMemoryCapability?.(false); setFinanceSupported(false); onFinanceCapability?.(false); setWorldModelSupported(false); onWorldModelCapability?.(false); setRuntimeSupported(false); onRuntimeCapability?.(false); setConnectorsSupported(false); onConnectorsCapability?.(false); } });
     return () => { current = false; };
@@ -198,7 +201,8 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const nativeSupport = supportSupported && support?.active === true && supportFailedOwner !== lifetime;
   const nativeLegal = legalSupported && legal?.active === true;
   const nativeReferrals = referralsSupported && referrals?.active === true && referralsFailedOwner !== lifetime;
-  const nativeWorkspace = workspace?.active === true && (workspace.kind === "request-pricing" ? pricingSupported &&
+  const nativeWorkspace = workspace?.active === true && (workspace.kind === "hosting" || workspace.kind === "software-updates" ?
+    agentSettingsSupported[workspace.kind] && workspace.pages[0]?.id === workspace.kind : workspace.kind === "request-pricing" ? pricingSupported &&
     workspace.pages.length === 1 && workspace.pages[0]?.id === "request-pricing" : workspace.kind === "connectors" ? connectorsSupported && workspace.pages[0]?.id === "connectors" : workspace.kind === "payouts" ? payoutSupported && workspace.pages[0]?.id === "payouts" : workspace.kind === "world-model" ? worldModelSupported && workspace.pages[0]?.id === "world-model" : memorySupported && workspace.pages[0]?.id === "memory");
   const nativePath: readonly NativeProfilePage[] = nativeAccount ? [account!.page, ...(account!.confirmation ? [account!.confirmation] : [])] : nativeSettings ? settings!.pages : nativeLegal ? legal!.pages : nativeReferrals ? referrals!.pages : nativeWorkspace ? workspace!.pages : [];
   const destinationKey = nativeSupport ? JSON.stringify([menu.surfaceOpen, "support"]) :

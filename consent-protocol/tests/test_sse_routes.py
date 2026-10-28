@@ -351,8 +351,13 @@ async def test_feed_overflow_resets_without_erasing_legacy_consent_events(monkey
     async def backfill(self, **kwargs):
         return [{"request_id": "initial", "action": "REQUESTED"}]
 
+    async def connected():
+        # Queue retention is the contract here, not scheduler responsiveness
+        # while repeatedly yielding a synthetic disconnect probe under xdist.
+        return False
+
     monkeypatch.setattr(ConsentDBService, "get_recent_consent_events", backfill)
-    request = SimpleNamespace(is_disconnected=lambda: asyncio.sleep(0, result=False))
+    request = SimpleNamespace(is_disconnected=connected)
     feed = document_feed_event_generator("mixed-owner", request)
     legacy = consent_event_generator("mixed-owner", request)
     try:
@@ -365,6 +370,10 @@ async def test_feed_overflow_resets_without_erasing_legacy_consent_events(monkey
         for _ in range(120):
             await consent_listener._push_to_consent_queue("mixed-owner", {"type": "feed_changed"})
         await consent_listener.broadcast_local_resync()
+        subscriptions = consent_listener._consent_notify_queues["mixed-owner"]
+        assert len(subscriptions) == 2
+        legacy_queue = next(queue for queue in subscriptions if type(queue) is asyncio.Queue)
+        assert legacy_queue.qsize() == 100
         # The legacy subscriber retains its newest 100 actionable events,
         # unaffected by opaque Feed hints or the listener reconnect reset.
         events = [await asyncio.wait_for(anext(legacy), timeout=1) for _ in range(100)]

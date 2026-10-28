@@ -16,8 +16,9 @@ import styles from "./secure-card-add-form.module.css";
 import presentationStyles from "./wallet-connect-presentation.module.css";
 
 /** Raw capture exists only in this mounted owner surface and is released on exit. */
-export function WalletCardScanner({ active, disabled, backRoute, featured = false, showPhotoActions = true, compactControls = false, onRead, onBusyChange }: {
+export function WalletCardScanner({ active, disabled, backRoute, featured = false, showPhotoActions = true, compactControls = false, initialSource, onExit, onRead, onBusyChange }: {
   active: boolean; disabled: boolean; backRoute?: string; featured?: boolean; showPhotoActions?: boolean; compactControls?: boolean;
+  initialSource?: "camera" | "photos"; onExit?: () => void;
   onRead: (draft: CardScanDraft) => void; onBusyChange: (busy: boolean) => void;
 }) {
   const camera = useRef<HTMLInputElement>(null), gallery = useRef<HTMLInputElement>(null);
@@ -34,7 +35,7 @@ export function WalletCardScanner({ active, disabled, backRoute, featured = fals
     photoRef.current = null;
   }, []);
   const release = () => {
-    clearCaptureResources(); setPhoto(null); setLive(false); setBusy(false); busyCallback.current(false);
+    clearCaptureResources(); setPhoto(null); setLive(false); setBusy(false); busyCallback.current(false); onExit?.();
   };
   const pathname = usePathname();
   useBackLayer(backRoute ?? pathname, active && (photo || busy || live) ? 30 : 0, () => {
@@ -45,7 +46,7 @@ export function WalletCardScanner({ active, disabled, backRoute, featured = fals
     if (!active) { clearCaptureResources(); setPhoto(null); setLive(false); setBusy(false); busyCallback.current(false); setNotice(""); }
     return clearCaptureResources;
   }, [active, clearCaptureResources]);
-  const acquire = async (get: (signal: AbortSignal) => Promise<Blob | null>) => {
+  const acquire = useCallback(async (get: (signal: AbortSignal) => Promise<Blob | null>) => {
     if (busy || disabled || !active) return;
     const version = ++generation.current; setNotice("");
     const controller = new AbortController(); request.current?.abort(); request.current = controller; setBusy(true); busyCallback.current(true);
@@ -63,12 +64,18 @@ export function WalletCardScanner({ active, disabled, backRoute, featured = fals
       if (suggestion.detected) setNotice("Card edges suggested. Adjust them if needed before reading.");
     } catch { if (version === generation.current && !controller.signal.aborted) setNotice("Camera or photo unavailable. Choose a JPG, PNG or WebP photo, or enter the details below."); }
     finally { if (request.current === controller) { request.current = null; setBusy(false); busyCallback.current(Boolean(photoRef.current)); } }
-  };
-  const choose = (source: "camera" | "photos") => {
+  }, [busy, disabled, active]);
+  const choose = useCallback((source: "camera" | "photos") => {
     if (isNative()) void acquire(signal => pickNativeWalletCard(source, signal));
     else if (source === "camera" && typeof navigator.mediaDevices?.getUserMedia === "function") { setLive(true); busyCallback.current(true); }
     else (source === "camera" ? camera : gallery).current?.click();
-  };
+  }, [acquire]);
+  const launched = useRef(false);
+  useEffect(() => {
+    if (!active || !initialSource || launched.current) return;
+    launched.current = true;
+    choose(initialSource);
+  }, [active, initialSource, choose]);
   const scan = async () => {
     if (!photo || !validCardCorners(corners) || request.current || disabled || !active) return;
     const controller = new AbortController(); request.current = controller;

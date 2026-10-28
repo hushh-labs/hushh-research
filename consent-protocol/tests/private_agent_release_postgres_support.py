@@ -244,3 +244,21 @@ def verify_retained_release_records(conn, cp):
         == 1
     ), "GENERATION_GUARD_LOST_AFTER_REPLAY"
     return before
+
+
+def verify_managed_custody_roundtrip(conn, cp):
+    """The preactivation rollback preserves retained records and reinstalls exact custody."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regprocedure('public.private_gcp_coordinates(jsonb)') IS NOT NULL")
+        if not cur.fetchone()[0]:
+            return
+        from db.hosted_custody_adoption import QUALIFIED
+
+        query = "SELECT p.oid::regprocedure::text,pg_get_functiondef(p.oid),p.proacl::text FROM pg_proc p WHERE p.oid=ANY(SELECT to_regprocedure('public.'||signature) FROM unnest(%s::text[]) signature) ORDER BY 1"
+        signatures = list(QUALIFIED)
+        cur.execute(query, (signatures,))
+        before = cur.fetchall()
+        cur.execute((cp / "db/migrations/rollback/974_hosted_pod_custody.rollback.sql").read_text())
+        cur.execute((cp / "db/migrations/parked/974_hosted_pod_custody.sql").read_text())
+        cur.execute(query, (signatures,))
+        assert cur.fetchall() == before

@@ -38,6 +38,15 @@ advisory default and main retains its existing forced mode and Admin preflight.
 On overlap, integrate and verify the existing branch again, then push one finished
 batch. This does not replace the final freshness check or authorize an Admin bypass.
 
+A bounded no-overlap result is not merged-tree UI-contract proof. Back/Search
+review fingerprints can change when Main updates unrelated frontend modules.
+Before landing after such an advance, check the combined tree with the existing
+UI verifier. If its review is stale, preserve Main, review the combined behavior
+and regenerate receipts through the normal authoring commands. Do not use an
+Admin queue bypass to land a tree already known to fail those checks. Reuse
+unchanged verification evidence and run the affected checks; this adds no CI lane
+or alternative freshness classifier.
+
 ## Prepared Dev and UAT destinations
 
 For a PR targeting `dev` or `uat`, set `MAIN_SYNC_BRANCH` to that actual base and

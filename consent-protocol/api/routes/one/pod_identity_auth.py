@@ -204,28 +204,8 @@ async def verify_pod_identity(
         return None
 
     token = authorization.removeprefix("Bearer ").strip()
-    try:
-        from google.auth.transport import requests as google_requests  # noqa: PLC0415
-        from google.oauth2 import id_token as google_id_token  # noqa: PLC0415
-
-        # AUDIENCE IS VERIFIED. Without it, `verify_oauth2_token` checks only that
-        # Google signed the token -- so an ID token the pod SA minted for ANY other
-        # service would be accepted here. A pod mints its hub token audience-bound
-        # (`pod_hub_client._identity_token` passes `audience=self._base`) precisely
-        # so a token cannot be replayed elsewhere; not checking `aud` on this side
-        # threw that property away and left the whole check resting on the email.
-        audience = pod_hub_expected_audience()
-        if not audience:
-            logger.warning("pod_hub_auth.no_expected_audience configured; refusing")
-            return None
-        claims = await run_in_threadpool(
-            google_id_token.verify_oauth2_token,
-            token,
-            google_requests.Request(),
-            audience,
-        )
-    except Exception as exc:  # noqa: BLE001 - an unverifiable token is simply not a pod
-        logger.info("pod_hub_auth.verify_failed %s", type(exc).__name__)
+    claims = await _verify_google_pod_claims(token)
+    if claims is None:
         return None
 
     email = str(claims.get("email") or "")
@@ -237,6 +217,18 @@ async def verify_pod_identity(
         return None
 
     if email == allowed:
+        from hushh_mcp.services.hosted_gcp_placement import has_hosted_evidence
+
+        row = await _identity_placement_row(asserted)
+        if (
+            not row
+            or row.get("deployment_target") != "gcp"
+            or row.get("backend") != "gcp"
+            or not isinstance(row.get("backend_metadata"), dict)
+            or has_hosted_evidence(row)
+        ):
+            return None
+        # Legacy fleet/simulation rows retain their narrower shared identity path.
         # MANAGED / SIMULATION TIER. Every pod shares this one account -- which is
         # exactly what lets it hold no project roles -- so a match proves "a hussh pod
         # is calling" and never *which*. `asserted` is therefore returned unverified
@@ -252,9 +244,8 @@ async def verify_pod_identity(
     # control for the first time: presenting user B's token no longer lets a caller
     # assert user A, because A's row records a different account.
     #
-    # Reached only when the fleet account did not match, so the managed tier pays no
-    # registry read on any call -- and BYOC pays one only on the path that would
-    # otherwise have been an outright rejection.
+    # Dedicated placements prove their principal through the recorded owner row.
+    # Fleet compatibility also reads the row so it cannot assert a private owner.
     bound = await _bound_service_account(asserted)
     if bound and email == bound:
         logger.info("pod_hub_auth.accepted tier=byoc asserted_agent_id=%s", asserted)
@@ -283,8 +274,56 @@ async def _bound_service_account(hushh_id: str) -> Optional[str]:
     except Exception as exc:  # noqa: BLE001 - an unreadable registry is not a pod
         logger.warning("pod_hub_auth.registry_read_failed %s", type(exc).__name__)
         return None
+    from hushh_mcp.services.hosted_gcp_placement import (
+        has_hosted_evidence,
+        retained_hosted_placement,
+    )
+
+    if has_hosted_evidence(row):
+        placement = retained_hosted_placement(row)
+        return placement.runtime_principal if placement else None
     metadata = (row or {}).get("backend_metadata")
     if not isinstance(metadata, dict):
         return None
     account = str(metadata.get("runtime_service_account") or "").strip()
     return account or None
+
+
+async def _identity_placement_row(hushh_id: str) -> dict[str, Any] | None:
+    """A fleet identity cannot bypass an unknown or dedicated owner placement."""
+    try:
+        from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+        row = await PersonalAgentRegistryRepo().get_by_hushh_id(hushh_id)
+        return row if isinstance(row, dict) else None
+    except Exception:
+        logger.warning("pod_hub_auth.registry_read_failed")
+        return None
+
+
+async def _verify_google_pod_claims(token: str) -> dict[str, Any] | None:
+    try:
+        from google.auth.transport import requests as google_requests  # noqa: PLC0415
+        from google.oauth2 import id_token as google_id_token  # noqa: PLC0415
+
+        # AUDIENCE IS VERIFIED. Without it, `verify_oauth2_token` checks only that
+        # Google signed the token -- so an ID token the pod SA minted for ANY other
+        # service would be accepted here. A pod mints its hub token audience-bound
+        # (`pod_hub_client._identity_token` passes `audience=self._base`) precisely
+        # so a token cannot be replayed elsewhere; not checking `aud` on this side
+        # threw that property away and left the whole check resting on the email.
+        audience = pod_hub_expected_audience()
+        if not audience:
+            logger.warning("pod_hub_auth.no_expected_audience configured; refusing")
+            return None
+        claims = await run_in_threadpool(
+            google_id_token.verify_oauth2_token,
+            token,
+            google_requests.Request(),
+            audience,
+        )
+    except Exception as exc:  # noqa: BLE001 - an unverifiable token is simply not a pod
+        logger.info("pod_hub_auth.verify_failed %s", type(exc).__name__)
+        return None
+
+    return dict(claims) if isinstance(claims, dict) else None

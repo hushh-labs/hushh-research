@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 
 import {
   approveAgentUpdate,
@@ -20,6 +21,7 @@ import {
   startAzureSignIn,
   useAzureSetupStartedSignal,
   type AzureSignInStarted,
+  captureSignInPopupOwner,
 } from "@/lib/one/azure-sign-in";
 import { AZURE_UPDATE_JOB_RECHECK_MS } from "@/lib/one/azure-update-sign-in";
 import { ApiService } from "@/lib/services/api-service";
@@ -171,52 +173,57 @@ function usePopupCloseWatch(onClosed: () => void) {
  * Approve the offered update from a click. The Microsoft popup opens before the
  * first await (blockers need the gesture); `watchSignIn` then follows it.
  */
-function useApproveInPlace(watchSignIn: WatchSignIn) {
+function useApproveInPlace(watchSignIn: WatchSignIn, current: () => boolean) {
   return useCallback(
     async (input: {
       agent: ApprovingAgent;
       releaseId: string;
       idempotencyKey: string;
     }): Promise<AgentUpdateApproval> => {
+      if (!current()) throw new DOMException("Session changed", "AbortError");
       const deploymentTarget = input.agent?.deploymentTarget;
       const popup = openAzureUpdateSignInPopup(deploymentTarget);
+      const ownsPopup = captureSignInPopupOwner(popup);
       const approval = await approveAgentUpdate({
         deploymentTarget,
         releaseId: input.releaseId,
         idempotencyKey: input.idempotencyKey,
         popup,
+        isCurrent: current,
       });
+      if (!current()) { if (ownsPopup()) popup?.close(); throw new DOMException("Session changed", "AbortError"); }
       if (popup && approval === "signing_in_popup") {
         watchSignIn(popup);
       }
       return approval;
     },
-    [watchSignIn],
+    [watchSignIn, current],
   );
 }
 
 /** Restart the update's sign-in beside the app; the approval is already on record. */
-function useRetryInPlace(watchSignIn: WatchSignIn, showError: (message: string | null) => void) {
+function useRetryInPlace(watchSignIn: WatchSignIn, showError: (message: string | null) => void, current: () => boolean) {
   const inFlight = useRef(false);
   const [retrying, setRetrying] = useState(false);
   const retry = useCallback(async () => {
-    if (inFlight.current) return;
+    if (inFlight.current || !current()) return;
     inFlight.current = true;
     setRetrying(true);
     showError(null);
     // Opened before the first await: popup blockers need the click's gesture.
     const popup = isAzureSignInAvailable() ? openSignInPopup() : null;
+    const ownsPopup = captureSignInPopupOwner(popup);
     try {
-      const where = await startAzureSignIn("upgrade", undefined, popup);
+      const where = await startAzureSignIn("upgrade", undefined, popup, undefined, () => current() && ownsPopup());
       if (popup && where === "popup") watchSignIn(popup);
     } catch (cause) {
-      popup?.close();
-      showError(azureSignInErrorMessage(cause, "upgrade"));
+      if (ownsPopup()) popup?.close();
+      if (current()) showError(azureSignInErrorMessage(cause, "upgrade"));
     } finally {
       inFlight.current = false;
       setRetrying(false);
     }
-  }, [showError, watchSignIn]);
+  }, [showError, watchSignIn, current]);
   return { retry, retrying };
 }
 
@@ -229,26 +236,35 @@ function useRetryInPlace(watchSignIn: WatchSignIn, showError: (message: string |
  * from then on the job and the agent status say how it went. A popup closed
  * before that hand-back started nothing.
  */
-export function useAzureUpdateProgress({ onSettled }: { onSettled?: () => void } = {}) {
+export function useAzureUpdateProgress({ onSettled, enabled = true, ownerKey }: { onSettled?: () => void; enabled?: boolean; ownerKey?: string } = {}) {
+  const scope = useMemo(() => ({ enabled, ownerKey, owner: snapshotValidatedAuthSessionOwner() }), [enabled, ownerKey]);
+  const [admittedScope, setAdmittedScope] = useState(scope);
+  const presenting = enabled && admittedScope === scope &&
+    (scope.ownerKey === undefined || !!scope.owner && isValidatedAuthSessionOwnerCurrent(scope.owner));
+  const live = useRef<typeof scope | null>(scope);
+  const current = useCallback(() => live.current === scope && scope.enabled &&
+    (scope.ownerKey === undefined || !!scope.owner && isValidatedAuthSessionOwnerCurrent(scope.owner)), [scope]);
   const [phase, setPhase] = useState<AzureUpdateProgress>(IDLE);
   const [follow, setFollow] = useState<AzureUpdateFollow | null>(null);
   const [signInError, setSignInError] = useState<string | null>(null);
   // The job being followed. A ref, because the popup repeats its hand-back
   // faster than a render can land.
   const followedJob = useRef<string | null | undefined>(undefined);
-  const outcome = useAzureUpdateOutcome(follow, { onSettled });
-  const showClosed = useCallback(() => setPhase({ kind: "closed" }), []);
+  const settled = useCallback(() => { if (current()) onSettled?.(); }, [current, onSettled]);
+  const outcome = useAzureUpdateOutcome(presenting ? follow : null, { onSettled: settled });
+  const showClosed = useCallback(() => { if (current()) setPhase({ kind: "closed" }); }, [current]);
   const { start: startWatch, stop: stopWatch, markHandedOff } = usePopupCloseWatch(showClosed);
 
   const watchSignIn = useCallback<WatchSignIn>(
     (popup) => {
+      if (!current()) { popup.close(); return; }
       followedJob.current = undefined;
       setSignInError(null);
       setFollow(null);
       setPhase({ kind: "signing_in" });
       startWatch(popup);
     },
-    [startWatch],
+    [startWatch, current],
   );
 
   useAzureSetupStartedSignal((started: AzureSignInStarted) => {
@@ -259,10 +275,10 @@ export function useAzureUpdateProgress({ onSettled }: { onSettled?: () => void }
     setSignInError(null);
     setPhase({ kind: "updating", confirming: false });
     setFollow({ jobId: started.jobId, operationId: started.operationId, releaseId: started.releaseId });
-  }, "upgrade");
+  }, "upgrade", current);
 
-  const approve = useApproveInPlace(watchSignIn);
-  const { retry, retrying } = useRetryInPlace(watchSignIn, setSignInError);
+  const approve = useApproveInPlace(watchSignIn, current);
+  const { retry, retrying } = useRetryInPlace(watchSignIn, setSignInError, current);
 
   const dismiss = useCallback(() => {
     stopWatch();
@@ -271,8 +287,14 @@ export function useAzureUpdateProgress({ onSettled }: { onSettled?: () => void }
     setSignInError(null);
     setPhase(IDLE);
   }, [stopWatch]);
+  useLayoutEffect(() => {
+    live.current = scope;
+    dismiss();
+    setAdmittedScope(scope);
+    return () => { if (live.current === scope) live.current = null; stopWatch(); };
+  }, [scope, dismiss, stopWatch]);
 
-  const progress: AzureUpdateProgress = follow && outcome ? outcome : phase;
+  const progress: AzureUpdateProgress = !presenting ? IDLE : follow && outcome ? outcome : phase;
   return { progress, signInError, retrying, approve, watchSignIn, retry, dismiss };
 }
 

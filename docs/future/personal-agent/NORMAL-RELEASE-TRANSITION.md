@@ -2,6 +2,7 @@
 
 ## Visual Context
 
+The [personal-agent map](README.md#visual-map) owns the architecture overview.
 Use the [CI delivery map](../../reference/operations/ci.md) for the existing
 validation and deployment owners. This proposal changes their composition while
 preserving environment authority and the separate owner-pod installation flow.

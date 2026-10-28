@@ -73,10 +73,16 @@ describe("native plugin contract verifier", () => {
       diagnostic: "extra native method(s) not declared in TypeScript: getWorkspaceState",
     },
     {
-      file: "native-drawers.ts",
+      file: "native-drawers-plugin.ts",
       before: '  applyProfileMemoryScene?: NativeMemoryScenePort["applyProfileMemoryScene"];',
       after: "",
       diagnostic: "extra native method(s) not declared in TypeScript: applyProfileMemoryScene",
+    },
+    {
+      file: "native-owned-choice.ts",
+      before: "  getOwnedChoiceState(identity: OwnedChoiceIdentity): Promise<OwnedChoiceReceipt & { choice?: OwnedChoiceEvent }>;",
+      after: "",
+      diagnostic: "extra native method(s) not declared in TypeScript: getOwnedChoiceState",
     },
     {
       file: "native-workspace.ts",

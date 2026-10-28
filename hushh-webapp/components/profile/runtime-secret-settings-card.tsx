@@ -8,7 +8,7 @@ import {
   SpinnerGapIcon as Loader2,
   TrashIcon as Trash2,
 } from "@/components/icons";
-import { toast } from "sonner";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Badge } from "@/components/ui/badge";

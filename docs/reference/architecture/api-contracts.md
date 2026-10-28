@@ -5488,3 +5488,17 @@ Passing an earlier lane does not declare a later lane complete. Release requires
 Identity Platform config-read permission, permitted identity mutation authority,
 qualified migrations 425 and 428, existing alert delivery and real Web/iOS/Android SMS,
 resend, account-switch, outage and device-revocation rehearsals.
+
+## Private-pod memory processing consent
+
+`POST /api/one/u/{hushh_id}/memory/provider-grant` is owner-authenticated metadata
+coordination. It authorizes the exact owner and HushhID before issuing the existing
+five-minute `cap.memory.provider.process` grant, returns its token and expiry with
+`Cache-Control: no-store`, and never invokes the pod or reads private memory.
+The app keeps the grant in memory and applies it directly to
+`POST /api/one/pod/memory/provider-consent` using its signed owner session.
+Both authorities remain mandatory. Account or vault changes stop dispatch.
+Withdrawal sends `{granted:false}` directly without obtaining a hub grant;
+`GET /api/one/pod/memory/status` also uses the owner session. Legacy relay routes
+remain compatible with older clients; private callers never fall back to them.
+Web, iOS and Android share this service-layer transport and its exact route allowlist.

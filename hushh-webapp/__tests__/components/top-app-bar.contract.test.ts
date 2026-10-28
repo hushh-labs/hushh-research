@@ -469,7 +469,7 @@ describe("Top app bar responsive contract", () => {
   it("uses shared mobile-width chrome for top-shell dropdowns", () => {
     const chrome = read("components/app-ui/top-shell-dropdown.tsx");
     const shellActionSurface = read(
-      "components/app-ui/shell-action-surface.tsx",
+      "components/app-ui/shell-action-surface-base.tsx",
     );
 
     expect(chrome).toContain("export function TopShellDropdownContent");

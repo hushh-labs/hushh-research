@@ -21,6 +21,9 @@ export function withinAccountSessionValidationBudget<T>(
 ): Promise<T> {
   const remainingMs = Math.max(0, deadlineMs - Date.now());
   if (remainingMs === 0) {
+    // The caller already started this request. Its later failure must stay
+    // observed even though the orchestration deadline refuses its result.
+    void promise.catch(() => undefined);
     return Promise.reject(
       Object.assign(new Error("Account session validation timed out."), {
         name: "TimeoutError",

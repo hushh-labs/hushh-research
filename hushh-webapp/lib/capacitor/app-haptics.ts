@@ -1,12 +1,11 @@
 "use client";
 
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
 import { getNativeChromeCapabilities, nativeChrome } from "./native-chrome";
 import { getNativeSessionPrivacyState, nativeDocumentId, nativePrivacyObservation } from "./session-privacy";
-import type { HushhSettingsPlugin } from "./index";
+import { HushhSettingsNative as settings } from "./settings";
 
 export const usesNativeHapticPreference = () => Capacitor.isNativePlatform() && ["ios", "android"].includes(Capacitor.getPlatform());
-const settings = registerPlugin<HushhSettingsPlugin>("HushhSettings");
 let feedbackTransport: Promise<"settings" | "chrome" | null> | undefined;
 function transport() {
   return feedbackTransport ??= settings.getFeedbackCapabilities()

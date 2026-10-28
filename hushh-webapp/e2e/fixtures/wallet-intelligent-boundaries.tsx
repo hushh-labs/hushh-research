@@ -20,4 +20,5 @@ export const HushhVault = {
 export const HushhPersonalKnowledgeModel = {};
 export class CacheSyncService { static onPkmDomainStored() {} }
 export function usePathname() { return "/one/wallet"; }
+export function useSearchParams() { return new URLSearchParams(window.location.search); }
 export const useRouter = () => ({ push() {}, replace() {}, back() {} });

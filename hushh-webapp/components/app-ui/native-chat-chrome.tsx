@@ -1,5 +1,7 @@
 "use client";
 
+import type { NativeChatChromeProps as Props, NativeChatChromeHandle } from "./native-chat-chrome-contract";
+export type { NativeChatChromeHandle } from "./native-chat-chrome-contract";
 import { NATIVE_PANEL_LAYOUT_EVENT } from "@/lib/capacitor/native-panel-presentation";
 import { NativeChromeFocusCancelled } from "@/lib/capacitor/native-chrome";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
@@ -7,16 +9,15 @@ import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
-import { NativeChromeLease, chromeControlId, chromeOwnerEpoch, currentChromeInstallation, canResumeNativeChrome, suspendOwnedNativeChrome, peekNativeChromeCapabilities, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry, type ChromeAgentSurface, type ChromeChoice, type ChromeChoiceOutcome, type ChromeOption, type ChromeControl, type ChromeAccentPalette } from "@/lib/capacitor/native-chrome";
+import { ShellActionSurfaceBase as ShellActionSurface } from "./shell-action-surface-base";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref, type RefObject } from "react";
+import { NativeChromeLease, chromeControlId, chromeOwnerEpoch, currentChromeInstallation, canResumeNativeChrome, suspendOwnedNativeChrome, peekNativeChromeCapabilities, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry, type ChromeChoice, type ChromeChoiceOutcome, type ChromeControl } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { nativeDocumentId, nativePrivacyCanInteract, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { getVoiceSurfaceMetadata, useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
-export type NativeChatChromeHandle = { restoreFocus: (preferNative?: boolean) => Promise<boolean> };
 const rehearsalFailureCodes = new Set([
   "NATIVE_CHROME_ACK_UNCERTAIN", "NATIVE_CHROME_PREPARE_REFUSED",
   "NATIVE_CHROME_DOCUMENT_OR_GEOMETRY_STALE", "NATIVE_CHROME_OVERLAPPING_CONTROLS",
@@ -29,40 +30,11 @@ const rehearsalFailureCodes = new Set([
 function rehearsalFailureCode(error: unknown): string {
   return error instanceof Error && rehearsalFailureCodes.has(error.message) ? error.message : "other";
 }
-type Props = {
-  contentPane?: import("@/lib/capacitor/native-chrome").NativeContentPaneIdentity;
-  owner: string | null;
-  /** Parent-owned route/session context; include the vault epoch and motion admission. */
-  context: string;
-  /** True only for the visible, unlocked, stationary owning surface. */
-  eligible: boolean;
-  className: string;
-  style?: CSSProperties;
-  children: ReactNode;
-  /** The authored fallback button (or selected radio), never an inferred DOM control. */
-  focusRef: RefObject<HTMLElement | null>;
-  /** Layout/activation receipt only; never permission to invoke an operation. */
-  onPresentationReady?: () => void;
-  /** Explicit feature layer; never inferred from a dialog or its DOM. */
-  interactionLayer?: string;
-  ref?: Ref<NativeChatChromeHandle>;
-} & ({ kind: "close"; onActivate: () => void; label: string } |
-  { kind: "profile-back"; onActivate: () => void; label: string } |
-  { kind: "history"; onActivate: () => void; expanded?: boolean;
-  /** Omission or any nonzero count retains the authored notification/badge DOM. Never bridged. */
-  pendingAttention?: number } |
-  { kind: "agent-surface"; value: ChromeAgentSurface; onValueChange: (value: ChromeAgentSurface) => void } |
-  { kind: "appearance"; value: "light" | "dark" | "system"; onValueChange: (value: "light" | "dark" | "system") => void } |
-  { kind: "accent"; value: "blue" | "gold"; fullTrigger?: boolean; palette?: ChromeAccentPalette; onValueChange: (value: "blue" | "gold") => void } |
-  { kind: "more"; label: string; options: readonly ChromeOption[]; onValueChange: (value: string) => void } |
-  { kind: "selection"; label: string; value: string; options: readonly ChromeOption[]; onValueChange: (value: string) => void } |
-  { kind: "date"; label: string; value: string; minimum: string; maximum: string; onValueChange: (value: string) => void });
 
-/** Opt-in presentation only. The caller retains its DOM control, layout and action
- * owner. Public preferences use supported native capabilities; chat families
- * require --hushh-native-chat-chrome on a Debug iPhone.
- * Authored native/gesture dismissal can request acknowledged native focus;
- * DOM keyboard return keeps its fallback active until focus leaves the slot. */
+
+/** Authored native presentation; callers retain layout, actions and fallback.
+ * Qualified wrappers negotiate families before admission. A focused DOM control
+ * retains input until native retirement/focus transfer is confirmed. */
 export function NativeChatChrome(props: Props) {
   const { ref: handleRef, className, children } = props;
   const slot = useRef<HTMLDivElement>(null);
@@ -164,7 +136,8 @@ export function NativeChatChrome(props: Props) {
     !moving.current && !slot.current?.closest("[inert]") &&
     !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
     document.visibilityState !== "hidden", []);
-  const canAct = useCallback(() => current.current.allowed && nativePrivacyCanInteract() && canReachPresentation(), [canReachPresentation]);
+  const interactionEnabled = props.enabled !== false;
+  const canAct = useCallback(() => current.current.allowed && current.current.props.enabled !== false && nativePrivacyCanInteract() && canReachPresentation(), [canReachPresentation]);
   // Preparing presentation grants no operation authority. A detail destination
   // is laid out while its native menu is still closing; rejecting preparation
   // solely for that coverage would expose a web Back or leave an empty slot.
@@ -397,7 +370,7 @@ export function NativeChatChrome(props: Props) {
           void active?.choose(event, () => lease.current === active && current.current.epoch === active.projection.ownerEpoch &&
             current.current.context === active.context && isCurrentNativeControlAppearance(active.projection, foreground) && canAct(), () => {
             const callback = current.current.props;
-            if (callback.kind === "history" || callback.kind === "close" || callback.kind === "profile-back") {
+            if ("onActivate" in callback) {
               appHaptic("light", `${event.ownerEpoch}:${event.controlId}:${event.revision}:${event.sequence}`);
               callback.onActivate();
             }
@@ -556,7 +529,8 @@ export function NativeChatChrome(props: Props) {
         let geometry = allowed && theme && canPrepare() && !heldFocus.current && slot.current &&
           !slot.current.contains(document.activeElement) ? measureNativeChromeGeometry(slot.current, kind) : null;
         const control: ChromeControl & { label: string } =
-          props.kind === "close" || props.kind === "profile-back" ? { kind: props.kind, label: props.label } :
+          props.kind === "map-check-in" ? { kind: props.kind, value: props.value, label: props.label } :
+          props.kind === "close" || props.kind === "profile-back" || props.kind === "add" || props.kind === "map-close" || props.kind === "map-locate" ? { kind: props.kind, label: props.label } :
           props.kind === "history" ? { kind: kind === "history-close" ? "history-close" : "history", expanded, label: expanded ? "Close chat history" : "Chat history" } :
           props.kind === "agent-surface" ? { kind: "agent-surface", value: props.value, label: "Agent" } :
           props.kind === "appearance" ? { kind: "appearance", value: props.value, label: "Appearance" } :
@@ -743,7 +717,7 @@ export function NativeChatChrome(props: Props) {
         // Uncertain updates cannot restore a duplicate DOM control.
       }
     });
-  }, [prepared, hidden, controlId, inPlaceUpdates, theme, value, expanded, overlay, suppressed, surface, canAct, reportRehearsal, restoreNativeFocus, restorePendingDomFocus, notifyPresentationReady]);
+  }, [prepared, hidden, controlId, inPlaceUpdates, theme, value, expanded, overlay, suppressed, surface, interactionEnabled, canAct, reportRehearsal, restoreNativeFocus, restorePendingDomFocus, notifyPresentationReady]);
 
   return <div ref={slot} className={className} style={props.style} data-native-chrome-slot={controlId}>
     <div inert={hidden} aria-hidden={hidden || undefined} style={{ visibility: hidden ? "hidden" : undefined }}>{children}</div>

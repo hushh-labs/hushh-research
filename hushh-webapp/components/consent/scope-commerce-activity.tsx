@@ -40,11 +40,11 @@ function ActivityEntry({ item }: { item: CommerceActivityItem }) {
 }
 
 /** Existing account destination, with authoritative owner-scoped keyset history. */
-export function ScopeCommerceActivity() {
+export function useScopeCommerceActivity(active = true) {
   const [view, setView] = useState<CommerceActivityView>("purchases");
   const [extension, setExtension] = useState<{ base: CommerceActivityPage; items: CommerceActivityItem[]; cursor: string | null } | null>(null);
   const load = useCallback((token: string) => ScopeCommerceService.activity(token, view), [view]);
-  const { user, data, refresh, loading, error, capture } = useCommerceRead(`activity:${view}`, load, value => extension?.base !== value && value.items.some(item => PENDING.has(item.status)));
+  const { user, data, refresh, loading, error, capture } = useCommerceRead(`activity:${view}`, load, value => extension?.base !== value && value.items.some(item => PENDING.has(item.status)), active);
   const [moreError, setMoreError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const inFlight = useRef(false);
@@ -71,10 +71,17 @@ export function ScopeCommerceActivity() {
     } catch { if (current()) setMoreError("More payment history could not be checked. Try again."); }
     finally { inFlight.current = false; if (currentView()) setLoadingMore(false); }
   }
-  return <div className="consent-presentation-surface space-y-3 border-t pt-4">
-    <Tabs value={view} onValueChange={value => {
+  const changeView = (value: string) => {
       if (VIEWS.some(tab => tab.value === value)) { setView(value as CommerceActivityView); setMoreError(null); setLoadingMore(false); }
-    }}>
+  };
+  return { view, changeView, items, nextCursor, loadMore, refresh, loading, loadingMore, error, moreError, data, extra };
+}
+
+export function ScopeCommerceActivity() { return <ScopeCommerceActivityView model={useScopeCommerceActivity()} />; }
+function ScopeCommerceActivityView({ model }: { model: ReturnType<typeof useScopeCommerceActivity> }) {
+  const { view, changeView, items, nextCursor, loadMore, refresh, loading, loadingMore, error, moreError, data, extra } = model;
+  return <div className="consent-presentation-surface space-y-3 border-t pt-4">
+    <Tabs value={view} onValueChange={changeView}>
       <TabsList className="w-full" aria-label="Payment history">{VIEWS.map(tab => <TabsTrigger key={tab.value} value={tab.value}>{tab.label}</TabsTrigger>)}</TabsList>
     <TabsContent value={view} aria-label={`${VIEWS.find(tab => tab.value === view)?.label} history`} aria-busy={loading || loadingMore}>
       {error || moreError ? <p data-consent-role="status" role="status" className="text-sm">{error || moreError}</p> : null}

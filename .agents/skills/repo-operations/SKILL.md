@@ -56,6 +56,8 @@ Non-owned surfaces:
 
 ## Workflow
 
+Private GCP hosting shares one immutable image. Follow `deployment-standard.md` and the dev runbook's hosted-pilot section: rendered assignments or shared inference readiness never replace durable admission, the spend ceiling, per-owner identity/custody and reconciled cleanup. The runbook also owns managed-operator erasure, frozen inspection and exact approved writer-operation readback. Its failed-bucket reconciliation procedure preserves the original journal and requires native absence before a same-name retry.
+
 For existing private-pod image updates and explicitly authorized legacy bootstrap,
 follow `docs/reference/operations/dev-pod-first-light-runbook.md`, section
 "Maintaining an existing owner's software release". Resolve owner-cloud placement

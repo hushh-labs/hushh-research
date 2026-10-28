@@ -1,0 +1,131 @@
+"use client";
+
+import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import { cn } from "@/lib/utils";
+
+// Lean top-bar control surface. Mirrors the ThemeToggleLean pill exactly:
+// a soft translucent track (no sky border, no heavy shadow, no blur) so every
+// top-app-bar control (back button, theme toggle, title pill, future actions)
+// shares one minimal, symmetric aesthetic. h-9 / rounded-full / px to match.
+// Every top-bar control shares one lean translucent track that matches the
+// bottom nav pill and the back button exactly: soft fill (bg-black/[0.05]
+// light, bg-white/[0.07] dark), no border, no shadow, no blur. Icon controls
+// carry the muted eyebrow tone on the stroke and warm to full foreground on
+// hover; pill controls add horizontal padding + label text.
+const shellActionSurfaceVariants = cva(
+  // `touch-manipulation` removes the iOS ~300ms double-tap delay that made the
+  // top-bar back/close controls feel like they needed a second tap. Kept on the
+  // base so every shell control (back, close, theme, profile) gets it.
+  "shell-action-surface group/shell-action relative isolate inline-flex touch-manipulation overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color] duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
+  {
+    variants: {
+      variant: {
+        icon:
+          "h-9 w-9 items-center justify-center text-muted-foreground hover:text-foreground",
+        avatar:
+          "h-11 w-11 items-center justify-center !border-transparent !bg-transparent p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-transparent",
+        pill:
+          "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-semibold tracking-normal text-foreground sm:gap-2 sm:px-4 sm:text-base",
+      },
+    },
+    defaultVariants: {
+      variant: "icon",
+    },
+  }
+);
+
+// A press is flat: the ripple plus the hover fill, never a scale.
+export const SHELL_ICON_BUTTON_CLASSNAME = shellActionSurfaceVariants({
+  variant: "icon",
+});
+export const SHELL_PILL_TRIGGER_CLASSNAME = shellActionSurfaceVariants({
+  variant: "pill",
+});
+
+export interface ShellActionSurfaceProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof shellActionSurfaceVariants> {
+  /**
+   * Ripple tint. The glass default reads on the translucent track; a control
+   * painted with a solid fill (the composer's Send) passes "fill" so the
+   * ripple takes the label colour and stays visible on that fill.
+   */
+  rippleEffect?: "glass" | "fill";
+  /** Animated artwork supplies its own feedback and must not paint a halo. */
+  ripple?: boolean;
+  badge?: React.ReactNode;
+  badgeClassName?: string;
+  contentClassName?: string;
+  rippleClassName?: string;
+  wrapperClassName?: string;
+}
+
+export const ShellActionSurfaceBase = React.forwardRef<
+  HTMLButtonElement,
+  ShellActionSurfaceProps
+>(function ShellActionSurfaceBase(
+  {
+    variant = "icon",
+    className,
+    wrapperClassName,
+    contentClassName,
+    rippleClassName,
+    badge,
+    badgeClassName,
+    children,
+    type = "button",
+    rippleEffect = "glass",
+    ripple = true,
+    ...props
+  },
+  ref
+) {
+  return (
+    <span className={cn("relative inline-flex shrink-0 overflow-visible align-middle", wrapperClassName)}>
+      <button
+        ref={ref}
+        type={type}
+        className={cn(
+          shellActionSurfaceVariants({ variant }),
+          className,
+        )}
+        {...props}
+      >
+        <span
+          className={cn(
+            "pointer-events-none relative z-10 inline-flex min-w-0 max-w-full items-center justify-center",
+            variant === "pill" && "gap-1.5 sm:gap-2",
+            // The photo stays visually 32px while the shared button owns the
+            // full 44px target in both Chat and the ordinary top shell.
+            variant === "avatar" && "h-8 w-8 rounded-full bg-[color:var(--app-accent)] transition-colors group-hover/shell-action:bg-[color:var(--app-accent-hover)]",
+            contentClassName
+          )}
+        >
+          {children}
+        </span>
+        {ripple ? <MaterialRipple
+          variant="blue"
+          effect={rippleEffect}
+          disabled={props.disabled}
+          className={cn("z-10", rippleClassName)}
+        /> : null}
+      </button>
+      {badge ? (
+        <span
+          className={cn(
+            // A fixed corner overlay on the icon's own box, not the wrapper:
+            // the trigger's footprint never changes size when a badge
+            // appears or disappears, so sibling shell actions never shift.
+            "pointer-events-none absolute -right-1 -top-1 z-20",
+            badgeClassName
+          )}
+        >
+          {badge}
+        </span>
+      ) : null}
+    </span>
+  );
+});

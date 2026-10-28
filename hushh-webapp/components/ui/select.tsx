@@ -7,11 +7,56 @@ import { Select as SelectPrimitive } from "radix-ui"
 import { cn } from "@/lib/utils"
 import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 import { useNativeOverlayCollisionPadding } from "@/lib/capacitor/native-presentation-regions"
+import { nativeOwnedChoicesEnabled } from "@/lib/capacitor/native-presentation-policy"
+import { collectImmediateChoices } from "@/lib/capacitor/native-choice-items"
+import { NativeChoiceTriggerContext } from "@/lib/capacitor/use-native-owned-choice"
+import { NativeChoiceController, type NativeChoiceControl } from "@/lib/capacitor/native-choice-controller"
 
 function Select({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
-  return <SelectPrimitive.Root data-slot="select" {...props} />
+  const { value: authoredValue, onValueChange, open, onOpenChange } = props
+  // The trigger/form renderer stays React. Freeze family capability here;
+  // authorize each popup on its user intent, after auth/vault restoration.
+  const [native] = React.useState(() => nativeOwnedChoicesEnabled() &&
+    (props.value !== undefined || props.defaultValue !== undefined) &&
+    props.open === undefined && props.onOpenChange === undefined && props.defaultOpen !== true && props.dir === undefined &&
+    immediateChoices(props.children) !== null)
+  const [localValue, setLocalValue] = React.useState(props.defaultValue ?? "")
+  const [fallback, setFallback] = React.useState(false)
+  const [fallbackOpen, setFallbackOpen] = React.useState(false)
+  const [control, setControl] = React.useState<NativeChoiceControl | null>(null)
+  const trigger = React.useRef<HTMLButtonElement | null>(null)
+  const bindTrigger = React.useCallback((node: HTMLButtonElement | null) => { trigger.current = node }, [])
+  const current = React.useRef<NativeChoiceControl | null>(null)
+  const value = props.value ?? localValue
+  const publish = React.useCallback((next: NativeChoiceControl | null) => {
+    current.current = next
+    setControl(next)
+    if (next?.fallback) { setFallbackOpen(next.presented); setFallback(true) }
+  }, [])
+  const updateValue = React.useCallback((next: string) => {
+    if (next === value) return
+    if (authoredValue === undefined) setLocalValue(next)
+    onValueChange?.(next)
+  }, [authoredValue, value, onValueChange])
+  const requestOpen = React.useCallback((open: boolean) => current.current?.requestOpen(open), [])
+  const eligible = open === undefined && onOpenChange === undefined && props.dir === undefined
+  return <NativeChoiceTriggerContext.Provider value={native && !fallback ? { ...control, presented: control?.presented ?? false,
+    blocked: control?.blocked ?? false, committed: control !== null, bindTrigger } : null}>
+    <SelectPrimitive.Root data-slot="select" {...props}
+      value={native ? value : props.value} onValueChange={native ? updateValue : props.onValueChange}
+      open={native ? fallback ? open ?? fallbackOpen : false : open}
+      onOpenChange={native ? fallback ? next => { setFallbackOpen(next); onOpenChange?.(next) } : requestOpen : onOpenChange}>
+      {props.children}
+      <NativeChoiceController active={native && !fallback} options={native && eligible ? immediateChoices(props.children) : null}
+        value={value} disabled={props.disabled === true} onValueChange={updateValue} publish={publish} trigger={trigger} />
+    </SelectPrimitive.Root>
+  </NativeChoiceTriggerContext.Provider>
+}
+
+function immediateChoices(children: React.ReactNode) {
+  return collectImmediateChoices(children, { trigger: SelectTrigger, content: SelectContent, item: SelectItem, group: SelectGroup })
 }
 
 function SelectGroup({
@@ -30,10 +75,24 @@ function SelectTrigger({
   className,
   size = "default",
   children,
+  ref,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
   size?: "sm" | "default"
 }) {
+  const native = React.useContext(NativeChoiceTriggerContext)
+  const bindTrigger = native?.bindTrigger
+  const composedRef = React.useCallback((node: HTMLButtonElement | null) => {
+    bindTrigger?.(node)
+    if (typeof ref === "function") {
+      const cleanup = ref(node)
+      if (typeof cleanup === "function") return () => {
+        bindTrigger?.(null)
+        cleanup()
+      }
+    } else if (ref) ref.current = node
+    return undefined
+  }, [ref, bindTrigger])
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
@@ -43,6 +102,11 @@ function SelectTrigger({
         className
       )}
       {...props}
+      ref={composedRef}
+      data-native-owned-choice={native?.committed ? native.blocked ? "blocked" : native.presented ? "presented" : "ready" : undefined}
+      {...(native && (native.presented || native.blocked) ? { "aria-expanded": native.presented, "aria-haspopup": "dialog" as const,
+        "aria-controls": undefined, "data-state": native.presented ? "open" : "closed",
+        "aria-busy": native.blocked || undefined } : {})}
     >
       {children}
       <SelectPrimitive.Icon asChild>
