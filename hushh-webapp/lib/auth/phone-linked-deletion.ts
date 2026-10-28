@@ -63,8 +63,15 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
   if (!user) throw new Error("Sign in before verifying a phone number.");
   const current = () => ports.user()?.uid === user.uid;
   const retained = input.testCode ? null : ports.retained();
-  if (!input.testCode && retained?.userId !== user.uid) throw linkedError("PHONE_LINKED_PROOF_REQUIRED");
-  if (retained) ports.requireOwner(retained.userId, retained.epoch);
+  if (!input.testCode) {
+    // AuthProvider's owner fence binds the retained proof to this signed-in attempt.
+    try {
+      if (!retained) throw new Error("No retained phone proof.");
+      ports.requireOwner(retained.userId, retained.epoch);
+    } catch {
+      throw linkedError("PHONE_LINKED_PROOF_REQUIRED");
+    }
+  }
   const proof: LinkedDeletionProof = input.testCode ? { test_code: input.testCode } : { phone_id_token: retained!.token };
   // A typed refusal is definite; a lost response is read back, never re-sent.
   let receipt = await PhoneRecoveryService.confirmLinkedDeletion(user, input.operationId, input.phoneNumber, proof, current)
