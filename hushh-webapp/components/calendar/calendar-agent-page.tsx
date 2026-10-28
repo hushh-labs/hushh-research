@@ -41,6 +41,7 @@ import presentationStyles from "@/components/calendar/calendar-presentation.modu
 
 import { useAuth } from "@/hooks/use-auth";
 import { HushhAuth } from "@/lib/capacitor";
+import { pollCalendarMeetingGrant, reconcileUnsettledCalendarPopup } from "@/lib/calendar/calendar-oauth-settlement";
 import {
   clearCalendarSetupOAuthReturn,
   markCalendarSetupOAuthReturn,
@@ -274,27 +275,13 @@ export function CalendarAgentPage({
     const operationOwnerId = activeOwnerIdRef.current;
     if (meetingFiles && targetAccountId) {
       const lifetime = popupLifetimeRef.current;
-      const isCurrent = () => !lifetime?.signal.aborted && identityRef.current === identity &&
-        activeOwnerIdRef.current === operationOwnerId && latestOwnerIdRef.current === operationOwnerId;
-      const reconcileMeetingGrant = async () => {
-        for (let attemptNumber = 0; attemptNumber < 5; attemptNumber += 1) {
-          if (!isCurrent() || !operationOwnerId || !latestUserRef.current) return;
-          try {
-            const idToken = await latestUserRef.current.getIdToken();
-            if (!isCurrent()) return;
-            const next = await GoogleCalendarService.status(idToken, operationOwnerId);
-            if (!isCurrent()) return;
-            if (hasCalendarMeetingFileGrant(next, targetAccountId, expectedSubjectSha256, priorGrantGeneration)) {
-              setStatus(next);
-              morphyToast.success("Recording and notes access enabled.");
-              return;
-            }
-          } catch { /* A later bounded status read may observe the saved grant. */ }
-          await new Promise(resolve => window.setTimeout(resolve, 1500));
-        }
-        if (isCurrent()) morphyToast.error("Recording and notes access could not be verified. Refresh before trying again.");
-      };
-      void reconcileMeetingGrant();
+      void pollCalendarMeetingGrant({
+        ownerId: operationOwnerId, targetAccountId, expectedSubjectSha256, priorGrantGeneration,
+        getUser: () => latestUserRef.current,
+        isCurrent: () => !lifetime?.signal.aborted && identityRef.current === identity &&
+          activeOwnerIdRef.current === operationOwnerId && latestOwnerIdRef.current === operationOwnerId,
+        onVerified: setStatus,
+      });
       return;
     }
     setStatus((current) => ({
@@ -336,54 +323,6 @@ export function CalendarAgentPage({
     if (additional) void reconcile(2);
     else window.setTimeout(() => { void reconcile(2); }, 1500);
     morphyToast.success("Google Calendar connected.");
-  };
-
-  /** Expiry or an explicit cancel: re-read status before saying anything. */
-  const reconcileUnsettledPopup = async (input: {
-    operationOwnerId: string;
-    accessLevel: "read" | "manage";
-    additional: boolean;
-    meetingFiles?: boolean;
-    targetAccountId?: string;
-    expectedSubjectSha256?: string;
-    priorGrantGeneration?: string;
-    callbackRecorded: boolean;
-    expired: boolean;
-  }) => {
-    const currentStatus = await refresh().catch(() => null);
-    if (identityRef.current !== identity || activeOwnerIdRef.current !== input.operationOwnerId) return;
-    if (
-      input.meetingFiles && input.targetAccountId && currentStatus &&
-      Boolean(input.priorGrantGeneration) && hasCalendarMeetingFileGrant(currentStatus, input.targetAccountId, input.expectedSubjectSha256, input.priorGrantGeneration)
-    ) {
-      if (!input.callbackRecorded) trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
-      morphyToast.success("Recording and notes access enabled.");
-      return;
-    }
-    if (
-      !input.meetingFiles && !input.additional && currentStatus?.connected &&
-      (input.accessLevel !== "manage" ||
-        currentStatus.access_level === "manage")
-    ) {
-      if (!input.callbackRecorded) {
-        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
-      }
-      morphyToast.success("Google Calendar connected.");
-      return;
-    }
-    if (!input.callbackRecorded) {
-      trackEvent("one_calendar_action", {
-        route_id: "one_calendar",
-        action: "connected",
-        result: input.expired ? "error" : "expected_error",
-      });
-    }
-    // Cancelling is the person's choice: end quietly. Only expiry explains.
-    if (input.expired) {
-      morphyToast.error(
-        "Calendar connection is taking too long. Check your connection and try again.",
-      );
-    }
   };
 
   const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false, additional = false,
@@ -571,7 +510,7 @@ export function CalendarAgentPage({
         else if (settled.outcome === "failed")
           morphyToast.error(settled.message || "Google Calendar could not be connected.");
       } else {
-        await reconcileUnsettledPopup({
+        await reconcileUnsettledCalendarPopup({
           operationOwnerId,
           accessLevel,
           additional,
@@ -581,7 +520,7 @@ export function CalendarAgentPage({
           priorGrantGeneration: meetingAccount?.grant_generation,
           callbackRecorded: Boolean(callbackSettlement),
           expired: finished === "expired",
-        });
+        }, refresh, () => identityRef.current === identity && activeOwnerIdRef.current === operationOwnerId);
       }
       if (identityRef.current === identity && activeOwnerIdRef.current === operationOwnerId) setBusy(false);
     } catch (error) {

@@ -198,6 +198,66 @@ class CalendarMeetingArtifacts:
             source_url=source_url,
         )
 
+    async def _browse_file_facts(self, ref, token, check):
+        source_kwargs = {"file_id": ref["file_id"], "access_token": token}
+        if ref.get("resource_key"):
+            source_kwargs["resource_key"] = ref["resource_key"]
+        source_facts = await self.drive.get_file_facts(**source_kwargs)
+        await check()
+        facts = source_facts
+        target_kwargs = source_kwargs
+        shortcut_source = source_facts["mimeType"] == "application/vnd.google-apps.shortcut"
+        if shortcut_source:
+            shortcut = source_facts.get("shortcutDetails") or {}
+            target_id = shortcut.get("targetId")
+            if not isinstance(target_id, str):
+                raise ArtifactUnavailable("unverified")
+            target_kwargs = {"file_id": target_id, "access_token": token}
+            if shortcut.get("targetResourceKey"):
+                target_kwargs["resource_key"] = shortcut["targetResourceKey"]
+            facts = await self.drive.get_file_facts(**target_kwargs)
+            await check()
+            if facts["mimeType"] != shortcut.get("targetMimeType"):
+                raise ArtifactUnavailable("source_changed")
+        return source_facts, facts, source_kwargs, target_kwargs, shortcut_source
+
+    async def _preview_browse_note(self, ref, token, check, result, shortcut_source):
+        if shortcut_source:
+            result["preview_state"] = "unavailable"
+            return
+        try:
+            before = await self.drive.get_metadata(
+                file_id=ref["file_id"],
+                access_token=token,
+                require_app_authorized=False,
+                require_genai_eligibility=False,
+            )
+            await check()
+            text_mime, raw = await self.drive.read_live_bytes(
+                file_id=ref["file_id"], mime_type=before.mime_type, access_token=token
+            )
+            await check()
+            after = await self.drive.get_metadata(
+                file_id=ref["file_id"],
+                access_token=token,
+                require_app_authorized=False,
+                require_genai_eligibility=False,
+            )
+            await check()
+            if before != after:
+                raise ArtifactUnavailable("source_changed")
+            if text_mime in {"text/plain", "text/markdown"}:
+                note = raw.decode("utf-8")
+                result.update(
+                    text=note[:40000],
+                    truncated=len(note) > 40000,
+                    text_format="markdown" if text_mime == "text/markdown" else "plain",
+                )
+            else:
+                result["preview_state"] = "unsupported_format"
+        except (DriveReadError, UnicodeError, ArtifactUnavailable):
+            result["preview_state"] = "unavailable"
+
     async def _file(self, user_id, grant: CalendarGrantIdentity, ref, *, content, for_chat=False):
         if for_chat:
             return await self._file_for_chat(user_id, grant, ref, content=content)
@@ -219,27 +279,15 @@ class CalendarMeetingArtifacts:
             ):
                 raise ArtifactUnavailable("permission_required")
             await check()
-            source_kwargs = {"file_id": ref["file_id"], "access_token": token}
-            if ref.get("resource_key"):
-                source_kwargs["resource_key"] = ref["resource_key"]
-            source_facts = await self.drive.get_file_facts(**source_kwargs)
-            await check()
-            facts = source_facts
-            target_kwargs = source_kwargs
-            shortcut_source = source_facts["mimeType"] == "application/vnd.google-apps.shortcut"
+            (
+                source_facts,
+                facts,
+                source_kwargs,
+                target_kwargs,
+                shortcut_source,
+            ) = await self._browse_file_facts(ref, token, check)
             if shortcut_source:
-                shortcut = source_facts.get("shortcutDetails") or {}
-                target_id = shortcut.get("targetId")
-                if not isinstance(target_id, str):
-                    raise ArtifactUnavailable("unverified")
-                target_kwargs = {"file_id": target_id, "access_token": token}
-                if shortcut.get("targetResourceKey"):
-                    target_kwargs["resource_key"] = shortcut["targetResourceKey"]
-                facts = await self.drive.get_file_facts(**target_kwargs)
-                await check()
-                if facts["mimeType"] != shortcut.get("targetMimeType"):
-                    raise ArtifactUnavailable("source_changed")
-                result["file_id"] = target_id
+                result["file_id"] = target_kwargs["file_id"]
             mime = facts["mimeType"]
             if (
                 ref["kind"] == "recording"
@@ -265,41 +313,8 @@ class CalendarMeetingArtifacts:
                 if can_download
                 else None,
             )
-            if content and ref["kind"] == "notes" and can_download and shortcut_source:
-                result["preview_state"] = "unavailable"
-            if content and ref["kind"] == "notes" and can_download and not shortcut_source:
-                try:
-                    before = await self.drive.get_metadata(
-                        file_id=ref["file_id"],
-                        access_token=token,
-                        require_app_authorized=False,
-                        require_genai_eligibility=False,
-                    )
-                    await check()
-                    text_mime, raw = await self.drive.read_live_bytes(
-                        file_id=ref["file_id"], mime_type=before.mime_type, access_token=token
-                    )
-                    await check()
-                    after = await self.drive.get_metadata(
-                        file_id=ref["file_id"],
-                        access_token=token,
-                        require_app_authorized=False,
-                        require_genai_eligibility=False,
-                    )
-                    await check()
-                    if before != after:
-                        raise ArtifactUnavailable("source_changed")
-                    if text_mime in {"text/plain", "text/markdown"}:
-                        note = raw.decode("utf-8")
-                        result.update(
-                            text=note[:40000],
-                            truncated=len(note) > 40000,
-                            text_format="markdown" if text_mime == "text/markdown" else "plain",
-                        )
-                    else:
-                        result["preview_state"] = "unsupported_format"
-                except (DriveReadError, UnicodeError, ArtifactUnavailable):
-                    result["preview_state"] = "unavailable"
+            if content and ref["kind"] == "notes" and can_download:
+                await self._preview_browse_note(ref, token, check, result, shortcut_source)
             # A file can stay viewable when download or text extraction is prohibited.
             if await self.drive.get_file_facts(**target_kwargs) != facts or (
                 target_kwargs != source_kwargs
