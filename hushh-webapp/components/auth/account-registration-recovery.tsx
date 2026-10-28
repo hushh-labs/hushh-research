@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import type { AccountRegistrationRecovery } from "@/lib/auth/account-registration";
+import { registrationAdvancesAlone } from "@/lib/auth/account-recovery-cadence";
 import { snapshotAuthSessionGeneration, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { withDeadline } from "@/lib/utils/with-deadline";
+import { RegistrationProgress } from "./account-deletion-progress";
 
 const PROVIDERS = [
   { id: "google.com", label: "Verify with Google" },
@@ -35,7 +37,10 @@ export function AccountRegistrationRecoveryPanel({ user, recovery, onRetry, onSi
   const providers = PROVIDERS.filter(provider => user.providerData?.some(item => item.providerId === provider.id));
   const title = review ? "Start fresh?" : recovery.state === "fresh_identity_required"
     ? "Verify it’s you" : recovery.state === "action_required"
-      ? "Your previous cleanup needs attention" : "Your account is finishing cleanup";
+      ? "Your previous cleanup needs attention" : recovery.state === "waiting_for_identity"
+        ? "Your account was deleted" : "Your account is finishing cleanup";
+  // The AuthProvider re-checks these states itself; everything else waits for the person.
+  const advancesAlone = registrationAdvancesAlone(recovery);
 
   async function operate(provider?: typeof PROVIDERS[number]["id"]) {
     const episode = snapshotAuthSessionGeneration();
@@ -91,8 +96,9 @@ export function AccountRegistrationRecoveryPanel({ user, recovery, onRetry, onSi
           : recovery.state === "action_required"
             ? "We need to confirm the previous cloud and access cleanup before you can start again. Your deleted information stays deleted."
             : recovery.state === "waiting_for_identity"
-              ? `Your old account stays closed. You can verify your sign-in after ${new Date(recovery.retry_at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}.`
-              : "Cleanup continues if you close this window. Refresh its status when you return."}</p>
+              ? "Your information was erased. For your security, you can verify your sign-in and start fresh in a moment."
+              : "Cleanup continues if you close this window."}</p>
+      {recovery.state !== "action_required" && <RegistrationProgress recovery={recovery} />}
       {review && <label className="mt-5 flex items-start gap-3 text-sm leading-6 text-foreground">
         <input type="checkbox" className="mt-1 size-4 shrink-0" disabled={busy} checked={acceptedDigest === review.digest}
           onChange={event => setAcceptedDigest(event.target.checked ? review.digest : null)} />
@@ -104,7 +110,7 @@ export function AccountRegistrationRecoveryPanel({ user, recovery, onRetry, onSi
           onClick={() => void operate()}>{busy ? "Creating your account…" : "Create new account"}</button>}
         {recovery.state === "fresh_identity_required" && providers.map(provider => <button key={provider.id} className={PRIMARY}
           type="button" disabled={busy} onClick={() => void operate(provider.id)}>{busy ? "Verifying…" : provider.label}</button>)}
-        <button className={SECONDARY} type="button" disabled={busy} onClick={onRetry}>Refresh status</button>
+        {!advancesAlone && <button className={SECONDARY} type="button" disabled={busy} onClick={onRetry}>Refresh status</button>}
         <button className={SECONDARY} type="button" disabled={busy} onClick={onSignOut}>Sign out</button>
       </div>
     </section>
