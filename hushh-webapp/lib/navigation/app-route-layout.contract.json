@@ -3004,10 +3004,18 @@
             "mode": "replace",
             "transitionMode": "contextual"
           }
+        },
+        {
+          "href": "/one/kai?tab=portfolio",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
       "kind": "parent",
-      "reason": "Saved analysis opens in the shared History sheet; overlay dismissal and the active Stocks Back layer close it before the authored route parent. Inactive Finance panes release the layer."
+      "reason": "Finance sheets dismiss before the authored route parent. Sharing review returns to its selection layer before leaving Portfolio; confirmations consume Back while dispatch settles. Saved analysis History and inactive pane cleanup retain their existing ownership."
     }
   },
   {

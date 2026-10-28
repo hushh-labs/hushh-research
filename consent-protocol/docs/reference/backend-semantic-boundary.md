@@ -1,5 +1,21 @@
 # Backend Semantic Boundary
 
+### Declared: recipient-requested Finance object review
+
+`one_adk/finance_share_context.py` admits an explicit recipient-selected curated
+Finance view into One's existing shared-information turn. The model owns the
+explanation and assessment; the host does not compute a recommendation or return
+a canned analysis. Deterministic support validates exact participants, approved
+sections, amounts, independent owner model permission, revision/digest and current
+grant lifetime. No tools or memory writes run from that shared-context turn.
+`consent_continuation_instruction` contributes the current source and bounded
+presentation facts to the existing manifest-backed One instruction; it creates
+no additional router or agent. Revocation, expiry, unavailable authority and
+revision changes remove derived context/history through the existing consent
+redaction owner. The post-generation guard records `one.finance_review_access_ended`
+when it suppresses a result because current authority was lost. No fallback
+model assessment is substituted.
+
 
 ## Visual Context
 

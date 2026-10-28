@@ -370,7 +370,8 @@
     "431_phone_recovery_actions.sql",
     "432_document_delivery_background.sql",
     "433_connect_directory_presence.sql",
-    "434_calendar_guest_photo_access.sql"
+    "434_calendar_guest_photo_access.sql",
+    "435_finance_connection_sharing.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -785,6 +786,7 @@
     "431_phone_recovery_actions.sql": "rollback/431_phone_recovery_actions.rollback.sql",
     "432_document_delivery_background.sql": "rollback/432_document_delivery_background.rollback.sql",
     "433_connect_directory_presence.sql": "rollback/433_connect_directory_presence.rollback.sql",
-    "434_calendar_guest_photo_access.sql": "rollback/434_calendar_guest_photo_access.rollback.sql"
+    "434_calendar_guest_photo_access.sql": "rollback/434_calendar_guest_photo_access.rollback.sql",
+    "435_finance_connection_sharing.sql": "rollback/435_finance_connection_sharing.rollback.sql"
   }
 }
