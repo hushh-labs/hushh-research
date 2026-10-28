@@ -361,31 +361,53 @@ def test_historical_checkout_keeps_the_current_handoff_and_its_resolver(tmp_path
     )
     directory = tmp_path / "scripts/ci"
     directory.mkdir(parents=True)
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+
+    def git(*arguments):
+        return subprocess.check_output(  # noqa: S603 - fixed Git commands in the owned fixture checkout.
+            ["git", *arguments], cwd=tmp_path, env=environment, text=True, timeout=10
+        ).strip()
+
+    git("init", "--quiet")
+    git("config", "user.name", "Release fixture")
+    git("config", "user.email", "release-fixture@example.invalid")
+    (directory / "historical").write_text("historical application checkout\n")
+    git("add", ".")
+    git("commit", "--quiet", "-s", "-m", "historical application")
+    historical = git("rev-parse", "HEAD")
     for name in names:
         shutil.copy2(REPO_ROOT / "scripts/ci" / name, directory / name)
+    git("add", ".")
+    git("commit", "--quiet", "-s", "-m", "current release helpers")
+    environment.update(GITHUB_SHA=git("rev-parse", "HEAD"), RUNNER_TEMP=str(tmp_path / "runner"))
     # Other tool bundles are tested by their own release contracts. Execute
     # these real copy commands across an empty historical scripts directory.
     adapters = (
         'cp() { case "${1##*/}" in '
         + "|".join(names)
-        + ') command cp "$@" ;; *) return 0 ;; esac; };\ngit() { return 0; };\n'
+        + ') command cp "$@" ;; *) return 0 ;; esac; };\n'
     )
-    for index, script in enumerate(scripts):
-        if index:
-            for name in names:
-                (directory / name).unlink()
-        script = re.sub(r"\$\{\{[^}]+\}\}", "false", script)
-        result = subprocess.run(  # noqa: S603 - real copy steps, isolated synthetic checkout.
-            [shutil.which("bash"), "-c", adapters + script],
-            cwd=tmp_path,
-            env={**os.environ, "RUNNER_TEMP": str(tmp_path / "runner")},
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        assert result.returncode == 0, result.stderr
-    for name in names:
-        assert (directory / name).read_bytes() == (REPO_ROOT / "scripts/ci" / name).read_bytes()
+    try:
+        for script in scripts:
+            script = script.replace("${{ steps.resolve-sha.outputs.sha }}", historical)
+            script = re.sub(r"\$\{\{[^}]+\}\}", "false", script)
+            result = subprocess.run(  # noqa: S603 - real copy steps, isolated synthetic checkout.
+                [shutil.which("bash"), "-c", adapters + script],
+                cwd=tmp_path,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            assert result.returncode == 0, result.stderr
+        assert git("rev-parse", "HEAD") == historical
+        for name in names:
+            assert (directory / name).read_bytes() == (REPO_ROOT / "scripts/ci" / name).read_bytes()
+    finally:
+        preserved = tmp_path / "runner/capacity-main"
+        if preserved.exists():
+            assert preserved.resolve().is_relative_to(tmp_path.resolve())
+            git("worktree", "remove", "--force", str(preserved))
 
 
 @pytest.mark.parametrize(

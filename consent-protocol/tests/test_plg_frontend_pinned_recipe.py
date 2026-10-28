@@ -241,3 +241,60 @@ def test_real_derived_sign_in_helper_in_child_bash(tmp_path, mode):
         assert artifact.read_text() == (
             "123-abc.apps.googleusercontent.com" if mode == "present" else ""
         )
+
+
+@pytest.mark.parametrize("missing_passkey", [False, True])
+def test_shared_public_artifact_loader_preserves_values_and_refuses_missing_input(
+    tmp_path, missing_passkey
+):
+    workspace = tmp_path / "public build inputs"
+    workspace.mkdir()
+    sentinel = tmp_path / "injection-sentinel"
+    receipt = (
+        "https://img.example.invalid/{domain}?token=public&fallback=$(touch "
+        + shlex.quote(sentinel.as_posix())
+        + ")"
+    )
+    artifacts = {
+        ".google-contacts-client-id": "123-contacts.apps.googleusercontent.com",
+        ".passkey-rp-id": "one.example.invalid",
+        ".google-sign-in-client-id": "123-signin.apps.googleusercontent.com",
+        ".receipt-logo-url-template": receipt,
+        ".google-native-connectors/NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID": "ios",
+        ".google-native-connectors/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID": "android",
+        ".google-native-connectors/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI": "com.hussh.app:/oauth2redirect",
+        ".google-native-connectors/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED": "true",
+    }
+    for name, value in artifacts.items():
+        target = workspace / name
+        target.parent.mkdir(exist_ok=True)
+        target.write_text(value)
+    if missing_passkey:
+        (workspace / ".passkey-rp-id").unlink()
+    script = (
+        "source scripts/deploy/frontend-google-native-config.sh\n"
+        + "load_frontend_public_client_artifacts "
+        + shlex.quote(workspace.as_posix())
+        + '\nprintf "%s\\0" "$GOOGLE_CONTACTS_CLIENT_ID_VAL" "$PASSKEY_RP_ID" '
+        + '"$GOOGLE_SIGN_IN_CLIENT_ID_VAL" "$RECEIPT_LOGO_URL_TEMPLATE_VAL" '
+        + '"$GOOGLE_IOS_CONNECTOR_CLIENT_ID_VAL" "$GOOGLE_ANDROID_CONNECTOR_CLIENT_ID_VAL" '
+        + '"$GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI_VAL" "$GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED_VAL"'
+    )
+    environment = os.environ.copy()
+    environment.pop("BASH_ENV", None)
+    result = subprocess.run(  # noqa: S603 -- fixed owned helper and quoted synthetic workspace.
+        [shutil.which("bash") or "bash", "-euo", "pipefail", "-c", script],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if missing_passkey:
+        assert result.returncode != 0
+        assert "passkey RP ID resolver artifact is missing" in result.stdout
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.split("\0")[:-1] == list(artifacts.values())
+    assert not sentinel.exists()
