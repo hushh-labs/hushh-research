@@ -9,6 +9,7 @@ import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 type AiPlacement = "loading" | "unknown" | "shared" | "gcp" | "azure" | "pending";
 type PlacementObservation = {
   visit: () => () => boolean;
+  revision: number;
   placement: AiPlacement;
   ownCloudProject: string | null;
 };
@@ -19,17 +20,17 @@ export function useAiPlacement(
   resetVerification: (value: false) => void,
 ) {
   const [observation, setObservation] = useState<PlacementObservation | null>(null);
-  // The guard changes with the feature visit and authenticated owner. Do not
-  // expose an earlier visit's placement during the render before effects run.
-  const currentObservation = observation?.visit === captureOwnerGuard ? observation : null;
+  const [refreshRevision, setRefreshRevision] = useState(0);
+  // Hide an earlier visit or refresh during the render before effects run.
+  const currentObservation = observation?.visit === captureOwnerGuard && observation.revision === refreshRevision
+    ? observation : null;
   const placement = currentObservation?.placement ?? "loading";
   const ownCloudProject = currentObservation?.ownCloudProject ?? null;
-  const [refreshRevision, setRefreshRevision] = useState(0);
   useEffect(() => {
     let cancelled = false;
     const ownerIsCurrent = captureOwnerGuard();
     if (!ownerIsCurrent()) return;
-    setObservation({ visit: captureOwnerGuard, placement: "loading", ownCloudProject: null });
+    setObservation({ visit: captureOwnerGuard, revision: refreshRevision, placement: "loading", ownCloudProject: null });
     resetVerification(false);
     void ApiService.getPersonalAgentStatus()
       .then((status) => {
@@ -46,6 +47,7 @@ export function useAiPlacement(
                 : "unknown";
         setObservation({
           visit: captureOwnerGuard,
+          revision: refreshRevision,
           placement: nextPlacement,
           ownCloudProject: status.hostingMode === "byoc" && provider
             ? (status.cloudProject ?? null)
@@ -54,7 +56,7 @@ export function useAiPlacement(
       })
       .catch(() => {
         if (!cancelled && ownerIsCurrent()) {
-          setObservation({ visit: captureOwnerGuard, placement: "unknown", ownCloudProject: null });
+          setObservation({ visit: captureOwnerGuard, revision: refreshRevision, placement: "unknown", ownCloudProject: null });
         }
       });
     return () => {

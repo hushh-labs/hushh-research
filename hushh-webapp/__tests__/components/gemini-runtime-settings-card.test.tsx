@@ -138,7 +138,9 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     }, { initialProps: { userId: "owner-a" } });
 
     await waitFor(() => expect(hook.result.current.placement).toBe("shared"));
+    const refreshRender = renders.length;
     act(() => hook.result.current.refreshPlacement());
+    expect(renders[refreshRender]).toBe("loading");
     await waitFor(() => expect(getPersonalAgentStatusMock).toHaveBeenCalledTimes(2));
     publishValidatedAuthSessionOwner("owner-b");
     const replacementRender = renders.length;
