@@ -54,6 +54,14 @@ selection, shortening, Unicode and marked text; a secure-field case and three
 existing editor-lifecycle checks also passed. A negative control reproducing the
 old collapsed selection failed as expected. This is not physical-device or
 real-keyboard/IME acceptance. The installed device build remains `85d175b750`.
+The same projection was subsequently applied to native phone-number and OTP
+fields; its simulator check and the existing phone-scene lifecycle check passed.
+Main through `f103c68b38` was integrated in `46ee7ba445`, retaining both sides
+of the test manifest and regenerating the surface and runtime maps. The combined
+Back/Search contracts passed. Calendar's 72-case suite passed with `TZ=UTC`;
+seven date-dependent cases failed with this Mac's Pacific timezone, so that
+local test-environment assumption remains visible rather than being counted as
+an unconditional pass.
 
 The hard Vault gate is one React-owned credential journey, not the Profile
 password-change scene. Its reachable states are checking/retry, setup-required,
