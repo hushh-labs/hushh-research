@@ -16,6 +16,7 @@ from hushh_mcp.services.scope_commerce.provider_service import (
     CountryPayoutPolicy,
     ScopeCommerceProviderConfig,
 )
+from tests.helpers.isolated_postgres import is_isolated_command_url
 
 
 @pytest_asyncio.fixture
@@ -26,12 +27,7 @@ async def provider_postgres():
         from sqlalchemy.engine import make_url
 
         url = make_url(os.environ["ONE_COMMAND_TEST_DATABASE_URL"])
-        if (
-            url.host not in {"localhost", "127.0.0.1"}
-            or url.database != "command_test"
-            or url.username != "command_test"
-            or url.port not in {None, 5432}
-        ):
+        if not is_isolated_command_url(url):
             pytest.fail("Provider tests refuse a runtime database")
         dsn = url.set(drivername="postgresql").render_as_string(hide_password=False)
     if not dsn:
