@@ -92,28 +92,39 @@ export function registerFinanceScreenChecks(
           return line.width >= el.clientWidth - 85;
         })).toBe(true);
         const facts = holding.locator('dl[aria-label="Holding details"]');
-        const sheetBox = (await holding.boundingBox())!;
-        const chartBox = (await holdingChart.boundingBox())!;
-        const factsBox = (await facts.boundingBox())!;
-        const alignment = await holding.evaluate(element => {
-          const close = element.querySelector("[data-slot='drawer-close']")!.getBoundingClientRect();
-          const header = element.querySelector("[data-slot='drawer-header']")!.getBoundingClientRect();
-          const title = element.querySelector("[data-slot='drawer-title']")!.parentElement!.getBoundingClientRect();
-          return { hitSize: Math.min(close.width, close.height),
-            centerGap: Math.abs(close.y + close.height / 2 - title.y - title.height / 2),
-            rightInset: header.right - close.right };
-        });
-        expect(alignment.hitSize).toBeGreaterThanOrEqual(44);
-        expect(alignment.centerGap).toBeLessThanOrEqual(1);
-        expect(Math.abs(alignment.rightInset - 20)).toBeLessThanOrEqual(1);
-        if (width >= 1024) {
-          expect(sheetBox.width).toBeLessThanOrEqual(1120);
-          expect(Math.abs(sheetBox.x - (width - sheetBox.width) / 2)).toBeLessThanOrEqual(2);
-          expect(chartBox.x + chartBox.width).toBeLessThanOrEqual(factsBox.x);
-          expect(chartBox.width).toBeGreaterThan(400);
-        } else {
-          expect(factsBox.y).toBeGreaterThanOrEqual(chartBox.y + chartBox.height);
-        }
+        // Measure after the drawer settles and in one frame so its motion cannot
+        // put chart and facts measurements in different coordinate frames.
+        await expect.poll(() => holding.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
+        await expect(async () => {
+          const geometry = await holding.evaluate(element => {
+            const sheet = element.getBoundingClientRect();
+            const chart = element.querySelector('[aria-label="Price history"]')!.getBoundingClientRect();
+            const facts = element.querySelector('dl[aria-label="Holding details"]')!.getBoundingClientRect();
+            const close = element.querySelector("[data-slot='drawer-close']")!.getBoundingClientRect();
+            const header = element.querySelector("[data-slot='drawer-header']")!.getBoundingClientRect();
+            const title = element.querySelector("[data-slot='drawer-title']")!.parentElement!.getBoundingClientRect();
+            return {
+              sheetWidth: sheet.width, sheetX: sheet.x,
+              chartWidth: chart.width, chartRight: chart.right, chartBottom: chart.bottom,
+              factsX: facts.x, factsY: facts.y,
+              hitSize: Math.min(close.width, close.height),
+              centerGap: Math.abs(close.y + close.height / 2 - title.y - title.height / 2),
+              rightInset: header.right - close.right,
+            };
+          });
+          // Transformed coordinates can round a 44px target down by a tiny fraction.
+          expect(geometry.hitSize + 0.0001).toBeGreaterThanOrEqual(44);
+          expect(geometry.centerGap).toBeLessThanOrEqual(1);
+          expect(Math.abs(geometry.rightInset - 20)).toBeLessThanOrEqual(1);
+          if (width >= 1024) {
+            expect(geometry.sheetWidth).toBeLessThanOrEqual(1120);
+            expect(Math.abs(geometry.sheetX - (width - geometry.sheetWidth) / 2)).toBeLessThanOrEqual(2);
+            expect(geometry.chartRight).toBeLessThanOrEqual(geometry.factsX);
+            expect(geometry.chartWidth).toBeGreaterThan(400);
+          } else {
+            expect(geometry.factsY).toBeGreaterThanOrEqual(geometry.chartBottom);
+          }
+        }).toPass({ timeout: 5_000 });
         expect(await facts.locator("dd").first().evaluate(el => getComputedStyle(el).fontSize)).toBe("14px");
         await holding.screenshot({ path: test.info().outputPath(`holding-${width}-${theme}.png`) });
         await holding.getByRole("button", { name: "Edit Holding" }).click();
