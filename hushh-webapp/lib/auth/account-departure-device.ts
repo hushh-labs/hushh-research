@@ -3,6 +3,30 @@
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 import type { AccountCleanupOperation } from "./account-cleanup-operation";
+import type { AuthSessionInvalidationCode } from "./session-invalidation";
+
+const DEPARTED_ACCOUNT_CODES: ReadonlySet<AuthSessionInvalidationCode> = new Set([
+  "account_not_found", "account_deleted", "account_deleted_ready_to_start_fresh",
+  "account_deletion_finishing", "account_deletion_identity_retained",
+]);
+
+/**
+ * The backend or Firebase confirmed this account is gone (never an uncertain
+ * outcome or a disabled account), so the device key material it owned goes too.
+ * Durable device copies follow only a backend-confirmed erasure, never the
+ * broader Firebase account_not_found.
+ */
+export function purgeDepartedAccountDevice(ownerId: string, code: AuthSessionInvalidationCode): void {
+  if (!DEPARTED_ACCOUNT_CODES.has(code)) return;
+  void UserLocalStateService.clearDeviceSecretsForDeletedAccount(ownerId);
+  if (code === "account_not_found") return;
+  CacheSyncService.onAccountDeleted(ownerId);
+  void UserLocalStateService.clearForUser(ownerId, {
+    deleteDurableReceipts: true,
+  }).catch((error: unknown) => {
+    console.warn("[AuthProvider] Deleted-account device cleanup incomplete:", error);
+  });
+}
 
 type DepartureHint = { firebaseUid: string; ownerId: string; operationId: string };
 const KEY_PREFIX = "hushh.accountDeparture.v1.";

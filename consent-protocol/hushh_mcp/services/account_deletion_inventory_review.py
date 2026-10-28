@@ -21,6 +21,13 @@ ACCOUNT_ERASURE_SQL_LIMITS = text(
 class ProviderCleanupReviewChanged(RuntimeError):
     """The final approval no longer matches the exact provider inventory."""
 
+    def result(self) -> dict[str, bool | str]:
+        return {
+            "success": False,
+            "account_deleted": False,
+            "error_code": "ACCOUNT_DELETE_CLEANUP_REVIEW_CHANGED",
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderCleanupReview:

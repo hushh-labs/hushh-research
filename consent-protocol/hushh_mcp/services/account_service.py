@@ -24,9 +24,7 @@ from hushh_mcp.services.account_connection_sharing_erasure import (
 from hushh_mcp.services.account_deletion_inventory_review import (
     ACCOUNT_ERASURE_SQL_LIMITS as _ACCOUNT_ERASURE_SQL_LIMITS,
 )
-from hushh_mcp.services.account_deletion_inventory_review import (
-    ProviderCleanupReviewChanged,
-)
+from hushh_mcp.services.account_deletion_inventory_review import ProviderCleanupReviewChanged
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     _postgres_sqlstate,
@@ -2029,12 +2027,8 @@ class AccountService:
                 "error_code": "PHONE_TRANSFER_IN_PROGRESS",
                 "error": "PHONE_TRANSFER_IN_PROGRESS",
             }
-        except ProviderCleanupReviewChanged:
-            return {
-                "success": False,
-                "account_deleted": False,
-                "error_code": "ACCOUNT_DELETE_CLEANUP_REVIEW_CHANGED",
-            }
+        except ProviderCleanupReviewChanged as changed:
+            return changed.result()
         except PersonalAgentDeprovisioningRequiredError:
             from hushh_mcp.services.account_personal_agent_erasure import (
                 cloud_cleanup_required_result,

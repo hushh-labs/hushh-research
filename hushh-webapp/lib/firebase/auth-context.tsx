@@ -15,7 +15,7 @@
 "use client";
 
 import { resolveAccountLifecycleRecovery } from "@/lib/auth/account-lifecycle-recovery";
-import { rememberPendingAccountDeviceDeparture, purgeConfirmedAccountDeviceDeparture } from "@/lib/auth/account-departure-device";
+import { rememberPendingAccountDeviceDeparture, purgeConfirmedAccountDeviceDeparture, purgeDepartedAccountDevice } from "@/lib/auth/account-departure-device";
 
 import { requireUsablePhoneTestStart } from "@/lib/auth/phone-test-eligibility";
 
@@ -114,29 +114,6 @@ type AccountSessionValidationResult =
   | { outcome: "active"; principal: AccountPrincipalBinding }
   | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery; departure?: AuthSessionInvalidationCode; confirmedCleanup?: AccountCleanupOperation }
   | { outcome: "terminal"; code: AuthSessionInvalidationCode };
-
-const DEPARTED_ACCOUNT_CODES: ReadonlySet<AuthSessionInvalidationCode> = new Set([
-  "account_not_found", "account_deleted", "account_deleted_ready_to_start_fresh",
-  "account_deletion_finishing", "account_deletion_identity_retained",
-]);
-
-/**
- * The backend or Firebase confirmed this account is gone (never an uncertain
- * outcome or a disabled account), so the device key material it owned goes too.
- * Durable device copies follow only a backend-confirmed erasure, never the
- * broader Firebase account_not_found.
- */
-function purgeDepartedAccountDevice(ownerId: string, code: AuthSessionInvalidationCode): void {
-  if (!DEPARTED_ACCOUNT_CODES.has(code)) return;
-  void UserLocalStateService.clearDeviceSecretsForDeletedAccount(ownerId);
-  if (code === "account_not_found") return;
-  CacheSyncService.onAccountDeleted(ownerId);
-  void UserLocalStateService.clearForUser(ownerId, {
-    deleteDurableReceipts: true,
-  }).catch((error: unknown) => {
-    console.warn("[AuthProvider] Deleted-account device cleanup incomplete:", error);
-  });
-}
 
 function authInvalidationUserIdFromError(error: unknown): string | null {
   let current: unknown = error;
