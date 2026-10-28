@@ -8,10 +8,15 @@ from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth
 from api.routes.one import calendar
+from hushh_mcp.services.owner_placement_guard import hub_content_firebase, hub_content_owner
 
 
 @pytest.fixture(autouse=True)
 def shared_placement(monkeypatch):
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_deletion_lifecycle_service.AccountDeletionLifecycleService.is_tombstoned",
+        lambda _uid: False,
+    )
     monkeypatch.setattr(
         "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode",
         AsyncMock(return_value="shared"),
@@ -161,6 +166,44 @@ def test_legacy_native_completion_without_bound_state_is_rejected(monkeypatch) -
         },
     )
     assert response.status_code == 422
+
+
+def test_guest_photo_token_requires_vault_owner_and_matching_firebase_identity(monkeypatch) -> None:
+    service = type(
+        "PhotoService",
+        (),
+        {
+            "calendar_guest_photo_token": AsyncMock(
+                return_value={
+                    "access_token": "photo-only",
+                    "expires_in": 1800,
+                }
+            )
+        },
+    )()
+    monkeypatch.setattr(calendar, "get_google_connection_service", lambda: service)
+    app = _app()
+    app.dependency_overrides[hub_content_firebase] = lambda: "calendar-user"
+    payload = {
+        "user_id": "calendar-user",
+        "account_id": "default",
+        "grant_generation": "a" * 64,
+        "provider_subject_sha256": "b" * 64,
+    }
+    client = TestClient(app)
+    assert client.post("/api/one/calendar/guest-photo-token", json=payload).status_code == 401
+    app.dependency_overrides[hub_content_owner] = lambda: {"user_id": "another-user"}
+    assert client.post("/api/one/calendar/guest-photo-token", json=payload).status_code == 403
+    app.dependency_overrides[hub_content_owner] = lambda: {"user_id": "calendar-user"}
+    authorized = client.post("/api/one/calendar/guest-photo-token", json=payload)
+    assert authorized.status_code == 200
+    assert authorized.headers["cache-control"] == "private, no-store"
+    service.calendar_guest_photo_token.assert_awaited_once_with(
+        user_id="calendar-user",
+        account_id="default",
+        expected_generation="a" * 64,
+        expected_subject_sha256="b" * 64,
+    )
 
 
 def test_calendar_error_preserves_typed_recovery_reason() -> None:

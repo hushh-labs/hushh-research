@@ -23,6 +23,7 @@ class CalendarAccountStatusOwner(Protocol):
 
 _ACCOUNTS_SQL = """SELECT account_id, provider_subject, provider_email,
                       refresh_token_ciphertext, status, scope_csv, access_level,
+                      guest_photo_access,
                       connected_at
                FROM google_calendar_additional_accounts WHERE user_id = :user_id
                ORDER BY connected_at, account_id"""
@@ -60,6 +61,7 @@ def _project_accounts(
                 "connected": default["connected"],
                 "access_level": default["access_level"],
                 "scope_csv": default.get("scope_csv", "") if default["connected"] else "",
+                "guest_photo_access": bool(default.get("guest_photo_access")),
                 "grant_generation": connection_generation(primary)
                 if primary and default["connected"]
                 else "",
@@ -92,6 +94,9 @@ def _project_accounts(
                 "connected": row["status"] == "connected",
                 "access_level": row["access_level"],
                 "scope_csv": row.get("scope_csv", "") if row["status"] == "connected" else "",
+                "guest_photo_access": bool(
+                    row["status"] == "connected" and row.get("guest_photo_access")
+                ),
                 "grant_generation": connection_generation(row)
                 if row["status"] == "connected"
                 else "",

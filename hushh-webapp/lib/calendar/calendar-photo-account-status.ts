@@ -6,6 +6,7 @@ export type CalendarPhotoAccount = GoogleCalendarAccount & {
   grant_generation?: string;
   provider_subject_sha256?: string;
   hosted_domain?: string | null;
+  guest_photo_access?: boolean;
 };
 
 export type CalendarPhotoStatus = Omit<GoogleCalendarStatus, "accounts"> & {
