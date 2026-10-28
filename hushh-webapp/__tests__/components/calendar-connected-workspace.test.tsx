@@ -370,7 +370,13 @@ describe("CalendarConnectedWorkspace", () => {
     fireEvent.click(control("Insights"));
     fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Allow recording and notes access" }));
-    expect(onAllowMeetingFiles).toHaveBeenCalledExactlyOnceWith("default");
+    expect(onAllowMeetingFiles).toHaveBeenCalledExactlyOnceWith("default", expect.objectContaining({
+      accountId: "default",
+      day: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      timeZone: expect.any(String),
+      filter: "all",
+      query: "",
+    }));
   });
 
   it("does not describe loading or a failed event fetch as an empty day", async () => {
