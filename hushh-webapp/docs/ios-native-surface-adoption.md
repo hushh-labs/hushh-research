@@ -42,6 +42,16 @@ path for each RIA detail family. Arbitrary identifiers and their native
 navigation have not been verified; the generated map must not count these
 unclassified routes as native acceptance.
 
+The hard Vault gate is one React-owned credential journey, not the Profile
+password-change scene. Its reachable states are checking/retry, setup-required,
+password creation, password or generated-method unlock, recovery-key entry,
+quick-unlock enrollment, one-time recovery-key disclosure and the lost-vault
+deletion handoff. `VaultFlow`, the existing auth/vault services and the
+deletion flow remain the operation owners. A native gate must admit and retire
+as a complete presentation, preserve all of those paths and the current privacy
+generation, and keep secret replicas transient. The current native Profile
+password sheet does not qualify the locked gate.
+
 At integrated source `95dc95d6da`, the existing Profile feature-page geometry
 regression passed in Chromium and WebKit, including its 390 × 844, 1024 × 1366
 and 1440 × 900 pane checks. This is browser layout evidence, not iPad device or
