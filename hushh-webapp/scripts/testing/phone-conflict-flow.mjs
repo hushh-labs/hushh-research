@@ -156,7 +156,14 @@ try {
   });
   await server.listen();
   assert.ok(await server.transformRequest(fixture));
+  // The fixture uses the app stylesheet; compile it before timing browser actions.
+  assert.ok(await server.transformRequest("/app/globals.css"));
   await server.waitForRequestsIdle();
+  // Static-import idleness can precede dependency bundling on a cold runner.
+  // Complete fixture preparation before starting the unchanged browser deadline.
+  const optimizer = server.environments.client.depsOptimizer;
+  await optimizer?.scanProcessing;
+  await Promise.all(Object.values(optimizer?.metadata.discovered || {}).map(dep => dep.processing));
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await ({ chromium, webkit }[config.engine]).launch({ headless: true });
   for (const scenario of ["recover", "delete", "transfer", "devices"]) {
