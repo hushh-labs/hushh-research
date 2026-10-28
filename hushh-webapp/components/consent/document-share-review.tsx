@@ -42,6 +42,7 @@ import {
   DocumentRequestPriceSheet,
 } from "@/components/consent/document-request-price-sheet";
 import { DocumentRequestRequesterPanel } from "@/components/consent/document-request-requester-panel";
+import { BackgroundDocumentLink } from "./background-document-files";
 import { HostedDocumentPanel } from "@/components/consent/hosted-document-panel";
 import { DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
 import { ProfileConnectorsLink } from "@/components/profile/profile-connectors-link";
@@ -1149,7 +1150,7 @@ function UnlockedDocumentReview({
           const input = packageTerms
             ? { revision, amountCents, packageRevision: packageTerms.revision, packageDigest: packageTerms.digest! }
             : { revision, amountCents };
-          await submit(token, requestId, input, guard);
+          await submit(token, requestId, { ...input, ...(snapshot.review!.oneCopyRequested ? { oneCopyAccepted: true } : {}) }, guard);
         } catch (cause) {
           guard();
           // Read again: the sheet stays open only while the request can still be allowed.
@@ -1535,6 +1536,7 @@ function UnlockedDocumentReview({
         </div>
       ) : null}
 
+      {!outgoing && snapshot?.status.oneCopyRequested && PAYOUT_ELIGIBLE_TERMINAL.has(snapshot.status.status) ? <BackgroundDocumentLink requestId={requestId} /> : null}
       {snapshot?.status.hostedDelivery ? <HostedDocumentPanel requestId={requestId} onChanged={onChanged} /> : null}
       {outgoing && snapshot && !snapshot.status.hostedDelivery && !removal ? (
         <DocumentRequestRequesterPanel
@@ -1630,7 +1632,7 @@ function UnlockedDocumentReview({
           periodEnd={review.purpose.periodEnd}
           periodNote={ownerPeriodNote}
           paymentRequired={review.paymentRequired === true}
-          description={review.paymentRequired ? "Allow this exact package at your chosen price. Files are shared after the requester pays." : "Allow your private agent to share this exact package."}
+          description={review.oneCopyRequested ? "Allow Drive sharing and encrypted, server-readable One copies for this requester. Preparation continues in the background. Saved files can’t be recalled." : review.paymentRequired ? "Allow this exact package at your chosen price. Files are shared after the requester pays." : "Allow your private agent to share this exact package."}
           estimateCents={review.estimateCents ?? null}
           initialAmountCents={agentPackage.suggestedPriceCents ?? review.priceCents ?? null}
           busy={activity === "allowing"}
@@ -1640,6 +1642,7 @@ function UnlockedDocumentReview({
         />
       </> : null}
 
+      {review?.oneCopyRequested && ownerDecision && !removal ? <HelperText>Allow also authorizes One to fetch and store encrypted, server-readable copies in the background for this requester. You can stop One access; saved files can’t be recalled. Access activity is visible to you.</HelperText> : null}
       {review && !agentPackage && ownerDecision && !removal ? <>
         <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">“{review.purpose.purpose}”</BodyText>
         <dl className={HAIRLINES}>
@@ -1698,6 +1701,7 @@ function UnlockedDocumentReview({
           periodEnd={review.purpose.periodEnd}
           periodNote={ownerPeriodNote}
           paymentRequired={review.paymentRequired === true}
+          description={review.oneCopyRequested && !priceOnly ? "Allow Drive sharing and encrypted, server-readable One copies for this requester. Preparation continues in the background. Saved files can’t be recalled. Access activity is visible to you." : undefined}
           estimateCents={review.estimateCents ?? null}
           initialAmountCents={review.priceCents ?? null}
           priceOnly={priceOnly}

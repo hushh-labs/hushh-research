@@ -175,7 +175,7 @@ class DrivePeriodPacketStore(DrivePacketStore):
                 row, build = rotate_preview(self, connection, row, build)
             lease = str(uuid4())
             connection.execute(
-                text("""UPDATE drive_packet_heads SET lease_id=:lease,
+                text("""UPDATE drive_packet_heads SET dirty=TRUE,lease_id=:lease,
               lease_expires_at=clock_timestamp()+INTERVAL '120 seconds',updated_at=clock_timestamp()
               WHERE packet_id=:id"""),
                 {"lease": lease, "id": row["packet_id"]},

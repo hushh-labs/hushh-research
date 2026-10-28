@@ -9,6 +9,8 @@ tests/test_server_startup_guards.py
 tests/services/test_plg_evidence.py
 tests/services/test_product_activity_postgres.py
 tests/test_plg_deploy_bindings.py
+tests/test_plg_release_source.py
+tests/test_plg_source_validation_workflow.py
 
 # Store releases must retain the selected track, exact source and private binaries.
 tests/test_native_ship_artifact_workflows.py
@@ -56,6 +58,7 @@ tests/services/test_drive_work_wake.py
 tests/test_prod_drive_deploy_contract.py
 tests/test_prod_drive_prerequisite_diagnostics.py
 tests/test_protected_document_release_contract.py
+tests/test_protected_document_background_rollback.py
 tests/test_drive_work_drain_scheduler_contract.py
 tests/test_drive_worker_server.py
 tests/test_drive_worker_revision_provenance.py
@@ -401,6 +404,7 @@ tests/services/test_people_search_sql.py
 tests/test_one_location_system_circle_migration.py
 tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
+tests/test_circle_origin_replay_postgres.py
 tests/test_private_agent_adoption_postgres.py
 tests/services/test_account_service_cleanup_tables.py
 # Inventory all user-keyed migration tables against executed deletes, checked
@@ -451,6 +455,7 @@ tests/test_frontend_prebuilt_image_contract.py
 tests/test_production_image_promotion_contract.py
 tests/test_uat_backend_image_promotion.py
 tests/test_predecessor_acceptance_contract.py
+tests/test_production_emergency.py
 
 # First-party document renewal: expiry is not revocation, but revoked lineage
 # can never renew or regain authority through a later grant/duplicate token.
@@ -1423,6 +1428,7 @@ tests/services/test_drive_financial_packet_large_recovery_postgres.py
 tests/services/test_drive_financial_search_reason_postgres.py
 tests/services/test_drive_empty_sale_finalization_postgres.py
 tests/services/test_drive_financial_packet_rollout_postgres.py
+tests/services/test_drive_financial_missing_source_postgres.py
 tests/services/test_drive_period_packet_loop_postgres.py
 tests/services/test_drive_period_packet_titles_postgres.py
 
@@ -1487,6 +1493,8 @@ tests/test_todo_wallet_inventory_postgres.py
 
 tests/test_world_model_research_context.py
 tests/test_pwm_runtime_probe.py
+tests/scripts/test_azure_readiness_deadline.py
+tests/scripts/test_probe_azure_openai_readiness.py
 
 tests/services/test_drive_packet_public_summary.py
 tests/services/test_drive_packet_public_summary_postgres.py
@@ -1507,6 +1515,7 @@ tests/test_phone_schema_origin.py
 tests/test_phone_recovery_actions.py
 tests/test_phone_reader_probe.py
 tests/scripts/test_managed_provider_receipt.py
+tests/scripts/test_managed_provider_vertex_history.py
 
 tests/test_account_deletion_activation.py
 
@@ -1517,3 +1526,7 @@ tests/test_prod_drive_worker_staging.py
 tests/test_phone_production_receipt.py
 tests/routes/test_area_discovery.py
 tests/services/test_area_discovery_postgres.py
+
+# Additive server-readable copies preserve legacy sale authority.
+tests/services/test_document_delivery_background.py
+tests/services/test_document_delivery_background_exports.py

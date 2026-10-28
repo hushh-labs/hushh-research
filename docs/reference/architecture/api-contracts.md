@@ -2495,8 +2495,14 @@ separate work; a static export or native compile is not sign-in proof.
 | POST | `/api/one/calendar/invitations` | Firebase Bearer | No-store, owner-bound upcoming received invitations across subscribed event-readable calendars (default 90 days, maximum 93), all pages and recurring instances; organizer-owned events excluded. Includes pending count, RSVP, attendees, provider link and conflicts. Reports free/busy-only calendars explicitly. |
 | POST | `/api/one/calendar/attendance/review` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Verify equal owners and the selected account's attendee; prepare a ten-minute encrypted review of a response and optional editable organizer email. No meeting changes. `account_id` defaults to the legacy connection. |
 | POST | `/api/one/calendar/attendance/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Atomically claim `review_id`, validate `review_token`, current selected account/grant and ETag, patch only that attendee response. Return separate `calendar` and `email` outcomes, replay completed outcomes without sending twice. |
+| POST | `/api/one/calendar/attendance/rsvp/review` | Firebase Bearer + active owner-bound Calendar OAuth grant | Prepare a mail-free accepted/declined response for the owner's own invitation. Mail, alternative-time and unknown fields are rejected. |
+| POST | `/api/one/calendar/attendance/rsvp/confirm` | Firebase Bearer + active owner-bound Calendar OAuth grant | Confirm only a sealed, account-bound Calendar-only review; a plan with Mail, proposed time or retry effects is rejected before the one-time claim. |
+| POST | `/api/one/calendar/attendance/workspace/review` | Firebase Bearer + active owner-bound Calendar and optional Gmail OAuth grants | Prepare exact first-party Calendar response and optional reviewed organizer Mail or alternative time. No provider change before confirmation. |
+| POST | `/api/one/calendar/attendance/workspace/confirm` | Firebase Bearer + selected owner-bound Google grants | Claim and execute the sealed first-party review once, preserving separate Calendar/Mail outcomes. |
 | POST | `/api/one/calendar/conflicts/review` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Prepare a ten-minute, owner/account-bound keep-one/decline-selected plan. All account reads and conflict coverage must be complete; each Calendar response and exact canonical-Mail sender, recipient and note is previewed without mutation. |
 | POST | `/api/one/calendar/conflicts/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Preflight account grants and event versions, accept the kept pending invitation if needed, then claim each selected decline and reviewed organizer note. Provider operations are not atomic; child ledgers prevent duplicate effects, and separate outcomes disclose partial or unknown results. |
+| POST | `/api/one/calendar/conflicts/workspace/review` | Firebase Bearer + each selected owner-bound Calendar and Gmail OAuth grant | Prepare the exact first-party keep/decline and organizer-Mail plan under complete conflict coverage. |
+| POST | `/api/one/calendar/conflicts/workspace/confirm` | Firebase Bearer + each selected owner-bound Google grant | Confirm the sealed conflict plan with preflight and child ledgers; disclose partial or unknown provider outcomes. |
 | POST | `/api/one/calendar/rescheduling/options` | Expiring encrypted capability in POST body | Recipient browser reads only previously offered times after live free/busy recheck and grant binding; ten requests/minute using configured shared limiter. No event-read, booking or mutation authority. |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
@@ -2923,7 +2929,7 @@ not the product owner for live location.
 | POST | `/api/one/location/requests/{request_id}/deny` | VAULT_OWNER Bearer | Owner denies pending request. Denying an extra-time request leaves any access the requester already holds untouched |
 | POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
 | POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Scrub due nearby-presence anchor material, then delete terminal expired/revoked location grants, nearby-presence metadata, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, expired/revoked named-Circle codes, terminal targeted Circle-member invitations, and related events after the retention window; the hourly hosted scheduler is a release prerequisite |
-| POST | `/api/account/deletion-cleanup/drain?limit=10` | Google OIDC pinned to `ACCOUNT_DELETION_CLEANUP_AUDIENCE` and a dedicated `ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL` | Claim a bounded batch of durable post-erasure Firebase cleanup intents with `SKIP LOCKED`, delete or quarantine each exact UID, and settle claims; the external scheduler is required because the in-process loop is only a latency optimization |
+| POST | `/api/account/deletion-cleanup/drain?limit=10` | Google OIDC pinned to `ACCOUNT_DELETION_CLEANUP_AUDIENCE` and a dedicated `ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL` | Claim a bounded batch of durable post-erasure Firebase cleanup intents with `SKIP LOCKED`, delete or quarantine each exact UID, and settle claims; the external scheduler is required because the in-process loop is only a latency optimization. When the drain ran, the response stays 2xx and returns `{success, settled, limit, paused, paused_reason}`; `paused_reason` is null or one of `release_fence_installed`, `release_lock_unavailable`, `lifecycle_roots_missing`, `admission_check_failed`, so a release pause is never read as an idle drain |
 
 ### Agent One invocation preview (not official A2A v1)
 
@@ -5236,8 +5242,13 @@ silently. The organizer chooses/replies and updates their own invitation.
 
 One's typed `calendar_invitations` read and client-only `open_calendar_invitation`
 use private owner/conversation/grant-bound ordinal offers. Provider content keeps the
-external-read barrier; review capabilities remain only in browser memory. Both chat
-and `/one/calendar` use the same invitation components and attendance routes. Realtime
+external-read barrier; review capabilities remain only in browser memory. Chat
+retains the vault-owner attendance route for organizer Mail. The `/one/calendar`
+workspace uses Firebase-authorized RSVP, organizer Mail, and conflict review routes
+with live owner-bound Google grants and sealed one-time confirmation. Both surfaces
+reuse the invitation components. Direct workspace actions change provider Calendar
+and Gmail records only; they do not write PKM or Live Memory. The owner sees the
+refreshed Calendar state after confirmation. Realtime
 Talk to One's `calendar.invitation.review` handoff forwards the original request (or
 an explicitly selected, current offered event) into the existing conversation. It
 grants no RSVP/Mail authority and never navigates to `/one/calendar` for an action.

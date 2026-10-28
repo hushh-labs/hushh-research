@@ -159,6 +159,8 @@ async def test_one_real_sdk_request_requires_exact_nonce_and_never_reports_it(mo
         "error_class": None,
         "stage": "response_validation",
         "classification": "dependency_ok",
+        "phase_ms": result["phase_ms"],
+        "deadline_expired": False,
     }
     assert len(requests) == 1 and clients[0].is_closed()
     loader.assert_called_once_with()
@@ -226,6 +228,7 @@ async def test_total_deadline_cancels_request_and_closes_the_sdk_client(monkeypa
     assert result["stage"] == "primary_http" and result["classification"] == "provider_unavailable"
     assert 0 < result["latency_ms"] < 1000
     assert cancelled.is_set() and len(requests) == 1 and clients[0].is_closed()
+    assert result["deadline_expired"] is True and result["phase_ms"]["primary_http"] > 0
 
 
 @pytest.mark.parametrize("timeout", [0, 31, True, float("nan"), float("inf")])
@@ -299,3 +302,156 @@ def test_cli_requires_opt_in_and_suppresses_sdk_chatter(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert json.loads(captured.out)["status"] == "ready" and captured.err == ""
     assert TOKEN not in captured.out and PRIVATE not in captured.out
+
+
+@pytest.mark.parametrize(
+    ("capability", "error", "expected"),
+    [
+        (
+            "live_audio",
+            RuntimeError("Azure Live is not the selected managed processor"),
+            "live.binding_unavailable",
+        ),
+        (
+            "one_text_root",
+            ValueError("Root qualification did not select its exact admitted model"),
+            "root.model_contract",
+        ),
+        (
+            "one_text_root",
+            ValueError("Root qualification omitted the production tool roster"),
+            "root.tool_roster",
+        ),
+        (
+            "one_text_root",
+            ValueError("Root full-roster function selection failed"),
+            "root.clock_selection",
+        ),
+        (
+            "one_text_root",
+            ValueError("Root structured, media or streaming round trip failed"),
+            "root.roundtrip_failed",
+        ),
+    ],
+)
+def test_capability_failure_reason_matches_exact_authored_literals(capability, error, expected):
+    from scripts.capability_probe_failure import FAILURE_REASONS, failure_reason
+
+    assert failure_reason(capability, error) == expected
+    assert expected in FAILURE_REASONS
+
+
+def test_capability_failure_reason_never_reads_or_returns_private_errors():
+    from scripts.capability_probe_failure import failure_reason
+
+    class SdkRuntimeError(RuntimeError):
+        pass
+
+    class OpaqueError(Exception):
+        def __str__(self):
+            raise AssertionError("failure reasons must never stringify an exception")
+
+        @property
+        def args(self):
+            raise AssertionError("unknown exception attributes must not be read")
+
+    for error in (
+        RuntimeError(PRIVATE + TOKEN),
+        RuntimeError({"private": TOKEN}),
+        RuntimeError("Azure Live transcription failed", TOKEN),
+        ValueError("Azure Live transcription failed"),
+        SdkRuntimeError("Azure Live transcription failed"),
+        OpaqueError(),
+    ):
+        assert failure_reason("live_audio", error) == "unlisted"
+    assert (
+        failure_reason("embeddings", RuntimeError("Azure Live transcription failed")) == "unlisted"
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "reason"),
+    [
+        ("conversation.item.input_audio_transcription.failed", "live.transcription_failed"),
+        ("response.done", "live.response_incomplete"),
+        ("error", "live.provider_operation_failed"),
+    ],
+)
+async def test_actual_live_adapter_failures_keep_closed_reason(kind, reason):
+    from types import SimpleNamespace
+
+    from scripts.capability_probe_failure import failure_reason
+    from tests.one_voice.test_factory_live_client import _azure_event, _azure_session
+
+    session, _ = _azure_session(
+        [_azure_event(kind, response=SimpleNamespace(id="synthetic-response", status="failed"))]
+    )
+    with pytest.raises(RuntimeError) as captured:
+        _ = [event async for event in session.events()]
+    assert failure_reason("live_audio", captured.value) == reason
+
+
+@pytest.mark.parametrize("completed", [True, False])
+async def test_recording_cleanup_retrieves_failure_and_preserves_primary_error(completed):
+    import gc
+
+    from scripts.capability_probe_failure import settle_recording
+
+    loop = asyncio.get_running_loop()
+    orphaned = []
+    previous = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: orphaned.append(context["message"]))
+    settled = asyncio.Event()
+
+    async def recording():
+        if completed:
+            raise RuntimeError(PRIVATE)
+        try:
+            await asyncio.Event().wait()
+        finally:
+            settled.set()
+
+    try:
+        producer = asyncio.create_task(recording())
+        await asyncio.sleep(0)
+        assert producer.done() is completed
+        primary = ValueError("existing probe failure")
+        with pytest.raises(ValueError) as captured:
+            try:
+                raise primary
+            finally:
+                await settle_recording(producer)
+        assert captured.value is primary
+        assert producer.done()
+        if not completed:
+            assert producer.cancelled() and settled.is_set()
+        del producer
+        gc.collect()
+        await asyncio.sleep(0)
+        assert orphaned == []
+    finally:
+        loop.set_exception_handler(previous)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("phase_ms", {**dict.fromkeys(probe.TIMING_PHASES, 0), "PRIVATE_PROVIDER_BODY": 1}),
+        ("phase_ms", dict.fromkeys(probe.TIMING_PHASES, True)),
+        ("phase_ms", dict.fromkeys(probe.TIMING_PHASES, -1)),
+        ("deadline_expired", "PRIVATE_PROVIDER_BODY"),
+    ],
+)
+def test_readiness_timings_reject_private_or_invalid_fields(field, value):
+    from tests.scripts.test_managed_provider_receipt import _managed_provider_gate
+
+    attempt = {
+        "ok": False,
+        "classification": "provider_unavailable",
+        "elapsed_ms": 30,
+        field: value,
+    }
+    with pytest.raises(ValueError):
+        _managed_provider_gate()._capability_proof().sanitize_probe_history(
+            [{"probe": "primary_http", "attempts": [attempt]}], provider="azure_openai"
+        )

@@ -102,29 +102,10 @@ async def ensure_owner(store, *, user_id, timezone="UTC", now=None):
 ENROLLMENT_SCAN_LIMIT = 20
 
 
-async def candidate_owners(store):
+def _normal_work_due():
     from hushh_mcp.services.drive_period_packet_freeze import empty_sale_recovery_predicate
 
-    cohort = connector_feature_owner_cohort("drive_period_packets", "google_drive_live")
-    if cohort == ():
-        return []
-    period_starts = [period.start for period in current_year_periods(datetime.now(UTC), "UTC")]
-
-    def operation(connection):
-        return [
-            row["user_id"]
-            for row in connection.execute(
-                text(f"""SELECT c.user_id FROM user_external_connector_connections c
-            LEFT JOIN drive_live_preferences p ON p.user_id=c.user_id
-            WHERE c.connector_id='google_drive' AND c.status='connected'
-              AND c.validation_state='verified' AND (p.user_id IS NULL OR p.background_enabled)
-              AND (:all_owners OR c.user_id=ANY(CAST(:owners AS text[])))
-              AND NOT EXISTS(SELECT 1 FROM account_deletion_tombstones deleted
-                WHERE deleted.user_id_hash='sha256:'||encode(sha256(convert_to(c.user_id,'UTF8')),'hex'))
-              AND NOT EXISTS(SELECT 1 FROM drive_owner_search_jobs ordinary WHERE ordinary.user_id=c.user_id
-                AND ordinary.period_packet_id IS NULL AND ordinary.status IN ('queued','running')
-                AND ordinary.expires_at>clock_timestamp())
-              AND (EXISTS(SELECT 1 FROM unnest(CAST(:period_starts AS date[])) expected(period_start)
+    return f"""(EXISTS(SELECT 1 FROM unnest(CAST(:period_starts AS date[])) expected(period_start)
                 WHERE NOT EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
                   AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
                   AND h.category='financial' AND h.period_start=expected.period_start))
@@ -147,7 +128,44 @@ async def candidate_owners(store):
                 OR EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
                   AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
                   AND h.category='financial' AND h.current_version>0 AND h.build_envelope IS NOT NULL
-                  AND h.tagging_next_at IS NULL))
+                  AND h.tagging_next_at IS NULL))"""  # nosec B608 # interpolates only the internal fixed h predicate; all runtime values remain bound.
+
+
+async def candidate_owners(store):
+    normal_due = _normal_work_due()
+    cohort = connector_feature_owner_cohort("drive_period_packets", "google_drive_live")
+    if cohort == ():
+        return []
+    period_starts = [period.start for period in current_year_periods(datetime.now(UTC), "UTC")]
+
+    def operation(connection):
+        return [
+            dict(row)
+            for row in connection.execute(
+                text(f"""SELECT c.user_id,{normal_due} AS normal_due FROM user_external_connector_connections c
+            LEFT JOIN drive_live_preferences p ON p.user_id=c.user_id
+            WHERE c.connector_id='google_drive' AND c.status='connected'
+              AND c.validation_state='verified' AND (p.user_id IS NULL OR p.background_enabled)
+              AND (:all_owners OR c.user_id=ANY(CAST(:owners AS text[])))
+              AND NOT EXISTS(SELECT 1 FROM account_deletion_tombstones deleted
+                WHERE deleted.user_id_hash='sha256:'||encode(sha256(convert_to(c.user_id,'UTF8')),'hex'))
+              AND NOT EXISTS(SELECT 1 FROM drive_owner_search_jobs ordinary WHERE ordinary.user_id=c.user_id
+                AND ordinary.period_packet_id IS NULL AND ordinary.status IN ('queued','running')
+                AND ordinary.expires_at>clock_timestamp())
+              AND ({normal_due} OR EXISTS(SELECT 1 FROM drive_packet_heads h
+                WHERE h.user_id=c.user_id AND h.connection_generation=c.connection_generation
+                  AND h.packet_kind='provider_discovery' AND h.category='financial'
+                  AND h.period_start=ANY(CAST(:period_starts AS date[]))
+                  AND h.predefined_query_version=:template AND NOT h.dirty AND h.attempts<8
+                  AND ((h.preview_complete AND h.preview_document_count>120)
+                    OR (NOT h.preview_complete AND h.next_at<=clock_timestamp()
+                      AND EXISTS(SELECT 1 FROM drive_owner_search_jobs pending
+                        WHERE pending.user_id=h.user_id AND pending.period_packet_id=h.packet_id
+                          AND pending.connection_generation=h.connection_generation
+                          AND pending.status='queued' AND pending.error_code IS NULL
+                          AND pending.next_at<=clock_timestamp() AND pending.expires_at>clock_timestamp()
+                          AND (pending.lease_id IS NULL OR pending.lease_expires_at<=clock_timestamp()))))
+                  AND (h.lease_id IS NULL OR h.lease_expires_at<=clock_timestamp())))
             ORDER BY COALESCE(c.drive_packet_inspected_at,'epoch'::timestamptz),COALESCE((SELECT max(h.updated_at) FROM drive_packet_heads h
               WHERE h.user_id=c.user_id AND h.connection_generation=c.connection_generation
                 AND h.packet_kind='provider_discovery'),c.updated_at),c.user_id
@@ -173,7 +191,8 @@ async def due_owners(store, limit=4):
     scanned = 0
     exclusions = {"private": 0, "unverified": 0, "timeout": 0, "storage": 0}
     deadline = asyncio.get_running_loop().time() + 5
-    for user in await candidate_owners(store):
+    for candidate in await candidate_owners(store):
+        user = candidate["user_id"]
         remaining = deadline - asyncio.get_running_loop().time()
         if remaining <= 0:
             break
@@ -190,7 +209,20 @@ async def due_owners(store, limit=4):
                     )
                 )
                 await admit_hub_content(user, "drive_period_packets")
-        except (HTTPException, TimeoutError, ConnectorLifecycleError) as error:
+                from hushh_mcp.services.drive_period_packet_migration import (
+                    queue_missing_sources,
+                    queue_pending_sources,
+                )
+
+                queued = await store._transaction(
+                    lambda c, user=user: (
+                        queue_pending_sources(store, c, user)
+                        or queue_missing_sources(store, c, user)
+                    )
+                )
+                if not candidate["normal_due"] and not queued:
+                    continue
+        except (HTTPException, TimeoutError, ConnectorLifecycleError, DriveReadError) as error:
             code = (
                 error.detail.get("code")
                 if isinstance(error, HTTPException) and isinstance(error.detail, dict)

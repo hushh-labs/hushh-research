@@ -4,9 +4,11 @@ import copy
 import hashlib
 import json
 import subprocess
+from unittest import mock
 
 import production_backend_successor as successor
-from production_backend_successor_control_cases import OperationalBackendControlCases
+import production_backend_successor_control as control
+from production_backend_successor_control_cases import OperationalBackendControlCases, _control_case
 import production_backend_successor_proof as proof
 import production_phone_receipt as phone
 from production_phone_receipt_fixtures import archive, phone_documents
@@ -129,6 +131,34 @@ def operational_bundle(fixture):
 
 
 class OperationalBackendReferenceCases(OperationalBackendControlCases):
+    def test_producer_empty_urls_preserve_tag_bytes_and_consumer_binding(self):
+        original = original_healthy_tag()
+        urls = {"backend_url": "https://api.example.test", "frontend_url": "https://app.example.test"}
+        for empty in (("frontend_url",), ("backend_url",), tuple(urls)):
+            raw = original["tag_object"]
+            for field in empty:
+                raw = raw.replace(f"{field}: {urls[field]}\n", f"{field}:\n")
+            with self.subTest(empty=empty):
+                tag = successor.tag_identity(raw)
+                self.assertEqual(tag["tag_object"], raw)
+                healthy, record = successor.split(tag["message"], COMMIT)
+                self.assertEqual(healthy, tag["message"])
+                self.assertIsNone(record)
+                fields = successor.healthy_fields(healthy, COMMIT)
+                self.assertTrue(all(fields[field] == "" for field in empty))
+                with mock.patch.object(proof, "read_original", return_value=tag):
+                    self.assertEqual(control.resolve(), "consent-protocol-00302-fix")
+                schema = {"reference": {"source": COMMIT, "revision": fields["backend_revision"],
+                                        "run_id": "100", "digest": "a" * 64}}
+                self.assertEqual(proof._healthy_reference({"original_healthy": tag}, schema)[0], tag)
+                annotated = successor.annotate(healthy, COMMIT, OLD, ANCHOR)
+                self.assertEqual(successor.split(annotated, COMMIT)[0], healthy)
+                with mock.patch(__name__ + ".MESSAGE", healthy), _control_case(self) as case:
+                    self.assertEqual(proof.read_original(), case.original)
+                    self.assertEqual(case.original["message"], healthy)
+                    prepared = successor.tag_identity(case.intent["new_object"])["message"]
+                    self.assertEqual(successor.split(prepared, COMMIT)[0], healthy)
+
     def test_present_invalid_phone_summary_never_falls_back_to_legacy(self):
         documents = phone_documents(self)
         for malformed in (None, {}, {"revision": ""}, "not-a-summary"):
@@ -152,9 +182,35 @@ class OperationalBackendReferenceCases(OperationalBackendControlCases):
         self.assertEqual(record["origin"], ANCHOR["origin"])
         self.assertNotEqual(record["source"], COMMIT)
 
+    def test_git_trimmed_empty_informational_urls_preserve_exact_tag_and_custody(self):
+        original = original_healthy_tag()
+        message = MESSAGE.replace("frontend_url: https://app.example.test", "frontend_url:")
+        message = message.replace("backend_url: https://api.example.test", "backend_url:")
+        raw = original["tag_object"].replace(MESSAGE, message)
+        tag = successor.tag_identity(raw)
+        self.assertEqual(tag["tag_object"], raw)
+        encoded = raw.encode()
+        expected = hashlib.sha1(b"tag " + str(len(encoded)).encode() + b"\0" + encoded,
+                                usedforsecurity=False).hexdigest()
+        self.assertEqual(tag["tag_oid"], expected)
+        healthy, record = successor.split(successor.annotate(message, COMMIT, expected, ANCHOR), COMMIT)
+        self.assertEqual(healthy, message)
+        self.assertEqual(record["healthy_message_sha256"], hashlib.sha256(message.encode()).hexdigest())
+        self.assertEqual(successor.healthy_fields(healthy, COMMIT)["frontend_url"], "")
+        for broken in (message + "frontend_url:\n", message.replace("actor: governed-maintainer", "actor:"),
+                       message.replace("frontend_url:\n", "")):
+            with self.subTest(broken=hashlib.sha256(broken.encode()).hexdigest()), self.assertRaises(ValueError):
+                successor.split(broken, COMMIT)
+
     def test_operational_backend_rejects_tampering_and_ambiguous_annotations(self):
         value = successor.annotate(MESSAGE, COMMIT, OLD, ANCHOR)
         for broken in (
+            MESSAGE.replace("frontend_url: https://app.example.test", "frontend_url:\t"),
+            MESSAGE.replace("actor: governed-maintainer", "actor:"),
+            MESSAGE + "frontend_url:\n",
+            MESSAGE + "unknown:\n",
+            MESSAGE.replace("frontend_url: https://app.example.test", "frontend_url:invalid"),
+            MESSAGE.replace(COMMIT, OTHER),
             MESSAGE + successor.FIELD + "null\n",
             value.replace("00302-fix", "00302-changed"),
             value + value.splitlines(keepends=True)[-1],

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 431,
+  "expected_migration_version": 432,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -193,6 +193,7 @@
     "populate_feed_counterpart_identity",
     "preserve_active_location_rating_visit",
     "preserve_document_delivery_financial_binding",
+    "preserve_drive_financial_summary_hide",
     "preserve_drive_owner_delivery_basis",
     "preserve_drive_request_owner_payout",
     "preserve_financial_discovery_capacity",
@@ -233,6 +234,7 @@
     "retain_azure_cleanup_authorization_outcome",
     "retain_azure_erasure_execution_receipt",
     "retain_azure_erasure_state",
+    "retain_background_delivery_objects",
     "retain_byoc_authorization",
     "retain_byoc_azure_setup_intent",
     "retain_byoc_azure_worker_event",
@@ -328,7 +330,6 @@
     "verify_erasure_mail_preflight",
     "verify_erasure_owner_access_preflight",
     "verify_erasure_secret_preflight",
-    "preserve_drive_financial_summary_hide",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -1204,12 +1205,58 @@
       "write_dispatched_at",
       "write_settled_at"
     ],
+    "document_delivery_background_activity": [
+      "actor_user_id",
+      "created_at",
+      "event_id",
+      "file_ref",
+      "kind",
+      "request_id"
+    ],
+    "document_delivery_background_chunks": [
+      "bucket_identity",
+      "descriptor",
+      "file_ref",
+      "object_generation",
+      "object_key",
+      "ordinal",
+      "request_id"
+    ],
+    "document_delivery_background_files": [
+      "connection_generation",
+      "created_at",
+      "export_envelope",
+      "failures",
+      "file_ref",
+      "key_envelope",
+      "lease_expires_at",
+      "lease_id",
+      "next_at",
+      "position",
+      "reason",
+      "request_id",
+      "result_envelope",
+      "share_id",
+      "source_digest",
+      "source_envelope",
+      "state",
+      "verification_attempts"
+    ],
+    "document_delivery_background_requests": [
+      "accepted_at",
+      "connection_generation",
+      "consent_version",
+      "request_id",
+      "revoked_at",
+      "version"
+    ],
     "document_delivery_cleanup": [
       "attempts",
       "bucket_identity",
       "ciphertext_bytes",
       "cleanup_id",
       "created_at",
+      "held_by_background",
       "next_attempt_at",
       "object_generation",
       "object_key",
@@ -4649,5 +4696,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 431
+  "expected_schema_head": 432
 }

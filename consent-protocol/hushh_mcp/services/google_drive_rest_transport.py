@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.document_delivery.background_source import content_evidence
 from hushh_mcp.services.drive_document_processor import IsolatedDocumentParser
 from hushh_mcp.services.drive_search_paging_config import (
     FILE_LIST_PAGE_SIZE_MAX,
@@ -186,8 +187,7 @@ def rest_query(query: str) -> str:
 
 
 def _provider_search_evidence(item: dict[str, Any]) -> dict[str, Any]:
-    """Bounded provider facts needed to bind request-local content observations."""
-    result = {}
+    result = content_evidence(item)  # Bind provider facts and binary content identity.
     version = item.get("version")
     if version is not None:
         if not isinstance(version, str) or not re.fullmatch(r"[0-9]{1,32}", version):

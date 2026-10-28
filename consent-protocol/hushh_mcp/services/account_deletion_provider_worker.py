@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 
 from hushh_mcp.services import account_deletion_provider_credentials as credentials
 from hushh_mcp.services import account_deletion_provider_journal as journal
@@ -12,6 +13,7 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
 )
 from hushh_mcp.services.account_deletion_release_admission import (
     AccountDeletionReleasePaused,
+    PausedReason,
     ReleaseAdmission,
     release_admission,
 )
@@ -131,10 +133,22 @@ async def _run_admitted_claim(
     return result.get("success") is True and result.get("account_deleted") is True
 
 
+@dataclass(frozen=True, slots=True)
+class DrainOutcome:
+    settled: int
+    # Set only when release admission refused the stage; None when idle or ran.
+    paused_reason: PausedReason | None = None
+
+
 async def drain(*, limit: int = 5) -> int:
+    return (await drain_with_outcome(limit=limit)).settled
+
+
+async def drain_with_outcome(*, limit: int = 5) -> DrainOutcome:
     if not await _store_call(journal.available):
-        return 0  # Migration-first rolling compatibility; database failures raise.
+        return DrainOutcome(0)  # Migration-first rolling compatibility; database failures raise.
     settled = 0
+    paused_reason: PausedReason | None = None
     for _ in range(limit):
         try:
             async with release_admission() as admission:
@@ -172,8 +186,9 @@ async def drain(*, limit: int = 5) -> int:
                     await _store_call(journal.release, claim, action_required=action_required)
                 except journal.ProviderCleanupClaimLost:
                     pass
-        except AccountDeletionReleasePaused:
+        except AccountDeletionReleasePaused as exc:
             # Known release pauses do not consume claims/attempts or turn a
             # healthy pending operation into provider-action quarantine.
+            paused_reason = exc.reason
             break
-    return settled
+    return DrainOutcome(settled, paused_reason)

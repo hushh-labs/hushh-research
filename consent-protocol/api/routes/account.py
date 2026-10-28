@@ -64,11 +64,12 @@ from api.utils.firebase_auth import (
     verify_firebase_principal,
 )
 from hushh_mcp.services import account_firebase_mutations
+from hushh_mcp.services.account_deletion_cleanup_stall import report_paused_drain
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     CleanupIntentKind,
     account_deletion_phone_digest,
-    drain_account_deletion_cleanup_intents,
+    drain_account_deletion_cleanup_with_report,
 )
 from hushh_mcp.services.account_export_stream import AccountExportBusy, AccountExportStream
 from hushh_mcp.services.account_generation_service import (
@@ -371,10 +372,14 @@ async def drain_account_deletion_cleanup(
     limit: int = Query(default=25, ge=1, le=100),
     _authorized: None = Depends(_require_account_deletion_cleanup_auth),
 ):
-    """Bounded Cloud Scheduler drain for durable Firebase cleanup intents."""
+    """Bounded Cloud Scheduler drain for durable Firebase cleanup intents.
+
+    A release pause stays HTTP 200 (activation requires a 2xx scheduler
+    attempt) but is reported, so it is never mistaken for an idle drain.
+    """
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        settled = await drain_account_deletion_cleanup_intents(limit=limit)
+        report = await drain_account_deletion_cleanup_with_report(limit=limit)
     except Exception as exc:
         logger.exception(
             "account_deletion.cleanup_scheduler_failed error=%s",
@@ -387,12 +392,21 @@ async def drain_account_deletion_cleanup(
                 "message": "Account deletion cleanup is temporarily unavailable.",
             },
         ) from None
+    if report.paused_reason is not None:
+        await report_paused_drain(report.paused_reason)
     logger.info(
-        "account_deletion.cleanup_scheduler_completed settled=%s limit=%s",
-        settled,
+        "account_deletion.cleanup_scheduler_completed settled=%s limit=%s paused_reason=%s",
+        report.settled,
         limit,
+        report.paused_reason,
     )
-    return {"success": True, "settled": settled, "limit": limit}
+    return {
+        "success": True,
+        "settled": report.settled,
+        "limit": limit,
+        "paused": report.paused_reason is not None,
+        "paused_reason": report.paused_reason,
+    }
 
 
 async def _require_session_status_auth(

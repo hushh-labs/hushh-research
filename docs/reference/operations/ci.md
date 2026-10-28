@@ -137,6 +137,20 @@ the returning account reached One without an alert, and its real
 `/api/account/session-status` request returned HTTP 200. Public login and the
 unauthenticated session contract also passed.
 
+A hosted restoration completion can attest that same original operation through
+`restoration_activation_run_id` and its exact `restoration_activation_attempt` on
+the existing production workflow. It accepts only retained activation-only failed
+evidence for the recorded source, with the original immutable serving pair and
+document-barrier owner. It rebuilds no image and changes no traffic or schema.
+Fresh canonical schema, barrier, Scheduler delivery, provenance, health and
+already-absent deletion-fence checks must pass. The new verifier has its own
+receipt and run identity; runtime labels retain the original deployment run.
+The canonical activation configures and triggers the existing cleanup Scheduler;
+this is not a read-only operation. Retained consumers needing retirement are
+refused through the existing lifecycle inventory before activation begins.
+This is a restoration serving reference, not Dev/UAT acceptance or a phone
+rollback anchor. The original failed attempt remains unchanged.
+
 The selective-promotion handoff remains preserved separately. Its branch-baseline
 and application-SHA/approval-SHA mapping are not active. Its maintenance draft
 needs corrections for forced capacity inspection, dry-run checkpoint state and
@@ -1132,6 +1146,18 @@ Older PR branches must inherit the current read-only consumer and rerun gate thr
 main synchronization; never restore the exposed repository credential to repair
 an obsolete consumer. Missing authority still refuses clearance.
 
+The bounded [CI trust qualification](../../../.github/workflows/ci-trust-qualification.yml)
+prepares consolidation into one Main-owned validation workflow. It triggers only
+against the disposable `ci/trusted-source-qualification` branch, never ordinary
+application PRs. Linux/macOS fixtures record actual workflow, candidate and native
+check identities; spoofing client cache write mode must not bypass server-issued
+read-only authority. An empty cache listing alone is insufficient: require the
+actual server refusal and fresh absence readback. A synthetic check write must
+receive the specific integration-permission refusal. Jobs use no protected
+environment, OIDC or owner information and issue no merge verdict. Retire this
+temporary workflow and its disposable refs after the qualified CI cutover;
+the existing security worker remains required until its replacement is active.
+
 The worker starts when a new PR Validation run is requested; it does not wait
 for the validation it must unblock. [GitHub does not emit `requested` for reruns](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
 Use the governed operator command below to request one retry and its exact
@@ -1205,7 +1231,7 @@ Practical maintainer rule:
 2. Run `./bin/hushh codex pre-pr` before opening or updating a PR; the workflow runs the local DCO signoff gate before the broader CI mirror.
 3. If unsigned commits already exist on the branch, repair them before push with `git rebase --signoff <base>` or a clean signed squash onto `origin/main` when subtree sync or merge repair made the branch history noisy.
 4. After subtree sync, branch merge, rebase, queue repair, or any other history-changing operation, rerun `bash scripts/ci/check-dco-signoff.sh origin/main HEAD` immediately before pushing.
-5. If the last local edit touched `.codex/`, `docs/`, `config/`, or `scripts/`, rerun `bash scripts/ci/orchestrate.sh governance` even if an earlier `./bin/hushh codex pre-pr` was green.
+5. If the last local edit touched `.agents/`, `docs/`, `config/`, or `scripts/`, rerun `bash scripts/ci/orchestrate.sh governance` even if an earlier `./bin/hushh codex pre-pr` was green.
 
 ### Local core mirror
 

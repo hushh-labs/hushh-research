@@ -604,6 +604,7 @@ async def test_provider_cleanup_retains_custody_through_failure_and_migration_re
             operation_id=claim.cleanup_id,
         )
         assert terminal["state"] == "complete"
+        assert terminal["delayed"] is False
         assert terminal["credential_count"] == 4
         with pytest.raises(journal.CleanupOperationNotFound):
             await asyncio.to_thread(
@@ -653,6 +654,26 @@ async def test_provider_cleanup_retains_custody_through_failure_and_migration_re
             WHERE provider_cleanup_id=$1::uuid""",
             abandoned.cleanup_id,
         )
+
+        async def owner_status():
+            return await asyncio.to_thread(
+                call_journal,
+                journal.inspect_for_identity,
+                "synthetic_firebase_identity",
+                operation_id=abandoned.cleanup_id,
+            )
+
+        # A dead worker's claim is due again but recent: still ordinary progress.
+        assert (await owner_status())["delayed"] is False
+        # UAT 2026-10-27: due work parked past the stall window must say so.
+        await conn.execute(
+            """UPDATE account_deletion_tombstones
+            SET provider_cleanup_next_attempt_at=now()-interval '11 minutes'
+            WHERE provider_cleanup_id=$1::uuid""",
+            abandoned.cleanup_id,
+        )
+        overdue = await owner_status()
+        assert overdue["state"] == "cleaning_up" and overdue["delayed"] is True
         (resumed,) = await asyncio.to_thread(call_journal, journal.claim_due)
         assert resumed.receipt["items"][ref]["revocation"] == "uncertain"
         with pytest.raises(journal.ProviderCleanupClaimLost):
@@ -2033,8 +2054,9 @@ async def test_release_fence_refuses_worker_and_sql_before_cleanup(database_url,
         await conn.execute(_release_sql("install_release_fence.sql"))
         load = AsyncMock()
         monkeypatch.setattr(worker.journal, "load_grants", load)
-        with pytest.raises(admission.AccountDeletionReleasePaused):
+        with pytest.raises(admission.AccountDeletionReleasePaused) as paused:
             await worker.run_claim(object())
+        assert paused.value.reason == "release_fence_installed"
         load.assert_not_awaited()
 
         def attempt_sql():

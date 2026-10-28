@@ -4,6 +4,7 @@ No provider permission call runs in a request or a detached background task.
 The response 'approved' means queued, not that Google has shared anything.
 """
 
+from hushh_mcp.services.document_delivery.background_consent import request_options
 from hushh_mcp.services.drive_permission_executor import require_recipient_identity
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
@@ -55,6 +56,9 @@ class DriveSharingService:
         reason="",
         request_time_zone=None,
         expected_quote_version=None,
+        one_copy_requested=False,
+        activity_accepted=False,
+        activity_disclosure=None,
     ):
         result = await self.store.create_request(
             recipient=recipient,
@@ -66,6 +70,7 @@ class DriveSharingService:
             reason=reason,
             request_time_zone=request_time_zone,
             expected_quote_version=expected_quote_version,
+            **request_options(one_copy_requested, activity_accepted, activity_disclosure),
         )
         await wake_drive_work_stages("v1", "suggestions", "sharing")
         return result
@@ -204,6 +209,7 @@ class DriveSharingService:
         amount_cents,
         package_revision=None,
         package_digest=None,
+        one_copy_accepted=False,
     ):
         """A's Allow starts the search and the payment ask; nothing is shared yet."""
         await self._require_owner()
@@ -212,6 +218,7 @@ class DriveSharingService:
             request_id=request_id,
             revision=revision,
             amount_cents=amount_cents,
+            **({"one_copy_accepted": True} if one_copy_accepted else {}),
             **(
                 {"package_revision": package_revision, "package_digest": package_digest}
                 if package_revision is not None or package_digest is not None

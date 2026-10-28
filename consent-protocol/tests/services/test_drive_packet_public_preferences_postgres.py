@@ -2,11 +2,14 @@
 
 # ruff: noqa: F401,F811 -- reuse the existing disposable PostgreSQL fixture graph
 import pytest
+from psycopg2.errors import CheckViolation
 from sqlalchemy import text
 
+from db.migration_authority import _replay_sql, build_manifest_entries
 from hushh_mcp.services.drive_packet_public_preferences import SUMMARY_POLICY
 from hushh_mcp.services.drive_packet_public_summary import DISCLOSURE
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+from tests.pkm_conformance.postgres_harness import find_pg_bin
 from tests.services.test_drive_packet_public_summary_postgres import (
     collection,
     collection_pages,
@@ -22,6 +25,7 @@ from tests.services.test_drive_packet_public_summary_postgres import (
     reusable,
     sharing,
 )
+from tests.test_migrations_are_replay_safe import MIGRATIONS_DIR, replay_pg
 
 pytestmark = [pytest.mark.feature_drive_packets, pytest.mark.trace_loop]
 
@@ -343,3 +347,42 @@ async def test_visibility_on_uses_connection_before_preference_like_background_w
     finally:
         if pending is not None and not pending.done():
             await asyncio.wait_for(pending, 5)
+
+
+@pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
+def test_owner_policy_replay_skips_a_deleted_owner_instead_of_failing_the_deploy(replay_pg):
+    """Replaying 428 during an in-flight deletion must not hit the 201 guard."""
+    pg = replay_pg
+    pg.execute("""
+        CREATE EXTENSION IF NOT EXISTS pgcrypto;
+        CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS vault_keys(user_id TEXT PRIMARY KEY);
+        CREATE TABLE drive_live_preferences(user_id TEXT PRIMARY KEY,
+          connection_generation BIGINT NOT NULL,background_enabled BOOLEAN NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+        CREATE TABLE drive_packet_heads(packet_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id TEXT NOT NULL,connection_generation BIGINT NOT NULL,packet_kind TEXT NOT NULL,
+          category TEXT NOT NULL,public_summary_enabled BOOLEAN NOT NULL,
+          public_summary_revision BIGINT NOT NULL);
+        INSERT INTO drive_packet_heads(user_id,connection_generation,packet_kind,category,
+          public_summary_enabled,public_summary_revision) VALUES
+          ('owner-live',1,'provider_discovery','financial',FALSE,1),
+          ('owner-deleted',1,'provider_discovery','financial',FALSE,1);
+    """)
+    pg.apply_file(MIGRATIONS_DIR / "201_account_deletion_tombstones.sql")
+    pg.execute(
+        "INSERT INTO account_deletion_tombstones(user_id_hash) "
+        "VALUES('sha256:'||encode(digest('owner-deleted','sha256'),'hex'))"
+    )
+    entry = build_manifest_entries(MIGRATIONS_DIR, ["428_financial_summary_owner_preference.sql"])[
+        0
+    ]
+    with pytest.raises(CheckViolation, match="account identity is deleted"):
+        pg.execute(entry.sql)
+    pg.execute("ROLLBACK")
+    for _ in range(2):
+        pg.execute(_replay_sql(entry))
+    assert pg.execute(
+        "SELECT user_id,financial_summary_enabled,financial_summary_revision "
+        "FROM drive_live_preferences ORDER BY user_id"
+    ) == [("owner-live", False, 1)]

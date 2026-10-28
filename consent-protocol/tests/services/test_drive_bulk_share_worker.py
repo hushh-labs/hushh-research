@@ -187,6 +187,24 @@ async def test_v1_worker_filters_due_claims_notices_and_wake_to_v1_only():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("new_policy", [False, True])
+async def test_provider_membership_grant_does_not_reapply_local_dates(shared_hub_owner, new_policy):
+    from hushh_mcp.services.drive_request_discovery import DISCOVERY_PROVIDER_RESULTS_POLICY
+
+    worker, store, adapter = _worker()
+    job = _discovery_job()
+    if new_policy:
+        job["file"]["discoveryEvidence"]["policy"] = DISCOVERY_PROVIDER_RESULTS_POLICY
+    assert await worker._grant(job) == "succeeded"
+    inspection = adapter.inspect_shareable.await_args.kwargs
+    assert (inspection["metadata_period"] is None) is new_policy
+    assert inspection["metadata_only"] is True
+    assert inspection["expected_name"] == job["file"]["name"]
+    store.mark_dispatching.assert_awaited_once()
+    adapter.create_reader.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_grant_suppresses_google_email_and_records_confirmed_receipt(shared_hub_owner):
     worker, store, adapter = _worker()
     job = _job()

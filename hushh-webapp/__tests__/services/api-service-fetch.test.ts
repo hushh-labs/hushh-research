@@ -142,17 +142,22 @@ describe("ApiService.apiFetch", () => {
       vi.unstubAllEnvs();
     }
   });
-  it.each(["ios", "android"])("preserves authenticated attachment bytes on %s and keeps JSON refusals readable", async platform => {
+  it.each([
+    ["ios", "/api/one/messages/conversations/c/messages/m/attachment"],
+    ["android", "/api/one/messages/conversations/c/messages/m/attachment"],
+    ["ios", "/api/connectors/google_drive/sharing/requests/11111111-1111-4111-8111-111111111111/one-copy/files/22222222-2222-4222-8222-222222222222/content?disposition=download"],
+    ["android", "/api/connectors/google_drive/sharing/requests/11111111-1111-4111-8111-111111111111/one-copy/files/22222222-2222-4222-8222-222222222222/content?disposition=download"],
+  ])("preserves authenticated attachment bytes on %s at %s and keeps JSON refusals readable", async (platform, contentPath) => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
     capacitorMocks.getPlatform.mockReturnValue(platform);
     const bytes = new Uint8Array([0, 255, 137, 80, 78, 71, 13, 10, 128]);
     capacitorMocks.request.mockResolvedValueOnce({ status: 200, headers: { "content-type": "application/octet-stream" },
       data: btoa(String.fromCharCode(...bytes)) });
-    const response = await ApiService.apiFetch("/api/one/messages/conversations/c/messages/m/attachment", { responseType: "arraybuffer", headers: { Authorization: "Bearer synthetic-token" } });
+    const response = await ApiService.apiFetch(contentPath, { responseType: "arraybuffer", headers: { Authorization: "Bearer synthetic-token" } });
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
     expect(capacitorMocks.request).toHaveBeenCalledWith(expect.objectContaining({ responseType: "arraybuffer" }));
     capacitorMocks.request.mockResolvedValueOnce({ status: 403, headers: { "Content-Type": "application/json" }, data: { detail: { message: "Unavailable" } } });
-    const refused = await ApiService.apiFetch("/api/one/messages/conversations/c/messages/m/attachment", { responseType: "arraybuffer" });
+    const refused = await ApiService.apiFetch(contentPath, { responseType: "arraybuffer" });
     expect(refused.status).toBe(403);
     expect(await refused.json()).toEqual({ detail: { message: "Unavailable" } });
   });

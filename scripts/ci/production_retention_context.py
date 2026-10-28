@@ -119,7 +119,9 @@ def find_source(owner, args, repository, *, require_live=None):
             repository,
             args.release_run_id,
             Path(temporary),
-            require_live=not args.verify_source_only if require_live is None else require_live,
+            require_live=not args.verify_source_only
+            if require_live is None
+            else require_live,
             environment=args.environment,
             on_phone_rollback=anchors.append,
             **(
@@ -146,10 +148,24 @@ def _receipt_ports(owner):
 
 
 def healthy_phone(owner, repository, run, release, lane, callback):
-    if lane["project"] == "hushh-pda" and release.get("production_restoration") is not None:
-        importlib.import_module("production_restoration_receipt").serving_reference(
-            repository, run, release, lane, **_receipt_ports(owner)
-        )
+    if (
+        lane["project"] == "hushh-pda"
+        and release.get("production_restoration") is not None
+    ):
+        runtime = importlib.import_module(
+            "production_restoration_receipt"
+        ).serving_reference(repository, run, release, lane, **_receipt_ports(owner))
+        if runtime is not None:
+            release["_maintenance_backend_identity"] = runtime["backend"]
+            release["_maintenance_restoration_runtime"] = runtime
+            release["_maintenance_lane_provenance"] = {
+                name: {
+                    "run_id": identity["run_id"],
+                    "sha": identity["source"],
+                    "source": "deploy-production",
+                }
+                for name, identity in runtime.items()
+            }
         return
     if (
         lane["project"] == "hushh-pda"
@@ -364,6 +380,48 @@ def serving(owner, state) -> set[str] | None:
     return {
         name for name, percent, _ in owner.retention.traffic_state(state) if percent
     }
+
+
+def selected_revision_matches(state, revision, provenance, *, identity=None) -> bool:
+    """Match selected runtime evidence against its qualified release context."""
+    if identity is not None and (
+        state.get("metadata", {}).get("uid") != identity["service_uid"]
+        or revision.get("metadata", {}).get("uid") != identity["uid"]
+        or revision.get("status", {}).get("imageDigest") != identity["image"]
+    ):
+        return False
+    labels = revision.get("metadata", {}).get("labels") or {}
+    containers = revision.get("spec", {}).get("containers") or []
+    if len(containers) != 1:
+        return False
+    container = containers[0]
+    deploy_env = {
+        name: [
+            entry.get("value")
+            for entry in container.get("env", [])
+            if entry.get("name") == name
+        ]
+        for name in ("HUSHH_DEPLOY_SHA", "HUSHH_DEPLOY_SOURCE")
+    }
+    return (
+        labels.get("deploy-sha") == provenance["sha"]
+        and labels.get("github-run-id") == str(provenance["run_id"])
+        and deploy_env["HUSHH_DEPLOY_SHA"] == [provenance["sha"]]
+        and (
+            not provenance.get("source")
+            or (
+                labels.get("deploy-source") == provenance["source"]
+                and deploy_env["HUSHH_DEPLOY_SOURCE"] == [provenance["source"]]
+            )
+        )
+        and bool(
+            re.fullmatch(r"[^\s]+@sha256:[a-f0-9]{64}", container.get("image", ""))
+        )
+        and any(
+            c.get("type") == "Ready" and c.get("status") == "True"
+            for c in revision.get("status", {}).get("conditions", [])
+        )
+    )
 
 
 def protection(

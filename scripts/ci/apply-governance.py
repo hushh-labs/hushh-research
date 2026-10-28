@@ -334,6 +334,8 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true",
                     help="Push changes to GitHub. Without this, runs dry (plan only).")
+    ap.add_argument("--branch", action="append", choices=("dev", "uat"),
+                    help="Reconcile only this prepared branch; repeat for both. Does not create refs or deploy.")
     args = ap.parse_args()
 
     if not POLICY_PATH.exists():
@@ -342,6 +344,13 @@ def main() -> int:
 
     mode = "APPLY" if args.apply else "DRY-RUN (no changes — pass --apply to push)"
     print(f"=== apply-governance [{mode}] — source: config/ci-governance.json ===\n")
+
+    if args.branch:
+        from prepared_branch_governance import reconcile
+
+        reconcile(policy, args.branch, repo=REPO, read=gh_json, raw=gh, apply=args.apply)
+        print("Verify each selected branch with GITHUB_BRANCH=<branch> verify-main-branch-protection.sh.")
+        return 0
 
     print("1. repository settings")
     changed_repo = apply_repository_settings(policy, apply=args.apply)

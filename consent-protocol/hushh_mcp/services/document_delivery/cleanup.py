@@ -95,7 +95,7 @@ def _claim_cleanup(self, connection, limit):
         for row in connection.execute(
             text("""WITH due AS (
       SELECT cleanup_id FROM document_delivery_cleanup WHERE status IN ('pending','unknown')
-      AND next_attempt_at<=clock_timestamp() ORDER BY next_attempt_at LIMIT :limit FOR UPDATE SKIP LOCKED)
+      AND next_attempt_at<=clock_timestamp() AND NOT COALESCE((to_jsonb(document_delivery_cleanup)->>'held_by_background')::boolean,FALSE) ORDER BY next_attempt_at LIMIT :limit FOR UPDATE SKIP LOCKED)
       UPDATE document_delivery_cleanup c SET attempts=attempts+1,status='unknown',
       next_attempt_at=clock_timestamp()+INTERVAL '2 minutes' FROM due
       WHERE c.cleanup_id=due.cleanup_id RETURNING c.*"""),
