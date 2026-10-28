@@ -371,7 +371,7 @@ async def test_recorded_phone_browser_journeys(
                 report = None
                 for line in reversed(str(error).splitlines()):
                     try:
-                        candidate = json.loads(line)
+                        candidate = json.loads(line.removeprefix("Browser loop failed: "))
                     except json.JSONDecodeError:
                         continue
                     if (
