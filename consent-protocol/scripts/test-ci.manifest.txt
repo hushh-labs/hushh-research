@@ -762,6 +762,7 @@ tests/test_pod_browser_adk_continuation.py
 tests/test_pod_browser_sessions.py
 tests/test_pod_binding_transactions.py
 tests/test_pod_consent_authority.py
+tests/test_pod_consent_wire_scope.py
 tests/test_pod_ingress_axis.py
 tests/test_pod_session_authority.py
 tests/test_pod_turn_route.py
