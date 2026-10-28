@@ -78,6 +78,24 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(screen.getByText("2 yes, 2 awaiting")).toBeInTheDocument();
   });
 
+  it("uses the same HUSSH photo for organizer, verified self and guests without a Google photo read", async () => {
+    const photo = "data:image/png;base64,aGVsbG8=";
+    const googlePhoto = "https://lh3.googleusercontent.com/a/owner=s96-c";
+    const calendarPeople = new Map([
+      ["owner@example.test", { userId: "owner", displayName: null, photoUrl: photo }],
+      ["priya@example.test", { userId: "priya", displayName: "Priya Mehta", photoUrl: photo }],
+    ]);
+    render(view({ workspaceLayout: true, calendarPeople, accountPhotoUrl: googlePhoto }));
+    const card = await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+    expect(card.querySelector("[data-photo-source=hussh]")).toHaveAttribute("data-photo-url", photo);
+    fireEvent.click(card);
+    const guests = within(screen.getByRole("list", { name: "Guests" })).getAllByRole("listitem");
+    expect(guests.filter(guest => guest.querySelector("[data-photo-source=hussh]"))).toHaveLength(2);
+    expect(guests.find(guest => guest.textContent?.includes("You"))?.querySelector("[data-photo-url]"))?.toHaveAttribute("data-photo-url", photo);
+    expect(mock.apiFetch.mock.calls.every(([path]) => !String(path).includes("guest-photo-token"))).toBe(true);
+    expect(screen.queryByRole("button", { name: "Show Google contact photos" })).toBeNull();
+  });
+
   it("does not invent an organizer response when the organizer is absent from attendees", async () => {
     invitations[0]!.attendees = [
       { email: "owner@example.test", self: true, response_status: "needsAction" },
