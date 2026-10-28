@@ -104,10 +104,12 @@ async def test_changed_or_limited_export_is_unavailable_without_affecting_drive(
     projection = await background_access.status(
         service, request_id=flow.request_id, actor="recipient"
     )
-    assert projection["status"] == "unavailable"
-    assert projection["files"][0]["reason"] == (
-        "source_changed" if failure == "changed_during_export" else "export_size_limit"
-    )
+    if failure == "changed_during_export":
+        assert projection["status"] == "ready"
+        assert projection["files"][0]["status"] == "ready"
+    else:
+        assert projection["status"] == "unavailable"
+        assert projection["files"][0]["reason"] == "export_size_limit"
     assert flow.order()["status"] == "paid" and flow.effect_count() == 1
 
 
@@ -383,3 +385,40 @@ async def test_tiny_original_and_short_tail_use_production_ciphertext_frame(flow
     altered = {**chunk, "descriptor": {**chunk["descriptor"], "iv": "00" * 12}}
     with pytest.raises(DeliveryError, match="copy_integrity_mismatch"):
         background_objects.decrypt(service.store, row, altered, frame)
+
+
+@pytest.mark.asyncio
+async def test_copy_pause_uses_lease_deferral_without_failure_or_payment_replay(
+    flow, copies, monkeypatch
+):
+    service, original = copies
+    await sale(flow)
+    order, effects = flow.order(), flow.effect_count()
+    monkeypatch.setattr(service.store, "production_paused", lambda row: True)
+    result = await service.run(max_jobs=1)
+    assert result["outcomes"]["deferred"] == 1
+    assert original.reads == 0
+    with flow.db.engine.begin() as connection:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT state,failures,lease_id FROM document_delivery_background_files WHERE request_id=:request"
+                ),
+                {"request": flow.request_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert row["state"] == "preparing" and row["failures"] == 0 and row["lease_id"] is None
+        connection.execute(
+            text(
+                "UPDATE document_delivery_background_files SET next_at=clock_timestamp() WHERE request_id=:request"
+            ),
+            {"request": flow.request_id},
+        )
+    monkeypatch.setattr(service.store, "production_paused", lambda row: False)
+    await service.run(max_jobs=1)
+    assert (await background_access.status(service, request_id=flow.request_id, actor="recipient"))[
+        "files"
+    ][0]["status"] == "ready"
+    assert flow.order() == order and flow.effect_count() == effects

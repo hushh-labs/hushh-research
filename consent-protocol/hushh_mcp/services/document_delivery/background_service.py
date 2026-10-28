@@ -20,6 +20,7 @@ from hushh_mcp.services.document_delivery.background_source import (
 from hushh_mcp.services.document_delivery.background_store import BackgroundCopyStore
 from hushh_mcp.services.document_delivery.contracts import DeliveryError
 from hushh_mcp.services.document_delivery.storage import configured_objects
+from hushh_mcp.services.drive_rest_admission import scoped_job
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
@@ -38,6 +39,7 @@ class BackgroundCopyService:
             self._objects = configured_objects()
         return self._objects
 
+    @scoped_job(background=True)
     async def produce(self, row, deadline):
         with copy_step(row, "authority"):
             await self.store.current(row)
@@ -115,16 +117,16 @@ class BackgroundCopyService:
             if native is not None:
                 native[:] = b"\0" * len(native)
 
-    async def defer(self, row):
-        if row.get("_verification_attempt", 0) >= 3:
+    async def defer(self, row, *, paused=False):
+        if not paused and row.get("_verification_attempt", 0) >= 3:
             await self.stop(row, "verification_budget_exhausted")
             return
         await self.store._transaction(
             lambda c: c.execute(
                 text("""UPDATE document_delivery_background_files
-          SET lease_id=NULL,lease_expires_at=NULL,next_at=clock_timestamp()
+          SET lease_id=NULL,lease_expires_at=NULL,next_at=clock_timestamp()+(:delay * INTERVAL '1 second')
           WHERE file_ref=:ref AND lease_id=:lease AND state='preparing'"""),
-                {"ref": row["file_ref"], "lease": row["lease_id"]},
+                {"ref": row["file_ref"], "lease": row["lease_id"], "delay": 60 if paused else 0},
             )
         )
 
@@ -185,6 +187,12 @@ class BackgroundCopyService:
                 counts["deferred"] += 1
                 break
             except (DeliveryError, DriveReadError) as error:
+                from hushh_mcp.services.drive_rest_admission import DriveRestDeferred
+
+                if isinstance(error, DriveRestDeferred):
+                    await self.defer(row, paused=True)
+                    counts["deferred"] += 1
+                    continue
                 code = str(error)
                 if code in {"provider_unavailable", "refresh_in_progress"}:
                     try:

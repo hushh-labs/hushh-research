@@ -39,7 +39,7 @@ LEGACY_DEFAULT_PRICE_CENTS = 1_000
 # payment with no owner file selection, at a price from $0.50 in cents. Older
 # sealed requests keep their own price and review contract.
 AUTOSHARE_REQUEST_FLOW = "oct17_autoshare"
-SEMANTIC_SEARCH_POLICY_VERSION = 3
+SEMANTIC_SEARCH_POLICY_VERSION = 4
 SEMANTIC_SEARCH_ENROLLMENT_FLAG = "DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED"
 
 
@@ -68,12 +68,23 @@ def semantic_search_enrollment_enabled() -> bool:
     )
 
 
+def activity_union_paused() -> bool:
+    """Pause new-policy work while preserving saved readers and receipts."""
+    return os.getenv("DRIVE_REQUEST_ACTIVITY_UNION_PAUSED", "false").strip().lower() == "true"
+
+
+def new_semantic_search_policy_version() -> int:
+    """Rollback changes enrollment, never the policy of a saved request."""
+    enabled = os.getenv("DRIVE_REQUEST_ACTIVITY_UNION_ENABLED", "true").strip().lower() == "true"
+    return SEMANTIC_SEARCH_POLICY_VERSION if enabled else 3
+
+
 def semantic_search_request(private: Mapping[str, Any]) -> bool:
     """Only the exact policy sealed at creation selects semantic request search."""
     version = private.get("semantic_search_policy_version")
     return (
         type(version) is int
-        and version in {1, 2, SEMANTIC_SEARCH_POLICY_VERSION}
+        and version in {1, 2, 3, 4}
         and autoshare_request(private)
         and private.get("v1_live_request") is not True
     )

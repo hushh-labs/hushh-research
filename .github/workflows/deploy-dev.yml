@@ -713,6 +713,12 @@ jobs:
               "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
             )
           fi
+          # Migration 440 refuses dispatch without a common keyed claim, including
+          # old workers. Adopt already-dispatched uncertainty before new writers.
+          if [[ "${DEV_TARGET:-shared-dev}" == "shared-dev" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" consent-protocol/scripts/adopt_drive_permission_file_claims.py \
+              --release-environment dev > /tmp/dev-drive-file-claim-adoption.json
+          fi
           # Skew guard (same class as the secret-sync probes): the dev
           # contract file may not exist on older train SHAs. Fall back to the
           # UAT contract, which dev replicates by design.

@@ -32,10 +32,10 @@ from hushh_mcp.services.drive_owner_allowed import (
     LEGACY_DEFAULT_PRICE_CENTS,
     LEGACY_REQUEST_POLICY,
     OWNER_ALLOWED_KEY,
-    SEMANTIC_SEARCH_POLICY_VERSION,
     automatic_recipient_current,
     autoshare_enabled,
     autoshare_request,
+    new_semantic_search_policy_version,
     owner_allowed_marker,
     owner_allowed_price_cents,
     owner_allowed_record,
@@ -1486,8 +1486,9 @@ class DriveSharingStore(DriveDocumentStore):
                 "trustedAuto": private.get("trusted_auto") is True,
                 "autoshare": autoshare_request(private),
                 "semanticSearch": semantic_search_request(private),
-                "providerResultsOnly": private.get("semantic_search_policy_version") == 3,
-                "discoveryDelivery": private.get("semantic_search_policy_version") in (2, 3)
+                "providerResultsOnly": private.get("semantic_search_policy_version") in (3, 4),
+                "activityDateUnion": private.get("semantic_search_policy_version") == 4,
+                "discoveryDelivery": private.get("semantic_search_policy_version") in (2, 3, 4)
                 and semantic_search_request(private),
                 "semanticModelBinding": private.get("semantic_model_binding"),
                 "reusablePacket": private.get("reusable_packet"),
@@ -1762,6 +1763,15 @@ class DriveSharingStore(DriveDocumentStore):
                 if enroll_semantic_search
                 else None
             )
+            if (
+                enroll_semantic_search
+                and new_semantic_search_policy_version() == 4
+                and (
+                    semantic_model_binding is None
+                    or semantic_model_binding.get("provider") != "azure_openai"
+                )
+            ):
+                raise DriveSharingError("provider_unavailable")
             envelope = self.sharing_cipher.seal(
                 {
                     **payload,
@@ -1783,7 +1793,7 @@ class DriveSharingStore(DriveDocumentStore):
                         else {}
                     ),
                     **(
-                        {"semantic_search_policy_version": SEMANTIC_SEARCH_POLICY_VERSION}
+                        {"semantic_search_policy_version": new_semantic_search_policy_version()}
                         if enroll_semantic_search
                         else {}
                     ),

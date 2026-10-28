@@ -11,7 +11,7 @@ import base64
 import hmac
 import json
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -69,6 +69,7 @@ _SAFE_REASONS = frozenset(
         "permission_catalog_incomplete",
         "date_range_required",
         "sharing_rate_limited",
+        "permission_requires_google_management",
         "recipient_needs_google_account",
         "drive_policy_blocked",
         "unavailable",
@@ -81,9 +82,6 @@ PENDING_CREATE_PROVENANCE = "create_answered_invalid_sharing_request"
 # The exact requested grant found by that reconciliation. Managed like a
 # confirmed create, so Stop and access expiry can remove it.
 RECONCILED_CREATE_PROVENANCE = "reconciled_create_after_absence_check"
-# Waits after each sharingRateLimitExceeded refusal, by attempt number. The
-# fifth attempt is the last (attempts never exceed 5).
-_RATE_LIMIT_DELAYS_SECONDS = (5 * 60, 10 * 60, 20 * 60, 40 * 60)
 # Waits before the next read-only reconciliation after a failed read, by
 # attempt number. Reads are safe to repeat; the last wait repeats once the
 # attempts are spent.
@@ -113,6 +111,7 @@ _LEGACY_FALLBACK = {
     "recipient_needs_google_account": "permission_rejected",
     "drive_policy_blocked": "permission_rejected",
     "sharing_rate_limited": "provider_unavailable",
+    "permission_requires_google_management": "permission_rejected",
 }
 
 
@@ -3060,7 +3059,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
             changed = connection.execute(
                 text("""UPDATE drive_bulk_share_effects
-            SET state='queued',safe_error_code=NULL,attempts=0,next_at=clock_timestamp(),
+            SET state='queued',safe_error_code=NULL,attempts=0,ordinary_failure_attempts=0,next_at=clock_timestamp(),
                 updated_at=clock_timestamp()
             WHERE share_id=:share AND state='skipped' AND safe_error_code='provider_unavailable'
               AND receipt_envelope IS NULL AND lease_id IS NULL"""),
@@ -3590,7 +3589,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             lambda connection: self._v1_approved_share(connection, user_id=user_id, share_id=share)
         )
 
-    async def due(self, limit=400, *, v1_only=False):
+    async def due(self, limit=250, *, v1_only=False):
         if type(limit) is not int or not 1 <= limit <= 500:
             raise ValueError("invalid bulk worker bound")
         if type(v1_only) is not bool:
@@ -3615,6 +3614,9 @@ class DriveBulkShareStore(DriveLivePreferences):
                         ON o.request_id=b.origin_request_id
                       WHERE e.state IN ('queued','dispatching','unknown')
                         AND (e.state<>'queued' OR b.status IN ('queued','running'))
+                        AND NOT (e.state='queued' AND EXISTS(SELECT 1 FROM drive_rest_owner_admission a
+                          WHERE a.user_id=b.user_id
+                            AND a.sharing_cooldown_until>clock_timestamp()))
                         AND e.next_at<=clock_timestamp()
                         AND (e.lease_id IS NULL OR e.lease_expires_at<=clock_timestamp())
                         AND b.expires_at>clock_timestamp()
@@ -3822,7 +3824,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
                 self._finalize(connection, share)
                 return None
-            if effect["state"] == "queued" and effect["attempts"] >= 5:
+            if effect["state"] == "queued" and effect["ordinary_failure_attempts"] >= 5:
                 connection.execute(
                     text("""UPDATE drive_bulk_share_effects SET state='failed',
                     safe_error_code='retry_limit',updated_at=clock_timestamp()
@@ -3851,11 +3853,63 @@ class DriveBulkShareStore(DriveLivePreferences):
                 if self._paid_share_waits_for_other(connection, user_id=user_id, share_id=share):
                     logger.info("drive_bulk_share.claim_deferred reason=prior_share")
                     return None
+            from hushh_mcp.services.drive_rest_admission import sharing_cooldown
+
+            cooldown = sharing_cooldown(connection, user_id, row["connection_generation"])
+            if effect["state"] == "queued" and cooldown is not None and cooldown > now:
+                return None
+            file_row = self._row(
+                connection,
+                "SELECT * FROM drive_bulk_share_files WHERE share_id=:share AND position=:position",
+                {"share": share, "position": position},
+            )
+            recipient_row = self._row(
+                connection,
+                "SELECT * FROM drive_bulk_share_recipients WHERE share_id=:share AND recipient_user_id=:recipient",
+                {"share": share, "recipient": recipient_user_id},
+            )
+            if file_row is None or recipient_row is None:
+                raise DriveSharingError("bulk_changed")
+            from hushh_mcp.services.drive_permission_file_claims import claim_file
+
+            file = self._file(file_row, user_id)
+            from hushh_mcp.services.drive_owner_allowed import activity_union_paused
+
+            if (
+                effect["state"] == "queued"
+                and file.get("discoveryEvidence", {}).get("policy") == "drive_activity_union_v1"
+                and activity_union_paused()
+            ):
+                return None
+            try:
+                acquired = claim_file(
+                    connection,
+                    self.cipher.file_lock(file["id"]),
+                    share=share,
+                    position=position,
+                    recipient=recipient_user_id,
+                    reconcile=effect["state"] in {"dispatching", "unknown"},
+                )
+            except DriveSharingError as error:
+                if (
+                    str(error) != "permission_requires_google_management"
+                    or effect["state"] != "queued"
+                ):
+                    raise
+                connection.execute(
+                    text("""UPDATE drive_bulk_share_effects SET state='failed',safe_error_code='permission_requires_google_management',updated_at=clock_timestamp()
+                    WHERE share_id=:share AND position=:position AND recipient_user_id=:recipient"""),
+                    {"share": share, "position": position, "recipient": recipient_user_id},
+                )
+                self._finalize(connection, share)
+                return None
+            if not acquired:
+                return None
             lease = str(uuid4())
             connection.execute(
                 text("""UPDATE drive_bulk_share_effects
                   SET lease_id=:lease,lease_expires_at=clock_timestamp()+INTERVAL '120 seconds',
-                    attempts=LEAST(attempts+1,5),updated_at=clock_timestamp()
+                    attempts=LEAST(attempts+1,6),updated_at=clock_timestamp()
                   WHERE share_id=:share AND position=:position AND recipient_user_id=:recipient"""),
                 {
                     "lease": lease,
@@ -3870,18 +3924,6 @@ class DriveBulkShareStore(DriveLivePreferences):
                     updated_at=clock_timestamp() WHERE share_id=:share"""),
                     {"share": share},
                 )
-            file_row = self._row(
-                connection,
-                "SELECT * FROM drive_bulk_share_files WHERE share_id=:share AND position=:position",
-                {"share": share, "position": position},
-            )
-            recipient_row = self._row(
-                connection,
-                "SELECT * FROM drive_bulk_share_recipients WHERE share_id=:share AND recipient_user_id=:recipient",
-                {"share": share, "recipient": recipient_user_id},
-            )
-            if file_row is None or recipient_row is None:
-                raise DriveSharingError("bulk_changed")
             return {
                 "share_id": share,
                 "user_id": user_id,
@@ -3934,6 +3976,17 @@ class DriveBulkShareStore(DriveLivePreferences):
         return receipt
 
     def _effect_current(self, connection, job, *, reconcile=False):
+        from hushh_mcp.services.drive_owner_allowed import activity_union_paused
+
+        if (
+            not reconcile
+            and job.get("file", {}).get("discoveryEvidence", {}).get("policy")
+            == "drive_activity_union_v1"
+            and activity_union_paused()
+        ):
+            from hushh_mcp.services.drive_rest_admission import DriveRestDeferred
+
+            raise DriveRestDeferred(datetime.now(UTC) + timedelta(minutes=1))
         if not reconcile and not self._owner_grants_enabled(job["user_id"]):
             raise DriveSharingError("sharing_unavailable")
         self.live_active(connection, user_id=job["user_id"], generation=job["generation"])
@@ -3972,6 +4025,15 @@ class DriveBulkShareStore(DriveLivePreferences):
             )
         ):
             raise DriveSharingError("bulk_changed")
+        from hushh_mcp.services.drive_permission_file_claims import require_file_claim
+
+        require_file_claim(
+            connection,
+            self.cipher.file_lock(job["file"]["id"]),
+            share=job["share_id"],
+            position=job["position"],
+            recipient=job["recipient_user_id"],
+        )
         return effect
 
     async def require_current(self, job):
@@ -4000,6 +4062,13 @@ class DriveBulkShareStore(DriveLivePreferences):
                 if origin is None:
                     raise DriveSharingError("request_unavailable")
             self._effect_current(connection, job)
+            from hushh_mcp.services.drive_rest_admission import sharing_cooldown
+
+            cooldown = sharing_cooldown(connection, job["user_id"], job["generation"])
+            if cooldown is not None and cooldown > datetime.now(UTC):
+                from hushh_mcp.services.drive_rest_admission import DriveRestDeferred
+
+                raise DriveRestDeferred(cooldown)
             deadline = None
             if (
                 share["origin_request_id"] is not None
@@ -4099,7 +4168,9 @@ class DriveBulkShareStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
-    async def release(self, job, *, error, retryable=False, uncertain=False, pending=None):
+    async def release(
+        self, job, *, error, retryable=False, uncertain=False, pending=None, deferred_until=None
+    ):
         """A possible POST is reconciled by GET and is never automatically retried.
 
         Google's sharing rate limit is a refusal, not an uncertain write. That
@@ -4128,6 +4199,7 @@ class DriveBulkShareStore(DriveLivePreferences):
 
         def operation(connection):
             self._gate_graph_for_share(connection, user_id=job["user_id"], share_id=job["share_id"])
+            self._lock(connection, {"user_id": job["user_id"], "connector_id": "google_drive"})
             parent = self._owned(
                 connection, job["user_id"], job["share_id"], locked=True, unexpired=False
             )
@@ -4143,7 +4215,27 @@ class DriveBulkShareStore(DriveLivePreferences):
             )
             if effect is None or str(effect["lease_id"]) != job["lease_id"]:
                 return "superseded"
-            if (
+            now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+            quota = error == "sharing_rate_limited" and not uncertain
+            quota_attempts = min(6, effect["sharing_quota_attempts"] + int(quota))
+            ordinary_failures = min(
+                5,
+                effect["ordinary_failure_attempts"]
+                + int(not quota and not uncertain and deferred_until is None),
+            )
+            first_quota = effect["first_sharing_quota_at"] or (now if quota else None)
+            quota_next = None
+            owner_cooldown = None
+            if quota and quota_attempts < 6:
+                quota_next = (
+                    now + timedelta(seconds=(300, 1800, 7200, 21600)[quota_attempts - 1])
+                    if quota_attempts <= 4
+                    else max(now, first_quota + timedelta(hours=24))
+                )
+                owner_cooldown = quota_next
+            if deferred_until is not None and not uncertain:
+                state = "queued"
+            elif (
                 uncertain
                 or effect["state"] == "dispatching"
                 and error == "permission_outcome_unknown"
@@ -4156,19 +4248,23 @@ class DriveBulkShareStore(DriveLivePreferences):
                     if effect["attempts"] < 5 or effect["state"] == "dispatching" or retryable
                     else "failed"
                 )
-            elif retryable and effect["attempts"] < 5 and parent["status"] in _ACTIVE:
+            elif (
+                retryable
+                and (quota_attempts < 6 if quota else ordinary_failures < 5)
+                and parent["status"] in _ACTIVE
+            ):
                 state = "queued"
             else:
-                state = "failed" if effect["state"] != "queued" else "skipped"
-            pause = (
-                _RATE_LIMIT_DELAYS_SECONDS[
-                    min(max(effect["attempts"], 1), len(_RATE_LIMIT_DELAYS_SECONDS)) - 1
-                ]
-                if error == "sharing_rate_limited"
-                else 0
-            )
+                state = "failed" if quota or effect["state"] != "queued" else "skipped"
+            pause = max(0, (quota_next - now).total_seconds()) if quota_next is not None else 0
             if state == "queued":
-                delay = pause or min(120, 2 ** max(1, effect["attempts"]))
+                delay = (
+                    max(0, (min(deferred_until, parent["expires_at"]) - now).total_seconds())
+                    if deferred_until is not None
+                    else pause
+                    if quota_next is not None
+                    else min(120, 2 ** max(1, effect["attempts"]))
+                )
             elif state == "unknown" and effect["state"] == "unknown":
                 # Another failed reconciliation read: each one waits longer.
                 delay = _RECONCILE_DELAYS_SECONDS[
@@ -4176,6 +4272,33 @@ class DriveBulkShareStore(DriveLivePreferences):
                 ]
             else:
                 delay = 30 if state == "unknown" else 0
+            if state == "queued":
+                deadlines = [parent["expires_at"]]
+                if parent["origin_request_id"] is not None:
+                    origin = self._row(
+                        connection,
+                        "SELECT expires_at,access_expires_at FROM drive_share_requests WHERE request_id=:request",
+                        {"request": parent["origin_request_id"]},
+                    )
+                    if origin:
+                        deadlines.extend(
+                            value
+                            for value in (origin["expires_at"], origin["access_expires_at"])
+                            if value is not None
+                        )
+                delay = max(
+                    0, (min(now + timedelta(seconds=delay), *deadlines) - now).total_seconds()
+                )
+            logger.info(
+                "drive_bulk_share.retry state=%s reason=%s quota_attempts=%d ordinary_failures=%d next_retry_at=%s",
+                state,
+                error,
+                quota_attempts,
+                ordinary_failures,
+                (now + timedelta(seconds=delay)).isoformat()
+                if state in {"queued", "unknown"}
+                else "none",
+            )
             receipt = (
                 self._seal(
                     pending,
@@ -4189,6 +4312,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             connection.execute(
                 text("""UPDATE drive_bulk_share_effects SET state=:state,
                   safe_error_code=:code,next_at=clock_timestamp()+(:delay * INTERVAL '1 second'),
+                  sharing_quota_attempts=:quota_attempts,first_sharing_quota_at=:first_quota,ordinary_failure_attempts=:ordinary_failures,
                   receipt_envelope=COALESCE(CAST(:receipt AS jsonb),receipt_envelope),
                   lease_id=NULL,lease_expires_at=NULL,updated_at=clock_timestamp()
                   WHERE share_id=:share AND position=:position AND recipient_user_id=:recipient"""),
@@ -4199,24 +4323,16 @@ class DriveBulkShareStore(DriveLivePreferences):
                     "state": state,
                     "code": error,
                     "delay": delay,
+                    "quota_attempts": quota_attempts,
+                    "first_quota": first_quota,
+                    "ordinary_failures": ordinary_failures,
                     "receipt": receipt,
                 },
             )
-            if pause:
-                # The limit is the owner's, not this file's. Hold the batch's
-                # other unclaimed effects too, under the parent lock held here.
-                connection.execute(
-                    text("""UPDATE drive_bulk_share_effects
-                      SET next_at=GREATEST(next_at,clock_timestamp()+(:delay * INTERVAL '1 second'))
-                      WHERE share_id=:share AND state='queued' AND lease_id IS NULL
-                        AND NOT (position=:position AND recipient_user_id=:recipient)"""),
-                    {
-                        "share": job["share_id"],
-                        "position": job["position"],
-                        "recipient": job["recipient_user_id"],
-                        "delay": pause,
-                    },
-                )
+            if owner_cooldown is not None:
+                from hushh_mcp.services.drive_rest_admission import set_sharing_cooldown
+
+                set_sharing_cooldown(connection, job["user_id"], job["generation"], owner_cooldown)
             connection.execute(
                 text("""UPDATE drive_bulk_shares SET revision=revision+1,
                   updated_at=clock_timestamp(),expires_at=GREATEST(

@@ -362,7 +362,7 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   not turn synthetic precision into measured real-file accuracy. Unreadable
   prefixes and ordinary media remain kept; metadata never replaces content.
 
-### Declared: request-local semantic Drive search
+### Declared: historical request-local semantic Drive search (policy v1)
 
 - Owner: Documents `agent_documents_request_search` plans a
   `SemanticLiveSearchModelPlan` independently of the legacy live-search
@@ -398,6 +398,26 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   synthetic planner and assessor cases. Report all-attempt precision/recall,
   abstentions, errors and latency. These checks do not prove complete Google UI
   parity, OCR accuracy on arbitrary originals or production-corpus recall.
+
+### Declared: activity-date query-and-list Drive requests (policy v4)
+
+Documents `agent_documents_request_search` is the sole semantic stage. Its
+host-selected semantic-plan-v2 output expresses bounded executable concept
+alternatives and explicit entity-only sparse fallback permission. Python validates,
+escapes and freezes native queries; it does not infer replacement concepts or
+reassess provider matches. Native retrieval is followed by the versioned
+`drive_activity_union_v1` deterministic date gate before durable commit and sharing.
+Explicit quotations, filename/account constraints, exclusions and created-only or
+modified-only meaning remain intact. Bounded retries remain retries of this same
+planner. No content/OCR/extraction/indexing or second model enters this path.
+
+Historical policy readers and V1 digests remain unchanged; existing paid/approved
+membership cannot be reinterpreted without a new request revision. The activity
+union is file-event eligibility, not content-period proof. See
+[the operational contract](drive-continuous-packets.md#activity-date-search-match-delivery-policy-v4)
+for limits, evidence, diagnostics, adoption, recovery and rollback. Synthetic
+planner evaluation proves only its observed bounded cases, not Drive UI parity
+or production-corpus recall.
 
 ### Declared: Continuous Drive evidence and reusable packets
 

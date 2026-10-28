@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 436,
+  "expected_migration_version": 440,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -1215,7 +1215,10 @@
       "share_id",
       "state",
       "updated_at",
-      "user_id"
+      "user_id",
+      "sharing_quota_attempts",
+      "first_sharing_quota_at",
+      "ordinary_failure_attempts"
     ],
     "drive_bulk_share_files": [
       "file_digest",
@@ -1739,6 +1742,19 @@
       "stripe_checkout_session_id",
       "stripe_event_id"
     ],
+    "drive_rest_call_leases": [
+      "lease_id",
+      "user_id",
+      "connection_generation",
+      "expires_at"
+    ],
+    "drive_rest_owner_admission": [
+      "user_id",
+      "connection_generation",
+      "connector_id",
+      "next_start_at",
+      "sharing_cooldown_until"
+    ],
     "drive_share_events": [
       "created_at",
       "delivered_at",
@@ -1760,7 +1776,11 @@
       "created_at",
       "erased_at",
       "file_lock_hmac",
-      "operation_id"
+      "operation_id",
+      "bulk_share_id",
+      "bulk_position",
+      "bulk_recipient_user_id",
+      "removal_id"
     ],
     "drive_share_live_sources": [
       "connection_generation",
@@ -4181,5 +4201,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 436
+  "expected_schema_head": 440
 }

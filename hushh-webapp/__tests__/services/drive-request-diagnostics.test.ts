@@ -102,3 +102,22 @@ describe("@feature_drive_request @trace_loop console diagnostics", () => {
     } finally { logs.mockRestore(); }
   });
 });
+
+it("@feature_drive_request @trace_loop separates native rows, retained files, date exclusions and fallback", async () => {
+  const { observeDriveRequestState } = await import("@/lib/consent/drive-request-diagnostics");
+  const logs = vi.spyOn(console, "info").mockImplementation(() => {});
+  try {
+    observeDriveRequestState(`/api/connectors/google_drive/searches/${documentId}`, {
+      status: "queued", matched: 5001, nextRetryAt: "2026-09-27T00:05:00Z", retryReason: "provider_unavailable",
+      diagnostics: { queries: [{ query: "private-frozen-query" }], fallbackDecision: { privateKey: "private-decision" } },
+      coverage: { dateBasis: "activity_union", datePolicy: "drive_activity_union_v1", dateGateApplied: true,
+        fallbackActivated: true, providerRowsScanned: 25001, providerFilePages: 251, excludedByDateCount: 20000,
+        query: "private-query", name: "private-name" },
+    }, guard);
+    await vi.waitFor(() => expect(logs).toHaveBeenCalled());
+    expect(logs.mock.calls[0][1]).toMatchObject({ retained_count: 5001, provider_rows: 25001, provider_file_pages: 251,
+      excluded_by_date_count: 20000, date_policy: "drive_activity_union_v1", date_gate_applied: true, fallback_activated: true,
+      retry_reason: "provider_unavailable", next_retry_at: "2026-09-27T00:05:00.000Z" });
+    expect(JSON.stringify(logs.mock.calls)).not.toContain("private-");
+  } finally { logs.mockRestore(); }
+});

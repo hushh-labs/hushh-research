@@ -1,5 +1,6 @@
 """Labelled Workspace exports. They are not byte-identical Google originals."""
 
+import asyncio
 import hashlib
 import json
 from datetime import UTC, datetime
@@ -10,6 +11,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.document_delivery.background_diagnostics import CopySourceChanged
 from hushh_mcp.services.document_delivery.contracts import DeliveryError
+from hushh_mcp.services.drive_rest_admission import rest_admission
 from hushh_mcp.services.google_drive_adapter import FILE_ID
 
 FORMATS = {
@@ -69,17 +71,9 @@ def require_export(source, facts, *, stage="export_before"):
 
 
 def require_revision(source, facts, revision, modified_time, *, stage):
-    observed = require_export(source, facts, stage=stage)
-    mismatches = [
-        field
-        for field, before, after in (
-            ("export_revision", revision, observed["version"]),
-            ("modified_time", modified_time, observed["modifiedTime"]),
-        )
-        if before != after
-    ]
-    if mismatches:
-        raise CopySourceChanged(stage, mismatches)
+    # The export is a labelled processing-time rendition. Global version and
+    # modification time are not content hashes; its frozen bytes are verified.
+    require_export(source, facts, stage=stage)
 
 
 async def download(source, credential):
@@ -94,12 +88,16 @@ async def download(source, credential):
         headers["X-Goog-Drive-Resource-Keys"] = f"{source['id']}/{source['resourceKey']}"
     with suppress_instrumentation():
         async with httpx.AsyncClient(timeout=15, follow_redirects=False, trust_env=False) as client:
-            async with client.stream(
-                "GET",
-                f"https://www.googleapis.com/drive/v3/files/{source['id']}/export",
-                params={"mimeType": mime},
-                headers=headers,
-            ) as response:
+            async with (
+                rest_admission(),
+                asyncio.timeout(20),
+                client.stream(
+                    "GET",
+                    f"https://www.googleapis.com/drive/v3/files/{source['id']}/export",
+                    params={"mimeType": mime},
+                    headers=headers,
+                ) as response,
+            ):
                 if response.status_code == 403:
                     raise DeliveryError("export_limit_or_download_restricted")
                 if response.status_code != 200:

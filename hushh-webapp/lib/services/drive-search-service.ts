@@ -31,7 +31,12 @@ export type DriveSearchCoverage = {
     | "title_date_then_created_or_modified"
     | "title_date_then_created_then_modified"
     | "content_period_unverified"
-    | "provider_query";
+    | "provider_query"
+    | "activity_union";
+  datePolicy?: "drive_activity_union_v1";
+  dateEventBasis?: "activity_union" | "created" | "modified";
+  dateGateApplied?: true;
+  fallbackActivated?: boolean;
   datePushdown?: "created" | "modified" | "not_expressed";
   timeIntent?: "file_activity" | "document_coverage";
   ownerReviewRequired?: boolean;
@@ -47,6 +52,15 @@ export type DriveSearchCoverage = {
   unavailableShortcutCount: number;
   providerPagesExhausted: boolean;
 } & Partial<DriveSearchSelectionCoverage>;
+export type DriveRequestSearchDiagnostics = {
+  policy: "drive_activity_union_v1";
+  planVersion: 2;
+  planDigest: string;
+  dateBasis: "activity_union" | "created" | "modified";
+  period: { start: string; end: string; timezone: string };
+  fallbackDecision: { first_page_valid_distinct_count: number; armed: boolean } | null;
+  queries: Array<{ index: number; role: "primary" | "frozen_fallback"; query: string; queryDigest: string; enabled: boolean }>;
+};
 export type DriveSearchStatus = {
   jobId: string;
   status: (typeof STATES)[number];
@@ -59,6 +73,9 @@ export type DriveSearchStatus = {
   expiresAt: string;
   updatedAt: string;
   errorCode: string | null;
+  diagnostics?: DriveRequestSearchDiagnostics;
+  nextRetryAt?: string;
+  retryReason?: "provider_unavailable";
   unshareableCount?: number;
   /** Live V1 content checking; absent for older search jobs. */
   evaluation?: { status: (typeof EVALUATION_STATES)[number]; evaluatedCount: number; pendingCount: number; verifiedCount: number };
@@ -161,15 +178,17 @@ function coverage(value: unknown): DriveSearchCoverage {
     item.corpora.some(corpus => corpus !== "user" && corpus !== "member_shared_drives") ||
     new Set(item.corpora).size !== item.corpora.length ||
     !["title_date_then_created_or_modified", "title_date_then_created_then_modified",
-      "content_period_unverified", "provider_query"].includes(item.dateBasis as string) ||
+      "content_period_unverified", "provider_query", "activity_union"].includes(item.dateBasis as string) ||
     item.dateBasis === "provider_query" && !["created", "modified", "not_expressed"].includes(item.datePushdown as string) ||
+    item.dateBasis === "activity_union" && (item.datePolicy !== "drive_activity_union_v1" || item.dateGateApplied !== true || typeof item.fallbackActivated !== "boolean" || item.requestedPeriod == null) ||
+    item.dateBasis === "activity_union" && item.dateEventBasis !== undefined && !["activity_union", "created", "modified"].includes(String(item.dateEventBasis)) ||
     item.contentPeriodVerified !== false ||
     item.timeIntent !== undefined && item.timeIntent !== "file_activity" && item.timeIntent !== "document_coverage" ||
     item.ownerReviewRequired !== undefined && typeof item.ownerReviewRequired !== "boolean" ||
     // Provider-query coverage reports native membership, never verified content periods.
     item.dateBasis === "title_date_then_created_then_modified" && item.ownerReviewRequired !== false ||
     item.timeIntent === "document_coverage" && item.ownerReviewRequired !== true &&
-      item.dateBasis !== "title_date_then_created_then_modified" && item.dateBasis !== "provider_query" ||
+      item.dateBasis !== "title_date_then_created_then_modified" && item.dateBasis !== "provider_query" && item.dateBasis !== "activity_union" ||
     item.dateBasis === "content_period_unverified" &&
       (item.timeIntent !== "document_coverage" || item.ownerReviewRequired !== true) ||
     typeof item.providerPagesExhausted !== "boolean" ||
@@ -186,12 +205,15 @@ function coverage(value: unknown): DriveSearchCoverage {
   return { ...selectionCoverage(item),
     corpora: item.corpora as DriveSearchCoverage["corpora"], fileKind: text(item.fileKind, 32), requestedPeriod,
     dateBasis: item.dateBasis as DriveSearchCoverage["dateBasis"], contentPeriodVerified: false,
+    ...(item.dateBasis === "activity_union" && item.dateEventBasis !== undefined ? { dateEventBasis: item.dateEventBasis as DriveSearchCoverage["dateEventBasis"] } : {}),
+    ...(["provider_query", "activity_union"].includes(String(item.dateBasis)) && ["created", "modified", "not_expressed"].includes(String(item.datePushdown)) ? { datePushdown: item.datePushdown as DriveSearchCoverage["datePushdown"] } : {}),
+    ...(item.dateBasis === "activity_union" ? { datePolicy: "drive_activity_union_v1" as const, dateGateApplied: true as const, fallbackActivated: item.fallbackActivated as boolean } : {}),
     ...(item.dateBasis === "provider_query" ? { datePushdown: item.datePushdown as DriveSearchCoverage["datePushdown"] } : {}),
     ...(item.timeIntent === undefined ? {} : { timeIntent: item.timeIntent as DriveSearchCoverage["timeIntent"] }),
     ...(item.ownerReviewRequired === undefined ? {} : { ownerReviewRequired: item.ownerReviewRequired as boolean }),
-    providerRowsScanned: count(item.providerRowsScanned, Number.MAX_SAFE_INTEGER),
-    ...(item.providerFilePages === undefined ? {} : { providerFilePages: count(item.providerFilePages, Number.MAX_SAFE_INTEGER) }),
-    excludedByDateCount: count(item.excludedByDateCount, Number.MAX_SAFE_INTEGER),
+    providerRowsScanned: count(item.providerRowsScanned, item.dateBasis === "activity_union" ? 1_000_000 : Number.MAX_SAFE_INTEGER),
+    ...(item.providerFilePages === undefined ? {} : { providerFilePages: count(item.providerFilePages, item.dateBasis === "activity_union" ? 1000 : Number.MAX_SAFE_INTEGER) }),
+    excludedByDateCount: count(item.excludedByDateCount, item.dateBasis === "activity_union" ? 1_000_000 : Number.MAX_SAFE_INTEGER),
     ...(item.excludedByTopicCount === undefined ? {} : {
       excludedByTopicCount: count(item.excludedByTopicCount, Number.MAX_SAFE_INTEGER),
     }),
@@ -200,6 +222,26 @@ function coverage(value: unknown): DriveSearchCoverage {
     }),
     deduplicatedCount: count(item.deduplicatedCount, Number.MAX_SAFE_INTEGER),
     unavailableShortcutCount: count(item.unavailableShortcutCount), providerPagesExhausted: item.providerPagesExhausted };
+}
+function requestDiagnostics(value: unknown): DriveRequestSearchDiagnostics {
+  const item = record(value), period = record(item.period);
+  const hash = (v: unknown) => { const result = text(v, 64); if (!/^[a-f0-9]{64}$/.test(result)) throw new DriveSearchError("invalid_response"); return result; };
+  if (item.policy !== "drive_activity_union_v1" || item.planVersion !== 2 || !["activity_union", "created", "modified"].includes(String(item.dateBasis)) || !Array.isArray(item.queries) || item.queries.length < 1 || item.queries.length > 2) throw new DriveSearchError("invalid_response");
+  const start = date(period.start), end = date(period.end);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start > end) throw new DriveSearchError("invalid_response");
+  const decision = item.fallbackDecision == null ? null : record(item.fallbackDecision);
+  let fallbackDecision: DriveRequestSearchDiagnostics["fallbackDecision"] = null;
+  if (decision) {
+    const n = count(decision.first_page_valid_distinct_count, 1000);
+    if (typeof decision.armed !== "boolean" || decision.armed !== (n < 3)) throw new DriveSearchError("invalid_response");
+    fallbackDecision = { first_page_valid_distinct_count: n, armed: decision.armed };
+  }
+  const queries = item.queries.map((value, index) => {
+    const q = record(value), role = index === 0 ? "primary" : "frozen_fallback";
+    if (q.index !== index || q.role !== role || typeof q.enabled !== "boolean" || q.enabled !== (index === 0 || fallbackDecision?.armed === true)) throw new DriveSearchError("invalid_response");
+    return { index, role: role as "primary" | "frozen_fallback", query: text(q.query, 1800), queryDigest: hash(q.queryDigest), enabled: q.enabled };
+  });
+  return { policy: "drive_activity_union_v1", planVersion: 2, planDigest: hash(item.planDigest), dateBasis: item.dateBasis as DriveRequestSearchDiagnostics["dateBasis"], period: { start, end, timezone: text(period.timezone, 100) }, fallbackDecision, queries };
 }
 export function parseDriveSearchStatus(value: unknown): DriveSearchStatus {
   const item = record(value);
@@ -220,7 +262,13 @@ export function parseDriveSearchStatus(value: unknown): DriveSearchStatus {
       throw new DriveSearchError("invalid_response");
     return { status: value.status as (typeof EVALUATION_STATES)[number], evaluatedCount, pendingCount, verifiedCount };
   })();
+  const retry = item.nextRetryAt === undefined && item.retryReason === undefined ? {} : (() => {
+    if (item.status !== "queued" || item.retryReason !== "provider_unavailable" || item.nextRetryAt === undefined) throw new DriveSearchError("invalid_response");
+    return { nextRetryAt: date(item.nextRetryAt), retryReason: "provider_unavailable" as const };
+  })();
   const result: DriveSearchStatus = {
+    ...retry,
+    ...(item.diagnostics === undefined ? {} : { diagnostics: requestDiagnostics(item.diagnostics) }),
     jobId: id(item.jobId), status: item.status as DriveSearchStatus["status"],
     revision: count(item.revision, Number.MAX_SAFE_INTEGER), matched: count(item.matched),
     pagesScanned: count(item.pagesScanned, Number.MAX_SAFE_INTEGER),

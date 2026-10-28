@@ -1428,6 +1428,10 @@ jobs:
               --release-environment uat \
               --migration-mode "${{ vars.UAT_MIGRATION_MODE || 'replay' }}"
           )
+          # Migration 440 refuses dispatch without a common keyed claim, including
+          # old workers. Adopt already-dispatched uncertainty before new writers.
+          "${{ env.PROTOCOL_PYTHON }}" consent-protocol/scripts/adopt_drive_permission_file_claims.py \
+            --release-environment uat > /tmp/uat-drive-file-claim-adoption.json
           # Reconcile the fixed Drive connector after migrations while the
           # attested UAT database connection is available. This also migrates
           # the previously reviewed Hushh web return to the Hussh alias.

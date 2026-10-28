@@ -241,3 +241,25 @@ describe("owner Drive search progress stream", () => {
     }
   });
 });
+
+it("@feature_drive_request parses activity union coverage, raw counts and scheduled retries", async () => {
+  const coverage = { corpora: ["user"], fileKind: "any",
+    requestedPeriod: { start: "2026-06-02", end: "2026-10-02", timezone: "Asia/Kolkata" },
+    dateBasis: "activity_union", datePolicy: "drive_activity_union_v1", dateGateApplied: true,
+    fallbackActivated: true, contentPeriodVerified: false, providerRowsScanned: 25001,
+    providerFilePages: 251, excludedByDateCount: 20000, deduplicatedCount: 0,
+    unavailableShortcutCount: 0, providerPagesExhausted: false };
+  api.fetch.mockResolvedValueOnce(Response.json({ ...status, matched: 5001, coverage }));
+  expect((await DriveSearchService.get("owner", jobId, () => {})).coverage).toEqual(coverage);
+  for (const change of [{ datePolicy: undefined }, { dateGateApplied: false }, { fallbackActivated: "true" }, { requestedPeriod: null }, { providerRowsScanned: 1000001 }, { providerFilePages: 1001 }]) {
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, coverage: { ...coverage, ...change } }));
+    await expect(DriveSearchService.get("owner", jobId, () => {})).rejects.toMatchObject({ code: "invalid_response" });
+  }
+  const retry = { status: "queued", nextRetryAt: "2026-09-27T00:05:00Z", retryReason: "provider_unavailable" };
+  api.fetch.mockResolvedValueOnce(Response.json({ ...status, ...retry }));
+  expect(await DriveSearchService.get("owner", jobId, () => {})).toMatchObject(retry);
+  for (const change of [{ nextRetryAt: "private" }, { retryReason: "private" }, { status: "running" }, { retryReason: undefined }]) {
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, ...retry, ...change }));
+    await expect(DriveSearchService.get("owner", jobId, () => {})).rejects.toMatchObject({ code: "invalid_response" });
+  }
+});

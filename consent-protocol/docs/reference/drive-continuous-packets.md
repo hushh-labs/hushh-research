@@ -364,6 +364,75 @@ new semantic enrollment; already sealed policies retain their own validation.
 Production, voice, BYOK and content-analysis features are unchanged.
 
 
+## Activity-date search-match delivery (policy v4)
+
+New enrolled UAT requests use semantic plan v2 and `drive_activity_union_v1`.
+One Azure planner interprets the request; the deterministic compiler freezes a
+primary query and, only for explicitly flagged positive entity-token groups,
+one sparse fallback. The first primary page arms that fallback only below three
+validated distinct rows, before date filtering. Primary retrieval still exhausts
+all enabled corpora; each query has its own cursor and global file-ID deduplication.
+There is no per-file model, content download, OCR, index or revision scan.
+
+For the ordinary selected period, retrieval does not push a created/modified-only
+restriction into Drive. Before results and continuation are atomically committed,
+the deterministic gate accepts any returned created, modified, modified-by-me,
+shared-with-me, viewed-by-me, photo-capture or explicit filename date in range.
+These are different file events, not evidence of document coverage. Calendar days
+are inclusive in the request timezone; a timezone-free photo uses its recorded
+calendar day. Month/year filename intervals overlap the range; bare years require
+the entire year. Ambiguous numeric dates use per-file captured creation/modification
+anchors only under the documented 14-day/20-day thresholds, otherwise their union.
+Explicit created-only and modified-only requests retain that restriction.
+Qualifying evidence is frozen at discovery, not recomputed after a grant.
+
+The durable scanner retains the 10,000-result and 1,000-page limits and resumes
+across worker slices. Coverage separates scanned, date-excluded, deduplicated,
+retained and delivered counts and reports partial coverage honestly. Existing
+payment authority and progressive 25-file sharing batches remain independent.
+Fresh My Drive inspections can reuse an explicitly complete, validated ACL;
+missing/unusable or shared-drive ACLs still require permission listing. Existing
+access remains distinguishable from app-created access. Uncertain writes use
+GET-only reconciliation, never automatic reposting.
+
+Migrations 439–440 add shared owner REST admission (at most ten start admissions
+per second and eight concurrent calls, respecting lower configured limits),
+owner-wide quota cooldown and common same-file claims. Ordinary worker slices
+process at most 250 effects. Quota refusals have a separate six-attempt budget:
+5 minutes, 30 minutes, 2 hours, 6 hours, then the first-refusal-plus-24-hour boundary.
+Fresh retry times are clipped to request/access expiry. This is application
+recovery policy, not a promised Google quota reset. Stop/removal and uncertain-write
+reconciliation remain available during cooldown and policy pause.
+
+Before enabling fresh mutators after migration, run
+`consent-protocol/scripts/adopt_drive_permission_file_claims.py` in the target
+runtime against its own database. It adopts existing uncertain effects from
+sealed evidence without provider I/O and refuses incomplete adoption. Migration 440 rejects a dispatch transition without its keyed claim, including
+transitions attempted by old workers. Dev/UAT migration steps run adoption before
+new writers; the global unclaimed-uncertainty fence blocks fresh claims until
+adoption completes. No old worker can start another unclaimed write after that
+database fence is installed.
+
+Binary copies ignore timestamp-only drift, including MD5-only historical source
+identities, while preserving source binding, checksums, size and final byte
+integrity. Native documents retain processing-time export-byte integrity rather
+than treating global metadata version/time changes as content corruption.
+Search membership, permission outcomes and copy outcomes remain distinct.
+Erased jobs, payments and permissions are never reconstructed by this rollout.
+
+`DRIVE_REQUEST_ACTIVITY_UNION_ENABLED=false` stops new policy-4 enrollment;
+`DRIVE_REQUEST_ACTIVITY_UNION_PAUSED=true` pauses saved policy-4 planning, search,
+fresh grants and copy production while preserving cleanup and reconciliation.
+Policies 1–3 retain their saved contracts and semantic-plan-v1 digests.
+
+Filter browser logs with `[DRIVE_REQUEST]` and server logs with `drive_rest.call`,
+`drive_copy.step` and `drive_bulk_share.retry`. Correlated tags expose stages,
+counts, fixed reasons, next retry times and elapsed time, never private queries,
+filenames or credentials. The existing owner-authenticated request search GET
+provides bounded exact frozen queries, digests, fallback state and date policy;
+existing result pages expose frozen per-file date evidence. Requester/feed and
+ordinary status/SSE projections do not carry these private diagnostics.
+
 ## Fixed financial period packets
 
 Financial period preparation uses the product-authored `financial-records-v1`

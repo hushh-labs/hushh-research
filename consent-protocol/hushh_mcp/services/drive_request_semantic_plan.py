@@ -104,9 +104,54 @@ class SemanticDrivePlan(BaseModel):
         return self
 
 
-def semantic_plan_digest(plan: SemanticDrivePlan | dict) -> str:
+class SemanticPredicateV2(SemanticPredicate):
+    sparse_fallback_any_token: bool = False
+
+    @model_validator(mode="after")
+    def bounded_sparse_fallback(self):
+        if self.sparse_fallback_any_token and (
+            self.kind != "entity"
+            or self.match != "token"
+            or self.negated
+            or len({token.casefold() for token in self.value.split()}) < 2
+        ):
+            raise ValueError("sparse fallback requires a positive multi-token entity")
+        return self
+
+
+class SemanticClauseV2(SemanticClause):
+    predicates: list[SemanticPredicateV2] = Field(min_length=1, max_length=8)
+
+
+class SemanticDrivePlanV2(SemanticDrivePlan):
+    version: int = Field(ge=2, le=2)
+    clauses: list[SemanticClauseV2] = Field(max_length=6)
+    date_basis: Literal["activity_union", "created", "modified", "content"]
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def exact_version(cls, value):
+        if type(value) is not int or value != 2:
+            raise ValueError("unsupported semantic plan version")
+        return value
+
+
+def parse_semantic_plan(plan) -> SemanticDrivePlan | SemanticDrivePlanV2:
+    """Read the explicitly versioned contract without changing V1 canonical data."""
+    payload = plan.model_dump(mode="json") if isinstance(plan, BaseModel) else plan
+    model = (
+        SemanticDrivePlanV2
+        if isinstance(payload, Mapping)
+        and type(payload.get("version")) is int
+        and payload["version"] == 2
+        else SemanticDrivePlan
+    )
+    return model.model_validate(payload)
+
+
+def semantic_plan_digest(plan: SemanticDrivePlan | SemanticDrivePlanV2 | dict) -> str:
     """Canonical digest of the complete validated interpretation, not its query."""
-    payload = SemanticDrivePlan.model_validate(plan).model_dump(mode="json")
+    payload = parse_semantic_plan(plan).model_dump(mode="json")
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     ).hexdigest()

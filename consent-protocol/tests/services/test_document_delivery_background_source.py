@@ -48,11 +48,13 @@ def test_source_identity_accepts_metadata_time_only_with_stable_content():
         for key, value in facts.items()
         if key not in {"sha256Checksum", "headRevisionId"}
     }
+    weak_source = {**source, "sourceContentIdentity": content_identity(weak)}
+    assert (
+        require_original(weak_source, dict(weak, modifiedTime=after_grant["modifiedTime"]))
+        == weak_source["sourceContentIdentity"]
+    )
     with pytest.raises(DeliveryError, match="source_changed"):
-        require_original(
-            {**source, "sourceContentIdentity": content_identity(weak)},
-            dict(weak, modifiedTime=after_grant["modifiedTime"]),
-        )
+        require_original(weak_source, dict(weak, md5Checksum="c" * 32))
     with pytest.raises(DeliveryError, match="download_restricted"):
         require_original(source, dict(facts, capabilities={"canDownload": False}))
     with pytest.raises(DeliveryError, match="source_identity_unavailable"):

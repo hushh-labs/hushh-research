@@ -129,6 +129,8 @@ async def sharing(documents, monkeypatch):
             "356_drive_v1_access_period.sql",
             "368_drive_existing_access_nocharge.sql",
             "424_protected_one_document_delivery.sql",
+            "439_drive_rest_owner_admission.sql",
+            "440_drive_permission_file_claim_lanes.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.
@@ -2015,9 +2017,9 @@ def test_semantic_search_creation_is_uat_only_and_sealed_policy_is_strict(monkey
     monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED", "false")
     assert not semantic_search_enrollment_enabled()
     sealed = {"request_flow": "oct17_autoshare", "semantic_search_policy_version": 1}
-    for version in (1, 2, 3):
+    for version in (1, 2, 3, 4):
         assert semantic_search_request({**sealed, "semantic_search_policy_version": version})
-    for version in (None, True, "1", 0, 4):
+    for version in (None, True, "1", 0, 5):
         assert not semantic_search_request({**sealed, "semantic_search_policy_version": version})
     assert not semantic_search_request({**sealed, "agent_package_required": True})
     assert not semantic_search_request({**sealed, "v1_live_request": True})
@@ -2057,7 +2059,7 @@ async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing
     created = await request(sharing)
     identity = created["requestId"]
     _, private = stored_request(sharing, identity)
-    assert private["semantic_search_policy_version"] == 3
+    assert private["semantic_search_policy_version"] == 4
     assert private["semantic_model_binding"]["provider"] == "azure_openai"
     assert private["semantic_model_binding"]["authorization_basis"] == "uat_policy"
     with sharing.db.engine.connect() as connection:
@@ -2071,6 +2073,10 @@ async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing
         "semanticSearch"
     ] is True
 
+    from hushh_mcp.services.drive_owner_allowed import new_semantic_search_policy_version
+
+    monkeypatch.setenv("DRIVE_REQUEST_ACTIVITY_UNION_ENABLED", "false")
+    assert new_semantic_search_policy_version() == 3
     # A creation-only kill switch cannot reinterpret previously accepted terms.
     monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED", "false")
     assert (await sharing.request_bulk_context(user_id="owner", request_id=identity))[

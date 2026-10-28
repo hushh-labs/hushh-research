@@ -1811,7 +1811,7 @@ function UnlockedDocumentReview({
               ? `${review?.verifiedCount?.toLocaleString() ?? 0} files checked against the request. Select the exact files to share.`
               : searchReady
               ? search?.coverage?.providerPagesExhausted
-                ? "Search finished; file contents and dates not checked."
+                ? search.coverage.dateBasis === "activity_union" ? "Search finished; file activity dates checked. File contents not checked." : "Search finished; file contents and dates not checked."
                 : "Selected candidates available; more files may exist."
               : legacySearch
                 ? "Earlier results need a new sharing permission check."
@@ -1831,6 +1831,8 @@ function UnlockedDocumentReview({
               Only Agent One&apos;s verified matches can be selected.
             </HelperText> : ownerReviewRequired ? <HelperText>
               Dates inside files haven&apos;t been checked. Select the exact files before sharing.
+            </HelperText> : search.coverage.dateBasis === "activity_union" ? <HelperText>
+              Files match the selected period through creation, modification, viewing, sharing, photo or filename dates.
             </HelperText> : search.coverage.requestedPeriod ? <HelperText>
               Dates match file names first, then creation or modification dates. Dates inside file contents were not checked.
             </HelperText> : null}

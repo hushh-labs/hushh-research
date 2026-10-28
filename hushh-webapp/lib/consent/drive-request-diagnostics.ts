@@ -89,10 +89,25 @@ function projection(payload: unknown, terms: unknown, includeStates = false): Fi
     for (const [key, count] of [
       ["retained_count", search.matched ?? value.matched],
       ["unshareable_count", search.unshareableCount ?? value.unshareableCount],
-      ["provider_rows", coverage.providerRowsScanned], ["provider_file_pages", coverage.providerFilePages],
       ["newly_shared_count", delivery.shared], ["already_shared_count", delivery.alreadyShared],
       ["share_failed_count", delivery.failed], ["share_pending_count", delivery.pending],
     ] as const) if (typeof count === "number" && Number.isInteger(count) && count >= 0 && count <= 10000) fields[key] = count;
+    for (const [key, count, limit] of [
+      ["provider_rows", coverage.providerRowsScanned, 1_000_000],
+      ["provider_file_pages", coverage.providerFilePages, 1000],
+      ["excluded_by_date_count", coverage.excludedByDateCount, 1_000_000],
+    ] as const) if (typeof count === "number" && Number.isInteger(count) && count >= 0 && count <= limit) fields[key] = count;
+    if (coverage.dateBasis === "activity_union" && coverage.datePolicy === "drive_activity_union_v1" && coverage.dateGateApplied === true && typeof coverage.fallbackActivated === "boolean") {
+      fields.date_basis = "activity_union";
+      fields.date_policy = "drive_activity_union_v1";
+      fields.date_gate_applied = true;
+      fields.fallback_activated = coverage.fallbackActivated;
+    }
+    const retryAt = search.nextRetryAt ?? value.nextRetryAt;
+    if ((search.retryReason ?? value.retryReason) === "provider_unavailable" && typeof retryAt === "string" && /^\d{4}-\d{2}-\d{2}T/.test(retryAt) && Number.isFinite(Date.parse(retryAt))) {
+      fields.retry_reason = "provider_unavailable";
+      fields.next_retry_at = new Date(retryAt).toISOString();
+    }
     if (coverage.dateBasis === "provider_query") {
       fields.date_basis = "provider_query";
       if (["created", "modified", "not_expressed"].includes(String(coverage.datePushdown))) fields.date_pushdown = String(coverage.datePushdown);

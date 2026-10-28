@@ -1,5 +1,6 @@
 """Exact binary originals, bounded Range reads, and ACL-independent identity."""
 
+import asyncio
 import re
 
 import httpx
@@ -10,6 +11,7 @@ from hushh_mcp.services.document_delivery.background_diagnostics import (
     CopySourceChanged,
 )
 from hushh_mcp.services.document_delivery.contracts import DeliveryError
+from hushh_mcp.services.drive_rest_admission import rest_admission
 from hushh_mcp.services.google_drive_adapter import FILE_ID, GoogleDriveAdapter
 
 CHUNK_BYTES = 1024 * 1024
@@ -54,12 +56,10 @@ def require_original(source, facts, *, stage="source_before"):
     if encryption and encryption.get("encryptionState") != "unencrypted":
         raise DeliveryError("download_restricted")
     observed = content_identity(facts)
-    # Drive permission writes can advance modifiedTime without changing the
-    # binary. Retain the frozen shape for old jobs; only a matching SHA-256 or
-    # provider content revision may establish a metadata-only time change.
+    # Modification time is metadata, not binary identity. Keep the frozen
+    # envelope shape, compare every content field, and verify the copied bytes.
     stable_content = bool(
         observed
-        and (identity.get("sha256Checksum") or identity.get("headRevisionId"))
         and {key: value for key, value in identity.items() if key != "modifiedTime"}
         == {key: value for key, value in observed.items() if key != "modifiedTime"}
     )
@@ -127,12 +127,16 @@ class BackgroundOriginalReader:
             async with httpx.AsyncClient(
                 timeout=15, follow_redirects=False, trust_env=False
             ) as client:
-                async with client.stream(
-                    "GET",
-                    f"https://www.googleapis.com/drive/v3/files/{source['id']}",
-                    params={"alt": "media", "supportsAllDrives": "true"},
-                    headers=headers,
-                ) as response:
+                async with (
+                    rest_admission(),
+                    asyncio.timeout(20),
+                    client.stream(
+                        "GET",
+                        f"https://www.googleapis.com/drive/v3/files/{source['id']}",
+                        params={"alt": "media", "supportsAllDrives": "true"},
+                        headers=headers,
+                    ) as response,
+                ):
                     if response.status_code in {401, 403, 404, 410}:
                         raise DeliveryError("download_restricted")
                     if response.status_code == 429 or response.status_code >= 500:
