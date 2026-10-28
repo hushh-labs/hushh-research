@@ -1,7 +1,7 @@
 import { webcrypto } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
-import { committedFinanceConfig, committedFinanceProjection, financeContext, financeDigest, projectFinance, readFinanceProjection, type FinancePolicy, type FinanceSelection } from "@/lib/finance-sharing/contract";
+import { committedFinanceConfig, committedFinanceProjection, financeContext, financeDigest, projectFinance, projectAdvisorFinance, readFinanceProjection, type FinancePolicy, type FinanceSelection } from "@/lib/finance-sharing/contract";
 import { resolveFinancePortfolio } from "@/lib/finance-sharing/saved-source";
 
 import { applyConnectionLink, applySnapshot, toPortfolioData } from "@/lib/kai/plaid-vault/projection";
@@ -22,6 +22,46 @@ const portfolio = {
 };
 
 describe("curated Finance sharing projection", () => {
+  it("includes cash and non-ticker positions in the advisor snapshot without account records", () => {
+    const full = { ...portfolio, cash_balance: 200, holdings: [
+      ...portfolio.holdings,
+      { symbol: "", name: "Sweep cash", quantity: 0, price: 0, market_value: 200, is_cash_equivalent: true },
+      { symbol: "", name: "Private bond", quantity: 1, price: 300, market_value: 300, identifier_type: "cusip" as const },
+    ] };
+    const model = mapPortfolioToDashboardViewModel(full);
+    const projection = projectAdvisorFinance(model, full, source);
+    expect(projection.schema).toBe("finance-share-v2");
+    expect(projection.holdings?.map(row => row.name)).toEqual(expect.arrayContaining(["Sweep cash", "Private bond"]));
+    expect(JSON.stringify(projection)).not.toContain("PRIVATE-ACCOUNT");
+    expect(JSON.stringify(projection)).not.toContain("PRIVATE-TOKEN");
+    const advisorPolicy = { version: 2 as const, purpose: "verified_ria_review" as const, mode: "snapshot" as const,
+      sections: ["allocation", "performance", "holdings"] as FinanceSelection["sections"], selectionHash: "a".repeat(64), showAmounts: true as const,
+      model_processing: { version: 1 as const, allowed: false as const }, durationSeconds: 3600 as const };
+    expect(readFinanceProjection(projection, advisorPolicy)).toEqual(projection);
+    expect(() => readFinanceProjection(projection, policy)).toThrow();
+    expect(financeContext({ requestId: "r", id: "g", ownerUserId: "o", recipientUserId: "r", policy: advisorPolicy, revision: 1 }))
+      .toContain("finance-share-v2:verified_ria_review");
+  });
+
+  it("shares a cash-only source only when its total matches the reported cash", () => {
+    const cash = { total_value: 200, cash_balance: 200, holdings: [] };
+    const projection = projectAdvisorFinance(mapPortfolioToDashboardViewModel(cash), cash, source);
+    expect(projection.schema === "finance-share-v2" && projection.cashBalance?.value).toBe(200);
+    expect(projection.holdings).toEqual([]);
+    const inconsistent = { ...cash, total_value: 300 };
+    expect(() => projectAdvisorFinance(mapPortfolioToDashboardViewModel(inconsistent), inconsistent, source)).toThrow(/complete, shareable cash/);
+  });
+  it("refuses unsupported or unidentified positions instead of silently omitting them", () => {
+    for (const changed of [
+      { ...portfolio.holdings[0]!, market_value: -10, position_side: "short" as const },
+      { ...portfolio.holdings[0]!, position_side: " SHORT " as "short" },
+      { ...portfolio.holdings[0]!, position_side: "unknown" as "long" },
+      { ...portfolio.holdings[0]!, symbol: "", name: "" },
+    ]) {
+      const invalid = { ...portfolio, holdings: [changed] };
+      expect(() => projectAdvisorFinance(mapPortfolioToDashboardViewModel(invalid), invalid, source)).toThrow(/cannot be shared accurately/);
+    }
+  });
   it("preserves provider currency so sharing cannot relabel a foreign holding as USD", () => {
     const linked = applyConnectionLink(null, { item_id: "sample", access_token: "fixture-only", institution: FIRST_PLATYPUS, products: ["investments"] }, NOW);
     const financial = applySnapshot(linked, "sample", firstPlatypusSnapshot("sample", "sample"), NOW);

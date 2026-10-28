@@ -50,7 +50,6 @@ from api.middleware import (
 from api.middlewares.observability import request_trace_span
 from api.routes.account_cloud_cleanup import AccountCloudCleanupRequest, account_cloud_cleanup
 from api.routes.account_legal_acceptance import router as legal_acceptance_router
-from api.routes.account_lost_vault import LostVaultDeleteRequest
 from api.routes.account_lost_vault import router as lost_vault_router
 from api.routes.account_phone_recovery import DeviceActionConfirmRequest
 from api.routes.account_phone_recovery import router as phone_recovery_router
@@ -2214,33 +2213,6 @@ async def get_lost_vault_deletion_options(
     }
 
 
-@router.post("/delete-lost-vault")
-async def delete_lost_vault_account(
-    payload: LostVaultDeleteRequest,
-    authorization: str | None = Header(None),
-    firebase_uid: str = Depends(require_firebase_auth_read_only),
-):
-    """Erase the entire account after fresh identity proof without unlocking the vault."""
-    claims = await run_in_threadpool(_recent_federated_claims, authorization, firebase_uid)
-    phone, providers = await _lost_vault_deletion_options(firebase_uid)
-    provider = str((claims.get("firebase") or {}).get("sign_in_provider") or "")
-    if provider not in providers:
-        raise HTTPException(status_code=401, detail={"code": "ACCOUNT_DELETE_REAUTH_REQUIRED"})
-    if phone:
-        if payload.method != "phone" or not payload.phone_id_token:
-            raise HTTPException(
-                status_code=403, detail={"code": "ACCOUNT_DELETE_PHONE_PROOF_REQUIRED"}
-            )
-        await _verify_lost_vault_phone_proof(payload.phone_id_token, phone)
-    elif payload.method != "provider" or payload.phone_id_token:
-        raise HTTPException(status_code=403, detail={"code": "ACCOUNT_DELETE_METHOD_UNAVAILABLE"})
-    if payload.continuation_id:
-        from hushh_mcp.services.phone_recovery_continuation import require_ready
-
-        await require_ready(firebase_uid, str(payload.continuation_id), action="delete")
-    return await _perform_account_deletion(firebase_uid, target="both")
-
-
 @router.delete("/delete")
 async def delete_account(
     payload: DeleteAccountRequest | None = Body(default=None),
@@ -2281,11 +2253,27 @@ def _files_erasure_pending_response(code: str | None) -> JSONResponse | None:
     )
 
 
-async def _delete_account_result(user_id: str, *, target: str) -> dict[str, Any]:
+async def _delete_account_result(
+    user_id: str,
+    *,
+    target: str,
+    reviewed_inventory_sha256: str | None = None,
+    accept_local_erasure: bool = False,
+) -> dict[str, Any]:
     """Preserve the erasure service's result, including a definite pre-transaction failure."""
     service = AccountService()
     try:
-        return cast(dict[str, Any], await service.delete_account(user_id, target=target))
+        review_kwargs = (
+            {
+                "reviewed_inventory_sha256": reviewed_inventory_sha256,
+                "accept_local_erasure": accept_local_erasure,
+            }
+            if reviewed_inventory_sha256 is not None or accept_local_erasure
+            else {}
+        )
+        return cast(
+            dict[str, Any], await service.delete_account(user_id, target=target, **review_kwargs)
+        )
     except Exception as exc:
         # Transaction failures are returned by the service. A raised exception
         # occurred before erasure, so preserve the existing retry-safe result.
@@ -2300,10 +2288,21 @@ def _cleanup_provider_detail(value: object) -> dict[str, str]:
     return {"cleanupProvider": provider} if provider else {}
 
 
-async def _perform_account_deletion(user_id: str, *, target: str):
+async def _perform_account_deletion(
+    user_id: str,
+    *,
+    target: str,
+    reviewed_inventory_sha256: str | None = None,
+    accept_local_erasure: bool = False,
+):
     """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
-    result = await _delete_account_result(user_id, target=target)
+    result = await _delete_account_result(
+        user_id,
+        target=target,
+        reviewed_inventory_sha256=reviewed_inventory_sha256,
+        accept_local_erasure=accept_local_erasure,
+    )
 
     if result.get("success") is True and result.get("cleanup_pending") is True:
         return JSONResponse(

@@ -121,6 +121,7 @@ export const ROUTE_ID_VALUES = [
   "kai_portfolio_holdings",
   "kai_portfolio_allocation",
   "kai_portfolio_performance",
+  "kai_portfolio_analysis",
   "kai_portfolio_sources",
   "kai_analysis",
   "kai_optimize",
@@ -422,6 +423,9 @@ export function resolveRouteId(rawPathname: string): RouteId {
   }
   if (pathname === ROUTES.KAI_PORTFOLIO_PERFORMANCE) {
     return "kai_portfolio_performance";
+  }
+  if (pathname === ROUTES.KAI_PORTFOLIO_ANALYSIS) {
+    return "kai_portfolio_analysis";
   }
   if (pathname === ROUTES.KAI_PORTFOLIO_SOURCES) {
     return "kai_portfolio_sources";

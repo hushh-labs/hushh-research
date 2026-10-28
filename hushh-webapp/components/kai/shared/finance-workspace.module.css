@@ -27,7 +27,7 @@
   --finance-negative: var(--app-destructive-deep);
   font-family: var(--font-app-body);
 }
-.workspace { max-width: 728px; }
+.workspace { min-width: 0; }
 .overviewGrid { display: grid; gap: 20px; align-items: start; }
 .description { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .historyRow { display: flex; align-items: center; gap: 8px; margin-inline: 16px; border-bottom: 1px solid var(--border); }

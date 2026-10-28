@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   options: vi.fn(),
+  review: vi.fn(),
   resolvePhone: vi.fn(),
   reauthenticate: vi.fn(),
   validatePhone: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock("@/hooks/use-auth", () => ({
 vi.mock("@/lib/services/account-service", () => ({
   AccountService: {
     getLostVaultDeleteOptions: mocks.options,
+    reviewLostVaultDeletion: mocks.review,
     validateLostVaultDeletionPhone: mocks.validatePhone,
   },
 }));
@@ -120,10 +122,12 @@ function confirmDeletion() {
 describe("lost vault deletion", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.spyOn(window, "focus").mockImplementation(() => {});
     mocks.native = false;
     publishValidatedAuthSessionOwner(null);
     publishValidatedAuthSessionPrincipal({ firebaseUid: user.uid, ownerId: user.uid, accountGeneration: 0 });
     mocks.options.mockResolvedValue(phoneOptions);
+    mocks.review.mockResolvedValue({ inventory_sha256: "a".repeat(64), credential_count: 1, local_erasure_required: true });
     mocks.resolvePhone.mockResolvedValue(null);
     mocks.reauthenticate.mockResolvedValue("fresh-provider-token");
     mocks.validatePhone.mockResolvedValue({ valid: true });
@@ -151,27 +155,24 @@ describe("lost vault deletion", () => {
       providers: ["google.com"],
     });
     render(<LostVaultDeletePanel user={user} onBack={vi.fn()} />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Continue with Google" }),
-    );
-    expect(
-      await screen.findByRole("button", { name: "Permanently delete account" }),
-    ).toBeDisabled();
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with Google" }));
+    expect(await screen.findByRole("button", { name: "Permanently delete account" })).toBeDisabled();
     confirmDeletion();
     await screen.findByRole("link", { name: "Create a new account" });
     expect(mocks.deleteAccount).toHaveBeenCalledTimes(1);
-    expect(mocks.deleteAccount).toHaveBeenCalledWith({
+    expect(mocks.deleteAccount).toHaveBeenCalledWith(expect.objectContaining({
       userId: user.uid,
       sessionUser: user,
       firebaseIdToken: "fresh-provider-token",
+      reviewedInventorySha256: "a".repeat(64),
+      acceptLocalErasure: true,
       phoneIdToken: undefined,
       owner: expect.objectContaining({ firebaseUid: user.uid, ownerId: user.uid, accountGeneration: 0 }),
       isCurrent: expect.any(Function),
-    });
+    }));
     expect(mocks.validatePhone).not.toHaveBeenCalled();
     expect(mocks.getPhoneClaim).not.toHaveBeenCalled();
   });
-
   it.each(["null", "throws", "mismatched"])(
     "keeps entry reachable when the optional phone lookup %s",
     async (failure) => {
@@ -179,7 +180,10 @@ describe("lost vault deletion", () => {
         mocks.resolvePhone.mockRejectedValue(new Error("offline"));
       if (failure === "mismatched")
         mocks.resolvePhone.mockResolvedValue("+16505550101");
+      if (failure === "throws")
+        vi.mocked(window.focus).mockImplementationOnce(() => { throw new Error("focus denied"); });
       await openPhone();
+      expect(window.focus).toHaveBeenCalledTimes(1);
       expect(screen.getByLabelText("Mobile number")).toHaveValue("");
       expect(
         screen.getByRole("button", { name: /Country code/ }),
@@ -380,8 +384,8 @@ describe("lost vault deletion", () => {
     expect(onBack).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText("Mobile number")).toBeNull();
     expect(mocks.validatePhone).not.toHaveBeenCalled();
+    expect(window.focus).not.toHaveBeenCalled();
   });
-
   it("invalidates an outstanding SMS session on edit and prevents duplicate sends", async () => {
     const late = deferred<{ verificationId: string }>();
     mocks.startPhoneProof.mockReturnValue(late.promise);

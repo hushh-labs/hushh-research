@@ -59,6 +59,10 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "kai_portfolio_performance",
       subview: null,
     });
+    expect(deriveVoiceRouteScreen("/one/kai/portfolio/analysis")).toEqual({
+      screen: "kai_portfolio_analysis",
+      subview: null,
+    });
   });
 
   it("keeps legacy dashboard compatibility mapping", () => {

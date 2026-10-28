@@ -171,6 +171,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.KAI_PORTFOLIO_PERFORMANCE) {
     return { screen: "kai_portfolio_performance", subview: null };
   }
+  if (normalizedPath === ROUTES.KAI_PORTFOLIO_ANALYSIS) {
+    return { screen: "kai_portfolio_analysis", subview: null };
+  }
   if (normalizedPath === ROUTES.KAI_PORTFOLIO_SOURCES) {
     return { screen: "kai_portfolio_sources", subview: null };
   }

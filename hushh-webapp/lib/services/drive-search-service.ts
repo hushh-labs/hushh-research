@@ -1,3 +1,4 @@
+import { traceDriveRequest, observeDriveRequestState } from "@/lib/consent/drive-request-diagnostics";
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { ApiService } from "@/lib/services/api-service";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
@@ -280,30 +281,37 @@ export function parseDriveSearchResults(value: unknown, jobId: string): DriveSea
 export class DriveSearchService {
   private static async send(token: string, guard: Guard, suffix = "", body?: object): Promise<RecordValue> {
     guard();
-    const response = await ApiService.apiFetch(`${PATH}${suffix}`, {
-      method: body === undefined ? "GET" : "POST", cache: "no-store",
-      isEffectCurrent: () => { guard(); return true; },
-      headers: { ...ApiService.getAuthHeaders(token), "Content-Type": "application/json" },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    guard();
-    const serialized = await response.text();
-    guard();
-    if (serialized.length > 262_144) throw new DriveSearchError("invalid_response");
-    let payload: RecordValue;
-    try { payload = record(JSON.parse(serialized)); } catch { throw new DriveSearchError("invalid_response"); }
-    if (!response.ok) {
-      const detail = payload.detail && typeof payload.detail === "object" ? record(payload.detail) : payload;
-      const code = typeof detail.code === "string" && /^[a-z_]{1,80}$/.test(detail.code) ? detail.code : "request_failed";
-      throw new DriveSearchError(code);
-    }
-    return payload;
+    return traceDriveRequest(`${PATH}${suffix}`, body === undefined ? "GET" : "POST", async (diagnosticHeaders, observe) => {
+      guard();
+      const response = await ApiService.apiFetch(`${PATH}${suffix}`, {
+        method: body === undefined ? "GET" : "POST", cache: "no-store",
+        isEffectCurrent: () => { guard(); return true; },
+        headers: { ...diagnosticHeaders, ...ApiService.getAuthHeaders(token), "Content-Type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      guard();
+      observe(response);
+      const serialized = await response.text();
+      guard();
+      if (serialized.length > 262_144) throw new DriveSearchError("invalid_response");
+      let payload: RecordValue;
+      try { payload = record(JSON.parse(serialized)); } catch { throw new DriveSearchError("invalid_response"); }
+      observe(response, payload);
+      if (!response.ok) {
+        const detail = payload.detail && typeof payload.detail === "object" ? record(payload.detail) : payload;
+        const code = typeof detail.code === "string" && /^[a-z_]{1,80}$/.test(detail.code) ? detail.code : "request_failed";
+        throw new DriveSearchError(code);
+      }
+      return payload;
+    }, body);
   }
   static async create(token: string, query: string, clientRequestId: string, guard: Guard) {
     id(clientRequestId);
     if (!query.trim() || new TextEncoder().encode(query).byteLength > 2048) throw new DriveSearchError("invalid_argument");
-    return parseDriveSearchStatus(await this.send(token, guard, "", { clientRequestId, query, backgroundConsent: true,
+    const value = parseDriveSearchStatus(await this.send(token, guard, "", { clientRequestId, query, backgroundConsent: true,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
+    observeDriveRequestState(`${PATH}/${value.jobId}`, value, guard);
+    return value;
   }
   static async recent(token: string, guard: Guard): Promise<DriveSearchStatus[]> {
     const value = await this.send(token, guard);
@@ -315,6 +323,7 @@ export class DriveSearchService {
   static async get(token: string, jobId: string, guard: Guard) {
     const value = parseDriveSearchStatus(await this.send(token, guard, `/${id(jobId)}`));
     if (value.jobId !== jobId) throw new DriveSearchError("invalid_response");
+    observeDriveRequestState(`${PATH}/${jobId}`, value, guard);
     return value;
   }
   /** Live status is advisory; callers still load the owner review for file decisions. */
@@ -381,6 +390,8 @@ export class DriveSearchService {
           if (status.jobId !== jobId) throw new DriveSearchError("invalid_response");
           if (status.revision <= revision) continue;
           revision = status.revision;
+          observeDriveRequestState(`${PATH}/${jobId}`, status, guard);
+          guard();
           onStatus(status);
           if (TERMINAL_STATES.has(status.status) &&
               !(status.status === "completed" &&

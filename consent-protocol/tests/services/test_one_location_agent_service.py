@@ -1461,8 +1461,8 @@ def test_paged_verified_recipient_directory_uses_the_shared_verified_ria_gate() 
     service = RecipientDirectoryProbe()
 
     assert service.list_verified_recipients_page(owner_user_id="owner")["items"] == []
-    assert "ria_profiles ria_annotation" in service.sql
-    assert "'finra_verified'" in service.sql
+    assert "ria_annotation.verification_status = ANY(:finance_verified_statuses)" in service.sql
+    assert service.params["finance_verified_statuses"] == ["active", "finra_verified", "verified"]
     assert "page_rows.is_ria" in service.sql
     assert service.params["owner_user_id"] == "owner"
 

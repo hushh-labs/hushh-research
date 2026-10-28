@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -30,6 +31,20 @@ class _Db:
     def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
         self.calls.append((sql, params))
         return SimpleNamespace(data=[])
+
+
+def test_primary_calendar_completion_includes_exact_account_and_scopes(monkeypatch):
+    service = GoogleConnectionService(db=_Db())
+    accounts = {
+        "service": "calendar",
+        "accounts": [{"account_id": "default", "scope_csv": "meet drive"}],
+    }
+    monkeypatch.setattr(service, "calendar_accounts_status", AsyncMock(return_value=accounts))
+    monkeypatch.setattr(service, "status", AsyncMock(return_value={"service": "calendar"}))
+    result = asyncio.run(service._primary_completion_status("owner", "calendar", False))
+    assert result["completed_account_id"] == "default"
+    assert result["accounts"] == accounts["accounts"]
+    service.status.assert_not_awaited()
 
 
 def test_new_calendar_web_and_native_oauth_do_not_request_photo_only_contacts(

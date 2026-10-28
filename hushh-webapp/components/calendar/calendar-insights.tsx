@@ -13,16 +13,18 @@ import { CHART_TOOLTIP_TRIGGER, ChartContainer, ChartTooltip, ChartTooltipConten
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
-import { CalendarInsightsRequestError, CalendarInsightsService, safeMeetingProviderUrl, type CalendarInsights as Overview, type MeetingLibrary, type MeetingDetail, type Meeting, type MeetingArtifact, type VerifiedMeetingSelection } from "@/lib/services/calendar-insights-service";
+import { CalendarInsightsRequestError, CalendarInsightsService, safeMeetingProviderUrl, type CalendarInsights as Overview, type MeetingLibrary, type MeetingDetail, type Meeting, type MeetingArtifact, type MeetingSource, type VerifiedMeetingSelection } from "@/lib/services/calendar-insights-service";
 import type { GoogleCalendarAccount } from "@/lib/services/google-calendar-service";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
 import { CalendarCompactAction } from "./calendar-compact-action";
 import { CalendarLoading } from "./calendar-loading";
+import type { CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
 import presentationStyles from "./calendar-presentation.module.css";
 import styles from "./calendar-insights.module.css";
 
 const hours = (minutes: number) => String(Math.round(minutes / 6) / 10) + " hr";
+type SourcedArtifact = MeetingArtifact & { source?: MeetingSource };
 const limitationText: Record<string, string> = {
   permission_required: "Allow recording and notes access for this Google account.",
   processing: "Google is still preparing meeting files. Refresh later.",
@@ -49,6 +51,7 @@ function Artifact({ item, onOpen, onDownload }: { item: MeetingArtifact; onOpen:
   const link = safeMeetingProviderUrl(item.url);
   return <div className="space-y-2 border-b py-3 last:border-0">
     <strong className="block break-words">{item.title || (item.kind === "recording" ? "Meeting recording" : "Meeting notes")}</strong>
+    {item.provenance === "calendar_linked" ? <span className={styles.muted}>Linked from this Calendar event</span> : null}
     <div className="flex flex-wrap items-center gap-3">
       {link ? <Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => onOpen(item)}>Open<ExternalLink className="size-3" /></Button> : <span className={styles.muted}>Google did not provide an opening link.</span>}
       {item.can_download ? <Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => onDownload(item)}>Download</Button> : <span className={styles.muted}>The file owner does not allow downloads.</span>}
@@ -83,24 +86,25 @@ function mergeLibrary(previous: MeetingLibrary | null, incoming: MeetingLibrary)
   };
 }
 
-export function CalendarInsights({ userId, account, today, zone, getIdToken, onAllowMeetingFiles }: {
+export function CalendarInsights({ userId, account, today, zone, connectionRevision, initialLibrary, getIdToken, onAllowMeetingFiles }: {
   userId: string; account: GoogleCalendarAccount; today: string; zone: string;
-  getIdToken: () => Promise<string>; onAllowMeetingFiles?: (accountId: string) => void;
+  connectionRevision?: number; initialLibrary?: CalendarMeetingReturnContext | null;
+  getIdToken: () => Promise<string>; onAllowMeetingFiles?: (accountId: string, context: CalendarMeetingReturnContext) => void;
 }) {
-  const [view, setView] = useState<"overview" | "library" | "meeting">("overview");
-  const [day, setDay] = useState(today);
+  const [view, setView] = useState<"overview" | "library" | "meeting">(initialLibrary ? "library" : "overview");
+  const [day, setDay] = useState(initialLibrary?.day || today);
   const previousToday = useRef(today);
   useEffect(() => {
     if (day === previousToday.current) setDay(today);
     previousToday.current = today;
   }, [today, day]);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | "recording" | "notes">("all");
+  const [query, setQuery] = useState(initialLibrary?.query || "");
+  const [filter, setFilter] = useState<"all" | "recording" | "notes">(initialLibrary?.filter || "all");
   const [selected, setSelected] = useState<Meeting | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [libraryState, setLibraryState] = useState<{ key: string; value: MeetingLibrary } | null>(null);
-  const [detail, setDetail] = useState<MeetingDetail | null>(null);
+  const [detail, setDetail] = useState<(MeetingDetail & { artifacts: SourcedArtifact[] }) | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -117,7 +121,7 @@ export function CalendarInsights({ userId, account, today, zone, getIdToken, onA
   const getToken = useRef(getIdToken); getToken.current = getIdToken;
   const epoch = snapshotVaultSessionEpoch();
   const owner = snapshotValidatedAuthSessionOwner();
-  const context = [userId, account.account_id, account.grant_generation || "", account.provider_subject_sha256 || "", day, zone, epoch, owner?.generation || ""].join(":");
+  const context = [userId, account.account_id, account.grant_generation || "", account.provider_subject_sha256 || "", day, zone, epoch, owner?.generation || "", connectionRevision || 0].join(":");
   const libraryKey = [context, query, filter].join("|");
   const library = libraryState?.key === libraryKey ? libraryState.value : null;
   const libraryRef = useRef<MeetingLibrary | null>(library); libraryRef.current = library;
@@ -223,12 +227,27 @@ export function CalendarInsights({ userId, account, today, zone, getIdToken, onA
             setCursor(value.next_cursor);
           }
         } else if (selected) {
-          const selection: VerifiedMeetingSelection = {
-            account_id: account.account_id, calendar_id: selected.calendar_id, event_id: selected.id,
-            occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id, date: day, time_zone: zone,
-          };
-          const value = await CalendarInsightsService.read<MeetingDetail>("meetings/detail", selection, idToken, controller.signal);
-          if (valid()) setDetail(value);
+          const sources = selected.sources.length ? selected.sources : [{ calendar_id: selected.calendar_id, event_id: selected.id }];
+          const details: (MeetingDetail & { source: MeetingSource })[] = [];
+          for (const source of sources.slice(0, 12)) {
+            const selection: VerifiedMeetingSelection = {
+              account_id: account.account_id, ...source,
+              occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id, date: day, time_zone: zone,
+            };
+            const value = await CalendarInsightsService.read<MeetingDetail>("meetings/detail", selection, idToken, controller.signal);
+            if (!valid()) return;
+            details.push({ ...value, source });
+          }
+          const files = new Map<string, SourcedArtifact>();
+          for (const item of details.flatMap(value => value.artifacts.map(artifact => ({ ...artifact, source: value.source })))) {
+            const key = `${item.kind}:${item.file_id}`;
+            if (!files.has(key) || (files.get(key)?.state !== "available" && item.state === "available")) files.set(key, item);
+          }
+          const first = details[0];
+          if (valid() && first) setDetail({ ...first, artifacts: [...files.values()],
+            complete: sources.length <= 12 && details.every(value => value.complete),
+            discovery: details.find(value => !value.complete)?.discovery || (sources.length > 12 ? "files_incomplete" : first.discovery),
+          });
         }
       } catch (failure) {
         if (valid()) {
@@ -252,11 +271,11 @@ export function CalendarInsights({ userId, account, today, zone, getIdToken, onA
     loadedPageCount.current = 0; refreshTarget.current = 0;
     setLibraryState(null); setError(""); autoAdvance.current = 0;
   };
-  const changeQuery = (next: string) => { setQuery(next); setCursor(null); setError(""); loadedPageCount.current = 0; refreshTarget.current = 0; autoAdvance.current = 0; };
+  const changeQuery = (next: string) => { setQuery(next.slice(0, 120)); setCursor(null); setError(""); loadedPageCount.current = 0; refreshTarget.current = 0; autoAdvance.current = 0; };
   const changeFilter = (next: string) => {
     setFilter(next as typeof filter); setCursor(null); setError(""); loadedPageCount.current = 0; refreshTarget.current = 0; autoAdvance.current = 0;
   };
-  const fileAction = (item: MeetingArtifact, kind: "open" | "download") => {
+  const fileAction = (item: SourcedArtifact, kind: "open" | "download") => {
     if (!selected || (kind === "download" && !item.can_download)) return;
     const popup = window.open("about:blank", "_blank");
     if (!popup) { setError("Allow this Google file window and try again."); return; }
@@ -265,7 +284,7 @@ export function CalendarInsights({ userId, account, today, zone, getIdToken, onA
     const controller = new AbortController(); action.current = { controller, popup };
     const startedContext = actionContext;
     const selection: VerifiedMeetingSelection & { file_id: string } = {
-      account_id: account.account_id, calendar_id: selected.calendar_id, event_id: selected.id,
+      account_id: account.account_id, calendar_id: item.source?.calendar_id || selected.calendar_id, event_id: item.source?.event_id || selected.id,
       occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id, date: day, time_zone: zone, file_id: item.file_id,
     };
     void getToken.current().then(token => CalendarInsightsService.fileAction(kind, selection, token, controller.signal))
@@ -308,12 +327,11 @@ export function CalendarInsights({ userId, account, today, zone, getIdToken, onA
     </> : view === "library" ? <>
       <div><h2 className={styles.heading}>Recordings &amp; Notes</h2><p className={styles.muted}>Meetings on this day with a verified, accessible recording or meeting note.</p></div>
       <CalendarDateNavigation date={day} today={today} onChange={changeDay} label="Recording and notes date" />
-      <label className="relative"><Search aria-hidden className="absolute left-3 top-3 size-4 text-muted-foreground" /><Input className="pl-10" type="search" aria-label="Search meetings on this day" placeholder="Search meetings on this day" value={query} onChange={event => changeQuery(event.target.value)} /></label>
+      <label className="relative"><Search aria-hidden className="absolute left-3 top-3 size-4 text-muted-foreground" /><Input className="pl-10" type="search" aria-label="Search meetings on this day" placeholder="Search meetings on this day" maxLength={120} value={query} onChange={event => changeQuery(event.target.value)} /></label>
       <SegmentedTabs variant="filter" ariaLabel="Recording and notes filters" value={filter} onValueChange={changeFilter} options={[{ value: "all", label: "All" }, { value: "recording", label: "Recordings" }, { value: "notes", label: "Notes" }]} />
       {loading && library ? <p role="status" className={styles.muted}>Checking for updates…</p> : null}
-      {library?.limitations.length ? <div role="status" className={styles.muted}><p>{limitationText[library.limitations[0] || ""] || "Some meeting files could not be checked."}</p>{library.limitations.includes("permission_required") && onAllowMeetingFiles ? <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id)}>Allow recording and notes access</CalendarCompactAction> : null}</div> : null}
-      {library && !library.complete && !library.next_cursor ? <p role="status" className={styles.muted}>This check is incomplete. Refresh to try again.</p> : null}
-      <SectionCard>{(library?.meetings || []).map(meeting => <button className={styles.row} type="button" key={meeting.occurrence_id} ref={node => { if (node) rowRefs.current.set(meeting.occurrence_id, node); else rowRefs.current.delete(meeting.occurrence_id); }} onClick={() => { lastSelectedId.current = meeting.occurrence_id; setSelected(meeting); setDetail(null); setView("meeting"); }}><span className={styles.icon}><FileText className="size-5" /></span><span className={styles.copy}><strong>{meeting.title}</strong><span className={styles.muted}>{meeting.start?.dateTime ? new Date(meeting.start.dateTime).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" }) : "Time unavailable"}</span><span className={styles.tags}>{meeting.artifact_kinds.map(kind => <span key={kind} className={styles.tag}>{kind === "recording" ? "Recording" : "Notes"}</span>)}</span></span><ChevronRight className="size-4" /></button>)}{library?.complete && !library.meetings.length && !loading && !error ? <p className={styles.muted}>{query || filter !== "all" ? "No matching recordings or notes for this day." : "No recordings or notes for this day."}</p> : null}</SectionCard>
+      {library?.limitations.length ? <div role="status" className={styles.muted}><p>{limitationText[library.limitations[0] || ""] || "Some meeting files could not be checked."}</p>{library.limitations.includes("permission_required") && onAllowMeetingFiles ? <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, { accountId: account.account_id, day, timeZone: zone, filter, query })}>Allow recording and notes access</CalendarCompactAction> : null}</div> : library && !library.complete && !library.next_cursor ? <p role="status" className={styles.muted}>This check is incomplete. Refresh to try again.</p> : null}
+      {library && (library.meetings.length > 0 || (library.complete && !loading && !error)) ? <SectionCard>{library.meetings.map(meeting => <button className={styles.row} type="button" key={meeting.occurrence_id} ref={node => { if (node) rowRefs.current.set(meeting.occurrence_id, node); else rowRefs.current.delete(meeting.occurrence_id); }} onClick={() => { lastSelectedId.current = meeting.occurrence_id; setSelected(meeting); setDetail(null); setView("meeting"); }}><span className={styles.icon}><FileText className="size-5" /></span><span className={styles.copy}><strong>{meeting.title}</strong><span className={styles.muted}>{meeting.start?.dateTime ? new Date(meeting.start.dateTime).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" }) : "Time unavailable"}</span><span className={styles.tags}>{meeting.artifact_kinds.map(kind => <span key={kind} className={styles.tag}>{kind === "recording" ? "Recording" : "Notes"}</span>)}</span></span><ChevronRight className="size-4" /></button>)}{library.complete && !library.meetings.length ? <p className={styles.muted}>{query || filter !== "all" ? "No matching recordings or notes for this day." : "No recordings or notes for this day."}</p> : null}</SectionCard> : null}
       {library?.next_cursor ? <CalendarCompactAction disabled={loading} onClick={() => setCursor(library.next_cursor)}>Continue checking this day</CalendarCompactAction> : null}
       {library?.next_cursor ? <p className={styles.muted}>Search and filters continue across the remaining Calendar pages.</p> : null}
     </> : <>

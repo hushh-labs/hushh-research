@@ -2866,6 +2866,51 @@
       "native_surface_id": "native-route-kai-portfolio-allocation"
     },
     {
+      "route_pattern": "/one/kai/portfolio/analysis",
+      "page_file": "app/one/kai/portfolio/analysis/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.kai.portfolio.analysis",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.kai.portfolio.analysis",
+        "purpose": "Review source-backed portfolio analysis.",
+        "screen": "kai_portfolio_analysis",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "The route displays available saved portfolio facts and labels missing information.",
+        "next_route": "/one/kai?tab=portfolio",
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "kai_portfolio_analysis",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.kai_portfolio_analysis"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-portfolio-analysis"
+    },
+    {
       "route_pattern": "/one/kai/portfolio/holdings",
       "page_file": "app/one/kai/portfolio/holdings/page.tsx",
       "route_mode": "standard",

@@ -98,7 +98,10 @@ async def _prepare(insights, *, user_id, date, time_zone, cursor, query, kind):
 
 async def _preflight(scan):
     from hushh_mcp.services import calendar_meeting_artifacts as provider
-    from hushh_mcp.services.google_connection_service import CALENDAR_MEET_DRIVE_READ_SCOPE
+    from hushh_mcp.services.google_connection_service import (
+        CALENDAR_MEET_DRIVE_READ_SCOPE,
+        CALENDAR_MEET_READ_SCOPE,
+    )
 
     try:
         async with asyncio.timeout_at(scan.deadline - 2):
@@ -107,11 +110,7 @@ async def _preflight(scan):
             )
             scopes = await provider.inspect_token(token, scan.grant.provider_subject)
             await scan.insights.calendar._check_read_binding(scan.user_id, scan.grant.binding)
-        if not scopes & provider.MEET_SCOPES or not scopes & {
-            CALENDAR_MEET_DRIVE_READ_SCOPE,
-            "https://www.googleapis.com/auth/drive.readonly",
-            "https://www.googleapis.com/auth/drive",
-        }:
+        if CALENDAR_MEET_READ_SCOPE not in scopes or CALENDAR_MEET_DRIVE_READ_SCOPE not in scopes:
             raise provider.ArtifactUnavailable("permission_required")
     except provider.ArtifactUnavailable as error:
         return error.state
@@ -123,7 +122,7 @@ async def _preflight(scan):
 
 
 async def _scan_event(scan, event, calendar_id):
-    if event.get("status") == "cancelled" or not event.get("conference_id"):
+    if event.get("status") == "cancelled":
         return
     raw_start = (event.get("start") or {}).get("dateTime")
     raw_end = (event.get("end") or {}).get("dateTime")
@@ -140,6 +139,12 @@ async def _scan_event(scan, event, calendar_id):
         or not (scan.start <= begin < scan.end)
         or finish > datetime.now(UTC)
     ):
+        return
+    if not event.get("conference_id") and not event.get("artifact_refs"):
+        if isinstance(event.get("conference_url"), str) and event["conference_url"].startswith(
+            "https://meet.google.com/"
+        ):
+            scan.limits.add("unverified")
         return
     scan.checked += 1
     occurrence = scan.insights._occurrence_id_for_event(event, calendar_id, summarized=True)

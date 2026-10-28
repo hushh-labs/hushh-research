@@ -69,7 +69,7 @@ describe("requester document payment boundary", () => {
     fetcher.mockResolvedValueOnce(reply({ status: "awaiting_payment", amountCents: 1000, currency: "usd" }));
     expect(await DriveRequestPaymentService.status("firebase", requestId)).toMatchObject({ status: "awaiting_payment" });
     expect(fetcher.mock.calls[0][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/payment`);
-    expect(fetcher.mock.calls[0][1].headers).toEqual({ Authorization: "Bearer firebase" });
+    expect(fetcher.mock.calls[0][1].headers).toMatchObject({ Authorization: "Bearer firebase" });
     fetcher.mockResolvedValueOnce(reply({ checkoutUrl: "https://checkout.stripe.com/c/pay/cs_test_123" }));
     expect(await DriveRequestPaymentService.checkout("firebase", requestId)).toContain("checkout.stripe.com");
     expect(fetcher.mock.calls[1][1].method).toBe("POST");

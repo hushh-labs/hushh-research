@@ -1,13 +1,13 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const ports = vi.hoisted(() => ({ options: vi.fn(), reauthenticate: vi.fn(), deleteAccount: vi.fn(), startPhone: vi.fn() }));
+const ports = vi.hoisted(() => ({ options: vi.fn(), review: vi.fn(), reauthenticate: vi.fn(), deleteAccount: vi.fn(), startPhone: vi.fn() }));
 vi.mock("@capacitor/core", async (original) => ({
   ...await original<typeof import("@capacitor/core")>(),
   Capacitor: { isNativePlatform: () => false, getPlatform: () => "web", isPluginAvailable: () => false },
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ resolveVerifiedPhoneNumber: async () => null }) }));
-vi.mock("@/lib/services/account-service", () => ({ AccountService: { getLostVaultDeleteOptions: ports.options } }));
+vi.mock("@/lib/services/account-service", () => ({ AccountService: { getLostVaultDeleteOptions: ports.options, reviewLostVaultDeletion: ports.review } }));
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: { reauthenticateAccountDeletionIdentity: ports.reauthenticate, startPhoneDeletionVerification: ports.startPhone, cancelPhoneDeletionVerification: async () => {} },
 }));
@@ -25,11 +25,13 @@ describe("lost-vault Google verification recovery", () => {
   const user = { uid: "owner-1", getIdToken: async () => "current-session-token" } as unknown as Parameters<typeof LostVaultDeletePanel>[0]["user"];
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(window, "focus").mockImplementation(() => {});
     ports.options.mockResolvedValue({ phone_available: true, phone_hint: null, providers: ["google.com"] });
+    ports.review.mockResolvedValue({ inventory_sha256: "a".repeat(64), credential_count: 0, local_erasure_required: false });
     ports.reauthenticate.mockResolvedValue("fresh-provider-token");
     publishValidatedAuthSessionPrincipal({ firebaseUid: user.uid, ownerId: user.uid, accountGeneration: 0 });
   });
-  afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); publishValidatedAuthSessionOwner(null); });
 
   it.each([
     ["identity_initialization_not_ready", "Google sign-in is getting ready"],

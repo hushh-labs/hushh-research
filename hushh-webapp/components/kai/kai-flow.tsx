@@ -25,6 +25,7 @@ import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { useCache } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { PortfolioImportView } from "./views/portfolio-import-view";
+import { PortfolioDashboardEmpty } from "./views/portfolio-dashboard-empty";
 import { ImportProgressView, ImportStage } from "./views/import-progress-view";
 import {
   PortfolioReviewView,
@@ -3955,7 +3956,7 @@ export function KaiFlow({
         state === "dashboard" &&
         !flowData.hasFinancialData &&
         !plaidPortfolioData && (
-          <PortfolioImportView
+          <PortfolioDashboardEmpty onOpenImport={handleReimport}
             onFileSelect={handleFileUpload}
             onSkip={handleSkipImport}
             onPreloadSchema={() => void handlePreloadSchema()}
@@ -3969,13 +3970,6 @@ export function KaiFlow({
             plaidLocalDualEnvironmentEnabled={
               plaidStatus?.local_dual_environment_enabled ?? false
             }
-            // This is the dashboard's own empty-state picker, not a setup
-            // flow -- there's nothing to defer "until later" (the person
-            // already finished setup, or skipped it, and just opened the
-            // Portfolio tab). "I'll link this later" doesn't fit here, and
-            // handleSkipImport is a no-op in dashboard mode besides (it only
-            // resets state the empty-state condition already implies).
-            showSkip={false}
           />
         )}
 

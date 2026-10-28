@@ -233,7 +233,11 @@ export async function proxyExternalConnectorRequest(
       .catch(async () => ({ detail: await response.text().catch(() => "") }));
     return withRequestIdJson(requestId, payload, {
       status: response.status,
-      headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
+      headers: {
+        "Cache-Control": "no-store", Pragma: "no-cache",
+        ...(/^[a-f0-9]{40}$/.test(process.env.HUSHH_DEPLOY_SHA || "")
+          ? { "x-hushh-deploy-sha": process.env.HUSHH_DEPLOY_SHA! } : {}),
+      },
     });
   } catch (error) {
     if (request.signal.aborted) {

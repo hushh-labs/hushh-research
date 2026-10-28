@@ -109,6 +109,20 @@ def _service(monkeypatch, db, *, subject="google-a"):
         service, "_encrypt", Mock(return_value={"ciphertext": "new", "iv": "iv", "tag": "tag"})
     )
     monkeypatch.setattr(service, "status", AsyncMock(return_value={"connected": True}))
+    # These cases exercise publication against a synthetic connection store;
+    # account presentation is covered separately with its own complete rows.
+    monkeypatch.setattr(
+        service,
+        "calendar_accounts_status",
+        AsyncMock(
+            return_value={
+                "connected": True,
+                "status": "connected",
+                "accounts": [{"account_id": "default", "connected": True}],
+                "account_limit": 3,
+            }
+        ),
+    )
     return service
 
 
@@ -199,7 +213,13 @@ async def test_disconnected_account_requires_fresh_refresh_token(monkeypatch, su
 async def test_explicitly_disconnected_account_can_connect_a_new_subject(monkeypatch):
     db = _Db({"status": "disconnected", "provider_subject": "google-a"})
     service = _service(monkeypatch, db, subject="google-b")
-    assert await _store(service) == {"connected": True}
+    assert await _store(service) == {
+        "connected": True,
+        "status": "connected",
+        "accounts": [{"account_id": "default", "connected": True}],
+        "account_limit": 3,
+        "completed_account_id": "default",
+    }
     service._decrypt.assert_not_called()
     writes = [(sql, params) for sql, params in db.calls if "INSERT" in sql]
     assert all(params["subject"] == "google-b" for _, params in writes)
@@ -265,7 +285,13 @@ async def test_active_legacy_row_without_subject_requires_reconnection(monkeypat
 @pytest.mark.parametrize("level", ["read", "manage"])
 async def test_complete_read_and_manage_permissions_remain_supported(monkeypatch, level):
     service = _service(monkeypatch, _Db())
-    assert await _store(service, level=level) == {"connected": True}
+    assert await _store(service, level=level) == {
+        "connected": True,
+        "status": "connected",
+        "accounts": [{"account_id": "default", "connected": True}],
+        "account_limit": 3,
+        "completed_account_id": "default",
+    }
 
 
 class _TransitionDb:

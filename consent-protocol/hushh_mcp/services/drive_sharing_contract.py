@@ -55,7 +55,9 @@ def request_requires_explicit_dates(purpose: str) -> bool:
 
 
 class DriveSharingError(DriveReadError):
-    pass
+    def __init__(self, code: str, *, diagnostic_reason: str | None = None, **kwargs):
+        super().__init__(code, **kwargs)
+        self.diagnostic_reason = diagnostic_reason
 
 
 @dataclass(frozen=True)

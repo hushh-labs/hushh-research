@@ -10,17 +10,40 @@ import { AuthProvider } from "@/lib/firebase/auth-context";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { User } from "firebase/auth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { isAccountDeletionActive, markAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 
 import { AUTH_SESSION_INVALIDATED_EVENT, dispatchAuthSessionInvalidated, AUTH_SESSION_SIBLING_TAB_STORAGE_KEY, publishAccountDeletionToSiblingTabs, type AuthSessionInvalidationDetail } from "@/lib/auth/session-invalidation";
 import { ACCOUNT_SESSION_VALIDATION_BUDGET_MS } from "@/lib/auth/account-session-policy";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
-import { AUTH_SESSION_VERIFICATION_REQUIRED_EVENT, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { AUTH_SESSION_VERIFICATION_REQUIRED_EVENT, publishPendingAuthSessionIdentity, publishValidatedAuthSessionOwner, snapshotAuthSessionGeneration, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 describe("@feature_account_deletion @trace_loop AuthProvider terminal session invalidation", () => {
   beforeEach(resetWebAuthMocks);
 
   afterEach(cleanupWebAuthMocks);
+
+  it("purges the exact departed owner after pending sign-out and completed cleanup", async () => {
+    const ownerId = "acct_" + "d".repeat(32);
+    const operationId = "b99efb85-c1f2-4714-8a63-614d774a25a3";
+    const { rememberPendingAccountDeviceDeparture } = await import("@/lib/auth/account-departure-device");
+    rememberPendingAccountDeviceDeparture("account-owner", ownerId, operationId);
+    publishValidatedAuthSessionOwner(null);
+    const review = { previous_generation: 1, cleanup_operation: operationId,
+      enrollment_operation: "86f55df8-4527-49e4-81f7-62d9ac3dde7a", expires_at: Math.floor(Date.now() / 1000) + 300, terms_version: 1, digest: "a".repeat(64) };
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
+    mocks.apiGetAccountCleanupStatus.mockImplementation(async () => Response.json({ operation: {
+      ...(await cleanupStatusResponse("complete").json()).operation,
+      owner_hash: `sha256:${createHash("sha256").update(ownerId).digest("hex")}`,
+    } }));
+    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "ready", review }));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    await screen.findByRole("heading", { name: "Start fresh?" });
+    expect(mocks.clearForUser).toHaveBeenCalledWith(ownerId, { deleteDurableReceipts: true });
+    expect(mocks.clearDeviceSecretsForDeletedAccount).toHaveBeenCalledWith(ownerId);
+    expect(mocks.clearForUser).not.toHaveBeenCalledWith("account-owner", { deleteDurableReceipts: true });
+    expect(mocks.apiStartFreshAccount).not.toHaveBeenCalled();
+  });
 
   it.each(["confirmed", "lost_response"])("starts fresh only after exact review and normal session admission: %s", async outcome => {
     const ownerId = "acct_" + "d".repeat(32);
@@ -913,10 +936,12 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     ));
     mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(cleanupStatusResponse("action_required",true));
     render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
-    await screen.findByText("Remove Hussh’s copy");
+    const confirm = await screen.findByRole("button", { name: "Permanently delete account" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "I agree to finish deleting this account." }));
     const token=deferred<string>();
     vi.mocked((mocks.firebaseUser as User).getIdToken).mockReturnValueOnce(token.promise);
-    fireEvent.click(screen.getByText("Remove Hussh’s copy"));
+    fireEvent.click(confirm);
     expect(screen.getByText("Confirming…")).toBeDisabled();
     if(switchOwner){
       const nextOwner=makeUser("account-b");
@@ -928,12 +953,94 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     if(switchOwner){
       expect(mocks.apiContinueAccountCleanup).not.toHaveBeenCalled();
       expect(screen.getByText("Vault content for account-b")).toBeInTheDocument();
+      expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
     } else {
       await waitFor(() => expect(mocks.apiContinueAccountCleanup).toHaveBeenCalledTimes(1));
       expect(mocks.apiContinueAccountCleanup).toHaveBeenCalledWith(
         "cleanup-proof",expect.objectContaining({inventory_sha256:"a".repeat(64)}),true,expect.any(Function),
       );
+      await waitFor(() => expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1));
+      expect(mocks.replaceDocument).toHaveBeenCalledWith("/login?auth_notice=account_deletion_requested");
     }
+  });
+
+  it.each(["id", "inventory_sha256"])("requires fresh deletion consent when the cleanup %s changes", async changedField => {
+    const operation = {
+      id: "b99efb85-c1f2-4714-8a63-614d774a25a3", state: "action_required",
+      credential_count: 1, local_erasure_confirmation_required: true,
+      external_validity_unconfirmed_count: 1, inventory_sha256: "a".repeat(64),
+      retry_after_seconds: null,
+    };
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => deletionInProgressResponse());
+    mocks.apiGetAccountCleanupStatus.mockImplementation(async () => Response.json({ operation }));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    const confirm = await screen.findByRole("button", { name: "Permanently delete account" });
+    const checkbox = screen.getByRole("checkbox", { name: "I agree to finish deleting this account." });
+    fireEvent.click(checkbox);
+    expect(confirm).toBeEnabled();
+
+    if (changedField === "id") operation.id = "86f55df8-4527-49e4-81f7-62d9ac3dde7a";
+    else operation.inventory_sha256 = "b".repeat(64);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+    await waitFor(() => expect(checkbox).not.toBeChecked());
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(mocks.apiContinueAccountCleanup).not.toHaveBeenCalled();
+    fireEvent.click(checkbox);
+    expect(confirm).toBeEnabled();
+  });
+
+  it("rejects consent from a previous auth generation before the recovery screen rerenders", async () => {
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(deletionInProgressResponse());
+    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(cleanupStatusResponse("action_required", true));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    const confirm = await screen.findByRole("button", { name: "Permanently delete account" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "I agree to finish deleting this account." }));
+    expect(confirm).toBeEnabled();
+    const before = snapshotAuthSessionGeneration()?.generation;
+    publishPendingAuthSessionIdentity("account-owner", true);
+    expect(snapshotAuthSessionGeneration()?.generation).toBeGreaterThan(before ?? -1);
+    fireEvent.click(confirm);
+    expect(mocks.apiContinueAccountCleanup).not.toHaveBeenCalled();
+  });
+
+  it("retries only action-required cleanup through the existing guarded continuation", async () => {
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(deletionInProgressResponse());
+    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(cleanupStatusResponse("action_required"));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    const retry = await screen.findByRole("button", { name: "Retry cleanup" });
+    expect(screen.queryByRole("button", { name: "Permanently delete account" })).toBeNull();
+    fireEvent.click(retry);
+    await waitFor(() => expect(mocks.apiContinueAccountCleanup).toHaveBeenCalledWith(
+      "persisted-token",
+      expect.objectContaining({ inventory_sha256: "a".repeat(64), state: "action_required" }),
+      false,
+      expect.any(Function),
+    ));
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("keeps older deletion consent on screen when the exact cleanup review is rejected", async () => {
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(deletionInProgressResponse());
+    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(cleanupStatusResponse("action_required", true));
+    mocks.apiContinueAccountCleanup.mockResolvedValueOnce(new Response(null, { status: 409 }));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    const confirm = await screen.findByRole("button", { name: "Permanently delete account" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "I agree to finish deleting this account." }));
+    fireEvent.click(confirm);
+    expect(await screen.findByRole("status")).toHaveTextContent("Refresh status; contact support if it stays paused.");
+    expect(confirm).toBeEnabled();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("keeps provider review blocked when the backend refuses a cleanup retry", async () => {
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(deletionInProgressResponse());
+    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(cleanupStatusResponse("action_required"));
+    mocks.apiContinueAccountCleanup.mockResolvedValueOnce(new Response(null, { status: 409 }));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry cleanup" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Refresh status; contact support if it stays paused.");
+    expect(screen.getByRole("button", { name: "Retry cleanup" })).toBeEnabled();
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
   });
 

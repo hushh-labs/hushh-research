@@ -127,4 +127,12 @@ def sharing_error(error: Exception) -> HTTPException:
     if code not in _SHARING_ERRORS:
         code = "sharing_unavailable"
     status, message = _SHARING_ERRORS[code]
-    return HTTPException(status, {"code": code, "message": message}, headers=NO_STORE)
+    detail = {"code": code, "message": message}
+    # A closed diagnostic explains this refusal without echoing private input.
+    reason = getattr(error, "diagnostic_reason", None)
+    if code == "invalid_argument" and reason in {
+        "owner_copy_consent_missing",
+        "owner_copy_consent_unexpected",
+    }:
+        detail["reason"] = reason
+    return HTTPException(status, detail, headers=NO_STORE)

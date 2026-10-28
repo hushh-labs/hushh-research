@@ -23,7 +23,7 @@ export function KaiPortfolioDetailPage({
   return (
     <AppPageShell
       as="div"
-      width="reading"
+      width="agent"
       className={`relative pb-32 ${financeStyles.workspace}`}
       nativeTest={{
         routeId: buildKaiPortfolioSectionRoute(section),

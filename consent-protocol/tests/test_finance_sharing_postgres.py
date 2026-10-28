@@ -9,7 +9,11 @@ from sqlalchemy.exc import DBAPIError
 from test_direct_message_feed_projection_postgres import _seed_people, projection_db  # noqa: F401
 
 from hushh_mcp.services.finance_sharing_contract import CreateFinanceShare, RefreshFinanceShare
-from hushh_mcp.services.finance_sharing_service import FinanceSharingError, FinanceSharingService
+from hushh_mcp.services.finance_sharing_service import (
+    FinanceSharingError,
+    FinanceSharingService,
+    require_advisor,
+)
 
 
 def envelope(key):
@@ -106,6 +110,64 @@ def test_recipient_binding_transactional_delivery_and_exact_idempotent_retry(fin
     with db.engine.connect() as conn:
         assert conn.execute(text("SELECT count(*) FROM messages")).scalar_one() == 2
         assert conn.execute(text("SELECT count(*) FROM finance_access_grants")).scalar_one() == 2
+
+
+def test_advisor_access_requires_current_verified_status_and_owner_can_revoke(finance_db):
+    db, service = finance_db
+    from hushh_mcp.services.ria_iam_service import _IAM_REQUIRED_TABLES
+
+    with db.engine.begin() as conn:
+        for table in _IAM_REQUIRED_TABLES:
+            if table not in {"actor_profiles", "ria_profiles"}:
+                conn.execute(text(f'CREATE TABLE IF NOT EXISTS "{table}" (id TEXT)'))
+        conn.execute(
+            text(
+                "CREATE TABLE ria_profiles(user_id TEXT PRIMARY KEY, verification_status TEXT, advisory_status TEXT)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO ria_profiles VALUES ('bob','verified',NULL), ('carol','verified',NULL)"
+            )
+        )
+    request = body(db, "snapshot").model_dump(mode="json")
+    request["policy"] = {
+        "version": 2,
+        "purpose": "verified_ria_review",
+        "mode": "snapshot",
+        "sections": ["allocation", "performance", "holdings"],
+        "selectionHash": "a" * 64,
+        "showAmounts": True,
+        "model_processing": {"version": 1, "allowed": False},
+        "durationSeconds": 3600,
+    }
+    approved = CreateFinanceShare.model_validate(request)
+    with db.engine.begin() as conn:
+        conn.execute(text("UPDATE ria_profiles SET advisory_status='draft' WHERE user_id='bob'"))
+    with pytest.raises(FinanceSharingError, match="ADVISOR_NOT_VERIFIED"):
+        service.create("alice", approved)
+    with db.engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM finance_access_grants")).scalar_one() == 0
+    with db.engine.begin() as conn:
+        conn.execute(text("UPDATE ria_profiles SET advisory_status='verified' WHERE user_id='bob'"))
+    grants = service.create("alice", approved)["items"]
+    bob = next(g for g in grants if g["recipientUserId"] == "bob")
+    assert service.view("bob", bob["id"])["envelope"]["recipientKeyId"] == "bob-key"
+    # The eligibility read keeps the profile locked until the transaction ends.
+    with db.engine.begin() as held:
+        require_advisor(held, "bob")
+        with pytest.raises(DBAPIError):
+            with db.engine.begin() as writer:
+                writer.execute(text("SET LOCAL lock_timeout = '250ms'"))
+                writer.execute(
+                    text("UPDATE ria_profiles SET advisory_status='draft' WHERE user_id='bob'")
+                )
+    with db.engine.begin() as conn:
+        conn.execute(text("UPDATE ria_profiles SET advisory_status='draft' WHERE user_id='bob'"))
+    with pytest.raises(FinanceSharingError, match="ADVISOR_NOT_VERIFIED"):
+        service.view("bob", bob["id"])
+    assert service.revoke("alice", bob["id"]) == {"stopped": True}
+    assert service.view("alice", bob["id"])["status"] == "stopped"
 
 
 def test_refresh_cas_and_per_recipient_stop_cannot_resurrect(finance_db):

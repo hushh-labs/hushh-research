@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   completeConnect: vi.fn(),
   status: vi.fn(),
   consumeSetupReturn: vi.fn(),
+  markMeetingReturn: vi.fn(),
   getIdToken: vi.fn(),
   readAttempt: vi.fn(),
   clearAttempt: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("@/hooks/use-auth", () => ({
 }));
 vi.mock("@/lib/calendar/calendar-oauth-journey", () => ({
   consumeCalendarSetupOAuthReturn: mocks.consumeSetupReturn,
+  markCalendarMeetingOAuthReturn: mocks.markMeetingReturn,
 }));
 vi.mock("@/lib/services/google-connection-service", () => ({
   GoogleConnectionService: { completeConnect: mocks.completeConnect },
@@ -37,7 +39,8 @@ vi.mock("@/lib/services/google-connection-service", () => ({
 vi.mock("@/lib/services/google-calendar-service", () => ({
   GoogleCalendarService: { status: mocks.status },
 }));
-vi.mock("@/lib/google/google-oauth-popup", () => ({
+vi.mock("@/lib/google/google-oauth-popup", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/google/google-oauth-popup")>(),
   clearGoogleOAuthAttempt: mocks.clearAttempt,
   readGoogleOAuthPopupAttempt: mocks.readAttempt,
   settleGoogleOAuthPopup: mocks.settle,
@@ -156,6 +159,35 @@ describe("GoogleOAuthReturnPage", () => {
     render(<GoogleOAuthReturnPage />);
 
     await waitFor(() => expect(mocks.settle).toHaveBeenCalledWith(popup, "succeeded"));
+  });
+  it.each([
+    { completed: "default", scopes: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly", subject: "a".repeat(64), generation: "new", allowed: true },
+    { completed: "other", scopes: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly", subject: "a".repeat(64), generation: "new", allowed: false },
+    { completed: "default", scopes: "https://www.googleapis.com/auth/drive.meet.readonly", subject: "a".repeat(64), generation: "new", allowed: false },
+    { completed: "default", scopes: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly", subject: "b".repeat(64), generation: "new", allowed: false },
+    { completed: "default", scopes: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly", subject: "a".repeat(64), generation: "old", allowed: false },
+  ])("verifies the exact default meeting-file grant: $completed/$allowed", async ({ completed, scopes, subject, generation, allowed }) => {
+    const popup = { ...attempt(), meetingFiles: true, targetAccountId: "default", expectedSubjectSha256: "a".repeat(64), priorGrantGeneration: "old" };
+    mocks.readAttempt.mockReturnValue(popup);
+    mocks.completeConnect.mockResolvedValue({ ...connected(), completed_account_id: completed,
+      accounts: [{ account_id: completed, connected: true, status: "connected", access_level: "read",
+        scope_csv: scopes, provider_subject_sha256: subject, grant_generation: generation }],
+    });
+    render(<GoogleOAuthReturnPage />);
+    await waitFor(() => expect(mocks.settle).toHaveBeenCalledWith(popup, allowed ? "succeeded" : "failed", ...(allowed ? [] : [expect.any(String)])));
+  });
+  it("returns same-window meeting consent to its exact library coordinates", async () => {
+    const meetingReturn = { accountId: "default", day: "2026-10-27", timeZone: "Asia/Kolkata", filter: "notes", query: "Growth" };
+    const popup = { ...sameWindowAttempt(), meetingFiles: true, targetAccountId: "default", expectedSubjectSha256: "a".repeat(64), priorGrantGeneration: "old", meetingReturn };
+    mocks.readAttempt.mockReturnValue(popup);
+    mocks.completeConnect.mockResolvedValue({ ...connected(), completed_account_id: "default", accounts: [
+      { account_id: "default", connected: true, status: "connected", access_level: "read",
+        scope_csv: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly",
+        provider_subject_sha256: "a".repeat(64), grant_generation: "new" },
+    ] });
+    render(<GoogleOAuthReturnPage />);
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/one/calendar"));
+    expect(mocks.markMeetingReturn).toHaveBeenCalledWith("synthetic-owner", meetingReturn);
   });
   it.each([
     { completed_account_id: undefined, accounts: [{ account_id: "old-account", connected: true, status: "connected", access_level: "manage" }] },

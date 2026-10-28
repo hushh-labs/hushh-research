@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from hushh_mcp.one_adk.consent_continuation import (
     STATE_CONSENT_CONTINUATION,
@@ -16,7 +16,12 @@ from hushh_mcp.one_adk.finance_share_context import (
     validate_finance_review,
 )
 from hushh_mcp.services.finance_projection_contract import validate_finance_projection
-from hushh_mcp.services.finance_sharing_contract import FinanceSharePolicy, RecipientEnvelope
+from hushh_mcp.services.finance_sharing_contract import (
+    FinanceAdvisorPolicy,
+    FinanceSharePolicy,
+    RecipientEnvelope,
+    finance_envelope_context,
+)
 
 GRANT = "11111111-1111-4111-8111-111111111111"
 PROJECTION = {
@@ -67,6 +72,67 @@ def test_policy_requires_finite_snapshot_and_strict_independent_model_permission
     assert (
         FinanceSharePolicy(**policy(mode="ongoing", durationSeconds=None)).durationSeconds is None
     )
+
+
+def test_advisor_policy_requires_complete_finite_non_model_snapshot():
+    base = {
+        "version": 2,
+        "purpose": "verified_ria_review",
+        "mode": "snapshot",
+        "sections": ["allocation", "performance", "holdings"],
+        "selectionHash": "a" * 64,
+        "showAmounts": True,
+        "model_processing": {"version": 1, "allowed": False},
+        "durationSeconds": 3600,
+    }
+    assert FinanceAdvisorPolicy(**base).durationSeconds == 3600
+    assert isinstance(
+        TypeAdapter(FinanceSharePolicy | FinanceAdvisorPolicy).validate_python(base),
+        FinanceAdvisorPolicy,
+    )
+    for change in (
+        {"durationSeconds": None},
+        {"mode": "ongoing"},
+        {"showAmounts": False},
+        {"model_processing": {"version": 1, "allowed": True}},
+        {"sections": ["allocation", "allocation", "holdings"]},
+        {"purpose": "other"},
+    ):
+        with pytest.raises(ValidationError):
+            FinanceAdvisorPolicy(**{**base, **change})
+    args = {
+        "request_id": "request",
+        "grant_id": "grant",
+        "owner": "owner",
+        "recipient": "recipient",
+        "revision": 1,
+    }
+    advisor_context = finance_envelope_context(**args, policy=base)
+    legacy = {**base, "version": 1}
+    assert advisor_context != finance_envelope_context(**args, policy=legacy)
+
+
+def test_advisor_authority_fails_closed_on_missing_schema_or_unverified_status(monkeypatch):
+    from hushh_mcp.services import finance_sharing_service as sharing
+    from hushh_mcp.services.ria_iam_service import _IAM_REQUIRED_TABLES
+
+    state = {"ready": len(_IAM_REQUIRED_TABLES), "status": "verified"}
+
+    def query(_conn, sql, _params=None):
+        return (
+            {"count": state["ready"]}
+            if "pg_catalog.pg_tables" in sql
+            else {"status": state["status"]}
+        )
+
+    monkeypatch.setattr(sharing, "one", query)
+    sharing.require_advisor(None, "advisor")
+    state["status"] = "draft"
+    with pytest.raises(sharing.FinanceSharingError, match="ADVISOR_NOT_VERIFIED"):
+        sharing.require_advisor(None, "advisor")
+    state.update(ready=0, status="verified")
+    with pytest.raises(sharing.FinanceSharingError, match="SHARE_NOT_READY"):
+        sharing.require_advisor(None, "advisor")
 
 
 def test_envelope_never_accepts_plaintext_or_private_key_fields():

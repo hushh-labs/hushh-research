@@ -656,3 +656,41 @@ reason `allowed`, `capability_denied`, `encryption_restricted`, or
 `capability_unverified`. Eligibility and worker revalidation remain unchanged.
 Older records keep their original evidence; absent provider facts are never
 backfilled or described as a proven Google-side failure.
+
+
+### Drive request console diagnostics
+
+Filter the browser console for `DRIVE_REQUEST` and enable Info and Warnings.
+Enable Preserve log before starting the two-account journey. Tags cover
+`CREATE`, `REVIEW`, `ALLOW`, `DECLINE`, `STATUS`, `SEARCH_STATUS`, `SEARCH_RESULTS`, `PAYMENT`,
+`CHECKOUT`, `DELIVERY`, and `ONE-COPY` where those existing routes are exercised.
+Unchanged GET observations are suppressed in a bounded, ten-minute memory map;
+mutations retain one attempt and one outcome per invocation. No diagnostics are
+persisted in browser storage or sent to analytics by this facility.
+
+Records contain fixed states/reasons, HTTP status, elapsed milliseconds, version,
+and SHA-256-derived operation/request tags. The request tag corresponds to the
+backend's existing `request_tag` for the generated `x-request-id`; `drive_op`
+hashes the request or search-job UUID. The JSON proxy adds the serving frontend's
+validated `x-hushh-deploy-sha` so copied diagnostics can identify its release.
+Queries, dates, prices, emails, participant IDs, file details, credentials,
+checkout URLs, content, and raw errors are excluded. Unknown strings are dropped.
+
+`started` means an attempt; `accepted` means HTTP 202, not delivered files.
+`http_returned` means an HTTP response, not product completion. Search discovery
+and evaluation states are distinct: completed discovery with running evaluation
+is not a completed assessment. Stream/copy `observed` records reflect validated,
+current-session projections. Logging adds no retries or transaction authority.
+
+Combined Allow still requires informed One-copy consent. A missing acceptance
+returns 422 with existing `detail.code=invalid_argument` and additive fixed
+`detail.reason=owner_copy_consent_missing`. Unexpected copy consent on a
+Drive-only request returns `owner_copy_consent_unexpected`. Schema failures
+remain generic; input values and validation error text are never returned.
+
+For human acceptance, send a new request, Allow it at $0.50 after reading its
+copy terms, and check the requester receives the persisted approval/payment
+state after refresh. Complete payment only under the intended payment mode,
+then check Drive delivery and the requested One copy separately. Also exercise
+Deny and a cancelled price sheet. Share only the filtered diagnostic records;
+these checks remain pending until the two-account journey is performed.

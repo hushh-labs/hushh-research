@@ -100,16 +100,41 @@ export const ApiService = {
       record("preflight-accepted");
       return Response.json({ valid: true });
     }
+    if (path === "/api/account/delete-lost-vault/review") {
+      if (body.phone_id_token !== "synthetic-phone-proof" || body.method !== "phone")
+        throw new Error("Missing review proof");
+      record("provider-inventory-reviewed");
+      return Response.json({
+        inventory_sha256: "a".repeat(64),
+        credential_count: 1,
+        local_erasure_required: true,
+      });
+    }
     if (path === "/api/account/delete-lost-vault") {
       if (
         body.phone_id_token !== "synthetic-phone-proof" ||
-        body.method !== "phone"
+        body.method !== "phone" ||
+        body.reviewed_inventory_sha256 !== "a".repeat(64) ||
+        body.accept_local_erasure !== true
       )
-        throw new Error("Missing deletion proof");
+        throw new Error("Missing reviewed deletion consent");
       record("deletion-submitted");
       const outcome =
         new URLSearchParams(window.location.search).get("outcome") ||
         "identity_retained";
+      if (outcome === "pending")
+        return Response.json({
+          success: true,
+          account_deleted: false,
+          cleanup_pending: true,
+          cleanup_operation: {
+            id: "11111111-1111-1111-1111-111111111111",
+            owner_id: "sign-out-fixture",
+            state: "cleaning_up",
+            credential_count: 1,
+            local_erasure_confirmation_required: false,
+          },
+        }, { status: 202 });
       return Response.json({
         success: true,
         account_deleted: true,

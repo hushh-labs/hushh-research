@@ -42857,6 +42857,143 @@
     },
     {
       "aliases": [
+        "Show portfolio analysis",
+        "show my portfolio analysis",
+        "open portfolio briefing"
+      ],
+      "authorization": {
+        "guard_ids": [],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.kai_portfolio_analysis",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the source-backed portfolio analysis.",
+      "execution": {
+        "binding_ref": "route:/one/kai/portfolio/analysis",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/kai/portfolio/analysis"
+        }
+      },
+      "goal_id": "goal.route.kai_portfolio_analysis",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show portfolio analysis",
+      "navigation": {
+        "fallback": "/one/kai/portfolio/analysis",
+        "routes": [
+          "/one/kai/portfolio/analysis"
+        ],
+        "screens": [
+          "kai_portfolio_analysis"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [],
+        "mounted_surface_required": false,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "portfolio",
+        "analysis",
+        "briefing"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Show Connected Sources",
         "show my sources",
         "show connected sources",
@@ -50788,7 +50925,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "c398c1ade1c49ccddd69c8aa4393f73d3440b77f797c2add19cbae54264a52f3",
+      "projection_digest": "06cae82fc2ea1c07c0543f6e9b6ea7d0107fa380b7dec4590281fe92b7900fc6",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50807,7 +50944,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "12363284b3810ef5",
+      "source_revision": "d5b96ab713cadb7f",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -52325,7 +52462,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "12363284b3810ef5",
+    "source_revision": "d5b96ab713cadb7f",
     "web": {
       "actions": [
         {
@@ -52368,7 +52505,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "669809ef087032d1524057f91750beaf9724013896280d25ea043d10997c3efc",
+      "projection_digest": "f806edb6100e1d7b911822a68ec492acb82c46b610914f0e5c9c4157689a4caa",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52387,7 +52524,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "12363284b3810ef5",
+      "source_revision": "d5b96ab713cadb7f",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -53944,7 +54081,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "12363284b3810ef5",
+  "revision": "d5b96ab713cadb7f",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -54559,6 +54696,17 @@
       "kind": "screen",
       "label": "kai_portfolio_allocation",
       "route_pattern": "/one/kai/portfolio/allocation",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "route.kai_portfolio_analysis"
+      ],
+      "capability_id": "screen:/one/kai/portfolio/analysis",
+      "kind": "screen",
+      "label": "kai_portfolio_analysis",
+      "route_pattern": "/one/kai/portfolio/analysis",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -55926,7 +56074,10 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:route.kai_portfolio_analysis",
+      "screens:screen:/one/kai/portfolio/analysis"
+    ],
     "breaking": [],
     "changed": [],
     "compatible": [],
@@ -58240,18 +58391,18 @@
     "capability_graph_evolution": "8b427333580cc70013e4a814424526be7b758f7ba11774b4f12520fabc80a0e7",
     "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "eaec04e167c9a22580f1a20fd0b9f6e2b7eaff5104b8c40138f89fedb8f7f570",
+    "kai_action_gateway": "eca5b20202df56cb08e43928cf214de8c5745549a78a1cf2f4869270440efeeb",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
-    "route_orchestration_index": "a2acf5aa01774a7e1ebefe1b8a808ebb83bc66e6aaba54619c496b88d159a6e1",
+    "route_orchestration_index": "c64b61317285b34429981cd3465295ee8f1e138fde48e23f9a54d2a712ff9dd9",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "12363284b3810ef5",
+  "source_revision": "d5b96ab713cadb7f",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "12363284b3810ef5",
+    "current_graph_revision": "d5b96ab713cadb7f",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -58274,6 +58425,7 @@
           "1016f2f0efc0cbd7",
           "101c32b70ab14a4d",
           "114ef930def0cdbb",
+          "12363284b3810ef5",
           "12bc858aab243003",
           "12f82fc1dec40c31",
           "13eb411a1421dc9f",
@@ -58606,6 +58758,7 @@
           "089dd4c9f391ecfd",
           "0d1f4106e4b3ae29",
           "101c32b70ab14a4d",
+          "12363284b3810ef5",
           "141da451575ab2fc",
           "14b86b8e434fc15c",
           "2168af5df998b238",
@@ -58696,6 +58849,7 @@
           "089dd4c9f391ecfd",
           "0d1f4106e4b3ae29",
           "101c32b70ab14a4d",
+          "12363284b3810ef5",
           "141da451575ab2fc",
           "14b86b8e434fc15c",
           "2168af5df998b238",
@@ -59011,6 +59165,7 @@
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
           "101c32b70ab14a4d",
+          "12363284b3810ef5",
           "12bc858aab243003",
           "13eb411a1421dc9f",
           "141da451575ab2fc",
@@ -59354,6 +59509,7 @@
           "1016f2f0efc0cbd7",
           "101c32b70ab14a4d",
           "114ef930def0cdbb",
+          "12363284b3810ef5",
           "12bc858aab243003",
           "12f82fc1dec40c31",
           "13eb411a1421dc9f",
@@ -59698,6 +59854,7 @@
           "1016f2f0efc0cbd7",
           "101c32b70ab14a4d",
           "114ef930def0cdbb",
+          "12363284b3810ef5",
           "12bc858aab243003",
           "12f82fc1dec40c31",
           "13eb411a1421dc9f",
@@ -60042,6 +60199,7 @@
           "1016f2f0efc0cbd7",
           "101c32b70ab14a4d",
           "114ef930def0cdbb",
+          "12363284b3810ef5",
           "12bc858aab243003",
           "12f82fc1dec40c31",
           "13eb411a1421dc9f",
@@ -60384,6 +60542,7 @@
           "1016f2f0efc0cbd7",
           "101c32b70ab14a4d",
           "114ef930def0cdbb",
+          "12363284b3810ef5",
           "12bc858aab243003",
           "12f82fc1dec40c31",
           "13eb411a1421dc9f",

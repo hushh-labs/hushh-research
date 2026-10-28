@@ -78,7 +78,13 @@ export interface AccountDeletionResult {
   deleted_target?: AccountDeletionTarget;
   account_deleted?: boolean;
   cleanup_pending?: boolean;
-  cleanup_operation?: { id: string; owner_id: string; state: string; credential_count: number };
+  cleanup_operation?: {
+    id: string;
+    owner_id: string;
+    state: string;
+    credential_count: number;
+    local_erasure_confirmation_required?: boolean;
+  };
   remaining_personas?: Array<"investor" | "ria">;
   details?: Record<string, unknown>;
   /** Only true after the old Firebase identity is removed. */
@@ -89,6 +95,12 @@ export interface LostVaultDeleteOptions {
   phone_available: boolean;
   phone_hint: string | null;
   providers: Array<"google.com" | "apple.com">;
+}
+
+export interface LostVaultDeletionReview {
+  inventory_sha256: string;
+  credential_count: number;
+  local_erasure_required: boolean;
 }
 
 export interface AccountResetResult {
@@ -160,10 +172,33 @@ export class AccountServiceImpl {
     });
   }
 
+  async reviewLostVaultDeletion(params: {
+    firebaseIdToken: string;
+    phoneIdToken?: string;
+    continuationId?: string;
+    isCurrent?: () => boolean;
+  }): Promise<LostVaultDeletionReview> {
+    if (!params.firebaseIdToken) throw new Error("Firebase ID token required");
+    return apiJson<LostVaultDeletionReview>("/api/account/delete-lost-vault/review", {
+      method: "POST",
+      cache: "no-store",
+      isEffectCurrent: params.isCurrent,
+      headers: { Authorization: `Bearer ${params.firebaseIdToken}` },
+      body: JSON.stringify({
+        ...(params.phoneIdToken
+          ? { method: "phone", phone_id_token: params.phoneIdToken }
+          : { method: "provider" }),
+        ...(params.continuationId ? { continuation_id: params.continuationId } : {}),
+      }),
+    });
+  }
+
   async deleteLostVaultAccount(params: {
     firebaseIdToken: string;
     phoneIdToken?: string;
     continuationId?: string;
+    reviewedInventorySha256?: string;
+    acceptLocalErasure?: boolean;
     isCurrent?: () => boolean;
   }): Promise<AccountDeletionResult> {
     if (!params.firebaseIdToken) throw new Error("Firebase ID token required");
@@ -177,6 +212,10 @@ export class AccountServiceImpl {
           ? { method: "phone", phone_id_token: params.phoneIdToken }
           : { method: "provider" }),
         ...(params.continuationId ? { continuation_id: params.continuationId } : {}),
+        ...(params.reviewedInventorySha256
+          ? { reviewed_inventory_sha256: params.reviewedInventorySha256 }
+          : {}),
+        ...(params.acceptLocalErasure === true ? { accept_local_erasure: true } : {}),
       }),
     });
   }

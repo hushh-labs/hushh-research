@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   historyReplace: vi.fn(),
   search: "",
   toastError: vi.fn(),
+  toastInfo: vi.fn(),
   toastSuccess: vi.fn(),
 }));
 
@@ -14,7 +15,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { error: mocks.toastError, success: mocks.toastSuccess },
+  toast: { error: mocks.toastError, info: mocks.toastInfo, success: mocks.toastSuccess },
 }));
 
 vi.mock("@/components/onboarding/AuthStep", () => ({
@@ -37,6 +38,7 @@ describe("login terminal-session notice", () => {
       mocks.historyReplace,
     );
     mocks.toastError.mockReset();
+    mocks.toastInfo.mockReset();
     mocks.toastSuccess.mockReset();
     mocks.search = "";
   });
@@ -101,6 +103,20 @@ describe("login terminal-session notice", () => {
       "",
       "/login",
     );
+  });
+
+  it("labels accepted cleanup as pending after sign-out", async () => {
+    mocks.search = "auth_notice=account_deletion_requested";
+    render(<LoginPage />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Deletion requested. Cleanup continues");
+    await waitFor(() =>
+      expect(mocks.toastInfo).toHaveBeenCalledWith(
+        "Deletion requested. Cleanup continues; sign in to check progress.",
+        { id: "auth-session-account-deletion-requested" },
+      ),
+    );
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
   });
 
   it("keeps confirmed fresh start visible after the success toast fades", async () => {

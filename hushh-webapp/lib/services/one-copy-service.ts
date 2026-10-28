@@ -1,3 +1,4 @@
+import { traceDriveRequest, observeDriveRequestState } from "@/lib/consent/drive-request-diagnostics";
 import { ApiService } from "@/lib/services/api-service";
 import { ONE_COPY_OPEN_BUDGET_MS, readOneCopyBytes, readOneCopyJson, withOneCopyDeadline } from "./one-copy-body";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -28,15 +29,19 @@ function path(requestId: string): string {
 }
 async function request(session: DocumentSession, target: string, signal?: AbortSignal, method = "GET", binary = false) {
   requireDocumentSession(session, signal);
-  const response = await ApiService.apiFetch(target, {
-    method, signal, cache: "no-store", ...(binary ? { responseType: "arraybuffer" as const } : {}), headers: { Authorization: `Bearer ${session.vaultOwnerToken}` },
-    isEffectCurrent: session.isCurrent,
+  return traceDriveRequest(target, method, async (diagnosticHeaders, observe) => {
+    requireDocumentSession(session, signal);
+    const response = await ApiService.apiFetch(target, {
+      method, signal, cache: "no-store", ...(binary ? { responseType: "arraybuffer" as const } : {}), headers: { ...diagnosticHeaders, Authorization: `Bearer ${session.vaultOwnerToken}` },
+      isEffectCurrent: session.isCurrent,
   });
   try {
     requireDocumentSession(session, signal);
+    observe(response);
     if (!response.ok) throw new Error("one_copy_unavailable");
   } catch (error) { void response.body?.cancel().catch(() => undefined); throw error; }
   return response;
+  });
 }
 /** Only exact authenticated content routes are used; no bearer credentials or provider URLs in links. */
 export const OneCopyService = {
@@ -53,6 +58,8 @@ export const OneCopyService = {
         (file.exportedAt !== undefined && !Number.isFinite(Date.parse(file.exportedAt))) ||
         (file.sourceName !== undefined && typeof file.sourceName !== "string") || (file.sha256 !== undefined && !/^[a-f0-9]{64}$/.test(file.sha256))))
       throw new Error("one_copy_unavailable");
+    observeDriveRequestState(path(requestId), value, () => requireDocumentSession(session, signal));
+    requireDocumentSession(session, signal);
     return value as OneCopy;
   },
   async content(session: DocumentSession, requestId: string, fileRef: string, disposition: "preview" | "download", signal: AbortSignal, deadline = Date.now() + ONE_COPY_OPEN_BUDGET_MS): Promise<Uint8Array> {

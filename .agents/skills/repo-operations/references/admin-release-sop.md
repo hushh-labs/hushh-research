@@ -203,8 +203,8 @@ Only Dev/UAT deployment acceptance is waived; all other release gates remain.
 - **Prove a run's conclusion, never its watcher.** `gh run watch --exit-status` reported
   exit 0 for a failed UAT deploy; read `gh run view <id> --json conclusion` and the
   job list before acting on a result.
-- **The serving worktree never switches branches.** The founder's localhost is served
-  from `.claude/worktrees/adk-orchestration`; while it sat on a release branch, the old
+- **The serving worktree never switches branches.** The founder's localhost was served
+  from an ADK worktree; while it sat on a release branch, the old
   wording came back on screen. Land from the workstream branch, fast-forward it after
   each landing, and give scratch work its own worktree.
 

@@ -23,10 +23,12 @@ def request_terms(wanted, accepted, disclosure):
 def accept(store, connection, row, private, accepted):
     if not requested(private):
         if accepted:
-            raise DriveSharingError("invalid_argument")
+            raise DriveSharingError(
+                "invalid_argument", diagnostic_reason="owner_copy_consent_unexpected"
+            )
         return
     if accepted is not True:
-        raise DriveSharingError("invalid_argument")
+        raise DriveSharingError("invalid_argument", diagnostic_reason="owner_copy_consent_missing")
     if (
         connection.execute(
             text("SELECT to_regclass('document_delivery_background_requests')")

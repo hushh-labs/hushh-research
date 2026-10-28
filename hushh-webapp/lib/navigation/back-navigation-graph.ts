@@ -453,6 +453,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         [ROUTES.KAI_PORTFOLIO_HOLDINGS, "Holdings"],
         [ROUTES.KAI_PORTFOLIO_ALLOCATION, "Allocation"],
         [ROUTES.KAI_PORTFOLIO_PERFORMANCE, "Performance"],
+        [ROUTES.KAI_PORTFOLIO_ANALYSIS, "Portfolio analysis"],
         [ROUTES.KAI_PORTFOLIO_SOURCES, "Portfolio source"],
       ];
       for (const [route, label] of portfolioDetailRoutes) {

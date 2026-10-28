@@ -1,3 +1,4 @@
+import { traceDriveRequest } from "@/lib/consent/drive-request-diagnostics";
 /**
  * Requester-only document request calls: the Google account files go to,
  * the requester's own terms, and asking the owner to review unshared files.
@@ -43,15 +44,23 @@ type RecordValue = Record<string, unknown>;
 
 async function send(path: string, init: RequestInit, guard: SharingSessionGuard): Promise<RecordValue> {
   guard();
-  const response = await ApiService.apiFetch(path, {
-    ...init,
-    cache: "no-store",
-    isEffectCurrent: () => {
-      guard();
-      return true;
-    },
+  return traceDriveRequest(path, init.method || "GET", async (diagnosticHeaders, observe) => {
+    guard();
+    const response = await ApiService.apiFetch(path, {
+      ...init,
+      headers: {
+        ...(init.headers instanceof Headers || Array.isArray(init.headers)
+          ? Object.fromEntries(new Headers(init.headers)) : init.headers),
+        ...diagnosticHeaders,
+      },
+      cache: "no-store",
+      isEffectCurrent: () => {
+        guard();
+        return true;
+      },
   });
   guard();
+  observe(response);
   const serialized = await response.text();
   guard();
   if (serialized.length > RESPONSE_MAX_LENGTH) throw new DriveSharingError("invalid_response");
@@ -64,6 +73,7 @@ async function send(path: string, init: RequestInit, guard: SharingSessionGuard)
   if (!payload || typeof payload !== "object" || Array.isArray(payload))
     throw new DriveSharingError("invalid_response", response.status);
   const body = payload as RecordValue;
+  observe(response, body);
   if (!response.ok) {
     const detail =
       body.detail && typeof body.detail === "object" && !Array.isArray(body.detail)
@@ -77,6 +87,7 @@ async function send(path: string, init: RequestInit, guard: SharingSessionGuard)
     throw new DriveSharingError(code, response.status);
   }
   return body;
+  });
 }
 
 export class DriveRequestRequesterService {

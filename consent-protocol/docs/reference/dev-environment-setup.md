@@ -3,8 +3,9 @@
 > Operator runbook for standing up and operating the hosted `dev` environment: a full
 > infrastructure replica of the UAT GCP project, deployed through
 > `.github/workflows/deploy-dev.yml` under the
-> [dev fast lane](../../../docs/reference/operations/dev-fast-lane.md): CI-green SHAs
-> from `integration/pr-train` (default) or any governed ref — never gated on `main`.
+> [dev fast lane](../../../docs/reference/operations/dev-fast-lane.md): an exact
+> CI-green SHA from protected `dev` by default, or another governed ref. Main owns
+> the workflow definition; application source and workflow authority are distinct.
 
 ## Visual Context
 
@@ -31,7 +32,8 @@ declaring dev ready.
 ## Provisioned State (as of 2026-07-10)
 
 Phases 1–3, the IAM plumbing, and the One Email fanout subscription were executed via
-the governed operator service account. Current live facts:
+the governed operator service account. The following table is the 10 July 2026
+snapshot, not a current serving or resource inventory:
 
 | Item | Value |
 | --- | --- |
@@ -54,9 +56,9 @@ Known parity notes:
 - `obs-Cloud SQL-data-health` exits 1 in dev with `pkm_coherence_mismatch` — the SAME
   anomaly its UAT runs currently fail with (data-shape issue inherited via the clone,
   not an environment defect).
-- GitHub environment `dev` Workload Identity Federation variables are still pending,
-  so the governed `Deploy to Dev` workflow cannot yet take over from manual bootstrap
-  deploys.
+- At the time of this snapshot, GitHub environment `dev` Workload Identity
+  Federation variables were pending. Subsequent governed releases succeeded;
+  verify current workflow and serving receipts instead of using this note as a gate.
 
 ## Identity Model (read this first)
 
@@ -69,7 +71,7 @@ The dev environment splits infrastructure identity from runtime identity on purp
 | Frontend origin | `https://dev.one.hushh.ai` | own domain |
 | Deploy labels / provenance | `deploy-env=dev`, `deploy-source=deploy-dev` | auditability |
 | Backend runtime identity | `ENVIRONMENT=dev` | dev reports its own name (2026-08-07) |
-| Frontend runtime identity | `NEXT_PUBLIC_APP_ENV=uat` | unchanged — see the note below |
+| Frontend build selector | `_APP_ENV=dev` in the Main-owned workflow | normalizes to `development`; verify the serving build separately |
 
 **The backend now reports `dev`, and this section used to say it must not.** That warning
 was right about one thing and wrong about another, and both are worth keeping:
@@ -95,15 +97,14 @@ phone-test secrets and, while it reported `uat`, treated them as its allowlist. 
 has its own simulation lane (`HUSHH_DEV_PHONE_TEST_NUMBERS`, reserved fictitious numbers,
 OTP optional) which the deploy configures.
 
-The override lives in `scripts/deploy/backend-deploy.sh`, not in `deploy-dev.yml`. The
-deploy workflow definition always runs from `main`, so a substitution change there does
-nothing for a branch deploy; the script ships from the deployed SHA. `deploy-dev.yml` still
-passes `_RUNTIME_ENVIRONMENT=uat` and the script overrides it for the dev lane.
+The deploy workflow definition runs from `main`; application scripts ship from
+the selected SHA. The workflow now passes `_RUNTIME_ENVIRONMENT=dev`, while the
+backend wrapper retains compatibility for older candidate defaults.
 
-### The frontend half — safe now, still one `main`-side line
+### Frontend labels and auth boundaries
 
-**The frontend still reports `uat`** (`_APP_ENV=uat`), because that substitution is set in
-`deploy-dev.yml` and only a change on `main` can move it.
+Earlier hosted builds used `_APP_ENV=uat`. The current Main-owned workflow passes
+`_APP_ENV=dev`; inspect the actual serving revision before claiming its build label.
 
 **Do not flip it without reading this.** The frontend is where the "auth defaults off"
 warning is actually true — it was wrong about the backend and right here. The frontend type
@@ -123,32 +124,24 @@ They now use `devAuthBypassAllowed()`, which requires the development label **an
 absence of `HUSHH_DEPLOY_ENV` — set on every hosted Cloud Run service (verified present on
 `hushh-webapp` in `hushh-pda-dev`) and absent on a developer's machine. Every caller is a
 server-side route handler, so the variable is read without a `NEXT_PUBLIC_` prefix on
-purpose. Behaviour today is unchanged, because the frontend still reports `uat` and
-`isDevelopment()` was already false on every hosted lane.
+purpose. This deploy-lane guard, rather than the frontend label alone, keeps the
+development bypass closed for a hosted revision.
 
 The other consumers were checked and are all binary `!== "production"`
 (`nearby-check-in-availability`, `location-map-demo`, `ria-client-test-profile`,
 `marketplace`, `ria/onboarding`, `observability/env`), so they do not move. The
 `config.ts` URL fallbacks to `127.0.0.1:8000` and `localhost:3000` do not fire either:
 `NEXT_PUBLIC_BACKEND_URL` and `NEXT_PUBLIC_APP_URL` are baked at build time from the
-`BACKEND_URL` and `NEXT_PUBLIC_APP_URL` secrets, both confirmed present in
-`hushh-pda-dev`.
+configured secrets; verify their availability and values through the release parity gate.
 
-**The substitution change is staged on the branch and awaits the Admin SOP.**
-`deploy-dev.yml` now passes `_APP_ENV=dev` (frontend) and `_RUNTIME_ENVIRONMENT=dev`
-(backend). Both are inert until that file lands on `main`, because the deploy workflow
-definition always runs from there — the backend already reports `dev` regardless, via
-the override in `scripts/deploy/backend-deploy.sh`, which is what makes a branch deploy
-correct in the meantime.
+The Main-owned `deploy-dev.yml` passes `_APP_ENV=dev` for the frontend and
+`_RUNTIME_ENVIRONMENT=dev` for the backend. A checked-in workflow does not prove
+which revision is serving; verify the selected release and live service before
+making an environment claim. The old Cloud Build trigger setup is retained as
+historical source, not an authorized second deployment path; see Phase 6c.
 
-`scripts/ops/setup_dev_cloudbuild_triggers.sh` was flipped in the same change. It is a
-**second** deploy path into the same environment — a Cloud Build trigger that
-auto-deploys the frontend to dev on `main` pushes — and leaving it at `uat` would have
-made the two paths disagree, with whichever ran last deciding what dev reported.
-
-After the SOP lands it, the frontend reports **`development`**, not `dev`: the frontend
-vocabulary has no `dev`, and `normalizeEnvironment` maps it. The backend reports `dev`.
-That asymmetry is a property of the two vocabularies, not a mistake.
+A frontend built with `_APP_ENV=dev` reports **`development`**, not `dev`:
+`normalizeEnvironment` maps the value. The backend vocabulary uses `dev`.
 
 The **local** `--mode dev` profile deliberately still hydrates `NEXT_PUBLIC_APP_ENV=uat`
 (`scripts/env/bootstrap_profiles.sh`). Local has no deploy lane, so `development` there
@@ -508,35 +501,16 @@ Ongoing schedulers to replicate (after first deploy):
 - Do NOT schedule One Email watch renewal in dev — watch ownership stays with UAT
   (see divergences above).
 
-## Phase 6c — GCP-native auto-deploy lane (Cloud Build triggers)
+## Phase 6c — historical GCP-native auto-deploy
 
-Complementing the governed `Deploy to Dev` workflow, dev can auto-deploy on every
-push to `main` using Cloud Build triggers inside `hushh-pda-dev` — no GitHub
-Actions dispatch required. This is the "commit and it ships to dev" lane:
-
-```bash
-bash scripts/ops/setup_dev_cloudbuild_triggers.sh
-```
-
-- **One-time human prerequisite:** the Cloud Build GitHub (2nd gen) host
-  connection + repository link for `hushh-labs/hushh-research`, authorized in the
-  console (the script detects it and prints exact instructions if missing).
-- `dev-backend-autodeploy` fires on `main` pushes touching `consent-protocol/**`
-  and runs `deploy/dev.autodeploy.backend.cloudbuild.yaml`: DB migrations + the
-  `dev_minimum_schema.json` floor guard first, then the shared
-  `deploy/backend.cloudbuild.yaml` (same substitution set as the workflow),
-  then a provenance + health probe.
-- `dev-frontend-autodeploy` fires on `main` pushes touching `hushh-webapp/**`
-  and runs the shared `deploy/frontend.cloudbuild.yaml` directly with dev
-  substitutions.
-- Path filters replicate the workflow's auto-scope; `deploy-source` label is
-  `cloudbuild-trigger` so revisions remain attributable per lane.
-- **Gate honesty:** this lane keeps main-only + migrations + schema floor +
-  health probe. It does NOT replicate the Actions lane's green-check SHA
-  assertion, secret sync, parity/semantic verification, or auto-rollback. A
-  `main` commit deploys immediately — possibly before its Post-Merge Smoke
-  finishes. Dev is disposable by design; the fully-gated path remains the
-  `Deploy to Dev` workflow. Never point triggers like these at UAT/production.
+The former `dev-backend-autodeploy` and `dev-frontend-autodeploy` triggers
+deployed Main pushes outside the current GitHub release gates. They were absent
+from the live inventory checked on 27 September 2026. Do not recreate them from
+`scripts/ops/setup_dev_cloudbuild_triggers.sh`: the retained script is not current
+deployment authority. Cloud Build remains the image builder under the governed,
+Main-owned Dev workflow. Read the current
+[Dev fast lane](../../../docs/reference/operations/dev-fast-lane.md#gcp-native-auto-deploy-cloud-build-triggers)
+and verify live triggers before any operational change.
 
 ## Contributor usage once dev is live
 

@@ -13,7 +13,7 @@ Run the same local blocking CI surface that GitHub expects for `PR Validation` a
 3. Run `./bin/hushh codex pre-pr`; it must run `bash scripts/ci/check-dco-signoff.sh` before the broader CI mirror.
 4. Before every push that updates a pull request, ensure every local commit in `origin/main..HEAD` has a DCO trailer. Prefer `git commit -s`; if unsigned commits already exist, repair them with `git rebase --signoff <base>` or a clean signed squash onto `origin/main` when merge/sync commits made the history noisy.
 5. After subtree sync, branch merge, rebase, queue repair, or any other history-changing operation, rerun `bash scripts/ci/check-dco-signoff.sh origin/main HEAD` immediately before pushing.
-6. If the change touches `.codex/`, `docs/`, `config/`, or `scripts/`, rerun `bash scripts/ci/orchestrate.sh governance` after the last local edit.
+6. If the change touches `.agents/`, `docs/`, `config/`, or `scripts/`, rerun `bash scripts/ci/orchestrate.sh governance` after the last local edit.
 7. Use `./bin/hushh codex pre-pr --include-advisory` only when you intentionally want the wider local release/readiness lane.
 8. If the local mirror fails, fix the failing surface before opening or updating the pull request.
 9. After the pull request opens, switch to `./bin/hushh codex ci-status --watch` and monitor GitHub to terminal state.
@@ -29,7 +29,7 @@ Run the same local blocking CI surface that GitHub expects for `PR Validation` a
 
 1. opening a pull request without running the local mirror
 2. pushing unsigned commits and letting DCO fail on GitHub, especially after subtree sync or merge repair commits
-3. changing `.codex/`, `docs/`, `config/`, or `scripts/` without rerunning the governance lane
+3. changing `.agents/`, `docs/`, `config/`, or `scripts/` without rerunning the governance lane
 4. adding GitHub-required checks without keeping the local mirror aligned
 5. using advisory checks as the default pre-PR blocker
 6. treating `merge triggered` or `queued to merge` as task completion

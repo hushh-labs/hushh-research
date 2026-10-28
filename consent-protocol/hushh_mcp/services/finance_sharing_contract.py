@@ -35,6 +35,31 @@ class FinanceSharePolicy(StrictObject):
         return self
 
 
+class FinanceAdvisorPolicy(StrictObject):
+    """An explicit, finite snapshot of the selected source for an eligible advisor."""
+
+    version: Literal[2]
+    purpose: Literal["verified_ria_review"]
+    mode: Literal["snapshot"]
+    sections: list[Literal["allocation", "performance", "holdings"]] = Field(
+        min_length=3, max_length=3
+    )
+    selectionHash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    showAmounts: StrictBool
+    model_processing: ProcessingPermission
+    durationSeconds: Literal[3600, 86400, 604800]
+
+    @model_validator(mode="after")
+    def validate_advisor_view(self):
+        if set(self.sections) != {"allocation", "performance", "holdings"}:
+            raise ValueError("advisor review requires the full portfolio")
+        if not self.showAmounts:
+            raise ValueError("advisor review requires portfolio amounts")
+        if self.model_processing.allowed:
+            raise ValueError("advisor review does not grant model processing")
+        return self
+
+
 class RecipientEnvelope(StrictObject):
     algorithm: Literal["ECDH-P256-AES256-GCM"]
     recipientKeyId: str = Field(min_length=1, max_length=160)
@@ -68,7 +93,7 @@ class FinanceRecipient(StrictObject):
 
 class CreateFinanceShare(StrictObject):
     requestId: UUID
-    policy: FinanceSharePolicy
+    policy: FinanceSharePolicy | FinanceAdvisorPolicy
     ownerConfig: RecipientEnvelope
     recipients: list[FinanceRecipient] = Field(min_length=1, max_length=20)
 
@@ -94,7 +119,9 @@ def finance_envelope_context(*, request_id, grant_id, owner, recipient, policy, 
 
     return json.dumps(
         [
-            "finance-share-v1",
+            "finance-share-v2:verified_ria_review"
+            if policy.get("version", 1) == 2
+            else "finance-share-v1",
             str(request_id),
             str(grant_id),
             owner,

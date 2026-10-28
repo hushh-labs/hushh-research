@@ -13,6 +13,15 @@ from hushh_mcp.services.account_service import (
 
 def failure_response(user_id, result, *, logger, cleanup_provider_detail, files_pending):
     if not result["success"]:
+        if result.get("error_code") == "ACCOUNT_DELETE_CLEANUP_REVIEW_CHANGED":
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "code": "ACCOUNT_DELETE_CLEANUP_REVIEW_CHANGED",
+                    "detail": "Account details changed. Review deletion again.",
+                },
+                headers={"Cache-Control": "private, no-store"},
+            )
         if result.get(
             "error_code"
         ) == "PHONE_TRANSFER_IN_PROGRESS" or "PHONE_TRANSFER_IN_PROGRESS" in str(

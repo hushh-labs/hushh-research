@@ -4628,6 +4628,52 @@
     }
   },
   {
+    "route": "/one/kai/portfolio/analysis",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/kai-portfolio-detail-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "KaiFlow"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.portfolio.analysis",
+      "purpose": "Review source-backed portfolio analysis.",
+      "screen": "kai_portfolio_analysis",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The route displays available saved portfolio facts and labels missing information.",
+      "nextRoute": "/one/kai?tab=portfolio",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/portfolio/analysis",
+          "expected": {
+            "href": "/one/kai?tab=portfolio",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
+    }
+  },
+  {
     "route": "/one/kai/portfolio/sources",
     "mode": "standard",
     "shellVerification": {

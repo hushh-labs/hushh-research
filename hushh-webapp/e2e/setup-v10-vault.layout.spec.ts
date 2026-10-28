@@ -48,6 +48,7 @@ test.beforeAll(async () => {
         "@/lib/services/auth-service",
         "@/lib/services/account-service",
         "@/lib/services/api-service",
+        "@/lib/auth/phone-linked-deletion",
         "@/lib/firebase/config",
         "@/lib/flows/delete-account",
       ].map(find => ({ find, replacement: boundaries })),

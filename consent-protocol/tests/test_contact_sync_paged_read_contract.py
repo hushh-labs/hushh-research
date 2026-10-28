@@ -158,6 +158,7 @@ def test_location_recipient_page_reuses_authority_and_bounds_5000_shape():
                 "phone_verified": True,
                 "total_count": 5000,
                 "connected_from_contacts": True,
+                "finance_advisor_eligible": True,
             }
         ]
 
@@ -170,6 +171,12 @@ def test_location_recipient_page_reuses_authority_and_bounds_5000_shape():
     assert captured["params"]["offset"] == 100
     assert result["totalCount"] == 5000
     assert result["items"][0]["connectedFromContacts"] is True
+    assert result["items"][0]["isFinanceAdvisor"] is True
+    assert captured["params"]["finance_verified_statuses"] == [
+        "active",
+        "finra_verified",
+        "verified",
+    ]
     assert result["items"][0]["publicPersonRef"] == "11111111-1111-4111-8111-111111111111"
     sql = captured["sql"]
     assert "origin.origin_kind <> 'named_circle'" in sql
