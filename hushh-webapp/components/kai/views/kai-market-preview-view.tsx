@@ -395,14 +395,14 @@ export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, 
                   <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" className="float-left mr-1 mt-px h-4 w-4 rounded-full [&_img]:h-4 [&_img]:w-4" />
                   {row.companyName}
                 </span>
-                {!sharedTime ? <time dateTime={row.asOf || undefined} className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{formatMarketQuoteTime(row.asOf)}</time> : null}
+                {!sharedTime && row.asOf && Number.isFinite(Date.parse(row.asOf)) ? <time dateTime={row.asOf} className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{formatMarketQuoteTime(row.asOf)}</time> : null}
               </button>;
             })}
           </div>
         ))}
       </div>
-      {sharedTime ? <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
-        <time dateTime={commonAsOf || undefined}>{commonAsOf ? formatOverviewAsOf(commonAsOf) : "Quote time unavailable"}</time>
+      {sharedTime && commonAsOf && Number.isFinite(Date.parse(commonAsOf)) ? <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
+        <time dateTime={commonAsOf}>{formatOverviewAsOf(commonAsOf)}</time>
       </p> : null}
     </div>
   );

@@ -543,6 +543,7 @@ html.native-keyboard-inset.kb-open
   --system-green: var(--app-success);
   --system-red: var(--app-destructive);
   --system-orange: var(--app-warning);
+  --app-teal: #30b0c7;
   --app-purple: #af52de;
   /* People, circles, private sharing. Sits beside the other five semantic
      hues rather than inline in a component, and gives the profile screens'
@@ -1327,6 +1328,7 @@ html.native-keyboard-inset.kb-open
   --app-destructive: #ff453a;
   --app-success: #30d158;
   --app-warning: #ff9f0a;
+  --app-teal: #40c8e0;
   --app-purple: #bf5af2;
   /* Brightened for dark exactly like --app-warning and --app-destructive are.
      The raw system value (#5e5ce6) measures 2.77:1 on the 20% tile — the only

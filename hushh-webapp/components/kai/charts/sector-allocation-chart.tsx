@@ -13,6 +13,8 @@
 
 "use client";
 
+import { allocationColor } from "@/lib/kai/allocation-colors";
+
 import { memo, useMemo, useState, useEffect } from "react";
 import {
   BarChart,
@@ -81,16 +83,6 @@ type SectorBarChartProps = {
   showInlineValueLabels: boolean;
   sectorData: { data: SectorDatum[]; total: number };
 };
-
-// Use the app chart scale so sector colors retain their contrast in every
-// theme and never create a second Portfolio-specific palette.
-const CHART_COLOR_TOKENS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-] as const;
 
 function formatCurrency(value: number): string {
   if (value >= 1000000) {
@@ -277,7 +269,7 @@ export function SectorAllocationChart({
       0,
     );
 
-    // Convert to array and sort by value, assign colors by index
+    // Sort by value while retaining each category's color.
     const data: SectorDatum[] = Array.from(sectorMap.entries())
       .map(([name, { value, count, holdings }]) => ({
         name,
@@ -290,11 +282,9 @@ export function SectorAllocationChart({
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 8) // Top 8 sectors
-      .map((item, index) => ({
+      .map((item) => ({
         ...item,
-        color:
-          CHART_COLOR_TOKENS[index % CHART_COLOR_TOKENS.length] ??
-          "var(--chart-1)",
+        color: allocationColor(item.name),
       }));
 
     return { data, total: totalValue };

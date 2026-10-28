@@ -223,7 +223,7 @@ execute a probe or prove owner access.
 | Startup | Bind recovered key/current incarnation; compare actual installed digest and approved policy. Cloud Run/Container Apps identity, exact image and separately approved policy are required |
 | GCP image-only update | Carry evidence from the captured approval; preserve owner enablement/policy, including their absence. Qualification cannot activate Browser |
 | GCP Browser setup | Separate typed plan and approval v2 through the existing update operation; freeze owner, key, placement, service UID/generation, template, target, policy and qualification; configured only after serving readback |
-| Azure Container Apps | Version 2 qualification recognizes the ordinary host and explicit sandbox-off mode. Exact owner activation/update composition is still required; image publication never grants activation |
+| Azure Container Apps | Version 2 qualification recognizes the ordinary host and explicit sandbox-off mode. Source includes owner-bound plan, update, recovery and readback; image publication never grants activation. Installed schema, exact-image qualification and owner approval remain required |
 
 GCP Browser setup now has its own typed plan through the existing approval,
 lease and readback authority. `browserPlanDigest` and the `browser.v1` release

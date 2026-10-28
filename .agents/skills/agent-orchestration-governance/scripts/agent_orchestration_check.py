@@ -460,6 +460,7 @@ def validate_bacterial_architecture_contract(root: Path, errors: list[str]) -> N
 
 def run_self_test() -> list[str]:
     failures: list[str] = []
+    import runpy
     import tempfile
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -471,6 +472,10 @@ def run_self_test() -> list[str]:
         validate_platform_agent_sources(root, errors)
         if len(errors) != 2:
             failures.append("vendor roots must be rejected even when they contain only discovery entries")
+    boundary = runpy.run_path(str(Path(__file__).with_name("framework_source_boundary.py")))
+    paths = ["app/CLAUDE.md", "pkg/.codex/agents/a.toml", "pkg/AGENTS.md", ".agents/README.md"]
+    if boundary["nested_vendor_sources"](paths) != ["app/CLAUDE.md", "pkg/.codex/agents/a.toml"]:
+        failures.append("nested tracked vendor sources must be rejected without rejecting canonical instructions")
     agent_markers = [PRINCIPAL_CRAFT_RULE, BACTERIAL_ARCHITECTURE_RULE]
     complete_agent = "; ".join(agent_markers)
     if missing_markers(complete_agent, agent_markers):
@@ -493,7 +498,6 @@ def run_self_test() -> list[str]:
     for marker in skill_markers:
         if missing_markers(complete_skill.replace(marker, ""), skill_markers) != [marker]:
             failures.append(f"skill inheritance removal fixture should fail on {marker!r}")
-    import runpy
     load_contract = runpy.run_path(str(DEFAULT_ROOT / "scripts/ops/audit_agents_md_alignment.py"))["load_operating_contract"]
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)

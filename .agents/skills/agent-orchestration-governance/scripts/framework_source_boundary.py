@@ -1,7 +1,8 @@
 """Confinement boundary shared by canonical framework and skill audits."""
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import subprocess
 
 
 def validate_source_confinement(root: Path, errors: list[str]) -> None:
@@ -26,6 +27,17 @@ def validate_source_confinement(root: Path, errors: list[str]) -> None:
 
 
 FORBIDDEN_DEVELOPMENT_ROOTS = (".claude", ".codex", ".qwen", ".gemini", ".cursor", ".windsurf")
+FORBIDDEN_ENTRYPOINTS = ("CLAUDE.md", "CODEX.md", "QWEN.md", "GEMINI.md")
+
+
+def nested_vendor_sources(paths: list[str]) -> list[str]:
+    """Find tracked vendor instructions without traversing worktrees or dependencies."""
+    return sorted(
+        path for path in paths
+        if len(PurePosixPath(path).parts) > 1
+        and (PurePosixPath(path).name in FORBIDDEN_ENTRYPOINTS
+             or any(part in FORBIDDEN_DEVELOPMENT_ROOTS for part in PurePosixPath(path).parts))
+    )
 
 
 def validate_platform_agent_sources(root: Path, errors: list[str]) -> None:
@@ -33,9 +45,22 @@ def validate_platform_agent_sources(root: Path, errors: list[str]) -> None:
         path = root / name
         if path.exists() or path.is_symlink():
             errors.append(f"{name}: vendor discovery is retired; read AGENTS.md and .agents directly")
-    for name in ("CLAUDE.md", "CODEX.md", "QWEN.md", "GEMINI.md"):
+    for name in FORBIDDEN_ENTRYPOINTS:
         if (root / name).exists() or (root / name).is_symlink():
             errors.append(f"{name}: duplicate operating entrypoint; use root AGENTS.md")
+    if not (root / ".git").exists():
+        return
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"], check=True,
+            capture_output=True, timeout=30,
+        )
+        paths = [path.decode("utf-8") for path in result.stdout.split(b"\0") if path]
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        errors.append("Cannot verify tracked development instruction sources")
+        return
+    for path in nested_vendor_sources(paths):
+        errors.append(f"{path}: vendor instruction source; use AGENTS.md and .agents")
 
 
 def validate_canonical_framework(root: Path, errors: list[str]) -> None:

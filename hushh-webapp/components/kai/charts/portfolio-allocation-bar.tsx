@@ -13,6 +13,7 @@ import {
   CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
+import { allocationColor } from "@/lib/kai/allocation-colors";
 
 export interface PortfolioAllocationDatum {
   name: string;
@@ -62,11 +63,11 @@ export function PortfolioAllocationBar({
       percent: (totalValue ?? mappedValue) > 0 ? (entry.value / (totalValue ?? mappedValue)) * 100 : 0,
     }));
     const nextConfig = Object.fromEntries(
-      nextSegments.map((entry, index) => [
+      nextSegments.map((entry) => [
         entry.key,
         {
           label: entry.name,
-          color: `var(--chart-${(index % 5) + 1})`,
+          color: allocationColor(entry.name),
         },
       ]),
     ) satisfies ChartConfig;
@@ -171,7 +172,7 @@ export function PortfolioAllocationBar({
               <span
                 aria-hidden="true"
                 className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: String(chartConfig[segment.key]?.color || "var(--chart-1)") }}
+                style={{ backgroundColor: allocationColor(segment.name) }}
               />
               <span className="font-medium text-foreground">
                 {segment.name}
