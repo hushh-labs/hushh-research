@@ -455,8 +455,11 @@ def non_target_rows(proof: Any, config: dict[str, Any], environment: str, region
         or proof.connection_name != ISOLATED_DEV_CONNECTION
     ):
         raise BudgetError("fixed isolated DEV needs collector-owned non-target proof")
+    service_names = set(config["non_database_services"])
+    if any(row.get("name") == "hushh-webapp-plg-qual" for row in proof.services):
+        service_names.add("hushh-webapp-plg-qual")
     for rows, names in (
-        (proof.services, config["non_database_services"]),
+        (proof.services, service_names),
         (proof.jobs, config["non_target_jobs"]),
     ):
         if (

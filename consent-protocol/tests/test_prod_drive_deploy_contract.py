@@ -449,21 +449,31 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     git("add", ".")
     git("commit", "-qm", "Introduce production Drive support")
     feature_sha = git("rev-parse", "HEAD")
-    env = {**os.environ, "RUNNER_TEMP": str(runner)}
-    subprocess.run(  # noqa: S603 - execute the repo-authored release steps in an isolated fixture
+    env = {**os.environ, "RUNNER_TEMP": str(runner), "GITHUB_SHA": feature_sha}
+    preserved = subprocess.run(  # noqa: S603 - execute the repo-authored release steps in an isolated fixture
         ["bash", "-c", steps["Preserve current release tooling"]["run"]],
         cwd=repo,
         env=env,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    assert preserved.returncode == 0, preserved.stderr
     checkout = steps["Checkout deployment SHA"]["run"].replace(
         "${{ github.event.inputs.sha }}", old_sha
     )
     subprocess.run(  # noqa: S603 - execute the repo-authored release steps in an isolated fixture
         ["bash", "-c", checkout], cwd=repo, env=env, capture_output=True, text=True, check=True
     )
+    assert (
+        subprocess.check_output(  # noqa: S603 - fixed command against the isolated test checkout
+            ["git", "-C", str(runner / "capacity-main"), "rev-parse", "HEAD"], text=True
+        ).strip()
+        == feature_sha
+    )
+    assert (runner / "capacity-main/scripts/ci/runtime-capacity-budget.py").read_text() == (
+        ROOT / "scripts/ci/runtime-capacity-budget.py"
+    ).read_text()
     for companion in (
         "resolve-deploy-scope.py",
         "release_acceptance_provenance.py",

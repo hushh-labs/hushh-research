@@ -69,7 +69,7 @@ steps:
         # Prebuilt deploys have no uploaded source; image builds validate the catalog.
         # The isolated commerce origin keeps its stricter binding checks above.
         if [[ -z "${_SECRET_PREFIX}" && "$${FRONTEND_IMAGE_PREBUILT:-false}" != "true" ]]; then
-        python3 - "${_DEPLOY_ENV}" "$${PASSKEY_RP_ID_VAL}" <<'PY_RP'
+        python3 - "$${PLG_FRONTEND_DEPLOY_ENV}" "$${PASSKEY_RP_ID_VAL}" <<'PY_RP'
         import json
         import sys
         from pathlib import Path
@@ -129,11 +129,11 @@ steps:
           printf '%s' "$${GOOGLE_CONTACTS_CLIENT_ID_VAL}" \
             > "$${google_contacts_client_id_file}"
         elif grep -Eq '(^|[[:space:]])NOT_FOUND(:|[[:space:]])' "$${google_contacts_secret_error}" \
-          && [[ "${_DEPLOY_ENV}" == "uat" ]]; then
+          && [[ "$${PLG_FRONTEND_DEPLOY_ENV}" == "uat" ]]; then
             echo "Missing UAT Google Contacts OAuth client configuration."
             exit 1
         elif grep -Eq '(^|[[:space:]])NOT_FOUND(:|[[:space:]])' "$${google_contacts_secret_error}"; then
-          echo "Google Contacts is not configured for ${_DEPLOY_ENV}; keeping the browser fallback dark."
+          echo "Google Contacts is not configured for $${PLG_FRONTEND_DEPLOY_ENV}; keeping the browser fallback dark."
         else
           echo "Unable to access Google Contacts OAuth client configuration."
           exit 1
@@ -145,7 +145,7 @@ steps:
           chmod 600 "$${google_sign_in_client_id_file}"
         else
           source scripts/deploy/frontend-google-native-config.sh
-          resolve_google_native_public_clients "${_DEPLOY_ENV}" "${_SECRET_PREFIX}" "$PROJECT_ID" \
+          resolve_google_native_public_clients "$${PLG_FRONTEND_DEPLOY_ENV}" "${_SECRET_PREFIX}" "$PROJECT_ID" \
             "/workspace/.google-native-connectors" "$${google_contacts_secret_error}"
           bash scripts/deploy/resolve-google-sign-in-client.sh \
             "$PROJECT_ID" "$${google_sign_in_client_id_file}" "${_SECRET_PREFIX}"
@@ -156,7 +156,7 @@ steps:
         receipt_logo_url_template_file="/workspace/.receipt-logo-url-template"
         : > "$${receipt_logo_url_template_file}"
         chmod 600 "$${receipt_logo_url_template_file}"
-        if [[ "$${FRONTEND_IMAGE_PREBUILT:-false}" != "true" && "${_DEPLOY_ENV}" == "uat" ]]; then
+        if [[ "$${FRONTEND_IMAGE_PREBUILT:-false}" != "true" && "$${PLG_FRONTEND_DEPLOY_ENV}" == "uat" ]]; then
           if gcloud secrets versions access latest \
             --secret=NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE \
             --project="$PROJECT_ID" \
@@ -173,6 +173,7 @@ steps:
           fi
         fi
     id: "resolve-google-contacts-client-config"
+    env: ["PLG_FRONTEND_DEPLOY_ENV=${_DEPLOY_ENV}"]
     secretEnv:
       - "APP_FRONTEND_ORIGIN_VAL"
 
@@ -220,7 +221,7 @@ steps:
         # .agents/skills/analytics-observability-governance/references/property-stream-dataset-matrix.md
         prod_measurement_id="G-2PCECPSKCR"
         uat_measurement_id="G-H1KGXGZTCF"
-        case "${_DEPLOY_ENV}" in
+        case "$${PLG_FRONTEND_DEPLOY_ENV}" in
           uat)
             if [ "$${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL}" = "$${prod_measurement_id}" ]; then
               echo "UAT build resolved the PRODUCTION analytics measurement id ($${prod_measurement_id})."
@@ -273,16 +274,35 @@ steps:
         # Registry layer cache (buildx, mode=max): caches the npm ci + next build layers
         # so an unchanged package-lock turns dependency install into a cache hit. First
         # build after this lands is cold (seeds :buildcache); later builds are minutes.
+        cache_tag="buildcache"
+        extra_build_flags=()
+        extra_image_tags=(-t "gcr.io/$PROJECT_ID/hushh-webapp:manual" -t "gcr.io/$PROJECT_ID/hushh-webapp:latest")
+        case "$${PLG_FRONTEND_PUBLISH_MODE}" in
+          standard) ;;
+          plg-w2-isolated)
+            case "$${PLG_FRONTEND_DEPLOY_ENV}:$${PLG_FRONTEND_APP_ENV}:$PROJECT_ID" in
+              dev:dev:hushh-pda-dev|uat:uat:hushh-pda-uat) ;;
+              *) echo "Isolated W2 image requires the fixed Dev or UAT project." >&2; exit 1 ;;
+            esac
+            if [[ ! "$${PLG_FRONTEND_IMAGE_TAG}" =~ ^plg-w2-$${PLG_FRONTEND_DEPLOY_ENV}-[1-9][0-9]{0,18}-[1-9][0-9]{0,18}$ ]]; then
+              echo "Isolated W2 image requires a run- and attempt-specific tag." >&2; exit 1
+            fi
+            cache_tag="$${PLG_FRONTEND_IMAGE_TAG}-cache"
+            extra_build_flags=(--platform=linux/amd64 --metadata-file=/workspace/frontend-image-metadata.json)
+            extra_image_tags=()
+            ;;
+          *) echo "Invalid frontend image publication mode." >&2; exit 1 ;;
+        esac
         gcloud auth configure-docker gcr.io --quiet || true
         docker buildx create --use --name hushh-builder --driver docker-container \
           >/dev/null 2>&1 || docker buildx use hushh-builder
         docker buildx build \
-          --cache-from=type=registry,ref=gcr.io/$PROJECT_ID/hushh-webapp:buildcache \
-          --cache-to=type=registry,ref=gcr.io/$PROJECT_ID/hushh-webapp:buildcache,mode=max \
+          "$${extra_build_flags[@]}" \
+          --cache-from=type=registry,ref=gcr.io/$PROJECT_ID/hushh-webapp:$${cache_tag} \
+          --cache-to=type=registry,ref=gcr.io/$PROJECT_ID/hushh-webapp:$${cache_tag},mode=max \
           --push \
-          -t gcr.io/$PROJECT_ID/hushh-webapp:manual \
-          -t gcr.io/$PROJECT_ID/hushh-webapp:latest \
-          -t gcr.io/$PROJECT_ID/hushh-webapp:${_IMAGE_TAG} \
+          "$${extra_image_tags[@]}" \
+          -t "gcr.io/$PROJECT_ID/hushh-webapp:$${PLG_FRONTEND_IMAGE_TAG}" \
           --build-arg NEXT_PUBLIC_FIREBASE_API_KEY=$$NEXT_PUBLIC_FIREBASE_API_KEY_VAL \
           --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN_VAL \
           --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID=$$NEXT_PUBLIC_FIREBASE_PROJECT_ID_VAL \
@@ -295,7 +315,7 @@ steps:
           --build-arg NEXT_PUBLIC_DEVELOPER_API_URL=$$BACKEND_URL_VAL \
           --build-arg NEXT_PUBLIC_APP_URL=$$APP_FRONTEND_ORIGIN_VAL \
           --build-arg NEXT_PUBLIC_PASSKEY_RP_ID=$$PASSKEY_RP_ID \
-          --build-arg NEXT_PUBLIC_APP_ENV=${_APP_ENV} \
+          --build-arg "NEXT_PUBLIC_APP_ENV=$${PLG_FRONTEND_APP_ENV}" \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=${_OBSERVABILITY_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_WALLET_ENABLED=${_ONE_WALLET_ENABLED} \
@@ -330,6 +350,7 @@ steps:
       "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL"
     ]
     id: "build-frontend-image"
+    env: ["PLG_FRONTEND_DEPLOY_ENV=${_DEPLOY_ENV}", "PLG_FRONTEND_APP_ENV=${_APP_ENV}", "PLG_FRONTEND_IMAGE_TAG=${_IMAGE_TAG}", "PLG_FRONTEND_PUBLISH_MODE=${_IMAGE_PUBLISH_MODE}"]
 
 # NOTE: no top-level `images:` block. `docker buildx build --push` already pushes
 # every tag; listing images here would make Cloud Build re-push from the empty
@@ -339,6 +360,7 @@ steps:
 timeout: "1800s"
 
 substitutions:
+  _IMAGE_PUBLISH_MODE: standard
   _APP_ENV: production
   _SECRET_PREFIX: ""
   _OBSERVABILITY_ENABLED: "true"

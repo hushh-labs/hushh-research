@@ -24,9 +24,12 @@ jobs:
     name: Wait for UAT One chat capacity outside the mutation lock
     runs-on: ubuntu-latest
     timeout-minutes: 7
+    env:
+      GH_TOKEN: ${{ github.token }}
     permissions:
       contents: read
       checks: read
+      actions: read
       id-token: write
     environment:
       name: uat
@@ -37,6 +40,10 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
 
       - name: Authenticate for read-only UAT capacity inventory
         uses: google-github-actions/auth@v2
@@ -50,11 +57,18 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Prepare locked capacity reader
+        shell: bash
+        run: |
+          set -euo pipefail
+          reader="$(python3 scripts/ci/prepare_capacity_python.py --venv "$RUNNER_TEMP/capacity-python")"
+          echo "CAPACITY_PYTHON=$reader" >> "$GITHUB_ENV"
+
       - name: Wait for inherited backend capacity
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_SHA: ${{ inputs.sha }}
-        run: python3 scripts/ci/wait-uat-capacity.py --mode one-chat --target-sha "$TARGET_SHA"
+        run: '"$CAPACITY_PYTHON" scripts/ci/wait-uat-capacity.py --mode one-chat --target-sha "$TARGET_SHA"'
 
   deploy:
     name: Deploy only consent-protocol
@@ -66,6 +80,8 @@ jobs:
       queue: max
     environment: uat
     timeout-minutes: 65
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Assert main dispatch and governed actor
         shell: bash
@@ -82,6 +98,10 @@ jobs:
           fetch-depth: 0
           ref: main
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
       - name: Require reconciled maintenance mutations under deployment lock
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -93,6 +113,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git worktree add --detach "${RUNNER_TEMP}/capacity-main" "$GITHUB_SHA"
+          test "$(git -C "${RUNNER_TEMP}/capacity-main" rev-parse HEAD)" = "$GITHUB_SHA"
           mkdir -p "${RUNNER_TEMP}/capacity-tools"
           cp scripts/ci/runtime-capacity-budget.py "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py"
           cp scripts/ci/runtime_capacity_inventory.py "${RUNNER_TEMP}/capacity-tools/runtime_capacity_inventory.py"
@@ -159,9 +181,16 @@ jobs:
       - name: Set UAT project context
         run: gcloud config set project hushh-pda-uat
 
+      - name: Prepare locked Main capacity reader
+        shell: bash
+        run: |
+          set -euo pipefail
+          reader="$(python3 "$RUNNER_TEMP/capacity-main/scripts/ci/prepare_capacity_python.py" --venv "$RUNNER_TEMP/capacity-python")"
+          echo "CAPACITY_PYTHON=$reader" >> "$GITHUB_ENV"
+
       - name: Enforce UAT database connection budget
         shell: bash
-        run: timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat --inherit-candidate-service consent-protocol
+        run: timeout --signal=TERM --kill-after=2s 295s "$CAPACITY_PYTHON" "${RUNNER_TEMP}/capacity-main/scripts/ci/runtime-capacity-budget.py" --environment uat --inherit-candidate-service consent-protocol
 
       - name: Deploy and verify only the backend service
         id: deploy-backend

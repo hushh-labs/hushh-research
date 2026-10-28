@@ -1576,3 +1576,19 @@ tests/services/test_document_delivery_background.py
 tests/services/test_document_delivery_background_exports.py
 # The owner's review decides whether the production Allow route accepts a One copy.
 tests/services/test_document_delivery_owner_allow.py
+
+# Fixed private PLG frontend: source, credential, native image and recovery boundaries.
+tests/test_plg_frontend_release.py
+tests/test_plg_frontend_secret_pins.py
+tests/test_plg_frontend_secret_inventory.py
+tests/test_plg_frontend_pinned_recipe.py
+tests/test_plg_frontend_backend_pair.py
+tests/test_plg_frontend_backend_target_recipe.py
+tests/test_plg_frontend_build_evidence.py
+tests/test_plg_frontend_hosted_caller.py
+tests/test_plg_frontend_hosted_preflight.py
+tests/test_plg_frontend_fixture.py
+tests/test_plg_frontend_fixture_cli.py
+tests/test_plg_frontend_fixture_github.py
+tests/test_plg_frontend_image_isolation.py
+tests/test_plg_frontend_fixture_retained.py

@@ -47,6 +47,8 @@ python3 scripts/ci/test_runtime_capacity_inventory.py
 python3 scripts/ci/test_runtime_capacity_volume.py
 python3 scripts/ci/test_runtime_capacity_isolated.py
 python3 scripts/ci/test_runtime_capacity_route_secrets.py
+python3 scripts/ci/test_runtime_capacity_frontend.py
+python3 scripts/ci/test_prepare_capacity_python.py
 python3 scripts/ci/test_production_capacity_bridge.py
 python3 scripts/ci/test_production_capacity_recovery.py
 python3 scripts/ci/test_verify_passkey_domain_associations.py
@@ -72,6 +74,19 @@ python3 scripts/ci/test_verify_deploy_identity_provenance.py
 python3 scripts/ci/test_private_native_artifact.py
 node --test scripts/release/dispatch-ios-appstore.test.mjs
 node --test scripts/release/dispatch-android-playstore.test.mjs
+# The fixture transport owns a separate service-identity header. Exercise its
+# credential boundary and execute the exact recorded W4 proxy once in CI.
+python3 - <<'PY'
+import subprocess
+sha = '2a860818549f2d6c16d1f98bd8fb9cebe01a1f84'
+check = subprocess.run(['git', 'cat-file', '-e', sha + '^{commit}'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=15)
+if check.returncode:
+    fetched = subprocess.run(['git', 'fetch', '--no-tags', 'origin', sha], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=60)
+    if fetched.returncode:
+        raise SystemExit('Fixed W4 source object unavailable for fixture verification')
+PY
+node --test scripts/ci/test_plg_fixture_fetch.cjs
+node --experimental-vm-modules --test scripts/ci/test_plg_fixture_w4_route.mjs
 python3 scripts/ci/test_resolve_ios_build_number.py
 # PR Validation only restores the Next.js and Swift package caches; main saves
 # them under the keys the PR lanes look up.

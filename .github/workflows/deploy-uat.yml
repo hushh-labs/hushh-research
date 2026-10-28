@@ -218,6 +218,7 @@ jobs:
     permissions:
       contents: read
       checks: read
+      actions: read
       id-token: write
     environment:
       name: uat
@@ -231,6 +232,10 @@ jobs:
           fetch-depth: 0
           ref: main
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
       - name: Authenticate for read-only UAT capacity inventory
         uses: google-github-actions/auth@v2
         with:
@@ -243,14 +248,22 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Prepare locked capacity reader
+        shell: bash
+        run: |
+          set -euo pipefail
+          reader="$(python3 scripts/ci/prepare_capacity_python.py --venv "$RUNNER_TEMP/capacity-python")"
+          echo "CAPACITY_PYTHON=$reader" >> "$GITHUB_ENV"
+
       - name: Wait for scope-aware UAT capacity
         id: admission
         env:
+          GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_SHA: ${{ needs.select-target.outputs.sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
         run: |
-          python3 scripts/ci/wait-uat-capacity.py \
+          "$CAPACITY_PYTHON" scripts/ci/wait-uat-capacity.py \
             --mode full --target-sha "$TARGET_SHA" \
             --requested-scope "$REQUESTED_SCOPE" \
             --github-output "$GITHUB_OUTPUT"
@@ -267,6 +280,7 @@ jobs:
     environment: uat
     env:
       UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
+      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Assert manual dispatch originates from main
@@ -337,6 +351,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git worktree add --detach "${RUNNER_TEMP}/capacity-main" "$GITHUB_SHA"
+          test "$(git -C "${RUNNER_TEMP}/capacity-main" rev-parse HEAD)" = "$GITHUB_SHA"
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp deploy/drive/resolve_protected_document_release.py "${RUNNER_TEMP}/release-tools/"
           cp deploy/drive/document_reader_compatibility.py "${RUNNER_TEMP}/release-tools/"
@@ -532,6 +548,13 @@ jobs:
           python-version: "3.13"
           protocol-dir: ./consent-protocol
 
+      - name: Prepare locked Main capacity reader
+        shell: bash
+        run: |
+          set -euo pipefail
+          reader="$(python3 "$RUNNER_TEMP/capacity-main/scripts/ci/prepare_capacity_python.py" --venv "$RUNNER_TEMP/capacity-python")"
+          echo "CAPACITY_PYTHON=$reader" >> "$GITHUB_ENV"
+
       - name: Capture predeploy Cloud Run state
         id: predeploy-state
         shell: bash
@@ -682,10 +705,10 @@ jobs:
                 candidate_services+=(--candidate-service consent-protocol-drive-v1-worker)
               fi
             fi
-            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+            timeout --signal=TERM --kill-after=2s 295s "$CAPACITY_PYTHON" "${RUNNER_TEMP}/capacity-main/scripts/ci/runtime-capacity-budget.py" --environment uat \
               "${candidate_services[@]}"
           elif [ "$DEPLOY_FRONTEND" = true ]; then
-            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat --frontend-only
+            timeout --signal=TERM --kill-after=2s 295s "$CAPACITY_PYTHON" "${RUNNER_TEMP}/capacity-main/scripts/ci/runtime-capacity-budget.py" --environment uat --frontend-only
           else
             echo "No resolved UAT deploy scope; refusing capacity admission." >&2
             exit 1
@@ -2054,7 +2077,7 @@ jobs:
             echo "UAT frontend candidate revision is unavailable for SQL-free verification." >&2
             exit 1
           fi
-          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+          timeout --signal=TERM --kill-after=2s 295s "$CAPACITY_PYTHON" "${RUNNER_TEMP}/capacity-main/scripts/ci/runtime-capacity-budget.py" --environment uat \
             --frontend-only --frontend-revision "$FRONTEND_REVISION"
 
       - name: Verify frontend candidate runs the pinned image digest
@@ -2270,7 +2293,7 @@ jobs:
             if [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
               # Recheck the immutable candidate and current frontend template
               # immediately before sending it serving traffic.
-              timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+              timeout --signal=TERM --kill-after=2s 295s "$CAPACITY_PYTHON" "${RUNNER_TEMP}/capacity-main/scripts/ci/runtime-capacity-budget.py" --environment uat \
                 --frontend-only \
                 --frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"
             fi

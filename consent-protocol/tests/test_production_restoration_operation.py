@@ -391,6 +391,7 @@ def test_recovery_reserves_only_its_real_candidate(tmp_path, restoration, fallba
             "STAGED_WORKER_LOADED": "false",
             "PHONE_ROLLBACK_SHA": fallback,
             "CAPTURE": str(capture),
+            "RUNNER_TEMP": str(tmp_path),
         },
     )
     assert capture.read_text().splitlines() == [
@@ -398,7 +399,7 @@ def test_recovery_reserves_only_its_real_candidate(tmp_path, restoration, fallba
         "--kill-after=2s",
         "295s",
         "python3",
-        "scripts/ci/runtime-capacity-budget.py",
+        str(tmp_path / "capacity-main/scripts/ci/runtime-capacity-budget.py"),
         "--environment",
         "production",
         *reservation,

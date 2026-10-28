@@ -208,7 +208,7 @@ def test_service_only_workflow_keeps_main_gate_and_full_uat_baseline() -> None:
     assert "environment: uat" in workflow
     assert "require-deploy-sha-on-main.sh" in workflow
     assert "Main Post-Merge Smoke Gate" in workflow
-    assert "runtime-capacity-budget.py --environment uat" in workflow
+    assert 'capacity-main/scripts/ci/runtime-capacity-budget.py" --environment uat' in workflow
     assert "uat_one_chat_backend_release.py" in workflow
     assert "steps.deploy-backend.outcome != 'success'" in workflow
     assert "--recover-interrupted" in workflow

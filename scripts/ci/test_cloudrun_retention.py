@@ -2145,10 +2145,11 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
 
         def check_deadlines(text):
             calls = [line for line in text.splitlines()
-                     if "python3 scripts/ci/runtime-capacity-budget.py" in line]
+                     if "runtime-capacity-budget.py" in line
+                     and ("python3 " in line or '"$CAPACITY_PYTHON"' in line)]
             self.assertTrue(calls)
             for line in calls:
-                self.assertIn(prefix + "python3 scripts/ci/runtime-capacity-budget.py", line)
+                self.assertIn(prefix, line)
                 self.assertNotIn("--foreground", line)
 
         for name in ("deploy-uat.yml", "deploy-uat-one-chat.yml", "deploy-production.yml"):
