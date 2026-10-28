@@ -1,5 +1,61 @@
 # API Contracts
 
+## Finance sharing with connections
+
+`FinanceSharingService` uses `ApiService.apiFetch` on Web, iOS and Android.
+Web forwards through `/api/one/[...path]`; native calls the same hub endpoints
+through the existing platform-aware transport. No new native plugin is needed.
+All routes require matching Firebase identity and `X-Hushh-Consent` vault-owner
+authority and return `private, no-store` responses with scrubbed errors.
+
+| Endpoint | Contract |
+| --- | --- |
+| `POST /api/one/finance/shares` | Confirm one immutable policy and recipient-encrypted view per selected connection; exact request-ID retries return the original grants. |
+| `GET /api/one/finance/shares?direction=outgoing\|received&cursor=…` | Participant-bound metadata history; 50 items, opaque UUID cursor. History does not authorize a read. |
+| `GET /api/one/finance/shares/{grantId}` | Recheck recipient/owner, connection, blocks, active recipient key, current expiry and revocation before returning that participant's ciphertext copy. |
+| `PUT /api/one/finance/shares/{grantId}` | Owner-only ongoing update with `expectedRevision`; immutable policy and recipient key, active lifetime, CAS and revocation checks. Snapshots reject updates. |
+| `DELETE /api/one/finance/shares/{grantId}` | Owner-only terminal stop for one recipient; clear its ciphertext. |
+
+Create accepts `requestId`, `policy`, `ownerConfig`, and 1–20 recipient entries
+(`grantId`, `personRef`, `envelope`, `ownerEnvelope`, `contentHash`). The strict
+version-1 policy contains `mode`, selected `sections`, encrypted-configuration
+`selectionHash`, `showAmounts`, canonical `model_processing`, and
+`durationSeconds` (3600, 86400, 604800; null only for explicit ongoing access).
+Lifetimes begin at the server-confirmed creation time. Contents and source/account
+locators are encrypted on the owner client; the server stores no financial
+plaintext. The 4 MB request budget and individual envelope bounds apply on both
+backend and proxy. Raw financial PKM scopes remain blocked.
+Both configuration and content digests include independent random 256-bit
+commitment nonces inside their encrypted payloads. Metadata cannot test guesses
+of selected notes or financial figures. Unselected notes and stock selections
+are removed from the owner configuration; unchanged information does not publish
+a new revision merely because a nonce changes. An explicitly approved One review
+checks the exact content commitment, then strips its nonce before model input.
+
+Recipient views expose only the selected curated sections. Amounts-off exports
+exclude structured balances, dollar gains, quantities, prices and cost basis;
+history is rebased to percentage balance change. It is not investment return.
+Current sharing supports USD portfolios and refuses known mixed/foreign currency.
+Missing saved history remains unavailable. Account identifiers, transactions and
+provider credentials never enter the structured export; an explicitly selected
+owner note is shared as written.
+
+One review is an explicit `financeShare` forwarded input on the existing agent
+chat transport, bound to `grantId`, `revision` and exact `projectionText` digest.
+Only the authenticated recipient with current owner model-processing permission
+may submit it. The current recipient processing-provider approval still applies.
+The signed private-pod consent metadata feed accepts `finance:{grantId}:{revision}`
+references with fresh nonces; it carries policy/digest/lifecycle metadata only.
+Existing shared-context tool blocking, request-secret lifetime and history/model
+redaction apply. Authority is checked again around model generation.
+
+Migration 433 qualifies the grant/request tables and terminal disconnect/block
+guards. Rollback is code-only and preserves issued encrypted objects. Expired
+ciphertext is cleared on access/history reconciliation; dormant ciphertext and
+confirmation metadata remain until reconciliation or account erasure. Production
+qualification must separately verify the migration, exact authenticated
+two-person journey, platform transport and current processing-provider approval.
+
 ## Visual Map
 
 Which credential plane authorizes which FastAPI route family, and how first-party
@@ -2462,16 +2518,21 @@ client; missing/legacy state requires restarting the connection, with no unfence
 fallback. Deploy matching native/web assets with the backend. Real provider
 revocation/reauthorization ordering is not proven by local transaction tests.
 
-For a first Calendar connection, the same OAuth attempt also requests optional
-`contacts.readonly` access for invitation guest photos. Historical Calendar
-grants keep their prior scope; a new grant records `guest_photo_access=true`
-only when Google's token response confirms that scope. Web and native starts
-use this same attempt-bound decision, and `status`/`accounts[]` expose the flag,
-scope, provider subject digest and grant generation. A missing photo grant
-leaves invitations usable with initials. The token broker below returns a
-short-lived Contacts-only bearer after verifying both owner credentials and
-the selected account; People reads occur in the browser and Google may omit a
-guest's profile photo even when the permission is granted.
+New Calendar connections, including additional accounts, do not request
+`contacts.readonly` solely for guest photos. Calendar person avatars use the
+current HUSSH photo for an active Connection whose email is verified and
+matches exactly, or for the signed-in owner's verified primary/linked email.
+Missing, ambiguous, private, unverified and non-HUSSH people retain initials.
+The Connections list adds `emailVerified` from the authoritative actor profile;
+an absent field is unverified. An account card also requires
+`accounts[].google_email_verified=true`, derived from matching Google's current
+verified userinfo email to that account's stored email under its grant. A
+verified userinfo result is cached for at most 60 seconds; a failed fresh
+lookup leaves initials. Calendar does not request a photo-only
+token or call Google People. Existing Google grants are not revoked or forced
+to reconnect. Historical Calendar photo grants, `guest_photo_access` fields,
+and the token broker below remain for compatibility with existing clients;
+separate Contacts functionality retains its own scope preservation.
 
 Drive connection, selection, processing, reading and sharing use the external
 connector routes under `/api/connectors` and `/api/connectors/google_drive/sharing`. The former
@@ -2495,7 +2556,7 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/calendar/connect/native/start` | Firebase Bearer | Create an owner-bound, generation-fenced native attempt; return public client settings and opaque state. |
 | POST   | `/api/one/calendar/connect/native/complete` | Firebase Bearer | Exchange the native code only with the matching state, owner, service and permission; missing state is rejected. |
 | GET    | `/api/one/calendar/status/{user_id}`  | Firebase Bearer    | Return non-sensitive Calendar connection and permission state, including each owner-bound Calendar account ID/status and a three-account limit. |
-| POST | `/api/one/calendar/guest-photo-token` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Return a no-store, short-lived Contacts-only browser token when the selected Calendar account has a recorded photo grant and matching owner, subject digest and grant generation. Reject broader or unproven Google scope. Never call People on the backend. |
+| POST | `/api/one/calendar/guest-photo-token` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Compatibility endpoint for existing clients with a historical photo grant. Returns a no-store, short-lived Contacts-only browser token only after owner, subject digest, grant generation and scope checks. The Calendar workspace no longer calls it. |
 | POST   | `/api/one/calendar/disconnect`        | Firebase Bearer    | Disable the selected Calendar `account_id`; the default preserves sibling Google services, while an additional Calendar-only credential is erased and its provider token revoked best-effort. |
 | POST   | `/api/one/calendar/events`            | VAULT_OWNER Bearer | Read bounded primary-calendar events in a supplied ISO-8601 time range.                                             |
 | POST   | `/api/one/calendar/availability`      | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars.                                                         |
@@ -2942,6 +3003,7 @@ not the product owner for live location.
 | POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
 | POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Scrub due nearby-presence anchor material, then delete terminal expired/revoked location grants, nearby-presence metadata, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, expired/revoked named-Circle codes, terminal targeted Circle-member invitations, and related events after the retention window; the hourly hosted scheduler is a release prerequisite |
 | POST | `/api/account/deletion-cleanup/drain?limit=10` | Google OIDC pinned to `ACCOUNT_DELETION_CLEANUP_AUDIENCE` and a dedicated `ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL` | Claim a bounded batch of durable post-erasure Firebase cleanup intents with `SKIP LOCKED`, delete or quarantine each exact UID, and settle claims; the external scheduler is required because the in-process loop is only a latency optimization. When the drain ran, the response stays 2xx and returns `{success, settled, limit, paused, paused_reason}`; `paused_reason` is null or one of `release_fence_installed`, `release_lock_unavailable`, `lifecycle_roots_missing`, `admission_check_failed`, so a release pause is never read as an idle drain |
+| GET | `/api/account/deletion-cleanup` | Firebase ID token with a revocation check; cleanup purpose only, no account or vault admission | Read the caller's own deletion cleanup: `{operation: {id, state, credential_count, local_erasure_confirmation_required, external_validity_unconfirmed_count, inventory_sha256, retry_after_seconds, delayed}}`, with `Retry-After: 3` while `cleaning_up` or `waiting_for_provider`. The web shows these states as steps and follows `retry_after_seconds` while erasure runs. A committed full-account admission wakes the in-process drain; after the erased commit the worker sends the at-most-once `account_deleted` notice from `one@hushh.ai` (test inbox only outside production) |
 
 ### Agent One invocation preview (not official A2A v1)
 
@@ -4645,7 +4707,7 @@ tokens, subjects and endpoints are not returned. Mutations derive owner/generati
 | `POST /requests/{id}/prepare/stream` | Same authority and preparation as `/prepare`, as `text/event-stream` (`private, no-store, no-cache, no-transform`). Frames: `stage` (`starting`, `searching`, `choosing`, `checking`), then one `complete {status}` after the review commits or `error {code, message}` from the public error map, plus `heartbeat`. No frame carries files, ids, content or coverage. A stream that ends with no terminal frame (owner authority ended mid-run, or the 190 second stream deadline) means: read `GET /requests/{id}`. A process at its stream capacity answers `503 sharing_unavailable` before the stream opens; clients then use `/prepare`. Closing the tab, locking the vault or signing out never stops a started preparation (same as `/prepare`); token expiry or revocation, account deletion, decline and refresh stop it within the 160 second budget. |
 | `POST /requests/{id}/review/refresh` | A's current revision cancels unused review authority and queues preparation again. |
 | `POST /requests/{id}/approve` | A's exact revision, digest, document IDs and strict `confirmed=true`; atomically claims confirmation and records work. HTTP 202 means pending, not shared. |
-| `POST /requests/{id}/allow` | A's revision-bound Allow for a request from outside A's Trusted circle. Body `{revision, amountCents?, confirmed: true}`; `amountCents` is whole US dollars in cents (100–50000, a multiple of 100), required when the request is paid and rejected when it is free (`422 invalid_payment_amount`). Requires A's live Drive, an active A/B connection, both period dates, and a request that is still new: pending, unexpired, not stopped, not Trusted (by its marker or B's current Trusted membership) or already allowed, and with no search started. Re-seals the request with the same automatic marker a Trusted request gets plus A's price, so the Trusted pipeline runs next: background search, first frozen batch, payment order at A's price, then automatic grants. Each step still rechecks the connection, and a disconnect ends the Allow for good: reconnecting never restores it. Keeps the revision, emits no event and makes no provider call. HTTP 202 `{requestId,status,revision,ownerAllowed,amountCents}`. Repeating the same price returns the same result while the Allow stands; a different price or a decided request returns `409 request_already_decided`, and a stale revision `409 review_changed`. |
+| `POST /requests/{id}/allow` | Owner revision-bound Allow: `{revision, amountCents?, confirmed: true, oneCopyAccepted?}`. Current cents-priced requests accept integer 50–50000 cents; sealed historical whole-dollar requests retain their rule, projected as `wholeDollarPrice` in review. Paid requests require a price; free requests reject one. A combined One-copy request projects `oneCopyRequested` in owner review and requires explicit informed `oneCopyAccepted: true`, including Trusted contacts. Missing or unexpected copy acceptance retains `422 invalid_argument` with additive fixed `reason=owner_copy_consent_missing` or `owner_copy_consent_unexpected`; no approval or order is committed. Current owner, Drive, relationship, period, revision and request-state gates remain authoritative. HTTP 202 accepts work, not delivery: existing background search/payment preparation continue, and grants require verified settlement. Same-price retries preserve the original consent/order; incompatible decisions return `409 request_already_decided`, stale revision `409 review_changed`. Disconnect/revocation withdraws authority. |
 | `POST /requests/{id}/decline` | A's revision-bound decision; no provider call. A paid or already shared request returns `409 request_paid`. |
 | `POST /requests/{id}/cancel` | B's revision-bound withdrawal of a pending, preparing, review-ready or approved request; no Google call. A paid or already shared request returns `409 request_paid`. Payment effects are in [Document request prices and payouts](#document-request-prices-and-payouts). |
 | `GET /requests/{id}/delivery` | Recorded per-file outcomes. B's current verified Google identity is revalidated; only successfully delivered originals have links. These are not live ACL guarantees. |
@@ -5472,6 +5534,40 @@ outcome needs operator reconciliation; the screen names support rather than
 claiming ongoing automatic completion. Account erasure waits for committed
 provider work so its recovery context cannot disappear. Existing deletion 202
 and cleanup-pending behavior remains authoritative.
+
+Phone-proven deletion of the linked account (migration 436) lets a signed-in
+person who proves possession of a number delete the account that currently holds
+it, then verify the number on their own account. One number belongs to one
+account. `POST /api/account/phone/linked-account/deletions` takes
+`{phone_number}` and always returns the same `prepared` shape: operation ID,
+`expires_at` (five minutes), a `••NN` hint from the submitted number and
+`transport`. Whether the number has a holder, or a protected one, is never
+revealed before proof. `POST /api/account/phone/linked-account/deletions/confirm`
+requires `operation_id`, the same `phone_number`, literal `confirmed: true` and
+exactly one proof: a fresh real-SMS `phone_id_token` (transfer-grade: Firebase
+phone provider, authentication within 300 seconds, not a provider fictional
+number, single-use authentication event) or, only for configured UAT fixture
+numbers outside any production runtime, the fixture `test_code`. Five wrong
+fixture codes cancel the operation. After proof the server rechecks the
+holder's exact binding (digest, binding revision, generation) under its locks,
+refuses reviewer fixtures (`PHONE_LINKED_ACCOUNT_PROTECTED`) and phone-only
+identities that could never be claimed afterwards
+(`PHONE_LINKED_DELETION_RECOVERY_REQUIRED`), records admission before dispatch,
+and runs the existing full-account erasure for the holder. The erasure's
+admission transaction rechecks the binding again under the holder's exclusive
+lifecycle locks; a moved number refuses with `PHONE_LINKED_DELETION_STALE` and
+commits nothing. Receipts are `admitted`, `refused` (with the existing deletion
+refusal codes) or `action_required`. A lost response is read back through
+`GET /api/account/phone/linked-account/deletions/{operation_id}`, which settles
+only from the committed full-account tombstone and never dispatches again;
+`POST …/{operation_id}/cancel` fences a prepared operation. The person then
+claims the number through the existing `/phone/claim` or `/phone/uat-test/*`
+writers. An explicit OTP claim is never blocked by a holder whose full-account
+deletion is committed: the canonical per-number writer detaches that dead
+binding atomically. Provisional phone-orphan intents and background provider
+hydration never release a binding. Production stays off until
+`HUSHH_PHONE_LINKED_DELETION_ENABLED` is set; while off, the delete choice
+keeps the previous-account sign-in handoff.
 
 Native verification extends the existing isolated proof bridge rather than
 linking the primary Firebase user. Owner/attempt fences suppress stale native

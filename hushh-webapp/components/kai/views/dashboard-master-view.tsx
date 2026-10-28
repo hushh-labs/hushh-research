@@ -27,9 +27,12 @@ import {
   SurfaceInset,
 } from "@/components/app-ui/surfaces";
 import { PortfolioReportAction } from "@/components/kai/cards/portfolio-report-action";
+import { FinancePortfolioSharing } from "@/components/kai/sharing/finance-portfolio-sharing";
+import { FinanceSharingHistoryAction } from "@/components/kai/sharing/finance-sharing-history-action";
 import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card";
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
 import { PortfolioOverview } from "@/components/kai/views/portfolio-overview";
+import { PortfolioBriefing, PortfolioAnalysis } from "@/components/kai/views/portfolio-briefing";
 import { GainLossDistributionChart } from "@/components/kai/charts/gain-loss-distribution-chart";
 import { HoldingsConcentrationChart } from "@/components/kai/charts/holdings-concentration-chart";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
@@ -74,7 +77,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
-import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
+import { isSpecificSectorLabel, mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import {
   getTickerUniverseSnapshot,
   preloadTickerUniverse,
@@ -140,21 +143,6 @@ const portfolioChipTones = {
     "border-green-500/12 bg-green-500/[0.08] text-green-700 dark:border-green-400/16 dark:bg-green-400/[0.10] dark:text-green-200",
 } as const;
 
-const GENERIC_SECTOR_LABELS = new Set([
-  "equity",
-  "equities",
-  "stock",
-  "stocks",
-  "fixed income",
-  "bond",
-  "bonds",
-  "cash",
-  "cash & cash equivalents",
-  "other",
-  "unknown",
-  "unclassified",
-]);
-
 const FINANCIAL_INTENT_MAP = [
   "portfolio",
   "profile",
@@ -215,12 +203,6 @@ function deriveRiskBucket(holdings: ManagedHolding[]): string {
   if (largestWeight >= 30) return "aggressive";
   if (largestWeight >= 15) return "moderate";
   return "conservative";
-}
-
-function isSpecificSectorLabel(value: string | null | undefined): boolean {
-  const text = String(value || "").trim();
-  if (!text) return false;
-  return !GENERIC_SECTOR_LABELS.has(text.toLowerCase());
 }
 
 function inferEquityTypeFromName(
@@ -1921,6 +1903,7 @@ export function DashboardMasterView({
           workspace="portfolio"
           title="Portfolio"
           description="Preparing your portfolio sources."
+          actions={<FinanceSharingHistoryAction />}
         />
         <AppPageContentRegion>
           <SurfaceCard className="w-full">
@@ -1941,8 +1924,10 @@ export function DashboardMasterView({
           workspace="portfolio"
           title="Portfolio"
           description="Choose how you want to begin."
+          actions={<FinanceSharingHistoryAction />}
         />
         <AppPageContentRegion className="space-y-3">
+          <PortfolioBriefing onOpen={onReupload} />
           <SettingsGroup
             embedded
             separatorInset
@@ -2001,6 +1986,8 @@ export function DashboardMasterView({
         />
         <AppPageContentRegion className="min-w-0 max-w-full space-y-4">
           <PortfolioOverview model={model} portfolio={displayedPortfolio} source={sourceDisplayLabel} onImport={onReupload}
+            briefing={<PortfolioBriefing model={model} onOpen={() => router.push(buildKaiPortfolioSectionRoute("analysis"))} />}
+            sharing={<FinancePortfolioSharing model={model} source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }} />}
             period={model.hero.statementPeriod || (freshness?.lastSyncedAt ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}` : "Current portfolio snapshot")}
             onOpenSection={section => router.push(buildKaiPortfolioSectionRoute(section))}
             action={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"}
@@ -2018,6 +2005,7 @@ export function DashboardMasterView({
     allocation: "Allocation",
     performance: "Performance",
     sources: "Portfolio source",
+    analysis: "Portfolio analysis",
   }[section];
 
   return (
@@ -2032,9 +2020,11 @@ export function DashboardMasterView({
               ? "How your portfolio value is distributed."
               : section === "performance"
                 ? (model.quality.historyReady ? "Value and change from dated portfolio balances." : undefined)
-                : "Where your holdings come from."
+                : section === "analysis"
+                  ? "An overview of your saved portfolio."
+                  : "Where your holdings come from."
         }
-        actions={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"}
+        actions={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"} sharingSource={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
           disabled={!hasShareablePortfolioData} busy={isSharingPortfolioPdf} onExport={() => void handleSharePortfolioPdf()} />}
         actionsInlineMobile
       />
@@ -2081,6 +2071,8 @@ export function DashboardMasterView({
             </SurfaceCardContent>
           </SurfaceCard>
         ) : null}
+
+        {section === "analysis" ? <PortfolioAnalysis model={model} source={sourceDisplayLabel} /> : null}
 
         {section === "performance" ? (
           <section className="space-y-4">

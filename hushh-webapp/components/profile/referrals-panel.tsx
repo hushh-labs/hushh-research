@@ -59,17 +59,17 @@ const emptyGamification = (): GamificationState => ({ leaderboard: null, circleL
  * count the client could influence would not be worth showing.
  */
 export function ReferralsPanel({ panePresentation = false }: { panePresentation?: boolean }) {
-  const { user } = useAuth();
-  return <ReferralsPanelContent key={user?.uid ?? "signed-out"} panePresentation={panePresentation} />;
+  const { userId } = useAuth();
+  return <ReferralsPanelContent key={userId ?? "signed-out"} panePresentation={panePresentation} />;
 }
 
 export function useReferralsPanelModel(active = true) {
-  const { user } = useAuth();
-  const stateOwner = useRef(user?.uid);
-  const ownsState = stateOwner.current === user?.uid;
+  const { user, userId } = useAuth();
+  const stateOwner = useRef(userId);
+  const ownsState = stateOwner.current === userId;
   // One feature owner for both renderers. An old request cannot publish into
   // a different account or a later visit, including after leaving Profile.
-  const visit = useMemo(() => ({ live: false, owner: user?.uid, active }), [user?.uid, active]);
+  const visit = useMemo(() => ({ live: false, owner: userId, active }), [userId, active]);
   useLayoutEffect(() => { visit.live = active; return () => { visit.live = false; }; }, [visit, active]);
   const [state, setState] = useState<LoadState>("loading");
   const [showProgress, setShowProgress] = useState(false);
@@ -267,13 +267,13 @@ export function useReferralsPanelModel(active = true) {
 
   const current = useCallback(() => visit.live, [visit]);
   useLayoutEffect(() => {
-    stateOwner.current = user?.uid;
+    stateOwner.current = userId;
     setSummary(null); setState("loading"); setShowProgress(false);
     setCopyOutcome(null);
     setGamification(emptyGamification());
     handleDraft.current = ""; handleRevision.current += 1; setHandleInput("");
     setHandleErrorMessage(null);
-  }, [user?.uid]);
+  }, [userId]);
 
   return { state: ownsState ? state : "loading" as LoadState, summary: ownsState ? summary : null,
     gamification: ownsState ? gamification : emptyGamification(), showProgress: ownsState && showProgress,

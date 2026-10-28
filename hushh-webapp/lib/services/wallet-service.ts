@@ -27,7 +27,7 @@ import { readWalletSecurityCode } from "@/lib/wallet/card-security-code";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
-import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { firebaseUidForOwner, snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import type { PkmUserConfirmation } from "@/lib/personal-knowledge-model/mutation-plan";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
@@ -102,10 +102,11 @@ function normalizedNetwork(value: unknown): CardBrand {
 function networkSessionGuard(context: WalletNetworkContext, signal?: AbortSignal): () => void {
   const epoch = snapshotVaultSessionEpoch();
   const owner = snapshotValidatedAuthSessionOwner();
+  const firebaseUid = firebaseUidForOwner(context.userId);
   return () => {
     const user = AuthService.getCurrentUser();
     if (!owner || owner.userId !== context.userId || !isValidatedAuthSessionOwnerCurrent(owner) ||
-        !isVaultSessionEpochCurrent(epoch) || (user && user.uid !== context.userId)) {
+        !isVaultSessionEpochCurrent(epoch) || (user && user.uid !== firebaseUid)) {
       throw new WalletNetworkSessionChangedError("Wallet changed.");
     }
     if (signal?.aborted) throw new DOMException("Network request cancelled.", "AbortError");
@@ -190,7 +191,7 @@ export class WalletService {
   private static async networkRequest(context: WalletNetworkContext, suffix: string, signal?: AbortSignal, input?: WalletNetworkInput | WalletBankDesignRequest, path = "/networks"): Promise<unknown> {
     const assertCurrent = networkSessionGuard(context, signal);
     assertCurrent();
-    const token = await AuthService.getIdTokenWithRetry({ expectedUserId: context.userId });
+    const token = await AuthService.getIdTokenWithRetry({ expectedUserId: firebaseUidForOwner(context.userId) });
     assertCurrent();
     if (!token) throw new Error("Network identification unavailable.");
     const response = await ApiService.apiFetch(`/api/one/wallet/card-access${path}${suffix}`, {
@@ -333,7 +334,7 @@ export class WalletService {
     const reference: WalletArtworkReference = { assetId: variant.assetId, issuerId: variant.issuerId, productId: variant.productId, variantId: variant.variantId, digest: variant.digest, catalogVersion };
     const approval = await this.validateArtworkReferences(context, [reference], signal);
     if (!approval[0]?.approved) throw new Error("Artwork unavailable.");
-    const token = await AuthService.getIdTokenWithRetry({ expectedUserId: context.userId }); assertCurrent();
+    const token = await AuthService.getIdTokenWithRetry({ expectedUserId: firebaseUidForOwner(context.userId) }); assertCurrent();
     if (!token) throw new Error("Artwork unavailable.");
     const response = await ApiService.apiFetch(variant.image, { responseType: "arraybuffer", cache: "no-store", signal, headers: { Authorization: `Bearer ${token}`, "X-Hushh-Consent": context.vaultOwnerToken }, isEffectCurrent: () => { try { assertCurrent(); return true; } catch { return false; } } });
     assertCurrent(); if (!response.ok) throw new Error("Artwork unavailable.");
@@ -358,7 +359,7 @@ export class WalletService {
 
   private static async validateArtworkReferences(context: WalletNetworkContext, artworks: WalletArtworkReference[], signal?: AbortSignal, purpose: "selection" | "saved" = "selection"): Promise<ArtworkDisplayApproval[]> {
     const assertCurrent = networkSessionGuard(context, signal); assertCurrent();
-    const token = await AuthService.getIdTokenWithRetry({ expectedUserId: context.userId }); assertCurrent();
+    const token = await AuthService.getIdTokenWithRetry({ expectedUserId: firebaseUidForOwner(context.userId) }); assertCurrent();
     if (!token) throw new Error("Artwork unavailable.");
     const selections = artworks.map(row => ({ assetId: row.assetId, issuerId: row.issuerId, productId: row.productId, variantId: row.variantId, catalogVersion: row.catalogVersion, digest: row.digest }));
     const response = await ApiService.apiFetch("/api/one/wallet/card-access/artwork/validate", { method: "POST", cache: "no-store", signal,

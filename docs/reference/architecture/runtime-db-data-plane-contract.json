@@ -1910,6 +1910,19 @@
       "trust_boundary": "Verified recipient, active connection/current Circle membership, block/mute/read/deletion checks, installation owner/key lifecycle fences. No plaintext message or avatar persists in these tables."
     },
     {
+      "id": "finance_connection_sharing",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "release_schema_qualification",
+      "exact_tables": ["finance_share_requests", "finance_access_grants"],
+      "primary_access_path": "Owner-confirmed recipient-encrypted curated Finance objects, delivered by reference through transactional Messages. Snapshot is immutable; ongoing revisions use owner-unlocked saved information and compare-and-swap. History never grants read authority.",
+      "retention_policy": "Expiry and stop deny reads immediately. Ciphertext is cleared on the participants' next access/history reconciliation. Dormant expired ciphertext and minimal idempotency/policy metadata remain until reconciliation or account erasure; no scheduled purge is claimed. Indefinite ongoing access is explicit and stops only on revocation, disconnection, key loss or account erasure.",
+      "deletion_behavior": "Explicit ordered account cleanup erases grants for either participant and owner request/config rows. Message deletion cascades its grant. Account-generation tombstone write guards prevent recreation. Raw PKM sources and generic financial scopes remain private.",
+      "trust_boundary": "No server plaintext Finance or owner key. Current active connection, blocks, exact recipient key, membership, expiry and revocation checked per read/update. Selection, mode, amount permission, model permission, participants and revision are authenticated in recipient encryption context. Private-agent review additionally requires explicit recipient intent, current owner permission and exact projection digest; signed pod feeds carry metadata only. Derived model turns reuse consent redaction and cannot run tools.",
+      "plaintext_posture": "opaque_relationship_policy_revision_and_content_hash_metadata_only",
+      "expected_row_growth": "one request per confirmation and one grant per selected recipient; ongoing revisions replace ciphertext rather than append financial history"
+    },
+    {
       "id": "wallet_temporary_card_access",
       "owner": "iam-consent-governance",
       "data_class": "personal_encrypted",
@@ -2348,6 +2361,21 @@
       "plaintext_posture": "metadata_and_hashes_only",
       "expected_row_growth": "At most five live recovery drafts or unsettled device actions per owner; completed device preparations limited to five per five-minute window; opportunistic cleanup removes at most one hundred expired rows per prepare.",
       "trust_boundary": "No OTP, phone number, bearer or previous-account private projection. Explicit confirmation, fresh manual SMS and binding revisions gate consumption."
+    },
+    {
+      "id": "account_phone_linked_deletion_workflow",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "account_phone_linked_deletions"
+      ],
+      "primary_access_path": "Opaque prepare, single-use phone-proof confirm and status read for deleting the account that holds a verified number; the existing full-account erasure performs the deletion.",
+      "retention_policy": "Prepared operations expire after five minutes and prune one hour later; admitted and refused receipts prune after ninety days or with either account. Consumed proof digests stay with their receipt to prevent replay.",
+      "deletion_behavior": "Erasure of the requester or the deleted holder removes its receipts (ON DELETE CASCADE); no account projection survives either erasure.",
+      "trust_boundary": "No phone number, OTP, bearer token, Firebase identity or email. Requester and holder are account ids plus keyed hashes; proofs are single-use digests.",
+      "plaintext_posture": "metadata_and_hashes_only",
+      "expected_row_growth": "At most five operations per requester per five minutes plus unsettled dispatches; opportunistic cleanup removes at most one hundred expired rows per prepare."
     },
     {
       "id": "account_phone_auth_fences",

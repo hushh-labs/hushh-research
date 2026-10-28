@@ -49,18 +49,18 @@ function failure(cause: unknown): string {
 
 /** A semantic chat proposal opens only the review; no permission changes on mount. */
 export function DriveBulkShareCard({ searchJobId, clientRequestId }: { searchJobId: string; clientRequestId: string }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
-  if (!user || !isVaultUnlocked) return <HelperText role="status">Unlock One to review Drive sharing.</HelperText>;
-  return <DriveBulkShareReview key={`${user.uid}:${searchJobId}:${snapshotVaultSessionEpoch()}`}
+  if (!userId || !isVaultUnlocked) return <HelperText role="status">Unlock One to review Drive sharing.</HelperText>;
+  return <DriveBulkShareReview key={`${userId}:${searchJobId}:${snapshotVaultSessionEpoch()}`}
     searchJobId={searchJobId} clientRequestId={clientRequestId} autoPrepare getToken={getVaultOwnerToken} />;
 }
 
 export function ContinueDriveSearch({ query }: { query: string }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
-  if (!user || !isVaultUnlocked) return null;
-  return <ContinueUnlocked key={`${user.uid}:${snapshotVaultSessionEpoch()}:${query}`} query={query} getToken={getVaultOwnerToken} />;
+  if (!userId || !isVaultUnlocked) return null;
+  return <ContinueUnlocked key={`${userId}:${snapshotVaultSessionEpoch()}:${query}`} query={query} getToken={getVaultOwnerToken} />;
 }
 function ContinueUnlocked({ query, getToken }: OwnerProps & { query: string }) {
   const owner = useOwnerGuard(getToken);
@@ -105,10 +105,10 @@ function ContinueUnlocked({ query, getToken }: OwnerProps & { query: string }) {
 
 /** Reopening chat restores owner jobs from the server, not local storage. */
 export function DriveBackgroundSearches({ onUseInChat }: SearchSelectionProps = {}) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
-  if (!user || !isVaultUnlocked) return null;
-  return <RecentSearches key={`${user.uid}:${snapshotVaultSessionEpoch()}`} ownerId={user.uid} getToken={getVaultOwnerToken} onUseInChat={onUseInChat} />;
+  if (!userId || !isVaultUnlocked) return null;
+  return <RecentSearches key={`${userId}:${snapshotVaultSessionEpoch()}`} ownerId={userId} getToken={getVaultOwnerToken} onUseInChat={onUseInChat} />;
 }
 type DriveActivityPage = { open: boolean; onBack: () => void; onReady?: () => void };
 export function DriveRecentSharing({ presentation = "card", active = true, onNeedsReviewChange, page }: {
@@ -116,10 +116,10 @@ export function DriveRecentSharing({ presentation = "card", active = true, onNee
   /** The same recent-sharing owner supplies native History's bounded content. */
   page?: DriveActivityPage;
 } = {}) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
-  if (!user || !isVaultUnlocked) return null;
-  return <RecentSearches key={`${user.uid}:${snapshotVaultSessionEpoch()}`} ownerId={user.uid} getToken={getVaultOwnerToken}
+  if (!userId || !isVaultUnlocked) return null;
+  return <RecentSearches key={`${userId}:${snapshotVaultSessionEpoch()}`} ownerId={userId} getToken={getVaultOwnerToken}
     sharingOnly sidebar={presentation === "sidebar" || !!page} active={active} onNeedsReviewChange={onNeedsReviewChange} page={page} />;
 }
 function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, sidebar = false, active = true, onNeedsReviewChange, page }: OwnerProps &

@@ -267,17 +267,17 @@ function AddItemButton({
 }
 
 export function TodoListPage() {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked } = useVault();
   const epoch = snapshotVaultSessionEpoch();
-  return <OwnerTodoListPage key={`${user?.uid ?? "anonymous"}:${epoch}:${isVaultUnlocked}`} epoch={epoch} />;
+  return <OwnerTodoListPage key={`${userId ?? "anonymous"}:${epoch}:${isVaultUnlocked}`} epoch={epoch} />;
 }
 
 function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const active = useRef(true);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   const isCurrent = () => active.current && isVaultSessionEpochCurrent(epoch);
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [editorOpen, setEditorOpen] = useState(false);
   const [tasks, setTasks] = useState<TodoItem[]>([]);
@@ -291,7 +291,6 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
   const addItemRef = useRef<HTMLButtonElement | null>(null);
 
-  const userId = user?.uid ?? null;
   const writeReady = Boolean(
     userId && isVaultUnlocked && vaultKey && vaultOwnerToken,
   );

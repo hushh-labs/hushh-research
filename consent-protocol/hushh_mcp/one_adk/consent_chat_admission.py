@@ -17,7 +17,16 @@ async def admit_session_continuation(
     app_name: str,
     get_bundle: Any,
     person_name: Any,
+    finance_lookup: Any = None,
 ) -> dict:
+    if forwarded.get("financeShare") is not None:
+        from hushh_mcp.one_adk.finance_share_context import admit_finance_share
+
+        if finance_lookup is None:
+            raise PermissionError("finance_authority_unavailable")
+        return await admit_finance_share(
+            forwarded, owner_id=owner_id, messages=input_data.messages, lookup=finance_lookup
+        )
     if forwarded.get("consentContinuation") is None:
         return {}
     session = await sessions.get_session(

@@ -54,6 +54,12 @@ export function registerFinanceScreenChecks(
         const manageAction = overview.getByRole("button", { name: "Manage portfolio", exact: true });
         const importBox = (await importAction.boundingBox())!;
         const manageBox = (await manageAction.boundingBox())!;
+        const optionsBox = (await overview.getByTestId("portfolio-overview-options").boundingBox())!;
+        const valueBox = (await overview.getByTestId("portfolio-value-card").boundingBox())!;
+        expect(importBox.y).toBeGreaterThanOrEqual(optionsBox.y + optionsBox.height);
+        expect(manageBox.y).toBeGreaterThanOrEqual(optionsBox.y + optionsBox.height);
+        expect(importBox.y).toBeGreaterThanOrEqual(valueBox.y + valueBox.height);
+        expect(manageBox.y).toBeGreaterThanOrEqual(valueBox.y + valueBox.height);
         expect(importBox.x + importBox.width).toBeLessThanOrEqual(manageBox.x);
         expect(Math.abs(importBox.y - manageBox.y)).toBeLessThanOrEqual(1);
         await importAction.click();
@@ -61,15 +67,25 @@ export function registerFinanceScreenChecks(
         await manageAction.click();
         await expect(page.getByTestId("action-result")).toHaveText("Open sources");
         await expect(overview.getByText("Invested", { exact: true })).toBeVisible();
-        expect(await overview.getByRole("heading", { name: "Your portfolio" }).evaluate(el => getComputedStyle(el).fontSize)).toBe("14px");
+        expect(await overview.getByRole("heading", { name: "Your portfolio", exact: true }).evaluate(el => getComputedStyle(el).fontSize)).toBe("14px");
+        expect(await overview.evaluate(el => getComputedStyle(el).getPropertyValue("--font-app-body").trim()))
+          .toBe(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--font-app-body").trim()));
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
         await expect(overview.getByText("Balance snapshot · This source hasn’t supplied dated balance history.")).toBeVisible();
         if (width >= 1024) {
+          // The workspace should use the available content width rather than
+          // introducing a second, narrower reading measure below the tabs.
+          const widths = await overview.evaluate(element => {
+            const parent = element.parentElement!;
+            const style = getComputedStyle(parent);
+            const available = parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+            return { available, workspace: element.getBoundingClientRect().width };
+          });
+          expect(Math.abs(widths.workspace - widths.available)).toBeLessThanOrEqual(1);
           const value = await overview.getByTestId("portfolio-value-card").boundingBox();
-          const options = await overview.getByTestId("portfolio-overview-options").boundingBox();
-          expect(Math.abs(value!.y - options!.y)).toBeLessThanOrEqual(2);
-          const shell = await overview.getByTestId("portfolio-overview-options").locator("[data-slot=\"settings-group-shell\"]").boundingBox();
-          expect(Math.abs(value!.height - shell!.height)).toBeLessThanOrEqual(2);
+          const briefing = await overview.getByTestId("portfolio-briefing").boundingBox();
+          expect(Math.abs(value!.y - briefing!.y)).toBeLessThanOrEqual(2);
+          expect(value!.x + value!.width).toBeLessThanOrEqual(briefing!.x);
         }
         await overview.screenshot({ path: test.info().outputPath(`overview-${width}-${theme}.png`) });
         await overview.getByRole("button", { name: "Share portfolio PDF" }).click();
@@ -262,4 +278,57 @@ export async function expectMarketLocalTimes(page: Page, localTime: string): Pro
   await expect(detail).not.toContainText(/\bcached\b/i);
   await page.keyboard.press("Escape");
   await expect(detail).toHaveCount(0);
+}
+
+export function registerFinanceChartChecks(mount: (page: Page, width?: number) => Promise<void>): void {
+for (const width of [360, 393, 430, 768, 1024, 1440]) {
+  for (const theme of ["light", "dark"]) {
+    test(`Finance chart review ${width}px ${theme}`, async ({ page }) => {
+      await mount(page, width);
+      await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
+      const portfolio = page.getByTestId("portfolio-chart-fixture");
+      await portfolio.scrollIntoViewIfNeeded();
+      await expect(portfolio.locator("path.recharts-area-curve")).toHaveAttribute("d", /^M/);
+      // Panels fill the tab column (asserted on the identically styled overview
+      // section above); only overflow is checked here, not a 728px reading cap.
+      expect(await portfolio.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath(`portfolio-${width}-${theme}.png`) });
+      const stocks = page.getByTestId("market-iphone-fixture");
+      const search = stocks.getByRole("searchbox", { name: "Search stocks" });
+      await search.fill("Berkshire");
+      await expect(stocks.getByTestId("market-pick-row")).toHaveCount(1);
+      const row = stocks.getByTestId("market-pick-row").first();
+      const typography = await row.locator("[data-stock-name]").evaluate(el => ({ family: getComputedStyle(el).fontFamily, size: getComputedStyle(el).fontSize, weight: getComputedStyle(el).fontWeight }));
+      expect(typography.family).toContain("Plus Jakarta Sans");
+      expect(typography.size).toBe("14px");
+      expect(typography.weight).toBe("550");
+      await row.click();
+      const detail = page.getByRole("dialog", { name: "Berkshire Hathaway Inc. Class B", exact: true });
+      await expect(detail.getByText("$456.78", { exact: true })).toBeVisible();
+      const chart = detail.getByRole("region", { name: "Price history", exact: true });
+      await expect(chart.locator("path.recharts-area-curve")).toHaveAttribute("d", /^M/);
+      const range = chart.getByRole("button", { name: "1W", exact: true });
+      await expect.poll(async () => (await range.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await range.click();
+      await expect(range).toHaveAttribute("aria-pressed", "true");
+      await expect(chart.getByRole("button", { name: "1D", exact: true })).toHaveCount(0);
+      expect(await detail.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      const ids = await page.locator("linearGradient[id^='price-']").evaluateAll(nodes => nodes.map(node => node.id));
+      expect(new Set(ids).size).toBe(ids.length);
+      const profile = detail.locator("details").filter({ hasText: "Full company profile" });
+      await profile.locator("summary").scrollIntoViewIfNeeded();
+      await expect(detail.getByRole("listitem")).toHaveCount(2);
+      await expect(profile).not.toHaveAttribute("open");
+      expect((await profile.locator("summary").boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await profile.locator("summary").click();
+      await expect(profile.getByText(/Additional details remain available/)).toBeVisible();
+      await profile.locator("summary").click();
+      await page.screenshot({ path: test.info().outputPath(`stock-detail-${width}-${theme}.png`) });
+      await detail.getByRole("button", { name: /^Close(?: detail panel)?$/, exact: true }).click();
+      await expect(detail).toHaveCount(0);
+      await expect(search).toHaveValue("Berkshire");
+    });
+  }
+}
 }

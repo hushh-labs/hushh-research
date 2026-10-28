@@ -39,7 +39,7 @@ import {
  * provider rather than inside it, sees the same model.
  */
 export function WorldModelProvider({ children }: { children: ReactNode }) {
-  const { user, loading, sessionVerificationRequired } = useAuth();
+  const { userId, loading, sessionVerificationRequired } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked, tokenExpiresAt } =
     useVault();
   const inSetup = usePathname().startsWith("/one/setup");
@@ -58,7 +58,7 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
   const writer = useRef<WorldModelResearchWriter | null>(null);
   const ready = !!(
     !loading &&
-    user &&
+    userId &&
     !sessionVerificationRequired &&
     isVaultUnlocked &&
     vaultKey &&
@@ -67,13 +67,13 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
   );
   const current = useRef({
     ready,
-    owner: user?.uid,
+    owner: userId,
     key: vaultKey,
     token: vaultOwnerToken,
   });
   current.current = {
     ready,
-    owner: user?.uid,
+    owner: userId,
     key: vaultKey,
     token: vaultOwnerToken,
   };
@@ -126,7 +126,7 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
       if (writer.current === handle) writer.current = null;
     };
   }, []);
-  const ownerId = user?.uid;
+  const ownerId = userId;
   useLayoutEffect(() => {
     writer.current?.setAuthority(
       ready && ownerId && vaultKey && vaultOwnerToken
@@ -135,22 +135,22 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
     );
   }, [ready, ownerId, vaultKey, vaultOwnerToken]);
   useEffect(() => {
-    if (!ready || !user || !vaultKey || !vaultOwnerToken || inSetup) return;
+    if (!ready || !userId || !vaultKey || !vaultOwnerToken || inSetup) return;
     const intent = refreshIntent.current;
     refreshIntent.current = null;
     const explicitRefresh =
-      intent?.owner === user.uid &&
+      intent?.owner === userId &&
       intent.key === vaultKey &&
       intent.token === vaultOwnerToken;
     const retry = retryIntent.current;
     retryIntent.current = null;
     const explicitRetry =
-      retry?.owner === user.uid &&
+      retry?.owner === userId &&
       retry.key === vaultKey &&
       retry.token === vaultOwnerToken;
     const retrySnapshot = explicitRetry ? worldModelResearchStore.getSnapshot() : null;
     const controller = new AbortController(),
-      owner = user.uid;
+      owner = userId;
     const guard = createAgentPkmCaptureGuard({
       userId: owner,
       signal: controller.signal,
@@ -341,16 +341,16 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
       readPreferences();
     });
     return cleanup;
-  }, [ready, user, vaultKey, vaultOwnerToken, inSetup, revision]);
+  }, [ready, userId, vaultKey, vaultOwnerToken, inSetup, revision]);
   return <>{children}</>;
 }
 
 /** The research state, wherever the caller is mounted. */
 export function useWorldModelResearch(active = true): WorldModelResearchState {
-  const { user, loading, sessionVerificationRequired } = useAuth();
+  const { userId, loading, sessionVerificationRequired } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked, tokenExpiresAt } = useVault();
-  const expected = active && !loading && !sessionVerificationRequired && isVaultUnlocked && user && vaultKey && vaultOwnerToken &&
-    (tokenExpiresAt === null || Date.now() < tokenExpiresAt) ? { owner: user.uid, key: vaultKey, token: vaultOwnerToken } : null;
+  const expected = active && !loading && !sessionVerificationRequired && isVaultUnlocked && userId && vaultKey && vaultOwnerToken &&
+    (tokenExpiresAt === null || Date.now() < tokenExpiresAt) ? { owner: userId, key: vaultKey, token: vaultOwnerToken } : null;
   return useSyncExternalStore(
     worldModelResearchStore.subscribe,
     () => worldModelResearchStore.getSnapshotFor(expected),

@@ -1,8 +1,8 @@
 # Dev Fast Lane — the safe rule for agentic shipping
 
-> **Dev intake:** Main owns workflow authority and release approval. Activate
-> protected `dev` as the default application source only after its baseline is
-> qualified. UAT remains on its current selector until separately authorized;
+> **Dev intake:** Main owns workflow authority and release approval. Protected
+> `dev` is the default application source after its baseline qualification.
+> UAT remains on its current selector until separately authorized;
 > its proposed branch path requires exact assembled-SHA Dev acceptance. Preserve
 > legacy train history. See
 > [branch governance](./branch-governance.md#dev--uat-branch-preparation).
@@ -65,6 +65,34 @@ promotion. Retention follows acceptance and preserves the captured rollback revi
 An explicit `build_pod_image` input defaults to false; publishing a dev artifact
 does not authorize installation or production stable-channel promotion.
 
+### Independent private-pod publication
+
+Use the existing workflow's `target=pod-publication` for private-image work.
+`pod_action=prepare` builds/distributes the common image through the existing pod
+steps and archives its descriptor. It does **not** deploy the shared application,
+run migrations, synchronize secrets, call a model or install an owner image.
+The exact source CI and the Main-owned control SHA's landed smoke must pass.
+Metadata-only preparation retains the unchanged image-context check; image source
+and descriptor source remain distinct.
+
+`pod_action=activate` is a separately coordinated release. Main must contain the
+reviewed activation pin (`pod-publication.json` in the `deploy` directory) described in the
+[pod runbook](./dev-pod-first-light-runbook.md#independent-dev-pod-publication).
+Absent or incomplete evidence refuses activation; preparation alone is not
+qualification. The pin binds the shared service incarnation, revision,
+application image/source and configuration fingerprint to the qualified pod
+digest. Another shared release invalidates that pairing. Wait for coordination
+and requalification; never automatically follow the newer application.
+
+Both phases retain the existing shared-Dev concurrency group. Activation checks
+capacity for one backend candidate, clones the serving configuration and immutable
+application image into a zero-traffic revision, changes only the pod catalog and
+publication annotations, verifies it, and conditionally promotes traffic using the
+native service etag. The application's deployment SHA/run remain unchanged;
+publication provenance is separate. Failure or uncertain mutation requires native
+readback. Rollback cannot overwrite a concurrent release. No automatic cleanup,
+deployment retry or owner upgrade is introduced.
+
 The current migration, release, capacity and owner/device acceptance
 disposition is recorded in the [integration audit](../quality/adk-orchestration-docs-audit.md).
 
@@ -120,13 +148,13 @@ flowchart LR
 | Migrations + `dev_minimum_schema.json` (policy: minimum, floor = UAT schema) | every backend deploy | dev may run AHEAD of UAT's schema (train migrations) but never behind it |
 | Provenance labels + parity + semantic verification + classified rollback | every deploy | release failures block acceptance; classified service failures restore the captured revision. A verifier setup failure can block without rollback, so read back serving traffic and the terminal receipt. |
 | Account-deletion admission and activation | shared-Dev backend deployment | fence installation before migration; exact SHA/run, installed authority guards, fresh Scheduler HTTP completion and retirement of incompatible consumers before reopening deletion or issuing healthy acceptance |
-| Dev environment isolation (own project, DB, secrets) | always | nothing dev does can touch UAT or production data |
+| Dev resource and identity boundaries | always | Dev has its own project and database; Firebase identity and the One Email watch have documented cross-environment dependencies. Check those shared authorities before changing identities, watches or grants. |
 
 ## What we deliberately did NOT add (overkill avoidance)
 
-- **Preserve existing history.** The legacy train remains intact while protected
-  Dev/UAT branches are prepared. Intake and automatic selectors change only at
-  the coordinated promotion transition; branch creation does not deploy.
+- **Preserve existing history.** The legacy train remains intact while Dev is
+  the configured intake. The UAT default selector changes only at the qualified
+  promotion transition; branch creation does not deploy.
 - **No new review or approval step.** Landing on the train already requires review +
   merge queue + `CI Status Gate`. Dev deploy adds zero human steps to that.
 - **No dev-specific CI workflow.** Existing PR Validation owns both event-specific
@@ -263,7 +291,7 @@ records release evidence and the acceptance work still required.
 ## Operating it
 
 ```bash
-# Default: deploy the current train head to dev
+# Default: deploy the protected dev branch head to Dev
 # GitHub → Actions → Deploy to Dev → Run workflow (branch: main)
 #   ref: dev (default)   scope: auto
 

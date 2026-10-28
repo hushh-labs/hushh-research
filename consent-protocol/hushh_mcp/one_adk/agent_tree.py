@@ -2751,15 +2751,9 @@ def _before_one_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
 
 
 async def _requester_bundle(owner_id: str, bundle_id: str) -> dict[str, Any] | None:
-    """Requester-bound bundle read for consent redaction; absent for anyone else."""
-    from hushh_mcp.services.information_request_service import InformationRequestService
+    from hushh_mcp.one_adk.finance_share_context import hub_shared_authority
 
-    if not owner_id or owner_id.startswith("anonymous:"):
-        return None
-    bundle: dict[str, Any] = await InformationRequestService().get(
-        requester_user_id=owner_id, bundle_id=bundle_id
-    )
-    return bundle
+    return await hub_shared_authority(owner_id, bundle_id)
 
 
 async def _track_one_consent_access(callback_context: Any) -> None:
@@ -2806,12 +2800,12 @@ def build_one_text_agent(
                 "text_verbosity": "low",
             }
         )
+    from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
-    async def track_current_consent(callback_context: Any) -> None:
-        await track_consent_access(
-            callback_context, lookup=consent_bundle_lookup or _requester_bundle
-        )
+    track_current_consent, finance_before_model, finance_after_model = finance_model_callbacks(
+        lookup=consent_bundle_lookup or _requester_bundle, before_model=_one_consent_before_model
+    )
 
     return one_text_agent(
         name="one",
@@ -2837,13 +2831,13 @@ def build_one_text_agent(
         # Queued messages join at a step boundary; last, so only a real model
         # call that no earlier callback answered takes them (queued_input.py).
         before_model_callback=[
-            _one_consent_before_model,
+            finance_before_model,
             receipt_before_model,
             document_period_before_model,
             timed_one_before_model,
             club_queued_input,
         ],
-        after_model_callback=[timed_one_after_model, receipt_after_model],
+        after_model_callback=[finance_after_model, timed_one_after_model, receipt_after_model],
         # Preserve the configured Chat thinking level for measured comparison.
         generate_content_config=genai_types.GenerateContentConfig(
             thinking_config=_one_chat_thinking_config(

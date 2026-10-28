@@ -19,6 +19,7 @@ vi.mock("@/lib/profile/pkm-agent-lab-capture", () => ({ loadPkmAgentLabContext: 
   metadata: { domains: [{ key: "professional" }] }, manifests: {},
 }) }));
 import { prepareConnectorMemoryReview } from "@/lib/agent/connector-memory-review";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { businessDraftMessage, type BusinessCandidate } from "@/lib/agent/business-profile-review";
 
 const fields = { name: "Portfolio Hotel", website: "https://example.test/",
@@ -38,6 +39,7 @@ function response() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  publishValidatedAuthSessionOwner(input.userId);
   mocks.fetch.mockImplementation(async () => ({ ok: true, json: async () => response() }));
 });
 

@@ -110,6 +110,7 @@ async def test_review_driven_allow_accepts_a_combined_request_once(
     refused = await owner_api.post(allow, json=without)
     assert refused.status_code == 422
     assert refused.json()["detail"]["code"] == "invalid_argument"
+    assert refused.json()["detail"]["reason"] == "owner_copy_consent_missing"
     assert effects(flow) == (False, [], 0)
 
     allowed = await owner_api.post(allow, json=body)
@@ -153,6 +154,7 @@ async def test_drive_only_review_never_carries_or_accepts_a_one_copy(flow, owner
     refused = await owner_api.post(allow, json={**body, "oneCopyAccepted": True})
     assert refused.status_code == 422
     assert refused.json()["detail"]["code"] == "invalid_argument"
+    assert refused.json()["detail"]["reason"] == "owner_copy_consent_unexpected"
 
     allowed = await owner_api.post(allow, json=body)
     assert allowed.status_code == 202, allowed.json()

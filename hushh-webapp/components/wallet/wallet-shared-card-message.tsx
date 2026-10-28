@@ -16,16 +16,16 @@ import presentationStyles from "./wallet-connect-presentation.module.css";
 export function WalletSharedCardMessage({ content, peerPersonRef, senderIsViewer }: {
   content: string; peerPersonRef: string | null; senderIsViewer: boolean;
 }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const nativeViewerUnavailable = Capacitor.isNativePlatform();
   const { vaultKey, getVaultOwnerToken } = useVault();
   const [card, setCard] = useState<{ revision: number; value: SharedPaymentCard } | null>(null);
   const [busy, setBusy] = useState(false);
   const [unlock, setUnlock] = useState(false);
-  const scope = useRef({ userId: user?.uid, vaultKey, content, peerPersonRef, senderIsViewer, revision: 0 });
+  const scope = useRef({ userId, vaultKey, content, peerPersonRef, senderIsViewer, revision: 0 });
   const current = scope.current;
-  if (current.userId !== user?.uid || current.vaultKey !== vaultKey || current.content !== content || current.peerPersonRef !== peerPersonRef || current.senderIsViewer !== senderIsViewer) {
-    scope.current = { userId: user?.uid, vaultKey, content, peerPersonRef, senderIsViewer, revision: current.revision + 1 };
+  if (current.userId !== userId || current.vaultKey !== vaultKey || current.content !== content || current.peerPersonRef !== peerPersonRef || current.senderIsViewer !== senderIsViewer) {
+    scope.current = { userId, vaultKey, content, peerPersonRef, senderIsViewer, revision: current.revision + 1 };
   }
   const tokenGetter = useRef(getVaultOwnerToken);
   tokenGetter.current = getVaultOwnerToken;
@@ -34,13 +34,13 @@ export function WalletSharedCardMessage({ content, peerPersonRef, senderIsViewer
     scope.current.revision += 1; setCard(null); setBusy(false); setUnlock(false);
   });
   useEffect(() => () => { scope.current.revision += 1; }, []);
-  useEffect(() => { setCard(null); setBusy(false); }, [vaultKey, user?.uid, content, peerPersonRef, senderIsViewer]);
+  useEffect(() => { setCard(null); setBusy(false); }, [vaultKey, userId, content, peerPersonRef, senderIsViewer]);
   const shown = card?.revision === scope.current.revision ? card.value : null;
   const view = async () => {
     if (nativeViewerUnavailable) return;
     if (!vaultKey) { setUnlock(true); return; }
     const token = tokenGetter.current();
-    const uid = user?.uid;
+    const uid = userId;
     if (!uid || !token || !peerPersonRef || busy) return;
     const revision = scope.current.revision;
     const isCurrent = () => scope.current.revision === revision && tokenGetter.current() === token && document.visibilityState !== "hidden";

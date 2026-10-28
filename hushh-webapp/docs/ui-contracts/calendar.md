@@ -48,8 +48,7 @@ flowchart TD
   review --> public["Recipient rescheduling link"]
   workspace --> insights["Insights overview"]
   insights --> library["Recordings and Notes library"]
-  library --> meeting["Meeting detail, recording, notes and transcript"]
-  meeting --> chat
+  library --> meeting["Meeting detail, verified recordings and notes"]
 ```
 
 ## Contract map
@@ -75,7 +74,7 @@ When Calendar status returns an `accounts` collection, the connected tabs are
 each account's Events/Free time alongside shared free time. The detailed
 Schedule/Today sections below document the retained single-account fallback
 for servers that have not supplied `accounts`. Invitations adds response
-filters; Insights retains its existing library and detail paths. Tab selection
+filters; Insights adds its own account selector and selected-day recording/notes library. Tab selection
 does not write a URL query or a server preference.
 
 Use `F` for Firebase ID-token authority and `V` for the current same-owner
@@ -179,7 +178,7 @@ target. The Board overlap warning remains warning-colored with44px target.
 
 | CTA family | Disposition and exact mounted controls | Result/authority boundary |
 | --- | --- | --- |
-| Ordinary compact | Changed: Board **Add account**, **Retry**, **Reconnect/Retry check**, **Resolve these overlaps**; fallback **Reconnect Calendar/Allow Calendar access**, **Retry**, inclusion, **Can't attend**, **Allow attendance changes/Review**, Mail recovery; invitation **Accept**, **Decline**, **Decline & offer another time**, access/Mail recovery; conflict **Keep this instead**, **Review Calendar and Mail**, failed-only **Review email retry for {meeting}**, Mail recovery; Insights **Try again**, **Load more meetings**, **Ask One about this meeting**; public **Try again**; Calendar-branded connection directive. | Preserve each existing handler, account, current owner and disabled/busy condition. Retry reads; preparatory actions open local review or permission path. They do not imply a Calendar write. |
+| Ordinary compact | Changed: Board **Add account**, **Retry**, **Reconnect/Retry check**, **Resolve these overlaps**; fallback **Reconnect Calendar/Allow Calendar access**, **Retry**, inclusion, **Can't attend**, **Allow attendance changes/Review**, Mail recovery; invitation **Accept**, **Decline**, **Decline & offer another time**, access/Mail recovery; conflict **Keep this instead**, **Review Calendar and Mail**, failed-only **Review email retry for {meeting}**, Mail recovery; Insights **Try again**, **Continue checking this day**, **Open**, **Download**; public **Try again**; Calendar-branded connection directive. | Preserve each existing handler, account, current owner and disabled/busy condition. Retry reads; preparatory actions open local review or permission path. They do not imply a Calendar write. |
 | Full-flow primary/final | Verified exception: **Connect your calendar**, **Finish Calendar setup/Skip Calendar setup**, workspace **Try Calendar Agent with One**, conflict **Confirm selected changes/Send reviewed note**, RSVP **Confirm**, invitation send/confirm labels and proposal **Schedule meeting/Reschedule/Cancel**. | Existing shared primary/destructive owners, explicit confirmation, signed review and acknowledged outcomes stay distinct from quiet actions. |
 | Utility/link | Changed or verified: Calendar detail Back, Edit, Done, Insights Refresh/Copy/Back, proposal **Not now/Change time**, chat **Close invitations**, Calendar grant **Not now**, source/provider links and **Open this meeting in Google Calendar**. **Disconnect Calendar** remains destructive in tone. Shared shell Back and modal close keep their owner. | Quiet utility type is13/21/550,12px≤620, with44px targets. Back/close/selector actions are local; provider links and mailto hand off only. Destructive controls keep confirmation/tone. |
 | Selectors and rows | Verified exception: tabs, Events/Free time, Today, date, account select, duration, filters, checkboxes/radios, invitation/event/library whole rows, menu triggers. | Selection changes local state or starts its existing read. No pill around the entire row; no new query state or booking. |
@@ -202,7 +201,7 @@ which apparent requests are not mounted.
 | H Fallback settings/attendance | Session-only settings, inclusion/exclusion confirmation, attendance choice→review→confirm and separate result remain. Portals, labels and preparatory pills changed. Busy outside/Escape and trigger-focus restoration remain. |
 | I–J Invitations | Board account select, pending/responded/all local filters, bounded reads, rows, centered detail, RSVP/offer forms, review and separate outcomes remain. Product font, headings/rows/forms and ordinary response pills changed. No invitation pagination or Tentative CTA is mounted. Chat's explicit-send branch is not copied into workspace decline. |
 | K Public recipient | `/calendar/reschedule` retains fragment scrub before request, memory-only capability, no auth/vault, options read, mailto suggestion and safe event link. Retry pill changed. Current response consumes only `openings,time_zone,reply_to,event_link?`; event title, organizer, offered window and expiry are not rendered fields. Selecting a time does not book or confirm delivery. |
-| L–N Insights/library/detail | Default-account weekly insights, partial metrics, chart, 60-second bounded library/detail refresh, local search/filter/page, artifact authority, notes and Ask One remain. Product font, section/row/source text and ordinary actions changed. No embedded player, download, booking or automatic private-memory capture. |
+| L–N Insights/library/detail | Selected-account weekly insights, local-day library, server-side search/filter/continuation, 60-second bounded refresh, verified recording/notes, provider Open/Download and safe notes preview. No transcript, meeting Ask One, embedded player, booking or automatic private-memory capture. |
 | O Conversation | Mounted proposal card and Calendar-branded directive/optional clarification use scoped Jakarta and 44px Calendar action/choice targets; proposal status now resolves product-family status rather than chat monospace, and time Select portal opts in. Generic Try Calendar starts a new chat with its summary request; selected slot/invitation/attendance/meeting handoffs retain their existing conversation restoration. `AgentCalendarEventCard` is defined/tested but unmounted. |
 | P Cross-cutting | Board occasion/event/conflict, fallback settings/attendance, invitation, disconnect, grant, phone and proposal Select portals have explicit Calendar context. Shared Dialog/AlertDialog/menu/focus, toast, native safe area and provider-owned screens are aligned exceptions. |
 
@@ -576,16 +575,18 @@ mounted tab opens its local exact-time form.
 | List name | **Invitation list**. No separate request or provider write when focusing/expanding a row. |
 | Empty | **No pending invitations on this date.**, **No responded invitations on this date.**, **No invitations on this date.** Chat variants end **in this window.** |
 | Row button | Accessible **Open invitation: {title}**, `aria-pressed` for selected `{calendar_id}:{id}`. Disabled during action. Click records trigger and selects that composite key; no RSVP or Mail write. |
-| Row fields | Date block; `title`; formatted `start/end`; organizer `displayName` → `email` → **Organizer**; optional email second line, stripped description and response. In the Calendar workspace, the avatar uses the selected account's verified Google photo for its exact email, then an authorized exact guest match from Google People. A missing, default, ambiguous or denied photo uses a decorative initial with a stable tone. Hussh-uploaded photos are not presented as Google guest photos. Chat continues to use its current photo sources. |
-| Google guest photos | A first Calendar OAuth connection requests optional `contacts.readonly` in the same consent flow. Historical Calendar grants keep their existing scopes. Google may grant Calendar without the photo scope; the invitation remains usable with initials. Only an account whose OAuth attempt requested this scope and whose token response confirmed it receives `guest_photo_access=true`. On opening Invitations, the authenticated browser asks the Calendar backend for a short-lived Contacts-only token, bound to the selected owner, account, subject and grant generation. The backend verifies the exact returned scope and never calls People; the browser reads only invitation guest emails. No second Google authorization button appears. Only a unique exact email with a matching Google profile source ID may supply a photo. Saved contact photos are excluded because they can differ from the guest's own Google photo. Missing, private, ambiguous, default, blocked or unavailable provider photos remain initials; Google's APIs do not guarantee every attendee's profile photo. Browser tokens and photos remain in memory. Release verification needs a real approved guest with a non-default Google profile photo and an official People API result; synthetic fixtures alone cannot prove provider availability. |
+| Row fields | Date block; `title`; formatted `start/end`; organizer `displayName` → `email` → **Organizer**; optional email second line, stripped description and response. Calendar board account avatars, invitation organizers and guests use one Calendar-scoped HUSSH source. An invitation photo appears only for an active Connection with a unique exact verified email or the signed-in owner's verified primary/linked email. Account cards additionally require the matching Google account's verified email claim. Missing, private, unverified, ambiguous and non-HUSSH people use initials. Chat keeps its current photo sources. |
+| HUSSH person photos | The Calendar workspace reads its owner-scoped Connections list once and uses its canonical effective `photoUrl` only when `emailVerified` is true. The signed-in owner's effective photo comes from the existing identity cache and refreshes after upload/remove; verified owner aliases come from the existing owner-only alias endpoint. The existing Calendar account userinfo read projects `google_email_verified` only for a current matching verified Google email, without changing binding or grants. Account and auth changes clear old matches; connection changes and window focus refresh the list. Calendar does not call Google People, request a photo token or show a photo-permission prompt. New Calendar OAuth grants do not request Contacts solely for photos. Historical `guest_photo_access` and token broker contracts remain for existing clients. Only safe portrait media is rendered; broken or unavailable images fall back to initials. Google account email labels and provider marks remain distinct. Synthetic screenshots prove layout and wiring, not live profile visibility or provider availability. |
 | Response badge | None for `needsAction`; **Accepted**, **Declined**, otherwise **Tentative**. |
 | Conflict | **Overlaps {first conflict title}**, fallback **another meeting**. It is not a separate conflict fetch per row. |
 | Selected event absent | **This invitation is no longer in the current window. Ask One to check it again.** for a selected handoff ID absent from the read. |
 
+Avatar matches are transient Calendar views of existing authorized profile and
+Connection records. They do not create a guest-photo Live Memory source.
+
 Migration `434_calendar_guest_photo_access.sql` adds the Calendar photo-grant
-columns with `false` defaults. Apply it after canonical migration 433 and
-before serving the new Calendar backend. A rollback refuses to remove active
-photo grants.
+columns with `false` defaults. It remains applied for compatibility and is not
+rewritten or rolled back; a rollback refuses to remove active photo grants.
 
 ### Invitation detail and every close path
 
@@ -612,7 +613,7 @@ Sources: [detail](../../components/calendar/calendar-invitation-detail.tsx),
 | Organizer | In the Calendar workspace, listed first in **Guests** with **Organiser**, its response and a visible email when the name differs. If missing from Google's attendee array, the organizer is included once from the event's organizer name or email, with an unknown response rather than an invented acceptance. Chat retains its separate **Organiser** section. |
 | Description | Optional **Description**; `<br>`/closing paragraph become newlines, HTML tags stripped, bounded entity decoding. Provider HTML is text, never mounted DOM or synthesized links. |
 | Location | Optional source `location` with decorative map icon; no invented map CTA. |
-| Guests | Calendar workspace shows **Guests ({n})** and a count summary such as **3 yes, 6 awaiting**. One full-width row per guest, with avatar, name and response; organizer first, then accepted guests, then the remaining provider order. Only a provider-reported accepted response shows a small green check at the lower-right edge of the guest avatar, leaving the face visible; readable response text remains in the row. Self is **You**; email is a tooltip, and the organizer's email is also visible when a separate name exists. `needsAction` → **Awaiting reply**; known responses use **Accepted**, **Declined** or **Maybe**; missing responses show **Response unavailable** and count as unknown. The selected account's verified Google photo and an available Google profile source photo appear only after an exact, unique email match. Saved contact photos are not used for guest avatars. Google Calendar itself supplies no guest photo URL, and People does not guarantee every guest's photo. Chat retains its existing attendee grid. |
+| Guests | Calendar workspace shows **Guests ({n})** and a count summary such as **3 yes, 6 awaiting**. One full-width row per guest, with avatar, name and response; organizer first, then accepted guests, then the remaining provider order. Only a provider-reported accepted response shows a small green check at the lower-right edge of the guest avatar, leaving the face visible; readable response text remains in the row. Self is **You**; email is a tooltip, and the organizer's email is also visible when a separate name exists. `needsAction` → **Awaiting reply**; known responses use **Accepted**, **Declined** or **Maybe**; missing responses show **Response unavailable** and count as unknown. Each guest uses the Calendar HUSSH identity resolver described above. Unmatched guests keep initials. Chat retains its existing attendee grid. |
 
 ### Shared RSVP controls and draft forms
 
@@ -771,108 +772,77 @@ updates the meeting. Sources: [page](../../components/calendar/calendar-reschedu
 [early fragment capture](../../app/layout.tsx),
 [service](../../lib/services/google-calendar-service.ts).
 
-## Insights: overview, library, meeting and files
+## Insights: selected account, day library and meeting files
 
-`CalendarInsights` mounts only on Insights. Its identity includes owner,
-connected account/revision, vault epoch, current conversation, **today** and
-zone. The selected Schedule date is not its date input. Switching main tabs
-unmounts Insights and resets its local library/detail/search/filter state.
-Nested Back within Insights retains those filters in the same mount.
+Insights uses its own Calendar account selector, matching Invitations. Its selected
+account controls weekly Insights and Recordings & Notes independently of Board,
+Invitations, the global Calendar default, and the Drive account selection. The
+all-account Board summary is not shown in Insights. Switching account, owner, or
+vault session remounts the view and clears prior account results.
+An authorized meeting-file upgrade returns to the same selected account, library
+day, time zone, search and filter after the callback; the one-use return context
+contains only these UI coordinates.
 
-### Overview and common controls
-
-| Element/control | Exact content, response fields and effect |
-| --- | --- |
-| **Refresh** | Disabled loading/hidden/offline. Abort old request, clear loaded overview/library/detail, reset page0 and refresh current view. Reset timed-refresh budget to5. |
-| Paused | **Updates paused while this page is hidden or offline.**; abort/clear content, reset page. Focus/online/visible resume rechecks with1-second dedupe. |
-| Error / retry | Service `Error.message`, fallback **Calendar could not be checked.**; **Try again** resets budget and retries. Failed read is not a zero-valued successful snapshot. |
-| Pending | **Insights loading**, **Snapshot loading**, **Weekly chart loading** on owning skeletons. Same-key pending overview can retain a labelled preview; owner/identity/error invalidates it. |
-| Heading | **Insights**; **Understand your time. Make room for what matters.** |
-| Snapshot | **Executive snapshot**; **This week · scheduled time, not attendance statistics**. Refresh preview **Last loaded snapshot · updates pending**. |
-| Metrics | **Scheduled events** ← `meeting_count`; **Scheduled time** ← `meeting_minutes`; **Recurring time** ← sum `recurring[].minutes`. Hours text `{round(minutes/6)/10} hr`. |
-| Incomplete / absent snapshot | **Partial calendar coverage. Totals include only the events loaded.** / **Live calendar information is needed for this snapshot.** |
-| Chart | **Your week at a glance**; localized weekday X-axis from `days[].date`; bar `days[].minutes`, label/tooltip **Scheduled minutes**. Pointer/touch tooltip is local chart interaction, no read/mutation. Fallback **Weekly chart unavailable until Calendar is checked.** |
-| Risks | **Schedule risks**; **{overlaps} overlapping pairs · {back_to_back} back-to-back pairs**. Fallback **Schedule risks have not been checked.** Help **Based on scheduled, timed events in calendars you can read.** |
-| Recurrence | **Recurring commitments**; each source title and **{hours}/week**. Empty **No recurring commitments in the loaded events.** Unchecked **Recurring commitments have not been checked.** |
-| Library entry | **Recordings & Notes**; **Find recordings and notes from past meetings**. Click opens library/reset page and budget, not a recording permission grant. |
-| Focus | **Focus opportunities**; **Gaps of at least one hour · weekdays, 9 AM–5 PM**. Source windows formatted in zone; fallback **No verified focus windows to show.** These paragraphs have no booking control. |
-
-Overview POST `/insights` with `{date:today,time_zone}` returns live-derived
-weekly values; Monday–Sunday, bounded reads, cancelled/self-declined exclusions,
-timed minutes clipped to civil days. Focus requires complete coverage and no
-opaque all-day blocker; up to6weekday gaps≥1 hour within09:00–17:00.
-Free time's session exclusions are not sent here. Although overview code checks
-`availability_default_included`, the raw calendar inventory does not populate
-that flag and its event path defaults true. Do not claim Free time holiday
-defaults or user overrides automatically affect Insights totals.
+The overview remains a scheduled-time summary for the selected account. Its
+Refresh control re-reads the current view; entry, foreground return, and manual
+refresh also recheck meeting files. The library/detail poll at most five times,
+once a minute, while visible and online. A same-context refresh holds loaded
+rows during the read, then replaces them with newly verified results. Failed or
+revoked reads remove stale content. Back from detail restores the day's search,
+filter and originating row focus.
 
 ### Recordings & Notes library
 
-| Element/CTA | Exact copy and branch |
+| Control | Contract |
 | --- | --- |
-| Header | **Recordings & Notes**; **Recent meetings from the past 30 days. File access is checked live.** |
-| Breadcrumb / Back | **Insights / Meeting library**; icon **Back to Insights**. Back clears error, returns overview and focuses entry. Feature Back depth1 does the same. |
-| Search | Type search, accessible/placeholder **Search past meetings**. Case-insensitive substring of **loaded titles only**; local state, no provider search call. |
-| Filters | Accessible **Recording and notes filters**; **All**, **Recordings**, **Notes**. Non-All **Filters include only files whose access was verified.** No Transcript library filter. |
-| Partial | **Some calendars or additional events could not be included. This list is incomplete.** from `!complete`. |
-| Row read | POST `/meetings`, `{date,time_zone,page}`; each row shares the page read. `calendar_id,id,title,start,artifact_kinds,artifact_status` feed labels. |
-| Row | Meeting title, localized start; verified kind tags **Recording**, **Notes**, **Transcript**. No verified kind: status labels below. Click stores focus, selects meeting, resets asset view to Notes and reads detail. |
-| Status tags | `permission_required` **Permission required**; `processing` **Still processing**; `not_generated` **No files generated**; `temporarily_unavailable` **Provider error**; `unavailable` **Unavailable**; fallback **Check meeting files**. |
-| Empty | Default **No linked meetings were returned for this period.** Query/filter **No matching meetings in this list.** |
-| **Load more meetings** | Only when `next_page != null`, disabled loading. Use returned page, append/deduplicate `{calendar_id}:{id}`. |
-| Filtered pagination helper | **Search and filters apply to loaded meetings. Load more to include older results.** when more pages and local query/filter. |
+| Date row | Selected local date, **Today**, previous and next day arrows. Defaults to today in the resolved Calendar zone; the selected Schedule date is independent. |
+| Search and filters | **Search meetings on this day**; **All**, **Recordings**, **Notes**. Search and kind are sent with the account/day-bound request, applied after file discovery and authorization, and continue through remaining pages. |
+| Row | One row for an ended meeting occurrence only when an accessible recording or meeting note is linked by an exact Meet resource or by that Calendar occurrence's exact attachment file ID. It shows title, local start time, Recording/Notes indicators and opens detail. Multiple files and readable copies across calendars stay on that row. Transcript does not qualify. |
+| Empty | **No recordings or notes for this day.** only after a complete provider check. Search/filter empty uses **No matching recordings or notes for this day.** |
+| Partial | One permission, processing, provider, recurrence, request-budget or historical-retention notice. **Continue checking this day** uses the sealed, short-lived, selected account/date/grant/search/filter-bound cursor. The page remains incomplete until all eligible candidates and files are verified. |
+| Permission action | **Allow recording and notes access** starts an explicit Calendar incremental OAuth request for Meet and Meet-created Drive read scopes on the selected Google account. Private Google connections currently report that this upgrade is unavailable. |
 
-Backend library looks back30days from the earlier of chosen day-end and now;
-ended linked meetings only, newest first,6 candidates/page. Association requires
-conference identity or exact attachment refs, never title search. Enrichment
-has3concurrent checks and12-second candidate bound. Partial/unavailable does
-not prove the meeting was never recorded.
+The backend queries the selected account's included calendars over local midnight
+through the next midnight, respecting 23/25-hour DST days. A request scans at
+most eight Calendar pages and twelve candidate meetings within a 32-second
+budget, then returns a continuation. Calendar pages are 50 events. Meet record
+and artifact lists page up to ten times each; an unresolved provider limit is
+reported as incomplete. Meet conference records can expire after 30 days, so
+older days cannot establish a complete negative result from Meet alone.
+Meet conference listing is organizer-limited for attendees. The library also
+checks exact Calendar attachments, including shortcuts and target resource keys,
+even when the selected attendee cannot list the organizer's Meet record. An
+attached Google Doc labeled as meeting notes or an attached video labeled as a
+recording is Calendar-linked evidence, not proof that Meet generated it. Generic
+attachments and Drive-wide title matches are excluded. Missing or ambiguous Meet
+identity, inaccessible files, and a bounded attachment limit keep discovery
+incomplete rather than showing a complete empty day.
 
-### Meeting detail and asset outcomes
+### Meeting details and file actions
 
-POST `/meetings/detail` binds `calendar_id,event_id,expected_account_email`.
-Heading is returned event title or selected title. Breadcrumb **Insights /
-Recordings & Notes**; icon **Back to recordings and notes**. Feature Back depth2
-clears selected/error, restores filtered library and originating row focus.
-No modal is introduced by this nested view.
+Details show only available recordings and smart notes, with each file's title,
+**Open** and, where permitted, **Download**. A denied download remains visible
+and says the owner does not allow downloads. Notes preview supports plain text
+and Markdown rendered without raw HTML or navigable Markdown links, at most
+40,000 characters; shortening is disclosed. A preview failure does not hide a
+viewable file. There are no transcript, summary, decision, follow-up, or
+meeting-specific Ask One controls in this view.
 
-| Section/control | Exact content and effect |
-| --- | --- |
-| Discovery permission | **Google Meet access is required to discover recordings, transcripts and smart notes. This Calendar connection does not grant it.** |
-| Recording | Section **Recording**; verified absent **Not recorded / no recording generated.**; fallback **No recording available from verified sources.** |
-| Notes assets | Section **Meeting notes**; accessible **Meeting assets**, tabs **Notes**, **Transcript**. Local kind filter, not a new request. |
-| No selected asset | **No notes generated.** / **No transcript generated.** only when verified `not_generated`; fallback **Not available from verified sources.** |
-| Linked-only attachment | **Linked Calendar attachment · meeting artifact type unverified**. |
-| Artifact title | Source title, otherwise **Meeting recording**, **Meeting transcript**, **Meeting notes** by kind. |
-| Available recording link | **Watch recording**; no embedded player. Safe source opens new tab. |
-| Other source link | **Open source**, safe source opens new tab. Source URLs allow only HTTPS `drive.google.com`/`docs.google.com`, no credentials, no non443port. Invalid URL suppresses link. |
-| Preview | Authorized provider text as text, not executable instructions/HTML. Available nonrecording with no text: **Open the source to read this file.** |
-| **Copy notes** | Present for any artifact with text, including transcript. Clipboard only. **Notes copied** / **Could not copy notes**. No memory save. |
-| Truncation | **Preview shortened. Open the source for the full text.** |
-| Decisions / Follow-ups | Literal headings **Decisions**, **Follow-ups**. Extract explicit Decisions/Key decisions or Follow-ups/Action items/Next steps sections from available safe-source text, stopping at next heading. These are source excerpts, not generated conclusions. |
-| Excerpt source | **Source: {title or "Meeting document"}**, safe external source. Empty **No explicit decisions section in the available source text. Ask One to review the authorized sources.** or same with **follow-ups**. |
-| **Ask One about this meeting** | Disabled asking/no `V`/no `artifact.can_ask`. Busy **Checking source access…**. Reacquires `F`, checks current owner/account/epoch and creates memory selection handoff; does not fetch source context at this CTA. |
-| Missing owner authority | **Unlock your vault in One to use meeting context in your conversation.** No local Unlock button. |
-| Handoff request | **Summarize this meeting's notes, decisions and follow-ups with source references. Do not save them to Memory or PKM.** |
-| Handoff failure fallback | **Meeting context could not be checked.** |
+Open and Download each make a fresh backend selection request with authenticated
+owner, selected account, Calendar event, occurrence hash, grant hash and exact
+file ID. The backend rechecks Meet association, selected Google subject, current
+Drive file facts and per-file capability before returning a Google provider URL.
+Recording and other supported files use Google's original download link; Google
+Docs notes use Google's PDF export link. The browser passes the selected Google
+email as `authuser` when following that URL. The application does not buffer a
+recording or save a meeting-content copy. A browser without that signed-in
+Google account may require Google sign-in; live provider download behavior must
+be verified with an approved session.
 
-| Artifact/discovery state | Exact explanation |
-| --- | --- |
-| `not_generated` | **No file has been generated for this verified meeting.** |
-| `available` | **Available** |
-| `processing` | **Still processing. Google is still preparing one or more meeting files. Check again later.** |
-| `permission_required` | **Permission required. Calendar access does not include access to this meeting file.** |
-| `unavailable` | **Not available or not shared with your connected account.** |
-| `unverified` | **This meeting could not be matched to one verified conference record.** |
-| `temporarily_unavailable` | **Provider error. Access could not be checked. Try again.** |
-| `source_changed` | **The source changed. Refresh to check it again.** |
-| `unsupported_format` | **Preview is unavailable for this file format.** |
-| Unknown artifact state | **Access could not be verified.** |
-
-Non-overview library/detail can refresh at 60-second intervals, at most5checks,
-stopping on error/hidden/offline; entry/manual refresh/resume resets budget.
-Overview is not on that interval. Identity/abort/session fences protect all
-responses. Source links and clipboard actions do not trigger a Calendar write.
+The older `/meetings/context` route remains for existing chat handoffs, with
+separate vault-owner and GenAI eligibility checks. This browse view never calls
+it or sends meeting content to the model, chat history, Memory or PKM. Existing
+Ask One history and private-pod Memory retention concerns remain separate work.
 
 Sources: [Insights UI](../../components/calendar/calendar-insights.tsx),
 [transport and DTOs](../../lib/services/calendar-insights-service.ts),
@@ -1111,10 +1081,11 @@ linked Python/Pydantic and TypeScript definitions own executable validation.
 | POST `attendance/workspace/review`, `attendance/workspace/confirm` | Direct workspace organizer Mail, exact alternative times and failed-only Mail retry | `F` + owner-bound current Calendar and, when sending, Gmail grants; no vault | Bind exact event version, recipient, message, account, owner and route kind to ten-minute review; confirm accepts only its own review, claims once and returns separate Calendar/Mail outcomes. |
 | POST `conflicts/workspace/review`, `conflicts/workspace/confirm` | Board keep-one/decline-selected flow | `F` + each selected owner's Calendar and Gmail grants; no vault | Complete conflict coverage, sealed per-account plan, preflight and child ledgers; expose partial/unknown outcomes. |
 | POST `rescheduling/options` | Public reader `{token}` | Purpose-bound expiring capability, no `F/V`;10/min limiter | `openings,time_zone,reply_to,event_link?`; recheck original offered future times only; no event contents/booking. Private no-store/no-referrer. |
-| POST `insights` | `{date,time_zone}` | `F` + Google read/list | `complete,days[].date/minutes/meetings,meeting_count,meeting_minutes,overlaps,back_to_back,recurring[].title/minutes,focus[].start_at/end_at,time_zone`; deterministic live-derived metrics, no model call. |
-| POST `meetings` | `{date,time_zone,page}`; page0–1000 | `F` + Google read/list; independent artifact grants | `complete,window_days:30,next_page,meetings`;6 candidates/page. UI description hardcodes30days; it does not display arbitrary `window_days`. |
-| POST `meetings/detail` | `{calendar_id,event_id,expected_account_email}`, all required | `F` + same Calendar account/current grant, per-file authority | `event,calendar_id,discovery,availability,complete,artifacts[]`; artifact `file_id,kind,state,title,url,text,truncated,can_ask,linked_only` feeds detailed controls. |
-| POST `meetings/context` | Chat after meeting handoff, same selection body | `F+V`, same owner, repeated live file checks | `{title,sources:[{title,url,text,truncated}]}`; only authorized text.403 **No meeting text is currently authorized for One.** No context fetch merely by switching Notes tab. |
+| POST `insights` | `{account_id,date,time_zone}` | `F` + Google read/list | `complete,days[].date/minutes/meetings,meeting_count,meeting_minutes,overlaps,back_to_back,recurring[].title/minutes,focus[].start_at/end_at,time_zone`; deterministic live-derived metrics, no model call. |
+| POST `meetings` | `{account_id,date,time_zone,cursor?,query,kind}` | `F` + selected Calendar grant, actual Meet and Meet-created Drive scopes | `complete,next_cursor,limitations,checked_events,meetings`; only verified recording/notes rows. |
+| POST `meetings/detail` | `{account_id,calendar_id,event_id,expected_grant,occurrence_id,date,time_zone}` | `F` + current selected grant and file authority | `event,discovery,complete,artifacts[]`; only recording/notes are displayed. |
+| POST `meetings/open`, `meetings/download` | Detail selection plus exact `file_id` | `F` + fresh selected grant and per-file checks | Safe provider opening/original download/Docs PDF export URL. Download denied when `canDownload` is false. |
+| POST `meetings/context` | Legacy chat handoff, default account only | `F+V`, same owner, separate Drive connector and repeated live file checks | `{title,sources:[{title,url,text,truncated}]}`; only authorized text.403 **No meeting text is currently authorized for One.** The library does not call this route. |
 | POST `events` | `useCalendarUpcomingEvents`, mounted by To-do, not current connected Today or Agent Chat; `{start_at,end_at}` | `V` | Primary first-page events/timezone/paging metadata. Schema accepts `calendar_ids`, route ignores it. Hook default next48hours and safe memory projection. |
 | POST `availability` | Compatibility/agent-facing REST; no current frontend helper call; `{start_at,end_at,calendar_ids?}` | `V` | Legacy `time_min,time_max,time_zone,calendars` FreeBusy map, different from connected `/schedule/availability`. |
 | POST `proposals` | Exposed REST, no Calendar frontend helper caller; typed tools call service directly. `user_id,action,event_id?,title?,start_at?,end_at?,time_zone?,attendees[],description?,location?,send_updates` | `V`, same owner, Google manage | `proposal_id,action,expires_at,plan,confirmation_required:true`; persisted10-minute plan, no event effect. |
@@ -1146,9 +1117,9 @@ behind the first-party response, not requests triggered by each label/row.
 | Availability client acceptance | Match requested date/zone/duration/full-day boundaries;≤3 windows, valid in-day interval/duration, count≥returned length, nonempty catalog. Invalid response fails closed. |
 | Invitations | Default now→90 days; explicit window positive≤93 days. Up to10pages×250/source,4 source fanout, `showHiddenInvitations=true`. Select actual connected-email attendee; occurrence dedupe preserves chosen source/primary preference. Readable-source incompleteness errors; unreadable coverage remains explicit. |
 | Insights | One bounded250-event page/source across7civil days; incomplete flag on truncation/unreadable. Counts are scheduled events/time, not attendance or total historical activity. Recurrence groups by calendar+series ID; opaque busy intervals drive risk calculations. |
-| Meeting library | Trailing30days, ended linked candidates,6/page,3 enrichments,12 seconds each. `next_page` means more current candidates; not complete account history. |
-| Meet discovery | Actual scope/token subject + `hangoutsMeet` meeting code + timed event + one verified overlapping conference record. GET Meet `conferenceRecords`, pageSize10; ambiguity/next page unverified. Exact record recordings/smartNotes/transcripts pageSize100; incomplete/error never becomes verified not-generated. |
-| Drive content | Separate matching-subject Drive connector, feature/policy/current generation, selected `drive.file` + approved selected-file policy or live `drive`/`drive.readonly`. Exact per-file metadata/access and AI eligibility, before/after metadata recheck. Text/plain preview≤40000 characters; detail≤12 refs. Recording is source link, not text read. Revocation/source changes discard old content. |
+| Meeting library | Selected account and civil day, 50 Calendar events/page, up to8pages and12 candidate checks within32seconds/request. Sealed cursor resumes sparse pages. Older-than30-day Meet record absence remains incomplete. |
+| Meet discovery | Selected token subject and actual Meet scope, exact Meet code, one time-overlapping conference record and unique overlapping Calendar occurrence. Record and artifact lists paginate up to10 pages; ambiguity or provider failure stays incomplete. Exact Meet file IDs only. |
+| Drive content | Selected Calendar grant with explicit `drive.meet.readonly` (or an already granted broader Drive scope), same verified Google subject. Exact file facts and metadata recheck. Plain/Markdown preview≤40000 characters, no recording byte read. Open/download recheck current access. |
 | Legacy `/events` | Default50/cap250one page; query≤256, cursor≤2048; truncation/next cursor explicit. Upcoming hook returns only ID/title/start/end/status/validated Google Meet link in memory, discarding description/location/attendees/html_link. Current mounted caller is To-do. |
 | Typed tools | Summary default7days clamped1–31; primary cap250. Events default100/cap250; calendars default50/cap250; each returns explicit cursor/truncation and5-minute owner/conversation/grant-bound ordinal offer. Free slots default3/allowed1–20, duration5–720 minutes; not invitee availability. |
 

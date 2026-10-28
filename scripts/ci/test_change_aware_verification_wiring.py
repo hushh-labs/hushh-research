@@ -56,6 +56,7 @@ def test_uat_capacity_admission_follows_resolved_scope_on_old_targets() -> None:
         "--frontend-only",
         'cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"',
         'cp "${RUNNER_TEMP}/release-tools/runtime_capacity_inventory.py"',
+        '"${RUNNER_TEMP}/release-tools/runtime_capacity_volume.py" scripts/ci/',
         'cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json"',
         'cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"',
     )
@@ -64,7 +65,14 @@ def test_uat_capacity_admission_follows_resolved_scope_on_old_targets() -> None:
         "--inherit-candidate-service consent-protocol",
         'cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py"',
         'cp "${RUNNER_TEMP}/capacity-tools/runtime_capacity_inventory.py"',
+        '"${RUNNER_TEMP}/capacity-tools/runtime_capacity_volume.py" scripts/ci/',
         'cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json"',
+    )
+
+    require(
+        ".github/workflows/deploy-production.yml",
+        'cp scripts/ci/runtime_capacity_volume.py "${RUNNER_TEMP}/release-tools/"',
+        'cp "${RUNNER_TEMP}/release-tools/runtime_capacity_volume.py" scripts/ci/',
     )
 
 
@@ -262,7 +270,9 @@ def test_financial_packet_inputs_schedule_existing_connections_pack() -> None:
             {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": changed},
         )
         assert code == 0, output[-2000:]
-        assert calls.count("run test:connections-layout") == 1, (changed, calls)
+        overlap_owner = "run test:drive-sharing-layout" in calls
+        expected = "run test:connections-layout:without-covered" if overlap_owner else "run test:connections-layout"
+        assert calls.count(expected) == 1, (changed, calls)
     scripts = json.loads((ROOT / "hushh-webapp/package.json").read_text())["scripts"]
     selected = scripts["test:connections-layout"].split("--project=chromium")[0]
     assert selected.count("e2e/financial-packets.layout.spec.ts") == 1

@@ -10,7 +10,17 @@ tests/services/test_plg_evidence.py
 tests/services/test_product_activity_postgres.py
 tests/test_plg_deploy_bindings.py
 tests/test_plg_release_source.py
+tests/test_plg_frontend_source.py
+tests/test_plg_frontend_validation.py
 tests/test_plg_source_validation_workflow.py
+tests/test_plg_qualification_bootstrap.py
+tests/test_plg_qualification_schema.py
+tests/test_plg_qualification_runtime.py
+tests/test_plg_qualification_acceptance.py
+tests/test_plg_qualification_image.py
+tests/test_plg_qualification_iam.py
+tests/test_plg_qualification_candidate.py
+tests/test_plg_qualification_producer.py
 
 # Store releases must retain the selected track, exact source and private binaries.
 tests/test_native_ship_artifact_workflows.py
@@ -68,6 +78,7 @@ tests/services/test_drive_sharing_contract.py
 tests/test_runtime_settings_maps.py
 tests/test_runtime_config_retention.py
 tests/test_drive_sharing_routes.py
+tests/test_drive_sharing_diagnostics.py
 tests/test_drive_packet_preview_routes.py
 tests/test_drive_groups_routes.py
 tests/test_drive_searches_routes.py
@@ -84,6 +95,8 @@ tests/services/test_drive_live_formats.py
 # full-replacement PUT), and the review counts the event's real guests.
 tests/services/test_google_calendar_service.py
 tests/services/test_google_calendar_oauth_scopes.py
+tests/services/test_google_connection_account_binding.py
+tests/services/test_calendar_native_optional_scope.py
 tests/services/test_google_calendar_guest_photo_token.py
 tests/services/test_google_calendar_event_type.py
 tests/services/test_google_calendar_profile_photos.py
@@ -221,6 +234,9 @@ tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_financial_raw_records_not_shareable.py
+tests/test_finance_sharing_contract.py
+tests/test_finance_consent_lifecycle.py
+tests/test_finance_pod_owner_feed.py
 tests/test_partner_developer_apps.py
 tests/test_hushh_tech_client_migration.py
 tests/test_hushh_tech_synthetic_import.py
@@ -265,6 +281,7 @@ tests/services/test_location_brain_semantic_retrieval.py
 tests/services/test_location_circle_direct_executor.py
 tests/services/test_location_circle_name_interaction.py
 tests/services/test_connections_service.py
+tests/services/test_connections_calendar_profile_email.py
 tests/services/test_connection_presence.py
 tests/services/test_push_notifications.py
 tests/services/test_system_push_delivery.py
@@ -292,6 +309,7 @@ tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_cloudbuild_step_arg_limit.py
 tests/test_one_wallet_card_deploy_parity.py
+tests/test_account_generation_admission_deploy.py
 tests/test_gmail_information_request_release_contract.py
 tests/test_uat_deploy_no_traffic_contract.py
 tests/test_uat_text_recovery_controller.py
@@ -448,6 +466,9 @@ tests/test_account_legal_acceptance_postgres.py
 tests/test_firebase_auth_split.py
 tests/services/test_account_deletion_lifecycle_service.py
 tests/services/test_account_deletion_provider_cleanup.py
+# The owner's deletion notice follows only a committed erasure; admission wakes the drain.
+tests/services/test_account_deletion_completion.py
+tests/services/test_support_email_service.py
 tests/test_account_deletion_tombstone_migration.py
 tests/test_account_erasure_lock_timeout_postgres.py
 tests/test_account_deletion_release_workflow.py
@@ -622,6 +643,7 @@ tests/test_adk_pin_contract.py
 tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
 tests/test_tmp_cleanup_preserves_worktrees.py
 tests/test_capability_graph_gate_compares_against_base.py
+tests/test_capability_graph_dev_phone_history.py
 # (2026-09-26) scripts/ci is split between the frontend and backend path
 # filters by the lane that runs each script; this proves every script a lane
 # runs, or its own code names, still schedules that lane. The TestFlight guard
@@ -748,6 +770,7 @@ tests/test_pod_browser_adk_continuation.py
 tests/test_pod_browser_sessions.py
 tests/test_pod_binding_transactions.py
 tests/test_pod_consent_authority.py
+tests/test_pod_consent_wire_scope.py
 tests/test_pod_ingress_axis.py
 tests/test_pod_session_authority.py
 tests/test_pod_turn_route.py
@@ -807,6 +830,7 @@ tests/integration/test_public_profile_bridge.py
 tests/services/test_public_profile_prepared_boundary.py
 
 tests/test_pod_release.py
+tests/test_pod_publication.py
 # Person-to-person export readback binds on the status owner (2026-09-25 regression),
 # the second chat turn survives empty replayed history parts, and governed custom
 # connector calls pause for exact-call review without leaking arguments or results.
@@ -1310,6 +1334,7 @@ tests/routes/test_wallet_artwork_route.py
 tests/test_wallet_card_validation.py
 tests/routes/test_wallet_card_access_route.py
 tests/test_wallet_card_access_postgres.py
+tests/test_finance_sharing_postgres.py
 tests/test_wallet_universal_sharing_postgres.py
 
 # Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local
@@ -1476,6 +1501,9 @@ tests/services/test_calendar_schedule_service.py
 tests/services/test_calendar_schedule_boundaries.py
 tests/services/test_calendar_attendance_service.py
 tests/services/test_calendar_invitations.py
+tests/services/test_calendar_meeting_artifacts.py
+tests/services/test_calendar_native_optional_scope.py
+tests/services/test_google_connection_account_binding.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.
@@ -1516,6 +1544,7 @@ tests/test_drive_packet_public_summary_routes.py
 tests/test_consumer_consent_replay_postgres.py
 
 tests/test_phone_transfer_postgres.py
+tests/test_phone_linked_deletion_postgres.py
 
 tests/test_phone_transfer_authority.py
 tests/test_phone_bootstrap.py

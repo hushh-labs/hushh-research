@@ -43,8 +43,7 @@ export function CapabilityExploreCard({
   capabilityId,
   onExplored,
 }: CapabilityExploreCardProps) {
-  const { user } = useAuth();
-  const userId = user?.uid ?? null;
+  const { userId } = useAuth();
 
   const capability = getOneCapability(capabilityId);
   const copy = getCapabilitySetupCopy(capabilityId);

@@ -48,12 +48,12 @@ export function GmailReceiptMemorySave({
   ownerGeneration?: number;
   snapshotRevision?: number;
 }): null {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const receiptsRef = useRef(receipts);
   receiptsRef.current = receipts;
-  const authorityRef = useRef({ userId: user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked });
-  authorityRef.current = { userId: user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked };
+  const authorityRef = useRef({ userId, vaultKey, vaultOwnerToken, isVaultUnlocked });
+  authorityRef.current = { userId, vaultKey, vaultOwnerToken, isVaultUnlocked };
   const accountKeyRef = useRef(accountKey);
   accountKeyRef.current = accountKey;
   // A newer finished sync, or leaving the page, ends an older save's retries.
@@ -111,7 +111,7 @@ export function GmailReceiptMemorySave({
       }
     })();
     return () => { runRef.current += 1; };
-  }, [autoSave, savedCompletionRef, syncCompletion, user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked, accountKey, partialScan, ownerGeneration, snapshotRevision]);
+  }, [autoSave, savedCompletionRef, syncCompletion, userId, vaultKey, vaultOwnerToken, isVaultUnlocked, accountKey, partialScan, ownerGeneration, snapshotRevision]);
 
   return null;
 }

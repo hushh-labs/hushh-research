@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   ensure: vi.fn(),
 }));
 
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => mocks.auth }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ ...mocks.auth, userId: mocks.auth.user?.uid ?? null }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => mocks.vault }));
 vi.mock("@/lib/services/wallet-card-service", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/wallet-card-service")>(),

@@ -21,7 +21,7 @@ import { AgentDockPortal } from "@/components/agent/agent-dock";
 const SUGGESTIONS = ["What do you remember about me?", "Help me plan my day", "Draft a short thank-you note"];
 
 /** Revocations the pod has not received yet, read from the owner-pod store. */
-function usePendingRevocations(uid: string | undefined, linkKey: string) {
+function usePendingRevocations(uid: string | null, linkKey: string) {
   const [pending, setPending] = useState<PendingRevocation[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -35,7 +35,7 @@ function usePendingRevocations(uid: string | undefined, linkKey: string) {
 }
 
 /** The owner's active agent id, for the model list and the memory control. */
-function useActiveAgentId(uid: string | undefined) {
+function useActiveAgentId(uid: string | null) {
   const [hushhId, setHushhId] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -130,14 +130,14 @@ export function PrivatePuppyInferencePanel({
   active?: boolean;
   sharedDock?: boolean;
 }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultOwnerToken } = useVault();
   const link = usePuppyLink();
   const [chatModel, setChatModel] = useState<PuppyChatModel>(null);
   const machine = puppyMachineNoun(link?.device?.name);
   const { turns, busy, stage, elapsedSeconds, send, stop } = usePuppyTurn({ conversationId, chatModel, machine });
-  const hushhId = useActiveAgentId(user?.uid);
-  const pending = usePendingRevocations(user?.uid, `${link?.state ?? ""}:${link?.device?.id ?? ""}`);
+  const hushhId = useActiveAgentId(userId);
+  const pending = usePendingRevocations(userId, `${link?.state ?? ""}:${link?.device?.id ?? ""}`);
   const pendingForDevice = pending.filter((item) => !link?.device?.id || item.subjectId === link.device.id);
   const machineState: PuppyMachineState = link?.state === "live" || link?.state === "quiet" ? link.state : "unavailable";
   const { scroller, onScroll } = useFollowBottom(turns, stage);

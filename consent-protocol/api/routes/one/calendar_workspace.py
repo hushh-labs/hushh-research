@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field
 
 from api.middleware import (
     require_firebase_auth,
@@ -22,7 +21,11 @@ from api.routes.one.calendar_workspace_models import (
     CalendarConflictConfirmRequest,
     CalendarConflictReviewRequest,
     CalendarDay,
+    CalendarInsightsDay,
     CalendarInvitationsWindow,
+    CalendarMeetingDownload,
+    CalendarMeetingPage,
+    CalendarMeetingSelection,
     CalendarPublicOptions,
     CalendarRsvpConfirm,
     CalendarRsvpReview,
@@ -42,6 +45,7 @@ from api.routes.one.calendar_workspace_models import (
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
 from hushh_mcp.services.owner_placement_guard import (
+    admit_hub_content,
     hub_content_firebase,
     hub_content_firebase_read_only,
     hub_content_owner,
@@ -365,39 +369,31 @@ async def public_rescheduling_options(request: Request, payload: CalendarPublicO
         raise _http(exc) from exc
 
 
-class CalendarMeetingSelection(BaseModel):
-    expected_account_email: str = Field(min_length=1, max_length=512)
-    calendar_id: str = Field(min_length=1, max_length=1024)
-    event_id: str = Field(min_length=1, max_length=2048)
-
-
-def _insights():
+def _insights(account_id="default"):
     from hushh_mcp.services.calendar_insights_service import CalendarInsightsService
 
-    return CalendarInsightsService()
+    return CalendarInsightsService(schedule=_selected_schedule(account_id), account_id=account_id)
 
 
-def _artifacts():
+def _artifacts(account_id="default"):
     from hushh_mcp.services.calendar_meeting_artifacts import CalendarMeetingArtifacts
 
-    return CalendarMeetingArtifacts()
+    return CalendarMeetingArtifacts(insights=_insights(account_id))
 
 
 @router.post("/insights")
 async def insights(
-    payload: CalendarDay,
+    payload: CalendarInsightsDay,
     response: Response,
     firebase_uid: str = Depends(hub_content_firebase_read_only),
 ):
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await _insights().overview(user_id=firebase_uid, **payload.model_dump())
+        return await _insights(payload.account_id).overview(
+            user_id=firebase_uid, **payload.model_dump(exclude={"account_id"})
+        )
     except Exception as exc:
         raise _http(exc) from exc
-
-
-class CalendarMeetingPage(CalendarDay):
-    page: int = Field(default=0, ge=0, le=1000)
 
 
 @router.post("/meetings")
@@ -408,7 +404,11 @@ async def meeting_library(
 ):
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await _insights().library(user_id=firebase_uid, **payload.model_dump())
+        result = await _insights(payload.account_id).library(
+            user_id=firebase_uid, **payload.model_dump(exclude={"account_id"})
+        )
+        await admit_hub_content(firebase_uid, "one_calendar_meeting_library")
+        return result
     except Exception as exc:
         raise _http(exc) from exc
 
@@ -419,11 +419,46 @@ async def meeting_detail(
     response: Response,
     firebase_uid: str = Depends(hub_content_firebase_read_only),
 ):
-    response.headers["Cache-Control"] = "private, no-store"
-    try:
-        return await _artifacts().detail(user_id=firebase_uid, **payload.model_dump())
-    except Exception as exc:
-        raise _http(exc) from exc
+    from api.routes.one.calendar_meeting_actions import meeting_detail as action
+
+    result = await action(payload, response, firebase_uid, artifacts=_artifacts, http_error=_http)
+    await admit_hub_content(firebase_uid, "one_calendar_meeting_detail")
+    return result
+
+
+@router.post("/meetings/download")
+async def meeting_download(
+    payload: CalendarMeetingDownload,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
+):
+    """Recheck the exact occurrence and file, then hand off to Google download."""
+    return await _meeting_file_action(payload, response, firebase_uid, download=True)
+
+
+@router.post("/meetings/open")
+async def meeting_open(
+    payload: CalendarMeetingDownload,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
+):
+    """Recheck the exact occurrence and file before opening it in Google."""
+    return await _meeting_file_action(payload, response, firebase_uid, download=False)
+
+
+async def _meeting_file_action(payload, response, firebase_uid, *, download):
+    from api.routes.one.calendar_meeting_actions import meeting_file_action
+
+    result = await meeting_file_action(
+        payload,
+        response,
+        firebase_uid,
+        download=download,
+        artifacts=_artifacts,
+        http_error=_http,
+    )
+    await admit_hub_content(firebase_uid, "one_calendar_meeting_file_action")
+    return result
 
 
 @router.post("/meetings/context")
@@ -434,26 +469,17 @@ async def meeting_context(
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     verify_user_id_match(firebase_uid, token["user_id"])
-    response.headers["Cache-Control"] = "private, no-store"
-    try:
-        detail = await _artifacts().detail(user_id=firebase_uid, **payload.model_dump())
-        sources = [
-            {
-                "title": item["title"],
-                "url": item["url"],
-                "text": item["text"],
-                "truncated": item.get("truncated", False),
-            }
-            for item in detail["artifacts"]
-            if item.get("can_ask") and item.get("text")
-        ]
-        if not sources:
-            raise HTTPException(
-                status_code=403,
-                detail={"message": "No meeting text is currently authorized for One."},
-            )
-        return {"title": detail["event"]["title"], "sources": sources}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise _http(exc) from exc
+    if payload.account_id != "default":
+        raise HTTPException(
+            status_code=403,
+            detail={"message": "Meeting chat uses the original Calendar connection."},
+        )
+    from api.routes.one.calendar_meeting_actions import meeting_chat_context
+
+    return await meeting_chat_context(
+        payload,
+        response,
+        firebase_uid,
+        artifacts=_artifacts,
+        http_error=_http,
+    )

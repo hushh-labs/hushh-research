@@ -1,11 +1,14 @@
 """Own a command and its descendants on POSIX and Windows."""
 
-from contextlib import contextmanager
+import math
 import os
+import queue
 import signal
 import subprocess
 import sys
+import threading
 import time
+from contextlib import contextmanager
 
 
 def _group_is_absent(group):
@@ -154,14 +157,14 @@ class _WindowsJob:
 
 
 @contextmanager
-def command_group(args, **kwargs):
+def command_group(args, *, wait_only=False, **kwargs):
     """Yield (process, stop(force=...)) for a noninteractive command group.
 
     Windows targets wait behind a pipe until their bootstrap belongs to a Job
     Object. Assignment failure never launches an unsupervised target.
     """
     if os.name != "nt":
-        process = subprocess.Popen(args, start_new_session=True, **kwargs)
+        process = subprocess.Popen(args, start_new_session=True, **kwargs)  # noqa: S603 -- trusted caller command, owned group.
 
         def stop(*, force=False):
             try:
@@ -183,7 +186,13 @@ def command_group(args, **kwargs):
         try:
             yield process, stop
         finally:
-            stop(force=True)
+            try:
+                stop(force=True)
+            finally:
+                if wait_only:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait(timeout=5)
         return
 
     job = _WindowsJob()
@@ -194,7 +203,7 @@ def command_group(args, **kwargs):
         "sys.exit(subprocess.call(sys.argv[1:]) if gate==b'1' else 125)"
     )
     try:
-        process = subprocess.Popen(
+        process = subprocess.Popen(  # noqa: S603 -- gated trusted command, assigned to this Job before release.
             [sys.executable, "-c", bootstrap, *args],
             stdin=subprocess.PIPE,
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
@@ -223,4 +232,109 @@ def command_group(args, **kwargs):
                 # This also covers failure before assignment/gate release.
                 if process.poll() is None:
                     process.kill()
-                process.communicate(timeout=5)
+                if wait_only:
+                    process.wait(timeout=5)
+                else:
+                    process.communicate(timeout=5)
+
+
+class BoundedReadError(RuntimeError):
+    """A redacted transport classification, without command or response content."""
+
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__("Bounded command read: " + reason)
+
+
+def _pump_stdout(stream, chunks, stopped, chunk_size):
+    def post(kind, value=None):
+        while not stopped.is_set():
+            try:
+                chunks.put((kind, value), timeout=0.05)
+                return True
+            except queue.Full:
+                pass
+        return False
+
+    try:
+        while not stopped.is_set():
+            chunk = os.read(stream.fileno(), chunk_size)
+            if not post("data", chunk) or not chunk:
+                return
+    except Exception:  # noqa: BLE001 -- no response or pipe diagnostic enters output.
+        post("read")
+
+
+def _collect_stdout(process, chunks, end, max_bytes):
+    output = bytearray()
+    while True:
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            raise BoundedReadError("timeout")
+        try:
+            kind, chunk = chunks.get(timeout=remaining)
+        except queue.Empty:
+            raise BoundedReadError("timeout") from None
+        if kind != "data":
+            raise BoundedReadError("read")
+        if not chunk:
+            break
+        if len(output) + len(chunk) > max_bytes:
+            raise BoundedReadError("size")
+        output.extend(chunk)
+    remaining = end - time.monotonic()
+    if remaining <= 0:
+        raise BoundedReadError("timeout")
+    try:
+        code = process.wait(timeout=remaining)
+    except subprocess.TimeoutExpired:
+        raise BoundedReadError("timeout") from None
+    if code != 0:
+        raise BoundedReadError("exit")
+    return bytes(output)
+
+
+def bounded_stdout(args, *, max_bytes, timeout):
+    """Read bounded bytes using one bounded queue; settle the process tree first.
+
+    Windows select() cannot wait on anonymous subprocess pipes. A single reader
+    blocks in os.read; Job/group termination closes all owned write handles on
+    every exit path, then the reader is joined before its pipe is closed.
+    """
+    if (
+        type(max_bytes) is not int
+        or max_bytes < 1
+        or type(timeout) not in (int, float)
+        or not math.isfinite(timeout)
+        or timeout <= 0
+    ):
+        raise BoundedReadError("arguments")
+    end = time.monotonic() + timeout
+    stopped, chunks = threading.Event(), queue.Queue(maxsize=2)
+    worker = stream = None
+    try:
+        with command_group(
+            args, wait_only=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0
+        ) as (process, _stop):
+            stream = process.stdout
+            worker = threading.Thread(
+                target=_pump_stdout,
+                args=(stream, chunks, stopped, min(65536, max_bytes + 1)),
+                name="bounded-command-stdout",
+                daemon=True,
+            )
+            try:
+                worker.start()
+                return _collect_stdout(process, chunks, end, max_bytes)
+            finally:
+                stopped.set()
+    finally:
+        stopped.set()
+        try:
+            if worker is not None and worker.ident is not None:
+                worker.join(timeout=5)
+                if worker.is_alive():
+                    raise BoundedReadError("cleanup")
+        finally:
+            if stream is not None:
+                stream.close()

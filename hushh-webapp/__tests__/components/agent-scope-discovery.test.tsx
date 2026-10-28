@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   consentOutcomes: vi.fn(async (): Promise<Record<string, string>> => ({})),
 }));
 vi.mock("@/lib/services/agent-chat-client", () => ({ getAgentChatConsentOutcomes: mocks.consentOutcomes }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: "test-key", vaultOwnerToken: "test-owner-token" }) }));
 vi.mock("@/lib/services/person-profile-service", async importOriginal => ({
   ...await importOriginal<object>(),

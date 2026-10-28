@@ -14,7 +14,11 @@ import { LineChart } from "../../components/icons";
 import marketStyles from "../../components/kai/shared/market-briefing.module.css";
 
 import { PortfolioReportAction } from "../../components/kai/cards/portfolio-report-action";
+import { FinanceShareFlow } from "../../components/kai/sharing/finance-share-flow";
+import { FinanceSharedDetail } from "../../components/kai/sharing/finance-shared-detail";
+import { sharingModel } from "./finance-sharing-boundaries";
 import { PortfolioOverview } from "../../components/kai/views/portfolio-overview";
+import { PortfolioBriefing } from "../../components/kai/views/portfolio-briefing";
 import { AnalysisHistoryList } from "../../components/kai/views/analysis-history-list";
 import { VersionOptions } from "../../components/kai/views/analysis-history-version-options";
 import { AnalysisSummaryView } from "../../components/kai/views/analysis-summary-view";
@@ -51,6 +55,18 @@ const loadSampleQuote: StockQuoteLoader = async (symbol) => {
   return { symbol, price: symbol === "BRK-B" ? 456.78 : 234.56, changePct: 1.2,
     quotedAt: "2026-10-20T20:00:00Z", source: "Synthetic quote fixture", stale: true, delayed: false };
 };
+
+function FinanceSharingFixture() {
+  const [open, setOpen] = useState(false);
+  const [received, setReceived] = useState(false);
+  return <section className="mt-8">
+    <p>Finance sharing · synthetic figures and connections</p>
+    <button onClick={() => setOpen(true)}>Open sample Finance sharing</button>
+    <button onClick={() => setReceived(true)}>Open sample received Finance</button>
+    <FinanceShareFlow open={open} onOpenChange={setOpen} model={sharingModel} source={{ kind: "statement", snapshotId: null }} />
+    <FinanceSharedDetail grantId={received ? "22222222-2222-4222-8222-222222222222" : null} onClose={() => setReceived(false)} />
+  </section>;
+}
 
 function GroupedHoldingsFixture() {
   const [entries, setEntries] = useState<HoldingsListItem[]>([
@@ -93,6 +109,7 @@ function Fixture() {
     <ImportProgressView stage="extracting" isStreaming progressPct={updated ? 77 : undefined}
       statusMessage="Reading your statement"
       rawStreamLines={updated ? Array.from({ length: 15 }, (_, i) => `[THINKING] Processing holding ${i}`) : ["[THINKING] Reading statement"]} />
+    <FinanceSharingFixture />
     <div data-testid="after-import">After import</div>
     <div data-testid="review-scroll" style={{ height: 220, overflow: "auto" }}>
       <HoldingRowActions symbol="TEST" layout="row" onEdit={() => setAction("Edit TEST")} onToggleDelete={() => setAction("Delete TEST")} />
@@ -114,7 +131,7 @@ function Fixture() {
     </section>
     <section data-testid="portfolio-overview-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
       <p className="mb-4 text-xs text-muted-foreground">Design verification · Sample figures only</p>
-      <PortfolioOverview model={sampleModel} portfolio={samplePortfolio} source="Sample" period="Sample statement · October 2026" onImport={() => setAction("Import portfolio")} onOpenSection={section => setAction(`Open ${section}`)} action={<PortfolioReportAction model={sampleModel} source="Sample" period="October 2026" onExport={() => setAction("Export report")} />} />
+      <PortfolioOverview briefing={<PortfolioBriefing model={sampleModel} onOpen={() => setAction("Open analysis")} />} model={sampleModel} portfolio={samplePortfolio} source="Sample" period="Sample statement · October 2026" onImport={() => setAction("Import portfolio")} onOpenSection={section => setAction(`Open ${section}`)} action={<PortfolioReportAction model={sampleModel} source="Sample" period="October 2026" onExport={() => setAction("Export report")} />} />
       <button className="mt-4 min-h-11" onClick={() => setHoldingOpen(true)}>Open sample holding</button>
       <HoldingDetailsDrawer loadHistory={loadSampleHistory} open={holdingOpen} onOpenChange={setHoldingOpen} holding={toHoldingViewModel({ ...samplePortfolio.holdings![0]!, client_id: "sample" }, 24680.42)} onEdit={() => setAction("Edit sample")} onToggleDelete={() => setAction("Delete sample")} />
     </section>

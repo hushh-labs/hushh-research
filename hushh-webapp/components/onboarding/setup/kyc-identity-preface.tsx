@@ -24,7 +24,7 @@ const EXTERNAL_PROFILE_EXPORT_PROMPT =
   "Can you share one to two pages of the information you have about me for an external agent? Use simple Markdown bullet points under Facts, Preferences, and Commitments. Include any KYC-related information you have, and clearly note anything uncertain or missing. Do not include passwords, PINs, security codes, or authentication keys.";
 
 export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [aboutMe, setAboutMe] = useState("");
   // Typed by the person, never read off the export. The pasted summary is
@@ -46,7 +46,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
 
   const handlePrimary = async () => {
     if (!canContinue || saveStartedRef.current) return;
-    if (!user?.uid) {
+    if (!userId) {
       toast.error("Sign in before saving your details.");
       return;
     }
@@ -69,7 +69,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
     saveStartedRef.current = true;
     setIsSaveStarted(true);
     const saveTask = KycIdentityProfilePkmService.saveProfile({
-      userId: user.uid,
+      userId,
       vaultKey,
       vaultOwnerToken,
       profile,

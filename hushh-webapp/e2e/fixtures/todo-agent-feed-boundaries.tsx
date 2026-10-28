@@ -29,6 +29,7 @@ export function useFixture() {
 export function useAuth() {
   return {
     user: { uid: "fixture-owner", getIdToken: async () => "fixture-only" },
+    userId: "fixture-owner",
   };
 }
 export function useVault() {

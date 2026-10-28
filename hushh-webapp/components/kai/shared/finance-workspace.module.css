@@ -1,8 +1,5 @@
 /* Finance consumes the same semantic roles and reading measure as Connect. */
 .workspace, .detail {
-  --font-app-body: "Plus Jakarta Sans", system-ui, sans-serif;
-  --font-app-heading: var(--font-app-body);
-  --font-app-display: var(--font-app-body);
   --app-shell-reading: 728px;
   --type-navigation-title-size: 17px;
   --type-navigation-title-line: 22px;
@@ -27,7 +24,7 @@
   --finance-negative: var(--app-destructive-deep);
   font-family: var(--font-app-body);
 }
-.workspace { max-width: 728px; }
+.workspace { min-width: 0; }
 .overviewGrid { display: grid; gap: 20px; align-items: start; }
 .description { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .historyRow { display: flex; align-items: center; gap: 8px; margin-inline: 16px; border-bottom: 1px solid var(--border); }
@@ -65,3 +62,18 @@
 .toolbar { display: flex; align-items: center; gap: 8px; }
 .toolbar input { height: 48px; font-size: 16px; line-height: 22px; box-shadow: none; }
 @media (min-width: 621px) { .toolbar input { font-size: 14px; } }
+
+/* Portfolio overview follows the value/briefing, composition and holdings rhythm. */
+.portfolioTop, .portfolioInsights { display: grid; gap: 16px; min-width: 0; }
+.portfolioTop > *, .portfolioInsights > * { min-width: 0; }
+.portfolioTop > :global([data-slot="card"]), .portfolioInsights > :global([data-slot="card"]) { height: 100%; }
+.portfolioAllocation { display: flex; height: 12px; overflow: hidden; border-radius: 999px; background: var(--muted); }
+.portfolioAllocation > span { min-width: 0; }
+.portfolioList { display: grid; gap: 0; }
+.portfolioListRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.portfolioListRow:last-child { border-bottom: 0; }
+.portfolioHoldingMark { display: grid; width: 40px; height: 40px; flex: none; place-items: center; border-radius: 12px; background: var(--muted); font-size: 12px; font-weight: 700; }
+@media (min-width: 768px) {
+  .portfolioTop { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+  .portfolioInsights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

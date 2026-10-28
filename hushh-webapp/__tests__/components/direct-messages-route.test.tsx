@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 const router = { replace: mocks.replace };
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(mocks.query), useRouter: () => router }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, loading: false }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null, loading: false }) }));
 vi.mock("@/lib/services/direct-messages-service", () => ({ DirectMessagesService: { routeSelection: (...args: unknown[]) => mocks.routeSelection(...args) } }));
 vi.mock("@/components/system/route-suspense-fallback", () => ({ RouteSuspenseFallback: () => <div>Loading</div> }));
 vi.mock("@/components/direct-messages/direct-messages-page", () => ({ DirectMessagesPage: ({ selection }: { selection: { ref: string } | null }) => { mocks.renders.push([mocks.user.uid, selection?.ref || null]); return <div data-testid="messages">{JSON.stringify(selection)}</div>; } }));

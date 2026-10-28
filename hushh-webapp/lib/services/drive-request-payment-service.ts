@@ -1,3 +1,4 @@
+import { traceDriveRequest } from "@/lib/consent/drive-request-diagnostics";
 import { parseDrivePackageDisclosure, type DrivePackageDisclosure } from "@/lib/consent/drive-package-disclosure";
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
@@ -57,29 +58,35 @@ async function paymentRequest(
   acceptance?: { acceptedTermsRevision: number; acceptedTermsDigest: string; acceptedPackageDigest: string },
 ): Promise<Record<string, unknown>> {
   if (!firebaseIdToken) throw new Error("Sign in to view this payment");
-  const response = await ApiService.apiFetch(
-    `${requestPath(requestId)}${checkout ? "/checkout" : ""}`,
-    {
-      method: checkout ? "POST" : "GET",
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${firebaseIdToken}`, ...(acceptance ? { "Content-Type": "application/json" } : {}) },
-      ...(acceptance ? { body: JSON.stringify(acceptance) } : {}),
-    },
-  );
-  if (!response.ok) {
-    const body: unknown = await response.json().catch(() => null);
-    const detail = body && typeof body === "object" && "detail" in body ? body.detail : null;
-    const code = detail && typeof detail === "object" && "code" in detail ? detail.code : null;
-    if (response.status === 409 && (code === "request_already_accessible" || code === "package_existing_access_requires_review")) {
-      throw new DriveRequestPaymentError(code);
+  const target = `${requestPath(requestId)}${checkout ? "/checkout" : ""}`;
+  return traceDriveRequest(target, checkout ? "POST" : "GET", async (diagnosticHeaders, observe) => {
+    const response = await ApiService.apiFetch(
+      `${requestPath(requestId)}${checkout ? "/checkout" : ""}`,
+      {
+        method: checkout ? "POST" : "GET",
+        cache: "no-store",
+        headers: { ...diagnosticHeaders, Authorization: `Bearer ${firebaseIdToken}`, ...(acceptance ? { "Content-Type": "application/json" } : {}) },
+        ...(acceptance ? { body: JSON.stringify(acceptance) } : {}),
+      },
+    );
+    observe(response);
+    if (!response.ok) {
+      const body: unknown = await response.json().catch(() => null);
+      observe(response, body);
+      const detail = body && typeof body === "object" && "detail" in body ? body.detail : null;
+      const code = detail && typeof detail === "object" && "code" in detail ? detail.code : null;
+      if (response.status === 409 && (code === "request_already_accessible" || code === "package_existing_access_requires_review")) {
+        throw new DriveRequestPaymentError(code);
+      }
+      throw new Error("Payment is unavailable. Try again.");
     }
-    throw new Error("Payment is unavailable. Try again.");
-  }
-  const value: unknown = await response.json();
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Invalid payment response");
-  }
-  return value as Record<string, unknown>;
+    const value: unknown = await response.json();
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Invalid payment response");
+    }
+    observe(response, value);
+    return value as Record<string, unknown>;
+  });
 }
 
 export class DriveRequestPaymentService {

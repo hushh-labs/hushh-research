@@ -9,6 +9,7 @@ export type { CalendarReadRecovery, CalendarSource } from "@/lib/services/google
 export type GoogleCalendarAccount = {
   account_id: string;
   google_email: string | null;
+  google_email_verified?: boolean;
   profile_photo_url?: string | null;
   status: "connected" | "needs_reauth" | "disconnected";
   connected: boolean;
@@ -38,6 +39,7 @@ type NativeOAuthStart = {
   state: string;
   include_calendar_list?: boolean;
   include_guest_photos?: boolean;
+  include_meeting_files?: boolean;
 };
 
 export type CalendarExecution = {
@@ -180,6 +182,7 @@ export class GoogleCalendarService {
     additional?: boolean;
     accountId?: string;
     loginHint?: string;
+    includeMeetingFiles?: boolean;
   }): Promise<OAuthStart> {
     await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
@@ -196,6 +199,7 @@ export class GoogleCalendarService {
           ...(params.additional ? { additional: true } : {}),
           ...(params.accountId ? { account_id: params.accountId } : {}),
           ...(params.loginHint ? { login_hint: params.loginHint } : {}),
+          ...(params.includeMeetingFiles ? { include_meeting_files: true } : {}),
           redirect_uri: typeof window === "undefined" ? undefined
             : `${window.location.origin}/one/profile/google/oauth/return`,
         }),
@@ -239,6 +243,7 @@ export class GoogleCalendarService {
     idToken: string;
     accessLevel: "read" | "manage";
     includeCalendarList?: boolean;
+    includeMeetingFiles?: boolean;
     additional?: boolean;
     accountId?: string;
   }): Promise<NativeOAuthStart> {
@@ -251,7 +256,7 @@ export class GoogleCalendarService {
           Authorization: `Bearer ${params.idToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ access_level: params.accessLevel, ...(params.includeCalendarList ? { include_calendar_list: true } : {}), ...(params.additional ? { additional: true } : {}), ...(params.accountId ? { account_id: params.accountId } : {}) }),
+        body: JSON.stringify({ access_level: params.accessLevel, ...(params.includeCalendarList ? { include_calendar_list: true } : {}), ...(params.includeMeetingFiles ? { include_meeting_files: true } : {}), ...(params.additional ? { additional: true } : {}), ...(params.accountId ? { account_id: params.accountId } : {}) }),
       },
     );
     if (!response.ok)

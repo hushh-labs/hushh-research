@@ -10,7 +10,7 @@ function Fixture() {
   const state = useFixture();
   const [mount, setMount] = useState(0);
   const [preview, setPreview] = useState(false);
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const vault = useVault();
   return (
     <>
@@ -35,9 +35,9 @@ function Fixture() {
       {state.message ? <p role="alert">{state.message}</p> : null}
       {state.href ? (
         <section aria-label="Agent workspace">Request review workspace</section>
-      ) : preview && user ? (
+      ) : preview && user && userId ? (
         <aside data-app-side-pane className="mx-auto w-full max-w-[430px] p-4">
-          <OneTodoPreview user={user} {...vault} />
+          <OneTodoPreview user={user} ownerId={userId} {...vault} />
         </aside>
       ) : (
         <TodoListPage key={mount} />

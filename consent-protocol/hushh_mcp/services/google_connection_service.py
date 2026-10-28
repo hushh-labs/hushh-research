@@ -30,7 +30,23 @@ from hushh_mcp.services.google_calendar_account_status import (
     calendar_accounts_status as project_calendar_accounts_status,
 )
 from hushh_mcp.services.google_calendar_additional_store import upsert_additional_calendar_account
+from hushh_mcp.services.google_calendar_connection_view import CalendarAccountConnectionView
 from hushh_mcp.services.google_calendar_guest_photo_broker import exchange_guest_photo_token
+from hushh_mcp.services.google_calendar_meeting_grant import (
+    CALENDAR_MEET_DRIVE_READ_SCOPE as CALENDAR_MEET_DRIVE_READ_SCOPE,
+)
+from hushh_mcp.services.google_calendar_meeting_grant import (
+    CALENDAR_MEET_READ_SCOPE as CALENDAR_MEET_READ_SCOPE,
+)
+from hushh_mcp.services.google_calendar_meeting_grant import (
+    CalendarGrantIdentity,
+    native_allowed_scope_sets,
+    requested_calendar_level,
+    require_meeting_scopes,
+)
+from hushh_mcp.services.google_calendar_meeting_grant import (
+    read_calendar_grant_identity as resolve_calendar_grant_identity,
+)
 from hushh_mcp.services.google_calendar_profile_photo import CalendarProfilePhotos
 from hushh_mcp.services.google_connection_contract import (
     CALENDAR_GUEST_PHOTO_SCOPE,
@@ -263,6 +279,7 @@ class GoogleConnectionService:
         redirect_uri: str,
         transport: Literal["web", "native"],
         include_calendar_list: bool = False,
+        include_meeting_files: bool = False,
         calendar_additional: bool = False,
         calendar_account_id: str | None = None,
     ) -> dict[str, Any]:
@@ -274,6 +291,7 @@ class GoogleConnectionService:
             redirect_uri=redirect_uri,
             transport=transport,
             include_calendar_list=include_calendar_list,
+            include_meeting_files=include_meeting_files,
             calendar_additional=calendar_additional,
             calendar_account_id=calendar_account_id,
         )
@@ -288,6 +306,7 @@ class GoogleConnectionService:
         login_hint: str | None,
         calendar_additional: bool = False,
         calendar_account_id: str | None = None,
+        include_meeting_files: bool = False,
     ) -> dict[str, Any]:
         if calendar_additional and service != "calendar":
             raise GoogleConnectionError("Only Calendar can add an account", status_code=422)
@@ -308,6 +327,7 @@ class GoogleConnectionService:
             transport="web",
             calendar_additional=calendar_additional,
             calendar_account_id=calendar_account_id,
+            include_meeting_files=include_meeting_files,
         )
         query = {
             "client_id": self._client_id(),
@@ -412,7 +432,7 @@ class GoogleConnectionService:
 
     async def _calendar_picture(
         self, *, user_id: str, account_id: str, row: dict[str, Any]
-    ) -> str | None:
+    ) -> dict[str, str | None] | None:
         return await self._calendar_photos.lookup(user_id=user_id, account_id=account_id, row=row)
 
     async def calendar_accounts_status(self, *, user_id: str) -> dict[str, Any]:
@@ -434,7 +454,7 @@ class GoogleConnectionService:
     async def _primary_completion_status(
         self, user_id: str, service: GoogleService, calendar_additional: bool
     ) -> dict[str, Any]:
-        if calendar_additional and service == "calendar":
+        if service == "calendar":
             return await self._calendar_completion_status(user_id, "default")
         return await self.status(user_id=user_id, service=service)
 
@@ -599,10 +619,7 @@ class GoogleConnectionService:
         # The stored attempt is the authority requested by this connection.
         # Do not silently downgrade a management request to read-only access.
         requested_level = (
-            "manage"
-            if service == "calendar"
-            and "https://www.googleapis.com/auth/calendar.events" in requested_scopes
-            else "read"
+            requested_calendar_level(requested_scopes) if service == "calendar" else "read"
         )
         if not _scopes_cover(set(scopes.split()), set(self.scopes(service, requested_level))):
             raise GoogleConnectionError(
@@ -612,6 +629,8 @@ class GoogleConnectionService:
                 status_code=403,
                 reason_code="google_permission_required",
             )
+        if service == "calendar":
+            require_meeting_scopes(requested_scopes, granted_scopes, GoogleConnectionError)
         if (
             service == "calendar"
             and CALENDAR_LIST_READ_SCOPE in requested_scopes
@@ -728,14 +747,7 @@ class GoogleConnectionService:
             CALENDAR_GUEST_PHOTO_SCOPE in requested_scopes
             and CALENDAR_GUEST_PHOTO_SCOPE in set(scopes.split())
         )
-        required = set(
-            self.scopes(
-                "calendar",
-                "manage"
-                if "https://www.googleapis.com/auth/calendar.events" in requested_scopes
-                else "read",
-            )
-        )
+        required = set(self.scopes("calendar", requested_calendar_level(requested_scopes)))
         if not scopes or not _scopes_cover(set(scopes.split()), required):
             raise GoogleConnectionError(
                 "Calendar permission was not granted. Connect again and allow Calendar access.",
@@ -750,6 +762,7 @@ class GoogleConnectionService:
                 status_code=403,
                 reason_code="calendar_list_permission_required",
             )
+        require_meeting_scopes(requested_scopes, scopes.split(), GoogleConnectionError)
         require_previous_calendar_scopes(prior=prior, token_scope=scopes, covers=_scopes_cover)
         refresh_token = _clean(token.get("refresh_token"))
         if not refresh_token and prior and prior.get("status") == "connected":
@@ -1073,12 +1086,14 @@ class GoogleConnectionService:
         service: GoogleService,
         access_level: Literal["read", "manage"],
         include_calendar_list: bool = False,
+        include_meeting_files: bool = False,
         calendar_additional: bool = False,
         calendar_account_id: str | None = None,
     ) -> dict[str, Any]:
         """Return the public OAuth client for a platform Google sign-in request."""
         if not self.is_configured():
             raise GoogleConnectionError("Google OAuth is not configured", status_code=503)
+        include_calendar_list = include_calendar_list or include_meeting_files
         attempt = await self._create_oauth_attempt(
             user_id=user_id,
             service=service,
@@ -1087,6 +1102,7 @@ class GoogleConnectionService:
             transport="native",
             calendar_additional=calendar_additional and service == "calendar",
             calendar_account_id=calendar_account_id,
+            include_meeting_files=include_meeting_files,
             **(
                 {"include_calendar_list": True}
                 if include_calendar_list and service == "calendar"
@@ -1109,6 +1125,11 @@ class GoogleConnectionService:
                 if include_calendar_list and service == "calendar"
                 else {}
             ),
+            **(
+                {"include_meeting_files": True}
+                if include_meeting_files and service == "calendar"
+                else {}
+            ),
         }
 
     async def complete_native(
@@ -1129,13 +1150,9 @@ class GoogleConnectionService:
         attempt_id, attempt = await self._consume_oauth_attempt(user_id=user_id, state=state)
         base_scopes = {"openid", "email", "profile", *self.scopes(service, access_level)}
         requested_scopes = tuple(_clean(attempt["requested_scope_csv"]).split())
-        allowed_sets = [base_scopes]
-        if service == "calendar":
-            allowed_sets.append(base_scopes | {CALENDAR_LIST_READ_SCOPE})
-            allowed_sets.append(base_scopes | {CALENDAR_GUEST_PHOTO_SCOPE})
-            allowed_sets.append(
-                base_scopes | {CALENDAR_LIST_READ_SCOPE, CALENDAR_GUEST_PHOTO_SCOPE}
-            )
+        allowed_sets = native_allowed_scope_sets(
+            service, base_scopes, CALENDAR_LIST_READ_SCOPE, CALENDAR_GUEST_PHOTO_SCOPE
+        )
         if attempt["service"] != service or set(requested_scopes) not in allowed_sets:
             raise GoogleConnectionError(
                 "Google connection permission does not match this attempt", status_code=400
@@ -1547,6 +1564,13 @@ class GoogleConnectionService:
             str(row["grant_revision"]),
         )
 
+    async def read_calendar_grant_identity(
+        self, *, user_id: str, account_id: str = "default"
+    ) -> CalendarGrantIdentity | None:
+        return await resolve_calendar_grant_identity(
+            self, user_id=user_id, account_id=account_id, clean=_clean
+        )
+
     async def disconnect_service(
         self, *, user_id: str, service: GoogleService, account_id: str = "default"
     ) -> dict[str, Any]:
@@ -1726,38 +1750,6 @@ class GoogleConnectionService:
 
     def for_calendar_account(self, account_id: str) -> "CalendarAccountConnectionView":
         return CalendarAccountConnectionView(self, account_id)
-
-
-class CalendarAccountConnectionView:
-    """A narrow account-bound authority port for the existing Calendar runtime."""
-
-    def __init__(self, owner: GoogleConnectionService, account_id: str) -> None:
-        if not account_id or len(account_id) > 128:
-            raise GoogleConnectionError("Choose a valid Calendar account", status_code=422)
-        self.owner = owner
-        self.account_id = account_id
-
-    async def access_token(
-        self, *, user_id: str, service: GoogleService, access_level: Literal["read", "manage"]
-    ) -> str:
-        return await self.owner.access_token(
-            user_id=user_id, service=service, access_level=access_level, account_id=self.account_id
-        )
-
-    async def status(self, *, user_id: str, service: str) -> dict[str, Any]:
-        return await self.owner.status(user_id=user_id, service=service, account_id=self.account_id)
-
-    async def has_service_scope(self, *, user_id: str, service: GoogleService, scope: str) -> bool:
-        return await self.owner.has_service_scope(
-            user_id=user_id, service=service, scope=scope, account_id=self.account_id
-        )
-
-    async def read_grant_binding(
-        self, *, user_id: str, service: Literal["drive", "calendar"]
-    ) -> tuple[str, ...] | None:
-        return await self.owner.read_grant_binding(
-            user_id=user_id, service=service, account_id=self.account_id
-        )
 
 
 _singleton: GoogleConnectionService | None = None

@@ -31,6 +31,7 @@ class CalendarConnectStart(_UserRequest):
     login_hint: str | None = Field(default=None, max_length=512)
     additional: bool = False
     account_id: str | None = Field(default=None, min_length=1, max_length=128)
+    include_meeting_files: bool = False
 
 
 class CalendarConnectComplete(_UserRequest):
@@ -41,6 +42,7 @@ class CalendarConnectComplete(_UserRequest):
 
 class CalendarNativeConnectStart(BaseModel):
     include_calendar_list: bool = False
+    include_meeting_files: bool = False
     additional: bool = False
     account_id: str | None = Field(default=None, min_length=1, max_length=128)
     access_level: Literal["read", "manage"] = "read"
@@ -127,6 +129,7 @@ async def start_connect(
             login_hint=payload.login_hint,
             **({"calendar_additional": True} if payload.additional else {}),
             **({"calendar_account_id": payload.account_id} if payload.account_id else {}),
+            **({"include_meeting_files": True} if payload.include_meeting_files else {}),
         )
     except Exception as exc:
         raise _http(exc) from exc
@@ -163,6 +166,9 @@ async def start_native_connect(
             access_level=payload.access_level if payload else "read",
             **(
                 {"include_calendar_list": True} if payload and payload.include_calendar_list else {}
+            ),
+            **(
+                {"include_meeting_files": True} if payload and payload.include_meeting_files else {}
             ),
             **({"calendar_additional": True} if payload and payload.additional else {}),
             **(
