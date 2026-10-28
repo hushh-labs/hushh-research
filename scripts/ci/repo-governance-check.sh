@@ -47,7 +47,7 @@ python3 scripts/ci/test_runtime_capacity_inventory.py
 python3 scripts/ci/test_runtime_capacity_volume.py
 python3 scripts/ci/test_runtime_capacity_isolated.py
 python3 scripts/ci/test_runtime_capacity_route_secrets.py
-python3 scripts/ci/test_runtime_capacity_frontend.py
+python3 scripts/ci/prepare_capacity_python.py --verify-frontend-test
 python3 scripts/ci/test_prepare_capacity_python.py
 python3 scripts/ci/test_production_capacity_bridge.py
 python3 scripts/ci/test_production_capacity_recovery.py

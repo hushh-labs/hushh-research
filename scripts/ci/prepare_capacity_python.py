@@ -11,6 +11,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -98,10 +99,22 @@ def prepare(destination, run=subprocess.run):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--venv", type=Path, required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--venv", type=Path)
+    mode.add_argument("--verify-frontend-test", action="store_true")
     args = parser.parse_args()
     try:
-        print(prepare(args.venv))
+        if args.verify_frontend_test:
+            with tempfile.TemporaryDirectory(prefix="plg-capacity-test-") as folder:
+                python = prepare(Path(folder) / "venv")
+                subprocess.run(
+                    [python, str(ROOT / "scripts/ci/test_runtime_capacity_frontend.py")],
+                    cwd=ROOT,
+                    check=True,
+                    timeout=120,
+                )
+        else:
+            print(prepare(args.venv))
     except Exception:
         print("capacity runtime preparation failed", file=sys.stderr)
         raise SystemExit(1) from None
