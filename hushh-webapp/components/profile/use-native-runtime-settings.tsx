@@ -47,7 +47,7 @@ export function useNativeRuntimeSettings(model: GeminiRuntimeSettingsModel, owne
     { id: "runtime-managed", label: "Use Hussh’s AI", detail: "No key needed.", enabled: ready, selected: selectionKnown && model.mode === "hushh_managed_vertex", artworkId: "gemini", pending: model.isSaving && model.mode === "hushh_managed_vertex" },
     { id: "runtime-byok", label: "Use my own key", detail: "Your key stays locked to you.", enabled: ready, selected: selectionKnown && model.mode === "byok", artworkId: "gemini", chevron: true },
   ];
-  if (model.hasSavedKey === null) content.push({ id: "runtime-loading", label: "Checking your configuration…", enabled: true, readOnly: true });
+  if (model.hasSavedKey === null && !model.loadFailed) content.push({ id: "runtime-loading", label: "Checking your configuration…", enabled: true, readOnly: true });
   if (model.loadFailed || notice) content.push({ id: "runtime-outcome", label: notice ?? "Couldn’t load your configuration.", enabled: true, readOnly: true },
     { id: "runtime-retry", label: "Refresh settings", enabled: !busy });
   if (model.mode === "byok") content.push(

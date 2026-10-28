@@ -109,6 +109,30 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(managed()?.selected).toBe(false);
   });
 
+  it("keeps native AI selection unresolved while a failed read is retried", async () => {
+    loadRuntimeSecretMock.mockRejectedValue(new Error("Synthetic read failure"));
+    const hook = renderHook(() => {
+      const model = useGeminiRuntimeSettingsModel({ userId: "fresh-user", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token",
+        needsVaultCreation: false, needsUnlock: false, onRequestVaultUnlock: vi.fn(), onRequestVaultCreation: vi.fn() });
+      return { model, native: useNativeRuntimeSettings(model, "fresh-user", true) };
+    });
+    await waitFor(() => expect(hook.result.current.model.loadFailed).toBe(true));
+    expect(hook.result.current.model.hasSavedKey).toBeNull();
+    const failedRows = hook.result.current.native.page.sections[0].rows.map(row => row.id);
+    expect(failedRows).toContain("runtime-outcome");
+    expect(failedRows).toContain("runtime-retry");
+    expect(failedRows).not.toContain("runtime-loading");
+    let finish!: (value: null) => void;
+    loadRuntimeSecretMock.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    act(() => { void hook.result.current.model.refresh(); });
+    expect(hook.result.current.model.loadFailed).toBe(false);
+    const managed = hook.result.current.native.page.sections[0].rows.find(row => row.id === "runtime-managed");
+    expect(managed?.selected).toBe(false);
+    expect(managed?.enabled).toBe(false);
+    await act(async () => { finish(null); });
+    await waitFor(() => expect(hook.result.current.model.hasSavedKey).toBe(false));
+  });
+
   it.each([
     { status: { hostingMode: "shared" }, placement: "shared" },
     { status: { hostingMode: "byoc", state: "active", deploymentTarget: "user_gcp", cloudProject: "old-project" }, placement: "gcp" },

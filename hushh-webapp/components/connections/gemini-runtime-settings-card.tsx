@@ -297,7 +297,10 @@ export function useGeminiRuntimeSettingsModel({
       setLoadFailed(true);
       if (requiresExplicitSelection) setHasExplicitSelection(false);
       else setMode("hushh_managed_vertex");
-      setHasSavedKey(false);
+      // A failed read is unknown, not evidence that no key is saved. Keep it
+      // unresolved while a retry is in flight so native settings cannot act on
+      // the managed-mode placeholder as if it were the persisted selection.
+      setHasSavedKey(null);
       setHasSavedProviderKey(false);
       if (!visit.draftEdited) { setTransport("developer_api"); setVertexProject(""); setVertexLocation("global"); }
     }
