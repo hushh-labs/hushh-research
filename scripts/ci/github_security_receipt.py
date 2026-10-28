@@ -68,7 +68,12 @@ def verify_producer(api: GitHub, run: dict, workflow: dict, repo_id: int) -> Non
         and re.fullmatch(r"[0-9a-f]{40}", run.get("head_sha", "")) is not None,
         "Security producer is not the main-owned authority",
     )
-    ancestry = api.read(f"repos/{REPOSITORY}/compare/{run['head_sha']}...main")
+    # GitHub includes up to 300 file patches on page one regardless of the
+    # commit page size. Page two retains comparison/merge-base metadata without
+    # those patches, so an old valid receipt cannot overflow the bounded reader.
+    ancestry = api.read(
+        f"repos/{REPOSITORY}/compare/{run['head_sha']}...main?per_page=1&page=2"
+    )
     require(
         ancestry.get("status") in {"identical", "ahead"}
         and ancestry.get("merge_base_commit", {}).get("sha") == run["head_sha"],

@@ -25,7 +25,6 @@ from pathlib import Path
 
 import qualification_acceptance as acceptance
 import validation
-import yaml
 from qualification_target import SOURCE, QualificationError, Target, require
 
 ROOT = validation.ROOT
@@ -149,6 +148,10 @@ def _expanded(value, substitutions: dict):
 
 
 def check_recipe(build: dict, recipe: bytes, attempt: Attempt) -> int:
+    # Admission runs before the locked source runtime is installed. Only the
+    # later image phase needs PyYAML, which that runtime supplies.
+    import yaml
+
     expected = yaml.safe_load(recipe)
     substitutions = {"_IMAGE_TAG": attempt.tag, "_BUILD_TARGET": "backend"}
     require(
