@@ -94,6 +94,11 @@ async def ensure_owner(store, *, user_id, timezone="UTC", now=None):
             AND build_envelope IS NOT NULL AND tagging_next_at IS NULL"""),
             {"user": user_id, "generation": active["connection_generation"]},
         )
+        from hushh_mcp.services.drive_financial_packet_tag_store import rearm_unrecorded_failures
+
+        rearm_unrecorded_failures(
+            store, connection, user_id=user_id, generation=active["connection_generation"]
+        )
         return len(periods)
 
     return await store._transaction(operation)

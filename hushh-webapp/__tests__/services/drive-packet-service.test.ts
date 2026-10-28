@@ -84,6 +84,12 @@ describe("@feature_drive_packets @trace_loop query packet wire contract", () => 
       documents: [{ ...preview.documents[0], packetTag: { bucket: "review", reason: "no_evidence" } }] };
     expect(parseDrivePacket({ ...discovery, preview: tagged }, "owner")).toMatchObject({ preview: tagged });
     expect(parseDrivePacket({ ...discovery, preview: tagged })).not.toHaveProperty("preview");
+    // A scheduled retry time is optional: a malformed one drops only itself.
+    const retrying = { ...tagged.tagging, status: "queued", retryAt: "2026-10-28T06:00:00Z", failureCode: "refresh_in_progress" };
+    expect(parseDrivePacket({ ...discovery, preview: { ...tagged, tagging: retrying } }, "owner").preview?.tagging)
+      .toEqual({ status: "queued", policyVersion: "test-v1", counts: tagged.tagging.counts, retryAt: "2026-10-28T06:00:00Z" });
+    expect(parseDrivePacket({ ...discovery, preview: { ...tagged, tagging: { ...retrying, retryAt: "soon" } } }, "owner").preview?.tagging)
+      .toEqual({ status: "queued", policyVersion: "test-v1", counts: tagged.tagging.counts });
     for (const invalid of [null, { status: ["running"] }, { ...tagged.tagging, counts: { financial: -1 } }]) {
       const parsed = parseDrivePacket({ ...discovery, preview: { ...tagged, tagging: invalid,
         documents: [{ ...tagged.documents[0], packetTag: { bucket: ["financial"], reason: "invalid" } }] } }, "owner");

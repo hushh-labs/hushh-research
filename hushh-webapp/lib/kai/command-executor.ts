@@ -2,6 +2,7 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import {
   buildKaiAnalysisPreviewRoute,
+  buildKaiImportRoute,
   buildKaiMarketRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -285,12 +286,13 @@ export function executeKaiCommand(
   }
 
   if (command === "import") {
-    router.push(ROUTES.KAI_IMPORT);
+    const routeAfter = buildKaiImportRoute(currentRoute || ROUTES.KAI_PORTFOLIO);
+    router.push(routeAfter);
     return buildCommandResult({
       status: "executed",
       actionId,
       routeBefore: currentRoute,
-      routeAfter: ROUTES.KAI_IMPORT,
+      routeAfter,
       screenBefore: currentScreen,
       screenAfter: "import",
       resultSummary: "Opened the Finance portfolio import flow.",

@@ -1434,6 +1434,9 @@ tests/services/test_drive_empty_sale_finalization_postgres.py
 tests/services/test_drive_financial_packet_rollout_postgres.py
 tests/services/test_drive_financial_missing_source_postgres.py
 tests/services/test_drive_period_packet_loop_postgres.py
+# Organizing joins its own token refresh, records fixed failure codes and retries within bounds.
+tests/services/test_drive_financial_packet_tagging_postgres.py
+tests/services/test_drive_rest_timing.py
 tests/services/test_drive_period_packet_titles_postgres.py
 
 tests/services/test_drive_packet_catalog_postgres.py
