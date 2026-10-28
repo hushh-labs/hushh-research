@@ -54,9 +54,9 @@ Non-owned surfaces:
 1. Start from the documented parity contract and then validate the live native surfaces.
 2. Keep findings tied to concrete platform gaps, not generic “mobile broken” summaries.
 3. Route implementation work back into plugin-contract or owner skills after the audit isolates the issue.
-4. For generated native route audit reports, treat `ok: true` as advisory until the observed status also proves `ready=1`, `found=1`, and the observed marker equals the expected marker. A passed report with a missing marker is a blocker, not release evidence.
+4. For generated native route audit reports, require a complete, non-duplicated run with no skipped required routes; `ok: true` also needs `ready=1`, `found=1`, and the expected marker. A missing or skipped result is not release evidence.
 5. Before physical voice or route smoke, run the static native parity gate so missing microphone permission metadata, missing route-inventory entries, or unclassified legacy aliases fail before device work.
-6. Any route added to `ROUTES` must be classified in `native-route-inventory.json` in the same change. Nested route families that share one workspace may share a marker, but each canonical route still needs an explicit inventory row and static-export-safe fixture.
+6. Classify every in-app route, including standard physical pages absent from `ROUTES`. Track query-driven views and nested states separately from their parent route; each needs its own evidence. Nested families may share a marker, but each canonical route still needs an explicit inventory row and static-export-safe fixture.
 7. Keep destructive cold audits and non-destructive continuity rehearsals separate. Cold fixture evidence never proves an active memory-only vault or route survives background/resume.
 8. Start with static and host-native tests. A cold audit requires explicit authority, must terminate its test app on every host terminal path, and is never a default diagnosis command for a continuity failure.
 9. Before physical reviewer XCUI, read `references/physical-reviewer-preflight.md`; distinguish transport, device unlock, automation authorization and vault admission before supplying credentials.

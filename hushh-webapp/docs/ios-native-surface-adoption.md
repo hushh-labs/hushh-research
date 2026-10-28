@@ -42,6 +42,19 @@ path for each RIA detail family. Arbitrary identifiers and their native
 navigation have not been verified; the generated map must not count these
 unclassified routes as native acceptance.
 
+Fourteen in-app query-backed views (Finance, Consent, Location, Connect and
+Mail) are discovered in the surface map but do not have separate route-inventory
+rows. A parent-route smoke is not evidence that each view or nested state passed.
+The route-report verifier now rejects skipped, incomplete or duplicate results;
+that correction does not itself supply the missing view coverage.
+
+Source `519010d63b` shares UIKit text projection across native Profile name,
+password, pricing and runtime editors. A Release iPhone simulator run preserved
+selection, shortening, Unicode and marked text; a secure-field case and three
+existing editor-lifecycle checks also passed. A negative control reproducing the
+old collapsed selection failed as expected. This is not physical-device or
+real-keyboard/IME acceptance. The installed device build remains `85d175b750`.
+
 The hard Vault gate is one React-owned credential journey, not the Profile
 password-change scene. Its reachable states are checking/retry, setup-required,
 password creation, password or generated-method unlock, recovery-key entry,
