@@ -10,6 +10,10 @@ from typing import Any, Literal, Protocol
 
 from sqlalchemy import text
 
+from hushh_mcp.services.google_calendar_meeting_grant import (
+    CALENDAR_MEET_DRIVE_READ_SCOPE,
+    CALENDAR_MEET_READ_SCOPE,
+)
 from hushh_mcp.services.google_connection_contract import (
     CALENDAR_GUEST_PHOTO_SCOPE,
     CALENDAR_LIST_READ_SCOPE,
@@ -116,6 +120,7 @@ def _requested_scopes(
     access_level: Literal["read", "manage"],
     transport: Literal["web", "native"],
     include_calendar_list: bool,
+    include_meeting_files: bool,
     include_guest_photos: bool,
 ) -> tuple[str, ...]:
     return (
@@ -125,7 +130,13 @@ def _requested_scopes(
         *port.scopes(service, access_level),
         *(
             (CALENDAR_LIST_READ_SCOPE,)
-            if service == "calendar" and (transport == "web" or include_calendar_list)
+            if service == "calendar"
+            and (transport == "web" or include_calendar_list or include_meeting_files)
+            else ()
+        ),
+        *(
+            (CALENDAR_MEET_READ_SCOPE, CALENDAR_MEET_DRIVE_READ_SCOPE)
+            if service == "calendar" and include_meeting_files
             else ()
         ),
         *((CALENDAR_GUEST_PHOTO_SCOPE,) if include_guest_photos else ()),
@@ -141,6 +152,7 @@ def _persist_attempt(
     redirect_uri: str,
     transport: Literal["web", "native"],
     include_calendar_list: bool,
+    include_meeting_files: bool,
     calendar_additional: bool,
     calendar_account_id: str | None,
     attempt_id: str,
@@ -175,6 +187,7 @@ def _persist_attempt(
             access_level=access_level,
             transport=transport,
             include_calendar_list=include_calendar_list,
+            include_meeting_files=include_meeting_files,
             include_guest_photos=include_photos,
         )
         connection.execute(
@@ -215,6 +228,7 @@ async def create_oauth_attempt(
     redirect_uri: str,
     transport: Literal["web", "native"],
     include_calendar_list: bool = False,
+    include_meeting_files: bool = False,
     calendar_additional: bool = False,
     calendar_account_id: str | None = None,
 ) -> dict[str, Any]:
@@ -231,6 +245,7 @@ async def create_oauth_attempt(
             redirect_uri=redirect_uri,
             transport=transport,
             include_calendar_list=include_calendar_list,
+            include_meeting_files=include_meeting_files,
             calendar_additional=calendar_additional,
             calendar_account_id=calendar_account_id,
             attempt_id=attempt_id,
