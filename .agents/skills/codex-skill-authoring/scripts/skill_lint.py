@@ -751,8 +751,9 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
             if path.exists()
         )
         required_pr_skill_phrases = [
-            "Default PR-Train Mode",
-            "Use the async PR-train method as the default",
+            "Dev intake",
+            "protected Dev",
+            "Retained train campaigns",
             "Run the delegation router at intake",
         ]
         for phrase in required_pr_skill_phrases:
