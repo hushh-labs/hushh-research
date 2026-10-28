@@ -74,7 +74,7 @@ long-lived integration branch like `kai-voice-level3`).
    signoff trailers.
 4. After subtree sync, merge, rebase, squash, or automated repair, rerun the
    DCO signoff check before pushing.
-5. For `.codex/`, docs, config, scripts, or governance surfaces, rerun the
+5. For `.agents/`, docs, config, scripts, or governance surfaces, rerun the
    governance orchestrator after final local edits.
 
 ## Direct Main Admin Push Preflight

@@ -9,6 +9,7 @@ def facts_projection(file_id: str, result: dict[str, Any]) -> dict[str, Any]:
     export_links = result.get("exportLinks")
     capabilities = result.get("capabilities")
     encryption = result.get("clientEncryptionDetails")
+    shortcut = result.get("shortcutDetails")
     return {
         "id": file_id,
         "title": result["name"][:1024],
@@ -51,4 +52,5 @@ def facts_projection(file_id: str, result: dict[str, Any]) -> dict[str, Any]:
             if isinstance(encryption, dict)
             else {}
         ),
+        **({"shortcutDetails": shortcut} if isinstance(shortcut, dict) else {}),
     }

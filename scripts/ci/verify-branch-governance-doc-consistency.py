@@ -82,6 +82,7 @@ FORBIDDEN_PHRASES: list[str] = [
     "main receives only `integration/pr-train` promotion",
     "direct prs into `main` are blocked",
     "direct topic-branch prs into `main` are blocked",
+    "the deployed content is `integration/pr-train` by default",
 ]
 
 CANONICAL_DOCS = list(REQUIRED_CONCEPTS.keys())
@@ -133,6 +134,10 @@ def self_test() -> int:
     bad_forbidden = good + "\n`main` receives only `integration/pr-train` promotion PRs."
     if not _check_text(BRANCH_GOVERNANCE_DOC, bad_forbidden):
         failures.append("self-test: forbidden phrase not caught")
+
+    stale_dev = good + "\nThe deployed content is `integration/pr-train` by default."
+    if not _check_text(BRANCH_GOVERNANCE_DOC, stale_dev):
+        failures.append("self-test: stale Dev deployment default not caught")
 
     # A doc missing a required concept must fail.
     bad_missing = "Everything goes through the train. No further detail."
