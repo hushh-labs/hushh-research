@@ -2656,7 +2656,7 @@
         "warmup_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/kai/portfolio/analysis",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fanalysis",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -2673,7 +2673,6 @@
         "native_beacon": false
       },
       "findings": [
-        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
     },
@@ -7299,5 +7298,5 @@
       ]
     }
   ],
-  "content_sha256": "ec1bb12e47beebe6ebc0ecfea2a260fa76eda8a6981e7d509b5d89302d742ff5"
+  "content_sha256": "1861d3639d2dd5c13fb2166e43207188c6b843344410374ae491510ceae9fbf7"
 }
