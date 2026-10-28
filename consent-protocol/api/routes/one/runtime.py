@@ -726,37 +726,39 @@ async def select_hosted_cloud(
     request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> HostedCloudSelectResponse:
-    """The third door: have hussh host this person's pod, for now.
+    """Record a qualified pilot owner's choice of isolated managed hosting.
 
-    Deliberately beside `save_byoc_project` rather than in a module of its own --
-    both routes write the same two registry columns and the same setup marker, and
-    splitting them across files is how two writers of one column drift apart.
-
-    There is nothing to authorize and nothing to prove here: someone who arrives
-    with a Google account and nothing else can finish onboarding. The result is a
-    dedicated pod on Hussh-operated infrastructure. Do not imply BYOC custody or
-    private-agent guarantees for this deployment target.
+    Selection records intent only. Provisioning separately reserves the owner's
+    project and cost allocation, then verifies private custody before creating it.
+    Hussh administers this infrastructure; this choice is not BYOC authority.
     """
     from hushh_mcp.services.hosted_tier_guard import (
+        HostedPilotSelection,
         HostedTierNotPermittedError,
-        require_hosted_pod_creates_permitted,
+        require_hosted_pilot_selection,
     )
     from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 
-    try:
-        require_hosted_pod_creates_permitted("Hussh Pods selection")
-    except HostedTierNotPermittedError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "HOSTED_PODS_UNAVAILABLE",
-                "message": "Hussh Pods are not available right now.",
-            },
-        ) from exc
-
     repo = PersonalAgentRegistryRepo()
 
+    async def _admit(*, require_record: bool = False) -> HostedPilotSelection:
+        try:
+            return await require_hosted_pilot_selection(
+                firebase_uid, repo, require_record=require_record
+            )
+        except HostedTierNotPermittedError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "HOSTED_PODS_UNAVAILABLE",
+                    "message": "Hussh Pods are not available right now.",
+                },
+            ) from exc
+
+    selection = await _admit()
+
     async def _attach_hosted() -> bool:
+        admitted = await _admit(require_record=True)
         return bool(
             await repo.set_hosted_cloud(
                 user_id=firebase_uid,
@@ -764,24 +766,26 @@ async def select_hosted_cloud(
                 # to name a provider (test_deployment_boundary_holds). This route is
                 # the layer that knows a person chose the hosted tier.
                 deployment_target="gcp",
+                expected_row=admitted.registry_row,
             )
         )
 
-    wrote = await _attach_hosted()
-    if not wrote:
-        # Identical reservation fallback to the BYOC door, for the identical reason:
-        # with provision-on-AI-connection at its default, a person who did everything
-        # right can arrive here with no registry row, and a permanent 409 telling them
-        # to re-verify an already-verified phone is a loop that cannot terminate.
+    wrote = await _attach_hosted() if selection.registry_present else False
+    if not selection.registry_present:
+        # Only an originally absent row may use the existing phone bootstrap.
         if await _reserve_pending_agent_record(firebase_uid):
             wrote = await _attach_hosted()
     if not wrote:
         raise HTTPException(
             status_code=409,
             detail={
-                "code": "NO_AGENT_RECORD",
+                "code": "HOSTING_SELECTION_CHANGED"
+                if selection.registry_present
+                else "NO_AGENT_RECORD",
                 "message": (
-                    "Verify your phone number first. Your agent's record is created then, "
+                    "Hosting changed while this choice was being saved. Refresh and try again."
+                    if selection.registry_present
+                    else "Verify your phone number first. Your agent's record is created then, "
                     "and this is where its home gets attached to it."
                 ),
             },
@@ -792,7 +796,7 @@ async def select_hosted_cloud(
     return HostedCloudSelectResponse(
         deploymentTarget="gcp",
         assurance=(
-            "Your agent runs as its own instance on Hussh infrastructure. Hussh does not read it."
+            "Your private agent has isolated managed hosting. Hussh administers the infrastructure."
         ),
         migratable=True,
         nextStep="Choose how your agent reaches a model next.",

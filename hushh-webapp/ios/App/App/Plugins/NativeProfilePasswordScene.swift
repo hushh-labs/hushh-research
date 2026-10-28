@@ -215,6 +215,7 @@ struct NativePasswordProjection: Decodable {
     var coverage: (() -> Void)? { didSet { sheet.coverage = coverage } }
     var coversPresentation: Bool { sheet.coversPresentation }
     var presentationSettled: Bool { sheet.presentationSettled }
+    var feedbackPresenter: UIViewController? { sheet.feedbackPresenter }
     func refreshPrivacy() { sheet.refresh() }
     init(_ projection: NativePasswordProjection) { model = NativePasswordModel(projection) }
     func present(from parent: UIViewController, completion: @escaping (Bool) -> Void) -> Bool { sheet.present(from: parent, completion: completion) }

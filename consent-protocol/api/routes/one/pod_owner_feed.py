@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import base64
 import inspect
+import json
 import logging
 import time
 from typing import Any, Literal, Optional
@@ -45,9 +46,9 @@ router = APIRouter(prefix="/api/one/pod/owner-feed", tags=["personal-agent"])
 _SNAPSHOT_KINDS = frozenset({"location", "nav", "marketplace"})
 
 
-async def _resolve_owner(verified: Any, registry: Any) -> tuple[str, bytes, str]:
+async def _resolve_owner(verified: Any, registry: Any) -> tuple[str, bytes, str, str]:
     """The owner, and the agent key to seal to, from the row this signer holds."""
-    from hushh_mcp.services.compute_backend import is_owner_cloud_target  # noqa: PLC0415
+    from hushh_mcp.services.compute_backend import is_private_pod_row  # noqa: PLC0415
     from hushh_mcp.services.pod_access_audit import (  # noqa: PLC0415
         resolve_serving_owner_hushh_id,
     )
@@ -66,14 +67,19 @@ async def _resolve_owner(verified: Any, registry: Any) -> tuple[str, bytes, str]
         or not owner_id
         or serving != verified.hushh_id
         or row.get("pod_signing_key_id") != verified.key_id
-        or not is_owner_cloud_target(row.get("deployment_target"))
+        or not is_private_pod_row(row)
     ):
         raise HTTPException(403, detail="owner feed is not available to this agent")
     try:
         key = parse_pod_public_key(str(row.get("pod_pubkey") or ""), str(row.get("pod_key_id")))
     except ValueError:
         raise HTTPException(403, detail="owner feed is not available to this agent") from None
-    return owner_id, base64.b64decode(key.public_key_b64), key.key_id
+    return (
+        owner_id,
+        base64.b64decode(key.public_key_b64),
+        key.key_id,
+        json.dumps(row.get("backend_metadata") or {}, sort_keys=True, separators=(",", ":")),
+    )
 
 
 async def _read_projection(
@@ -145,7 +151,7 @@ async def serve_owner_feed(
         )
 
         registry = PersonalAgentRegistryRepo()
-    owner_id, pod_public, pod_key_id = await _resolve_owner(verified, registry)
+    owner_id, pod_public, pod_key_id, placement = await _resolve_owner(verified, registry)
     try:
         projection = (reader or _read_projection)(
             kind,
@@ -164,7 +170,7 @@ async def serve_owner_feed(
         raise HTTPException(502, detail="owner feed read failed")
     # The read can block on storage: the binding must still hold before it leaves.
     binding_after = await _resolve_owner(verified, registry)
-    if binding_after != (owner_id, pod_public, pod_key_id):
+    if binding_after != (owner_id, pod_public, pod_key_id, placement):
         raise HTTPException(403, detail="owner feed is not available to this agent")
 
     from hushh_mcp.services.pod_owner_feed_envelope import seal_feed, sign_feed  # noqa: PLC0415

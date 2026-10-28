@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ProfilePaymentsLink } from "@/components/profile/profile-account-link";
 import { Button } from "@/components/ui/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -17,7 +17,7 @@ import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vau
 
 const ENDPOINT = "https://mcp.stripe.com";
 type ConnectionStatus = "unchecked" | "saved" | "connected" | "verified" | "sign_in_needed" | "unavailable";
-const STATUS: Record<ConnectionStatus, string> = {
+export const STRIPE_CONNECTION_STATUS: Record<ConnectionStatus, string> = {
   unchecked: "Connect or check Stripe documentation tools.",
   saved: "Stripe sign-in saved. Check connection to verify documentation tools.",
   connected: "Documentation tools connected.",
@@ -32,7 +32,7 @@ function isStripeEndpoint(endpoint: string): boolean {
 }
 
 /** Explicit owner sign-in; selected Stripe account/environment are still unverified. */
-export function StripeConnectorReadiness({ access, onPrepareRecovery }: {
+export function useStripeConnectorReadiness({ access, onPrepareRecovery }: {
   access: CustomConnectorAccess | null;
   onPrepareRecovery?: PrepareRecovery;
 }) {
@@ -45,6 +45,9 @@ export function StripeConnectorReadiness({ access, onPrepareRecovery }: {
   const checkingAbort = useRef<AbortController | null>(null);
   const statusRevision = useRef(0);
   const userId = access?.userId, vaultKey = access?.vaultKey, vaultOwnerToken = access?.vaultOwnerToken;
+  const scope = useMemo(() => ({ userId, vaultKey, vaultOwnerToken }), [userId, vaultKey, vaultOwnerToken]);
+  const liveScope = useRef<typeof scope | null>(scope);
+  useLayoutEffect(() => { liveScope.current = scope; return () => { if (liveScope.current === scope) liveScope.current = null; }; }, [scope]);
   useEffect(() => {
     let active = true;
     const owner = snapshotValidatedAuthSessionOwner(), epoch = snapshotVaultSessionEpoch();
@@ -77,8 +80,8 @@ export function StripeConnectorReadiness({ access, onPrepareRecovery }: {
   }, [userId, vaultKey, vaultOwnerToken]);
 
   const check = async () => {
-    if (!access || inFlight.current || !lifetime.current()) return;
-    const sessionCurrent = lifetime.current, controller = new AbortController();
+    if (!access || inFlight.current || liveScope.current !== scope || !lifetime.current()) return;
+    const session = lifetime.current, sessionCurrent = () => liveScope.current === scope && lifetime.current === session && session(), controller = new AbortController();
     const revision = ++statusRevision.current;
     const current = () => sessionCurrent() && !controller.signal.aborted && revision === statusRevision.current;
     checkingAbort.current = controller;
@@ -118,8 +121,8 @@ export function StripeConnectorReadiness({ access, onPrepareRecovery }: {
   };
 
   const connect = async () => {
-    if (!access || !onPrepareRecovery || inFlight.current || !lifetime.current()) return;
-    const current = lifetime.current, signal = new AbortController().signal;
+    if (!access || !onPrepareRecovery || inFlight.current || liveScope.current !== scope || !lifetime.current()) return;
+    const session = lifetime.current, current = () => liveScope.current === scope && lifetime.current === session && session(), signal = new AbortController().signal;
     statusRevision.current += 1; setStatus("unchecked"); setVerification(null);
     inFlight.current = true; setBusy(true);
     const operation = (async () => {
@@ -145,12 +148,26 @@ export function StripeConnectorReadiness({ access, onPrepareRecovery }: {
     finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
+  return { access, onPrepareRecovery, busy, checking, status: lifetime.current() ? status : "unchecked" as ConnectionStatus,
+    verification: liveScope.current === scope && lifetime.current() ? verification : null, current: () => liveScope.current === scope && lifetime.current(), check, connect };
+}
+
+export type StripeConnectorReadinessModel = ReturnType<typeof useStripeConnectorReadiness>;
+
+export function StripeConnectorReadiness(props: { access: CustomConnectorAccess | null; onPrepareRecovery?: PrepareRecovery; model?: StripeConnectorReadinessModel }) {
+  return props.model ? <StripeConnectorReadinessView model={props.model} /> : <OwnedStripeConnectorReadiness {...props} />;
+}
+function OwnedStripeConnectorReadiness(props: Parameters<typeof StripeConnectorReadiness>[0]) {
+  return <StripeConnectorReadinessView model={useStripeConnectorReadiness(props)} />;
+}
+function StripeConnectorReadinessView({ model }: { model: StripeConnectorReadinessModel }) {
+  const { access, onPrepareRecovery, busy, checking, status, verification, current, connect, check } = model;
   return <section className="space-y-3" aria-label="Stripe connection readiness">
     <p role="status" className="text-sm text-muted-foreground">
-      {checking && lifetime.current() ? "Checking Stripe tools and Sandbox account…" : STATUS[lifetime.current() ? status : "unchecked"]}
+      {checking && current() ? "Checking Stripe tools and Sandbox account…" : STRIPE_CONNECTION_STATUS[status]}
       {" "}{status !== "verified" && "Stripe account and balance tools still need verification."}
     </p>
-    {status === "verified" && lifetime.current() && verification?.verifiedAt && <p className="text-sm text-muted-foreground">
+    {status === "verified" && current() && verification?.verifiedAt && <p className="text-sm text-muted-foreground">
       Provider observation: {new Date(verification.verifiedAt).toLocaleString()}. Purchases still require Consent review.
     </p>}
     <p className="text-sm text-muted-foreground">Use Payments and earnings to fund purchases and receive earnings. Stripe tool sign-in is optional for sharing.</p>

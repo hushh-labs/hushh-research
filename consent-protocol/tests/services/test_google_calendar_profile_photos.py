@@ -1,5 +1,6 @@
 """Account-bound Google Calendar profile photo presentation."""
 
+import hashlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -7,6 +8,7 @@ import pytest
 
 from hushh_mcp.services.google_calendar_profile_photo import _google_picture_url
 from hushh_mcp.services.google_connection_service import GoogleConnectionService
+from hushh_mcp.services.google_oauth_attempt import connection_generation
 
 
 @pytest.mark.asyncio
@@ -39,7 +41,10 @@ async def test_additional_calendar_account_does_not_impersonate_default_status()
         )
     )
     service._calendar_picture = AsyncMock(
-        return_value="https://lh4.googleusercontent.com/a/second=s96-c"
+        return_value={
+            "picture_url": "https://lh4.googleusercontent.com/a/second=s96-c",
+            "hosted_domain": "example.com",
+        }
     )
 
     result = await service.calendar_accounts_status(user_id="owner")
@@ -51,9 +56,19 @@ async def test_additional_calendar_account_does_not_impersonate_default_status()
             "account_id": "second",
             "google_email": "second@example.com",
             "profile_photo_url": "https://lh4.googleusercontent.com/a/second=s96-c",
+            "hosted_domain": "example.com",
+            "provider_subject_sha256": hashlib.sha256(b"google-second").hexdigest(),
             "status": "connected",
             "connected": True,
             "access_level": "manage",
+            "scope_csv": "",
+            "grant_generation": connection_generation(
+                {
+                    "provider_subject": "google-second",
+                    "refresh_token_ciphertext": "second-generation",
+                    "status": "connected",
+                }
+            ),
             "calendar_list_access": False,
         }
     ]
@@ -90,7 +105,10 @@ async def test_calendar_picture_checks_subject_and_connection_generation():
     service._calendar_account = AsyncMock(return_value=row)
 
     photo = await service._calendar_picture(user_id="owner", account_id="second", row=row)
-    assert photo == "https://lh3.googleusercontent.com/a/second=s96-c"
+    assert photo == {
+        "picture_url": "https://lh3.googleusercontent.com/a/second=s96-c",
+        "hosted_domain": None,
+    }
     assert service.access_token.await_args.kwargs["account_id"] == "second"
     assert await service._calendar_picture(user_id="owner", account_id="second", row=row) == photo
     service._userinfo.assert_awaited_once()
@@ -207,7 +225,10 @@ async def test_calendar_account_photos_remain_bound_to_each_google_subject():
     ]
     service._execute_raw_async = AsyncMock(return_value=SimpleNamespace(data=additional))
     service._calendar_picture = AsyncMock(
-        side_effect=lambda *, account_id, **_: f"https://lh3.googleusercontent.com/a/{account_id}"
+        side_effect=lambda *, account_id, **_: {
+            "picture_url": f"https://lh3.googleusercontent.com/a/{account_id}",
+            "hosted_domain": None,
+        }
     )
 
     result = await service.calendar_accounts_status(user_id="owner")

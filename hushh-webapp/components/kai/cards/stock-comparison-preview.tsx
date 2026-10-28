@@ -334,9 +334,9 @@ export function StockComparisonPreview({
                   {preview.list_match.investment_thesis || "One can launch the full debate to generate the deeper thesis and recommendation context."}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Source: {selectedSource?.label || preview.list_match.label || preview.list_match.source_id} · {preview.quote.as_of
-                    ? `Quote as of ${new Date(preview.quote.as_of).toLocaleString()}`
-                    : "Quote time unavailable"}
+                  Source: {selectedSource?.label || preview.list_match.label || preview.list_match.source_id}{preview.quote.as_of && Number.isFinite(Date.parse(preview.quote.as_of))
+                    ? ` · Quote as of ${new Date(preview.quote.as_of).toLocaleString()}`
+                    : ""}
                 </p>
               </div>
             </div>

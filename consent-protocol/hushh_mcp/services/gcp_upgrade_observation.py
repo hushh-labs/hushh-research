@@ -45,8 +45,26 @@ async def inspect_user_configuration(backend: Any, spec: PodSpec, *, name: str) 
     return service
 
 
-def verified_capabilities(spec: PodSpec, service: dict) -> dict[str, Any]:
+def verified_capabilities(
+    spec: PodSpec, service: dict, *, replacement: bool = True
+) -> dict[str, Any]:
     """Verify installed configuration once for replacement and recovery callers."""
+    if spec.private_gcp_deployment is not None:
+        from hushh_mcp.services.hosted_update_configuration import (
+            require_preserved_private_configuration,
+        )
+
+        frozen = getattr(spec.hosted_admission_guard, "operation", None) == "inspect"
+        spec.private_gcp_deployment.verify_observation(service, frozen=frozen)
+        require_preserved_private_configuration(service, frozen=frozen)
+        if replacement and spec.private_gcp_deployment.hosting_mode == "hussh_hosted":
+            entries = service["spec"]["template"]["spec"]["containers"][0]["env"]
+            actual = {entry["name"]: entry.get("value") for entry in entries}
+            if (
+                not spec.upgrade_operation_id
+                or actual.get("HUSSH_POD_WRITER_OPERATION") != spec.upgrade_operation_id
+            ):
+                raise ValueError("Managed upgrade writer operation differs from approved handoff")
     capability_metadata: dict[str, Any] = {}
     if spec.files_upgrade_plan is not None:
         from hushh_mcp.services.pod_files.capability_update import FilesCapabilityPlan

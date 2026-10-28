@@ -34,6 +34,44 @@ flowchart TB
 
 ---
 
+## One private image, explicit GCP hosting authority
+
+The October 26 hosted-pod decision retains Shared, user-owned GCP and
+Hussh-hosted as separate choices. Both private GCP placements use the same
+immutable pod image and common renderer. A destination registry may differ;
+the executable digest must remain identical. Build once per source candidate,
+then copy or promote verified bytes through the existing release contract.
+
+`PrivateGcpDeployment` binds owner, hosting mode, environment, project, region,
+runtime identity, image, custody locations and optional service incarnation.
+The BYOC adapter delegates private rendering to it. The managed adapter uses
+the same renderer while recording `hussh-hosted` tenancy, never `user-owned`.
+Its deployment assignment travels through the existing `PodSpec` resolver;
+the assignment alone grants no provisioning authority.
+
+An explicit hosted marker cannot acquire owner-cloud connector capabilities
+merely by configuring a KMS key. New private configurations contain no master
+or derived plaintext recovery keys. Provider readback checks the same owner,
+project, image, identity, environment and custody binding, rejecting duplicate
+environment names and forbidden key variables even when mounted by reference.
+
+Hosted dev text inference may explicitly use the current dev managed AI project
+under the pod's own verified attached workload identity (`hosted_pod_adc`).
+It uses no hub key, does not change custody coordinates and does not widen the
+separate exact-owner BYOC bridge. Native owner-project Vertex remains BYOC's
+default. Memory Bank, Live and connector access retain their separate gates.
+
+An unbound hosted adapter is planning-only. The internal pilot adapter composes
+the existing GCP lifecycle with a typed, retained admission binding, a separately
+frozen publication source and the assigned bootstrap identity. Bootstrap resumes
+only its durably observed prefix; uncertain outcomes refuse further mutation.
+Cleanup requires its own fresh erasure authority before borrowing credentials.
+The general hosted tier remains disabled while project preparation, complete
+cleanup and live qualification are unfinished. Successful rendering or a
+shared-model response cannot qualify the tier. The
+[dev runbook](../operations/dev-pod-first-light-runbook.md#hosted-private-pod-pilot)
+owns the operational evidence and spending boundary.
+
 # DECISION — No Terraform. Anywhere.
 
 **Terraform is not adopted — not as the abstraction, not as an applier — because

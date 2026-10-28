@@ -182,6 +182,26 @@ class OperationalBackendReferenceCases(OperationalBackendControlCases):
         self.assertEqual(record["origin"], ANCHOR["origin"])
         self.assertNotEqual(record["source"], COMMIT)
 
+    def test_git_trimmed_empty_informational_urls_preserve_exact_tag_and_custody(self):
+        original = original_healthy_tag()
+        message = MESSAGE.replace("frontend_url: https://app.example.test", "frontend_url:")
+        message = message.replace("backend_url: https://api.example.test", "backend_url:")
+        raw = original["tag_object"].replace(MESSAGE, message)
+        tag = successor.tag_identity(raw)
+        self.assertEqual(tag["tag_object"], raw)
+        encoded = raw.encode()
+        expected = hashlib.sha1(b"tag " + str(len(encoded)).encode() + b"\0" + encoded,
+                                usedforsecurity=False).hexdigest()
+        self.assertEqual(tag["tag_oid"], expected)
+        healthy, record = successor.split(successor.annotate(message, COMMIT, expected, ANCHOR), COMMIT)
+        self.assertEqual(healthy, message)
+        self.assertEqual(record["healthy_message_sha256"], hashlib.sha256(message.encode()).hexdigest())
+        self.assertEqual(successor.healthy_fields(healthy, COMMIT)["frontend_url"], "")
+        for broken in (message + "frontend_url:\n", message.replace("actor: governed-maintainer", "actor:"),
+                       message.replace("frontend_url:\n", "")):
+            with self.subTest(broken=hashlib.sha256(broken.encode()).hexdigest()), self.assertRaises(ValueError):
+                successor.split(broken, COMMIT)
+
     def test_operational_backend_rejects_tampering_and_ambiguous_annotations(self):
         value = successor.annotate(MESSAGE, COMMIT, OLD, ANCHOR)
         for broken in (

@@ -51,6 +51,10 @@ function committedAppearance(foreground: NativeControlForeground): NativeControl
   };
 }
 
+/** Imperative presentations sample the same committed CSS authority at open,
+ * rather than mounting a theme observer for every unopened form control. */
+export const readNativeControlAppearance = committedAppearance;
+
 /** Check at the action boundary, including before the observer's React commit. */
 export function isCurrentNativeControlAppearance(projected: NativeControlAppearance, foreground: NativeControlForeground = "accent"): boolean {
   const current = committedAppearance(foreground);

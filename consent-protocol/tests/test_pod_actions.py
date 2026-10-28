@@ -445,3 +445,19 @@ def test_send_status_keeps_neighboring_ingress_routes_closed():
         "gmod_abcdefghijklmnop/retry",
     ):
         assert not is_app_surface(f"/api/one/pod/actions/{path}")
+
+
+async def test_hosted_calendar_has_no_hub_or_local_google_fallback(monkeypatch):
+    from hushh_mcp.one_adk.pod_connector_tools import (
+        calendar_reads_via_door,
+        calendar_turn_refusal,
+        pod_connector_roster,
+        pod_tool_owner,
+    )
+    from tests.hosted_pod_support import install_hosted_runtime
+
+    install_hosted_runtime(monkeypatch)
+    assert not calendar_reads_via_door()
+    assert (await calendar_turn_refusal(h.tool_context()))["status"] == "failed"
+    assert await pod_tool_owner(h.tool_context(), "calendar") is None
+    assert pod_connector_roster() == []

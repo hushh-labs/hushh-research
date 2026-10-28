@@ -167,10 +167,12 @@ struct NativeDrawerProjection: Codable {
                   stack.first?.id != "memory" || Self.validMemoryPath(stack.map(\.id)),
                   stack.first?.id != "world-model" || Self.validWorldModelPath(stack.map(\.id)),
                   stack.first?.id != "connectors" || Self.validConnectorPath(stack.map(\.id)),
+                  !["hosting", "software-updates"].contains(stack.first?.id ?? "") || Self.validAgentSettingsPath(stack.map(\.id)),
                   !stack.contains(where: { ["finance-preferences", "finance-anchor"].contains($0.id) }) || Self.validFinancePath(stack.map(\.id)),
                   stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
                   stack.enumerated().allSatisfy({ index, page in
-                      (index == 0 ? ["referrals", "connectors", "world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
+                      (index == 0 ? ["hosting", "software-updates", "referrals", "connectors", "world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
+                        Self.validAgentSettingsPath(stack.map(\.id)) ||
                         Self.validFinancePath(stack.map(\.id)) ||
                         stack.first?.id == "memory" && Self.validMemoryPath(stack.map(\.id)) ||
                         stack.first?.id == "world-model" && Self.validWorldModelPath(stack.map(\.id)) ||
@@ -241,8 +243,18 @@ struct NativeDrawerProjection: Codable {
         }
         return true
     }
+    static func validAgentSettingsPath(_ path: [String]) -> Bool {
+        [["hosting"], ["software-updates"], ["software-updates", "update-notes"],
+         ["software-updates", "update-verification"], ["software-updates", "browser-review"],
+         ["software-updates", "browser-review", "browser-policy"]].contains(path)
+    }
     static func validPayoutPath(_ path: [String]) -> Bool {
         guard path.first == "payouts", path.count <= 8 else { return false }
+        if path.count > 1 && path[1].hasPrefix("commerce-") {
+            return [["payouts", "commerce-funding"], ["payouts", "commerce-payouts"], ["payouts", "commerce-refunds"], ["payouts", "commerce-history"],
+                    ["payouts", "commerce-history", "commerce-receipt"], ["payouts", "commerce-review"], ["payouts", "commerce-payouts", "commerce-review"],
+                    ["payouts", "commerce-refunds", "commerce-review"]].contains(path)
+        }
         let start = path.count > 1 && ["payout-activity", "payout-stripe"].contains(path[1]) ? 2 : 1
         guard path.count - start <= 6 else { return false }
         return path.dropFirst(start).enumerated().allSatisfy { $0.element == "payout-receipt-\($0.offset + 1)" }
@@ -300,7 +312,7 @@ struct NativeDrawerProjection: Codable {
             let path = profileStack?.map(\.id) ?? []
             return family == "profile" && backEnabled &&
                 (row == "security" && [["security", "devices", "device-unlink"], ["security", "vault", "vault-method"], ["security", "vault", "vault-remove"]].contains(path) ||
-                  (Self.validPayoutPath(path) || Self.validMemoryPath(path) || Self.validFinancePath(path) || Self.validWorldModelPath(path) || Self.validConnectorPath(path)) && path.dropLast(2).contains(where: { $0 == row }))
+                  (Self.validAgentSettingsPath(path) || Self.validPayoutPath(path) || Self.validMemoryPath(path) || Self.validFinancePath(path) || Self.validWorldModelPath(path) || Self.validConnectorPath(path)) && path.dropLast(2).contains(where: { $0 == row }))
         }
         guard action == "row", let row else { return false }
         if profileStack?.last?.memorySearch?.id == row { return text.map { $0.utf16.count <= 256 } == true }

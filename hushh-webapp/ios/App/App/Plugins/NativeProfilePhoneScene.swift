@@ -230,6 +230,7 @@ struct NativePhoneAction: Equatable {
     var coverage: (() -> Void)? { didSet { sheet.coverage = coverage } }
     var coversPresentation: Bool { sheet.coversPresentation }
     var presentationSettled: Bool { sheet.presentationSettled }
+    var feedbackPresenter: UIViewController? { sheet.feedbackPresenter }
     func refreshPrivacy() { sheet.refresh() }
     init(_ projection: NativePhoneProjection) {
         model = NativePhoneModel(projection); super.init(); model.changed = { [weak self] in self?.sheet.refresh() }

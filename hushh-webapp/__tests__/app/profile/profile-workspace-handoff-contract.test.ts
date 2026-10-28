@@ -88,15 +88,15 @@ describe("profile workspace duplication contract", () => {
     expect(memory).not.toContain("DocumentHashcoinPayouts");
     expect(profilePageSource).toContain('activePanel === "payouts"');
     expect(profilePageSource).toContain('activePanel === "request-pricing"');
-    expect(profilePageSource).toContain("<PaymentsAndEarnings key={applicationOwnerId} />");
+    expect(profilePageSource).toContain("<PaymentsAndEarnings key={applicationOwnerId} commerce={nativePayout.commerce} answer={nativePayout.answer} />");
     // One bank control on Payouts: the bank rows in "Your money", the only
     // control that takes Stripe's return. A second would start setup again.
     const payoutsPanel = profilePageSource.split('activePanel === "payouts") {')[1]?.split("} else if (")[0] ?? "";
-    expect(payoutsPanel).toContain("<PaymentsAndEarnings key={applicationOwnerId} />");
+    expect(payoutsPanel).toContain("<PaymentsAndEarnings key={applicationOwnerId} commerce={nativePayout.commerce} answer={nativePayout.answer} />");
     expect(payoutsPanel).not.toContain("AnswerPayoutAccount");
-    expect(paymentsSource).toContain("<ScopeCommerceAccountPanel />");
+    expect(paymentsSource).toContain("<ScopeCommerceAccountPanel model={commerce} />");
     expect(paymentsSource.match(/<DocumentHashcoinPayouts\b/g)).toEqual(["<DocumentHashcoinPayouts"]);
-    expect(paymentsSource).toMatch(/arrival\?\.source === "answers" \? <section[^>]*><AnswerPayoutAccount \/><\/section> : null/);
+    expect(paymentsSource).toMatch(/arrival\?\.source === "answers" \? <section[^>]*><AnswerPayoutAccount model={answer} \/><\/section> : null/);
     expect(payoutsSource.match(/<(?:PayoutBankRows|DocumentPayoutAccountCard)\b/g)).toEqual(["<PayoutBankRows"]);
     expect(payoutsSource).toContain("<PayoutBankRows handleReturn onAccountChange={setBank} actionsRef={bankActions} />");
     expect(returnHandlingBankControls()).toEqual(["components/consent/document-hashcoins.tsx"]);
@@ -114,7 +114,7 @@ describe("profile workspace duplication contract", () => {
     const pricing = profilePageSource.split('activePanel === "request-pricing") {')[1]?.split("} else if (")[0] ?? "";
     // The only navigation target is the validated `from`; the pane's query belongs to its host.
     expect(pricing).toMatch(/const pricingReturnTo = isPanePresentation\s*\?\s*null\s*:\s*normalizeInternalRouteHref\(searchParams\.get\("from"\)\);/);
-    expect(pricing).toMatch(/onSaved=\{\s*pricingReturnTo\s*\? \(\) => \{\s*toast\.success\("Price saved"\);\s*router\.replace\(pricingReturnTo\);\s*\}\s*:\s*undefined\s*\}/);
+    expect(pricing).toMatch(/onSaved=\{\s*pricingReturnTo\s*\? \(\) => \{\s*morphyToast\.success\("Price saved"\);\s*router\.replace\(pricingReturnTo\);\s*\}\s*:\s*undefined\s*\}/);
     expect(pricing.match(/router\.(?:push|replace)\(/g)).toEqual(["router.replace("]);
     // Negative control: an external or protocol-relative origin yields no handler, so the card confirms inline.
     expect(normalizeInternalRouteHref("/one/feed")).toBe("/one/feed");

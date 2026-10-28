@@ -170,7 +170,7 @@ class GitHub:
         self.cache[path] = value
         return value
 
-    def accept(self, pin: dict, environment: str, sha: str, service: str) -> dict:
+    def _receipt(self, pin: dict, environment: str) -> tuple[dict, dict, dict]:
         run_id, attempt, artifact_id = (
             pin.get(key) for key in ("run_id", "run_attempt", "artifact_id")
         )
@@ -202,6 +202,13 @@ class GitHub:
         require(
             receipt.get("run_id") == run_id and receipt.get("run_attempt") == attempt,
             "Receipt belongs to another attempt",
+        )
+        return run, artifact, receipt
+
+    def accept(self, pin: dict, environment: str, sha: str, service: str) -> dict:
+        run, artifact, receipt = self._receipt(pin, environment)
+        run_id, attempt, artifact_id = (
+            pin[key] for key in ("run_id", "run_attempt", "artifact_id")
         )
         image_reference = validate(
             receipt, environment=environment, sha=sha, service=service
@@ -236,6 +243,23 @@ class GitHub:
                 if image_reference is not None
                 else {}
             ),
+        }
+
+    def accepted_application(self, pin: dict, environment: str) -> dict:
+        """Inspect a pinned receipt without conflating its Main workflow SHA.
+
+        This is historical acceptance only. A current-state caller must also
+        bind the latest relevant deployment and the current run attempt.
+        """
+        sha, services = _provenance.application_scope(
+            self._receipt(pin, environment)[2]
+        )
+        return {
+            "sha": sha,
+            "services": {
+                service: self.accept(pin, environment, sha, service)
+                for service in services
+            },
         }
 
     def find(self, environment: str, sha: str, scope: str) -> dict:
@@ -274,12 +298,10 @@ class GitHub:
     def attempt_pins(self, environment: str, run_id: int) -> list[dict]:
         require(type(run_id) is int and run_id > 0, "Invalid acceptance run")
         inventory = self.read(f"runs/{run_id}/artifacts?per_page=100")
-        require(
-            inventory.get("total_count", 0) <= 100, "Artifact inventory is incomplete"
-        )
+        artifacts = _provenance.bounded_artifact_inventory(inventory)
         pins = {}
         pattern = rf"release-acceptance-{re.escape(environment)}-{run_id}-([1-9][0-9]*)"
-        for item in inventory.get("artifacts", []):
+        for item in artifacts:
             match = re.fullmatch(pattern, item.get("name", ""))
             if match is None:
                 continue

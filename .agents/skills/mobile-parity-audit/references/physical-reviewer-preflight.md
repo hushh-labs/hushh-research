@@ -16,6 +16,9 @@ another reviewer store or a privileged app-unlock route.
    harness change. Keep executable digests and install receipts with the run,
    and require the requested case's observed markers before interpreting its
    result. A stale installed runner is not evidence against the new feature.
+   Serialize dependency installation, web export, native resource sync and
+   packaging. Compare exported application files with the signed bundle before
+   installation; a successful native build can still contain stale web assets.
 2. Inspect `xcrun devicectl list devices` and
    `xcrun devicectl device info lockState --device <udid>`. Pairing does not prove
    unlocked transport; a connection reset is not a vault rejection. Recheck once
@@ -28,6 +31,17 @@ another reviewer store or a privileged app-unlock route.
    localNetwork`. Hostname lookup and paired-UDID lookup can differ. Separate a
    failed tunnel handshake from DDI compatibility and XCTest admission. Do not
    restart shared CoreDevice/Xcode services while another session owns work.
+   A failed upload does not establish that USB is required. After reconnecting
+   the existing pairing, recheck the authenticated service and make one bounded
+   transfer attempt appropriate to the artifact size. Install the app and matching
+   runner serially; verify both receipts before launch or attach-only testing.
+   Recheck device lock after a mid-run snapshot/session failure before diagnosing
+   an app crash or retrying input. An automation grant does not keep the phone
+   unlocked indefinitely. Bind crash evidence to the current PID/build/time;
+   an older report cannot explain a new interruption.
+   `UseDestinationArtifacts` is physical-iOS-only. Simulator runs use Xcode's
+   standard test-product paths; observe process/document identity instead of
+   claiming attach-only continuity from that configuration.
 3. Inspect this Xcode version's `devicectl device settings --help` before claiming
    a supported authorization or unlock command. Do not infer one from permission
    to operate the device or from the possession of its passcode.
@@ -46,6 +60,22 @@ another reviewer store or a privileged app-unlock route.
    entering the named secure field; submit normal Unlock once. A device passcode
    is not a vault passphrase. Persist neither in skills, env files, launch
    arguments, xctestrun files, screenshots, traces or diagnostics.
+   A reconnect/account-verification page precedes vault admission. Diagnose
+   its transport and deployed response contract before retrying credentials.
+   Bind the backend's serving source to the candidate's expected principal
+   fields; HTTP 200 alone is insufficient. If necessary, use a bounded
+   read-only probe through the existing native auth owner, emitting status and
+   schema-validation booleans only. Never relax principal validation or silently
+   substitute another environment. Record an explicitly selected dev replica
+   as dev evidence, not UAT or release acceptance.
+   If whole-value input is not acknowledged, do not submit or retry the private
+   value. Use the existing synthetic secure-entry probe first, with the matching
+   Xcode toolchain selected explicitly through `DEVELOPER_DIR`. On the same
+   iOS 27.2 candidate, Xcode 27.1 delivered six of eight public characters;
+   Xcode 27.2 passed both public samples and the subsequent normal reviewer
+   unlock. This comparison identifies a working toolchain, not every possible
+   input-loss cause. Keep synthetic counts separate from private input, which
+   must remain process-only and produce only acknowledgement booleans.
 7. Check that the native privacy cover has actually retired before private
    input. XCTest can report an underlying WebKit control as hittable while
    UIKit still covers it. Use only the authored recovery action or cancel a
@@ -93,6 +123,10 @@ another reviewer store or a privileged app-unlock route.
 6. If one journey stops a family batch, account for its remaining steps as not
    reached. Restore through authored Back/Chat, verify admission, and run only
    those isolated journeys. Never hide the original failure with a green retry.
+   Register restoration before the first route or overlay change, including
+   admission failures; verify the resulting warm destination instead of assuming
+   a cleanup tap succeeded. Retained native pages may share control identifiers:
+   resolve the current eligible destination, not an arbitrary global first match.
 7. Require the requested family/test identity and its observed completion receipt,
    not merely exit zero or a passing count: an incorrectly selected generic smoke
    does not prove the requested workspace. Record exact candidate/runtime, actions reached, assertions, exclusions and

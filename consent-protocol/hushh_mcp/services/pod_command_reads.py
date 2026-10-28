@@ -97,9 +97,9 @@ class PodCommandReads(LocationCommandReadService):
             from hushh_mcp.services.pod_owner_feed_client import owner_feed_client
 
             feed = owner_feed_client()
-        from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+        from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
-        self._metadata_only = owner_cloud_agent() or feed is not None
+        self._metadata_only = private_pod_runtime() or feed is not None
         self._feed = feed
         self._hub = None if self._metadata_only else (client or PodHubClient())
         self._serial = asyncio.Lock()

@@ -17,8 +17,8 @@ const prepare = (token: string) => AnswerRequestService.payoutOnboarding(token, 
 const prepareManagement = (token: string) => AnswerRequestService.payoutLink(token, "dashboard");
 
 /** Answer-only account verification; its mode never changes other earnings. */
-export function AnswerPayoutAccount() {
-  const status = useCommerceRead("answer-payout-account", load, pending);
+export function useAnswerPayoutAccountModel(active = true) {
+  const status = useCommerceRead("answer-payout-account", load, pending, active);
   const action = useCommerceAction(status, "answer-payout-account");
   const hosted = useCommerceHostedFlow(status, action, prepare, () => status.refresh());
   const manageBank = useCommerceManagement(status, action, prepareManagement);
@@ -28,6 +28,16 @@ export function AnswerPayoutAccount() {
     if (!canManage) { void hosted.startHosted("onboarding"); return; }
     void manageBank();
   };
+  return { status, action, hosted, manage };
+}
+
+export type AnswerPayoutAccountModel = ReturnType<typeof useAnswerPayoutAccountModel>;
+export function AnswerPayoutAccount({ model }: { model?: AnswerPayoutAccountModel } = {}) {
+  return model ? <AnswerPayoutAccountView model={model} /> : <OwnedAnswerPayoutAccount />;
+}
+function OwnedAnswerPayoutAccount() { return <AnswerPayoutAccountView model={useAnswerPayoutAccountModel()} />; }
+function AnswerPayoutAccountView({ model }: { model: AnswerPayoutAccountModel }) {
+  const { status, action, hosted, manage } = model;
   if (status.data?.payouts === false) return (
     <HelperText as="p" role="status" className="consent-presentation-surface">
       Answer payout setup opens once paid answers are switched on here.

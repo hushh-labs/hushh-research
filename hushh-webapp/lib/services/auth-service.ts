@@ -32,6 +32,7 @@ import {
   signInWithCredential,
   signInWithPopup,
   reauthenticateWithPopup,
+  reauthenticateWithCredential,
   signOut as firebaseSignOut,
   updatePhoneNumber,
   User,
@@ -657,6 +658,14 @@ export class AuthService {
     expectedUserId: string,
     isCurrent: () => boolean,
   ): Promise<string> {
+    return this.reauthenticateGoogleProof(expectedUserId, isCurrent, false);
+  }
+
+  private static async reauthenticateGoogleProof(
+    expectedUserId: string,
+    isCurrent: () => boolean,
+    directWebGrant: boolean,
+  ): Promise<string> {
     if (!expectedUserId || !isCurrent()) throw new Error("session_changed");
     if (Capacitor.isNativePlatform()) {
       return this.reauthenticateNativeIdentity("google", expectedUserId, isCurrent);
@@ -670,10 +679,22 @@ export class AuthService {
       if (!isCurrent() || auth.currentUser !== currentUser || currentUser.uid !== expectedUserId) throw new Error("session_changed");
     };
     assertCurrent();
-    const provider = this.createWebProvider("google");
     try {
-      // No await before Firebase receives the originating user gesture.
-      const result = await reauthenticateWithPopup(currentUser, provider);
+      const result = await (async () => {
+        if (!directWebGrant || !googleSignupConfigured()) {
+          // No await before Firebase receives the originating user gesture.
+          return reauthenticateWithPopup(currentUser, this.createWebProvider("google"));
+        }
+        // Reuse sign-in's direct Google transport: the hosted Firebase popup
+        // can lose its return event in mobile browsers. Reauthentication must
+        // prove this existing user, never replace the session with sign-in.
+        const grant = await requestGoogleSignupToken({ includeContacts: false });
+        assertCurrent();
+        return reauthenticateWithCredential(
+          currentUser,
+          GoogleAuthProvider.credential(null, grant.accessToken),
+        );
+      })();
       assertCurrent();
       if (result.user.uid !== expectedUserId) throw new Error("identity_mismatch");
       const token = await result.user.getIdToken(true);
@@ -684,6 +705,8 @@ export class AuthService {
       if (this.isExpectedPopupClose(error)) throw new Error("identity_cancelled");
       const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
       if (code === "auth/popup-blocked") throw new Error("identity_popup_blocked");
+      if (code === "auth/initialization-not-ready") throw new Error("identity_initialization_not_ready");
+      if (code === "auth/timeout") throw new Error("identity_timeout");
       if (code === "auth/user-mismatch" || error instanceof Error && error.message === "identity_mismatch") throw new Error("identity_mismatch");
       // No OAuth payload/credential or Firebase error object crosses this seam.
       throw new Error("identity_verification_failed");
@@ -696,6 +719,9 @@ export class AuthService {
     providerId: "google.com" | "apple.com",
     isCurrent: () => boolean,
   ): Promise<string> {
+    if (providerId === "google.com") {
+      return this.reauthenticateGoogleProof(expectedUserId, isCurrent, true);
+    }
     return this.reauthenticateIdentity(expectedUserId, providerId, isCurrent);
   }
 

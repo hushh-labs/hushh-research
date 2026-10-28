@@ -8,8 +8,10 @@ const mocks = vi.hoisted(() => ({
   invitations: vi.fn().mockResolvedValue({ events: [], pending_count: 0, unreadable_calendars: [], start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z", time_zone: "Asia/Kolkata", complete: true }),
   today: vi.fn(),
   availability: vi.fn(),
-  reviewAttendance: vi.fn(),
-  confirmAttendance: vi.fn(),
+  reviewWorkspaceAttendance: vi.fn(),
+  confirmWorkspaceAttendance: vi.fn(),
+  reviewRsvp: vi.fn(),
+  confirmRsvp: vi.fn(),
   onConnect: vi.fn(),
   onChat: vi.fn(),
   onDisconnect: vi.fn(),
@@ -42,8 +44,10 @@ vi.mock("@/lib/services/google-calendar-service", async (importOriginal) => ({
     invitations: mocks.invitations,
     today: mocks.today,
     availability: mocks.availability,
-    reviewAttendance: mocks.reviewAttendance,
-    confirmAttendance: mocks.confirmAttendance,
+    reviewWorkspaceAttendance: mocks.reviewWorkspaceAttendance,
+    confirmWorkspaceAttendance: mocks.confirmWorkspaceAttendance,
+    reviewRsvp: mocks.reviewRsvp,
+    confirmRsvp: mocks.confirmRsvp,
   },
 }));
 
@@ -53,30 +57,7 @@ import { GoogleCalendarError } from "@/lib/services/google-calendar-service";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { resetIdleSchedulerForTests } from "@/lib/perf/idle-scheduler";
-
-const status = {
-  configured: true, connected: true, status: "connected" as const,
-  google_email: "owner@example.com", access_level: "manage" as const,
-  calendar_list_access: true, scope_csv: "calendar.events calendar.freebusy calendar.calendarlist.readonly",
-};
-const dailyEvents = [
-  {
-    id: "future", calendar_id: "primary", title: "Next planning session", status: "confirmed",
-    start: { dateTime: "2026-10-14T08:00:00Z" }, end: { dateTime: "2026-10-14T08:30:00Z" },
-    can_decline: true, organizer: { email: "organizer@example.com" },
-  },
-  {
-    id: "ongoing", calendar_id: "primary", title: "Current partner meeting", status: "confirmed",
-    start: { dateTime: "2026-10-14T05:45:00Z" }, end: { dateTime: "2026-10-14T06:30:00Z" },
-    description: "Review the implementation and blockers.", location: "Office",
-    conference_url: "https://meet.google.com/abc-defg-hij",
-    can_decline: true, organizer: { email: "organizer@example.com" },
-  },
-  {
-    id: "all-day", calendar_id: "primary", title: "Team retreat", status: "confirmed",
-    start: { date: "2026-10-14" }, end: { date: "2026-10-15" },
-  },
-];
+import { dailyEvents, status } from "./calendar-connected-workspace.fixtures";
 
 function workspace(userId = "owner", connectionStatus = status) {
   return <CalendarConnectedWorkspace userId={userId} status={connectionStatus} busy={false}
@@ -366,7 +347,7 @@ describe("CalendarConnectedWorkspace", () => {
     expect(screen.getByRole("tab", { name: "Insights", exact: true })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("heading", { name: "Executive snapshot" })).toBeInTheDocument();
     expect(mocks.availability).not.toHaveBeenCalled();
-    expect(mocks.reviewAttendance).not.toHaveBeenCalled();
+    expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();
   });
 
   it("does not describe loading or a failed event fetch as an empty day", async () => {
@@ -405,7 +386,7 @@ describe("CalendarConnectedWorkspace", () => {
     expect(mocks.onConnect.mock.calls[0][0]).toBe("read");
     expect(mocks.onConnect.mock.calls[0][1]).toBeFalsy();
     expect(screen.queryByText(/No events/i)).toBeNull();
-    expect(mocks.reviewAttendance).not.toHaveBeenCalled();
+    expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();
   });
 
   it("separates all-day events, exposes real meeting links, and opens event details", async () => {
@@ -428,7 +409,7 @@ describe("CalendarConnectedWorkspace", () => {
 
     expect(await screen.findByText("Review the implementation and blockers.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Can.t attend/i })).toBeInTheDocument();
-    expect(mocks.confirmAttendance).not.toHaveBeenCalled();
+    expect(mocks.confirmWorkspaceAttendance).not.toHaveBeenCalled();
   });
 
   it("highlights an ongoing meeting and orders timed events before the next event", async () => {
@@ -672,20 +653,20 @@ describe("CalendarConnectedWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Allow attendance changes", exact: true }));
 
     expect(mocks.onConnect).toHaveBeenCalledWith("manage");
-    expect(mocks.reviewAttendance).not.toHaveBeenCalled();
-    expect(mocks.confirmAttendance).not.toHaveBeenCalled();
+    expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();
+    expect(mocks.confirmWorkspaceAttendance).not.toHaveBeenCalled();
   });
 
   it("reviews the exact editable organizer message before confirming once", async () => {
     mocks.today.mockResolvedValue(dailyResponse(dailyEvents));
-    mocks.reviewAttendance.mockResolvedValueOnce({
+    mocks.reviewWorkspaceAttendance.mockResolvedValueOnce({
       review_id: "review-id", review_token: "review-token", title: "Current partner meeting",
       recipient: "organizer@example.com", subject: "Another time", sender_label: "Connected Mail",
       message: "Tomorrow would work better.\n\nhttps://one.example.com/calendar/reschedule#recipient-capability",
       rescheduling_link: "https://one.example.com/calendar/reschedule#recipient-capability",
     });
     let settle!: (value: unknown) => void;
-    mocks.confirmAttendance.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+    mocks.confirmWorkspaceAttendance.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
     render(workspace());
     fireEvent.click(await screen.findByRole("button", { name: /^Current partner meeting/i }));
     fireEvent.click(screen.getByRole("button", { name: "Can't attend", exact: true }));
@@ -694,15 +675,17 @@ describe("CalendarConnectedWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review", exact: true }));
 
     await screen.findByRole("heading", { name: "Review your response", exact: true });
-    expect(mocks.reviewAttendance).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ongoing", offerTimes: true, message: "Tomorrow would work better." }));
+    expect(mocks.reviewWorkspaceAttendance).toHaveBeenCalledWith(expect.objectContaining({ firebaseIdToken: "firebase-owner-token", eventId: "ongoing", offerTimes: true, message: "Tomorrow would work better." }));
+    expect(mocks.reviewWorkspaceAttendance.mock.calls[0][0]).not.toHaveProperty("vaultOwnerToken");
     expect(screen.getByRole("link", { name: "Review recipient rescheduling link", exact: true })).toHaveAttribute("href", "https://one.example.com/calendar/reschedule#recipient-capability");
-    expect(mocks.confirmAttendance).not.toHaveBeenCalled();
+    expect(mocks.confirmWorkspaceAttendance).not.toHaveBeenCalled();
     const confirm = screen.getByRole("button", { name: "Confirm", exact: true });
     fireEvent.click(confirm);
     fireEvent.click(confirm);
 
-    await waitFor(() => expect(mocks.confirmAttendance).toHaveBeenCalledOnce());
-    expect(mocks.confirmAttendance).toHaveBeenCalledWith(expect.objectContaining({ vaultOwnerToken: "owner-token", firebaseIdToken: "firebase-owner-token", reviewId: "review-id", reviewToken: "review-token", isEffectCurrent: expect.any(Function) }));
+    await waitFor(() => expect(mocks.confirmWorkspaceAttendance).toHaveBeenCalledOnce());
+    expect(mocks.confirmWorkspaceAttendance).toHaveBeenCalledWith(expect.objectContaining({ firebaseIdToken: "firebase-owner-token", reviewId: "review-id", reviewToken: "review-token", isEffectCurrent: expect.any(Function) }));
+    expect(mocks.confirmWorkspaceAttendance.mock.calls[0][0]).not.toHaveProperty("vaultOwnerToken");
     expect(screen.queryByText("Your attendance was declined.")).toBeNull();
     await act(async () => settle({ calendar: "declined", email: "unknown", calendar_error: null, email_error: "Email delivery could not be confirmed." }));
     expect(screen.getByText("Your attendance was declined.")).toBeInTheDocument();
@@ -753,13 +736,20 @@ describe("CalendarConnectedWorkspace", () => {
     view.rerender(workspace("owner-b"));
     await act(async () => settleToken("old-owners-firebase-token"));
 
-    expect(mocks.reviewAttendance).not.toHaveBeenCalled();
-    expect(mocks.confirmAttendance).not.toHaveBeenCalled();
+    expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();
+    expect(mocks.confirmWorkspaceAttendance).not.toHaveBeenCalled();
+    expect(mocks.reviewRsvp).not.toHaveBeenCalled();
+    expect(mocks.confirmRsvp).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("abandons attendance when the vault session changes synchronously before token resolution", async () => {
+  it("keeps a same-owner Calendar review across a vault session change", async () => {
     mocks.today.mockResolvedValue(dailyResponse(dailyEvents));
+    mocks.reviewWorkspaceAttendance.mockResolvedValueOnce({
+      review_id: "review-id", review_token: "review-token", title: "Current partner meeting",
+      recipient: "organizer@example.com", subject: "Another time", sender_label: "Connected Mail",
+      message: "Private organizer draft awaiting authority.",
+    });
     let settleToken!: (value: string) => void;
     render(workspace());
     fireEvent.click(await screen.findByRole("button", { name: /^Current partner meeting/i }));
@@ -773,13 +763,14 @@ describe("CalendarConnectedWorkspace", () => {
 
     await act(async () => {
       advanceVaultSessionEpoch();
-      settleToken("token-from-a-previous-vault-session");
+      settleToken("firebase-owner-token");
     });
 
-    expect(mocks.reviewAttendance).not.toHaveBeenCalled();
-    expect(mocks.confirmAttendance).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.querySelector('textarea[aria-label="Message to organizer"]')).toBeNull();
+    await screen.findByRole("heading", { name: "Review your response", exact: true });
+    expect(mocks.reviewWorkspaceAttendance).toHaveBeenCalledOnce();
+    expect(mocks.reviewWorkspaceAttendance.mock.calls[0][0]).not.toHaveProperty("vaultOwnerToken");
+    expect(mocks.confirmWorkspaceAttendance).not.toHaveBeenCalled();
+    expect(screen.getByText("Private organizer draft awaiting authority.")).toBeInTheDocument();
   });
 
   it("marks a cold connected Schedule loaded after Firebase read without a vault token", async () => {
@@ -828,8 +819,8 @@ describe("CalendarConnectedWorkspace", () => {
       view.rerender(workspace());
     });
     expect(screen.getByRole("textbox", { name: "Message to organizer", exact: true })).toHaveValue("Keep this reviewed organizer draft.");
-    expect(mocks.reviewAttendance).not.toHaveBeenCalled();
-    expect(mocks.confirmAttendance).not.toHaveBeenCalled();
+    expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();
+    expect(mocks.confirmWorkspaceAttendance).not.toHaveBeenCalled();
     await act(async () => {
       advanceVaultSessionEpoch();
       mocks.vaultOwnerToken = "renewed-token-for-the-same-owner";
@@ -857,19 +848,26 @@ describe("CalendarConnectedWorkspace", () => {
     await waitFor(() => expect(mocks.today).toHaveBeenCalledTimes(2));
   });
 
-  it("keeps attendance mutation protected when Firebase can read events without vault authority", async () => {
+  it("reviews and confirms RSVP with Firebase while the vault stays locked", async () => {
     mocks.vaultOwnerToken = null;
     mocks.ownerTokenStatus = "locked";
     mocks.today.mockResolvedValueOnce(dailyResponse(dailyEvents));
+    mocks.reviewRsvp.mockResolvedValueOnce({ review_id: "rsvp-review", review_token: "sealed-rsvp", title: "Current partner meeting", response_status: "declined" });
+    mocks.confirmRsvp.mockResolvedValueOnce({ calendar: "declined", email: "not_sent", calendar_error: null, email_error: null });
     render(workspace());
     fireEvent.click(await screen.findByRole("button", { name: /^Current partner meeting/i }));
     fireEvent.click(screen.getByRole("button", { name: "Can't attend", exact: true }));
     fireEvent.click(screen.getByRole("button", { name: "Review", exact: true }));
 
-    await screen.findByText("Calendar access changed. Reload this invitation.");
-    expect(mocks.reviewAttendance).not.toHaveBeenCalled();
-    expect(mocks.confirmAttendance).not.toHaveBeenCalled();
-    expect(screen.queryByText(/No events/i)).toBeNull();
+    await screen.findByRole("heading", { name: "Review your response", exact: true });
+    expect(mocks.reviewRsvp).toHaveBeenCalledWith(expect.objectContaining({ firebaseIdToken: "firebase-owner-token", eventId: "ongoing", responseStatus: "declined" }));
+    expect(mocks.reviewRsvp.mock.calls[0][0]).not.toHaveProperty("vaultOwnerToken");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm", exact: true }));
+    await waitFor(() => expect(mocks.confirmRsvp).toHaveBeenCalledOnce());
+    expect(mocks.confirmRsvp).toHaveBeenCalledWith(expect.objectContaining({ firebaseIdToken: "firebase-owner-token", reviewId: "rsvp-review", reviewToken: "sealed-rsvp" }));
+    expect(mocks.confirmRsvp.mock.calls[0][0]).not.toHaveProperty("vaultOwnerToken");
+    expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();
+    expect(mocks.confirmWorkspaceAttendance).not.toHaveBeenCalled();
   });
 
   it("changes the selected day and opens that exact day in the connected provider account", async () => {
@@ -899,7 +897,7 @@ describe("CalendarConnectedWorkspace", () => {
     expect(document.querySelector('[data-calendar-event="work@example.com:future"]')).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /^Work copy of shared ID/ }));
     expect(screen.queryByRole("button", { name: "Can't attend", exact: true })).toBeNull();
-    expect(mocks.reviewAttendance).not.toHaveBeenCalled();
+    expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();
   });
 
   it("opens event-menu details and the provider's actual event URL", async () => {
@@ -943,7 +941,7 @@ describe("CalendarConnectedWorkspace", () => {
     expect(row).toHaveTextContent("2 hr");
     fireEvent.click(row);
     expect(mocks.onChat).toHaveBeenCalledWith(undefined, expect.objectContaining({ durationMinutes: duration, ownerId: "owner", date: "2026-10-14" }));
-    expect(mocks.reviewAttendance).not.toHaveBeenCalled();
+    expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
@@ -1008,8 +1006,8 @@ describe("CalendarConnectedWorkspace", () => {
       ownerId: "owner", accountEmail: status.google_email, date: "2026-11-01", timeZone: "America/New_York",
       windowStart: "2026-11-01T05:30:00Z", windowEnd: "2026-11-01T06:30:00Z", durationMinutes: 15,
     });
-    expect(mocks.reviewAttendance).not.toHaveBeenCalled();
-    expect(mocks.confirmAttendance).not.toHaveBeenCalled();
+    expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();
+    expect(mocks.confirmWorkspaceAttendance).not.toHaveBeenCalled();
   });
 
   it("keeps the chosen Free time preferences and Firebase reads across vault token changes", async () => {

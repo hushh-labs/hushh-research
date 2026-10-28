@@ -151,6 +151,15 @@ final class AppUITests: XCTestCase {
 
     private func printCoherentPresentationAdmission(_ app: XCUIApplication) {
         printPrivacyAdmission(app)
+        // Fixed authored field identities only, never editor contents.
+        for name in ["name", "endpoint", "credential", "cancel", "link"] {
+            let controls = app.descendants(matching: .any).matching(identifier: "native-connector-\(name)")
+            let control = controls.firstMatch
+            let observed = control.exists ? control.frame : .zero
+            let bounds = [observed.minX, observed.minY, observed.width, observed.height]
+                .allSatisfy({ $0.isFinite && abs($0) <= 10_000 }) ? observed : .zero
+            print("PROFILE_CONNECTOR_FORM control=\(name) count=\(controls.count) role=\(control.exists ? control.elementType.rawValue : 0) hittable=\(control.exists && control.isHittable) enabled=\(control.exists && control.isEnabled) x=\(Int(bounds.minX)) y=\(Int(bounds.minY)) width=\(Int(bounds.width)) height=\(Int(bounds.height))")
+        }
         // Fixed authored identifiers/labels only. Never serialize a hierarchy,
         // profile identity, row label, draft or private presentation payload.
         for (kind, label) in [("view", "View photo"), ("options", "Photo options"),
@@ -797,7 +806,7 @@ final class AppUITests: XCTestCase {
         if let raw = publicReceipt.exists ? publicReceipt.value as? String : nil,
            let data = raw.data(using: .utf8),
            let values = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
-            for key in ["dockOptIn", "chromeOptIn", "methodClicks", "methodPointerUps", "passphraseFields", "dockActive"] {
+            for key in ["dockOptIn", "chromeOptIn", "methodClicks", "methodPointerUps", "passphraseFields", "dockActive", "routeKind", "globalErrorKind", "phoneGate", "nativeBaseConcealed", "nativeIsolation"] {
                 if let value = values[key], value.doubleValue.isFinite, (0...100_000).contains(value.doubleValue) {
                     print("NATIVE_PUBLIC_ADMISSION key=\(key) value=\(value.intValue)")
                 }
@@ -1130,11 +1139,11 @@ final class AppUITests: XCTestCase {
         let draft = editor.value as? String // Process-only comparison; never emitted.
         let profileClose = app.buttons["Close Profile"].firstMatch
         func verifyTouchAndReturn() -> Bool {
-            guard waitForAdmittedControl(opener) else { return false }
+            guard waitForAdmittedControl(opener) else { print("NATIVE_RESUME_STAGE failed=opener"); return false }
             opener.tap()
-            guard waitForAdmittedControl(profileClose) else { return false }
+            guard waitForAdmittedControl(profileClose) else { print("NATIVE_RESUME_STAGE failed=close_admission"); printCoherentPresentationAdmission(app); return false }
             profileClose.tap()
-            guard waitForAdmittedControl(editor), waitForAdmittedControl(opener) else { return false }
+            guard waitForAdmittedControl(editor), waitForAdmittedControl(opener) else { print("NATIVE_RESUME_STAGE failed=return_admission"); printCoherentPresentationAdmission(app); return false }
             guard waitForAdmittedControl(app.buttons["chat-history-toggle"].firstMatch),
                   waitForAdmittedControl(app.segmentedControls["chat-agent-surface"].firstMatch) else {
                 printCoherentPresentationAdmission(app)
@@ -2170,6 +2179,18 @@ final class AppUITests: XCTestCase {
         let initialDraft = editor.value as? String // Process-only, never an artifact.
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         let webFrame = web.frame
+        var returnedToChat = false
+        // Register recovery before the first route change. Feed admission can
+        // fail too; that must not strand the next warm journey on another route.
+        addTeardownBlock {
+            if !returnedToChat {
+                self.perfTapNav(app, label: "Chat")
+                let restored = self.waitForAdmittedControl(editor)
+                print("NATIVE_BOTTOM_SCROLL_RETURN attempted=true restored=\(restored)")
+                XCTAssertTrue(restored, "NATIVE_BOTTOM_SCROLL_CHAT_RECOVERY_FAILED")
+                if restored { XCTAssertTrue((editor.value as? String) == initialDraft, "NATIVE_BOTTOM_SCROLL_RECOVERY_CHANGED_DRAFT") }
+            }
+        }
         // The compact launcher may correctly have no overflow. Qualify the
         // actual Feed page without changing roster preferences or adding rows.
         perfTapNav(app, label: "Feed")
@@ -2182,10 +2203,6 @@ final class AppUITests: XCTestCase {
         guard waitForAdmittedControl(bar), waitForAdmittedControl(dock) else {
             reportNativeDockAdmission(app)
             XCTFail("NATIVE_BOTTOM_SCROLL_FEED_NOT_ADMITTED"); return
-        }
-        var returnedToChat = false
-        defer {
-            if !returnedToChat { perfTapNav(app, label: "Chat") }
         }
         let layout = app.buttons["native-vault-layout"].firstMatch
         if layout.exists {
@@ -4547,7 +4564,7 @@ final class AppUITests: XCTestCase {
             nativeAccountBack.exists && nativeAccountBack.isHittable
                 ? nativeAccountBack : app.buttons["Back in Profile"].firstMatch
         }
-        let destinations = ["account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
+        let destinations = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
         let requestedStart = ProcessInfo.processInfo.environment["HUSHH_PROFILE_BATCH_START"]
         if let requestedStart, !destinations.contains(requestedStart) {
             XCTFail("PROFILE_BATCH_START_UNADMITTED"); return
@@ -4614,7 +4631,55 @@ final class AppUITests: XCTestCase {
         func rootIsAdmitted() -> Bool {
             // Returning preserves the roster's scroll position. Its first row
             // need not be on screen (or in the accessibility snapshot).
-            close.exists && close.isHittable && menu.exists && menu.isHittable && publicPaneLevel() == 0
+            let level = publicPaneLevel()
+            let rootNavigation = level == 0 || level == nil &&
+                app.navigationBars["Profile"].exists && !(nativeAccountBack.exists && nativeAccountBack.isHittable)
+            return close.exists && close.isHittable && menu.exists && menu.isHittable && rootNavigation
+        }
+        func printProfileReturnState(_ stage: String) {
+            // Closed public destination names only; never dump a private AX tree.
+            let known = ["Profile", "Connectors", "Google Drive", "Trusted documents"]
+            let destination = known.firstIndex(where: { app.navigationBars[$0].exists }) ?? known.count
+            print("PROFILE_RETURN_STATE stage=\(stage) destination=\(destination) back=\(nativeAccountBack.exists && nativeAccountBack.isHittable) enabled=\(nativeAccountBack.exists && nativeAccountBack.isEnabled) root=\(rootIsAdmitted())")
+        }
+        func scrollProfileReading(upwards: Bool) {
+            // AX may report a scroll container's content extent. Keep the
+            // entire physical gesture inside its visible reading viewport.
+            let viewport = menu.frame.intersection(app.frame.insetBy(dx: 0, dy: app.frame.height * 0.1))
+            guard !viewport.isNull, viewport.height > 100 else { return }
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let lower = origin.withOffset(CGVector(dx: viewport.midX - app.frame.minX,
+                dy: viewport.minY + viewport.height * 0.75 - app.frame.minY))
+            let upper = origin.withOffset(CGVector(dx: viewport.midX - app.frame.minX,
+                dy: viewport.minY + viewport.height * 0.35 - app.frame.minY))
+            (upwards ? lower : upper).press(forDuration: 0.01, thenDragTo: upwards ? upper : lower,
+                withVelocity: .slow, thenHoldForDuration: 0.1)
+        }
+        func revealRosterRow(_ control: XCUIElement) -> Bool {
+            let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in rootIsAdmitted() }, object: app)
+            guard XCTWaiter.wait(for: [restored], timeout: 10) == .completed else {
+                print("PROFILE_ROOT_READ_STATE title=\(app.navigationBars["Profile"].exists) close=\(close.exists && close.isHittable) scroll=\(menu.exists && menu.isHittable) back=\(nativeAccountBack.exists && nativeAccountBack.isHittable)")
+                return false
+            }
+            // UIKit retains each page's independent scroll position. Return
+            // must prove the root first, then reveal the requested row rather
+            // than treating an offscreen roster entry as a navigation failure.
+            for upwards in [true, false] {
+                for _ in 0..<6 {
+                    if control.exists && control.isHittable && control.isEnabled { return true }
+                    guard rootIsAdmitted() else { return false }
+                    scrollProfileReading(upwards: upwards)
+                }
+            }
+            return control.exists && control.isHittable && control.isEnabled
+        }
+        func revealProfileRow(_ control: XCUIElement, upwards: Bool) -> Bool {
+            for _ in 0..<5 {
+                if control.exists && control.isHittable && control.isEnabled { return true }
+                guard menu.exists && menu.isHittable && nativeAccountBack.exists else { return false }
+                scrollProfileReading(upwards: upwards)
+            }
+            return waitForAdmittedControl(control)
         }
         // Profile deliberately resumes its query-owned detail. Its admitted
         // Back must restore the roster; opening Profile is not a root reset.
@@ -4622,12 +4687,14 @@ final class AppUITests: XCTestCase {
             if rootIsAdmitted() { break }
             guard waitForAdmittedControl(back) else { break }
             let sourceBar = app.navigationBars.firstMatch.identifier
+            printProfileReturnState("before_back")
             back.tap()
             let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 rootIsAdmitted() || back.exists && back.isHittable &&
                     app.navigationBars.firstMatch.identifier != sourceBar
             }, object: app)
             guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                printProfileReturnState("unsettled_back")
                 XCTFail("PROFILE_BATCH_RESUMED_PARENT_NOT_RESTORED"); return
             }
         }
@@ -4647,31 +4714,35 @@ final class AppUITests: XCTestCase {
         }
         print("PROFILE_OUTER_FRAME full_height=true phone=\(UIDevice.current.userInterfaceIdiom == .phone)")
         print("PROFILE_BATCH_STEP stage=groups")
-        for group in ["settings", "legal", "account-access"] {
-            XCTAssertTrue(app.staticTexts["native-profile-group-\(group)"].firstMatch.exists,
-                "PROFILE_SHARED_GROUP_MISSING")
+        // Destination traversal below proves the authored roster. Offscreen
+        // section headings are virtualized by SwiftUI and are not an
+        // interaction contract or evidence that a destination is missing.
+        if startIndex <= destinations.firstIndex(of: "account")! {
+            guard revealRosterRow(root("account")) else { XCTFail("PROFILE_SHARED_ROW_UNAVAILABLE"); return }
+            XCTAssertGreaterThanOrEqual(root("account").frame.height, 56)
+            XCTAssertEqual(root("account").frame.minX - menu.frame.minX, 16, accuracy: 1)
+            XCTAssertEqual(menu.frame.maxX - root("account").frame.maxX, 16, accuracy: 1)
         }
-        for _ in 0..<5 {
-            let account = root("account")
-            if account.exists && account.isHittable { break }
-            if account.exists && account.frame.midY < menu.frame.minY { menu.swipeDown() }
-            else { menu.swipeUp() }
-        }
-        guard waitForAdmittedControl(root("account")) else { XCTFail("PROFILE_SHARED_ROW_UNAVAILABLE"); return }
-        XCTAssertGreaterThanOrEqual(root("account").frame.height, 56)
-        XCTAssertEqual(root("account").frame.minX - menu.frame.minX, 16, accuracy: 1)
-        XCTAssertEqual(menu.frame.maxX - root("account").frame.maxX, 16, accuracy: 1)
         print("PROFILE_BATCH_STEP stage=root_ready")
         for id in admittedDestinations {
             let destination = root(id)
-            for _ in 0..<5 {
-                if destination.exists && destination.isHittable { break }
-                menu.swipeUp()
-            }
-            guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
+            guard revealRosterRow(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
             let previousPaneSample = publicPaneGeometry()?.sample ?? 0
             print("PROFILE_BATCH_STEP stage=destination_tap")
             destination.tap()
+            if ["hosting", "software-updates"].contains(id), ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                let check = app.buttons[id == "hosting" ? "native-profile-row-hosting-check" : "native-profile-row-updates-check"].firstMatch
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(check), waitForAdmittedControl(close) else {
+                    XCTFail("PROFILE_NATIVE_AGENT_SETTINGS_NOT_ADMITTED"); return
+                }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_AGENT_SETTINGS_DUPLICATE_WEB_BODY")
+                nativeAccountBack.tap()
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
+                    XCTFail("PROFILE_NATIVE_AGENT_SETTINGS_RETURN_FAILED"); return
+                }
+                print("PROFILE_NATIVE_DESTINATION family=\(id) native=true returned=true mutated=false")
+                continue
+            }
             if ["privacy", "terms"].contains(id), app.scrollViews["native-legal-reader-\(id)"].firstMatch.waitForExistence(timeout: 5) {
                 print("PROFILE_LEGAL_STEP phase=reader_admitted")
                 let reader = app.scrollViews["native-legal-reader-\(id)"].firstMatch
@@ -4722,7 +4793,7 @@ final class AppUITests: XCTestCase {
                           waitForAdmittedControl(documentBack) else { XCTFail("PROFILE_LEGAL_REPLACEMENT_CHANGED_BACK_DEPTH"); return }
                 }
                 documentBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_LEGAL_ROOT_NOT_RESTORED"); return
                 }
                 if legalReturnOnly {
@@ -4796,7 +4867,8 @@ final class AppUITests: XCTestCase {
                 row("Add connector").tap()
                 guard waitForAdmittedControl(app.textFields["native-connector-name"].firstMatch),
                       waitForAdmittedControl(app.textFields["native-connector-endpoint"].firstMatch),
-                      app.secureTextFields["native-connector-credential"].firstMatch.exists, waitForAdmittedControl(cancel) else {
+                      app.secureTextFields["native-connector-credential"].firstMatch.waitForExistence(timeout: 10), waitForAdmittedControl(cancel) else {
+                    printCoherentPresentationAdmission(app)
                     XCTFail("PROFILE_NATIVE_CONNECTOR_SETUP_FORM_UNAVAILABLE"); return
                 }
                 cancel.tap()
@@ -4813,7 +4885,10 @@ final class AppUITests: XCTestCase {
                 catalogBack.tap()
                 guard filter(""), waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_CONNECTOR_CATALOG_RETURN_FAILED"); return }
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else { XCTFail("PROFILE_NATIVE_CONNECTORS_PROFILE_RETURN_FAILED"); return }
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
+                    printProfileReturnState("connector_return")
+                    XCTFail("PROFILE_NATIVE_CONNECTORS_PROFILE_RETURN_FAILED"); return
+                }
                 print("PROFILE_NATIVE_DESTINATION family=connectors warm=true single_host=true")
                 print("PROFILE_NATIVE_CONNECTORS catalog=true providers=true link_editor=true custom_editor=true trust=true returned=true mutated=false")
                 continue
@@ -4852,7 +4927,7 @@ final class AppUITests: XCTestCase {
                 worldBack.tap()
                 guard waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_PARENT_NOT_RESTORED"); return }
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_ROOT_RETURN_FAILED"); return }
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_ROOT_RETURN_FAILED"); return }
                 print("PROFILE_NATIVE_WORLD_MODEL research=true sources=true editor=true returned=true mutated=false")
                 continue
             }
@@ -4919,7 +4994,7 @@ final class AppUITests: XCTestCase {
                     print("PROFILE_NATIVE_MEMORY_EDITOR available=true keyboard=true cancelled=true mutated=false")
                 } else { print("PROFILE_NATIVE_MEMORY_EDITOR available=false keyboard=false cancelled=false mutated=false") }
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_MEMORY_PROFILE_RETURN_FAILED"); return
                 }
                 print("PROFILE_NATIVE_MEMORY sources=true sharing=true returned=true mutated=false")
@@ -4955,7 +5030,7 @@ final class AppUITests: XCTestCase {
                     XCTFail("PROFILE_NATIVE_PAYOUT_ACTIVITY_RETURN_FAILED"); return
                 }
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_PAYOUT_ROOT_NOT_RESTORED"); return
                 }
                 print("PROFILE_NATIVE_PAYOUTS activity=true native_filter=true returned=true mutated=false")
@@ -4964,6 +5039,10 @@ final class AppUITests: XCTestCase {
             if id == "request-pricing", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                 let edit = app.buttons["native-profile-row-request-pricing-edit"].firstMatch
                 guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(edit) else {
+                    let retry = app.buttons["native-profile-row-request-pricing-retry"].firstMatch
+                    let status = app.descendants(matching: .any).matching(identifier: "native-profile-row-request-pricing-status").firstMatch
+                    let loading = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Loading price…")).firstMatch
+                    print("PROFILE_PRICING_READ_STATE status=\(status.exists) loading=\(loading.exists) retry=\(retry.exists && retry.isHittable) edit=\(edit.exists) back=\(nativeAccountBack.exists && nativeAccountBack.isHittable)")
                     XCTFail("PROFILE_NATIVE_PRICING_NOT_ADMITTED"); return
                 }
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
@@ -4985,7 +5064,7 @@ final class AppUITests: XCTestCase {
                     XCTFail("PROFILE_NATIVE_PRICING_EDITOR_NOT_RETIRED"); return
                 }
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_PRICING_ROOT_NOT_RESTORED"); return
                 }
                 print("PROFILE_NATIVE_PRICING editor=true keyboard=true returned=true mutated=false")
@@ -4993,17 +5072,26 @@ final class AppUITests: XCTestCase {
             }
             if id == "devices", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                 let refresh = app.buttons["native-profile-row-devices-refresh"].firstMatch
-                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(refresh) else {
+                guard waitForAdmittedControl(nativeAccountBack), app.navigationBars["Trusted devices"].exists, refresh.exists else {
+                    let scrolls = app.scrollViews.matching(identifier: "native-profile-menu-scroll").allElementsBoundByIndex
+                    print("PROFILE_DEVICES_READ_STATE destination=\(app.navigationBars["Trusted devices"].exists) root=\(app.navigationBars["Profile"].exists) refresh=\(refresh.exists) enabled=\(refresh.exists && refresh.isEnabled) back=\(nativeAccountBack.exists && nativeAccountBack.isHittable) scrolls=\(min(16, scrolls.count)) hittable=\(min(16, scrolls.filter { $0.isHittable }.count))")
                     XCTFail("PROFILE_NATIVE_DEVICES_NOT_ADMITTED"); return
                 }
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
                     "PROFILE_NATIVE_DEVICES_DUPLICATE_WEB_BODY")
+                // Refresh can follow fifty devices and their Puppy actions.
+                // This read-only admission test does not invoke it; qualify
+                // the visible reading/Back owner without demanding that an
+                // unrelated bottom-of-list button be on screen.
+                scrollProfileReading(upwards: true)
+                scrollProfileReading(upwards: false)
+                guard waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_DEVICES_SCROLL_LOST_BACK"); return }
                 // Read-only reviewer journey. Real unlink outcomes are covered
                 // only by explicitly disposable UAT fixture qualification.
                 // This roster entry goes directly from Profile to Devices.
                 // Do not insert an unvisited Security page on native Back.
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_DEVICES_ROOT_NOT_RESTORED"); return
                 }
                 print("PROFILE_NATIVE_DEVICES list=true returned=true mutated=false")
@@ -5031,6 +5119,14 @@ final class AppUITests: XCTestCase {
                     // synthetic overlay or another copy of the Profile scene.
                     for expected in [original == "1" ? "0" : "1", original] {
                         haptics.tap()
+                        if ProcessInfo.processInfo.environment["HUSHH_EXPECT_NATIVE_FEEDBACK"] == "true" {
+                            let feedback = app.descendants(matching: .any).matching(identifier: "native-feedback-banner").firstMatch
+                            XCTAssertTrue(feedback.waitForExistence(timeout: 3), "PROFILE_NATIVE_FEEDBACK_NOT_VISIBLE")
+                            XCTAssertTrue(haptics.isHittable && nativeAccountBack.isHittable && close.isHittable,
+                                "PROFILE_NATIVE_FEEDBACK_BLOCKED_TOUCH")
+                            XCTAssertFalse(app.otherElements["Notifications alt+T"].isHittable,
+                                "PROFILE_NATIVE_FEEDBACK_HAS_WEB_DUPLICATE")
+                        }
                         let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                             haptics.exists && haptics.isHittable && haptics.value as? String == expected &&
                                 nativeAccountBack.exists && nativeAccountBack.isHittable && close.exists && close.isHittable
@@ -5046,7 +5142,7 @@ final class AppUITests: XCTestCase {
                 if id == "account", !phoneOnly, ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                     for actionID in ["account-reset", "account-delete"] {
                         let action = app.buttons["native-profile-row-\(actionID)"].firstMatch
-                        guard waitForAdmittedControl(action) else { XCTFail("PROFILE_NATIVE_ACCOUNT_ACTION_UNAVAILABLE"); return }
+                        guard revealProfileRow(action, upwards: true) else { XCTFail("PROFILE_NATIVE_ACCOUNT_ACTION_UNAVAILABLE"); return }
                         action.tap()
                         let cancel = app.buttons["native-profile-row-account-confirmation-cancel"].firstMatch
                         let warning = app.descendants(matching: .any).matching(identifier: "native-profile-row-account-confirmation-description").firstMatch
@@ -5072,10 +5168,11 @@ final class AppUITests: XCTestCase {
                             guard waitForAdmittedControl(accountBack) else { XCTFail("PROFILE_CONFIRMATION_LOCAL_BACK_UNAVAILABLE"); return }
                             accountBack.tap()
                         }
-                        guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(action) else {
+                        guard waitForAdmittedControl(nativeAccountBack), revealProfileRow(action, upwards: true) else {
                             XCTFail("PROFILE_NATIVE_ACCOUNT_CONFIRMATION_PARENT_NOT_RESTORED"); return
                         }
                     }
+                    guard revealProfileRow(name, upwards: false) else { XCTFail("PROFILE_NATIVE_ACCOUNT_READING_POSITION_UNAVAILABLE"); return }
                     print("PROFILE_NATIVE_ACCOUNT_CONFIRMATIONS reset_cancelled=true delete_cancelled=true returned=true")
                 }
                 // A native parent passing Back is not proof of its nested
@@ -5085,14 +5182,19 @@ final class AppUITests: XCTestCase {
                     id == "preferences" ? (ProcessInfo.processInfo.environment["HUSHH_PROFILE_PROVIDER_ONLY"] == "true" ? ["preferences-gemini"] : ["preferences-gemini", "preferences-voice"]) : ["security-vault"]
                 for childID in children {
                     let child = app.buttons["native-profile-row-\(childID)"].firstMatch
-                    guard waitForAdmittedControl(child) else { XCTFail("PROFILE_NATIVE_CHILD_UNAVAILABLE"); return }
+                    guard revealProfileRow(child, upwards: childID != "preferences-voice") else { XCTFail("PROFILE_NATIVE_CHILD_UNAVAILABLE"); return }
                     print("PROFILE_BATCH_STEP stage=child_tap")
                     child.tap()
                     if childID == "preferences-gemini", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                         let ownKey = app.buttons["native-profile-row-runtime-byok"].firstMatch
                         let configure = app.buttons["native-profile-row-runtime-configure"].firstMatch
                         let providerBack = nativeProfileBack(app, parent: "Preferences")
-                        guard waitForAdmittedControl(ownKey), waitForAdmittedControl(providerBack) else { XCTFail("PROFILE_NATIVE_PROVIDER_NOT_ADMITTED"); return }
+                        guard waitForAdmittedControl(ownKey), waitForAdmittedControl(providerBack) else {
+                            let loading = app.buttons["native-profile-row-runtime-loading"].firstMatch
+                            let retry = app.buttons["native-profile-row-runtime-retry"].firstMatch
+                            print("PROFILE_PROVIDER_READ_STATE byok=\(ownKey.exists) enabled=\(ownKey.exists && ownKey.isEnabled) loading=\(loading.exists) retry=\(retry.exists && retry.isHittable) web=\(app.webViews.matching(identifier: "native-webview").count > 0)")
+                            XCTFail("PROFILE_NATIVE_PROVIDER_NOT_ADMITTED"); return
+                        }
                         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_PROVIDER_DUPLICATE_WEB_BODY")
                         // Choosing an editor changes no saved configuration.
                         // Never validate, save or remove the reviewer's key.
@@ -5357,7 +5459,7 @@ final class AppUITests: XCTestCase {
             XCTAssertEqual(publicPaneLevel(), 0, "PROFILE_BATCH_ROOT_NOT_COMMITTED")
             // Back must restore the originating row and menu scroll position,
             // not force Your account into view after a lower Legal destination.
-            XCTAssertTrue(waitForAdmittedControl(destination), "PROFILE_BATCH_MENU_NOT_RESTORED")
+            XCTAssertTrue(revealRosterRow(destination), "PROFILE_BATCH_MENU_NOT_RESTORED")
             XCTAssertFalse(web.buttons["Unlock"].exists)
             print("PROFILE_RETAINED_DESTINATION family=\(id) warm=true single_host=true")
         }
@@ -5426,8 +5528,17 @@ final class AppUITests: XCTestCase {
             XCTFail("WORKSPACE_REQUIRES_RUNNING_SESSION"); return
         }
         app.activate()
+        if ProcessInfo.processInfo.environment["HUSHH_WORKSPACE_FAMILY"] == "wallet" {
+            // Recover only this harness's known, local unsaved card scene after
+            // an interrupted check; no account or saved-card operation runs.
+            let pickerBack = app.navigationBars.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Add card", "Back")).firstMatch
+            if pickerBack.exists && pickerBack.isHittable { pickerBack.tap() }
+            let cancel = app.buttons["native-wallet-card-cancel"].firstMatch
+            if cancel.exists && cancel.isHittable { cancel.tap() }
+        }
         dismissRehearsalChatKeyboard(app)
-        let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
+        let hosts = app.webViews.matching(identifier: "native-webview")
+        var web = hosts.firstMatch
         XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
         defer { self.returnToRehearsalChat(app) }
         for label in ["Close Profile", "Close chat history", "Close search"] {
@@ -5495,85 +5606,87 @@ final class AppUITests: XCTestCase {
                 select("Active"); select("History"); select("Connections"); select("Requests")
             default:
                 openAgent("Wallet")
-                func walletPaneReady(_ isVisible: @escaping () -> Bool, failure: String,
-                                     diagnoseFailure: (() -> Void)? = nil) -> Bool {
+                func walletPaneReady(_ isVisible: @escaping () -> Bool, failure: String) -> Bool {
                     let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                         isVisible()
                     }, object: web)
                     guard XCTWaiter.wait(for: [visible], timeout: 10) == .completed else {
-                        diagnoseFailure?()
                         XCTFail(failure); return false
                     }
                     return true
                 }
+                if ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                    guard NativeWalletJourney.run(app) else { return }
+                    let back = app.buttons.matching(NSPredicate(format: "label == %@", "Go back")).firstMatch
+                    guard waitForAdmittedControl(back) else { XCTFail("WORKSPACE_BACK_UNAVAILABLE"); return }
+                    back.tap()
+                    XCTAssertTrue(web.links["Open Wallet"].waitForExistence(timeout: 15), "WORKSPACE_BACK_DID_NOT_RETURN_TO_ONE")
+                    XCTAssertTrue(app.buttons["native-wallet-add"].firstMatch.waitForNonExistence(timeout: 5), "WALLET_NATIVE_BODY_LEAKED_TO_ONE")
+                    continuity(family)
+                    continue
+                }
                 let introduction = web.buttons["Continue"].firstMatch
                 func diagnoseWalletTabs() {
-                    let cards = tab("Cards"), frame = cards.exists ? cards.frame : .zero
+                    let cards = tab("My cards"), frame = cards.exists ? cards.frame : .zero
                     print("WALLET_TAB_DIAG exists=\(cards.exists) enabled=\(cards.exists && cards.isEnabled) hittable=\(cards.exists && cards.isHittable) x=\(Int(frame.minX)) y=\(Int(frame.minY)) width=\(Int(frame.width)) height=\(Int(frame.height))")
                 }
                 let admission = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    (tab("Cards").exists && tab("Cards").isEnabled && tab("Cards").isHittable) ||
+                    (tab("My cards").exists && tab("My cards").isEnabled && tab("My cards").isHittable) ||
                     (introduction.exists && introduction.isEnabled && introduction.isHittable)
                 }, object: web)
                 guard XCTWaiter.wait(for: [admission], timeout: 15) == .completed else {
                     diagnoseWalletTabs()
                     XCTFail("WORKSPACE_WALLET_ADMISSION_UNOBSERVED"); return
                 }
-                if !tab("Cards").exists {
+                if !tab("My cards").exists {
                     // Cosmetic owner-local introduction only; no card or grant operation.
                     introduction.tap()
                 }
                 let cardsReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    tab("Cards").exists && tab("Cards").isEnabled && tab("Cards").isHittable
+                    tab("My cards").exists && tab("My cards").isEnabled && tab("My cards").isHittable
                 }, object: web)
                 guard XCTWaiter.wait(for: [cardsReady], timeout: 15) == .completed else {
                     diagnoseWalletTabs()
                     XCTFail("WORKSPACE_WALLET_NOT_READY"); return
                 }
-                guard tab("Cards").isSelected else {
+                guard tab("My cards").isSelected else {
                     // Do not erase or route around an owner's staged add/reveal handoff.
                     XCTFail("WORKSPACE_WALLET_UNEXPECTED_HANDOFF"); return
                 }
-                select("Cards"); select("Add")
-                let addHeading = web.staticTexts["Add your card"].firstMatch
-                guard walletPaneReady({ addHeading.exists && addHeading.isHittable },
-                                      failure: "WORKSPACE_WALLET_ADD_BODY_UNOBSERVED") else { return }
-                select("Sharing")
-                let sharingHeading = web.staticTexts.matching(NSPredicate(format:
-                    "label CONTAINS %@ AND label CONTAINS %@", "Your cards.", "Your control.")).firstMatch
-                // WKWebView may expose a <br>-separated heading as two static texts.
-                // Either representation must prove the complete, hittable public body.
-                let sharingFirst = web.staticTexts["Your cards."].firstMatch
-                let sharingSecond = web.staticTexts["Your control."].firstMatch
-                let sharingExplanation = web.staticTexts["You choose who can access your Wallet information."].firstMatch
-                let sharingAnchors: [(String, XCUIElement)] = [
-                    ("combined", sharingHeading), ("first", sharingFirst),
-                    ("second", sharingSecond), ("explanation", sharingExplanation),
-                ]
-                guard walletPaneReady({
-                    let completeHeading = (sharingHeading.exists && sharingHeading.isHittable) ||
-                        (sharingFirst.exists && sharingFirst.isHittable && sharingSecond.exists && sharingSecond.isHittable)
-                    return completeHeading && sharingExplanation.exists && sharingExplanation.isHittable
-                }, failure: "WORKSPACE_WALLET_SHARING_BODY_UNOBSERVED", diagnoseFailure: {
-                    // Only authored public anchors; never enumerate card or recipient content.
-                    for (name, anchor) in sharingAnchors {
-                        print("WORKSPACE_WALLET_PUBLIC_ANCHOR anchor=\(name) exists=\(anchor.exists) hittable=\(anchor.exists && anchor.isHittable)")
+                // Match the authored two-collection contract. Add is an owned
+                // sheet now; historical Cards/Add/Sharing tabs are retired.
+                select("Shared with me")
+                let received = web.descendants(matching: .any).matching(NSPredicate(
+                    format: "label == %@", "Received card history")).firstMatch
+                let emptyShared = web.staticTexts["No active shared cards"].firstMatch
+                let receivedCard = web.buttons.matching(NSPredicate(
+                    format: "label BEGINSWITH %@ AND label CONTAINS %@", "View ", " from ")).firstMatch
+                // A named HTML section need not become a hittable XCUI node.
+                // Require its actual settled body, including the valid empty
+                // state; loading and failure messages cannot satisfy this.
+                let sharedReady = walletPaneReady({
+                    emptyShared.exists && emptyShared.isHittable || receivedCard.exists && receivedCard.isHittable
+                }, failure: "WORKSPACE_WALLET_SHARING_BODY_UNOBSERVED")
+                let sharingFailed = ["Could not refresh card sharing.", "Card sharing is unavailable. Automatic refresh is paused."]
+                    .contains { web.staticTexts[$0].firstMatch.exists && web.staticTexts[$0].firstMatch.isHittable }
+                print("WALLET_BODY_ADMISSION named_region=\(received.exists) empty=\(emptyShared.exists && emptyShared.isHittable) card=\(receivedCard.exists && receivedCard.isHittable) failed=\(sharingFailed)")
+                XCTAssertFalse(sharingFailed, "WORKSPACE_WALLET_SHARING_UNAVAILABLE")
+                guard sharedReady, !sharingFailed else { return }
+                select("My cards")
+                    let add = web.buttons["Add a card"].firstMatch
+                    guard waitForAdmittedControl(add) else { XCTFail("WORKSPACE_WALLET_ADD_TRIGGER_UNAVAILABLE"); return }
+                    add.tap()
+                    let cancel = web.buttons["Cancel"].firstMatch
+                    guard waitForAdmittedControl(web.textFields["Name on card"].firstMatch), waitForAdmittedControl(cancel) else {
+                        XCTFail("WORKSPACE_WALLET_ADD_BODY_UNOBSERVED"); return
                     }
-                }) else { return }
-                select("Cards")
-                let cardsActions = ["All cards", "Add a payment card", "Add another card"].map { web.buttons[$0].firstMatch }
-                for _ in 0..<4 {
-                    if cardsActions.contains(where: { $0.exists && $0.isHittable }) { break }
-                    web.swipeUp()
-                }
-                guard walletPaneReady({ cardsActions.contains(where: { $0.exists && $0.isHittable }) },
-                                      failure: "WORKSPACE_WALLET_CARDS_BODY_UNOBSERVED") else { return }
-                XCTAssertFalse(addHeading.exists && addHeading.isHittable,
-                               "WORKSPACE_WALLET_INACTIVE_ADD_HITTABLE")
+                    cancel.tap()
+                    guard waitForAdmittedControl(add) else { XCTFail("WORKSPACE_WALLET_ADD_CANCEL_NOT_RESTORED"); return }
                 let back = app.buttons.matching(NSPredicate(format: "label == %@", "Go back")).firstMatch
                 XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable, "WORKSPACE_BACK_UNAVAILABLE")
                 back.tap()
                 XCTAssertTrue(web.links["Open Wallet"].waitForExistence(timeout: 15), "WORKSPACE_BACK_DID_NOT_RETURN_TO_ONE")
+
             }
             continuity(family)
         }
@@ -6300,6 +6413,10 @@ final class AppUITests: XCTestCase {
         guard XCTWaiter.wait(for: [cleared], timeout: 3) == .completed else {
             print("VAULT_ENTRY_ADMISSION stage=empty_acknowledgement_timeout"); return false
         }
+        // XCTest can inherit the prior symbols/number keyboard across runs.
+        // Normalize its public mode once, then insert the complete value.
+        let letters = [app.keyboards.buttons["letters"], app.keyboards.keys["letters"], app.keyboards.buttons["ABC"], app.keyboards.keys["ABC"]]
+        if let control = letters.first(where: { $0.exists && $0.isHittable }) { control.tap() }
         return true
     }
 

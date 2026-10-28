@@ -1,3 +1,6 @@
+import type { NativePresentationFeedback } from "./native-feedback-sink";
+import { validNativeWalletProfileDraft, type NativeWalletProfileDraft } from "./native-wallet-profile-editor";
+import { validNativeWalletCollection, type NativeWalletCollection } from "./native-wallet-workspace";
 import type { PluginListenerHandle } from "@capacitor/core";
 import type { NativeControlAppearance } from "./native-control-appearance";
 import type { NativeDrawerSection, NativeDrawerOption } from "./native-drawers";
@@ -6,7 +9,7 @@ import type { NativeDrawerSection, NativeDrawerOption } from "./native-drawers";
  * additive to NativeDrawers v1, not another router or a Profile-modal lease. */
 export type NativeWorkspaceIdentity = {
   documentId: string; ownerEpoch: string; ownerGeneration: number; revision: number;
-  workspace: "referrals";
+  workspace: "referrals" | "wallet";
 };
 export type NativeWorkspaceFrame = {
   x: number; y: number; width: number; height: number;
@@ -21,6 +24,9 @@ export type NativeWorkspaceProjection = NativeWorkspaceIdentity & NativeControlA
   tabs?: { label: string; options: readonly NativeDrawerOption[] };
   search?: { id: string; query: string; label: string };
   circleEditor?: NativeWorkspaceCircleEditor;
+  wallet?: NativeWalletCollection;
+  feedback?: NativePresentationFeedback;
+  walletProfileEditor?: Omit<NativeWorkspaceCircleEditor, "draft"> & { draft: NativeWalletProfileDraft };
 };
 export type NativeWorkspaceCircleDraft = { name: string; kind: "family" | "friends" | "other" };
 export type NativeWorkspaceCircleEditor = {
@@ -28,8 +34,9 @@ export type NativeWorkspaceCircleEditor = {
   busy: boolean; canSave: boolean; error: string | null;
 };
 export type NativeWorkspaceEdit = NativeWorkspaceIdentity & {
-  destinationId: string; updateSequence: number; privacyGeneration: number; editRevision: number; composing: boolean; draft: NativeWorkspaceCircleDraft;
+  destinationId: string; updateSequence: number; privacyGeneration: number; editRevision: number; composing: boolean; draft: NativeWorkspaceDraft;
 };
+export type NativeWorkspaceDraft = NativeWorkspaceCircleDraft | NativeWalletProfileDraft;
 export type NativeWorkspaceFinalEdit = NativeWorkspaceEdit & { baseDraftRevision: number };
 export type NativeWorkspaceReceipt = NativeWorkspaceIdentity & {
   updateSequence: number; privacyGeneration: number; layoutRevision: number;
@@ -37,7 +44,8 @@ export type NativeWorkspaceReceipt = NativeWorkspaceIdentity & {
 };
 export type NativeWorkspaceChoice = NativeWorkspaceIdentity & {
   updateSequence: number; privacyGeneration: number; sequence: number;
-  action: "row" | "back" | "circle-save" | "circle-cancel"; rowId?: string; text?: string; editRevision?: number;
+  domain?: "wallet-detail"; detailVisitId?: string; dismissed?: boolean;
+  action: "row" | "back" | "circle-save" | "circle-cancel" | "wallet-save" | "wallet-cancel" | "feedback-dismiss"; rowId?: string; text?: string; editRevision?: number;
 };
 export interface NativeWorkspacePort {
   applyWorkspace(options: NativeWorkspaceProjection): Promise<NativeWorkspaceReceipt>;
@@ -55,12 +63,18 @@ export function sameNativeWorkspace(a: NativeWorkspaceIdentity, b: NativeWorkspa
 }
 export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean {
   if (!value || !closed(value, ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "appearance", "accentHex", "foregroundHex",
-    "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "page", "title", "enabled", "backEnabled", "sections", "tabs", "search", "circleEditor"]) ||
-    !id(value.documentId) || !id(value.ownerEpoch) || !seq(value.ownerGeneration) || !seq(value.revision) || value.workspace !== "referrals" ||
+    "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "page", "title", "enabled", "backEnabled", "sections", "tabs", "search", "circleEditor", "wallet", "walletProfileEditor", "feedback"]) ||
+    !id(value.documentId) || !id(value.ownerEpoch) || !seq(value.ownerGeneration) || !seq(value.revision) || !["referrals", "wallet"].includes(value.workspace) ||
     !seq(value.updateSequence) || !Number.isSafeInteger(value.privacyGeneration) || value.privacyGeneration < 0 || !Number.isSafeInteger(value.isolationGeneration) || value.isolationGeneration < 0 ||
     !["light", "dark"].includes(value.appearance) || ![value.accentHex, value.foregroundHex].every(v => /^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(v)) ||
     !["overview", "rules", "circle-picker", "circle-create", "circle-people"].includes(value.page) || !text(value.title, 256) ||
     typeof value.enabled !== "boolean" || typeof value.backEnabled !== "boolean" || !Array.isArray(value.sections) || value.sections.length > 32) return false;
+  if (value.workspace === "wallet" ? !value.wallet || !validNativeWalletCollection(value.wallet) || value.page !== "overview" || value.circleEditor !== undefined : value.wallet !== undefined) return false;
+  if (value.feedback !== undefined) {
+    const f = value.feedback;
+    if (!f || !closed(f, ["id", "message", "tone", "dismissible"]) || !id(f.id) || !text(f.message, 2048) ||
+      !["normal", "loading", "success", "error", "warning", "info"].includes(f.tone) || typeof f.dismissible !== "boolean") return false;
+  }
   const frame = value.frame;
   if (!frame || !closed(frame, ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "layoutRevision", "contentInset"]) ||
     !seq(frame.layoutRevision) || !Object.values(frame).every(Number.isFinite) || frame.x < 0 || frame.y < 0 || frame.width <= 0 || frame.height <= 0 ||
@@ -80,6 +94,9 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
         typeof row.enabled !== "boolean" || [row.chevron, row.destructive, row.selected, row.pending, row.readOnly].some(v => v !== undefined && typeof v !== "boolean")) return false;
     }
   }
+  if (value.wallet) {
+    for (const key of [value.wallet.addId, value.wallet.closeId, ...value.wallet.cards.map(card => card.id), ...(value.wallet.accessId ? [value.wallet.accessId] : [])]) if (!insert(key)) return false;
+  }
   if (value.tabs !== undefined) {
     if (!value.tabs || !closed(value.tabs, ["label", "options"]) || !text(value.tabs.label, 64) || !Array.isArray(value.tabs.options) ||
       value.tabs.options.length < 2 || value.tabs.options.length > 4 || value.tabs.options.filter(v => v.selected).length !== 1) return false;
@@ -91,6 +108,13 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
     const e = value.circleEditor;
     if (value.page !== "circle-create" || !e || !closed(e, ["destinationId", "draft", "draftRevision", "acknowledgedEditRevision", "busy", "canSave", "error"]) ||
       !id(e.destinationId) || !validWorkspaceCircleDraft(e.draft) || !Number.isSafeInteger(e.draftRevision) || e.draftRevision < 0 ||
+      !Number.isSafeInteger(e.acknowledgedEditRevision) || e.acknowledgedEditRevision < 0 || typeof e.busy !== "boolean" || typeof e.canSave !== "boolean" ||
+      e.error !== null && (typeof e.error !== "string" || e.error.length > 1024)) return false;
+  }
+  if (value.walletProfileEditor !== undefined) {
+    const e = value.walletProfileEditor;
+    if (value.workspace !== "wallet" || !value.wallet?.selectedId || !e || !closed(e, ["destinationId", "draft", "draftRevision", "acknowledgedEditRevision", "busy", "canSave", "error"]) ||
+      !id(e.destinationId) || !validNativeWalletProfileDraft(e.draft) || !Number.isSafeInteger(e.draftRevision) || e.draftRevision < 0 ||
       !Number.isSafeInteger(e.acknowledgedEditRevision) || e.acknowledgedEditRevision < 0 || typeof e.busy !== "boolean" || typeof e.canSave !== "boolean" ||
       e.error !== null && (typeof e.error !== "string" || e.error.length > 1024)) return false;
   }
@@ -108,3 +132,19 @@ export function workspaceAcknowledged(receipt: NativeWorkspaceReceipt, state: Na
 export type NativeWorkspaceEvents = {
   addListener(event: "workspaceChoice", listener: (choice: NativeWorkspaceChoice) => void): Promise<PluginListenerHandle>;
 };
+
+/** A confirmed child may act while its own scrim isolates the collection.
+ * That admission never grants access to base tabs or another child visit. */
+export function workspaceChoiceDomainAllowed(choice: NativeWorkspaceChoice, state: NativeWorkspaceProjection, isolated: boolean): boolean {
+  if (choice.domain === undefined) return !isolated && choice.detailVisitId === undefined && choice.dismissed === undefined;
+  const wallet = state.wallet;
+  if (choice.domain !== "wallet-detail" || state.workspace !== "wallet" || !wallet?.selectedId ||
+    !wallet.detailVisitId || wallet.detailVisitId !== choice.detailVisitId) return false;
+  if (choice.dismissed) return choice.action === "row" && choice.rowId === wallet.closeId && !wallet.detailBusy && choice.text === undefined;
+  if (choice.action === "feedback-dismiss") return typeof choice.rowId === "string" && choice.rowId === state.feedback?.id && state.feedback?.dismissible === true && choice.text === undefined;
+  if (choice.action === "wallet-save" || choice.action === "wallet-cancel") return !!state.walletProfileEditor && choice.rowId === undefined && choice.text === undefined;
+  if (choice.action !== "row" || !choice.rowId) return false;
+  if (choice.rowId === wallet.closeId) return !wallet.detailBusy && choice.text === undefined;
+  if (state.search?.id === choice.rowId) return typeof choice.text === "string" && choice.text.length <= 256;
+  return choice.text === undefined && state.sections.some(section => section.rows.some(row => row.id === choice.rowId && row.enabled && !row.pending && !row.readOnly));
+}

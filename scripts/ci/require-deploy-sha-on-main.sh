@@ -160,7 +160,9 @@ def attempt_order(run):
                  for key in ("run_started_at", "updated_at")]
         if any(value.tzinfo is None for value in times):
             raise ValueError("missing timezone")
-        return max(times), run["id"]
+        if times[1] < times[0]:
+            raise ValueError("attempt update precedes start")
+        return times[0], run["id"]
     except (KeyError, TypeError, ValueError):
         raise SystemExit("Refusing deploy: attempt chronology cannot be verified.")
 
@@ -177,6 +179,24 @@ def unchanged_runs(runs):
     return True
 
 
+def producer_runs(name, *, fresh=False):
+    candidates = []
+    for workflow, event in producers.get(name, []):
+        query = urlencode({"event": event, "head_sha": sha, "per_page": 100})
+        path = f"/actions/workflows/{workflow}/runs?{query}"
+        if fresh:
+            cache.pop(path, None)
+        inventory = request_json(path)
+        runs = inventory.get("workflow_runs")
+        if (not isinstance(runs, list) or type(inventory.get("total_count")) is not int
+                or inventory["total_count"] != len(runs) or len(runs) > 100):
+            raise SystemExit("Refusing deploy: incomplete bounded workflow-run inventory.")
+        candidates.extend(run for run in runs if run.get("head_sha") == sha
+                      and run.get("path") == f".github/workflows/{workflow}"
+                      and run.get("event") == event and type(run.get("id")) is int)
+    return candidates
+
+
 def verified_check(check):
     name = check.get("name")
     if (check.get("head_sha") != sha or check.get("status") != "completed"
@@ -187,17 +207,7 @@ def verified_check(check):
     suite = check.get("check_suite", {}).get("id")
     if type(suite) is not int or suite <= 0 or type(check.get("id")) is not int:
         return False
-    candidates = []
-    for workflow, event in producers.get(name, []):
-        query = urlencode({"event": event, "head_sha": sha, "per_page": 100})
-        inventory = request_json(f"/actions/workflows/{workflow}/runs?{query}")
-        runs = inventory.get("workflow_runs")
-        if (not isinstance(runs, list) or type(inventory.get("total_count")) is not int
-                or inventory["total_count"] != len(runs) or len(runs) > 100):
-            raise SystemExit("Refusing deploy: incomplete bounded workflow-run inventory.")
-        candidates.extend(run for run in runs if run.get("head_sha") == sha
-                      and run.get("path") == f".github/workflows/{workflow}"
-                      and run.get("event") == event and type(run.get("id")) is int)
+    candidates = producer_runs(name)
     observed = candidates
     candidates = [run for run in observed if not separate_recovery(run, name)]
     if not candidates:
@@ -225,7 +235,10 @@ def verified_check(check):
                        and step.get("conclusion") == "success"
                        for step in job.get("steps", [])):
                 continue
-        return unchanged_runs(observed)
+        if not unchanged_runs(observed):
+            return False
+        fresh = [r for r in producer_runs(name, fresh=True) if not separate_recovery(r, name)]
+        return bool(fresh) and max(fresh, key=attempt_order) == run
     return False
 
 

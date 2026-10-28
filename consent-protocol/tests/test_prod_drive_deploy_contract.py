@@ -464,7 +464,13 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     subprocess.run(  # noqa: S603 - execute the repo-authored release steps in an isolated fixture
         ["bash", "-c", checkout], cwd=repo, env=env, capture_output=True, text=True, check=True
     )
-    for companion in ("resolve-deploy-scope.py", "release_acceptance_provenance.py"):
+    for companion in (
+        "resolve-deploy-scope.py",
+        "release_acceptance_provenance.py",
+        "production_emergency.py",
+        "require-deploy-sha-on-main.sh",
+        "resolve-cloud-run-serving-state.py",
+    ):
         assert (runner / "release-tools" / companion).read_text() == (
             ROOT / "scripts/ci" / companion
         ).read_text()
@@ -478,6 +484,9 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
                 "verify-predecessor-acceptance.py",
                 "release_acceptance_provenance.py",
                 "resolve-deploy-scope.py",
+                "production_emergency.py",
+                "require-deploy-sha-on-main.sh",
+                "resolve-cloud-run-serving-state.py",
                 "verify-prod-places-readiness.py",
                 "passkey-domain-aliases.json",
             )

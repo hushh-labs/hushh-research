@@ -156,12 +156,12 @@ class PrivateInformationDiscovery:
 
 def private_information_discovery(owner: str) -> PrivateInformationDiscovery | None:
     from hushh_mcp.runtime_settings import pod_mode
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
     from hushh_mcp.services.pod_owner_feed_client import OwnerFeedUnavailable, owner_feed_client
 
     if not pod_mode():
         return None
-    if not owner_cloud_agent():
+    if not private_pod_runtime():
         raise OwnerFeedUnavailable("information metadata authority unavailable")
     client = owner_feed_client()
     if client is None:

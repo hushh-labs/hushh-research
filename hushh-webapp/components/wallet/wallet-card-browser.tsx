@@ -4,6 +4,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Touc
 import { createPortal } from "react-dom";
 import { ArrowLeft, ArrowRight, Plus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { NativeWalletBrowser } from "./native-wallet-browser";
+import type { NativeWalletPaymentOperations } from "./native-wallet-payment-panel";
+import { nativeWalletCardFormsEnabled } from "@/lib/capacitor/native-wallet-card";
 import { WalletReferralCardDetails } from "./wallet-referral-card-details";
 import type { ReferralSummary } from "@/lib/services/referral-service";
 import { WalletCardWorkspace } from "@/components/wallet-card/wallet-card-workspace";
@@ -18,7 +21,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import styles from "./wallet-card-browser.module.css";
 import presentationStyles from "./wallet-connect-presentation.module.css";
 
-export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, pendingArtworkIds, selectedCardId, onSelect, onOverview, onAdd, pendingCard, addDisabled = false, busyCardId, disabled = false, details, dockHost, active = true, demoProfile, referralSummary, referralError = false, onRetryReferral, onRevokeReferral }: {
+export type WalletCardBrowserProps = {
   cards: WalletCardSummary[];
   cardholderNames?: Readonly<Record<string, string>>;
   artworks?: Readonly<Record<string, WalletCardArtwork | undefined>>;
@@ -41,7 +44,9 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, 
   referralError?: boolean;
   onRetryReferral?: () => void;
   onRevokeReferral?: (slug: string) => Promise<void>;
-}) {
+} & { nativeOperations?: NativeWalletPaymentOperations; nativeAddPresented?: boolean; onSharing?: () => void; nativePending?: { label: string; retry?: () => void; dismiss?: () => void }; nativeHistoryContext?: (cardId: string) => import("@/lib/services/wallet-card-share-service").CardShareContext | null };
+
+function WebWalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, pendingArtworkIds, selectedCardId, onSelect, onOverview, onAdd, pendingCard, addDisabled = false, busyCardId, disabled = false, details, dockHost, active = true, demoProfile, referralSummary, referralError = false, onRetryReferral, onRevokeReferral }: WalletCardBrowserProps) {
   const collection = [...WALLET_DEMO_CARDS, ...cards];
   const [mode, setMode] = useState<"all" | "card">(selectedCardId ? "card" : "all");
   const [agentCardId, setAgentCardId] = useState<string | null>(null);
@@ -185,4 +190,12 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, 
     {active && dockHost ? createPortal(dock, dockHost) : null}
 
   </div>;
+}
+
+
+export function WalletCardBrowser(props: WalletCardBrowserProps) {
+  const [native] = useState(() => nativeWalletCardFormsEnabled() && !!props.ownerId && !!props.nativeOperations);
+  const [fallback, setFallback] = useState(false);
+  if (!native || fallback) return <WebWalletCardBrowser {...props} />;
+  return <NativeWalletBrowser {...props} onFallback={() => setFallback(true)} />;
 }

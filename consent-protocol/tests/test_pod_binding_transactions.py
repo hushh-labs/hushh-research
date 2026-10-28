@@ -156,7 +156,7 @@ def test_waiting_discovery_cannot_publish_after_authority_changes(db, change):
     reached_lock = threading.Event()
 
     def observe(_conn, _cursor, statement, _params, _context, _many):
-        if statement.startswith("SELECT hushh_id"):
+        if "personal_agent_registry" in statement and "FOR UPDATE" in statement:
             reached_lock.set()
 
     event.listen(db.engine, "before_cursor_execute", observe)

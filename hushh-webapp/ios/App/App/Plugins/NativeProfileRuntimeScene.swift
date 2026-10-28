@@ -30,18 +30,23 @@ protocol NativeProfileEditorProjection {
 /// UIKit edit menus live beyond their field's SwiftUI body. Track actual
 /// dismissal completion without borrowing an operation or feature lifetime.
 @MainActor final class NativeEditorMenuLifetime {
-    private var visible = Set<ObjectIdentifier>()
+    private var visible = [ObjectIdentifier: UIView]()
     private var retirement = [() -> Void]()
-    func presented(_ view: UIView) { visible.insert(ObjectIdentifier(view)) }
+    func contains(_ view: UIView) -> Bool { visible[ObjectIdentifier(view)] != nil }
+    func presented(_ view: UIView) { visible[ObjectIdentifier(view)] = view }
     func dismissed(_ view: UIView) {
-        visible.remove(ObjectIdentifier(view))
+        visible.removeValue(forKey: ObjectIdentifier(view))
         if visible.isEmpty { let callbacks = retirement; retirement.removeAll(); callbacks.forEach { $0() } }
     }
     func dismiss(_ views: [UIView], completion: @escaping () -> Void) {
         guard !visible.isEmpty else { completion(); return }
         retirement.append(completion)
         if #available(iOS 16.0, *) {
-            for view in views { for interaction in view.interactions { (interaction as? UIEditMenuInteraction)?.dismissMenu() } }
+            // clear() scrubs text/undo state and removes editor registries
+            // first. Retain only the visible menu's already-scrubbed trigger
+            // until UIKit reports its actual dismissal completion.
+            let targets = Dictionary((views + Array(visible.values)).map { (ObjectIdentifier($0), $0) }, uniquingKeysWith: { first, _ in first })
+            for view in targets.values { for interaction in view.interactions { (interaction as? UIEditMenuInteraction)?.dismissMenu() } }
         }
     }
 }
@@ -82,13 +87,21 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
     @Published private(set) var editRevision = 0
     @Published private(set) var pending: NativeProfileNameAction?
     @Published private(set) var retired = false
+    @Published private(set) var presentationEnabled = true
+    func setPresentationEnabled(_ enabled: Bool) {
+        guard presentationEnabled != enabled else { return }; presentationEnabled = enabled
+        if !enabled { fields.values.compactMap(\.value).forEach { $0.resignFirstResponder() }; textViews.values.compactMap(\.value).forEach { $0.resignFirstResponder() } }
+    }
     private var sequence = 0; private var confirmed = 0; private var lastComposing = false
     private var fields = [String: WeakField]()
     private final class WeakField { weak var value: UITextField?; init(_ value: UITextField) { self.value = value } }
     private var textViews = [String: WeakTextView]()
     private let editMenus = NativeEditorMenuLifetime()
     func editMenuPresented(_ view: UIView) { editMenus.presented(view) }
-    func editMenuDismissed(_ view: UIView) { editMenus.dismissed(view) }
+    func editMenuDismissed(_ view: UIView) {
+        if retired { (view as? UITextView)?.delegate = nil; (view as? UITextField)?.delegate = nil }
+        editMenus.dismissed(view)
+    }
     func dismissEditorMenus(completion: @escaping () -> Void) {
         editMenus.dismiss(fields.values.compactMap(\.value).map({ $0 as UIView }) + textViews.values.compactMap(\.value).map({ $0 as UIView }), completion: completion)
     }
@@ -97,8 +110,8 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
     var choose: ((NativeProfileNameAction) -> Bool)?
     var finalEdit: ((Projection.Draft, Int) -> Void)?
     var composing: Bool { fields.values.contains { $0.value?.markedTextRange != nil } || textViews.values.contains { $0.value?.markedTextRange != nil } }
-    var canEdit: Bool { !retired && !projection.busy && pending == nil }
-    var canCancel: Bool { !retired && !projection.busy && (pending == nil || projection.primary == "validate" && pending?.action == "save") }
+    var canEdit: Bool { presentationEnabled && !retired && !projection.busy && pending == nil }
+    var canCancel: Bool { presentationEnabled && !retired && !projection.busy && (pending == nil || projection.primary == "validate" && pending?.action == "save") }
     var canSave: Bool { canEdit && !projection.checking && !composing && projection.canSave && projection.acknowledgedEditRevision == editRevision }
     var accent: UIColor { HushhNativeControlAppearance.color(projection.accentHex) ?? .label }
     init(_ projection: Projection) { self.projection = projection; draft = projection.draft }
@@ -170,7 +183,8 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
         finalEdit = nil
         for field in editors { field.text = ""; field.undoManager?.removeAllActions() }
         for field in textViews.values.compactMap({ $0.value }) {
-            field.delegate = nil; field.unmarkText(); field.resignFirstResponder(); field.text = ""; field.undoManager?.removeAllActions()
+            if !editMenus.contains(field) { field.delegate = nil }
+            field.unmarkText(); field.resignFirstResponder(); field.text = ""; field.undoManager?.removeAllActions()
         }
         fields.removeAll(); textViews.removeAll(); draft = .empty; projection.draft = .empty; projection.error = nil; pending = nil
     }
@@ -271,11 +285,13 @@ typealias NativeRuntimeModel = NativeProfileEditorModel<NativeRuntimeProjection>
            hasPending: { [weak model] in model?.pending != nil }, appearance: { [weak model] in
                guard let model else { return nil }
                return HushhNativeControlAppearance(appearance: model.projection.appearance, accentHex: model.projection.accentHex, foregroundHex: model.projection.foregroundHex)
-           }, cancel: { [weak model] in model?.action("cancel") }, clear: { [weak model] in model?.clear() })
+           }, cancel: { [weak model] in model?.action("cancel") }, clear: { [weak model] in model?.clear() },
+           dismissPopups: { [weak model] completion in if let model { model.dismissEditorMenus(completion: completion) } else { completion() } })
     }()
     var coverage: (() -> Void)? { didSet { sheet.coverage = coverage } }
     var coversPresentation: Bool { sheet.coversPresentation }
     var presentationSettled: Bool { sheet.presentationSettled }
+    var feedbackPresenter: UIViewController? { sheet.feedbackPresenter }
     func refreshPrivacy() { sheet.refresh() }
     init(_ projection: NativeRuntimeProjection) { model = NativeRuntimeModel(projection) }
     func present(from parent: UIViewController, completion: @escaping (Bool) -> Void) -> Bool { sheet.present(from: parent, completion: completion) }

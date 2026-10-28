@@ -682,7 +682,7 @@ What reaches the model:
 - [Kai Agents](./kai-agents.md) -- Multi-agent financial analysis system
 - [Environment Variables](./env-vars.md) -- Backend configuration reference
 
-### First-party Calendar Schedule read exception
+### First-party Calendar workspace authority
 
 `POST /api/one/calendar/schedule/today`,
 `POST /api/one/calendar/schedule/availability`,
@@ -692,8 +692,16 @@ plus the owner's active, scoped Google Calendar OAuth consent grant instead of
 a VAULT_OWNER token. The server derives the owner from the bearer and verifies
 the selected owner-bound Calendar connection/grant before and after provider reads. Firebase
 alone, a Mail-only grant, or a disconnected Calendar never authorizes a read.
-This exception exposes no vault/PKM, delegated-agent or mutation authority and
-never mints a broad owner token. Vault lock/HCT revocation does not revoke these
-provider reads; Calendar disconnect and Firebase invalidation do. Responses
-are private/no-store and event information remains in component memory. Legacy
-Calendar/chat reads and attendance mutations retain their existing HCT gates.
+The direct Calendar workspace also has explicit Firebase-authenticated mutation
+routes: `/attendance/rsvp/review|confirm` for mail-free accept/decline,
+`/attendance/workspace/review|confirm` for owner-reviewed organizer Mail and
+alternative times, and `/conflicts/workspace/review|confirm` for reviewed
+cross-account resolution. These use the selected owner's active Google Calendar
+and, where needed, Gmail OAuth grants. Sealed, short-lived review plans bind
+the exact owner, account, event version, recipient and message; confirmation
+claims the review once and reports Calendar and Mail outcomes separately.
+The RSVP confirm route rejects a plan with Mail or proposed-time effects.
+None of these routes grants vault/PKM or delegated-agent authority or mints a
+broad owner token. Vault lock/HCT revocation does not revoke this first-party
+workspace grant; Calendar disconnect and Firebase invalidation do. Responses
+are private/no-store. Legacy chat, pod and delegated routes retain their HCT gates.

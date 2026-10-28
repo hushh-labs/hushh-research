@@ -9,12 +9,15 @@ verified. Two things about it are easy to get wrong and expensive when wrong:
   no one is reading a response body.
 * it must not provision unless ``PERSONAL_AGENT_AUTOPROVISION_ENABLED`` is on. A
   pod is a billable host; "every signup provisions" is exactly the shape that
-  turns a load test into a bill.
+  turns a load test into a bill. The flag alone never selects hosting: automatic
+  continuation also requires an already authorized BYOC placement.
 """
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -57,7 +60,18 @@ def _wire(monkeypatch: pytest.MonkeyPatch):
     import hushh_mcp.services.personal_agent_registry_repo as repo
 
     monkeypatch.setattr(pas, "PersonalAgentProvisioningService", _RecordingService)
-    monkeypatch.setattr(repo, "PersonalAgentRegistryRepo", lambda *a, **k: object())
+    row = {
+        "deployment_target": "user_gcp",
+        "user_cloud_project": "owner-project",
+        "user_cloud_region": "us-central1",
+        "user_cloud_bootstrap_sa": "bootstrap@owner-project.iam.gserviceaccount.com",
+        "user_cloud_authorized_at": "2026-10-27T00:00:00Z",
+    }
+    monkeypatch.setattr(
+        repo,
+        "PersonalAgentRegistryRepo",
+        lambda *a, **k: SimpleNamespace(get=AsyncMock(return_value=row)),
+    )
     monkeypatch.setattr(cb, "resolve_compute_backend", lambda: "REAL-BACKEND")
     return None
 
@@ -128,3 +142,44 @@ async def test_a_provisioning_failure_never_escapes_into_phone_verification(
     await ais.ActorIdentityService()._register_pending_personal_agent(_UID, _PHONE)
 
     assert _RecordingService.instances[-1].registered == [(_UID, _PHONE)]
+
+
+@pytest.mark.parametrize("placement", [None, "gcp", "incomplete", "read_failed"])
+async def test_phone_verification_keeps_unadmitted_hosting_pending(monkeypatch, placement):
+    import hushh_mcp.services.personal_agent_registry_repo as repo
+
+    monkeypatch.setenv("PERSONAL_AGENT_AUTOPROVISION_ENABLED", "1")
+    row = {"deployment_target": "user_gcp" if placement == "incomplete" else placement}
+    read = (
+        AsyncMock(side_effect=RuntimeError("unavailable"))
+        if placement == "read_failed"
+        else AsyncMock(return_value=row)
+    )
+    monkeypatch.setattr(
+        repo, "PersonalAgentRegistryRepo", lambda *a, **k: SimpleNamespace(get=read)
+    )
+    await ais.ActorIdentityService()._register_pending_personal_agent(_UID, _PHONE)
+    service = _RecordingService.instances[-1]
+    assert service.registered == [(_UID, _PHONE)]
+    assert service.provisioned == []
+
+
+async def test_authorized_azure_phone_continuation_preserves_the_existing_byoc_path(monkeypatch):
+    import hushh_mcp.services.personal_agent_registry_repo as repo
+
+    monkeypatch.setenv("PERSONAL_AGENT_AUTOPROVISION_ENABLED", "1")
+    row = {
+        "deployment_target": "user_azure",
+        "user_cloud_region": "eastus",
+        "user_cloud_tenant_id": "tenant",
+        "user_cloud_subscription_id": "subscription",
+        "user_cloud_resource_group": "owner-group",
+        "user_cloud_authorized_at": "2026-10-27T00:00:00Z",
+    }
+    monkeypatch.setattr(
+        repo,
+        "PersonalAgentRegistryRepo",
+        lambda *a, **k: SimpleNamespace(get=AsyncMock(return_value=row)),
+    )
+    await ais.ActorIdentityService()._register_pending_personal_agent(_UID, _PHONE)
+    assert _RecordingService.instances[-1].provisioned == [{"user_id": _UID, "phone_e164": _PHONE}]
