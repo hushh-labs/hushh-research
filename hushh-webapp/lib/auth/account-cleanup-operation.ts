@@ -1,7 +1,7 @@
 /** Non-secret aggregate from the purpose-bound account cleanup authority. */
 export interface AccountCleanupOperation {
   id: string;
-  owner_id?: string;
+  owner_id?: string | null;
   owner_hash?: string;
   state: "cleaning_up" | "waiting_for_provider" | "action_required" | "complete";
   credential_count: number;
@@ -18,7 +18,7 @@ export function parseAccountCleanupOperation(value: unknown): AccountCleanupOper
   const operation = value as Record<string, unknown>;
   if (
     typeof operation.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(operation.id) ||
-    (operation.owner_id !== undefined && (typeof operation.owner_id !== "string" || !operation.owner_id || operation.owner_id.length > 128)) ||
+    (operation.owner_id != null && (typeof operation.owner_id !== "string" || !operation.owner_id || operation.owner_id.length > 128)) ||
     (operation.owner_hash !== undefined && (typeof operation.owner_hash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(operation.owner_hash))) ||
     typeof operation.state !== "string" || !["cleaning_up", "waiting_for_provider", "action_required", "complete"].includes(operation.state) ||
     typeof operation.credential_count !== "number" || !Number.isInteger(operation.credential_count) ||

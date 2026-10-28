@@ -87,11 +87,10 @@ def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) 
             state = "waiting_for_provider"
         else:
             state = "cleaning_up"
-        result = {
+        return {
             "id": str(row["provider_cleanup_id"]),
-            # The operation and hash remain after raw owner identifiers are scrubbed.
-            # A device can verify its own pending owner hint before deleting receipts.
             "owner_hash": row["user_id_hash"],
+            "owner_id": row["account_owner_id"] if state != "complete" else None,
             "state": state,
             "credential_count": len(inventory),
             "local_erasure_confirmation_required": bool(
@@ -100,13 +99,8 @@ def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) 
             "external_validity_unconfirmed_count": unsupported,
             "inventory_sha256": receipt.get("inventorySha256"),
             "retry_after_seconds": 3 if state in {"cleaning_up", "waiting_for_provider"} else None,
-            # Additive and cause-free: due work has waited past the stall alert
-            # window, so the owner is told plainly instead of seeing progress.
             "delayed": bool(row["delayed"]),
         }
-        if state != "complete" and row["account_owner_id"] is not None:
-            result["owner_id"] = row["account_owner_id"]
-        return result
 
 
 def authorize_continuation(
