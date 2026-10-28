@@ -11,6 +11,41 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_pre_runtime_admission_cli_imports_without_site_packages(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    environment = {"PATH": os.environ.get("PATH", "")}
+    if "SYSTEMROOT" in os.environ:
+        environment["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
+    command = [sys.executable, "-S", str(ROOT / "deploy/plg/qualification_producer.py")]
+    help_result = subprocess.run(  # noqa: S603 -- Real fixed CLI in an isolated, credential-free environment.
+        [*command, "--help"], env=environment, capture_output=True, text=True, timeout=15
+    )
+    assert help_result.returncode == 0, help_result.stderr
+    assert "--source-validation-run" in help_result.stdout
+    admission = subprocess.run(  # noqa: S603 -- Invalid hosted context must refuse before any operation.
+        [
+            *command,
+            "--phase",
+            "require",
+            "--environment",
+            "dev",
+            "--folder",
+            str(tmp_path / "absent"),
+        ],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert admission.returncode == 1
+    assert "qualification_stage_unverified" in admission.stderr
+    assert "ModuleNotFoundError" not in admission.stderr
+    assert not (tmp_path / "absent").exists()
+
+
 @pytest.fixture
 def modules(monkeypatch):
     monkeypatch.syspath_prepend(str(ROOT / "deploy/plg"))

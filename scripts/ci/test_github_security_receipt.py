@@ -111,7 +111,7 @@ def receipt_responses(repository, repo, producer, artifact):
             "status": "in_progress",
             "repository": repo,
         },
-        f"{prefix}/compare/{producer['head_sha']}...main": {
+        f"{prefix}/compare/{producer['head_sha']}...main?per_page=1&page=2": {
             "status": "ahead",
             "merge_base_commit": {"sha": producer["head_sha"]},
         },
@@ -176,6 +176,21 @@ if {case!r}!='success': time.sleep(60)
 
 
 class SecurityReceiptTest(unittest.TestCase):
+    def test_ancestry_accepts_metadata_without_file_patches_or_commit_inventory(self):
+        consumer, api, source, run, workflow, _, _, _, responses = receipt_fixture()
+        path = f"repos/{consumer.REPOSITORY}/compare/{run['head_sha']}...main?per_page=1&page=2"
+        for status in ("identical", "ahead"):
+            responses[path] = {
+                "status": status,
+                "merge_base_commit": {"sha": run["head_sha"]},
+                "commits": [],
+            }
+            with self.subTest(status=status):
+                consumer.verify_producer(api, run, workflow, source["repository_id"])
+        responses[path]["merge_base_commit"]["sha"] = "b" * 40
+        with self.assertRaises(consumer.Refused):
+            consumer.verify_producer(api, run, workflow, source["repository_id"])
+
     def test_duplicate_workers_reuse_only_a_verified_exact_attempt_receipt(self):
         consumer, api, source, producer, workflow, _, _, raw, responses = receipt_fixture()
         title = f"Security alerts for {source['run_id']} / {source['attempt']} / {HEAD}"
@@ -277,7 +292,7 @@ class SecurityReceiptTest(unittest.TestCase):
             if defect == "event":
                 run["event"] = "pull_request"
             if defect == "ancestor":
-                responses[f"repos/{consumer.REPOSITORY}/compare/{run['head_sha']}...main"][
+                responses[f"repos/{consumer.REPOSITORY}/compare/{run['head_sha']}...main?per_page=1&page=2"][
                     "status"
                 ] = "diverged"
             if defect == "expired":
