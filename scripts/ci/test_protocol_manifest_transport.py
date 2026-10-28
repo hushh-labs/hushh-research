@@ -12,7 +12,7 @@ from web_ci_lane_fixture import ROOT, _bash
 
 
 class ProtocolManifestTransportTest(unittest.TestCase):
-    def _run_manifest(self, manifest, partition=None, missing=()):
+    def _run_manifest(self, manifest, partition=None, missing=(), shard=None):
         with tempfile.TemporaryDirectory(prefix="protocol-manifest-") as temporary:
             root = Path(temporary)
             for test_path in set(manifest) - set(missing):
@@ -39,11 +39,15 @@ class ProtocolManifestTransportTest(unittest.TestCase):
                 "TMPDIR": str(scratch),
             }
             env.pop("PROTOCOL_TEST_PARTITION", None)
+            env.pop("PROTOCOL_DATABASE_SHARD_COUNT", None)
+            env.pop("PROTOCOL_DATABASE_SHARD_INDEX", None)
             env.pop("ONE_COMMAND_TEST_DATABASE_URL", None)
             env.pop("ONE_COMMAND_TEST_PG_MANIFEST", None)
             env.pop("OFFLINE_DB_PATH", None)
             if partition is not None:
                 env["PROTOCOL_TEST_PARTITION"] = partition
+            if shard is not None:
+                env.update(shard)
             result = subprocess.run(
                 [_bash(), str(ROOT / "consent-protocol/scripts/run-test-ci.sh"), "manifest.txt"],
                 cwd=root, env=env, capture_output=True, text=True, timeout=30,
@@ -85,6 +89,44 @@ class ProtocolManifestTransportTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, [])
         self.assertIn("Unknown backend test partition", result.stderr)
+
+    def test_database_shards_preserve_the_exact_ordered_manifest_without_overlap(self):
+        files = ["tests/a_postgres.py", "tests/ordinary.py", "tests/services/test_drive_sharing_store.py",
+                 "tests/b_postgres.py", "tests/services/test_document_delivery_custody.py", "tests/c_postgres.py"]
+        unsharded, expected = self._run_manifest(files, "database")
+        self.assertEqual(unsharded.returncode, 0, unsharded.stderr)
+        observed = []
+        for index in ("1", "2"):
+            result, calls = self._run_manifest(files, "database", shard={
+                "PROTOCOL_DATABASE_SHARD_COUNT": "2", "PROTOCOL_DATABASE_SHARD_INDEX": index,
+            })
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(calls, [["-q", *expected[0][int(index)::2]]])
+            observed.extend(calls[0][1:])
+        self.assertCountEqual(observed, expected[0][1:])
+        self.assertEqual(len(set(observed)), len(observed))
+
+    def test_invalid_or_empty_database_shards_fail_before_pytest(self):
+        files = ["tests/a_postgres.py"]
+        cases = [("database", {"PROTOCOL_DATABASE_SHARD_COUNT": "2"}),
+                 ("database", {"PROTOCOL_DATABASE_SHARD_INDEX": "1"}),
+                 ("database", {"PROTOCOL_DATABASE_SHARD_COUNT": "3", "PROTOCOL_DATABASE_SHARD_INDEX": "1"}),
+                 ("database", {"PROTOCOL_DATABASE_SHARD_COUNT": "2", "PROTOCOL_DATABASE_SHARD_INDEX": "0"}),
+                 ("database", {"PROTOCOL_DATABASE_SHARD_COUNT": "2", "PROTOCOL_DATABASE_SHARD_INDEX": "2"}),
+                 ("parallel", {"PROTOCOL_DATABASE_SHARD_COUNT": "2", "PROTOCOL_DATABASE_SHARD_INDEX": "1"})]
+        for partition, shard in cases:
+            with self.subTest(partition=partition, shard=shard):
+                result, calls = self._run_manifest(files, partition, shard=shard)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(calls, [])
+
+    def test_shard_refuses_missing_file_assigned_to_the_other_shard(self):
+        missing = "tests/b_postgres.py"
+        result, calls = self._run_manifest(["tests/a_postgres.py", missing], "database", [missing],
+                                           {"PROTOCOL_DATABASE_SHARD_COUNT": "2", "PROTOCOL_DATABASE_SHARD_INDEX": "1"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
+        self.assertIn("Missing backend CI test file", result.stderr)
 
     def test_partition_still_refuses_a_missing_file_outside_its_selection(self):
         missing = "tests/owner_postgres.py"

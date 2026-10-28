@@ -72,10 +72,10 @@ If you want a zero-setup editor path, use `.devcontainer/devcontainer.json`.
 
 ## Branch and Release Model
 
-- All feature and fix work targets `main`.
-- UAT deploys automatically from the exact green `main` SHA.
-- Production deploys manually from an approved green `main` SHA.
-- There are no contributor-facing release branches.
+- Feature and fix work normally targets the protected `dev` branch.
+- Maintainers select and validate changes for UAT through the governed release workflow.
+- Main holds release approval and allows governed maintainer operations or hotfixes.
+- Production deployment is a separate authorized operation.
 
 See [docs/reference/operations/branch-governance.md](./docs/reference/operations/branch-governance.md) for the canonical delivery rules.
 
