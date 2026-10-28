@@ -35,6 +35,9 @@ def _bash() -> str:
 STUB_NPM = """#!/usr/bin/env bash
 if [ "${1:-}" = "run" ]; then
   printf '%s\\n' "$*" >> "$NPM_STUB_LOG"
+  if [ -n "${NPM_STUB_FAIL:-}" ] && [ "${2:-}" = "$NPM_STUB_FAIL" ]; then
+    exit 23
+  fi
 fi
 exit 0
 """
@@ -71,6 +74,7 @@ def _run(script: Path, env_overrides: dict[str, str], *, stub_diagrams: bool = F
             {
                 "PATH": f"{stub_dir}{os.pathsep}{env['PATH']}",
                 "NPM_STUB_LOG": str(log),
+                "NPM_STUB_FAIL": "",
                 "WEB_CI_DEPS_INSTALLED": "1",
                 "HUSHH_WEB_TEST_MAX_WORKERS": "2",
             }

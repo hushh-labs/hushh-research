@@ -7,12 +7,12 @@ exact-head Admin PR landing or environment dispatch sequence.
 
 ## Dev / UAT branch preparation
 
-The selective release transition is staged. **Current Main remains the baseline;
-no source rollback or history rewrite is part of this change.** The existing
-Dev intake must be activated with its preserved baseline and source CI. The
-protected UAT-tip default remains a future transition and is not active until its
-historical baseline and predecessor gates are qualified together. Source
-configuration is not a serving or deployment receipt.
+The protected Dev branch is the configured development intake and the default
+source for governed Dev deployment. Preserve its history and qualify the exact
+candidate; an active branch does not prove that its tip is serving. The UAT-tip
+default remains staged until its historical baseline and predecessor gates are
+qualified together. Main remains the release-control source; this transition
+does not rewind application source or database history.
 
 `branch_flow.prepared_branches` in `config/ci-governance.json` declares protection
 policy references for `dev` and `uat`. These are branch policies, separate from
@@ -59,9 +59,9 @@ retains this mapping and still requires UAT acceptance for the application SHA.
 No ignored paths, new content or predecessor bypass are allowed. This optional
 manual mode cannot be mixed with cadence, restoration or phone transitions.
 
-The following batches must complete before activation:
+The following work remains before the UAT selection transition:
 
-1. Move ordinary intake to Dev without discarding train or active branch work.
+1. Maintain Dev intake without discarding train or active branch work.
 2. Select dependency-complete changes into UAT; stabilize there and carry fixes
    back to Dev. Keep both deployments manual. Qualify the final assembled SHA in
    Dev before UAT; an original cherry-picked commit's receipt cannot qualify it.

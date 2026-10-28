@@ -278,13 +278,76 @@ def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None
             {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": changed},
         )
         assert code == 0, output[-2000:]
-        assert calls.count("run test:connections-layout") == 1, (changed, calls)
+        overlap_owner = "run test:drive-sharing-layout" in calls
+        expected = "run test:connections-layout:without-covered" if overlap_owner else "run test:connections-layout"
+        assert calls.count(expected) == 1, (changed, calls)
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     pack = scripts["test:connections-layout"]
     for spec in ("e2e/profile-confirmation-back.spec.ts", "e2e/shortcut-icons.motion.spec.ts", "e2e/person-profile-actions.layout.spec.ts"):
         assert pack.count(spec) == 1
         assert spec in pack.split("--project=chromium")[0]
     assert "--project=chromium --project=webkit" in pack
+
+
+def test_layout_overlap_retains_selected_coverage_and_failure_propagation() -> None:
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+    covered = " e2e/first-connect-insights.layout.spec.ts"
+    full = scripts["test:connections-layout"]
+    drive = scripts["test:drive-sharing-layout"]
+    assert full.count(covered) == 1 and drive.count(covered) == 1
+    assert scripts["test:connections-layout:without-covered"] == full.replace(covered, "", 1)
+    # Drive must execute the entire spec without a filter in every project that
+    # Connections requests. Treat an unfamiliar command shape as a contract
+    # change requiring review; filenames alone cannot prove this containment.
+    drive_args = shlex.split(drive)
+    connection_args = shlex.split(full.split("&&", 1)[0])
+    assert drive_args[:3] == connection_args[:3] == ["CI=1", "playwright", "test"]
+    assert connection_args.count(covered.strip()) == 1
+    assert all(arg.startswith("e2e/") or arg in {"--project=chromium", "--project=webkit"}
+               for arg in drive_args[3:])
+    assert all(arg.startswith("e2e/") or arg in {
+        "--project=chromium", "--project=webkit", "--workers=1", "--grep-invert",
+        "One profile artwork and animated presence",
+    } for arg in connection_args[3:])
+    drive_projects = {arg for arg in drive_args if arg.startswith("--project=")}
+    connection_projects = {arg for arg in connection_args if arg.startswith("--project=")}
+    assert drive_projects == connection_projects == {"--project=chromium", "--project=webkit"}
+
+    cases = (
+        ("hushh-webapp/e2e/first-connect-insights.layout.spec.ts", True, False, False),
+        ("hushh-webapp/components/agent/first-connect-insights-card.tsx", False, True, False),
+        ("hushh-webapp/components/agent/agent-chat-workspace.tsx", False, False, True),
+        ("hushh-webapp/e2e/financial-packets.layout.spec.ts", True, False, True),
+        ("hushh-webapp/components/consent/document-file-request.tsx", False, True, True),
+        ("hushh-webapp/components/agent/first-connect-insights-card.tsx\n"
+         "hushh-webapp/e2e/first-connect-insights.layout.spec.ts", True, True, False),
+        ("hushh-webapp/components/consent/document-file-request.tsx\n"
+         "hushh-webapp/e2e/first-connect-insights.layout.spec.ts", True, True, True),
+    )
+    for changed, broad, drive, connections in cases:
+        # Other partition tests cover all/node; exercise them here only on the
+        # three-pack overlap so every selector combination remains affordable.
+        parts = ("all", "browser", "node") if (broad and drive and connections) else ("browser",)
+        for part in parts:
+            code, calls, output = _run(
+                TARGETED, {"WEB_TARGETED_PART": part, "WEB_TARGETED_CHANGED_FILES": changed},
+            )
+            assert code == 0, output[-2000:]
+            selected = part != "node"
+            assert calls.count("run test:layout-contracts") == int(selected and broad), (changed, calls)
+            assert calls.count("run test:connections-layout:without-covered") == int(selected and connections and drive), (changed, calls)
+            assert calls.count("run test:connections-layout") == int(selected and connections and not drive), (changed, calls)
+            assert calls.count("run test:drive-sharing-layout") == int(selected and drive), (changed, calls)
+
+    all_three = cases[-1][0]
+    for failed in ("test:layout-contracts", "test:drive-sharing-layout",
+                   "test:connections-layout:without-covered"):
+        code, calls, _ = _run(TARGETED, {
+            "WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": all_three,
+            "NPM_STUB_FAIL": failed,
+        })
+        assert code != 0 and f"run {failed}" in calls, (failed, calls)
+        assert "run test:layout-contracts" in calls, (failed, calls)
 
 
 def test_full_suite_shards_run_verifiers_once() -> None:
@@ -480,12 +543,34 @@ def collect_browser_shards() -> None:
     assert len(history) == 2 and {item[1] for item in history} == {"chromium", "webkit"}
     assert history <= timing, "both unchanged History timing tests must reach macOS"
     assert history.isdisjoint(linux_identities), "do not duplicate timing tests in Linux"
-    if any(call == "run test:connections-layout" for call in calls):
+    if any(call in {"run test:connections-layout", "run test:connections-layout:without-covered"} for call in calls):
         remaining = identities(collect([
             "test", "e2e/connections-drawer.layout.spec.ts",
             "--project=chromium", "--project=webkit",
         ], {"CI": "1"}, None), None)
         assert remaining and remaining <= linux_identities, "remaining Connections tests must stay on Linux"
+
+    if any(call.endswith(":without-covered") for call in calls):
+        def pack_identities(name: str) -> set[tuple[str, str, str]]:
+            return set().union(*(identities(collect(argv, env, None), None)
+                                 for argv, env in commands(name, {})))
+
+        baseline = set(linux_identities)
+        for pack in ("test:connections-layout",):
+            if f"run {pack}:without-covered" not in calls:
+                continue
+            full = pack_identities(pack)
+            reduced = pack_identities(f"{pack}:without-covered")
+            removed = full - reduced
+            assert removed and reduced <= full and removed <= linux_identities
+            assert {item[1] for item in removed} == {"chromium", "webkit"}
+            baseline.update(full)
+        assert baseline == linux_identities, "deduplication changed collected browser coverage"
+        if "run test:layout-contracts" in calls:
+            mobile = identities(collect([
+                "test", "e2e/first-connect-insights.layout.spec.ts", "--project=mobile-chrome",
+            ], {"CI": "1"}, None), None)
+            assert mobile and mobile <= linux_identities, "mobile first-connect coverage must remain"
 
     assert first_command is not None
     argv, env = first_command
@@ -511,6 +596,7 @@ def main() -> int:
         test_node_leg_leaves_diagram_rendering_to_browser_leg,
         test_paid_answer_photo_inputs_schedule_browser_pack,
         test_profile_and_shortcut_inputs_schedule_connections_browser_pack,
+        test_layout_overlap_retains_selected_coverage_and_failure_propagation,
         test_full_suite_shards_run_verifiers_once,
         test_workflow_schedules_every_leg_and_shard,
         test_browser_shard_setting_is_validated_before_any_pack,

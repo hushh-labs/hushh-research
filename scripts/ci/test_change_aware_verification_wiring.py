@@ -262,7 +262,9 @@ def test_financial_packet_inputs_schedule_existing_connections_pack() -> None:
             {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": changed},
         )
         assert code == 0, output[-2000:]
-        assert calls.count("run test:connections-layout") == 1, (changed, calls)
+        overlap_owner = "run test:drive-sharing-layout" in calls
+        expected = "run test:connections-layout:without-covered" if overlap_owner else "run test:connections-layout"
+        assert calls.count(expected) == 1, (changed, calls)
     scripts = json.loads((ROOT / "hushh-webapp/package.json").read_text())["scripts"]
     selected = scripts["test:connections-layout"].split("--project=chromium")[0]
     assert selected.count("e2e/financial-packets.layout.spec.ts") == 1
