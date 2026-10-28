@@ -248,3 +248,29 @@ def test_worker_preserves_promoted_api_provider_and_rejects_divergence(selected)
     worker["env"] = []
     with pytest.raises(ValueError, match="managed text provider mismatch"):
         _verify(revision, managed_text_provider=selected)
+
+
+@pytest.mark.parametrize("tamper", [None, "missing", "duplicate", "wrong", "unknown_expected"])
+def test_activity_pause_controls_must_match_serving_worker(tamper):
+    revision = _deployed_revision()
+    worker = next(item for item in revision["spec"]["containers"] if item["name"] == "drive-worker")
+    flags = [
+        {"name": "DRIVE_REQUEST_ACTIVITY_UNION_ENABLED", "value": "true"},
+        {"name": "DRIVE_REQUEST_ACTIVITY_UNION_PAUSED", "value": "false"},
+    ]
+    if tamper == "missing":
+        flags.pop()
+    if tamper == "duplicate":
+        flags.append(dict(flags[-1]))
+    if tamper == "wrong":
+        flags[-1]["value"] = "true"
+    worker["env"] = worker.get("env", []) + flags
+    if tamper is None:
+        MODULE.verify_activity_controls(revision, enabled="true", paused="false")
+    else:
+        with pytest.raises(ValueError):
+            MODULE.verify_activity_controls(
+                revision,
+                enabled="unknown" if tamper == "unknown_expected" else "true",
+                paused="false",
+            )

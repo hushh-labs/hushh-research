@@ -423,7 +423,15 @@ Erased jobs, payments and permissions are never reconstructed by this rollout.
 `DRIVE_REQUEST_ACTIVITY_UNION_ENABLED=false` stops new policy-4 enrollment;
 `DRIVE_REQUEST_ACTIVITY_UNION_PAUSED=true` pauses saved policy-4 planning, search,
 fresh grants and copy production while preserving cleanup and reconciliation.
-Policies 1–3 retain their saved contracts and semantic-plan-v1 digests.
+Policies 1–3 retain their saved contracts and semantic-plan-v1 digests. The
+existing governed UAT workflow forwards repository variables
+`DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED` (default true) and
+`DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED` (default false) to the API and both
+worker revisions, whose controls are attested before promotion. Configuration-only
+rollback uses the same approved SHA with a justified backend scope; it does not
+change consent or erase receipts. Query-planner prompt edits preserve the deployed
+facts-policy fingerprint while unchanged facts instructions/schema/model/profile
+remain pinned, preventing unrelated extraction work.
 
 Detailed timeline logs are enabled in verified Dev/UAT/test, including optimized
 UAT builds. Production and unknown/conflicting deployment identity suppress

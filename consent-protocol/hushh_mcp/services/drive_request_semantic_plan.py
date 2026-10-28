@@ -10,10 +10,10 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Literal, Mapping
+from typing import Annotated, Literal, Mapping
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 SEMANTIC_PLAN_VERSION = 1
 MAX_SEMANTIC_QUERY_CHARS = 1800
@@ -147,6 +147,12 @@ def parse_semantic_plan(plan) -> SemanticDrivePlan | SemanticDrivePlanV2:
         else SemanticDrivePlan
     )
     return model.model_validate(payload)
+
+
+# Dispatch before union validation so schema-correction feedback keeps leaf paths.
+SemanticDrivePlanInput = Annotated[
+    SemanticDrivePlan | SemanticDrivePlanV2, BeforeValidator(parse_semantic_plan)
+]
 
 
 def semantic_plan_digest(plan: SemanticDrivePlan | SemanticDrivePlanV2 | dict) -> str:

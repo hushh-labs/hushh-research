@@ -1,11 +1,13 @@
 """Provider grammar projection must preserve data fields and host acceptance rules."""
 
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 from google.genai import _transformers
 from pydantic import BaseModel, Field, ValidationError
 
+from hushh_mcp.services import drive_packet_intelligence
 from hushh_mcp.services.drive_citation_references import (
     ReferencedDocumentFacts,
     ReferencedPageFacts,
@@ -177,3 +179,41 @@ def test_status_reference_resolution_keeps_claim_and_counterevidence_together():
     assert DocumentPageFacts.model_validate(legacy).record_status.status == "unknown"
     with pytest.raises(ValueError, match="unknown citation reference"):
         resolve_references(result, {"p1s0": {"page": 1, "quote": claim}})
+
+
+# Pin the deployed facts policy for both supported models. Query-only edits do
+# not re-queue facts; changed facts instructions/profile still invalidate it.
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("gemini-3.8-flash", "9609c9693171402852147dcff4057212eda76fc6f69ad828ec59c51327aa5c02"),
+        ("gemini-3.7-flash", "d7f816775a4ef67f878e7562f175c56f93787c4638eda110b65d532ebba7e3bf"),
+    ],
+)
+def test_facts_policy_inputs_are_pinned(monkeypatch, model, expected):
+    import yaml
+
+    monkeypatch.setattr(drive_packet_intelligence, "resolve_fleet_model_name", lambda _: model)
+    previous = drive_packet_intelligence.facts_policy_version()
+    assert previous == "document-facts-v6-record-status:" + expected
+    root = Path(drive_packet_intelligence.__file__).resolve().parents[2]
+    path = root / "hushh_mcp/agents/documents/agent.yaml"
+    read_bytes = Path.read_bytes
+    manifest = yaml.safe_load(path.read_bytes())
+    query = next(
+        agent for agent in manifest["subagents"] if agent["id"] == "agent_documents_request_search"
+    )
+    query["system_instruction"] += "\nSynthetic query-only change."
+    changed = [yaml.safe_dump(manifest).encode()]
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            Path, "read_bytes", lambda self: changed[0] if self == path else read_bytes(self)
+        )
+        assert drive_packet_intelligence.facts_policy_version() == previous
+        manifest["system_instruction"] += "\nSynthetic facts-owner instruction change."
+        changed[0] = yaml.safe_dump(manifest).encode()
+        assert drive_packet_intelligence.facts_policy_version() != previous
+    monkeypatch.setattr(
+        drive_packet_intelligence, "EXTRACTION_PROFILE", "changed-extraction-profile"
+    )
+    assert drive_packet_intelligence.facts_policy_version() != previous

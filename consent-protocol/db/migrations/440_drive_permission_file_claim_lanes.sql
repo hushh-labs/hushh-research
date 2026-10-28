@@ -73,4 +73,7 @@ CREATE TRIGGER drive_removal_file_claim_delete BEFORE DELETE ON drive_request_bu
 DROP TRIGGER IF EXISTS drive_removal_file_claim_settle ON drive_request_bulk_removals;
 CREATE TRIGGER drive_removal_file_claim_settle AFTER UPDATE OF state,lease_id ON drive_request_bulk_removals FOR EACH ROW EXECUTE FUNCTION drive_removal_file_claim_lifecycle();
 COMMENT ON TABLE drive_share_file_claims IS 'Global keyed file mutation exclusion. Uncertain individual, bulk and removal writes retain claims beyond lease expiry; erased unknown writes retain anonymous fences.';
+DO $$ BEGIN
+ IF EXISTS(SELECT 1 FROM pg_proc WHERE proname='install_account_deletion_write_guards') THEN PERFORM public.install_account_deletion_write_guards(); END IF;
+END $$;
 COMMIT;

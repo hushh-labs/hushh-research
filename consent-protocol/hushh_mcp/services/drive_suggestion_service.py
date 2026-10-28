@@ -37,7 +37,7 @@ from hushh_mcp.services.drive_request_package_assessment import (
     private_semantic_request_model,
     validate_semantic_model_binding,
 )
-from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan, SemanticDrivePlanV2
+from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlanInput
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingError,
     LiveReviewedSource,
@@ -251,7 +251,7 @@ class LiveSearchPlan(BaseModel):
     # Missing counts preserve older frozen plans and exhaustive discovery.
     result_limit: int | None = Field(default=None, ge=1, le=1000)
     # New request policies retain the full expression; older stored plans omit it.
-    semantic_query: SemanticDrivePlan | SemanticDrivePlanV2 | None = None
+    semantic_query: SemanticDrivePlanInput | None = None
 
     @field_validator("terms")
     @classmethod
@@ -455,7 +455,7 @@ class LiveSearchModelPlan(LiveSearchPlan, EvidenceModel):
 class SemanticLiveSearchModelPlan(LiveSearchModelPlan):
     """New request interpretation; legacy hints never replace the full expression."""
 
-    semantic_query: SemanticDrivePlan | SemanticDrivePlanV2
+    semantic_query: SemanticDrivePlanInput
 
     @model_validator(mode="after")
     def semantic_subject(self):

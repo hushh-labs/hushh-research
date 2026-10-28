@@ -24,6 +24,33 @@ def _digest(image: Any) -> str | None:
     return digest
 
 
+def verify_activity_controls(
+    revision: dict, *, enabled: str | None, paused: str | None
+) -> None:
+    if enabled is None and paused is None:
+        return  # Historical callers do not claim this version's rollout contract.
+    if enabled not in {"true", "false"} or paused not in {"true", "false"}:
+        raise ValueError("Invalid expected activity policy controls")
+    worker = next(
+        (
+            item
+            for item in revision.get("spec", {}).get("containers", [])
+            if item.get("name") == "drive-worker"
+        ),
+        {},
+    )
+    for name, expected in (
+        ("DRIVE_REQUEST_ACTIVITY_UNION_ENABLED", enabled),
+        ("DRIVE_REQUEST_ACTIVITY_UNION_PAUSED", paused),
+    ):
+        if [
+            item.get("value")
+            for item in worker.get("env", [])
+            if item.get("name") == name
+        ] != [expected]:
+            raise ValueError("Drive worker activity policy mismatch")
+
+
 def _verify_scaling(
     revision: dict[str, Any], *, max_instances: str | None, concurrency: str | None
 ) -> None:
@@ -343,6 +370,11 @@ def main() -> int:
             managed_text_provider=os.environ.get("EXPECTED_MANAGED_TEXT_PROVIDER"),
             max_instances=os.environ.get("EXPECTED_MAX_INSTANCES"),
             concurrency=os.environ.get("EXPECTED_CONCURRENCY"),
+        )
+        verify_activity_controls(
+            revision,
+            enabled=os.environ.get("EXPECTED_ACTIVITY_UNION_ENABLED"),
+            paused=os.environ.get("EXPECTED_ACTIVITY_UNION_PAUSED"),
         )
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"Drive worker candidate provenance failed: {exc}", file=sys.stderr)
