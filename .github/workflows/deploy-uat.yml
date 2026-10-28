@@ -4,30 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Shared UAT or fixed private PLG qualification namespace"
+        description: "Standard shared UAT deployment"
         required: true
         default: shared-uat
         type: choice
         options:
           - shared-uat
-          - plg-isolated-qualification
-      plg_source_validation_run:
-        description: "Exact successful Main-owned fixed PLG source validation run (PLG target only)"
-        required: false
-        type: string
-      plg_dev_run:
-        description: "Exact accepted isolated Dev run; copies its executable image without rebuilding"
-        required: false
-        type: string
-      plg_schema_action:
-        description: "Owned PLG namespace only; initialize requires empty DB, reconciliation never replays initialization"
-        required: true
-        default: preflight
-        type: choice
-        options:
-          - preflight
-          - initialize
-          - reconcile-bootstrap
       scope:
         description: "Auto-detect deploy lane, or force backend/frontend/all"
         required: true
@@ -128,7 +110,6 @@ concurrency:
 jobs:
   select-target:
     name: Select UAT target
-    if: inputs.target != 'plg-isolated-qualification'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -3903,157 +3884,3 @@ jobs:
             echo "UAT release finished with status: $STATUS"
             exit 1
           fi
-
-  plg-isolated:
-    name: PLG Isolated Uat Acceptance Gate
-    if: inputs.target == 'plg-isolated-qualification'
-    permissions:
-      contents: read
-      checks: read
-      actions: read
-      id-token: write
-    runs-on: ubuntu-24.04
-    timeout-minutes: 75
-    concurrency:
-      group: deploy-uat
-      cancel-in-progress: false
-      queue: max
-    environment: uat
-    env:
-      PLG_ENV: uat
-      PLG_UNSUPPORTED_LIVE_WORK: ${{ (inputs.build_pod_image || inputs.run_live_model_checks || inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok) && 'true' || 'false' }}
-      PROTOCOL_PYTHON: ${{ github.workspace }}/source/consent-protocol/.venv/bin/python
-      GH_TOKEN: ${{ github.token }}
-      PYTHON_DOTENV_DISABLED: "1"
-    steps:
-      - name: Checkout fixed Main qualification authority
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-
-      - name: Select private qualification workspace
-        shell: bash
-        run: echo "PLG_FOLDER=${RUNNER_TEMP}/plg-isolated-qualification" >> "$GITHUB_ENV"
-
-      - name: Require governed isolated PLG target
-        env:
-          REQUESTED_SHA: ${{ inputs.sha }}
-          REQUESTED_SCOPE: ${{ inputs.scope }}
-          SOURCE_RUN: ${{ inputs.plg_source_validation_run }}
-          DEV_RUN: ${{ inputs.plg_dev_run }}
-          SCHEMA_ACTION: ${{ inputs.plg_schema_action }}
-        run: |
-          python3 deploy/plg/qualification_producer.py --phase require --environment "$PLG_ENV" \
-            --folder "$PLG_FOLDER" --sha "$REQUESTED_SHA" --scope "$REQUESTED_SCOPE" \
-            --source-validation-run "$SOURCE_RUN" --dev-run "$DEV_RUN" \
-            --schema-action "$SCHEMA_ACTION"
-
-      - name: Verify exact PLG source validation
-        run: python3 deploy/plg/qualification_producer.py --phase source --environment "$PLG_ENV" --folder "$PLG_FOLDER"
-
-      - name: Checkout admitted immutable backend source
-        uses: actions/checkout@v6
-        with:
-          ref: 5de6ee29abe3b00642bd6b745c608279091810b3
-          path: source
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Install locked source runtime
-        uses: ./consent-protocol/.github/actions/setup-python-uv
-        with:
-          python-version: "3.13"
-          protocol-dir: ./source/consent-protocol
-
-      - name: Authenticate normal governed environment
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
-          project_id: ${{ env.GCP_PROJECT_ID }}
-          create_credentials_file: true
-          export_environment_variables: true
-
-      - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Install canonical Cloud SQL proxy
-        run: |
-          curl --fail --silent --show-error --location \
-            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
-            --output "${RUNNER_TEMP}/cloud-sql-proxy"
-          chmod +x "${RUNNER_TEMP}/cloud-sql-proxy"
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-
-      - name: Prepare owned isolated schema
-        timeout-minutes: 35
-        run: |
-          "$PROTOCOL_PYTHON" deploy/plg/qualification_producer.py --phase schema --environment "$PLG_ENV" \
-            --folder "$PLG_FOLDER" --source-root "$GITHUB_WORKSPACE/source"
-
-      - name: Verify isolated runtime IAM prerequisites
-        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase iam-pre --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
-
-      - name: Promote exact isolated Dev image
-        timeout-minutes: 25
-        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase image --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
-
-      - name: Admit isolated capacity before deployment
-        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase capacity --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
-
-      - name: Deploy isolated PLG candidate
-        id: candidate
-        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase deploy --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
-
-      - name: Verify isolated private IAM and capacity
-        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase iam --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
-
-      - name: Mint normal hosted canonical-audience ID token
-        id: private-auth
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
-          project_id: ${{ env.GCP_PROJECT_ID }}
-          token_format: id_token
-          id_token_audience: ${{ steps.candidate.outputs.audience }}
-          id_token_include_email: true
-          create_credentials_file: false
-          export_environment_variables: false
-
-      - name: Verify isolated private candidate provenance and health
-        env:
-          PLG_QUALIFICATION_ID_TOKEN: ${{ steps.private-auth.outputs.id_token }}
-        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase health --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
-
-      - name: Verify isolated schema and runtime permissions
-        run: |
-          "$PROTOCOL_PYTHON" deploy/plg/qualification_producer.py --phase schema-post --environment "$PLG_ENV" \
-            --folder "$PLG_FOLDER" --source-root "$GITHUB_WORKSPACE/source"
-
-      - name: Record isolated PLG acceptance
-        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase record --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
-
-      - name: Upload isolated PLG acceptance
-        uses: actions/upload-artifact@v4
-        with:
-          name: plg-isolated-acceptance-uat-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.PLG_FOLDER }}/acceptance.json
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Retain isolated qualification checkpoints
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: plg-isolated-diagnostics-uat-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ env.PLG_FOLDER }}/*.json
-            ${{ env.PLG_FOLDER }}/post-schema/*.json
-          if-no-files-found: ignore
-          retention-days: 7
