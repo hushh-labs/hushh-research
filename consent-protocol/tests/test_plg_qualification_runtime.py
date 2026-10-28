@@ -54,6 +54,14 @@ def test_bootstrap_ddl_install_is_one_pristine_transaction_with_exact_dependenci
     assert len([q for q in statements if q.startswith("ALTER TABLE")]) == 5
     assert len([q for q in statements if q.startswith("GRANT SELECT ON TABLE public.")]) == 5
     assert not any("CREATE ROLE" in q or "SET ROLE" in q or "MEMBER" in q for q in statements)
+    assert [q for q in statements if q.startswith("SET LOCAL ROLE")] == [
+        'SET LOCAL ROLE "pg_database_owner"',
+        'SET LOCAL ROLE "synthetic_admin"',
+    ]
+    assert connection.current_role == "synthetic_admin"
+    assert statements.index('SET LOCAL ROLE "synthetic_admin"') < next(
+        i for i, q in enumerate(statements) if q.startswith("ALTER TABLE")
+    )
     connection.readonly = True
     proof = runtime.verify(connection)
     runtime.validate_proof(proof)
@@ -71,6 +79,28 @@ def test_bootstrap_ddl_install_is_one_pristine_transaction_with_exact_dependenci
     with pytest.raises(ValueError, match="pristine_install"):
         runtime.install(connection)
     assert len([q for q, _ in connection.calls if q.startswith("GRANT")]) == count
+
+
+@pytest.mark.parametrize(
+    "defect,code",
+    [
+        ("schema-owner", "schema_owner_unverified"),
+        ("grant-noop", "schema_grant_unverified"),
+        ("role-reset", "admin_role_not_restored"),
+    ],
+)
+def test_schema_grant_refuses_unknown_owner_noop_and_unrestored_role(
+    schema, monkeypatch, defect, code
+):
+    connection = RuntimeConnection(schema.runtime, defect=defect)
+    original = connection.objects[:]
+    monkeypatch.setattr(schema.runtime, "_dml_grants", lambda _c: pytest.fail("DML grants began"))
+    with pytest.raises(ValueError, match=code):
+        schema.runtime.install(connection)
+    assert connection.calls[-1][0] == "ROLLBACK"
+    assert connection.objects == original and not connection.create
+    assert connection.current_role == "synthetic_admin"
+    assert not any(q.startswith("ALTER TABLE") for q, _ in connection.calls)
 
 
 @pytest.mark.parametrize("defect", [None, "admin-read", "admin-post"])
