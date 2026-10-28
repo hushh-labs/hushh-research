@@ -73,6 +73,8 @@ function LostVaultDeleteJourney({
   const terminalCode =
     flow.stage === "retained"
       ? "account_deletion_identity_retained"
+      : flow.stage === "requested"
+        ? "account_deletion_requested"
       : flow.stage === "pending"
         ? "account_deletion_finishing"
         : flow.stage === "uncertain"
@@ -100,8 +102,7 @@ function LostVaultDeleteJourney({
         </div>
         {flow.stage === "review" && (
           <p className="type-footnote text-[color:var(--app-secondary-label)]">
-            Permanently deletes this account’s files, vault and saved information.
-            Remove One’s bank access in bank settings. Required records may remain.
+            Deletes vault and files. Revoke bank access; required records may remain.
           </p>
         )}
         {flow.error && (
@@ -254,6 +255,11 @@ function LostVaultDeleteJourney({
           </div>
         ) : flow.stage === "confirm" ? (
           <div className="space-y-4">
+            {flow.review?.local_erasure_required && (
+              <p className="type-footnote text-[color:var(--app-secondary-label)]">
+                Removes Hussh’s encrypted copies. Shared provider access and external keys remain valid.
+              </p>
+            )}
             <label className="flex min-h-11 items-start gap-3 type-footnote text-[color:var(--app-label)]">
               <input
                 type="checkbox"
@@ -261,7 +267,9 @@ function LostVaultDeleteJourney({
                 onChange={(event) => flow.setAcknowledged(event.target.checked)}
                 className="mt-1"
               />
-              <span>I understand this can’t be undone.</span>
+              <span>{flow.review?.local_erasure_required
+                ? "I agree to remove Hussh’s copies and delete this account."
+                : "I understand this can’t be undone."}</span>
             </label>
             <Button
               variant="none"

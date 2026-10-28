@@ -28,6 +28,11 @@ export const LANDING_NOTICES: Record<
     message: "Your information is deleted. Account removal still needs attention. Contact support before signing up again.",
     toastId: "auth-session-account-deletion-finishing",
   },
+  account_deletion_requested: {
+    code: "account_deletion_requested",
+    message: "Deletion requested. Cleanup continues; sign in to check progress.",
+    toastId: "auth-session-account-deletion-requested",
+  },
   account_deletion_identity_retained: {
     code: "account_deletion_identity_retained",
     message: "Your information in this environment is deleted. Your shared sign-in identity was retained and will not be removed automatically. Contact support before starting again.",
