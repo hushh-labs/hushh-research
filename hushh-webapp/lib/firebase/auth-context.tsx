@@ -15,6 +15,7 @@
 "use client";
 
 import { resolveAccountLifecycleRecovery } from "@/lib/auth/account-lifecycle-recovery";
+import { rememberPendingAccountDeviceDeparture, purgeConfirmedAccountDeviceDeparture } from "@/lib/auth/account-departure-device";
 
 import { requireUsablePhoneTestStart } from "@/lib/auth/phone-test-eligibility";
 
@@ -110,7 +111,7 @@ const NATIVE_SESSION_PRIVACY_READ_BUDGET_MS = 2_000;
 
 type AccountSessionValidationResult =
   | { outcome: "active"; principal: AccountPrincipalBinding }
-  | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery; departure?: AuthSessionInvalidationCode }
+  | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery; departure?: AuthSessionInvalidationCode; confirmedCleanup?: AccountCleanupOperation }
   | { outcome: "terminal"; code: AuthSessionInvalidationCode };
 
 const DEPARTED_ACCOUNT_CODES: ReadonlySet<AuthSessionInvalidationCode> = new Set([
@@ -739,7 +740,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return { outcome: "active", principal };
       };
 
-      const resolveRegistrationRecovery = async (idToken: string, terminal: AccountSessionValidationResult): Promise<AccountSessionValidationResult> => {
+      const resolveRegistrationRecovery = async (idToken: string, terminal: AccountSessionValidationResult, confirmedCleanup?: AccountCleanupOperation): Promise<AccountSessionValidationResult> => {
         if (terminal.outcome !== "terminal") return terminal;
         // Captured with the terminal evidence, before a later start fresh can
         // admit this identity's next owner.
@@ -748,7 +749,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Registration replaces the terminal sign-out that would have purged
         // the departed owner's device state, so purge it here instead.
         if (recovery.outcome === "unavailable" && recovery.registration && recovery.departure) {
-          purgeDepartedAccountDevice(departingOwner, recovery.departure);
+          const complete = confirmedCleanup ?? recovery.confirmedCleanup;
+          if (complete) {
+            try { await purgeConfirmedAccountDeviceDeparture(candidateUser.uid, complete); }
+            catch { return { outcome: "unavailable" }; }
+          }
+          const admittedOwner = lastAdmittedOwnerFor(candidateUser.uid);
+          if (admittedOwner) purgeDepartedAccountDevice(admittedOwner, recovery.departure);
+          else if (!complete) purgeDepartedAccountDevice(departingOwner, recovery.departure);
         }
         return recovery;
       };
@@ -771,8 +779,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
             const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
             const operation = parseAccountCleanupOperation(body?.operation);
             if (operation?.state === "complete") {
-              return resolveRegistrationRecovery(idToken, { outcome: "terminal", code: "account_deletion_identity_retained" });
+              return resolveRegistrationRecovery(idToken, { outcome: "terminal", code: "account_deletion_identity_retained" }, operation);
             }
+            if (operation?.owner_id) rememberPendingAccountDeviceDeparture(candidateUser.uid, operation.owner_id, operation.id);
             if (operation) return { outcome: "unavailable", cleanup: operation };
           }
         } catch {

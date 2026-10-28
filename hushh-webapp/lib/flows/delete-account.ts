@@ -5,6 +5,7 @@ import { AccountService, type AccountDeletionResult } from "@/lib/services/accou
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { ApiService } from "@/lib/services/api-service";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
+import { rememberPendingAccountDeviceDeparture } from "@/lib/auth/account-departure-device";
 import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
@@ -416,6 +417,7 @@ async function executeAccountDeletion(params: {
         isValidatedAuthSessionOwnerCurrent(owner)) {
       // The reviewed consent is durable, so the person may leave while the
       // worker finishes. This is a pending handoff, never deletion success.
+      rememberPendingAccountDeviceDeparture(owner.firebaseUid, owner.ownerId, result.cleanup_operation.id);
       return result;
     }
     if (isValidatedAuthSessionOwnerCurrent(owner)) {

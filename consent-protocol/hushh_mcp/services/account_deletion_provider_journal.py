@@ -54,7 +54,7 @@ def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) 
         conn.execute(_LIMITS)
         row = (
             conn.execute(
-                text("""SELECT provider_cleanup_id,erasure_phase,cleanup_status,
+                text("""SELECT account_owner_id,user_id_hash,provider_cleanup_id,erasure_phase,cleanup_status,
               provider_cleanup_inventory,provider_cleanup_receipt,
               provider_cleanup_next_attempt_at,
               (erasure_phase='provider_cleanup' AND (cleanup_status IN ('pending','retry_pending')
@@ -87,8 +87,11 @@ def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) 
             state = "waiting_for_provider"
         else:
             state = "cleaning_up"
-        return {
+        result = {
             "id": str(row["provider_cleanup_id"]),
+            # The operation and hash remain after raw owner identifiers are scrubbed.
+            # A device can verify its own pending owner hint before deleting receipts.
+            "owner_hash": row["user_id_hash"],
             "state": state,
             "credential_count": len(inventory),
             "local_erasure_confirmation_required": bool(
@@ -101,6 +104,9 @@ def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) 
             # window, so the owner is told plainly instead of seeing progress.
             "delayed": bool(row["delayed"]),
         }
+        if state != "complete" and row["account_owner_id"] is not None:
+            result["owner_id"] = row["account_owner_id"]
+        return result
 
 
 def authorize_continuation(

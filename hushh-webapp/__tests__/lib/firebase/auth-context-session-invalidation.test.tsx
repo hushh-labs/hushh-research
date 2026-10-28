@@ -10,17 +10,40 @@ import { AuthProvider } from "@/lib/firebase/auth-context";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { User } from "firebase/auth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { isAccountDeletionActive, markAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 
 import { AUTH_SESSION_INVALIDATED_EVENT, dispatchAuthSessionInvalidated, AUTH_SESSION_SIBLING_TAB_STORAGE_KEY, publishAccountDeletionToSiblingTabs, type AuthSessionInvalidationDetail } from "@/lib/auth/session-invalidation";
 import { ACCOUNT_SESSION_VALIDATION_BUDGET_MS } from "@/lib/auth/account-session-policy";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
-import { AUTH_SESSION_VERIFICATION_REQUIRED_EVENT, publishPendingAuthSessionIdentity, snapshotAuthSessionGeneration, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { AUTH_SESSION_VERIFICATION_REQUIRED_EVENT, publishPendingAuthSessionIdentity, publishValidatedAuthSessionOwner, snapshotAuthSessionGeneration, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 describe("@feature_account_deletion @trace_loop AuthProvider terminal session invalidation", () => {
   beforeEach(resetWebAuthMocks);
 
   afterEach(cleanupWebAuthMocks);
+
+  it("purges the exact departed owner after pending sign-out and completed cleanup", async () => {
+    const ownerId = "acct_" + "d".repeat(32);
+    const operationId = "b99efb85-c1f2-4714-8a63-614d774a25a3";
+    const { rememberPendingAccountDeviceDeparture } = await import("@/lib/auth/account-departure-device");
+    rememberPendingAccountDeviceDeparture("account-owner", ownerId, operationId);
+    publishValidatedAuthSessionOwner(null);
+    const review = { previous_generation: 1, cleanup_operation: operationId,
+      enrollment_operation: "86f55df8-4527-49e4-81f7-62d9ac3dde7a", expires_at: Math.floor(Date.now() / 1000) + 300, terms_version: 1, digest: "a".repeat(64) };
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
+    mocks.apiGetAccountCleanupStatus.mockImplementation(async () => Response.json({ operation: {
+      ...(await cleanupStatusResponse("complete").json()).operation,
+      owner_hash: `sha256:${createHash("sha256").update(ownerId).digest("hex")}`,
+    } }));
+    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "ready", review }));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    await screen.findByRole("heading", { name: "Start fresh?" });
+    expect(mocks.clearForUser).toHaveBeenCalledWith(ownerId, { deleteDurableReceipts: true });
+    expect(mocks.clearDeviceSecretsForDeletedAccount).toHaveBeenCalledWith(ownerId);
+    expect(mocks.clearForUser).not.toHaveBeenCalledWith("account-owner", { deleteDurableReceipts: true });
+    expect(mocks.apiStartFreshAccount).not.toHaveBeenCalled();
+  });
 
   it.each(["confirmed", "lost_response"])("starts fresh only after exact review and normal session admission: %s", async outcome => {
     const ownerId = "acct_" + "d".repeat(32);

@@ -604,6 +604,8 @@ async def test_provider_cleanup_retains_custody_through_failure_and_migration_re
             operation_id=claim.cleanup_id,
         )
         assert terminal["state"] == "complete"
+        assert terminal["owner_hash"] == lifecycle.account_deletion_user_hash(uid)
+        assert "owner_id" not in terminal
         assert terminal["delayed"] is False
         assert terminal["credential_count"] == 4
         with pytest.raises(journal.CleanupOperationNotFound):

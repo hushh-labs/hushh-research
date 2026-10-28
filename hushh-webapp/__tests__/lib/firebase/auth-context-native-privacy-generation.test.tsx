@@ -27,7 +27,7 @@ describe("AuthProvider native privacy generations", () => {
     fireEvent.click(screen.getByRole("button", { name: "Finish pending deletion" }));
     await waitFor(() => expect(mocks.replaceDocument).toHaveBeenCalledWith("/login?auth_notice=account_deletion_requested"));
     expect(mocks.clearLocalChatNotificationState).toHaveBeenCalledWith(ownerId);
-    expect(mocks.authServiceSignOut).toHaveBeenCalledWith(firebaseUid);
+    expect(mocks.authServiceSignOut).toHaveBeenCalledWith(ownerId);
     expect(mocks.apiDeleteSession).not.toHaveBeenCalled();
   });
 
