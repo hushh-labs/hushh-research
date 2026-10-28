@@ -20,8 +20,11 @@ evidence, not admission or release claims for the latest implementation.
 
 The local integrated source `95dc95d6da` includes main and the shared branch.
 Its generated map contains 161 routes and 17 separately enumerated query-driven
-views; enumeration is discovery, not acceptance. The physical iPhone runs the
-earlier Dev-backed qualification app `773bd90a6f`, not this integrated source.
+views; enumeration is discovery, not acceptance. The iPhone now has the
+Dev-backed qualification build from `95dc95d6da` installed (executable SHA-256
+`4aa679b336b6c97666e185a2a5e0043f2cedf33da2409009eb7450058443cbf0`). Its
+bundled web assets match the source build. Functional evidence in the table is
+from the earlier `773bd90a6f` app and does not transfer to the installed build.
 Ordinary builds retain the established renderer and the qualification switch.
 
 | Family | Renderer and operation owner | Evidence and remaining qualification |
@@ -32,7 +35,10 @@ Ordinary builds retain the established renderer and the qualification switch.
 | Other routes and nested states | Existing feature owners and renderer-specific fallbacks | The generated inventory covers route discovery, not every interaction state. Native completion, visual and accessibility review, mutation fixtures and physical performance acceptance remain open. |
 
 Rollback remains the existing qualification switch. No Dev deployment or
-physical acceptance is implied for the integrated source.
+physical acceptance is implied for the integrated source. After installation,
+the app reached its passphrase gate; a public eight-character XCUI input probe
+delivered six characters and was cleared without submitting. The newer build's
+warm scroll check therefore stopped at Chat admission, before scrolling.
 
 ### iPhone stock-app reference — 2026-10-27
 
