@@ -5,31 +5,38 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 import hashlib
-from io import BytesIO
+import importlib.util
 import json
 import os
 import re
-import selectors
-import subprocess
 import sys
 import time
+from datetime import datetime, timedelta
+from io import BytesIO
 from pathlib import Path
-from zipfile import ZipFile, BadZipFile
+from zipfile import BadZipFile, ZipFile
 
 from github_security_authority import (
+    ROOT,
+    WORKER_PATH,
     GitHub,
     Refused,
     positive,
-    verify_source,
-    WORKER_PATH,
-    ROOT,
     requested_source,
+    verify_source,
 )
 
 REPOSITORY = "hushh-labs/hushh-research"
 MAX_BYTES = 64 * 1024
+
+_PROCESS_SPEC = importlib.util.spec_from_file_location(
+    "security_receipt_process_group", Path(__file__).with_name("process_group.py")
+)
+if not _PROCESS_SPEC or not _PROCESS_SPEC.loader:
+    raise Refused("Security artifact transport is unavailable")
+_process_group = importlib.util.module_from_spec(_PROCESS_SPEC)
+_PROCESS_SPEC.loader.exec_module(_process_group)
 
 
 class MissingReceipt(Refused):
@@ -90,44 +97,22 @@ def unpack(raw: bytes, digest: str) -> dict:
     return result
 
 
-def archive_read(artifact_id: int) -> bytes:
+def archive_read(artifact_id: int, *, command=None, timeout=30) -> bytes:
     """Bound output and duration, and reap the read-only gh child on every path."""
     positive(artifact_id, "artifact identity")
+    require(0 < timeout <= 30, "Security artifact download timeout is invalid")
     path = f"repos/{REPOSITORY}/actions/artifacts/{artifact_id}/zip"
-    with subprocess.Popen(
-        ["gh", "api", path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
-    ) as child:
-        try:
-            end, output = time.monotonic() + 30, bytearray()
-            with selectors.DefaultSelector() as ready:
-                ready.register(child.stdout, selectors.EVENT_READ)
-                while True:
-                    remaining = end - time.monotonic()
-                    require(
-                        remaining > 0 and bool(ready.select(remaining)),
-                        "Security artifact download timed out",
-                    )
-                    chunk = os.read(child.stdout.fileno(), 16384)
-                    if not chunk:
-                        break
-                    output.extend(chunk)
-                    require(
-                        len(output) <= MAX_BYTES,
-                        "Security artifact download exceeded its bound",
-                    )
-            require(
-                child.wait(timeout=max(0.1, end - time.monotonic())) == 0,
-                "Security artifact download failed",
-            )
-            return bytes(output)
-        finally:
-            if child.poll() is None:
-                child.terminate()
-                try:
-                    child.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    child.kill()
-                    child.wait(timeout=2)
+    try:
+        return _process_group.bounded_stdout(
+            ["gh", "api", path] if command is None else command,
+            max_bytes=MAX_BYTES,
+            timeout=timeout,
+        )
+    except _process_group.BoundedReadError as error:
+        reason = {"size": "exceeded its bound", "timeout": "timed out"}.get(error.reason, "failed")
+        raise Refused("Security artifact download " + reason) from None
+    except OSError:
+        raise Refused("Security artifact download failed") from None
 
 
 def validate(receipt: dict, source: dict, run: dict, artifact: dict) -> None:
@@ -153,17 +138,14 @@ def validate(receipt: dict, source: dict, run: dict, artifact: dict) -> None:
             inventory.get("complete") is True and type(count) is int and count >= 0,
             "Security inventory is incomplete",
         )
-    require(
-        receipt["secret_scanning"]["open"] == 0, "Open secret alerts refuse clearance"
-    )
+    require(receipt["secret_scanning"]["open"] == 0, "Open secret alerts refuse clearance")
     started, finished = timestamp(run["run_started_at"]), timestamp(run["updated_at"])
     recorded, uploaded = (
         timestamp(receipt["recorded_at"]),
         timestamp(artifact["created_at"]),
     )
     require(
-        started <= uploaded <= finished
-        and started <= recorded <= uploaded + timedelta(seconds=1),
+        started <= uploaded <= finished and started <= recorded <= uploaded + timedelta(seconds=1),
         "Security receipt belongs to another attempt window",
     )
 
@@ -180,8 +162,7 @@ def consume(api: GitHub, source: dict, run: dict, workflow: dict) -> dict:
     inventory = api.read(f"{prefix}/runs/{run['id']}/artifacts?per_page=100")
     rows = inventory.get("artifacts", [])
     require(
-        type(inventory.get("total_count")) is int
-        and inventory["total_count"] == len(rows) <= 100,
+        type(inventory.get("total_count")) is int and inventory["total_count"] == len(rows) <= 100,
         "Security artifact inventory is incomplete",
     )
     name = f"ci-security-{run['id']}-{run['run_attempt']}"
@@ -195,8 +176,7 @@ def consume(api: GitHub, source: dict, run: dict, workflow: dict) -> dict:
         and artifact.get("workflow_run", {}).get("id") == run["id"]
         and type(artifact.get("size_in_bytes")) is int
         and 0 < artifact["size_in_bytes"] <= MAX_BYTES
-        and re.fullmatch(r"sha256:[0-9a-f]{64}", artifact.get("digest", ""))
-        is not None,
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", artifact.get("digest", "")) is not None,
         "Security artifact identity or retention is invalid",
     )
     raw = archive_read(artifact.get("id"))
@@ -218,16 +198,12 @@ def consume(api: GitHub, source: dict, run: dict, workflow: dict) -> dict:
         ),
         "Security worker changed during receipt verification",
     )
-    verify_source(
-        api.read, REPOSITORY, {k: source[k] for k in ("run_id", "attempt", "head_sha")}
-    )
+    verify_source(api.read, REPOSITORY, {k: source[k] for k in ("run_id", "attempt", "head_sha")})
     return receipt
 
 
 def verify_reused_worker(api: GitHub, run: dict) -> None:
-    inventory = api.read(
-        f"repos/{REPOSITORY}/actions/runs/{run['id']}/jobs?per_page=100"
-    )
+    inventory = api.read(f"repos/{REPOSITORY}/actions/runs/{run['id']}/jobs?per_page=100")
     jobs = inventory.get("jobs", [])
     require(
         inventory.get("total_count") == len(jobs) == 1,
@@ -303,16 +279,13 @@ def reuse_existing(environment: dict) -> int:
     )
     require(
         environment.get("GITHUB_REF") == "refs/heads/main"
-        and environment.get("GITHUB_WORKFLOW_REF")
-        == f"{REPOSITORY}/{WORKER_PATH}@refs/heads/main",
+        and environment.get("GITHUB_WORKFLOW_REF") == f"{REPOSITORY}/{WORKER_PATH}@refs/heads/main",
         "Receipt reuse requires the main-owned worker",
     )
     event = json.loads(Path(environment["GITHUB_EVENT_PATH"]).read_text())
     policy = json.loads((ROOT / "config/ci-governance.json").read_text())
     api = GitHub(REPOSITORY, environment.get("GH_TOKEN", ""))
-    source = verify_source(
-        api.read, REPOSITORY, requested_source(event, environment, policy)
-    )
+    source = verify_source(api.read, REPOSITORY, requested_source(event, environment, policy))
     receipt = find_receipt(
         api,
         source,

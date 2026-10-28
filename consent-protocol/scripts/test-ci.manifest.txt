@@ -10,7 +10,17 @@ tests/services/test_plg_evidence.py
 tests/services/test_product_activity_postgres.py
 tests/test_plg_deploy_bindings.py
 tests/test_plg_release_source.py
+tests/test_plg_frontend_source.py
+tests/test_plg_frontend_validation.py
 tests/test_plg_source_validation_workflow.py
+tests/test_plg_qualification_bootstrap.py
+tests/test_plg_qualification_schema.py
+tests/test_plg_qualification_runtime.py
+tests/test_plg_qualification_acceptance.py
+tests/test_plg_qualification_image.py
+tests/test_plg_qualification_iam.py
+tests/test_plg_qualification_candidate.py
+tests/test_plg_qualification_producer.py
 
 # Store releases must retain the selected track, exact source and private binaries.
 tests/test_native_ship_artifact_workflows.py
