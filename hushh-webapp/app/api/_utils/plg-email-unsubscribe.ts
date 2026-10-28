@@ -102,9 +102,10 @@ export async function handleEmailUnsubscribe(request: Request, token: string, fe
         jsonResponse = true;
       } else if (type === "application/x-www-form-urlencoded") {
         const fields = [...new URLSearchParams(text).entries()];
-        if (fields.length !== 1) return confirmation("invalid", 400);
-        oneClick = fields[0][0] === "List-Unsubscribe" && fields[0][1] === "One-Click";
-        if (!oneClick && !(fields[0][0] === "action" && fields[0][1] === "unsubscribe")) return confirmation("invalid", 400);
+        const field = fields[0];
+        if (fields.length !== 1 || !field) return confirmation("invalid", 400);
+        oneClick = field[0] === "List-Unsubscribe" && field[1] === "One-Click";
+        if (!oneClick && !(field[0] === "action" && field[1] === "unsubscribe")) return confirmation("invalid", 400);
         jsonResponse = oneClick;
       } else return confirmation("invalid", 415);
     } catch { return confirmation("invalid", 400); }
