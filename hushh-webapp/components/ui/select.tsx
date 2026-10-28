@@ -23,6 +23,7 @@ function Select({
     props.open === undefined && props.onOpenChange === undefined && props.defaultOpen !== true && props.dir === undefined &&
     immediateChoices(props.children) !== null)
   const [localValue, setLocalValue] = React.useState(props.defaultValue ?? "")
+  const initialValue = React.useRef(props.defaultValue ?? "")
   const [fallback, setFallback] = React.useState(false)
   const [fallbackOpen, setFallbackOpen] = React.useState(false)
   const [control, setControl] = React.useState<NativeChoiceControl | null>(null)
@@ -41,6 +42,22 @@ function Select({
     onValueChange?.(next)
   }, [authoredValue, value, onValueChange])
   const requestOpen = React.useCallback((open: boolean) => current.current?.requestOpen(open), [])
+  React.useLayoutEffect(() => {
+    if (!native) return
+    const form = props.form ? document.getElementById(props.form) : trigger.current?.form
+    if (!(form instanceof HTMLFormElement)) return
+    let active = true
+    const reset = (event: Event) => {
+      // Other reset handlers can still cancel the event after this listener.
+      queueMicrotask(() => {
+        if (!active || event.defaultPrevented) return
+        current.current?.requestOpen(false)
+        if (authoredValue === undefined) setLocalValue(initialValue.current)
+      })
+    }
+    form.addEventListener("reset", reset)
+    return () => { active = false; form.removeEventListener("reset", reset) }
+  }, [native, props.form, authoredValue])
   const eligible = open === undefined && onOpenChange === undefined && props.dir === undefined
   return <NativeChoiceTriggerContext.Provider value={native && !fallback ? { ...control, presented: control?.presented ?? false,
     blocked: control?.blocked ?? false, committed: control !== null, bindTrigger } : null}>

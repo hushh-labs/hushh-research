@@ -175,14 +175,55 @@ describe("shared Select native presentation", () => {
   });
 
   it("retains uncontrolled form reset semantics after native choice", async () => {
-    const view = render(<form><Field /></form>);
+    const changed = vi.fn();
+    const view = render(<form><Field onValueChange={changed} /></form>);
     const form = view.container.querySelector("form")!;
-    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+    const trigger = screen.getByRole("combobox");
+    fireEvent.keyDown(trigger, { key: "Enter" });
     await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
     await act(async () => runtime.events.forEach(callback => callback(choose(runtime.prepare.mock.calls[0][0]))));
     expect(new FormData(form).get("posture")).toBe("private-b");
+    expect(trigger).toHaveTextContent("Ask first");
     await act(async () => { form.reset(); });
     expect(new FormData(form).get("posture")).toBe("private-a");
+    expect(trigger).toHaveTextContent("Private");
+    expect(changed).toHaveBeenCalledExactlyOnceWith("private-b");
+  });
+
+  it("retires an open choice on form reset and ignores its late selection", async () => {
+    const changed = vi.fn();
+    const view = render(<form><Field onValueChange={changed} /></form>);
+    const form = view.container.querySelector("form")!;
+    const trigger = screen.getByRole("combobox");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+    const pending = runtime.prepare.mock.calls[0][0] as OwnedChoiceProjection;
+    await act(async () => { form.reset(); });
+    await waitFor(() => expect(runtime.retire).toHaveBeenCalledOnce());
+    await act(async () => runtime.events.forEach(callback => callback(choose(pending))));
+    expect(changed).not.toHaveBeenCalled();
+    expect(trigger).toHaveTextContent("Private");
+  });
+
+  it("preserves the selection when the form cancels its reset", async () => {
+    const view = render(<form onReset={event => event.preventDefault()}><Field /></form>);
+    const trigger = screen.getByRole("combobox");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+    await act(async () => runtime.events.forEach(callback => callback(choose(runtime.prepare.mock.calls[0][0]))));
+    await act(async () => { view.container.querySelector("form")!.reset(); });
+    expect(trigger).toHaveTextContent("Ask first");
+  });
+
+  it("resets a Select associated with a form outside its tree", async () => {
+    const view = render(<><form id="choice-form" /><Field form="choice-form" /></>);
+    const trigger = screen.getByRole("combobox");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+    await act(async () => runtime.events.forEach(callback => callback(choose(runtime.prepare.mock.calls[0][0]))));
+    await act(async () => { view.container.querySelector("form")!.reset(); });
+    expect(trigger).toHaveTextContent("Private");
+    expect(new FormData(view.container.querySelector("form")!).get("posture")).toBe("private-a");
   });
 
   it("does not substitute a web popup while failed native presentation is still retiring", async () => {
