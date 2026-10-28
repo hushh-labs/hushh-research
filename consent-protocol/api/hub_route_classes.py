@@ -231,6 +231,7 @@ POST /api/one/pod/mcp-approval/issue
 POST /api/one/pod/mcp-approval/rebind
 POST /api/one/u/{hushh_id}/chat-grants
 POST /api/one/u/{hushh_id}/memory/provider-consent
+POST /api/one/u/{hushh_id}/memory/provider-grant
 POST /api/one/u/{hushh_id}/memory/revoke
 POST /api/one/webauthn/authenticate/options
 POST /api/one/webauthn/authenticate/verify

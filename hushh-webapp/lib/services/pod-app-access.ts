@@ -51,6 +51,8 @@ const OWNER_POD_ROUTES = new Set([
   "commands/transcriptions",
   "commands/assess",
   "memory/proposals",
+  "memory/status",
+  "memory/provider-consent",
   "turn/stream",
   "turn/cancel",
   "puppy/models",

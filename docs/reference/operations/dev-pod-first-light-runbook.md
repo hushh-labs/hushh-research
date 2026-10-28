@@ -919,3 +919,15 @@ Do not add a permanent bypass flag or silently bootstrap other owners.
 
 Record bootstrap results separately from the subsequent owner-approved update
 acceptance. Do not repeat a bootstrap merely because later authentication fails.
+
+
+### Dev hosted pilot: memory consent transport
+
+After each fixed synthetic owner has a verified direct app connection, grant
+provider processing through the metadata-only `memory/provider-grant` endpoint,
+then send that grant to the pod with the owner's app session. The legacy hub
+`memory/provider-consent` relay is refused by private pods because it carries no
+owner-local session. Do not remove that protection or substitute `pkm.read` for
+processing consent. Read consent status directly; withdrawal requires no new hub
+grant. Complete both owner-isolation and native Memory Bank checks before treating
+learning as verified. This pilot authorizes no UAT or production checks or changes.

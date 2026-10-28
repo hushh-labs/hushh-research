@@ -25,6 +25,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_firebase_auth
+from api.routes.one.pod_memory_provider_grant import (
+    _issue_memory_provider_grant,
+)
+from api.routes.one.pod_memory_provider_grant import (
+    router as memory_provider_grant_router,
+)
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.runtime_settings import personal_agent_enabled, pod_data_door_enabled
 from hushh_mcp.services.compute_backend import is_owner_cloud_target
@@ -40,6 +46,7 @@ from hushh_mcp.services.pod_access_audit import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/one/u", tags=["personal-agent"])
+router.include_router(memory_provider_grant_router)
 
 _INFO_TIMEOUT_SECONDS = 5.0
 # Allow uncached identity acquisition (10s), provider probing (20s) and margin.
@@ -1032,9 +1039,6 @@ async def relay_pod_conversation_close_route(
     )
 
 
-_MEMORY_PROVIDER_CONSENT_TTL_MS = 5 * 60 * 1000
-
-
 class PodMemoryRevokeRelayRequest(BaseModel):
     memory_ids: list[str] = Field(..., alias="memoryIds", min_length=1, max_length=50)
     reason_code: str = Field(default="owner_request", alias="reasonCode", max_length=32)
@@ -1126,34 +1130,10 @@ async def relay_pod_memory_provider_consent(
     personal-agent identity. The pod re-verifies it against the same authority
     before recording the durable consent in its own log. A withdrawal mints nothing.
     """
-    from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
-        PersonalAgentGrantService,
-    )
-
     body: dict[str, Any] = {"granted": bool(payload.granted)}
     if payload.granted:
-        issue = provider_grants
-        if issue is None:
-            issue = PersonalAgentGrantService().issue_or_reuse_standing_scope
-        try:
-            grant = await issue(
-                user_id,
-                scope=ConsentScope.CAP_MEMORY_PROVIDER_PROCESS,
-                grant_kind="memory_provider_process",
-                scope_description=(
-                    "Allow the memory service in your own cloud project to process what "
-                    "your private agent remembers"
-                ),
-                expires_in_ms=_MEMORY_PROVIDER_CONSENT_TTL_MS,
-            )
-        except Exception as exc:  # noqa: BLE001 - authority unavailable fails closed
-            logger.warning("pod_relay.provider_consent_grant_failed %s", type(exc).__name__)
-            raise HTTPException(
-                status_code=503, detail="memory provider consent grant unavailable"
-            ) from None
-        body["providerConsentToken"] = str(grant.get("token") or "")
-        if not body["providerConsentToken"]:
-            raise HTTPException(status_code=503, detail="memory provider consent grant unavailable")
+        grant = await _issue_memory_provider_grant(user_id, provider_grants)
+        body["providerConsentToken"] = grant["token"]
     return await _relay_memory_post(
         hushh_id=hushh_id,
         user_id=user_id,

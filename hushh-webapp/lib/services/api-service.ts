@@ -4071,33 +4071,54 @@ export class ApiService {
     unreviewed?: number;
     provider?: { consent?: "absent" | "granted" | "revoked"; bank?: boolean; stale?: boolean };
   } | null> {
-    const token = await ApiService.getFirebaseToken();
-    const response = await ApiService.apiFetch(
-      `/api/one/u/${encodeURIComponent(hushhId)}/memory/status`,
-      { method: "GET", headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    const response = await ApiService.ownerPodRequest(
+      "memory/status", { method: "GET", cache: "no-store" }, false, undefined, hushhId,
     );
     if (!response.ok) return null;
-    return response.json().catch(() => null);
+    const result = await response.json().catch(() => null);
+    return result ? { ...result, hushhId } : null;
   }
 
   static async setPodMemoryProviderConsent(
     hushhId: string,
     granted: boolean,
   ): Promise<{ hushhId: string; provider?: { consent?: string } } | null> {
-    const token = await ApiService.getFirebaseToken();
-    const response = await ApiService.apiFetch(
-      `/api/one/u/${encodeURIComponent(hushhId)}/memory/provider-consent`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ granted }),
-      },
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const current = () => Boolean(principal
+      && isValidatedAuthSessionOwnerCurrent(principal)
+      && AuthService.getCurrentUser()?.uid === principal.firebaseUid
+      && isVaultSessionEpochCurrent(vaultEpoch));
+    if (!current()) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+    let providerConsentToken: string | undefined;
+    if (granted) {
+      const token = await ApiService.getFirebaseToken();
+      if (!current()) throw new Error("POD_OWNER_CHANGED");
+      const issuance = await ApiService.apiFetch(
+        `/api/one/u/${encodeURIComponent(hushhId)}/memory/provider-grant`,
+        { method: "POST", cache: "no-store", isEffectCurrent: current,
+          headers: token ? { Authorization: `Bearer ${token}` } : {} },
+      );
+      if (!issuance.ok) throw new Error(`memory processing approval failed: HTTP ${issuance.status}`);
+      const grant = await issuance.json();
+      if (!current()) throw new Error("POD_OWNER_CHANGED");
+      if (grant.hushhId !== hushhId || typeof grant.providerConsentToken !== "string"
+          || !grant.providerConsentToken.trim() || typeof grant.expiresAt !== "number"
+          || !Number.isFinite(grant.expiresAt) || grant.expiresAt <= Date.now()) {
+        throw new Error("MEMORY_PROVIDER_GRANT_INVALID");
+      }
+      providerConsentToken = grant.providerConsentToken;
+    }
+    if (!current()) throw new Error("POD_OWNER_CHANGED");
+    const response = await ApiService.ownerPodRequest(
+      "memory/provider-consent",
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ granted, ...(providerConsentToken ? { providerConsentToken } : {}) }) },
+      false, undefined, hushhId, current,
     );
     if (!response.ok) throw new Error(`memory provider consent failed: HTTP ${response.status}`);
-    return response.json().catch(() => null);
+    const result = await response.json().catch(() => null);
+    return result ? { ...result, hushhId } : null;
   }
 
   private static async activatePuppyWhenIdle(deviceId: string, vaultOwnerToken?: string, signal?: AbortSignal): Promise<void> {
