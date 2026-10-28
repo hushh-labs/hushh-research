@@ -1,11 +1,50 @@
 """Exercise real CLI dispatch with synthetic hosted/provider evidence."""
 
+import importlib.util
 import json
 import runpy
+import subprocess
 import sys
 
 import pytest
 from test_plg_frontend_fixture import ROOT, Native, accepted, candidate, document
+
+
+@pytest.mark.parametrize("environment", ["dev", "uat"])
+def test_fixture_capacity_uses_global_audit_without_sql_reservation(monkeypatch, environment):
+    import frontend_fixture_io as fixture_io
+
+    spec = importlib.util.spec_from_file_location(
+        "fixture_capacity_budget_regression", ROOT / "scripts/ci/runtime-capacity-budget.py"
+    )
+    budget = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(budget)
+    profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+    calls = []
+
+    def run(command, **_kwargs):
+        with monkeypatch.context() as context:
+            context.setattr(sys, "argv", [command[1], *command[2:]])
+            args = budget._cli.parse_args(
+                budget.__doc__, budget.CAPACITY_PHASES, budget.DEFAULT_PROFILE
+            )
+        reserved, additional = budget.candidate_reservations(
+            profile["environments"][environment],
+            environment,
+            "pre-deploy",
+            (),
+            frozenset(args.candidate_service or ()),
+            frozenset(),
+            None,
+        )
+        assert args.no_candidates and reserved == frozenset() and additional == []
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout=b"{}", stderr=b"")
+
+    monkeypatch.setattr(fixture_io.subprocess, "run", run)
+    attempt = accepted.release.Attempt(environment, "a" * 40, "123", "1")
+    assert fixture_io.capacity(attempt)["status"] == "admitted"
+    assert len(calls) == 1
 
 
 def fixture():
