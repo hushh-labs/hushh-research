@@ -4686,12 +4686,30 @@ final class AppUITests: XCTestCase {
         for _ in 0..<3 {
             if rootIsAdmitted() { break }
             guard waitForAdmittedControl(back) else { break }
-            let sourceBar = app.navigationBars.firstMatch.identifier
+            if !nativeAccountBack.exists || !nativeAccountBack.isHittable {
+                // A retained web detail has no UIKit navigation bar. Its
+                // authored Back must return to an admitted native parent.
+                back.tap()
+                let parent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    rootIsAdmitted() || nativeAccountBack.exists && nativeAccountBack.isHittable || !back.exists
+                }, object: app)
+                guard XCTWaiter.wait(for: [parent], timeout: 10) == .completed else {
+                    XCTFail("PROFILE_BATCH_WEB_PARENT_NOT_RESTORED"); return
+                }
+                continue
+            }
+            let sourceBarElement = app.navigationBars.firstMatch
+            guard sourceBarElement.waitForExistence(timeout: 5),
+                  let sourceBar = try? sourceBarElement.snapshot().identifier else {
+                XCTFail("PROFILE_BATCH_RESUMED_HEADER_UNAVAILABLE"); return
+            }
             printProfileReturnState("before_back")
             back.tap()
             let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                rootIsAdmitted() || back.exists && back.isHittable &&
-                    app.navigationBars.firstMatch.identifier != sourceBar
+                if rootIsAdmitted() { return true }
+                guard back.exists, back.isHittable,
+                      let currentBar = try? sourceBarElement.snapshot() else { return false }
+                return currentBar.identifier != sourceBar
             }, object: app)
             guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
                 printProfileReturnState("unsettled_back")
