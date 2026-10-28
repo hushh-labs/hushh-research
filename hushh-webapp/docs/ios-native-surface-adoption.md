@@ -37,7 +37,9 @@ Ordinary builds retain the established renderer and the qualification switch.
 At integrated source `95dc95d6da`, the existing Profile feature-page geometry
 regression passed in Chromium and WebKit, including its 390 × 844, 1024 × 1366
 and 1440 × 900 pane checks. This is browser layout evidence, not iPad device or
-native transition acceptance.
+native transition acceptance. An iPad simulator contract run compiled with
+testability enabled but did not enter a test case before it was stopped; it
+provides no native acceptance evidence.
 
 Rollback remains the existing qualification switch. No Dev deployment or
 physical acceptance is implied for the integrated source. After installation,
