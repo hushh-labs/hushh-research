@@ -26,7 +26,7 @@ import { useVault } from "@/lib/vault/vault-context";
 export function ConnectedSystemsOnboardingSetupClient() {
   const router = useRouter();
   const params = useSearchParams();
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultOwnerToken } = useVault();
   const [showUnlock, setShowUnlock] = useState(false);
   const [ready, setReady] = useState(false);
@@ -39,9 +39,9 @@ export function ConnectedSystemsOnboardingSetupClient() {
   const systemId = params.get("system")?.trim() || null;
   const completedSetup = Boolean(
     coordinator.isReady &&
-    user?.uid &&
+    userId &&
     PreVaultUserStateService.isSetupResolved(
-      PreVaultUserStateService.getCachedBootstrapState(user.uid),
+      PreVaultUserStateService.getCachedBootstrapState(userId),
     ),
   );
 
@@ -72,7 +72,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
         <AppPageContentRegion>
           <VaultStatusInline className="mb-3 px-1" />
           <ConnectedSystemsPanel
-            cacheUserId={user?.uid}
+            cacheUserId={userId}
             vaultOwnerToken={vaultOwnerToken}
             onRequestUnlock={() => setShowUnlock(true)}
             mode={systemId ? "detail" : "list"}

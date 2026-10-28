@@ -117,6 +117,8 @@ function storedDisplayName(
 export type DisplayNameEditorProps = {
   /** The signed-in Firebase user; the editor is inert without one. */
   user: User | null | undefined;
+  /** The validated application owner (useAuth().userId) keying identity records; inert without one. */
+  ownerId: string | null | undefined;
   /**
    * The name to show before any save completes. Defaults to the cached
    * identity's display name, then the Firebase user's.
@@ -135,12 +137,13 @@ export type DisplayNameSaveOutcome =
 
 function initialName(
   user: User | null | undefined,
+  ownerId: string | null,
   provided?: string | null,
 ): string {
-  if (!user?.uid) return "";
-  const identity = AccountIdentityService.peekCachedIdentity(user.uid)?.data;
+  if (!user || !ownerId) return "";
+  const identity = AccountIdentityService.peekCachedIdentity(ownerId)?.data;
   const cached =
-    identity?.user_id !== undefined && identity.user_id !== user.uid
+    identity?.user_id !== undefined && identity.user_id !== ownerId
       ? null
       : storedDisplayName(identity);
   return (
@@ -155,15 +158,17 @@ function initialName(
  * exception. No credentials or provider transport cross the presentation port. */
 export function useDisplayNameEditor({
   user,
+  ownerId,
   initialDisplayName,
   onSaved,
-}: Pick<DisplayNameEditorProps, "user" | "initialDisplayName" | "onSaved">) {
-  const uid = user?.uid ?? null;
+}: Pick<DisplayNameEditorProps, "user" | "ownerId" | "initialDisplayName" | "onSaved">) {
+  // The application owner, not the Firebase UID: identities and native presentation compare it.
+  const uid = user ? ownerId ?? null : null;
   const owner = useRef({ uid });
   const [stateOwner, setStateOwner] = useState(owner.current);
   const ready = stateOwner.uid === uid && stateOwner === owner.current;
   const [shownName, setShownName] = useState(() =>
-    initialName(user, initialDisplayName),
+    initialName(user, uid, initialDisplayName),
   );
   const [draft, setDraft] = useState(shownName);
   const [dirty, setDirty] = useState(false);
@@ -184,7 +189,7 @@ export function useDisplayNameEditor({
     owner.current = { uid };
     // The old owner's optional seed may still be in the parent props. Resolve
     // the incoming owner from its own cache/auth identity instead.
-    const name = initialName(user);
+    const name = initialName(user, uid);
     saveSeqRef.current += 1;
     pendingSave.current = 0;
     draftRevision.current += 1;

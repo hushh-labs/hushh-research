@@ -27,7 +27,7 @@ import { useForegroundChatActive } from "@/lib/agent/foreground-chat-priority";
 export function useConsentPendingSummaryCount(
   options?: { enabled?: boolean },
 ): number | null {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const pathname = usePathname();
   const { activePersona } = usePersonaState();
   const rootChatReady = useRootChatDeferredReady();
@@ -37,8 +37,8 @@ export function useConsentPendingSummaryCount(
   const mode = "consents";
   const [mutationTick, setMutationTick] = useState(0);
   const scope = actor === "ria" ? "ria" : "one";
-  const cacheKey = user?.uid
-    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${scope}:${mode}`)
+  const cacheKey = userId
+    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, `${scope}:${mode}`)
     : "consent_center_summary_guest";
   const [retainedSummary, setRetainedSummary] = useState<{
     key: string;
@@ -66,15 +66,15 @@ export function useConsentPendingSummaryCount(
     cacheKey,
     refreshKey: `${scope}:${mode}:${mutationTick}`,
     // Hidden chrome and foreground chat both defer background summaries.
-    enabled: Boolean(user?.uid) && rootChatReady && !foregroundChatActive && (options?.enabled ?? true),
+    enabled: Boolean(userId) && rootChatReady && !foregroundChatActive && (options?.enabled ?? true),
     load: async () => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken) {
+      if (!userId || !idToken) {
         throw new Error("Sign in to review consents");
       }
       return ConsentCenterService.getSummary({
         idToken,
-        userId: user.uid,
+        userId,
         actor,
         mode,
         force: mutationTick > 0,

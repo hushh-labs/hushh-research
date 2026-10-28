@@ -430,6 +430,36 @@ jobs:
             printf '\n!deploy/plg/bind_secrets.sh\n!scripts/deploy/backend-capacity-settings.sh\n!scripts/deploy/backend-app-surface-settings.sh\n' >> .gcloudignore
           fi
 
+      - name: Decide account generation admission before the deletion fence
+        id: generation-admission
+        shell: bash
+        env:
+          ACCOUNT_GENERATION_ADMISSION_ENABLED: ${{ vars.ACCOUNT_GENERATION_ADMISSION_UAT_ENABLED || 'true' }}
+          HUSSH_TECH_CLIENT_ENABLED: ${{ vars.HUSSH_TECH_CLIENT_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          # Decide once, for every scope, before runtime secrets sync or the fence installs.
+          # Cloud Build accepts only true/false, and startup refuses generations beside the
+          # HushhTech client exchange, including on the revision already serving.
+          case "${ACCOUNT_GENERATION_ADMISSION_ENABLED}" in
+            true|false) ;;
+            *) echo "::error::ACCOUNT_GENERATION_ADMISSION_UAT_ENABLED must be true or false." >&2; exit 1 ;;
+          esac
+          # The exact normalization runtime_readiness applies at startup.
+          client="$(python3 -c 'import os; print(str(os.environ.get("HUSSH_TECH_CLIENT_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}).lower())')"
+          if [ "${ACCOUNT_GENERATION_ADMISSION_ENABLED}:${client}" = true:true ]; then
+            echo "::error::Account generation admission cannot run beside the HushhTech client exchange." >&2
+            exit 1
+          fi
+          echo "client_enabled=${client}" >> "$GITHUB_OUTPUT"
+          # Only targets whose web app keys data by the validated owner may admit replacements.
+          enabled=false
+          if [ "${ACCOUNT_GENERATION_ADMISSION_ENABLED}" = true ] \
+             && [ -f hushh-webapp/__tests__/lib/auth/application-owner-ratchet.contract.test.ts ]; then
+            enabled=true
+          fi
+          echo "enabled=${enabled}" >> "$GITHUB_OUTPUT"
+
       - name: Validate Google Cloud workload identity configuration
         shell: bash
         env:
@@ -523,6 +553,33 @@ jobs:
 
           echo "backend_sha=${backend_sha}" >> "$GITHUB_OUTPUT"
           echo "frontend_sha=${frontend_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse the HushhTech client beside a serving revision that admits generations
+        if: steps.generation-admission.outputs.client_enabled == 'true'
+        shell: bash
+        env:
+          SERVING_BACKEND_REVISION: ${{ steps.predeploy-state.outputs.backend_revision }}
+          SERVING_PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          SERVING_REGION: ${{ env.GCP_REGION }}
+        run: |
+          set -euo pipefail
+          # Secrets sync publishes the client flag to the canonical runtime config that the
+          # serving revision reads, and its new instances would then refuse startup, for
+          # every scope and for any rollback to it. Turn admission off in a backend release first.
+          # Anything this step cannot read (no serving revision, a secret binding) fails closed.
+          if [ -z "${SERVING_BACKEND_REVISION}" ]; then
+            echo "::error::The serving backend revision is unknown, so HUSSH_TECH_CLIENT_ENABLED cannot be checked against it." >&2
+            exit 1
+          fi
+          admission="$(gcloud run revisions describe "${SERVING_BACKEND_REVISION}" \
+            --project="${SERVING_PROJECT_ID}" \
+            --region="${SERVING_REGION}" \
+            --format=json \
+            | python3 -c 'import json, sys; found = [e for e in json.load(sys.stdin)["spec"]["containers"][0].get("env", []) if e.get("name") == "ACCOUNT_GENERATION_ADMISSION_ENABLED"]; print("unknown" if len(found) > 1 or any("valueFrom" in e for e in found) else str(found[0].get("value", "")).strip().lower() if found else "")')"
+          if [ "${admission}" = true ] || [ "${admission}" = unknown ]; then
+            echo "::error::Serving backend ${SERVING_BACKEND_REVISION} may admit account generations (${admission}). Deploy the backend with ACCOUNT_GENERATION_ADMISSION_UAT_ENABLED=false before enabling HUSSH_TECH_CLIENT_ENABLED." >&2
+            exit 1
+          fi
 
       - name: Resolve deployment scope
         id: scope
@@ -958,7 +1015,7 @@ jobs:
             --one-location-nearby-presence-mode "${{ vars.ONE_LOCATION_NEARBY_PRESENCE_MODE_UAT || '' }}" \
             --one-location-nearby-presence-cohort "${{ vars.ONE_LOCATION_NEARBY_PRESENCE_COHORT_UAT || '' }}" \
             --hushh-trusted-device-uat-allowlist "${{ vars.HUSSH_TRUSTED_DEVICE_UAT_ALLOWLIST || '' }}" \
-            --hushh-tech-client-enabled "${{ vars.HUSSH_TECH_CLIENT_ENABLED || 'false' }}" \
+            --hushh-tech-client-enabled "${{ steps.generation-admission.outputs.client_enabled }}" \
             --hushh-tech-developer-app-id "${{ vars.HUSSH_TECH_DEVELOPER_APP_ID || '' }}" \
             --hushh-tech-allowed-audience "hushh-tech-uat" \
             --hushh-tech-allowed-redirect-uris "https://uat.hushhtech.com/auth/hushh-research/callback" \
@@ -1544,6 +1601,10 @@ jobs:
           # Older deployment SHAs do not declare this substitution.
           if grep -q '^[[:space:]]*_WALLET_CARD_ACCESS_ENABLED:' deploy/backend.cloudbuild.yaml; then
             SUBSTITUTIONS="${SUBSTITUTIONS}##_WALLET_CARD_ACCESS_ENABLED=${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}"
+          fi
+          # Older deployment SHAs do not declare this substitution.
+          if grep -q '^[[:space:]]*_ACCOUNT_GENERATION_ADMISSION_ENABLED:' deploy/backend.cloudbuild.yaml; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_GENERATION_ADMISSION_ENABLED=${{ steps.generation-admission.outputs.enabled }}"
           fi
           # Older deployment SHAs do not declare these. The secrets are bound by
           # deploy/sso/bind_workos.sh only if they exist in the deploy project.

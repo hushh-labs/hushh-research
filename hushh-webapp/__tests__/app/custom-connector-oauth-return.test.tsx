@@ -4,7 +4,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ complete: vi.fn(), save: vi.fn(), refresh: vi.fn(), remember: vi.fn(), replace: vi.fn(), markReturned: vi.fn(), current: true, locked: false, owner: "owner", platform: "web", returnTo: undefined as "connector_settings" | undefined }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { getPlatform: () => mocks.platform } }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.owner }, loading: false }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.owner }, userId: mocks.owner, loading: false }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token", ownerTokenStatus: "ready" }) }));
 vi.mock("@/components/vault/vault-lock-guard", () => ({ VaultLockGuard: ({ children }: { children: React.ReactNode }) => mocks.locked ? <div>Unlock vault</div> : children }));
 vi.mock("@/lib/profile/drive-oauth-popup", () => ({ isDrivePopupReturn: () => false }));

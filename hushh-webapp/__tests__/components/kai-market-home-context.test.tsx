@@ -13,7 +13,9 @@ const mocks = vi.hoisted(() => ({
   personalized: vi.fn(),
   warm: vi.fn(),
 }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.owner ? { uid: mocks.owner } : null }) }));
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: mocks.owner ? { uid: mocks.owner } : null, userId: mocks.owner }),
+}));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
     vaultKey: mocks.key,

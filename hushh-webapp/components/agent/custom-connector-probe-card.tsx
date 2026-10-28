@@ -91,7 +91,7 @@ export function CustomConnectorProbeCard({ experience, onOpenConnections }: {
   experience: CustomConnectorProbeExperience;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
 }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const { prepareRecovery } = useContext(CustomConnectorChatContext);
   const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
@@ -107,8 +107,8 @@ export function CustomConnectorProbeCard({ experience, onOpenConnections }: {
   const reads = experience.tools.filter(tool => tool.access === "read");
   const writes = experience.tools.filter(tool => tool.access === "write");
   const name = experience.serverName ?? experience.host;
-  const access = user?.uid && vaultKey && vaultOwnerToken
-    ? { userId: user.uid, vaultKey, vaultOwnerToken } : null;
+  const access = userId && vaultKey && vaultOwnerToken
+    ? { userId, vaultKey, vaultOwnerToken } : null;
   const settled = outcome.kind === "connected" || outcome.kind === "already" || outcome.kind === "signing_in";
   const canConnect = Boolean(access) && !settled && outcome.kind !== "working";
 
@@ -116,7 +116,7 @@ export function CustomConnectorProbeCard({ experience, onOpenConnections }: {
     if (busy.current || !access) return;
     busy.current = true;
     const owner = access.userId;
-    const current = () => alive.current && user?.uid === owner;
+    const current = () => alive.current && userId === owner;
     const controller = new AbortController();
     setOutcome({ kind: "working", label: options.signIn ? "Preparing sign-in…" : "Connecting…" });
     try {

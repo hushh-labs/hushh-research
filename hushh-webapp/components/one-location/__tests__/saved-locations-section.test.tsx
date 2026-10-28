@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: mocks.authUser }),
+  useAuth: () => ({ user: mocks.authUser, userId: mocks.authUser?.uid ?? null }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({

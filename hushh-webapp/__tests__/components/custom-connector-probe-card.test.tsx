@@ -6,7 +6,7 @@ import { parseCustomConnectorProbe } from "@/lib/agent/custom-connector-probe";
 import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "synthetic-owner" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "synthetic-owner" }, userId: "synthetic-owner" }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token" }),
 }));

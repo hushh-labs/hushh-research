@@ -550,10 +550,10 @@ export function buildDebateFeedAnalysisHref(
 
 export function useFeedActionables({ enabled = true, allPending = false }: { enabled?: boolean; allPending?: boolean } = {}): UseFeedActionablesResult {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, userId: ownerId } = useAuth();
   const { vaultOwnerToken: ownerToken, getVaultOwnerToken } = useVault();
   const vaultOwnerToken = enabled ? ownerToken : null;
-  const userId = enabled ? user?.uid ?? null : null;
+  const userId = enabled ? ownerId : null;
   const agentFollow = useAgentDeploymentFollow({ enabled: Boolean(userId), userId });
   const agentUpdateCard = useAgentUpdateFeedCard({
     userId,
@@ -700,10 +700,10 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     // would re-read the same cached page it was trying to move past.
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to review consents");
+      if (!ownerId || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to review consents");
       return ConsentCenterService.getSummary({
         idToken,
-        userId: user.uid,
+        userId: ownerId,
         mode: "consents",
         force: consentTick > 0 || Boolean(options?.force),
       });
@@ -730,7 +730,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to review consents");
+      if (!ownerId || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to review consents");
       // A new pending count means a request arrived or left: the service's own
       // cached page predates it, so read past it.
       const countChanged =
@@ -738,7 +738,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
       listedPendingCountRef.current = pendingConsentCount;
       return readConsentPage({
         idToken,
-        userId: user.uid,
+        userId: ownerId,
         mode: "consents",
         surface: "pending",
         page: 1,
@@ -769,10 +769,10 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
+      if (!ownerId || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
       return readConsentPage({
         idToken,
-        userId: user.uid,
+        userId: ownerId,
         mode: "consents",
         surface: "pending",
         page: 1,
@@ -800,10 +800,10 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
+      if (!ownerId || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
       return readConsentPage({
         idToken,
-        userId: user.uid,
+        userId: ownerId,
         mode: "consents",
         surface: "pending",
         requestView: "sent",
@@ -833,10 +833,10 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
+      if (!ownerId || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
       return readConsentPage({
         idToken,
-        userId: user.uid,
+        userId: ownerId,
         mode: "consents",
         surface: "active",
         page: 1,
@@ -1038,11 +1038,11 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
       // The row leaves "Needs you" on the next read: a declined request is
       // terminal, so it moves to history rather than being hidden locally.
       dispatchConsentStateChanged({
-        userId: user?.uid,
+        userId: ownerId,
         requestId: `answer_request:${requestId}`,
       });
     },
-    [user?.uid],
+    [ownerId],
   );
 
   // The Feed row carries no request text. Allow therefore reads the owner's

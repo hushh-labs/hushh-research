@@ -86,14 +86,14 @@ export function DriveOwnerShareCard({
   clientRequestId: string;
   filesRequest: string;
 }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
-  if (!user || !isVaultUnlocked)
+  if (!userId || !isVaultUnlocked)
     return <BodyText role="status">Unlock your vault to share Drive files.</BodyText>;
   return (
     <UnlockedDriveOwnerShareCard
-      key={`${user.uid}:${clientRequestId}:${snapshotVaultSessionEpoch()}`}
-      userId={user.uid}
+      key={`${userId}:${clientRequestId}:${snapshotVaultSessionEpoch()}`}
+      userId={userId}
       personRef={personRef}
       personName={personName}
       clientRequestId={clientRequestId}

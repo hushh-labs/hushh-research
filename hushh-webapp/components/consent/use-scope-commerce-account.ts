@@ -101,7 +101,7 @@ export function useScopeCommerceAccount({ active = true }: { active?: boolean } 
     setReview(null); await refresh();
     if (current()) setMessage("Request received. Settlement remains unconfirmed until payment status updates.");
   });
-  return { user, account, refresh, busy, message: message || resource.error, amount, country, changeAmount,
+  return { user, userId: resource.userId, account, refresh, busy, message: message || resource.error, amount, country, changeAmount,
     changeCountry: setCountry, review, closeReview: () => { if (!busy) setReview(null); }, onboardingRefresh,
     checkout, onboarding, managePayoutAccount, hostedPending: hosted.hostedPending, cancelHosted: hosted.cancelHosted, withdrawal, refund, confirmTransfer,
     current, loading: resource.loading };

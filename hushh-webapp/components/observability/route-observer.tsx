@@ -14,7 +14,7 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 
 export function ObservabilityRouteObserver() {
   const pathname = usePathname();
-  const { user, loading } = useAuth();
+  const { user, userId, loading } = useAuth();
   const mountedRef = useRef(false);
   const lastObservedPathRef = useRef<string | null>(null);
   const setLastKaiPath = useKaiSession((state) => state.setLastKaiPath);
@@ -34,6 +34,10 @@ export function ObservabilityRouteObserver() {
     // pending and this route redirects before an analytics hit can be sent.
     captureGrowthAttribution(pathname);
     if (loading) return;
+    // A signed-in person is named only by their validated owner. Until it is
+    // published, send nothing: after start fresh the Firebase UID names the
+    // deleted account. The view is sent once the owner arrives.
+    if (user?.uid && !userId) return;
     let cancelled = false;
     // A route view emitted before AuthProvider restores the account lands in
     // GA4 as an anonymous browser. Bind the validated identity first, then
@@ -44,7 +48,8 @@ export function ObservabilityRouteObserver() {
       // binding for a bounded window and omit the view if GA4 stays unavailable.
       let bound = false;
       for (let attempt = 0; attempt < 10 && !cancelled; attempt += 1) {
-        bound = await setObservabilityUserId(user?.uid ?? null).catch(() => false);
+        // AuthProvider binds the application owner; keep the same identity here.
+        bound = await setObservabilityUserId(userId).catch(() => false);
         if (bound) break;
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
@@ -60,7 +65,7 @@ export function ObservabilityRouteObserver() {
     };
     void observe();
     return () => { cancelled = true; };
-  }, [pathname, user?.uid, loading, setLastKaiPath, setLastRiaPath]);
+  }, [pathname, user?.uid, userId, loading, setLastKaiPath, setLastRiaPath]);
 
   return null;
 }

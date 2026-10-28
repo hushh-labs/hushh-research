@@ -100,7 +100,7 @@ export function useOptionalLocationCommand() {
 function useCommandController(enabled = true) {
   const router = useRouter();
   const runtime = useAgentRuntimeStateOptional();
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultOwnerToken, vaultKey, isVaultUnlocked } = useVault();
   const { switchPersona } = usePersonaState();
   const busyOperations = useKaiSession((state) => state.busyOperations);
@@ -133,6 +133,7 @@ function useCommandController(enabled = true) {
   latestRuntimeRef.current = runtime;
   const latest = useRef({
     user,
+    userId,
     vaultOwnerToken,
     vaultKey,
     isVaultUnlocked,
@@ -142,6 +143,7 @@ function useCommandController(enabled = true) {
   });
   latest.current = {
     user,
+    userId,
     vaultOwnerToken,
     vaultKey,
     isVaultUnlocked,
@@ -154,20 +156,21 @@ function useCommandController(enabled = true) {
       new LocationCommandRuntime({
         modelConnection: async () => {
           const owner = latest.current;
+          const ownerId = owner.userId;
           if (
-            !owner.user ||
+            !ownerId ||
             !owner.vaultKey ||
             !owner.vaultOwnerToken ||
             !owner.isVaultUnlocked
           )
             throw new Error("Unlock your vault to continue.");
           const connection = await resolveGeminiRuntimeConnection({
-            userId: owner.user.uid,
+            userId: ownerId,
             vaultKey: owner.vaultKey,
             vaultOwnerToken: owner.vaultOwnerToken,
           });
           if (
-            latest.current.user?.uid !== owner.user.uid ||
+            latest.current.userId !== ownerId ||
             !latest.current.isVaultUnlocked
           )
             throw new Error("Your session changed. Unlock to continue.");
@@ -185,12 +188,12 @@ function useCommandController(enabled = true) {
         },
         authority: () => {
           const value = latest.current;
-          return value.user?.uid &&
+          return value.userId &&
             value.isVaultUnlocked &&
             value.vaultKey &&
             value.vaultOwnerToken
             ? {
-                userId: value.user.uid,
+                userId: value.userId,
                 token: value.vaultOwnerToken,
                 vaultKey: value.vaultKey,
               }
@@ -218,14 +221,15 @@ function useCommandController(enabled = true) {
         },
         reconcile: async () => {
           const current = latest.current;
+          const ownerId = current.userId;
           if (
-            !current.user ||
+            !ownerId ||
             !current.vaultOwnerToken ||
             !current.isVaultUnlocked
           )
             throw new Error("Unlock to refresh Location.");
-          CacheSyncService.onConnectionGraphMutated(current.user.uid);
-          await OneLocationStateResource.load(current.user.uid, () =>
+          CacheSyncService.onConnectionGraphMutated(ownerId);
+          await OneLocationStateResource.load(ownerId, () =>
             OneLocationService.getState(current.vaultOwnerToken!),
           );
           // Let the subscribed owner render the refreshed information before preparation.
@@ -280,7 +284,7 @@ function useCommandController(enabled = true) {
             slots,
             executionContext: authority,
             signal,
-            userId: value.user?.uid || "",
+            userId: value.userId || "",
             router,
             appRuntimeState: current.appRuntimeState,
             surfaceMetadata: getVoiceSurfaceMetadata(),
@@ -384,7 +388,7 @@ function useCommandController(enabled = true) {
       setUnlockOpen(true);
       return;
     }
-    if (!readVoicePreferences(latest.current.user?.uid || null).voiceEnabled)
+    if (!readVoicePreferences(latest.current.userId).voiceEnabled)
       throw new Error("Enable commands in your settings first.");
     const generation = ++captureGeneration.current;
     // Invalidate any passive recovery read before a new capture can start.
@@ -519,11 +523,11 @@ function useCommandController(enabled = true) {
   useEffect(() => {
     command.clearReferences();
     return () => command.clearReferences();
-  }, [command, user?.uid, isVaultUnlocked, vaultKey]);
+  }, [command, userId, isVaultUnlocked, vaultKey]);
   useEffect(() => {
     cancelCapture();
     command.pause();
-    if (enabled && user?.uid && isVaultUnlocked && vaultOwnerToken && vaultKey)
+    if (enabled && userId && isVaultUnlocked && vaultOwnerToken && vaultKey)
       run(command.recover());
     return () => {
       cancelCapture();
@@ -531,7 +535,7 @@ function useCommandController(enabled = true) {
     };
   }, [
     enabled,
-    user?.uid,
+    userId,
     isVaultUnlocked,
     vaultOwnerToken,
     vaultKey,
@@ -562,7 +566,7 @@ function useCommandController(enabled = true) {
       registerOneSystemActionExecutor(async (invocation) => {
         if (
           invocation.expectedOwner &&
-          invocation.expectedOwner !== latest.current.user?.uid
+          invocation.expectedOwner !== latest.current.userId
         )
           return {
             status: "blocked",
@@ -584,7 +588,7 @@ function useCommandController(enabled = true) {
           };
         }
         const generation = captureGeneration.current;
-        const owner = latest.current.user?.uid;
+        const owner = latest.current.userId;
         try {
           await command.submitAction(
             invocation.actionId,
@@ -603,7 +607,7 @@ function useCommandController(enabled = true) {
         } catch (error) {
           if (
             generation === captureGeneration.current &&
-            owner === latest.current.user?.uid
+            owner === latest.current.userId
           )
             report(error);
           return {
@@ -650,7 +654,7 @@ function useCommandController(enabled = true) {
         const result = await executeAgentGatewayAction({
           actionId,
           slots: slots ?? {},
-          userId: value.user?.uid ?? "",
+          userId: value.userId ?? "",
           router,
           appRuntimeState: current.appRuntimeState,
           surfaceMetadata: getVoiceSurfaceMetadata(),

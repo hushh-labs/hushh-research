@@ -2,6 +2,7 @@
 
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
+import { firebaseUidForOwner } from "@/lib/auth/session-owner";
 import {
   CacheService,
   CACHE_KEYS,
@@ -63,7 +64,7 @@ export class TrustedDevicesResourceService {
   }
 
   static async revoke(userId: string, deviceId: string): Promise<Response> {
-    if (AuthService.getCurrentUser()?.uid !== userId)
+    if (AuthService.getCurrentUser()?.uid !== firebaseUidForOwner(userId))
       throw new Error("Sign in to manage devices.");
     const { hub: response, pod } =
       await ApiService.revokeTrustedDeviceEverywhere(deviceId);

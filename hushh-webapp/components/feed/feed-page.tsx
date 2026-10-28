@@ -233,10 +233,10 @@ const FEED_VOICE_ACTIONS = listKaiActionsForSurface({ screen: "one_feed" })
   }));
 
 export function FeedPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId, loading: authLoading } = useAuth();
 
   const prepareConnectionRequest = (accept: boolean): LocalActionPreparer => async (slots, chosenResourceId) => {
-    if (!user || authLoading) return { status: "blocked", gate: "permission", summary: "Sign in to review requests." };
+    if (!user || !userId || authLoading) return { status: "blocked", gate: "permission", summary: "Sign in to review requests." };
     const person = typeof slots.person === "string" ? slots.person.trim() : "";
     const selected = Object.prototype.hasOwnProperty.call(slots, "requestId") ? slots.requestId : chosenResourceId;
     if (!person || (selected !== undefined && (typeof selected !== "string" || !selected.trim() || selected.length > 256))) {
@@ -251,7 +251,7 @@ export function FeedPage() {
       if (matches.length !== 1) return { status: "blocked", gate: "input", summary: "Choose one current request in your Feed." };
       const request = matches[0]!;
       if (accept && request.scopes?.length) return { status: "blocked", gate: "navigation", route: "/one/feed", waitForUser: true, summary: "Review the requested information in your Feed before accepting." };
-      return { status: "ready", binding: { owner: user.uid, requestId: request.id, person: request.counterpartDisplayName, decision: accept ? "accept" : "reject", scopes: request.scopes ?? [] }, summary: `${accept ? "Accept" : "Decline"} ${request.counterpartDisplayName}'s connection request?` };
+      return { status: "ready", binding: { owner: userId, requestId: request.id, person: request.counterpartDisplayName, decision: accept ? "accept" : "reject", scopes: request.scopes ?? [] }, summary: `${accept ? "Accept" : "Decline"} ${request.counterpartDisplayName}'s connection request?` };
     } catch {
       return { status: "blocked", gate: "permission", summary: "Requests could not be checked. Try again." };
     }
@@ -259,7 +259,7 @@ export function FeedPage() {
 
   const decideConnectionRequest = (accept: boolean): LocalOnboardingActionHandler => async (slots, context) => {
     if (context?.preparedBinding) slots = { ...slots, ...context.preparedBinding };
-    if (!user || authLoading) return { status: "blocked", summary: "Sign in to review requests." };
+    if (!user || !userId || authLoading) return { status: "blocked", summary: "Sign in to review requests." };
     if (!context?.directiveId && !context?.humanConfirmationToken) {
       return { status: "blocked", summary: "Confirm this action in the app first." };
     }
@@ -284,8 +284,8 @@ export function FeedPage() {
       // API rejects an accept without those selections rather than guessing.
       if (accept) await ConnectionsService.accept({ idToken, requestId: request.id });
       else await ConnectionsService.reject({ idToken, requestId: request.id });
-      if (accept) CacheSyncService.onConnectionGraphMutated(user.uid);
-      else CacheSyncService.onConnectionCapabilityMutated(user.uid);
+      if (accept) CacheSyncService.onConnectionGraphMutated(userId);
+      else CacheSyncService.onConnectionCapabilityMutated(userId);
       return { status: "succeeded", summary: `${accept ? "Accepted" : "Declined"} ${request.counterpartDisplayName}'s connection request.` };
     } catch {
       return { status: "failed", summary: "The request could not be updated. Review it in your Feed." };
@@ -299,8 +299,9 @@ export function FeedPage() {
   // together, so no state or late response from one account can reach another.
   return (
     <FeedPageSession
-      key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`}
+      key={`${userId ?? "signed-out"}:${getAuthSessionGeneration()}`}
       user={user}
+      userId={userId}
       authLoading={authLoading}
     />
   );
@@ -308,9 +309,11 @@ export function FeedPage() {
 
 function FeedPageSession({
   user,
+  userId,
   authLoading,
 }: {
   user: User | null;
+  userId: string | null;
   authLoading: boolean;
 }) {
   useDocumentFeedStream(user);
@@ -328,13 +331,13 @@ function FeedPageSession({
     error: resourceError,
     refresh,
   } = useStaleResource<FeedListResponse>({
-    cacheKey: user?.uid
-      ? CACHE_KEYS.FEED_LIST(user.uid)
+    cacheKey: userId
+      ? CACHE_KEYS.FEED_LIST(userId)
       : "feed_list_signed_out",
-    enabled: Boolean(user?.uid),
+    enabled: Boolean(userId),
     resourceLabel: "feed_list",
     requestScope: String(getAuthSessionGeneration()),
-    getRequestVersion: () => currentFeedInvalidationEpoch(user!.uid),
+    getRequestVersion: () => currentFeedInvalidationEpoch(userId!),
     isRequestCurrent: isSessionCurrent,
     retainOnInvalidate: true,
     // `force` must reach FeedService: it keeps its own short-TTL cache in front
@@ -344,14 +347,14 @@ function FeedPageSession({
       const idToken = await getSessionToken();
       return FeedService.list({
         idToken,
-        userId: user!.uid,
+        userId: userId!,
         limit: 20,
         force: options?.force,
         isEffectCurrent: isSessionCurrent,
       });
     },
   });
-  const { page: visiblePage, pagination, setPagination, hasNew, showNew } = useFeedHistoryPresentation(user?.uid, data);
+  const { page: visiblePage, pagination, setPagination, hasNew, showNew } = useFeedHistoryPresentation(userId ?? undefined, data);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const loadMoreInFlightRef = useRef(false);
@@ -381,16 +384,16 @@ function FeedPageSession({
   // A previous release kept Clear only on this device. Keep that old watermark
   // visible while transferring it to the owner-scoped backend; new removals and
   // clears are committed on the server before the list changes here.
-  const clearedIdStorageKey = user?.uid
-    ? feedClearedThroughStorageKey(user.uid)
+  const clearedIdStorageKey = userId
+    ? feedClearedThroughStorageKey(userId)
     : null;
-  const legacyClearedStorageKey = user?.uid
-    ? feedLegacyClearedAtStorageKey(user.uid)
+  const legacyClearedStorageKey = userId
+    ? feedLegacyClearedAtStorageKey(userId)
     : null;
 
   // The legacy watermark is read before the first client paint so previously
   // cleared history does not flash while its server migration is in flight.
-  const readPersistedWatermark = () => readFeedClearedThroughId(user?.uid ?? null);
+  const readPersistedWatermark = () => readFeedClearedThroughId(userId);
   const [clearedThroughId, setClearedThroughId] = useState<string | null>(
     readPersistedWatermark,
   );
@@ -578,14 +581,14 @@ function FeedPageSession({
   // Import the old per-device Clear once, then retire it. A failed request
   // leaves the old watermark in place for another attempt on the next visit.
   useEffect(() => {
-    if (!user || !clearedIdStorageKey) return;
-    const oldWatermark = readFeedClearedThroughId(user.uid);
+    if (!userId || !clearedIdStorageKey) return;
+    const oldWatermark = readFeedClearedThroughId(userId);
     if (!oldWatermark) return;
     let active = true;
     void (async () => {
       try {
         const idToken = await getSessionToken();
-        await FeedService.clear({ idToken, userId: user.uid, upToId: oldWatermark, isEffectCurrent: isSessionCurrent });
+        await FeedService.clear({ idToken, userId, upToId: oldWatermark, isEffectCurrent: isSessionCurrent });
         if (!active) return;
         try {
           window.localStorage.removeItem(clearedIdStorageKey);
@@ -602,14 +605,14 @@ function FeedPageSession({
       }
     })();
     return () => { active = false; };
-  }, [user, clearedIdStorageKey, refresh, getSessionToken, isSessionCurrent]);
+  }, [userId, clearedIdStorageKey, refresh, getSessionToken, isSessionCurrent]);
 
   // Keep the open list live. A direct authoritative read also detects an Undo
   // from another session after this session removed a row. The service seeds
   // the shared Feed cache, so the page and the profile preview update together.
   useFeedLiveRefresh(
     useCallback(() => {
-      if (!user || dismissedGroupsRef.current.size === 0) {
+      if (!userId || dismissedGroupsRef.current.size === 0) {
         void refresh({ force: true });
         return;
       }
@@ -617,7 +620,7 @@ function FeedPageSession({
         try {
           const idToken = await getSessionToken();
           const latest = await FeedService.list({
-            idToken, userId: user.uid, limit: 20, force: true, isEffectCurrent: isSessionCurrent,
+            idToken, userId, limit: 20, force: true, isEffectCurrent: isSessionCurrent,
           });
           const returnedIds = new Set(latest.items.map((item) => item.id));
           const restoredIds = new Set<string>();
@@ -637,15 +640,15 @@ function FeedPageSession({
           // Keep the server-acknowledged hide until a later read succeeds.
         }
       })();
-    }, [refresh, user, getSessionToken, isSessionCurrent]),
-    Boolean(user?.uid),
+    }, [refresh, userId, getSessionToken, isSessionCurrent]),
+    Boolean(userId),
   );
 
   // Stripe and request deadlines are server-owned. Schedule one local wake at
   // the next known deadline so an open Feed stops showing a live instruction
   // without a manual refresh, even when no webhook event is emitted at expiry.
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!userId) return;
     const now = Date.now();
     const deadlines = (data?.items ?? [])
       .filter((item) => item.event_type === "document_share_payment_ready")
@@ -661,7 +664,7 @@ function FeedPageSession({
       void refresh({ force: true });
     }, Math.min(next - now + 50, 2_147_483_647));
     return () => window.clearTimeout(timer);
-  }, [data?.items, refresh, user?.uid]);
+  }, [data?.items, refresh, userId]);
 
   const latestIdRef = useRef<string | null>(null);
 
@@ -671,28 +674,28 @@ function FeedPageSession({
 
   const markSeen = useCallback(() => {
     const latestId = latestIdRef.current;
-    if (!user?.uid || !latestId || markedReadUpToRef.current === latestId)
+    if (!userId || !latestId || markedReadUpToRef.current === latestId)
       return;
     markedReadUpToRef.current = latestId;
-    CacheSyncService.onFeedReadStarted(user.uid, latestId);
+    CacheSyncService.onFeedReadStarted(userId, latestId);
     dispatchFeedStateChanged("read");
 
     void (async () => {
       try {
         const idToken = await getSessionToken();
         await FeedService.markRead({ idToken, upToId: latestId, isEffectCurrent: isSessionCurrent });
-        CacheSyncService.onFeedReadSettled(user.uid);
+        CacheSyncService.onFeedReadSettled(userId);
         // Recount after success so a row that arrived above the posted
         // watermark remains unread instead of being swallowed by optimistic 0.
         dispatchFeedStateChanged("read");
       } catch (error) {
         markedReadUpToRef.current = null;
-        CacheSyncService.onFeedReadFailed(user.uid);
+        CacheSyncService.onFeedReadFailed(userId);
         dispatchFeedStateChanged("read");
         console.warn("[FeedPage] Failed to mark notifications read:", error);
       }
     })();
-  }, [user, getSessionToken, isSessionCurrent]);
+  }, [userId, getSessionToken, isSessionCurrent]);
 
   // Mark the current watermark when the Feed is visible, and again for a truly
   // newer live row. Keep the hidden/unmount calls as a final settlement path
@@ -784,10 +787,10 @@ function FeedPageSession({
 
   const loadMore = useCallback(async () => {
     const requestedCursor = pagination.nextCursor;
-    if (!user || !requestedCursor || loadMoreInFlightRef.current) return;
-    const presentationRevision = currentFeedPresentationRevision(user.uid);
+    if (!userId || !requestedCursor || loadMoreInFlightRef.current) return;
+    const presentationRevision = currentFeedPresentationRevision(userId);
     const isCurrent = () => isSessionCurrent()
-      && currentFeedPresentationRevision(user.uid) === presentationRevision;
+      && currentFeedPresentationRevision(userId) === presentationRevision;
     // Intersection callbacks can repeat before React commits the busy state.
     loadMoreInFlightRef.current = true;
     setLoadMoreError(null);
@@ -804,7 +807,7 @@ function FeedPageSession({
       if (!isCurrent()) return;
       if (typeof response.history_revision === "string"
         && response.history_revision !== visiblePage?.history_revision) {
-        CacheSyncService.onFeedHistoryMutated(user.uid);
+        CacheSyncService.onFeedHistoryMutated(userId);
         void refresh({ force: true });
         return;
       }
@@ -820,7 +823,7 @@ function FeedPageSession({
       loadMoreInFlightRef.current = false;
       setLoadingMore(false);
     }
-  }, [user, pagination.nextCursor, getSessionToken, isSessionCurrent, setPagination, visiblePage?.history_revision, refresh]);
+  }, [userId, pagination.nextCursor, getSessionToken, isSessionCurrent, setPagination, visiblePage?.history_revision, refresh]);
 
   // The owner's "One sent N files" card opens its file list in place.
   const [sharedFiles, setSharedFiles] = useState<{
@@ -849,11 +852,11 @@ function FeedPageSession({
   );
 
   const restoreItem = useCallback(async (itemId: string, dismissalToken: string) => {
-    if (!user) return;
+    if (!userId) return;
     try {
       const idToken = await getSessionToken();
       const restored = await FeedService.restore({
-        idToken, userId: user.uid, itemId, dismissalToken, isEffectCurrent: isSessionCurrent,
+        idToken, userId, itemId, dismissalToken, isEffectCurrent: isSessionCurrent,
       });
       if (!restored) {
         toast.error("This item can no longer be restored.");
@@ -872,17 +875,17 @@ function FeedPageSession({
     } catch {
       toast.error("Couldn't restore this item. Try again.");
     }
-  }, [user, refresh, getSessionToken, isSessionCurrent]);
+  }, [userId, refresh, getSessionToken, isSessionCurrent]);
 
   const removeItem = useCallback(async (item: FeedItem) => {
-    if (!user || removalInFlightRef.current.has(item.id)) return;
+    if (!userId || removalInFlightRef.current.has(item.id)) return;
     const startingUndoEpoch = undoEpochRef.current;
     removalInFlightRef.current.add(item.id);
     setRemovingItemId(item.id);
     try {
       const idToken = await getSessionToken();
       const dismissal = await FeedService.dismiss({
-        idToken, userId: user.uid, itemId: item.id, isEffectCurrent: isSessionCurrent,
+        idToken, userId, itemId: item.id, isEffectCurrent: isSessionCurrent,
       });
       if (startingUndoEpoch !== undoEpochRef.current) {
         void refresh({ force: true });
@@ -928,10 +931,10 @@ function FeedPageSession({
       removalInFlightRef.current.delete(item.id);
       setRemovingItemId((current) => current === item.id ? null : current);
     }
-  }, [user, refresh, restoreItem, data?.items, pagination.additionalItems, getSessionToken, isSessionCurrent]);
+  }, [userId, refresh, restoreItem, data?.items, pagination.additionalItems, getSessionToken, isSessionCurrent]);
 
   const handleClearAll = useCallback(async () => {
-    if (!user || clearing) return;
+    if (!userId || clearing) return;
     setClearArmed(false);
     setClearing(true);
     try {
@@ -939,7 +942,7 @@ function FeedPageSession({
         const idToken = await getSessionToken();
         const latestId = latestFeedId(items);
         if (!latestId) throw new Error("Feed contains no valid row id");
-        await FeedService.clear({ idToken, userId: user.uid, upToId: latestId, isEffectCurrent: isSessionCurrent });
+        await FeedService.clear({ idToken, userId, upToId: latestId, isEffectCurrent: isSessionCurrent });
         undoEpochRef.current += 1;
         for (const toastId of undoToastIdsRef.current) toast.dismiss?.(toastId);
         undoToastIdsRef.current.clear();
@@ -969,7 +972,7 @@ function FeedPageSession({
       setClearing(false);
     }
   }, [
-    user,
+    userId,
     clearing,
     items,
     clearedIdStorageKey,
@@ -1082,7 +1085,7 @@ function FeedPageSession({
             <FeedPushPrompt />
             <FeedPaymentReturnNotice />
             <DocumentBankPayoutStatusCard compact refreshOnFeedChange onVisibleChange={setHasBankPayout} />
-            {user ? <FeedSoundControl userId={user.uid} firstPageItems={data?.items ?? null} /> : null}
+            {userId ? <FeedSoundControl userId={userId} firstPageItems={data?.items ?? null} /> : null}
             {hasLiveActionables ? (
               <section aria-label="Live">
                 <SectionLabel>Live</SectionLabel>

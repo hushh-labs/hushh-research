@@ -164,7 +164,7 @@ function CircleJoinLanding() {
     continuationScope.current = scope;
     setContinuing(false);
     return () => { scope.active = false; };
-  }, [auth.user?.uid, code]);
+  }, [auth.userId, code]);
 
   useEffect(() => {
     let active = true;
@@ -304,12 +304,12 @@ function CircleJoinLanding() {
           className="mt-6 w-full"
           disabled={continuing}
           onClick={async () => {
-            if (!auth.user || continuing) return;
+            if (!auth.user || !auth.userId || continuing) return;
             const scope = continuationScope.current;
             setContinuing(true);
             try {
               const next = await PostAuthRouteService.resolveAfterLogin({
-                userId: auth.user.uid,
+                userId: auth.userId,
                 idToken: await auth.user.getIdToken(),
                 redirectPath: joinPath(code),
               });

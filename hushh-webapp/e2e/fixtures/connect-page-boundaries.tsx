@@ -54,6 +54,7 @@ export const AuthService = {
 };
 const signedIn = {
   user,
+  userId: user.uid,
   isAuthenticated: true,
   loading: false,
   phoneNumber: null,

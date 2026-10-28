@@ -33,6 +33,7 @@ function HomeContent() {
 
   const {
     user,
+    userId: ownerId,
     loading,
     phoneNumber,
     sessionVerificationRequired,
@@ -72,12 +73,12 @@ function HomeContent() {
   }, [router]);
 
   useEffect(() => {
-    if (loading || sessionVerificationRequired || !user?.uid) {
-      if (!user?.uid) activeResolutionRef.current = null;
+    if (loading || sessionVerificationRequired || !ownerId) {
+      if (!ownerId) activeResolutionRef.current = null;
       return;
     }
 
-    const userId = user.uid;
+    const userId = ownerId;
     const resolutionKey = JSON.stringify([
       userId,
       phoneNumber,
@@ -136,7 +137,7 @@ function HomeContent() {
     replace,
     routingAttempt,
     sessionVerificationRequired,
-    user?.uid,
+    ownerId,
   ]);
 
   if (loading) {

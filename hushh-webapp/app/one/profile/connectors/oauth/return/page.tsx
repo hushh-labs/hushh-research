@@ -283,7 +283,7 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
   customConnector?: { connectorId: string; revision: string };
   returnTo?: "connector_settings";
 } }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken, ownerTokenStatus } = useVault();
   const router = useRouter();
   // Every sign-in returns to Connectors in the Profile pane: over One when it
@@ -298,8 +298,8 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
   const [finished, setFinished] = useState(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
-    if (ownerTokenStatus === "renewing" || !user || !vaultKey || !vaultOwnerToken) return;
-    if (details.ownerUserId !== user.uid) {
+    if (ownerTokenStatus === "renewing" || !userId || !vaultKey || !vaultOwnerToken) return;
+    if (details.ownerUserId !== userId) {
       setMessage(`Could not save this connection. Return to ${returnLabel} with the original account.`);
       setFinished(true);
       return;
@@ -320,12 +320,12 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
     let savedSuccessfully = false;
     const owner = snapshotValidatedAuthSessionOwner();
     const epoch = snapshotVaultSessionEpoch();
-    const current = () => Boolean(mounted.current && owner?.userId === user.uid &&
+    const current = () => Boolean(mounted.current && owner?.userId === userId &&
       isValidatedAuthSessionOwnerCurrent(owner) && isVaultSessionEpochCurrent(epoch));
     const connector = details.customConnector;
     const controller = new AbortController();
     const run = async () => {
-      if (details.ownerUserId !== user.uid || !connector || !details.attemptId || !current()) throw new Error("Invalid return.");
+      if (details.ownerUserId !== userId || !connector || !details.attemptId || !current()) throw new Error("Invalid return.");
       if (details.cancelled) {
         await ExternalConnectorService.privateMcpOAuth({ vaultOwnerToken, connectorId: connector.connectorId,
           operation: "cancel", payload: { attemptId: details.attemptId, revision: connector.revision },
@@ -338,7 +338,7 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
       const result = await ExternalConnectorService.privateMcpOAuth({ vaultOwnerToken, connectorId: connector.connectorId,
         operation: "complete", payload: { attemptId: details.attemptId, revision: connector.revision,
           code: details.code, state: details.state, issuer: details.issuer }, signal: controller.signal, isEffectCurrent: current });
-      const saved = await saveCustomConnectorOAuthResult({ userId: user.uid, vaultKey, vaultOwnerToken },
+      const saved = await saveCustomConnectorOAuthResult({ userId, vaultKey, vaultOwnerToken },
         connector.connectorId, connector.revision, result,
         { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_oauth_return" }, current);
       savedSuccessfully = true;
@@ -347,7 +347,7 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
         const tools = await ExternalConnectorService.refreshMcpCatalog({ vaultOwnerToken, configuration: saved,
           signal: controller.signal, isEffectCurrent: current });
         if (current()) {
-          rememberRefreshedMcpCatalog({ ownerUserId: user.uid, vaultEpoch: epoch,
+          rememberRefreshedMcpCatalog({ ownerUserId: userId, vaultEpoch: epoch,
             connectorId: saved.connectorId, configurationRevision: saved.revision, tools });
           setMessage("Sign-in saved in your vault. Tools refreshed.");
         }
@@ -360,7 +360,7 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
       if (current()) setMessage(`Could not save this connection. Return to ${returnLabel} and sign in again.`);
     })
       .finally(() => { if (current()) setFinished(true); });
-  }, [details, user, vaultKey, vaultOwnerToken, ownerTokenStatus, phase, onPhase, returnLabel]);
+  }, [details, userId, vaultKey, vaultOwnerToken, ownerTokenStatus, phase, onPhase, returnLabel]);
   return <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 px-6 text-center">
     <p role="status" className="text-sm text-muted-foreground">{message}</p>
     {finished ? <Button className="min-h-11" onClick={() => router.replace(returnHref)}>Return to {returnLabel}</Button> : null}
@@ -380,7 +380,7 @@ function ConnectorOAuthReturnContent({ details }: {
 }) {
   const router = useRouter();
   const { vaultOwnerToken, ownerTokenStatus } = useVault();
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const started = useRef(false);
   const [message, setMessage] = useState("Finishing connection…");
 
@@ -404,7 +404,7 @@ function ConnectorOAuthReturnContent({ details }: {
     }
     if (
       !vaultOwnerToken || !code || !state ||
-      (details.attemptId && (!user || details.ownerUserId !== user.uid))
+      (details.attemptId && (!user || !userId || details.ownerUserId !== userId))
     ) {
       setMessage("Missing authorization details. Please try again.");
       globalThis.setTimeout(() => router.replace(returnHref), 1500);
@@ -442,7 +442,7 @@ function ConnectorOAuthReturnContent({ details }: {
       .finally(() => {
         globalThis.setTimeout(() => router.replace(returnHref), 1500);
       });
-  }, [details, router, user, vaultOwnerToken, ownerTokenStatus]);
+  }, [details, router, user, userId, vaultOwnerToken, ownerTokenStatus]);
 
   return (
     <div className="flex min-h-[50vh] items-center justify-center px-6 text-center">

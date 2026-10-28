@@ -16,7 +16,7 @@ import { useVault } from "@/lib/vault/vault-context";
 
 export default function ConnectedSystemsPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultOwnerToken } = useVault();
   const searchParams = useSearchParams();
   const [showUnlock, setShowUnlock] = useState(false);
@@ -63,7 +63,7 @@ export default function ConnectedSystemsPage() {
       />
       <AppPageContentRegion>
         <ConnectedSystemsPanel
-          cacheUserId={user?.uid}
+          cacheUserId={userId}
           vaultOwnerToken={vaultOwnerToken}
           onRequestUnlock={() => setShowUnlock(true)}
           mode="list"
