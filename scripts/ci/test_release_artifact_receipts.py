@@ -45,6 +45,13 @@ class ReplayedReleaseFixture:
     environment = "uat"
 
     def setUp(self):
+        if self.environment == "production":
+            enabled = mock.patch.dict(
+                "os.environ",
+                {MAINTENANCE.release_artifact_receipts.PRODUCTION_EVIDENCE_REPAIR_FLAG: "true"},
+            )
+            enabled.start()
+            self.addCleanup(enabled.stop)
         self.repo = "hushh-labs/hushh-research"
         self.prefix = "uat" if self.environment == "uat" else "prod"
         self.name = f"{self.prefix}-release-300"
@@ -428,6 +435,34 @@ class ReplayedProductionReleaseArtifactTest(
 ):
     environment = "production"
     maintenance = MAINTENANCE
+
+    def test_production_evidence_repair_defaults_off(self):
+        receipts = MAINTENANCE.release_artifact_receipts
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(receipts.production_evidence_repair_enabled())
+        for value, expected in (("false", False), ("TRUE", False), ("1", False), ("true", True)):
+            with self.subTest(value=value), mock.patch.dict("os.environ", {receipts.PRODUCTION_EVIDENCE_REPAIR_FLAG: value}, clear=True):
+                self.assertEqual(receipts.production_evidence_repair_enabled(), expected)
+
+    def test_disabled_repair_keeps_existing_release_reader(self):
+        flag = MAINTENANCE.release_artifact_receipts.PRODUCTION_EVIDENCE_REPAIR_FLAG
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+
+            def download(_repo, _run, _name, target):
+                target.mkdir(parents=True)
+                (target / self.status_name).write_text('{"status":"blocked"}')
+
+            with (
+                mock.patch.dict("os.environ", {flag: "false"}),
+                mock.patch.object(MAINTENANCE, "artifact_exists", return_value=True),
+                mock.patch.object(MAINTENANCE, "download", side_effect=download),
+                mock.patch.object(MAINTENANCE, "uncached_api", side_effect=AssertionError("disabled repair")),
+            ):
+                self.assertEqual(
+                    MAINTENANCE.load_release(self.repo, 300, directory, "production"),
+                    {"status": "blocked"},
+                )
 
     def restoration_runtimes(self, original, documents, continuation, basis):
         runtimes = {}

@@ -373,6 +373,7 @@ class OperationalRetentionCases(WorkerRetentionCases, RetentionFixture):
                     return inventory if endpoint.endswith("/artifacts?per_page=100") else run
 
                 with (
+                    mock.patch.dict("os.environ", {MAINTENANCE.release_artifact_receipts.PRODUCTION_EVIDENCE_REPAIR_FLAG: "true"}),
                     mock.patch.object(MAINTENANCE, "api", side_effect=api),
                     mock.patch.object(MAINTENANCE, "governed_dispatch", return_value=True),
                     mock.patch.object(MAINTENANCE.release_artifact_receipts, "current_attempt_artifact", return_value=({}, None)),

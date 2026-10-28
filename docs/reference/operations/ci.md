@@ -1358,7 +1358,10 @@ was never crossed. This proves no provider mutation; it grants no cleanup or
 release-health authority. Unknown source, incomplete logs, cancellation and failed
 checkpoint uploads remain blocked. Every attempt is inspected, including earlier
 attempts of a currently running retry; never delete failed runs to clear admission.
-For the reviewed production worker-only workflow shape, an exact attempt with
+The production evidence repair is off unless the trusted workflow explicitly sets
+`HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR=true`; enabling it requires a
+separately authorized production operation. With that repair enabled, for the
+reviewed production worker-only workflow shape, an exact attempt with
 all three deployment jobs recorded as skipped and unstarted can prove that no
 cold phone-health lease was created. The worker's result is not a healthy-release
 receipt; unknown source or job shapes still stop reconciliation. Production

@@ -364,7 +364,8 @@ def download_replayed_release(
     release_artifact_receipts.download_replayed_artifact(
         repository, artifact, directory, f"{LANES[environment]['prefix']}-release-status.json",
         run_command=retention.run_command, timeout=timeout,
-        allow_legacy_production=environment == "production",
+        allow_legacy_production=environment == "production"
+        and release_artifact_receipts.production_evidence_repair_enabled(),
     )
 
 # Preserve existing UAT-only imports while both lanes share the strict reader.
@@ -433,7 +434,7 @@ def _assert_production_release_snapshot(repository: str, run: dict, inventory: d
 def load_release(repository: str, run_id: int, directory: Path, environment: str) -> dict | None:
     prefix = LANES[environment]["prefix"]
     name = f"{prefix}-release-{run_id}"
-    if environment == "production":
+    if environment == "production" and release_artifact_receipts.production_evidence_repair_enabled():
         # Production status is authority-bearing: never trust an extracted or
         # pre-existing filesystem cache, including a symlinked parent. Select
         # the current upload and decode its digest-verified archive in memory.
@@ -961,7 +962,7 @@ def find_release(
             )
         run_id = run["id"]
         release = load_release(repository, run_id, directory, environment)
-        if environment == "production" and not _same_production_run(
+        if environment == "production" and release_artifact_receipts.production_evidence_repair_enabled() and not _same_production_run(
             run, uncached_api(repository, f"runs/{run_id}")
         ):
             raise retention.UnsafeState("production source changed during lookup")

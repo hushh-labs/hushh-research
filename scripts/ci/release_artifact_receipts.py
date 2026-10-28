@@ -10,6 +10,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 import hashlib
 import importlib
+import os
 from io import BytesIO
 from pathlib import Path
 import re
@@ -20,6 +21,12 @@ from zipfile import BadZipFile, ZipFile
 retention = importlib.import_module("cloudrun-retention")
 Document = dict[str, Any]
 Timestamp = Callable[[object], datetime | None]
+PRODUCTION_EVIDENCE_REPAIR_FLAG = "HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR"
+
+
+def production_evidence_repair_enabled() -> bool:
+    """Production activation is explicit; an unset flag preserves current behavior."""
+    return os.environ.get(PRODUCTION_EVIDENCE_REPAIR_FLAG) == "true"
 
 
 def artifact_exists(repository, run_id, name, *, api):

@@ -310,7 +310,7 @@ def _attempt(repository, run, number, api, text, trusted):
         "pending",
     }:
         return attempt, result, None
-    if not matches:
+    if not matches and receipts.production_evidence_repair_enabled():
         _stage_only(repository, attempt, result, text, trusted)
         return attempt, result, None
     _require(

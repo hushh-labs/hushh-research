@@ -269,6 +269,7 @@ class ProductionPhoneSkippedLeaseCases:
         case = LeaseFixture(self)
         case.intent_protocol()
         environment = case.active_guard() if active else {}
+        environment[lease.receipts.PRODUCTION_EVIDENCE_REPAIR_FLAG] = "true"
         if active:
             environment.update(
                 GITHUB_JOB="stage-drive-worker", GITHUB_SHA=case.runs[0]["head_sha"]
@@ -364,6 +365,16 @@ class ProductionPhoneSkippedLeaseCases:
                 with mock.patch.dict("os.environ", environment, clear=True):
                     with self.assertRaises(lease.retention.UnsafeState):
                         self.lease_check(case)
+
+    def test_disabled_repair_keeps_existing_worker_refusal(self):
+        self.setUp()
+        case, environment = self.worker_only_lease(active=True)
+        environment[lease.receipts.PRODUCTION_EVIDENCE_REPAIR_FLAG] = "false"
+        with mock.patch.dict("os.environ", environment, clear=True):
+            with self.assertRaisesRegex(
+                lease.retention.UnsafeState, "attempt job is not bound"
+            ):
+                self.lease_check(case)
 
     def restoration_lease(self, conclusion="success", *, active=False):
         case = LeaseFixture(self)
