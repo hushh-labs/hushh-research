@@ -101,7 +101,7 @@ SHARE_METADATA_FIELDS = (
 # Metadata-only live read for a file with no readable text (a video, an image,
 # an archive, a folder): what it is and where to open it, never its bytes.
 FACT_FIELDS = (
-    "id,name,mimeType,version,modifiedTime,createdTime,driveId,resourceKey,size,webViewLink,trashed,md5Checksum,sha256Checksum,headRevisionId,"
+    "id,name,mimeType,version,modifiedTime,createdTime,driveId,resourceKey,size,webViewLink,webContentLink,exportLinks,trashed,md5Checksum,sha256Checksum,headRevisionId,"
     "capabilities(canShare,canDownload,canAccessViaGenAi),clientEncryptionDetails(encryptionState)"
 )
 # Live search: one bounded files.list shape, never a caller-chosen field set.

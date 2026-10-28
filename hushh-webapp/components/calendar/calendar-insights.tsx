@@ -1,122 +1,152 @@
 "use client";
 
-import { toast } from "sonner";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Bar, BarChart, XAxis } from "recharts";
-import { ChevronLeft, ChevronRight, FileText, CameraIcon as Video, ExternalLink, MessageSquareIcon as MessageSquare, Search } from "@/components/icons";
+import { ChevronLeft, ChevronRight, FileText, CameraIcon as Video, ExternalLink, Search } from "@/components/icons";
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { Button } from "@/components/ui/button";
-import { CalendarCompactAction } from "./calendar-compact-action";
-import presentationStyles from "./calendar-presentation.module.css";
 import { Input } from "@/components/ui/input";
 import { CHART_TOOLTIP_TRIGGER, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
-import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
-import { CalendarInsightsService, type CalendarInsights as Overview, type MeetingLibrary, type MeetingDetail, type Meeting, type MeetingArtifact } from "@/lib/services/calendar-insights-service";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { CalendarInsightsRequestError, CalendarInsightsService, safeMeetingProviderUrl, type CalendarInsights as Overview, type MeetingLibrary, type MeetingDetail, type Meeting, type MeetingArtifact, type VerifiedMeetingSelection } from "@/lib/services/calendar-insights-service";
+import type { GoogleCalendarAccount } from "@/lib/services/google-calendar-service";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CalendarDateNavigation } from "./calendar-date-navigation";
+import { CalendarCompactAction } from "./calendar-compact-action";
 import { CalendarLoading } from "./calendar-loading";
+import presentationStyles from "./calendar-presentation.module.css";
 import styles from "./calendar-insights.module.css";
 
-const hours = (minutes: number) => `${Math.round(minutes / 6) / 10} hr`;
-const artifactLabels: Record<string, string> = { permission_required: "Permission required", processing: "Still processing", not_generated: "No files generated", temporarily_unavailable: "Provider error", unavailable: "Unavailable" };
-const availability: Record<string, string> = {
-  not_generated: "No file has been generated for this verified meeting.",
-  available: "Available",
-  processing: "Still processing. Google is still preparing one or more meeting files. Check again later.",
-  permission_required: "Permission required. Calendar access does not include access to this meeting file.",
-  unavailable: "Not available or not shared with your connected account.",
-  unverified: "This meeting could not be matched to one verified conference record.",
-  temporarily_unavailable: "Provider error. Access could not be checked. Try again.",
-  source_changed: "The source changed. Refresh to check it again.",
-  unsupported_format: "Preview is unavailable for this file format.",
+const hours = (minutes: number) => String(Math.round(minutes / 6) / 10) + " hr";
+const limitationText: Record<string, string> = {
+  permission_required: "Allow recording and notes access for this Google account.",
+  processing: "Google is still preparing meeting files. Refresh later.",
+  temporarily_unavailable: "Google could not finish checking meeting files. Try again.",
+  unverified: "A reused meeting link could not be matched to one occurrence.",
+  files_incomplete: "Some meeting files could not be checked.",
+  calendar_unreadable: "Some subscribed calendars do not share event details.",
+  calendar_incomplete: "Calendar returned an incomplete page.",
+  request_budget: "More meetings remain to be checked. Continue this day.",
+  provider_retention: "Google Meet records for this older day may have expired; coverage cannot be confirmed.",
+  attendee_discovery_limited: "An attendee's shared meeting files may be missing from this check.",
 };
-function safeSource(value?: string) {
-  try { const url = new URL(value || ""); return url.protocol === "https:" && ["drive.google.com", "docs.google.com"].includes(url.hostname) && !url.username && !url.password && (!url.port || url.port === "443") ? value : undefined; } catch { return undefined; }
+
+function NotePreview({ item }: { item: MeetingArtifact }) {
+  if (!item.text) return null;
+  if (item.text_format !== "markdown") return <div className={styles.notes}>{item.text}</div>;
+  return <div className={styles.notes}><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml
+    allowedElements={["p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "strong", "em", "blockquote", "code", "pre", "table", "thead", "tbody", "tr", "th", "td", "a"]}
+    components={{ a: ({ children }) => <span>{children}</span> }}>{item.text}</ReactMarkdown></div>;
 }
-function Artifact({ item }: { item: MeetingArtifact }) {
-  const link = safeSource(item.url);
+
+function Artifact({ item, onOpen, onDownload }: { item: MeetingArtifact; onOpen: (item: MeetingArtifact) => void; onDownload: (item: MeetingArtifact) => void }) {
+  if (item.state !== "available" || (item.kind !== "recording" && item.kind !== "notes")) return null;
+  const link = safeMeetingProviderUrl(item.url);
   return <div className="space-y-2 border-b py-3 last:border-0">
-    {item.linked_only ? <p className={styles.muted}>Linked Calendar attachment · meeting artifact type unverified</p> : null}
-    <strong className="block break-words">{item.title || (item.kind === "recording" ? "Meeting recording" : item.kind === "transcript" ? "Meeting transcript" : "Meeting notes")}</strong>
-    {item.state !== "available" ? <p className={styles.muted}>{availability[item.state] || "Access could not be verified."}</p> : <>
-      {link ? <a className={styles.link} href={link} target="_blank" rel="noopener noreferrer">{item.kind === "recording" ? "Watch recording" : "Open source"}<ExternalLink className="size-3" /></a> : null}
-      {item.text ? <div className={styles.notes}>{item.text}</div> : item.kind !== "recording" ? <p className={styles.muted}>Open the source to read this file.</p> : null}
-      {item.text ? <Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => { void navigator.clipboard.writeText(item.text || "").then(() => toast.success("Notes copied"), () => toast.error("Could not copy notes")); }}>Copy notes</Button> : null}
-      {item.truncated ? <p className={styles.muted}>Preview shortened. Open the source for the full text.</p> : null}
-    </>}
+    <strong className="block break-words">{item.title || (item.kind === "recording" ? "Meeting recording" : "Meeting notes")}</strong>
+    <div className="flex flex-wrap items-center gap-3">
+      {link ? <Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => onOpen(item)}>Open<ExternalLink className="size-3" /></Button> : <span className={styles.muted}>Google did not provide an opening link.</span>}
+      {item.can_download ? <Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => onDownload(item)}>Download</Button> : <span className={styles.muted}>The file owner does not allow downloads.</span>}
+    </div>
+    <NotePreview item={item} />
+    {item.truncated ? <p className={styles.muted}>Preview shortened. Open or download the full note.</p> : null}
+    {item.preview_state && !item.text ? <p className={styles.muted}>Preview unavailable. Open the source to read it.</p> : null}
   </div>;
 }
 
-function SourceExcerpts({ artifacts, kind }: { artifacts: MeetingArtifact[]; kind: "decisions" | "follow-ups" }) {
-  const headings = kind === "decisions" ? /^(?:#{1,6}\s*)?(?:key )?decisions\s*:?\s*$/i : /^(?:#{1,6}\s*)?(?:follow[- ]?ups|action items|next steps)\s*:?\s*$/i;
-  const excerpts = artifacts.flatMap(item => {
-    if (item.state !== "available" || !item.text || !safeSource(item.url)) return [];
-    const lines = item.text.split("\n");
-    const start = lines.findIndex(line => headings.test(line.trim()));
-    if (start < 0) return [];
-    const body = [];
-    for (const line of lines.slice(start + 1)) {
-      if (/^(?:#{1,6}\s+|(?:summary|decisions|key decisions|follow[- ]?ups|action items|next steps)\s*:?[ \t]*$)/i.test(line.trim())) break;
-      body.push(line);
-    }
-    const text = body.join("\n").trim();
-    return text ? [{ ...item, excerpt: text }] : [];
-  });
-  return excerpts.length ? excerpts.map(item => <div key={item.file_id} className="space-y-2"><p className={styles.notes}>{item.excerpt}</p><a className={styles.link} href={safeSource(item.url)} target="_blank" rel="noopener noreferrer">Source: {item.title || "Meeting document"}<ExternalLink className="size-3" /></a></div>) : <p className={styles.muted}>No explicit {kind} section in the available source text. Ask One to review the authorized sources.</p>;
+function mergeLibrary(previous: MeetingLibrary | null, incoming: MeetingLibrary): MeetingLibrary {
+  if (!previous) return incoming;
+  const meetings = new Map(previous.meetings.map(meeting => [meeting.occurrence_id, meeting]));
+  for (const meeting of incoming.meetings) {
+    const older = meetings.get(meeting.occurrence_id);
+    if (!older) { meetings.set(meeting.occurrence_id, meeting); continue; }
+    const sources = new Map([...older.sources, ...meeting.sources].map(source => [source.calendar_id + ":" + source.event_id, source]));
+    meetings.set(meeting.occurrence_id, {
+      ...older, artifact_kinds: Array.from(new Set([...older.artifact_kinds, ...meeting.artifact_kinds])),
+      sources: Array.from(sources.values()),
+    });
+  }
+  const limitationSet = new Set([...previous.limitations, ...incoming.limitations]);
+  if (!incoming.next_cursor) limitationSet.delete("request_budget");
+  const limitations = Array.from(limitationSet);
+  return {
+    ...incoming, meetings: Array.from(meetings.values()).sort((left, right) =>
+      Date.parse(right.start?.dateTime || "") - Date.parse(left.start?.dateTime || "")),
+    limitations,
+    complete: incoming.complete && limitations.length === 0,
+    checked_events: previous.checked_events + incoming.checked_events,
+  };
 }
 
-export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, vaultOwnerToken }: {
-  userId: string; accountKey: string; date: string; zone: string; getIdToken: () => Promise<string>; vaultOwnerToken: string | null;
+export function CalendarInsights({ userId, account, today, zone, getIdToken, onAllowMeetingFiles }: {
+  userId: string; account: GoogleCalendarAccount; today: string; zone: string;
+  getIdToken: () => Promise<string>; onAllowMeetingFiles?: (accountId: string) => void;
 }) {
   const [view, setView] = useState<"overview" | "library" | "meeting">("overview");
-  const [selected, setSelected] = useState<Meeting | null>(null);
+  const [day, setDay] = useState(today);
+  const previousToday = useRef(today);
+  useEffect(() => {
+    if (day === previousToday.current) setDay(today);
+    previousToday.current = today;
+  }, [today, day]);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [page, setPage] = useState(0);
-  const [detailTab, setDetailTab] = useState("notes");
+  const [filter, setFilter] = useState<"all" | "recording" | "notes">("all");
+  const [selected, setSelected] = useState<Meeting | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [library, setLibrary] = useState<MeetingLibrary | null>(null);
+  const [libraryState, setLibraryState] = useState<{ key: string; value: MeetingLibrary } | null>(null);
   const [detail, setDetail] = useState<MeetingDetail | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
   const [canRefresh, setCanRefresh] = useState(() => typeof document === "undefined" || (document.visibilityState !== "hidden" && navigator.onLine));
-  const sessionId = useOneConversationSession(state => state.sessionId);
   const refreshBudget = useRef(5);
-  const lastRefresh = useRef(0);
-  const [asking, setAsking] = useState(false);
+  const autoAdvance = useRef(0);
+  const lastForeground = useRef(0);
+  const lifetime = useRef<AbortController | null>(null);
+  const action = useRef<{ controller: AbortController; popup: Window } | null>(null);
+  const loadedPageCount = useRef(0);
+  const refreshTarget = useRef(0);
+  const refreshChecked = useRef(0);
+  const refreshStage = useRef<MeetingLibrary | null>(null);
+  const getToken = useRef(getIdToken); getToken.current = getIdToken;
+  const epoch = snapshotVaultSessionEpoch();
+  const owner = snapshotValidatedAuthSessionOwner();
+  const context = [userId, account.account_id, account.grant_generation || "", account.provider_subject_sha256 || "", day, zone, epoch, owner?.generation || ""].join(":");
+  const libraryKey = [context, query, filter].join("|");
+  const library = libraryState?.key === libraryKey ? libraryState.value : null;
+  const libraryRef = useRef<MeetingLibrary | null>(library); libraryRef.current = library;
+  const viewRef = useRef(view); viewRef.current = view;
+  const requestKey = [context, view, query, filter, cursor || "", selected?.id || "", revision].join("|");
+  const current = useRef(requestKey); current.current = requestKey;
+  const actionContext = context + ":" + (selected?.occurrence_id || "");
+  const currentActionContext = useRef(actionContext); currentActionContext.current = actionContext;
+  useEffect(() => () => { action.current?.controller.abort(); action.current?.popup.close(); action.current = null; }, [actionContext]);
   const entryRef = useRef<HTMLButtonElement>(null);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
   const lastSelectedId = useRef<string | null>(null);
-  const getToken = useRef(getIdToken); getToken.current = getIdToken;
-  const epoch = snapshotVaultSessionEpoch();
-  const identity = `${userId}:${accountKey}:${epoch}:${sessionId}`;
-  const overviewPreview = useRef<{ key: string; value: Overview } | null>(null);
-  const overviewKey = `${identity}:${date}:${zone}`;
-  if (error || !canRefresh || view !== "overview" || overviewPreview.current?.key !== overviewKey) overviewPreview.current = null;
-  const current = useRef(identity); current.current = identity;
-  const lifetime = useRef<AbortController | null>(null);
+
   const refresh = useCallback(() => {
     if (document.visibilityState === "hidden" || !navigator.onLine) return;
     lifetime.current?.abort();
-    setOverview(null); setLibrary(null); setDetail(null); setPage(0);
+    refreshTarget.current = viewRef.current === "library" && libraryRef.current ? Math.max(1, loadedPageCount.current) : 0;
+    refreshChecked.current = 0;
+    refreshStage.current = null;
+    setCursor(null);
     setRevision(value => value + 1);
   }, []);
   useEffect(() => {
     const resume = () => {
       const active = document.visibilityState !== "hidden" && navigator.onLine;
       setCanRefresh(active);
-      if (!active) {
-        lifetime.current?.abort();
-        setOverview(null); setLibrary(null); setDetail(null); setPage(0); setLoading(false);
-        return;
-      }
-      // Focus and visibilitychange commonly arrive together.
-      if (Date.now() - lastRefresh.current < 1000) return;
-      lastRefresh.current = Date.now(); refreshBudget.current = 5; refresh();
+      if (!active) { lifetime.current?.abort(); setLoading(false); return; }
+      if (Date.now() - lastForeground.current < 1000) return;
+      lastForeground.current = Date.now(); refreshBudget.current = 5; refresh();
     };
     window.addEventListener("focus", resume);
     window.addEventListener("online", resume);
@@ -134,107 +164,163 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
     const timer = window.setTimeout(() => { refreshBudget.current -= 1; refresh(); }, 60_000);
     return () => window.clearTimeout(timer);
   }, [canRefresh, loading, error, view, revision, refresh]);
+
   const back = useCallback(() => {
     if (view === "overview") return false;
     setError("");
-    if (view === "meeting") { setView("library"); setSelected(null); requestAnimationFrame(() => rowRefs.current.get(lastSelectedId.current || "")?.focus()); }
-    else { setView("overview"); requestAnimationFrame(() => entryRef.current?.focus()); }
+    if (view === "meeting") {
+      setView("library"); setSelected(null);
+      requestAnimationFrame(() => rowRefs.current.get(lastSelectedId.current || "")?.focus());
+    } else {
+      setView("overview");
+      requestAnimationFrame(() => entryRef.current?.focus());
+    }
     return true;
   }, [view]);
   useBackLayer("/one/calendar", view === "meeting" ? 2 : view === "library" ? 1 : 0, back);
+
   useEffect(() => {
     if (!canRefresh) return;
-    const controller = new AbortController(); lifetime.current = controller;
-    const valid = () => !controller.signal.aborted && current.current === identity && isVaultSessionEpochCurrent(epoch);
-    setLoading(true); setAsking(false); setError(""); setDetail(null); setOverview(null);
-    if (view !== "library" || page === 0) setLibrary(null);
+    const controller = new AbortController();
+    lifetime.current = controller;
+    const requestOwner = snapshotValidatedAuthSessionOwner();
+    const valid = () => !controller.signal.aborted && current.current === requestKey &&
+      isVaultSessionEpochCurrent(epoch) && (!requestOwner || isValidatedAuthSessionOwnerCurrent(requestOwner));
+    setLoading(true); setError("");
     const load = async () => {
       try {
-        const token = await getToken.current(); if (!valid()) return;
-        if (view === "meeting" && selected?.id) {
-          const value = await CalendarInsightsService.read<MeetingDetail>("meetings/detail", { calendar_id: selected.calendar_id || "primary", event_id: selected.id, expected_account_email: accountKey.split(":")[0] }, token, controller.signal);
-          if (valid()) setDetail(value);
+        const idToken = await getToken.current();
+        if (!valid()) return;
+        if (view === "overview") {
+          const value = await CalendarInsightsService.read<Overview>("insights",
+            { date: day, time_zone: zone, account_id: account.account_id }, idToken, controller.signal);
+          if (valid()) setOverview(value);
         } else if (view === "library") {
-          const value = await CalendarInsightsService.read<MeetingLibrary>("meetings", { date, time_zone: zone, page }, token, controller.signal);
-          if (valid()) setLibrary(previous => page === 0 ? value : {
-            ...value,
-            meetings: Array.from(new Map([...(previous?.meetings || []), ...value.meetings]
-              .map(meeting => [`${meeting.calendar_id}:${meeting.id}`, meeting])).values()),
-          });
-        } else {
-          const value = await CalendarInsightsService.read<Overview>("insights", { date, time_zone: zone }, token, controller.signal);
-          if (valid()) { overviewPreview.current = { key: `${identity}:${date}:${zone}`, value }; setOverview(value); }
+          const value = await CalendarInsightsService.read<MeetingLibrary>("meetings",
+            { date: day, time_zone: zone, account_id: account.account_id, cursor, query, kind: filter },
+            idToken, controller.signal);
+          if (!valid()) return;
+          if (value.date !== day || value.time_zone !== zone || value.account_id !== account.account_id) {
+            throw new Error("Meeting page changed. Refresh this day.");
+          }
+          if (refreshTarget.current) {
+            refreshStage.current = mergeLibrary(refreshStage.current, value);
+            refreshChecked.current += 1;
+            if (value.next_cursor && refreshChecked.current < refreshTarget.current) {
+              setCursor(value.next_cursor);
+              return;
+            }
+            setLibraryState({ key: libraryKey, value: refreshStage.current });
+            loadedPageCount.current = refreshChecked.current;
+            refreshTarget.current = 0;
+            refreshStage.current = null;
+          } else {
+            setLibraryState(previous => ({ key: libraryKey, value: cursor && previous?.key === libraryKey ? mergeLibrary(previous.value, value) : value }));
+            loadedPageCount.current = cursor ? loadedPageCount.current + 1 : 1;
+          }
+          if (value.next_cursor && !value.meetings.length && autoAdvance.current < 4) {
+            autoAdvance.current += 1;
+            setCursor(value.next_cursor);
+          }
+        } else if (selected) {
+          const selection: VerifiedMeetingSelection = {
+            account_id: account.account_id, calendar_id: selected.calendar_id, event_id: selected.id,
+            occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id, date: day, time_zone: zone,
+          };
+          const value = await CalendarInsightsService.read<MeetingDetail>("meetings/detail", selection, idToken, controller.signal);
+          if (valid()) setDetail(value);
         }
-      } catch (failure) { if (valid()) setError(failure instanceof Error ? failure.message : "Calendar could not be checked."); }
-      finally { if (valid()) setLoading(false); }
+      } catch (failure) {
+        if (valid()) {
+          setError(failure instanceof Error ? failure.message : "Calendar could not be checked.");
+          if (view === "overview") setOverview(null);
+          if (failure instanceof CalendarInsightsRequestError && [401, 403, 409].includes(failure.status)) {
+            if (view === "library") setLibraryState(null);
+            if (view === "meeting") setDetail(null);
+          }
+        }
+      } finally {
+        if (valid()) setLoading(false);
+      }
     };
-    void load(); return () => controller.abort();
-  }, [view, selected, date, zone, identity, epoch, revision, accountKey, page, canRefresh]);
-  const ask = async () => {
-    if (!selected?.id || !vaultOwnerToken || asking) return;
-    const eventId = selected.id;
-    setAsking(true); setError("");
-    const controller = lifetime.current;
-    const valid = () => !controller?.signal.aborted && current.current === identity && isVaultSessionEpochCurrent(epoch);
-    try {
-      await getToken.current(); if (!valid()) return;
-      if (!valid()) return;
-      const createdAtMs = Date.now();
-      useOneConversationSession.getState().createHandoff({ id: `calendar-meeting-${createdAtMs}`, reason: "user_requested", calendarRequest: { ownerId: userId, request: "Summarize this meeting's notes, decisions and follow-ups with source references. Do not save them to Memory or PKM.", meeting: { calendar_id: selected.calendar_id || "primary", event_id: eventId, expected_account_email: accountKey.split(":")[0] || "" } }, createdAtMs });
-      navigateToAgentChat();
-    } catch (failure) { if (valid()) setError(failure instanceof Error ? failure.message : "Meeting context could not be checked."); }
-    finally { if (valid()) setAsking(false); }
+    void load();
+    return () => controller.abort();
+  }, [requestKey, canRefresh, view, selected, day, zone, account.account_id, cursor, query, filter, epoch, libraryKey]);
+
+  const changeDay = (next: string) => {
+    setDay(next); setSelected(null); setDetail(null); setCursor(null);
+    loadedPageCount.current = 0; refreshTarget.current = 0;
+    setLibraryState(null); setError(""); autoAdvance.current = 0;
   };
-  const filtered = (library?.meetings || []).filter(meeting => {
-    const kinds = meeting.artifact_kinds || [];
-    return meeting.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()) && (filter === "all" || kinds.includes(filter));
-  });
-  const artifacts = detail?.artifacts || [];
-  const visibleOverview = overview || (loading && !error ? overviewPreview.current?.value : null);
-  const overviewPending = canRefresh && !error && !visibleOverview;
-  const initialLoading = view !== "overview" && !error && canRefresh && (loading || !overview) && (view === "library" ? !library : !detail);
+  const changeQuery = (next: string) => { setQuery(next); setCursor(null); setError(""); loadedPageCount.current = 0; refreshTarget.current = 0; autoAdvance.current = 0; };
+  const changeFilter = (next: string) => {
+    setFilter(next as typeof filter); setCursor(null); setError(""); loadedPageCount.current = 0; refreshTarget.current = 0; autoAdvance.current = 0;
+  };
+  const fileAction = (item: MeetingArtifact, kind: "open" | "download") => {
+    if (!selected || (kind === "download" && !item.can_download)) return;
+    const popup = window.open("about:blank", "_blank");
+    if (!popup) { setError("Allow this Google file window and try again."); return; }
+    popup.opener = null;
+    action.current?.controller.abort(); action.current?.popup.close();
+    const controller = new AbortController(); action.current = { controller, popup };
+    const startedContext = actionContext;
+    const selection: VerifiedMeetingSelection & { file_id: string } = {
+      account_id: account.account_id, calendar_id: selected.calendar_id, event_id: selected.id,
+      occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id, date: day, time_zone: zone, file_id: item.file_id,
+    };
+    void getToken.current().then(token => CalendarInsightsService.fileAction(kind, selection, token, controller.signal))
+      .then(url => {
+        if (controller.signal.aborted || currentActionContext.current !== startedContext || popup.closed) { popup.close(); return; }
+        const target = new URL(url);
+        if (account.google_email) target.searchParams.set("authuser", account.google_email);
+        popup.location.replace(target.toString());
+        action.current = null;
+      })
+      .catch(failure => { popup.close(); if (!controller.signal.aborted && currentActionContext.current === startedContext) setError(failure instanceof Error ? failure.message : "Google file access could not be checked."); });
+  };
+  const visibleArtifacts = (detail?.artifacts || []).filter(item =>
+    item.state === "available" && (item.kind === "recording" || item.kind === "notes"));
+  const firstLoading = canRefresh && loading && (view === "overview" ? !overview : view === "library" ? !library : !detail);
+
   return <div className={styles.insights} data-view={view} aria-busy={loading}>
-    <div className="flex justify-end"><Button variant="ghost" size="compact" className={presentationStyles.utility} disabled={loading || !canRefresh} onClick={() => { refreshBudget.current = 5; refresh(); }}>Refresh</Button></div>
+    <div className="flex justify-end"><Button variant="ghost" size="compact" className={presentationStyles.utility}
+      disabled={loading || !canRefresh} onClick={() => { refreshBudget.current = 5; autoAdvance.current = 0; refresh(); }}>Refresh</Button></div>
     {!canRefresh ? <p role="status">Updates paused while this page is hidden or offline.</p> : null}
-    {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon-touch" aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}><ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : "Meeting library"}</div> : null}
-    {error ? <SectionCard><p role="alert">{error}</p><CalendarCompactAction onClick={() => { refreshBudget.current = 5; refresh(); }}>Try again</CalendarCompactAction></SectionCard> : null}
-    {initialLoading ? <CalendarLoading label="Insights loading" /> : null}
+    {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon-touch"
+      aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}>
+      <ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : "Meeting library"}</div> : null}
+    {error ? <SectionCard><p role="alert">{error}</p><CalendarCompactAction onClick={refresh}>Try again</CalendarCompactAction></SectionCard> : null}
+    {firstLoading ? <CalendarLoading label="Insights loading" /> : null}
     {view === "overview" ? <>
       <div><h2 className={styles.heading}>Insights</h2><p className={styles.muted}>Understand your time. Make room for what matters.</p></div>
-      <SectionCard title="Executive snapshot" description={loading && visibleOverview ? "Last loaded snapshot · updates pending" : "This week · scheduled time, not attendance statistics"}>
-        {visibleOverview ? <><div className={styles.metrics}><div><strong>{visibleOverview.meeting_count}</strong><span>Scheduled events</span></div><div><strong>{hours(visibleOverview.meeting_minutes)}</strong><span>Scheduled time</span></div><div><strong>{hours(visibleOverview.recurring.reduce((sum, row) => sum + row.minutes, 0))}</strong><span>Recurring time</span></div></div>{!visibleOverview.complete ? <p className={styles.muted}>Partial calendar coverage. Totals include only the events loaded.</p> : null}</> : overviewPending ? <Skeleton aria-label="Snapshot loading" className="h-16 w-full" /> : <p className={styles.muted}>Live calendar information is needed for this snapshot.</p>}
+      <SectionCard title="Executive snapshot" description="This week · scheduled time, not attendance statistics">
+        {overview ? <><div className={styles.metrics}><div><strong>{overview.meeting_count}</strong><span>Scheduled events</span></div><div><strong>{hours(overview.meeting_minutes)}</strong><span>Scheduled time</span></div><div><strong>{hours(overview.recurring.reduce((sum, row) => sum + row.minutes, 0))}</strong><span>Recurring time</span></div></div>{!overview.complete ? <p className={styles.muted}>Partial calendar coverage. Totals include only loaded events.</p> : null}</> : <Skeleton aria-label="Snapshot loading" className="h-16 w-full" />}
       </SectionCard>
       <SectionCard title="Your week at a glance">
-        {visibleOverview ? <ChartContainer className="h-40 w-full" config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={visibleOverview.days}><XAxis dataKey="date" tickFormatter={value => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} content={<ChartTooltipContent />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : overviewPending ? <Skeleton aria-label="Weekly chart loading" className="h-40 w-full" /> : <p className={styles.muted}>Weekly chart unavailable until Calendar is checked.</p>}
+        {overview ? <ChartContainer className="h-40 w-full" config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={overview.days}><XAxis dataKey="date" tickFormatter={value => new Date(String(value) + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} content={<ChartTooltipContent />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : <Skeleton className="h-40 w-full" />}
       </SectionCard>
-      <SectionCard title="Schedule risks">{overviewPending ? <Skeleton className="h-6 w-3/4" /> : <p>{visibleOverview ? `${visibleOverview.overlaps} overlapping pairs · ${visibleOverview.back_to_back} back-to-back pairs` : "Schedule risks have not been checked."}</p>}<p className={styles.muted}>Based on scheduled, timed events in calendars you can read.</p></SectionCard>
-      <SectionCard title="Recurring commitments">{visibleOverview?.recurring.length ? visibleOverview.recurring.map((row, index) => <div className={styles.row} key={index}><span className={styles.copy}>{row.title}</span><span className={styles.muted}>{hours(row.minutes)}/week</span></div>) : overviewPending ? <Skeleton className="h-12 w-full" /> : <p className={styles.muted}>{visibleOverview ? "No recurring commitments in the loaded events." : "Recurring commitments have not been checked."}</p>}</SectionCard>
-      <button ref={entryRef} type="button" className={styles.entry} onClick={() => { refreshBudget.current = 5; setPage(0); setLibrary(null); setView("library"); }}><span className={styles.icon}><Video className="size-5" /></span><span className={styles.copy}><strong>Recordings &amp; Notes</strong><span className={styles.muted}>Find recordings and notes from past meetings</span></span><ChevronRight className="size-4" /></button>
+      <SectionCard title="Schedule risks"><p>{overview ? String(overview.overlaps) + " overlapping pairs · " + String(overview.back_to_back) + " back-to-back pairs" : "Schedule risks have not been checked."}</p><p className={styles.muted}>Based on scheduled, timed events in calendars you can read.</p></SectionCard>
+      <SectionCard title="Recurring commitments">{overview?.recurring.length ? overview.recurring.map((row, index) => <div className={styles.row} key={index}><span className={styles.copy}>{row.title}</span><span className={styles.muted}>{hours(row.minutes)}/week</span></div>) : <p className={styles.muted}>No recurring commitments in the loaded events.</p>}</SectionCard>
+      <button ref={entryRef} type="button" className={styles.entry} onClick={() => { autoAdvance.current = 0; setCursor(null); setView("library"); }}><span className={styles.icon}><Video className="size-5" /></span><span className={styles.copy}><strong>Recordings &amp; Notes</strong><span className={styles.muted}>Find recordings and notes by meeting day</span></span><ChevronRight className="size-4" /></button>
       <SectionCard title="Focus opportunities" description="Gaps of at least one hour · weekdays, 9 AM–5 PM">
-        {visibleOverview?.focus.length ? visibleOverview.focus.map(window => <p key={window.start_at} className="py-2">{new Date(window.start_at).toLocaleString(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })}–{new Date(window.end_at).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" })}</p>) : overviewPending ? <Skeleton className="h-12 w-full" /> : <p className={styles.muted}>No verified focus windows to show.</p>}
+        {overview?.focus.length ? overview.focus.map(window => <p key={window.start_at} className="py-2">{new Date(window.start_at).toLocaleString(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })}–{new Date(window.end_at).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" })}</p>) : <p className={styles.muted}>No verified focus windows to show.</p>}
       </SectionCard>
     </> : view === "library" ? <>
-      <div><h2 className={styles.heading}>Recordings &amp; Notes</h2><p className={styles.muted}>Recent meetings from the past 30 days. File access is checked live.</p></div>
-      <label className="relative"><Search aria-hidden className="absolute left-3 top-3 size-4 text-muted-foreground" /><Input className="pl-10" type="search" aria-label="Search past meetings" placeholder="Search past meetings" value={query} onChange={event => setQuery(event.target.value)} /></label>
-      <SegmentedTabs variant="filter" ariaLabel="Recording and notes filters" value={filter} onValueChange={setFilter} options={[{ value: "all", label: "All" }, { value: "recording", label: "Recordings" }, { value: "notes", label: "Notes" }]} />
-      {filter !== "all" ? <p className={styles.muted}>Filters include only files whose access was verified.</p> : null}
-      {library && !library.complete ? <p role="status" className={styles.muted}>Some calendars or additional events could not be included. This list is incomplete.</p> : null}
-      <SectionCard>{filtered.map(meeting => <button className={styles.row} type="button" key={`${meeting.calendar_id}:${meeting.id}`} ref={node => { const key = `${meeting.calendar_id}:${meeting.id}`; if (node) rowRefs.current.set(key, node); else rowRefs.current.delete(key); }} onClick={() => { lastSelectedId.current = `${meeting.calendar_id}:${meeting.id}`; setSelected(meeting); setDetailTab("notes"); setView("meeting"); }}><span className={styles.icon}><FileText className="size-5" /></span><span className={styles.copy}><strong>{meeting.title}</strong><span className={styles.muted}>{meeting.start?.dateTime ? new Date(meeting.start.dateTime).toLocaleString(undefined, { timeZone: zone, dateStyle: "medium", timeStyle: "short" }) : meeting.start?.date}</span><span className={styles.tags}>{meeting.artifact_kinds?.length ? meeting.artifact_kinds.map(kind => <span key={kind} className={styles.tag}>{kind === "recording" ? "Recording" : kind === "notes" ? "Notes" : "Transcript"}</span>) : <span className={styles.tag}>{artifactLabels[meeting.artifact_status || ""] || "Check meeting files"}</span>}</span></span><ChevronRight className="size-4" /></button>)}{!loading && !error && !filtered.length ? <p className={styles.muted}>{query || filter !== "all" ? "No matching meetings in this list." : "No linked meetings were returned for this period."}</p> : null}</SectionCard>
-      {library?.next_page != null ? <CalendarCompactAction disabled={loading} onClick={() => setPage(library.next_page!)}>Load more meetings</CalendarCompactAction> : null}
-      {library?.next_page != null && (query || filter !== "all") ? <p className={styles.muted}>Search and filters apply to loaded meetings. Load more to include older results.</p> : null}
+      <div><h2 className={styles.heading}>Recordings &amp; Notes</h2><p className={styles.muted}>Meetings on this day with a verified, accessible recording or meeting note.</p></div>
+      <CalendarDateNavigation date={day} today={today} onChange={changeDay} label="Recording and notes date" />
+      <label className="relative"><Search aria-hidden className="absolute left-3 top-3 size-4 text-muted-foreground" /><Input className="pl-10" type="search" aria-label="Search meetings on this day" placeholder="Search meetings on this day" value={query} onChange={event => changeQuery(event.target.value)} /></label>
+      <SegmentedTabs variant="filter" ariaLabel="Recording and notes filters" value={filter} onValueChange={changeFilter} options={[{ value: "all", label: "All" }, { value: "recording", label: "Recordings" }, { value: "notes", label: "Notes" }]} />
+      {loading && library ? <p role="status" className={styles.muted}>Checking for updates…</p> : null}
+      {library?.limitations.length ? <div role="status" className={styles.muted}><p>{limitationText[library.limitations[0] || ""] || "Some meeting files could not be checked."}</p>{library.limitations.includes("permission_required") && onAllowMeetingFiles ? <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id)}>Allow recording and notes access</CalendarCompactAction> : null}</div> : null}
+      {library && !library.complete && !library.next_cursor ? <p role="status" className={styles.muted}>This check is incomplete. Refresh to try again.</p> : null}
+      <SectionCard>{(library?.meetings || []).map(meeting => <button className={styles.row} type="button" key={meeting.occurrence_id} ref={node => { if (node) rowRefs.current.set(meeting.occurrence_id, node); else rowRefs.current.delete(meeting.occurrence_id); }} onClick={() => { lastSelectedId.current = meeting.occurrence_id; setSelected(meeting); setDetail(null); setView("meeting"); }}><span className={styles.icon}><FileText className="size-5" /></span><span className={styles.copy}><strong>{meeting.title}</strong><span className={styles.muted}>{meeting.start?.dateTime ? new Date(meeting.start.dateTime).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" }) : "Time unavailable"}</span><span className={styles.tags}>{meeting.artifact_kinds.map(kind => <span key={kind} className={styles.tag}>{kind === "recording" ? "Recording" : "Notes"}</span>)}</span></span><ChevronRight className="size-4" /></button>)}{library?.complete && !library.meetings.length && !loading && !error ? <p className={styles.muted}>{query || filter !== "all" ? "No matching recordings or notes for this day." : "No recordings or notes for this day."}</p> : null}</SectionCard>
+      {library?.next_cursor ? <CalendarCompactAction disabled={loading} onClick={() => setCursor(library.next_cursor)}>Continue checking this day</CalendarCompactAction> : null}
+      {library?.next_cursor ? <p className={styles.muted}>Search and filters continue across the remaining Calendar pages.</p> : null}
     </> : <>
       <h2 className={styles.heading}>{detail?.event?.title || selected?.title}</h2>
-      {detail ? <>
-        {detail.discovery !== "checked" ? <p role="status" className={styles.muted}>{detail.discovery === "permission_required" ? "Google Meet access is required to discover recordings, transcripts and smart notes. This Calendar connection does not grant it." : availability[detail.discovery]}</p> : null}
-        <div className={styles.details}><SectionCard title="Recording">{artifacts.filter(item => item.kind === "recording").map(item => <Artifact key={item.file_id} item={item} />)}{!artifacts.some(item => item.kind === "recording") ? <p className={styles.muted}>{detail.availability?.recording === "not_generated" ? "Not recorded / no recording generated." : availability[detail.availability?.recording || detail.discovery] || "No recording available from verified sources."}</p> : null}</SectionCard>
-        <SectionCard title="Meeting notes"><SegmentedTabs ariaLabel="Meeting assets" variant="filter" value={detailTab} onValueChange={setDetailTab} options={[{ value: "notes", label: "Notes" }, { value: "transcript", label: "Transcript" }]} />
-          {artifacts.filter(item => item.kind === detailTab).map(item => <Artifact key={item.file_id} item={item} />)}
-          {!artifacts.some(item => item.kind === detailTab) ? <p className="py-4 text-muted-foreground">{detail.availability?.[detailTab as "notes" | "transcript"] === "not_generated" ? (detailTab === "notes" ? "No notes generated." : "No transcript generated.") : availability[detail.availability?.[detailTab as "notes" | "transcript"] || detail.discovery] || "Not available from verified sources."}</p> : null}
-          {detailTab === "notes" ? <div className="space-y-3 border-t pt-3"><div><h3 className="font-semibold">Decisions</h3><SourceExcerpts artifacts={artifacts.filter(item => item.kind === "notes")} kind="decisions" /></div><div><h3 className="font-semibold">Follow-ups</h3><SourceExcerpts artifacts={artifacts.filter(item => item.kind === "notes")} kind="follow-ups" /></div></div> : null}
-        </SectionCard></div>
-        <CalendarCompactAction disabled={asking || !vaultOwnerToken || !artifacts.some(item => item.can_ask)} onClick={() => void ask()}><MessageSquare className="size-4" />{asking ? "Checking source access…" : "Ask One about this meeting"}</CalendarCompactAction>
-        {!vaultOwnerToken ? <p className={styles.muted}>Unlock your vault in One to use meeting context in your conversation.</p> : null}
-      </> : null}
+      {detail && !detail.complete ? <p role="status" className={styles.muted}>{limitationText[detail.discovery] || "Some files could not be checked. Refresh later."}</p> : null}
+      {detail ? <div className={styles.details}>{visibleArtifacts.some(item => item.kind === "recording") ? <SectionCard title="Recordings">{visibleArtifacts.filter(item => item.kind === "recording").map(item => <Artifact key={item.file_id} item={item} onOpen={file => fileAction(file, "open")} onDownload={file => fileAction(file, "download")} />)}</SectionCard> : null}
+        {visibleArtifacts.some(item => item.kind === "notes") ? <SectionCard title="Meeting notes">{visibleArtifacts.filter(item => item.kind === "notes").map(item => <Artifact key={item.file_id} item={item} onOpen={file => fileAction(file, "open")} onDownload={file => fileAction(file, "download")} />)}</SectionCard> : null}</div> : null}
     </>}
   </div>;
 }

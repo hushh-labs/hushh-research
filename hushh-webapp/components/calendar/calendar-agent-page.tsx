@@ -346,10 +346,10 @@ export function CalendarAgentPage({
     }
   };
 
-  const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false, additional = false, accountId?: string) => {
+  const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false, additional = false, accountId?: string, includeMeetingFiles = false) => {
     if (!user || !userId || busyRef.current) return;
-    if (status?.connected && status.access_level === "manage") accessLevel = "manage";
-    includeCalendarList = includeCalendarList || status?.calendar_list_access === true;
+    if (!additional && status?.connected && status.access_level === "manage") accessLevel = "manage";
+    includeCalendarList = includeCalendarList || includeMeetingFiles || (!additional && status?.calendar_list_access === true);
     const operationOwnerId = userId;
     statusRequestRef.current += 1;
     const native = Capacitor.isNativePlatform();
@@ -369,6 +369,10 @@ export function CalendarAgentPage({
       if (activeOwnerIdRef.current !== operationOwnerId) { popup?.close(); return; }
       if (privateAgent) {
         popup?.close();
+        if (includeMeetingFiles) {
+          toast.error("Meeting file access is not available for private Google connections yet.");
+          return;
+        }
         if (!vaultKey || !vaultOwnerToken) { toast.error('Unlock your vault to connect Google.'); return; }
         const outcome = await connectGoogleConnector('calendar', {
           vaultOwnerCapability: vaultOwnerToken,
@@ -400,6 +404,7 @@ export function CalendarAgentPage({
           idToken,
           accessLevel,
           ...(includeCalendarList ? { includeCalendarList: true } : {}),
+          ...(includeMeetingFiles ? { includeMeetingFiles: true } : {}),
           ...(additional ? { additional: true } : {}),
           ...(accountId ? { accountId } : {}),
         });
@@ -409,6 +414,7 @@ export function CalendarAgentPage({
           accessLevel: start.access_level,
           ...(start.include_calendar_list ? { includeCalendarList: true } : {}),
           ...(start.include_guest_photos ? { includeGuestPhotos: true } : {}),
+          ...(start.include_meeting_files ? { includeMeetingFiles: true } : {}),
         });
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         const completed = await GoogleCalendarService.completeNativeConnect({
@@ -449,6 +455,7 @@ export function CalendarAgentPage({
         ...(additional ? { additional: true } : {}),
         ...(accountId ? { accountId } : {}),
         ...(accountId ? { loginHint: status?.accounts?.find(account => account.account_id === accountId)?.google_email || undefined } : {}),
+          ...(includeMeetingFiles ? { includeMeetingFiles: true } : {}),
       });
       if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) {
         popup?.close();
@@ -683,6 +690,7 @@ export function CalendarAgentPage({
         onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
         onAddAccount={() => { void connect("manage", true, true); }}
         onReconnectAccount={(accountId) => { void connect("manage", true, true, accountId); }}
+        onAllowMeetingFiles={(accountId) => { const selected = status.accounts?.find(account => account.account_id === accountId); void connect(selected?.access_level || "read", selected?.calendar_list_access === true, accountId !== "default", accountId === "default" ? undefined : accountId, true); }}
         onDisconnectAccount={(accountId) => { setDisconnectAccountId(accountId); setDisconnectConfirmOpen(true); }}
         onChat={(prompt, slot, invitation, attendance) => openCalendarChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}

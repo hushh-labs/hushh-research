@@ -11,7 +11,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
-import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { notifyCalendarChanged, calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
@@ -44,6 +43,7 @@ type Props = {
   getIdToken: () => Promise<string>;
   onAddAccount: () => void;
   onReconnectAccount: (accountId: string) => void;
+  onAllowMeetingFiles?: (accountId: string) => void;
   onDisconnectAccount: (accountId: string) => void;
   onConnect: (access: "read" | "manage", includeCalendarList?: boolean) => void;
   onMailConnect?: () => Promise<void>;
@@ -95,16 +95,16 @@ function JoinVideoIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.5" /><path d="m15.5 10 6-3v10l-6-3" /></svg>;
 }
 
-export function CalendarAccountBoard({ userId, status, busy, connectionRevision, connectionNotice, token, getIdToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onConnect, onMailConnect, onChat }: Props) {
+export function CalendarAccountBoard({ userId, status, busy, connectionRevision, connectionNotice, token, getIdToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onAllowMeetingFiles, onConnect, onMailConnect, onChat }: Props) {
   const [zone, setZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const now = Math.max(Date.now(), useCoarseClock(60_000));
   const today = calendarDate(now, zone);
   const [date, setDate] = useState(today);
   const [tab, setTab] = useState<"board" | "invitations" | "insights">("board");
   const [invitationAccount, setInvitationAccount] = useState(status.accounts?.[0]?.account_id || "default");
+  const [insightsAccount, setInsightsAccount] = useState(status.accounts?.[0]?.account_id || "default");
   const [views, setViews] = useState<Record<string, "events" | "free">>({});
   const [revision, setRevision] = useState(0);
-  const epoch = snapshotVaultSessionEpoch();
   const owner = snapshotValidatedAuthSessionOwner();
   const ownerKey = owner ? `${owner.userId}:${owner.generation}` : userId;
   const accountGeneration = (status.accounts || []).map(account => `${account.account_id}:${account.status}:${account.google_email}:${account.access_level}:${account.calendar_list_access}`).join("|");
@@ -283,8 +283,8 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
         <label className={styles.accountPicker}>Calendar account<span className={styles.accountPickerControl}><select value={invitationAccount} onChange={event => setInvitationAccount(event.target.value)}>{(status.accounts || []).map(account => <option key={account.account_id} value={account.account_id}>{accountLabel(account.google_email)}</option>)}</select><ChevronDown aria-hidden="true" className={styles.accountPickerChevron} /></span></label>
         {status.accounts?.find(account => account.account_id === invitationAccount)?.connected ? <CalendarInvitations key={invitationAccount} workspaceLayout connectedProfiles userId={userId} accountId={invitationAccount} accountEmail={status.accounts.find(account => account.account_id === invitationAccount)?.google_email} accountPhotoUrl={status.accounts.find(account => account.account_id === invitationAccount)?.profile_photo_url} accountGrantedScopes={status.accounts.find(account => account.account_id === invitationAccount)?.scope_csv} accountGrantGeneration={status.accounts.find(account => account.account_id === invitationAccount)?.grant_generation} accountSubjectSha256={status.accounts.find(account => account.account_id === invitationAccount)?.provider_subject_sha256} accountHostedDomain={status.accounts.find(account => account.account_id === invitationAccount)?.hosted_domain} accountGuestPhotoAccess={status.accounts.find(account => account.account_id === invitationAccount)?.guest_photo_access} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={invitationAccount === "default" ? onConnect : () => onReconnectAccount(invitationAccount)} onMailConnect={onMailConnect} onResult={() => { notifyCalendarChanged(userId); setRevision(value => value + 1); }} /> : <p role="alert">Reconnect this account to see its invitations.</p>}
       </section> : <section className={styles.secondary} aria-label="Calendar insights">
-        {board ? <SurfaceCard className={styles.insightSummary}><h2>Across your connected accounts today</h2><p>{board.accounts.reduce((sum, account) => sum + account.events.filter(isCountedBoardEvent).length, 0)} events · {board.conflicts.length} cross-account overlaps · {board.complete ? `${board.shared_free_windows.length} shared openings` : "shared availability incomplete"}</p></SurfaceCard> : null}
-        {defaultConnected ? <CalendarInsights key={`${userId}:default:${epoch}:${zone}`} userId={userId} accountKey={`${status.google_email}:default:${connectionRevision || 0}`} date={today} zone={zone} getIdToken={getIdToken} vaultOwnerToken={token} /> : <p>Weekly insights for the default Google account are available when that account is connected.</p>}
+        <label className={styles.accountPicker}>Calendar account<span className={styles.accountPickerControl}><select value={insightsAccount} onChange={event => setInsightsAccount(event.target.value)}>{(status.accounts || []).map(account => <option key={account.account_id} value={account.account_id}>{accountLabel(account.google_email)}</option>)}</select><ChevronDown aria-hidden="true" className={styles.accountPickerChevron} /></span></label>
+        {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${status.accounts?.find(account => account.account_id === insightsAccount)?.grant_generation}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} getIdToken={getIdToken} onAllowMeetingFiles={onAllowMeetingFiles} /> : <p role="alert">Reconnect this account to see its insights.</p>}
       </section>}
       <div className={styles.footer}><Button onClick={() => onChat()} disabled={busy}>Try Calendar Agent with One</Button></div>
       <Dialog modal open={Boolean(occasionAccount && occasionEvents.length)} onOpenChange={isOpen => { if (!isOpen) setOccasionAccountId(null); }}>
