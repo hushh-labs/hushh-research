@@ -22,6 +22,7 @@ from production_phone_lease_cases import (
     ProductionPhoneLeaseCases,
     ProductionPhoneSkippedLeaseCases,
 )
+from production_phone_job_name_cases import ProductionPhoneSkippedNameCases
 from production_phone_receipt_cases import ProductionPhoneReceiptCases
 from production_restoration_continuation_cases import (
     RestorationContinuationCases,
@@ -313,6 +314,7 @@ class ReplayedProductionReleaseArtifactTest(
     ProductionPhoneIntentGateCases,
     ProductionPhoneLeaseCases,
     ProductionPhoneSkippedLeaseCases,
+    ProductionPhoneSkippedNameCases,
     ProductionPhoneReceiptCases,
     WorkerBasisCases,
     ReplayedUatReleaseArtifactTest,
