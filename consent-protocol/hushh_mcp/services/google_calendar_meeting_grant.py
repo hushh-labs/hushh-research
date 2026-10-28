@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from hushh_mcp.services.google_connection_contract import (
+    CALENDAR_LIST_READ_SCOPE,
+    GoogleConnectionError,
+)
+
 CALENDAR_MEET_READ_SCOPE = "https://www.googleapis.com/auth/meetings.space.readonly"
 CALENDAR_MEET_DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.meet.readonly"
 MEETING_SCOPES = {CALENDAR_MEET_READ_SCOPE, CALENDAR_MEET_DRIVE_READ_SCOPE}
@@ -25,6 +30,30 @@ def require_meeting_scopes(requested, granted, error_type):
             "Recording and notes permission was not granted.",
             status_code=403,
             reason_code="calendar_meeting_files_permission_required",
+        )
+
+
+async def require_existing_calendar_optional_scopes(
+    owner, *, user_id, service, existing, requested_scopes, granted_scopes, token_scope, covers
+):
+    """Do not make optional first-connection scopes fatal on a sibling grant."""
+    if service != "calendar" or not existing or existing.get("status") != "connected":
+        return
+    prior = await owner._execute_raw_async(
+        """SELECT status FROM google_service_grants
+           WHERE user_id = :user_id AND provider = 'google' AND service = 'calendar'""",
+        {"user_id": user_id},
+    )
+    if not (prior.data and prior.data[0].get("status") == "connected"):
+        return
+    require_meeting_scopes(requested_scopes, granted_scopes, GoogleConnectionError)
+    if CALENDAR_LIST_READ_SCOPE in requested_scopes and not covers(
+        set(token_scope.split()), {CALENDAR_LIST_READ_SCOPE}
+    ):
+        raise GoogleConnectionError(
+            "Calendar list permission was not granted",
+            status_code=403,
+            reason_code="calendar_list_permission_required",
         )
 
 

@@ -98,27 +98,17 @@ async def _prepare(insights, *, user_id, date, time_zone, cursor, query, kind):
 
 async def _preflight(scan):
     from hushh_mcp.services import calendar_meeting_artifacts as provider
-    from hushh_mcp.services.google_connection_service import (
-        CALENDAR_MEET_DRIVE_READ_SCOPE,
-        CALENDAR_MEET_READ_SCOPE,
-    )
 
     try:
         async with asyncio.timeout_at(scan.deadline - 2):
-            token = await scan.insights.calendar.connections.access_token(
-                user_id=scan.user_id, service="calendar", access_level="read"
-            )
-            scopes = await provider.inspect_token(token, scan.grant.provider_subject)
-            await scan.insights.calendar._check_read_binding(scan.user_id, scan.grant.binding)
-        if CALENDAR_MEET_READ_SCOPE not in scopes or CALENDAR_MEET_DRIVE_READ_SCOPE not in scopes:
-            raise provider.ArtifactUnavailable("permission_required")
+            await scan.artifacts._selected_token(scan.user_id, scan.grant)
     except provider.ArtifactUnavailable as error:
-        return error.state
+        return error.state, "missing" if error.state == "permission_required" else "unverified"
     except TimeoutError as exc:
         raise GoogleConnectionError(
             "Meeting permission check timed out. Try again.", status_code=504
         ) from exc
-    return None
+    return None, "ready"
 
 
 async def _scan_event(scan, event, calendar_id):
@@ -166,6 +156,8 @@ async def _scan_event(scan, event, calendar_id):
         scan.limits.add(
             detail["discovery"] if detail["discovery"] != "checked" else "files_incomplete"
         )
+    if any(item["state"] == "permission_required" for item in detail["artifacts"]):
+        scan.limits.add("permission_required")
     kinds = {
         item["kind"]
         for item in detail["artifacts"]
@@ -279,7 +271,7 @@ async def _scan(scan):
     await scan.insights.calendar._check_read_binding(scan.user_id, scan.grant.binding)
 
 
-def _result(scan, *, error=None):
+def _result(scan, *, error=None, meeting_file_access="ready"):
     if error:
         return {
             "complete": False,
@@ -290,6 +282,7 @@ def _result(scan, *, error=None):
             "account_id": scan.insights.account_id,
             "limitations": [error],
             "checked_events": 0,
+            "meeting_file_access": meeting_file_access,
         }
     more = scan.position["calendar_index"] < len(scan.calendars)
     next_cursor = (
@@ -314,6 +307,7 @@ def _result(scan, *, error=None):
         "account_id": scan.insights.account_id,
         "limitations": sorted(scan.limits),
         "checked_events": scan.checked,
+        "meeting_file_access": meeting_file_access,
     }
 
 
@@ -328,8 +322,13 @@ async def meeting_library(insights, *, user_id, date, time_zone, cursor=None, qu
         query=query,
         kind=kind,
     )
-    error = await _preflight(scan)
+    error, meeting_file_access = await _preflight(scan)
     if error:
-        return _result(scan, error=error)
+        return _result(scan, error=error, meeting_file_access=meeting_file_access)
     await _scan(scan)
-    return _result(scan)
+    return _result(
+        scan,
+        meeting_file_access="missing"
+        if "permission_required" in scan.limits
+        else meeting_file_access,
+    )
