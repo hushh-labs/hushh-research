@@ -425,6 +425,9 @@ Erased jobs, payments and permissions are never reconstructed by this rollout.
 fresh grants and copy production while preserving cleanup and reconciliation.
 Policies 1–3 retain their saved contracts and semantic-plan-v1 digests.
 
+Detailed timeline logs are enabled in verified Dev/UAT/test, including optimized
+UAT builds. Production and unknown/conflicting deployment identity suppress
+verbose logs before payload projection; required sanitized warnings/errors remain.
 Filter browser logs with `[DRIVE_REQUEST]` and server logs with `drive_rest.call`,
 `drive_copy.step` and `drive_bulk_share.retry`. Correlated tags expose stages,
 counts, fixed reasons, next retry times and elapsed time, never private queries,

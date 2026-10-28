@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Release preflight: adopt existing uncertain file claims without provider I/O.
 
-Optional release bootstrap reads only this environment's signing/sharing keys
+Optional release bootstrap reads only this environment's runtime/sharing keys
 into process memory through workflow ADC. Database credentials remain supplied by
 the existing attested migration step. No secrets or file identities are printed.
 """
@@ -24,7 +24,7 @@ def release_keys(environment):
         raise ValueError("drive_claim_adoption_environment_mismatch")
     client = secretmanager.SecretManagerServiceClient()
     try:
-        for name in ("APP_SIGNING_KEY", "DRIVE_SHARING_KEY_V1"):
+        for name in ("APP_SIGNING_KEY", "VAULT_DATA_KEY", "DRIVE_SHARING_KEY_V1"):
             value = client.access_secret_version(
                 request={"name": f"projects/{project}/secrets/{name}/versions/latest"}
             )

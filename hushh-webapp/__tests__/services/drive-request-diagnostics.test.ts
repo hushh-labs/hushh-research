@@ -121,3 +121,33 @@ it("@feature_drive_request @trace_loop separates native rows, retained files, da
     expect(JSON.stringify(logs.mock.calls)).not.toContain("private-");
   } finally { logs.mockRestore(); }
 });
+
+
+it.each([
+  ["uat", "uat", true], ["development", "development", true],
+  ["production", "production", false], ["uat", "production", false],
+  ["unknown", "", false], ["__proto__", "", false], ["", "", false],
+])("@trace_loop allows verbose logs only for verified deployment %s/%s", async (app, telemetry, enabled) => {
+  const { traceDriveRequest, observeDriveRequestState } = await import("@/lib/consent/drive-request-diagnostics");
+  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", app);
+  vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENV", telemetry);
+  vi.stubEnv("NEXT_PUBLIC_ENVIRONMENT_MODE", "");
+  vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_DEBUG", "true");
+  const logs = vi.spyOn(console, "info").mockImplementation(() => {});
+  const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await expect(traceDriveRequest(`/api/connectors/google_drive/sharing/requests/${documentId}/allow`, "POST", async (headers, observe) => {
+      expect(headers["x-request-id"]).toBeTruthy();
+      observe(Response.json({ status: "queued" }, { status: 202 }), { status: "queued", purpose: "private-input" });
+      return "accepted";
+    })).resolves.toBe("accepted");
+    observeDriveRequestState(`/api/connectors/google_drive/sharing/requests/${documentId}/allow`, { status: "queued", purpose: "private-input" }, guard);
+    const failure = Object.assign(new Error("private-provider-text"), { code: "provider_unavailable" });
+    await expect(traceDriveRequest(`/api/connectors/google_drive/sharing/requests/${documentId}/allow`, "POST", async () => { throw failure; })).rejects.toBe(failure);
+    if (enabled) await vi.waitFor(() => expect(warnings).toHaveBeenCalled());
+    if (enabled) await vi.waitFor(() => expect(logs).toHaveBeenCalled());
+    else { await new Promise(resolve => setTimeout(resolve, 20)); expect(logs).not.toHaveBeenCalled(); expect(warnings).not.toHaveBeenCalled(); }
+    expect(JSON.stringify(logs.mock.calls)).not.toContain("private-input");
+  } finally { logs.mockRestore(); warnings.mockRestore(); vi.unstubAllEnvs(); }
+});

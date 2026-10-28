@@ -710,7 +710,7 @@ jobs:
           fi
           # Migration 440 refuses dispatch without a common keyed claim, including
           # old workers. Adopt already-dispatched uncertainty before new writers.
-          if [[ "${DEV_TARGET:-shared-dev}" == "shared-dev" ]]; then
+          if [[ "${DEV_TARGET:-shared-dev}" == "shared-dev" && -f consent-protocol/db/migrations/440_drive_permission_file_claim_lanes.sql ]]; then
             "${{ env.PROTOCOL_PYTHON }}" consent-protocol/scripts/adopt_drive_permission_file_claims.py \
               --release-environment dev > /tmp/dev-drive-file-claim-adoption.json
           fi

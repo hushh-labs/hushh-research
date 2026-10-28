@@ -3,7 +3,7 @@ import { createRequestId, REQUEST_ID_HEADER } from "@/lib/observability/request-
 import { resolveClientVersion } from "@/lib/observability/client-version";
 
 // Console-only projection. No payload, URL, identity, amount, or Error is emitted.
-// Keep these records useful in release builds, independently of analytics sampling.
+// Verified Dev/UAT/test only, including optimized UAT builds; independent of analytics sampling.
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const REQUEST = new RegExp(`^/api/connectors/google_drive/sharing/requests/(${UUID})(?:/([^?]*))?(?:\\?.*)?$`, "i");
 const SEARCH = new RegExp(`^/api/connectors/google_drive/searches(?:/(${UUID})(?:/(stop|results))?)?(?:\\?.*)?$`, "i");
@@ -134,7 +134,21 @@ function projection(payload: unknown, terms: unknown, includeStates = false): Fi
   }
   return fields;
 }
+function diagnosticEnvironment(): "development" | "uat" | "test" | null {
+  const modes: Record<string, "development" | "uat"> = { dev: "development", development: "development", staging: "uat", uat: "uat" };
+  const declared = [process.env.NEXT_PUBLIC_APP_ENV, process.env.NEXT_PUBLIC_OBSERVABILITY_ENV, process.env.NEXT_PUBLIC_ENVIRONMENT_MODE]
+    .map(value => value?.trim().toLowerCase()).filter((value): value is string => !!value);
+  if (declared.length) {
+    const mode = Object.hasOwn(modes, declared[0]!) ? modes[declared[0]!] : undefined;
+    return mode && declared.every(value => modes[value] === mode) ? mode : null;
+  }
+  return process.env.NODE_ENV === "test" ? "test" : process.env.NODE_ENV === "development" ? "development" : null;
+}
+
 function emit(action: string, fields: Fields, dedupe: boolean) {
+  // Enforce at the sink too: asynchronous hashing must not outlive an allowed context.
+  const environment = diagnosticEnvironment();
+  if (!environment) return;
   // Logging is never a prerequisite for consent, payment, or delivery.
   try {
     const now = Date.now();
@@ -149,7 +163,7 @@ function emit(action: string, fields: Fields, dedupe: boolean) {
     if (seen.size >= 128) seen.delete(seen.keys().next().value!);
     seen.set(key, { fingerprint, at: now });
     const sink = fields.outcome === "rejected" || fields.outcome === "failed" ? console.warn : console.info;
-    sink(`[DRIVE_REQUEST][${action.toUpperCase()}]`, { schema_version: 1, app_version: resolveClientVersion(), ...fields });
+    sink(`[DRIVE_REQUEST][${action.toUpperCase()}]`, { schema_version: 1, app_environment: environment, observed_at: new Date().toISOString(), app_version: resolveClientVersion(), ...fields });
   } catch { /* A console sink must not change the transaction. */ }
 }
 
@@ -163,9 +177,10 @@ export async function traceDriveRequest<T>(
   const target = route(path, method);
   if (!target) return perform({}, () => {});
   const requestId = createRequestId();
+  if (!diagnosticEnvironment()) return perform({ [REQUEST_ID_HEADER]: requestId }, () => {});
   const tags = Promise.all([tag(target.identifier), tag(requestId)]).then(([operation, trace]) => ({ drive_op: operation!, request_tag: trace! } as Fields));
   const common: Fields = {};
-  const started = Date.now();
+  const started = performance.now();
   let status = 0;
   let observed: Fields = {};
   const observe = (response: Response, payload?: unknown) => {
@@ -181,14 +196,14 @@ export async function traceDriveRequest<T>(
   if (method !== "GET") log({ outcome: "started", ...projection(null, terms) });
   try {
     const value = await perform({ [REQUEST_ID_HEADER]: requestId }, observe);
-    log({ ...observed, http_status: status, duration_ms: Date.now() - started,
+    log({ ...observed, http_status: status, duration_ms: performance.now() - started,
       outcome: status === 202 ? "accepted" : "http_returned" });
     return value;
   } catch (error) {
     const cause = object(error);
     const code = typeof cause.code === "string" && CODES.has(cause.code) ? cause.code
       : typeof observed.code === "string" ? observed.code : "request_failed";
-    log({ ...observed, code, http_status: status, duration_ms: Date.now() - started,
+    log({ ...observed, code, http_status: status, duration_ms: performance.now() - started,
       outcome: code === "session_changed" || cause.name === "AbortError" ? "cancelled" : status >= 400 ? "rejected" : "failed" });
     throw error;
   }
@@ -197,6 +212,7 @@ export async function traceDriveRequest<T>(
 /** Log only validated, current-session state; hashing cannot delay the caller. */
 export function observeDriveRequestState(path: string, payload: unknown, guard: () => void): void {
   try {
+  if (!diagnosticEnvironment()) return;
   const target = route(path);
   if (!target) return;
   const state = projection(payload, null, true);
