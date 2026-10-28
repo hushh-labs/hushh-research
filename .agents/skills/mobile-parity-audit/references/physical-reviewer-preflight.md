@@ -19,6 +19,11 @@ another reviewer store or a privileged app-unlock route.
    Serialize dependency installation, web export, native resource sync and
    packaging. Compare exported application files with the signed bundle before
    installation; a successful native build can still contain stale web assets.
+   When adding a qualification compilation condition, preserve `$(inherited)`:
+   replacing package conditions can remove `SWIFT_PACKAGE` and break resource
+   accessors. A Release build-for-testing that includes `@testable import App`
+   needs `ENABLE_TESTABILITY=YES`; record that setting and do not treat its
+   performance as proof for a differently compiled distribution binary.
 2. Inspect `xcrun devicectl list devices` and
    `xcrun devicectl device info lockState --device <udid>`. Pairing does not prove
    unlocked transport; a connection reset is not a vault rejection. Recheck once
