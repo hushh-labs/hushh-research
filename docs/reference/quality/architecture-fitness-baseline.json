@@ -4501,7 +4501,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 3044,
+  "finding_count": 3104,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4861,7 +4861,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "DriveBulkShareStore",
-      "value": 4480
+      "value": 4531
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4870,7 +4870,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_worker.py",
       "symbol": "DriveBulkShareWorker",
-      "value": 488
+      "value": 491
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4978,7 +4978,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_permission_store.py",
       "symbol": "DrivePermissionStore",
-      "value": 595
+      "value": 597
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5239,7 +5239,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py",
       "symbol": "GoogleDrivePermissionAdapter",
-      "value": 453
+      "value": 470
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5248,7 +5248,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_drive_rest_transport.py",
       "symbol": "GoogleDriveRestTransport",
-      "value": 550
+      "value": 583
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -9856,7 +9856,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "claim",
-      "value": 226
+      "value": 266
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9901,7 +9901,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "operation",
-      "value": 217
+      "value": 257
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9964,7 +9964,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_worker.py",
       "symbol": "_grant",
-      "value": 172
+      "value": 173
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10081,7 +10081,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "_page",
-      "value": 362
+      "value": 372
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10090,7 +10090,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "_request_candidates",
-      "value": 251
+      "value": 281
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10108,7 +10108,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "create_for_request",
-      "value": 318
+      "value": 332
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10360,7 +10360,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_retention.py",
       "symbol": "erase_drive_account_in_transaction",
-      "value": 411
+      "value": 440
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11008,7 +11008,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": "_get_private",
-      "value": 284
+      "value": 287
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11017,7 +11017,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py",
       "symbol": "_exchange_private",
-      "value": 135
+      "value": 140
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11026,7 +11026,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py",
       "symbol": "inspect_shareable",
-      "value": 104
+      "value": 114
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -15328,7 +15328,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_drive_sharing_store.py",
       "symbol": "sharing",
-      "value": 102
+      "value": 103
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18993,7 +18993,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": null,
-      "value": 4733
+      "value": 4777
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19074,7 +19074,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_permission_store.py",
       "symbol": null,
-      "value": 621
+      "value": 624
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19317,7 +19317,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py",
       "symbol": null,
-      "value": 814
+      "value": 856
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19326,7 +19326,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_rest_transport.py",
       "symbol": null,
-      "value": 934
+      "value": 974
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20676,7 +20676,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_owner_search_postgres.py",
       "symbol": null,
-      "value": 1034
+      "value": 1035
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20721,7 +20721,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_search_unit.py",
       "symbol": null,
-      "value": 3853
+      "value": 4201
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20748,7 +20748,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_sharing_store.py",
       "symbol": null,
-      "value": 2097
+      "value": 2103
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20901,7 +20901,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_drive_permission_adapter.py",
       "symbol": null,
-      "value": 780
+      "value": 829
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23133,7 +23133,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/drive-sharing-service.test.ts",
       "symbol": null,
-      "value": 1692
+      "value": 1706
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27220,7 +27220,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_request_bulk_service.py",
       "symbol": "DriveRequestBulkService",
-      "value": 507
+      "value": 512
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27472,7 +27472,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_bulk_service.py",
       "symbol": "start_search",
-      "value": 248
+      "value": 251
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29251,7 +29251,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_request_bulk_removal_store.py",
       "symbol": "DriveRequestBulkRemovalStore",
-      "value": 264
+      "value": 303
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29656,7 +29656,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_bulk_share_postgres.py",
       "symbol": null,
-      "value": 1044
+      "value": 1226
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30196,7 +30196,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_request_bulk_service.py",
       "symbol": null,
-      "value": 697
+      "value": 702
     },
     {
       "kind": "function_size",
@@ -30349,7 +30349,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "release",
-      "value": 129
+      "value": 137
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -30511,7 +30511,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "due",
-      "value": 91
+      "value": 94
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -30601,7 +30601,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_drive_bulk_share_postgres.py",
       "symbol": "bulk",
-      "value": 83
+      "value": 92
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -30745,7 +30745,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_worker.py",
       "symbol": null,
-      "value": 642
+      "value": 646
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32420,6 +32420,33 @@
       "path": "consent-protocol/tests/test_private_agent_adoption_postgres.py",
       "symbol": null,
       "value": 508
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_permission_executor.py|_grant_job|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_permission_executor.py",
+      "symbol": "_grant_job",
+      "value": 97
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_bulk_share_postgres.py|test_second_search_share_waits_for_stopped_inflight_grant|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_bulk_share_postgres.py",
+      "symbol": "test_second_search_share_waits_for_stopped_inflight_grant",
+      "value": 82
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_retention.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_retention.py",
+      "symbol": null,
+      "value": 519
     }
   ],
   "inspected_files": 6625,
@@ -86759,6 +86786,308 @@
         "source_sha256": "107a7e2eedfc420bb3698d94a128c0edf7a4f801121df2de2a143c2c62c09b53",
         "reviewer": "legacy settlement design review; four-lens adversarial workflow",
         "review": "Two forward-recovery rollback stems (437, 438) added to the existing refusal loop."
+      }
+    ]
+  },
+  "drive_activity_union_release_review_20261029": {
+    "base_revision": "6b8ec6c63e4d5556b9e44ad2e4836b3927ba22aa",
+    "scope": "Exact independently reviewed owner/test ceilings for policy4 native query-and-list, file-event union, common permission claims and coordinated recovery. Retry state/delay extracted into typed pure gene; replay row/comparison helpers and transport scope extracted. Global500/250/80 budgets, unrelated baseline findings and all checks remain unchanged. Source inspection is distinct from focused125 PostgreSQL/transport checks and pending full core/CI/runtime proof.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|DriveBulkShareStore|class exceeds the advisory operon budget",
+        "before": 4480,
+        "after": 4531,
+        "source_sha256": "21e164a4b52ea7be9c3140a7711445f0a79bfca4ebcbba986b187afe2b16f0fe",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing locked transaction owner composes common claims, owner cooldown and separate counters. Pure retry math/state extracted into drive_share_retry_policy; SQL, consent/payment authority, receipts and finalization remain in the store. Real PostgreSQL six-attempt, concurrency, Stop and uncertain-write controls pass."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_permission_store.py|DrivePermissionStore|class exceeds the advisory operon budget",
+        "before": 595,
+        "after": 597,
+        "source_sha256": "0b669658ce94f15dccae788ab98148eb8a2e01c9ecf6360c13fb7c4e3662edc8",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Adds common file-claim acquisition/current checks to the existing individual permission authority; no new mutation route or second lock store."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_rest_transport.py|GoogleDriveRestTransport|class exceeds the advisory operon budget",
+        "before": 550,
+        "after": 583,
+        "source_sha256": "e9255bdc53f5237d76c5cc47f97df0dbcbfa84183487c1dd231ae0b2940ec0d9",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Threads authenticated owner/generation pacing through the existing credential and final authority fences. Extracted owner-admission scope keeps _fenced below80; no provider payload or semantic stage added."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_bulk_service.py|DriveRequestBulkService|class exceeds the advisory operon budget",
+        "before": 507,
+        "after": 512,
+        "source_sha256": "9575ea3330b591f22c5525dcbe3b01b03ae09b9aae97bbc5337875537c48b67b",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing request planner selects frozen policy4/V2, checks pause/Azure binding and opts owner-only GET diagnostics into the existing owner-scoped status. No additional model or endpoint."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_bulk_share_worker.py|DriveBulkShareWorker|class exceeds the advisory operon budget",
+        "before": 488,
+        "after": 491,
+        "source_sha256": "58d3f40a0fb1eb1f4eb150aabdc5fc2fe9b8abc06c4e8e1caf0847ae38b334bd",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing grant sequence gains scoped pacing and explicitly complete MyDrive ACL reuse; fallback listing, preexisting receipts, final consent/payment authority and GET-only unknown reconciliation remain intact."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py|GoogleDrivePermissionAdapter|class exceeds the advisory operon budget",
+        "before": 453,
+        "after": 470,
+        "source_sha256": "7869f471447e463a5e0ce029254ecb8356c257b9c1193cae8ef843ce0b0d69f0",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing inspection/exchange own validated bounded embedded ACL projection, oversized fallback and shared admission. Required permission and capability checks remain in their existing boundary."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_bulk_removal_store.py|DriveRequestBulkRemovalStore|class exceeds the advisory operon budget",
+        "before": 264,
+        "after": 303,
+        "source_sha256": "b9a287a241faa5a2e85d8083ef010973dc4f16436b9d65cb750443bf30a8c470",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing removal claims use common keyed file exclusion and permanent-fence outcomes; no lease-expiry takeover or alternate removal authority."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_retention.py|erase_drive_account_in_transaction|function exceeds the advisory gene budget",
+        "before": 411,
+        "after": 440,
+        "source_sha256": "1a19e40c888451905555c9e1ef99b27fa21d9ec4859d04c665e0c9cd65ea556f",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing erasure transaction orders connector/share locks before adopting uncertain sealed sources through the bounded file-claim helper; anonymous uncertain fences survive erasure."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+        "before": 217,
+        "after": 257,
+        "source_sha256": "21e164a4b52ea7be9c3140a7711445f0a79bfca4ebcbba986b187afe2b16f0fe",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing locked transaction owner composes common claims, owner cooldown and separate counters. Pure retry math/state extracted into drive_share_retry_policy; SQL, consent/payment authority, receipts and finalization remain in the store. Real PostgreSQL six-attempt, concurrency, Stop and uncertain-write controls pass. Only actual claim.operation217\u2192257 is raised. Unchanged legacy232/139 ceilings stay intact; sorted nested-operation key collisions are not separate growth approvals. Release.operation100\u2192106 and due.operation78\u219281 already fit the retained multiset."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_page|function exceeds the advisory gene budget",
+        "before": 362,
+        "after": 372,
+        "source_sha256": "c5761c8ac9f12f330496f1d6d29d007eb867d4ea547a0660ceacf322863ddc20",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing durable scanner selects versioned discovery, freezes primary/fallback, records first-page fallback and gates dates before commit. Date ontology/compiler are separate bounded genes; retains native pagination, deduplication and no per-file content/model assessment."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|create_for_request|function exceeds the advisory gene budget",
+        "before": 318,
+        "after": 332,
+        "source_sha256": "c5761c8ac9f12f330496f1d6d29d007eb867d4ea547a0660ceacf322863ddc20",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing durable scanner selects versioned discovery, freezes primary/fallback, records first-page fallback and gates dates before commit. Date ontology/compiler are separate bounded genes; retains native pagination, deduplication and no per-file content/model assessment."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|_get_private|function exceeds the advisory gene budget",
+        "before": 284,
+        "after": 287,
+        "source_sha256": "47e84a6f76e58ea8231c392f4b4d8f0633d83063eeecc5277630cc4f06c0d775",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Only shared REST admission wrapper is added to the existing provider I/O boundary; authentication and projection logic remain unchanged."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_request_candidates|function exceeds the advisory gene budget",
+        "before": 251,
+        "after": 281,
+        "source_sha256": "c5761c8ac9f12f330496f1d6d29d007eb867d4ea547a0660ceacf322863ddc20",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing durable scanner selects versioned discovery, freezes primary/fallback, records first-page fallback and gates dates before commit. Date ontology/compiler are separate bounded genes; retains native pagination, deduplication and no per-file content/model assessment."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|claim|function exceeds the advisory gene budget",
+        "before": 226,
+        "after": 266,
+        "source_sha256": "21e164a4b52ea7be9c3140a7711445f0a79bfca4ebcbba986b187afe2b16f0fe",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing locked transaction owner composes common claims, owner cooldown and separate counters. Pure retry math/state extracted into drive_share_retry_policy; SQL, consent/payment authority, receipts and finalization remain in the store. Real PostgreSQL six-attempt, concurrency, Stop and uncertain-write controls pass."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_bulk_service.py|start_search|function exceeds the advisory gene budget",
+        "before": 248,
+        "after": 251,
+        "source_sha256": "9575ea3330b591f22c5525dcbe3b01b03ae09b9aae97bbc5337875537c48b67b",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing request planner selects frozen policy4/V2, checks pause/Azure binding and opts owner-only GET diagnostics into the existing owner-scoped status. No additional model or endpoint."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_worker.py|_grant|function exceeds the advisory gene budget",
+        "before": 172,
+        "after": 173,
+        "source_sha256": "58d3f40a0fb1eb1f4eb150aabdc5fc2fe9b8abc06c4e8e1caf0847ae38b334bd",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing grant sequence gains scoped pacing and explicitly complete MyDrive ACL reuse; fallback listing, preexisting receipts, final consent/payment authority and GET-only unknown reconciliation remain intact."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py|_exchange_private|function exceeds the advisory gene budget",
+        "before": 135,
+        "after": 140,
+        "source_sha256": "7869f471447e463a5e0ce029254ecb8356c257b9c1193cae8ef843ce0b0d69f0",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing inspection/exchange own validated bounded embedded ACL projection, oversized fallback and shared admission. Required permission and capability checks remain in their existing boundary."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|release|function exceeds the advisory gene budget",
+        "before": 129,
+        "after": 137,
+        "source_sha256": "21e164a4b52ea7be9c3140a7711445f0a79bfca4ebcbba986b187afe2b16f0fe",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing locked transaction owner composes common claims, owner cooldown and separate counters. Pure retry math/state extracted into drive_share_retry_policy; SQL, consent/payment authority, receipts and finalization remain in the store. Real PostgreSQL six-attempt, concurrency, Stop and uncertain-write controls pass."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py|inspect_shareable|function exceeds the advisory gene budget",
+        "before": 104,
+        "after": 114,
+        "source_sha256": "7869f471447e463a5e0ce029254ecb8356c257b9c1193cae8ef843ce0b0d69f0",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing inspection/exchange own validated bounded embedded ACL projection, oversized fallback and shared admission. Required permission and capability checks remain in their existing boundary."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_drive_sharing_store.py|sharing|function exceeds the advisory gene budget",
+        "before": 102,
+        "after": 103,
+        "source_sha256": "dd8eb0c9248ef7efe11baae8ffc1ade2aac2aa1313d47cce7b46545de339439c",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Nearest existing production-contract test file extended for the accepted incident/date/recovery boundary, including negative controls. Keeps real PostgreSQL fixtures and production helpers together; no duplicate standalone supplied suite or test-only implementation. Existing sharing/adapter/5,001-result/diagnostic tests retain their original authority."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_permission_executor.py|_grant_job|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 97,
+        "source_sha256": "4a9898f757242e4d33dd66bab9fd32a4db31419311eaf61b2bf71f2500e13291",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing grant body moved behind scoped job wrapper to attach trusted owner admission after claim; public grant signature and unknown-write behavior preserved."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|due|function exceeds the advisory gene budget",
+        "before": 91,
+        "after": 94,
+        "source_sha256": "21e164a4b52ea7be9c3140a7711445f0a79bfca4ebcbba986b187afe2b16f0fe",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing locked transaction owner composes common claims, owner cooldown and separate counters. Pure retry math/state extracted into drive_share_retry_policy; SQL, consent/payment authority, receipts and finalization remain in the store. Real PostgreSQL six-attempt, concurrency, Stop and uncertain-write controls pass."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_drive_bulk_share_postgres.py|bulk|function exceeds the advisory gene budget",
+        "before": 83,
+        "after": 92,
+        "source_sha256": "c804cc3b3e47df85620c9c25ce8c944821d145132af454913860ef76d88367a1",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Nearest existing production-contract test file extended for the accepted incident/date/recovery boundary, including negative controls. Keeps real PostgreSQL fixtures and production helpers together; no duplicate standalone supplied suite or test-only implementation. Existing sharing/adapter/5,001-result/diagnostic tests retain their original authority."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_drive_bulk_share_postgres.py|test_second_search_share_waits_for_stopped_inflight_grant|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 82,
+        "source_sha256": "c804cc3b3e47df85620c9c25ce8c944821d145132af454913860ef76d88367a1",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Nearest existing production-contract test file extended for the accepted incident/date/recovery boundary, including negative controls. Keeps real PostgreSQL fixtures and production helpers together; no duplicate standalone supplied suite or test-only implementation. Existing sharing/adapter/5,001-result/diagnostic tests retain their original authority."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py||module exceeds the advisory operon budget",
+        "before": 4733,
+        "after": 4777,
+        "source_sha256": "21e164a4b52ea7be9c3140a7711445f0a79bfca4ebcbba986b187afe2b16f0fe",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing locked transaction owner composes common claims, owner cooldown and separate counters. Pure retry math/state extracted into drive_share_retry_policy; SQL, consent/payment authority, receipts and finalization remain in the store. Real PostgreSQL six-attempt, concurrency, Stop and uncertain-write controls pass."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_request_search_unit.py||module exceeds the advisory operon budget",
+        "before": 3853,
+        "after": 4201,
+        "source_sha256": "242ac404989a5b303b61a1a85a80ee73339170a60c7702d730b0e339a1933594",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Nearest existing production-contract test file extended for the accepted incident/date/recovery boundary, including negative controls. Keeps real PostgreSQL fixtures and production helpers together; no duplicate standalone supplied suite or test-only implementation. Existing sharing/adapter/5,001-result/diagnostic tests retain their original authority."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_sharing_store.py||module exceeds the advisory operon budget",
+        "before": 2097,
+        "after": 2103,
+        "source_sha256": "dd8eb0c9248ef7efe11baae8ffc1ade2aac2aa1313d47cce7b46545de339439c",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Nearest existing production-contract test file extended for the accepted incident/date/recovery boundary, including negative controls. Keeps real PostgreSQL fixtures and production helpers together; no duplicate standalone supplied suite or test-only implementation. Existing sharing/adapter/5,001-result/diagnostic tests retain their original authority."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/drive-sharing-service.test.ts||module exceeds the advisory operon budget",
+        "before": 1692,
+        "after": 1706,
+        "source_sha256": "2d58dde2a5d5eb22450b4176aeaf105e4c36f9fcea5f02164f9be5d2c140c747",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Nearest existing production-contract test file extended for the accepted incident/date/recovery boundary, including negative controls. Keeps real PostgreSQL fixtures and production helpers together; no duplicate standalone supplied suite or test-only implementation. Existing sharing/adapter/5,001-result/diagnostic tests retain their original authority."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_bulk_share_postgres.py||module exceeds the advisory operon budget",
+        "before": 1044,
+        "after": 1226,
+        "source_sha256": "c804cc3b3e47df85620c9c25ce8c944821d145132af454913860ef76d88367a1",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Nearest existing production-contract test file extended for the accepted incident/date/recovery boundary, including negative controls. Keeps real PostgreSQL fixtures and production helpers together; no duplicate standalone supplied suite or test-only implementation. Existing sharing/adapter/5,001-result/diagnostic tests retain their original authority."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_owner_search_postgres.py||module exceeds the advisory operon budget",
+        "before": 1034,
+        "after": 1035,
+        "source_sha256": "7c3dc8b3771fc08a86159631b0635557093fd1e9b08405a019a4d4af6b5d8b94",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Nearest existing production-contract test file extended for the accepted incident/date/recovery boundary, including negative controls. Keeps real PostgreSQL fixtures and production helpers together; no duplicate standalone supplied suite or test-only implementation. Existing sharing/adapter/5,001-result/diagnostic tests retain their original authority."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_rest_transport.py||module exceeds the advisory operon budget",
+        "before": 934,
+        "after": 974,
+        "source_sha256": "e9255bdc53f5237d76c5cc47f97df0dbcbfa84183487c1dd231ae0b2940ec0d9",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Threads authenticated owner/generation pacing through the existing credential and final authority fences. Extracted owner-admission scope keeps _fenced below80; no provider payload or semantic stage added."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py||module exceeds the advisory operon budget",
+        "before": 814,
+        "after": 856,
+        "source_sha256": "7869f471447e463a5e0ce029254ecb8356c257b9c1193cae8ef843ce0b0d69f0",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing inspection/exchange own validated bounded embedded ACL projection, oversized fallback and shared admission. Required permission and capability checks remain in their existing boundary."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_google_drive_permission_adapter.py||module exceeds the advisory operon budget",
+        "before": 780,
+        "after": 829,
+        "source_sha256": "b605d6d42186dcf2120018005da6d9ca2f6fb754887ddf596b3a06d836a90034",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Nearest existing production-contract test file extended for the accepted incident/date/recovery boundary, including negative controls. Keeps real PostgreSQL fixtures and production helpers together; no duplicate standalone supplied suite or test-only implementation. Existing sharing/adapter/5,001-result/diagnostic tests retain their original authority."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_bulk_service.py||module exceeds the advisory operon budget",
+        "before": 697,
+        "after": 702,
+        "source_sha256": "9575ea3330b591f22c5525dcbe3b01b03ae09b9aae97bbc5337875537c48b67b",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing request planner selects frozen policy4/V2, checks pause/Azure binding and opts owner-only GET diagnostics into the existing owner-scoped status. No additional model or endpoint."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_bulk_share_worker.py||module exceeds the advisory operon budget",
+        "before": 642,
+        "after": 646,
+        "source_sha256": "58d3f40a0fb1eb1f4eb150aabdc5fc2fe9b8abc06c4e8e1caf0847ae38b334bd",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing grant sequence gains scoped pacing and explicitly complete MyDrive ACL reuse; fallback listing, preexisting receipts, final consent/payment authority and GET-only unknown reconciliation remain intact."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_permission_store.py||module exceeds the advisory operon budget",
+        "before": 621,
+        "after": 624,
+        "source_sha256": "0b669658ce94f15dccae788ab98148eb8a2e01c9ecf6360c13fb7c4e3662edc8",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Adds common file-claim acquisition/current checks to the existing individual permission authority; no new mutation route or second lock store."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_retention.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 519,
+        "source_sha256": "1a19e40c888451905555c9e1ef99b27fa21d9ec4859d04c665e0c9cd65ea556f",
+        "reviewer": "independent read-only backend_contract and pasted_memory architecture evidence lanes; parent integration",
+        "review": "Existing erasure transaction orders connector/share locks before adopting uncertain sealed sources through the bounded file-claim helper; anonymous uncertain fences survive erasure."
       }
     ]
   }

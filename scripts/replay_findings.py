@@ -18,6 +18,80 @@ sys.path.insert(0, str(ROOT / "consent-protocol"))
 from hushh_mcp.services.drive_date_ontology import match_activity_dates  # noqa: E402
 
 
+def _row_report(row, period, *, private, legacy_matcher):
+    if not isinstance(row, dict):
+        raise ValueError("findings_schema_invalid_row")
+    union, legacy = None, None
+    if isinstance(period, dict) and all(
+        period.get(key) for key in ("start", "end", "timezone")
+    ):
+        union = match_activity_dates(row, period)
+        if legacy_matcher is not None:
+            try:
+                legacy = legacy_matcher(
+                    {
+                        "name": row.get("name"),
+                        "created_time": row.get("createdTime"),
+                        "modified_time": row.get("modifiedTime"),
+                    },
+                    period,
+                    precedence=True,
+                )
+            except (ValueError, TypeError, KeyError):
+                pass
+    return {
+        "position": row.get("position"),
+        "shareable": row.get("shareable"),
+        "legacy_date_counterfactual": legacy,
+        "activity_date_counterfactual": union,
+        "missing_raw_identity": "id" not in row,
+        **(
+            {
+                "name": row.get("name"),
+                "createdTime": row.get("createdTime"),
+                "modifiedTime": row.get("modifiedTime"),
+            }
+            if private
+            else {}
+        ),
+    }
+
+
+def _comparison_report(item, *, private):
+    if not isinstance(item, dict):
+        raise ValueError("findings_schema_invalid_comparison")
+    equal = item.get("equal")
+    fields = (
+        "id",
+        "name",
+        "mime",
+        "size",
+        "md5Checksum",
+        "sha256Checksum",
+        "headRevisionId",
+    )
+    pattern = (
+        isinstance(equal, dict)
+        and all(equal.get(field) is True for field in fields)
+        and equal.get("modifiedTime") is False
+    )
+    return {
+        "position": item.get("position"),
+        "recorded_equality": equal,
+        "timestamp_only_pattern": pattern,
+        "guard_replay": "unavailable_raw_snapshots_missing",
+        **(
+            {
+                "name": item.get("name"),
+                "frozen_modified_time": item.get("frozen_modified_time"),
+                "live_modified_time": item.get("live_modified_time"),
+            }
+            if private
+            else {}
+        ),
+    }
+
+
 def build_report(data, *, private=False, legacy_matcher=None):
     checkpoint = data.get("saved_owner_search_checkpoint", {})
     rows = checkpoint.get("results")
@@ -25,83 +99,13 @@ def build_report(data, *, private=False, legacy_matcher=None):
     if not isinstance(rows, list) or not isinstance(comparisons, list):
         raise ValueError("findings_schema_missing_recorded_arrays")
     period = checkpoint.get("saved_selection", {}).get("requested_period")
-    details = []
-    for row in rows:
-        if not isinstance(row, dict):
-            raise ValueError("findings_schema_invalid_row")
-        union, legacy = None, None
-        if isinstance(period, dict) and all(
-            period.get(key) for key in ("start", "end", "timezone")
-        ):
-            union = match_activity_dates(row, period)
-            try:
-                legacy = (
-                    legacy_matcher(
-                        {
-                            "name": row.get("name"),
-                            "created_time": row.get("createdTime"),
-                            "modified_time": row.get("modifiedTime"),
-                        },
-                        period,
-                        precedence=True,
-                    )
-                    if legacy_matcher is not None
-                    else None
-                )
-            except (ValueError, TypeError, KeyError):
-                pass
-        details.append(
-            {
-                "position": row.get("position"),
-                "shareable": row.get("shareable"),
-                "legacy_date_counterfactual": legacy,
-                "activity_date_counterfactual": union,
-                "missing_raw_identity": "id" not in row,
-                **(
-                    {
-                        "name": row.get("name"),
-                        "createdTime": row.get("createdTime"),
-                        "modifiedTime": row.get("modifiedTime"),
-                    }
-                    if private
-                    else {}
-                ),
-            }
-        )
-    comparisons_report = []
-    for item in comparisons:
-        equal = item.get("equal") if isinstance(item, dict) else None
-        fields = (
-            "id",
-            "name",
-            "mime",
-            "size",
-            "md5Checksum",
-            "sha256Checksum",
-            "headRevisionId",
-        )
-        pattern = (
-            isinstance(equal, dict)
-            and all(equal.get(field) is True for field in fields)
-            and equal.get("modifiedTime") is False
-        )
-        comparisons_report.append(
-            {
-                "position": item.get("position"),
-                "recorded_equality": equal,
-                "timestamp_only_pattern": pattern,
-                "guard_replay": "unavailable_raw_snapshots_missing",
-                **(
-                    {
-                        "name": item.get("name"),
-                        "frozen_modified_time": item.get("frozen_modified_time"),
-                        "live_modified_time": item.get("live_modified_time"),
-                    }
-                    if private
-                    else {}
-                ),
-            }
-        )
+    details = [
+        _row_report(row, period, private=private, legacy_matcher=legacy_matcher)
+        for row in rows
+    ]
+    comparisons_report = [
+        _comparison_report(item, private=private) for item in comparisons
+    ]
     return {
         "schema_version": 1,
         "request_tag": checkpoint.get("request_tag"),
@@ -154,8 +158,15 @@ def main():
     args = parser.parse_args()
     if args.include_private and args.output is None:
         parser.error("private evidence requires a local --output file")
+    legacy_matcher = None
+    if args.legacy_runtime:
+        from hushh_mcp.services.drive_owner_search_service import _in_requested_period
+
+        legacy_matcher = _in_requested_period
     report = build_report(
-        json.loads(args.findings.read_text()), private=args.include_private
+        json.loads(args.findings.read_text()),
+        private=args.include_private,
+        legacy_matcher=legacy_matcher,
     )
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

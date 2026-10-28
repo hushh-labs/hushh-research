@@ -82,10 +82,6 @@ PENDING_CREATE_PROVENANCE = "create_answered_invalid_sharing_request"
 # The exact requested grant found by that reconciliation. Managed like a
 # confirmed create, so Stop and access expiry can remove it.
 RECONCILED_CREATE_PROVENANCE = "reconciled_create_after_absence_check"
-# Waits before the next read-only reconciliation after a failed read, by
-# attempt number. Reads are safe to repeat; the last wait repeats once the
-# attempts are spent.
-_RECONCILE_DELAYS_SECONDS = (30, 30, 2 * 60, 10 * 60, 60 * 60)
 # The codes released clients know. Installed native apps bundle their web
 # assets and refuse any other code in `issues` or a file's `reasonCode`, so a
 # newer code reaches those fields as its nearest known one. The exact code is
@@ -4216,79 +4212,40 @@ class DriveBulkShareStore(DriveLivePreferences):
             if effect is None or str(effect["lease_id"]) != job["lease_id"]:
                 return "superseded"
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
-            quota = error == "sharing_rate_limited" and not uncertain
-            quota_attempts = min(6, effect["sharing_quota_attempts"] + int(quota))
-            ordinary_failures = min(
-                5,
-                effect["ordinary_failure_attempts"]
-                + int(not quota and not uncertain and deferred_until is None),
-            )
-            first_quota = effect["first_sharing_quota_at"] or (now if quota else None)
-            quota_next = None
-            owner_cooldown = None
-            if quota and quota_attempts < 6:
-                quota_next = (
-                    now + timedelta(seconds=(300, 1800, 7200, 21600)[quota_attempts - 1])
-                    if quota_attempts <= 4
-                    else max(now, first_quota + timedelta(hours=24))
+            from hushh_mcp.services.drive_share_retry_policy import RetrySnapshot, plan_retry
+
+            deadlines = [parent["expires_at"]]
+            if parent["origin_request_id"] is not None:
+                origin = self._row(
+                    connection,
+                    "SELECT expires_at,access_expires_at FROM drive_share_requests WHERE request_id=:request",
+                    {"request": parent["origin_request_id"]},
                 )
-                owner_cooldown = quota_next
-            if deferred_until is not None and not uncertain:
-                state = "queued"
-            elif (
-                uncertain
-                or effect["state"] == "dispatching"
-                and error == "permission_outcome_unknown"
-            ):
-                # A POST that just went out always gets at least one read-only
-                # reconciliation, even on its last attempt. A read that may pass
-                # never makes a possible grant terminal: only a read settles it.
-                state = (
-                    "unknown"
-                    if effect["attempts"] < 5 or effect["state"] == "dispatching" or retryable
-                    else "failed"
-                )
-            elif (
-                retryable
-                and (quota_attempts < 6 if quota else ordinary_failures < 5)
-                and parent["status"] in _ACTIVE
-            ):
-                state = "queued"
-            else:
-                state = "failed" if quota or effect["state"] != "queued" else "skipped"
-            pause = max(0, (quota_next - now).total_seconds()) if quota_next is not None else 0
-            if state == "queued":
-                delay = (
-                    max(0, (min(deferred_until, parent["expires_at"]) - now).total_seconds())
-                    if deferred_until is not None
-                    else pause
-                    if quota_next is not None
-                    else min(120, 2 ** max(1, effect["attempts"]))
-                )
-            elif state == "unknown" and effect["state"] == "unknown":
-                # Another failed reconciliation read: each one waits longer.
-                delay = _RECONCILE_DELAYS_SECONDS[
-                    min(max(effect["attempts"], 1), len(_RECONCILE_DELAYS_SECONDS)) - 1
-                ]
-            else:
-                delay = 30 if state == "unknown" else 0
-            if state == "queued":
-                deadlines = [parent["expires_at"]]
-                if parent["origin_request_id"] is not None:
-                    origin = self._row(
-                        connection,
-                        "SELECT expires_at,access_expires_at FROM drive_share_requests WHERE request_id=:request",
-                        {"request": parent["origin_request_id"]},
+                if origin:
+                    deadlines.extend(
+                        value
+                        for value in (origin["expires_at"], origin["access_expires_at"])
+                        if value is not None
                     )
-                    if origin:
-                        deadlines.extend(
-                            value
-                            for value in (origin["expires_at"], origin["access_expires_at"])
-                            if value is not None
-                        )
-                delay = max(
-                    0, (min(now + timedelta(seconds=delay), *deadlines) - now).total_seconds()
-                )
+            decision = plan_retry(
+                RetrySnapshot(
+                    now=now,
+                    expires_at=min(deadlines),
+                    effect_state=effect["state"],
+                    parent_active=parent["status"] in _ACTIVE,
+                    attempts=effect["attempts"],
+                    ordinary_failures=effect["ordinary_failure_attempts"],
+                    quota_attempts=effect["sharing_quota_attempts"],
+                    first_quota_at=effect["first_sharing_quota_at"],
+                ),
+                error=error,
+                retryable=retryable,
+                uncertain=uncertain,
+                deferred_until=deferred_until,
+            )
+            state, delay = decision.state, decision.delay
+            quota_attempts, ordinary_failures = decision.quota_attempts, decision.ordinary_failures
+            first_quota, owner_cooldown = decision.first_quota_at, decision.owner_cooldown
             logger.info(
                 "drive_bulk_share.retry state=%s reason=%s quota_attempts=%d ordinary_failures=%d next_retry_at=%s",
                 state,
