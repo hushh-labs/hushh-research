@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { notifyCalendarChanged, calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
@@ -30,6 +31,9 @@ import { CalendarCompactAction } from "./calendar-compact-action";
 import { CalendarInvitations } from "./calendar-invitations";
 import { CalendarPersonAvatar } from "./calendar-person-avatar";
 import { CalendarInsights } from "./calendar-insights";
+import { CalendarBookingDialog, type BookingOpening } from "./calendar-booking-dialog";
+import { bookingLocalFields } from "@/lib/calendar/calendar-booking-time";
+import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { consumeCalendarMeetingOAuthReturn, type CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
 import { calendarDate, eventTime, availabilityTimeRangeLabel, calendarResponse, CalendarMeetingIcon, meetingProvider } from "./calendar-schedule-presentation";
 import styles from "./calendar-account-board.module.css";
@@ -102,7 +106,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
     const value = consumeCalendarMeetingOAuthReturn(userId);
     return value && status.accounts?.some(account => account.account_id === value.accountId) ? value : null;
   });
-  const [zone, setZone] = useState(() => restored?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+  const [zone, setZone] = useState(() => calendarTimeZone(restored?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone));
   const now = Math.max(Date.now(), useCoarseClock(60_000));
   const today = calendarDate(now, zone);
   const [date, setDate] = useState(today);
@@ -116,7 +120,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
   const [revision, setRevision] = useState(0);
   const owner = snapshotValidatedAuthSessionOwner();
   const ownerKey = owner ? `${owner.userId}:${owner.generation}` : userId;
-  const accountGeneration = (status.accounts || []).map(account => `${account.account_id}:${account.status}:${account.google_email}:${account.access_level}:${account.calendar_list_access}`).join("|");
+  const accountGeneration = (status.accounts || []).map(account => `${account.account_id}:${account.status}:${account.google_email}:${account.access_level}:${account.calendar_list_access}:${account.grant_generation}`).join("|");
   const key = `${userId}:${date}:${zone}:${ownerKey}:${connectionRevision || 0}:${accountGeneration}`;
   const requestKey = `${key}:${revision}`;
   const currentKey = useRef(requestKey); currentKey.current = requestKey;
@@ -127,6 +131,9 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
   const error = snapshot.key === key ? snapshot.error : null;
   const loading = snapshot.key !== key;
   const [selected, setSelected] = useState<Selection | null>(null);
+  const [booking, setBooking] = useState<BookingOpening | null>(null);
+  const bookingRef = useRef(false); bookingRef.current = Boolean(booking);
+  const bookingTrigger = useRef<HTMLButtonElement | null>(null);
   const [occasionAccountId, setOccasionAccountId] = useState<string | null>(null);
   const occasionAccount = board?.accounts.find(account => account.account_id === occasionAccountId);
   const occasionEvents = occasionAccount?.events.filter(event => boardOccasionKind(event) !== null) || [];
@@ -139,7 +146,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
 
   useEffect(() => {
     const syncZone = () => {
-      const nextZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const nextZone = calendarTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
       if (nextZone === zone) return;
       if (date === calendarDate(Date.now(), zone)) setDate(calendarDate(Date.now(), nextZone));
       setZone(nextZone);
@@ -168,11 +175,11 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
     return () => { controller.abort(); request.current += 1; };
   }, [requestKey, key, date, zone]);
   usePeriodicTask(`calendar-board:${userId}`, 60_000, () => {
-    if (tab === "board" && !selectedRef.current && !actionBusy && !busy) setRevision(value => value + 1);
+    if (tab === "board" && !selectedRef.current && !bookingRef.current && !actionBusy && !busy) setRevision(value => value + 1);
   }, { enabled: tab === "board" });
   useEffect(() => CacheService.getInstance().subscribe(event => {
     if (event.type === "set" && event.key === calendarRefreshKey(userId)) {
-      if (selectedRef.current) refreshOnClose.current = true;
+      if (selectedRef.current || bookingRef.current) refreshOnClose.current = true;
       else setRevision(value => value + 1);
     }
   }), [userId]);
@@ -193,17 +200,15 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
   };
   const close = () => { if (!actionBusy) { setSelected(null); setResolving(false); setConflictDraft({ selected: [], notes: {} }); if (refreshOnClose.current) { refreshOnClose.current = false; setRevision(value => value + 1); } } };
   const checkedAt = board?.checked_at ? new Date(board.checked_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : null;
-  const defaultConnected = status.accounts?.some(account => account.account_id === "default" && account.connected);
-  // One's scheduling proposal currently rechecks only the default grant.
-  // A multi-account opening is a comparison snapshot, not booking authority.
-  const sharedHandoffAvailable = defaultConnected && accounts.length === 1;
-  const selectSharedWindow = (window: { start_at: string; end_at: string }) => {
-    if (!sharedHandoffAvailable) return;
-    onChat(undefined, {
-      ownerId: userId, accountEmail: status.accounts?.find(account => account.account_id === "default")?.google_email || "",
-      date, windowStart: window.start_at, windowEnd: window.end_at,
-      durationMinutes: BOARD_MIN_OPENING_MINUTES, timeZone: zone,
-    });
+  const openBooking = (window: { start_at: string; end_at: string }, accountId: string | null, button: HTMLButtonElement) => {
+    bookingTrigger.current = button;
+    setBooking({ ...window, accountId, scope: accountId ? "account" : "all" });
+  };
+  const closeBooking = () => {
+    bookingRef.current = false;
+    setBooking(null);
+    if (refreshOnClose.current) { refreshOnClose.current = false; setRevision(value => value + 1); }
+    requestAnimationFrame(() => bookingTrigger.current?.focus());
   };
 
   return <AppPageShell width="agent" headerContentSpacing="compact" className={styles.shell} nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: loading ? "loading" : error ? "error" : board?.complete ? "loaded" : "unavailable-valid" }}>
@@ -280,14 +285,14 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
                   {otherItems.length ? <div className={styles.otherViewport} role="region" aria-label={`Other calendar items for ${accountLabel(account.google_email)}`}><ul className={styles.eventList}>{otherItems.map(renderEvent)}</ul></div> : null}
                   </div>
                 </div> : <div className={styles.freeStream} role="region" tabIndex={0} aria-label={`Free time for ${accountLabel(account.google_email)}`}>
-                  {account.free_windows.length ? <ul className={styles.freeList}>{account.free_windows.map(window => <li key={`${window.start_at}:${window.end_at}`}><Clock aria-hidden className="size-4" /><span>{availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date)}</span></li>)}</ul> : <p className={styles.empty}>No free time on this day.</p>}
+                  {account.free_windows.length ? <ul className={styles.freeList}>{account.free_windows.map(window => <li key={`${window.start_at}:${window.end_at}`}><button type="button" disabled={busy || !board.complete || Boolean(error)} onClick={event => openBooking(window, account.account_id, event.currentTarget)} aria-label={`Schedule from free time ${availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date)} on ${account.google_email}`}><Clock aria-hidden className="size-4" /><span>{availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date)}</span></button></li>)}</ul> : <p className={styles.empty}>No free time on this day.</p>}
                 </div>}
               </SurfaceCard>;
             })}
           </div>
           <SurfaceCard className={styles.shared}>
             <div className={styles.sharedTitle}><CheckCircle aria-hidden className="size-5" /><div><h2>Free across all accounts</h2>{!board.complete || error ? <p>Availability is incomplete until every account is checked.</p> : null}</div></div>
-            {board.complete && !error ? board.shared_free_windows.length ? <><ul className={styles.sharedList}>{board.shared_free_windows.map(window => <li key={`${window.start_at}:${window.end_at}`}>{sharedHandoffAvailable ? <button type="button" disabled={busy} onClick={() => selectSharedWindow(window)} aria-label={`Use shared free time ${availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date)}`}>{availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date)}<span>Use this time</span></button> : availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date)}</li>)}</ul>{!sharedHandoffAvailable ? <p className={styles.readOnly}>These openings were checked across the connected accounts. Refresh before scheduling because availability can change.</p> : null}</> : <p>No shared opening on this day.</p> : <p role="alert">Reconnect or refresh the affected account before relying on shared free time.</p>}
+            {board.complete && !error ? board.shared_free_windows.length ? <ul className={styles.sharedList}>{board.shared_free_windows.map(window => <li key={`${window.start_at}:${window.end_at}`}><button type="button" disabled={busy} onClick={event => openBooking(window, null, event.currentTarget)} aria-label={`Schedule from shared free time ${availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date)}`}>{availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date)}<span>Schedule this time</span></button></li>)}</ul> : <p>No shared opening on this day.</p> : <p role="alert">Reconnect or refresh the affected account before relying on shared free time.</p>}
           </SurfaceCard>
         </> : null}
       </> : tab === "invitations" ? <section className={styles.secondary} aria-label="Invitations">
@@ -298,6 +303,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} connectionRevision={connectionRevision} initialLibrary={restored?.accountId === insightsAccount ? restored : null} getIdToken={getIdToken} onAllowMeetingFiles={onAllowMeetingFiles} /> : <p role="alert">Reconnect this account to see its insights.</p>}
       </section>}
       <div className={styles.footer}><Button onClick={() => onChat()} disabled={busy}>Try Calendar Agent with One</Button></div>
+      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} userId={userId} token={token} timeZone={zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={(result, startAt, _accountId, accountEmail) => { closeBooking(); setDate(bookingLocalFields(startAt, zone).date); notifyCalendarChanged(userId); setRevision(value => value + 1); morphyToast.success(result.event.conference_status === "pending" ? `Event created in ${accountEmail}. Google Meet link is still being prepared.` : `Event scheduled in ${accountEmail}.`); }} /> : null}
       <Dialog modal open={Boolean(occasionAccount && occasionEvents.length)} onOpenChange={isOpen => { if (!isOpen) setOccasionAccountId(null); }}>
         <DialogContent className={styles.occasionDialog}>
           {occasionAccount ? <>

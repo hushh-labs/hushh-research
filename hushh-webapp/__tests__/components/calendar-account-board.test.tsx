@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  boardDay: vi.fn(), reviewWorkspaceConflict: vi.fn(), confirmWorkspaceConflict: vi.fn(),
+  boardDay: vi.fn(), reviewBoardBooking: vi.fn(), executeProposal: vi.fn(), reviewWorkspaceConflict: vi.fn(), confirmWorkspaceConflict: vi.fn(),
   reviewWorkspaceAttendance: vi.fn(), confirmWorkspaceAttendance: vi.fn(),
   onChat: vi.fn(), onMailConnect: vi.fn(),
 }));
@@ -12,6 +12,8 @@ vi.mock("@/lib/services/google-calendar-service", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/services/google-calendar-service")>(),
   GoogleCalendarService: {
     boardDay: mocks.boardDay,
+    reviewBoardBooking: mocks.reviewBoardBooking,
+    executeProposal: mocks.executeProposal,
     reviewWorkspaceConflict: mocks.reviewWorkspaceConflict,
     confirmWorkspaceConflict: mocks.confirmWorkspaceConflict,
     reviewWorkspaceAttendance: mocks.reviewWorkspaceAttendance,
@@ -70,6 +72,11 @@ describe("three-account Calendar board", () => {
     vi.setSystemTime(new Date(`${date}T08:00:00Z`));
     vi.clearAllMocks();
     mocks.boardDay.mockResolvedValue(board);
+    mocks.reviewBoardBooking.mockImplementation(async (input: { accountId: string; title: string; startAt: string; endAt: string; timeZone: string; attendees: string[]; meetingType: string }) => ({
+      proposal_id: "gcal_reviewed_booking", expires_at: "2999-01-01T00:00:00Z", confirmation_required: true,
+      plan: { account_id: input.accountId, title: input.title, start_at: input.startAt, end_at: input.endAt, time_zone: input.timeZone, attendees: input.attendees, meeting_type: input.meetingType, description: "", location: "", board_conflicts: [], board_accounts: status.accounts.map(account => ({ account_id: account.account_id, account_email: account.google_email, binding: [account.account_id], calendar_ids: ["primary"] })) },
+    }));
+    mocks.executeProposal.mockResolvedValue({ action: "create", event: { id: "created-event", title: "Bug Bash" } });
     mocks.reviewWorkspaceConflict.mockImplementation(async ({ decline }: { decline: { message: string }[] }) => ({ review_id: "review-conflict", review_token: "sealed-review", expires_at: "2999-01-01T00:00:00Z", previews: [
       { kind: "keep", ref: board.conflicts[0].right, title: meetingB.title, account_email: "second@example.com", start: meetingB.start, end: meetingB.end, action: "accept" },
       { kind: "decline", ref: board.conflicts[0].left, title: meetingA.title, account_email: "default@example.com", start: meetingA.start, end: meetingA.end, action: "decline and send note", sender_label: "Owner <mail@example.com>", recipient: "organizer-one@example.com", subject: "Unable to attend", message: decline[0].message },
@@ -136,27 +143,68 @@ describe("three-account Calendar board", () => {
     expect(screen.getByTestId("insights-restored-day")).toHaveTextContent("none");
   });
 
-  it("hands a single-account opening to One with its exact bounds", async () => {
+  it("reviews a 60-minute booking within a single-account opening before creating it", async () => {
     mocks.boardDay.mockResolvedValue({ ...board, accounts: [board.accounts[0]], conflicts: [] });
     render(page({ ...status, accounts: status.accounts.slice(0, 1) }));
-    fireEvent.click(await screen.findByRole("button", { name: /Use shared free time/ }));
-    expect(mocks.onChat).toHaveBeenCalledWith(undefined, {
-      ownerId: "owner",
-      accountEmail: "default@example.com",
-      date,
-      windowStart: "2026-10-21T12:00:00Z",
-      windowEnd: "2026-10-21T13:00:00Z",
-      durationMinutes: 15,
-      timeZone: expect.any(String),
-    });
+    fireEvent.click(await screen.findByRole("button", { name: /Schedule from shared free time/ }));
+    const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Calendar account and destination" }), { target: { value: "default" } });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Bug Bash" } });
+    expect(within(dialog).getByRole("combobox", { name: "Duration" })).toHaveValue("60");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
+    await waitFor(() => expect(mocks.reviewBoardBooking).toHaveBeenCalledOnce());
+    expect(mocks.reviewBoardBooking).toHaveBeenCalledWith(expect.objectContaining({ accountId: "default", checkedAccountIds: ["default"], title: "Bug Bash", startAt: "2026-10-21T12:00:00.000Z", endAt: "2026-10-21T13:00:00.000Z" }));
+    expect(mocks.executeProposal).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Schedule personal block" }));
+    await waitFor(() => expect(mocks.executeProposal).toHaveBeenCalledWith(expect.objectContaining({ accountId: "default", proposalId: "gcal_reviewed_booking" })));
+    expect(mocks.onChat).not.toHaveBeenCalled();
   });
 
-  it("does not turn a multi-account opening into a default-only booking handoff", async () => {
+  it("requires an explicit account for a shared opening and binds the chosen third account", async () => {
     render(page());
     await screen.findByText("Planning review");
-    expect(screen.queryByRole("button", { name: /Use shared free time/ })).toBeNull();
-    expect(screen.getByText(/Refresh before scheduling because availability can change/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Schedule from shared free time/ }));
+    const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
+    expect(within(dialog).getByRole("button", { name: "Review meeting" })).toBeDisabled();
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Calendar account and destination" }), { target: { value: "third" } });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Bug Bash" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
+    await waitFor(() => expect(mocks.reviewBoardBooking).toHaveBeenCalledWith(expect.objectContaining({ accountId: "third", checkedAccountIds: ["default", "second", "third"] })));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Schedule personal block" }));
+    await waitFor(() => expect(mocks.executeProposal).toHaveBeenCalledWith(expect.objectContaining({ accountId: "third" })));
     expect(mocks.onChat).not.toHaveBeenCalled();
+  });
+
+  it("requires a fresh review before confirming edited guests", async () => {
+    render(page());
+    fireEvent.click(await screen.findByRole("button", { name: /Schedule from shared free time/ }));
+    const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Calendar account and destination" }), { target: { value: "second" } });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Bug Bash" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
+    await within(dialog).findByRole("button", { name: "Schedule personal block" });
+    expect(within(dialog).queryByRole("combobox", { name: /Guests/ })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit details" }));
+    fireEvent.change(within(dialog).getByRole("combobox", { name: /Guests/ }), { target: { value: "new@example.com" } });
+    expect(within(dialog).queryByRole("button", { name: "Schedule personal block" })).toBeNull();
+    expect(mocks.executeProposal).not.toHaveBeenCalled();
+  });
+
+  it("returns to the event's actual Board date when booking in another zone", async () => {
+    render(page());
+    fireEvent.click(await screen.findByRole("button", { name: /Schedule from shared free time/ }));
+    const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Calendar account and destination" }), { target: { value: "second" } });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Midnight planning" } });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Time zone" }), { target: { value: "UTC" } });
+    fireEvent.change(within(dialog).getByLabelText("Start"), { target: { value: "23:30" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
+    await waitFor(() => expect(mocks.reviewBoardBooking).toHaveBeenCalledWith(expect.objectContaining({ startAt: "2026-10-21T23:30:00.000Z", selectedDate: "2026-10-21" })));
+    const callsBeforeConfirmation = mocks.boardDay.mock.calls.length;
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Schedule personal block" }));
+    await waitFor(() => expect(mocks.executeProposal).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.boardDay.mock.calls.length).toBeGreaterThan(callsBeforeConfirmation));
+    await waitFor(() => expect(mocks.boardDay.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ date: "2026-10-22", timeZone: "Asia/Kolkata" })));
   });
 
   it("retries only a definitely failed organizer email once without changing attendance", async () => {
