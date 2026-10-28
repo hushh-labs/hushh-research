@@ -33,7 +33,7 @@ type Props = {
   workspaceLayout?: boolean; startAt?: string; endAt?: string; connectionRevision?: number; busy?: boolean;
   connectedProfiles?: boolean; accountPhotoUrl?: string | null;
   accountGrantedScopes?: string; accountGrantGeneration?: string;
-  accountSubjectSha256?: string; accountHostedDomain?: string | null;
+  accountSubjectSha256?: string; accountHostedDomain?: string | null; accountGuestPhotoAccess?: boolean;
   onConnect: (access: "read" | "manage", includeCalendarList?: boolean) => void;
   onMailConnect?: () => void; onOfferTimes?: (selection: CalendarInvitationHandoff) => void;
   onSend?: (handoff: CalendarAttendanceHandoff) => void;
@@ -43,10 +43,10 @@ type Props = {
 
 export function CalendarInvitations(props: Props) {
   const { vaultOwnerToken } = useVault();
-  return <Invitations key={`${props.userId}:${props.accountId || "default"}:${props.accountEmail}:${props.accountGrantGeneration}:${props.accountGrantedScopes}:${props.accountSubjectSha256}:${props.accountHostedDomain}:${props.initialCalendarId}:${props.initialEventId}:${props.initialDecision}:${props.startAt}:${props.endAt}:${JSON.stringify(props.initialTerms)}`} {...props} token={vaultOwnerToken} />;
+  return <Invitations key={`${props.userId}:${props.accountId || "default"}:${props.accountEmail}:${props.accountGrantGeneration}:${props.accountGrantedScopes}:${props.accountSubjectSha256}:${props.accountHostedDomain}:${props.accountGuestPhotoAccess}:${props.initialCalendarId}:${props.initialEventId}:${props.initialDecision}:${props.startAt}:${props.endAt}:${JSON.stringify(props.initialTerms)}`} {...props} token={vaultOwnerToken} />;
 }
 
-function Invitations({ workspaceLayout = false, connectedProfiles = false, accountPhotoUrl, accountGrantedScopes, accountGrantGeneration, accountSubjectSha256, accountHostedDomain, userId, accountId = "default", accountEmail, zone, getIdToken, initialFilter, initialEventId, initialCalendarId, initialDecision, initialTerms, startAt, endAt, connectionRevision, busy, onConnect, onMailConnect, onOfferTimes, onSend, onResult, onBusyChange, token }: Props & { token: string | null }) {
+function Invitations({ workspaceLayout = false, connectedProfiles = false, accountPhotoUrl, accountGrantedScopes, accountGrantGeneration, accountSubjectSha256, accountHostedDomain, accountGuestPhotoAccess, userId, accountId = "default", accountEmail, zone, getIdToken, initialFilter, initialEventId, initialCalendarId, initialDecision, initialTerms, startAt, endAt, connectionRevision, busy, onConnect, onMailConnect, onOfferTimes, onSend, onResult, onBusyChange, token }: Props & { token: string | null }) {
   const [date, setDate] = useState(() => calendarDate(Date.now(), zone));
   // UTC padding covers the selected local day even across DST and extreme offsets.
   const queryStart = workspaceLayout ? `${shiftCalendarDate(date, -1)}T00:00:00Z` : startAt;
@@ -124,27 +124,19 @@ function Invitations({ workspaceLayout = false, connectedProfiles = false, accou
     ownerId: userId, accountId, accountEmail,
     grantGeneration: accountGrantGeneration, grantedScopes: accountGrantedScopes,
     subjectSha256: accountSubjectSha256, hostedDomain: accountHostedDomain,
+    guestPhotoAccess: accountGuestPhotoAccess, getIdToken, vaultOwnerToken: token,
     guestEmails: workspaceLayout ? [
       selected?.organizer?.email,
       ...(selected?.attendees || []).map(attendee => attendee.email),
       ...filtered.map(event => event.organizer?.email),
     ] : [],
   });
-  const canTryDirectory = Boolean(accountHostedDomain);
   const pendingCount = workspaceLayout ? dayEvents.filter(event => event.response_status === "needsAction").length : data?.pending_count;
   const navigateDate = (value: string) => { setSelectedId(null); setDate(value); };
   const label = filter === "pending" ? "Needs your response" : filter === "responded" ? "Your responses" : "All invitations";
   const statusLabel = (event: CalendarInvitation) => event.response_status === "needsAction" ? null : event.response_status === "accepted" ? "Accepted" : event.response_status === "declined" ? "Declined" : "Tentative";
   return <section className={styles.invitations} data-workspace={workspaceLayout} data-detail={Boolean(selected)} aria-label="Invitations" aria-busy={loading}>
     <div className={styles.filters}><SegmentedTabs disabled={actionBusy} ariaLabel="Invitation filters" variant="filter" value={filter} onValueChange={value => { setFilter(value); close(); }} options={[{ value: "pending", label: `Pending (${data ? pendingCount : "…"})` }, { value: "responded", label: "Responded" }, { value: "all", label: "All" }]} /></div>
-    {workspaceLayout && photoLookup.available && accountEmail ? <div className={styles.photoAccess} aria-label="Optional Google guest photos">
-      <span>Google guest photos are optional. Saved contact photos may differ from a guest’s Google profile photo.</span>
-      {photoLookup.permission ? <button type="button" onClick={photoLookup.clear}>Hide photos</button> : <>
-        <button type="button" disabled={photoLookup.loading} onClick={() => void photoLookup.authorize("contacts")}>Show Google contact photos</button>
-        {canTryDirectory ? <button type="button" disabled={photoLookup.loading} onClick={() => void photoLookup.authorize("directory")}>Show Workspace directory photos</button> : null}
-      </>}
-      {photoLookup.message ? <small role="status">{photoLookup.message}</small> : null}
-    </div> : null}
     {workspaceLayout ? <div className={styles.dateNavigation}><CalendarDateNavigation date={date} today={calendarDate(Date.now(), zone)} disabled={actionBusy} onChange={navigateDate} label="Invitation date" /></div> : null}
     {error ? <div role="alert" className="space-y-3"><p>Invitations could not be loaded.</p><p className={styles.muted}>{error.message}</p>{error instanceof GoogleCalendarError && error.recovery !== "retry" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect("read", error.reasonCode === "calendar_list_permission_required")}>Allow Calendar access</CalendarCompactAction> : <CalendarCompactAction onClick={() => void load(true)}>Retry</CalendarCompactAction>}</div> : !data ? <CalendarLoading label="Invitations loading" /> : <>
       {data.unreadable_calendars.length ? <p className={styles.muted}>Some calendars allow only free/busy access. Their invitation details and conflicts could not be checked.</p> : null}

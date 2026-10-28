@@ -83,6 +83,8 @@ tests/services/test_drive_live_formats.py
 # Calendar writes: a reschedule patches only what the owner reviewed (never a
 # full-replacement PUT), and the review counts the event's real guests.
 tests/services/test_google_calendar_service.py
+tests/services/test_google_calendar_oauth_scopes.py
+tests/services/test_google_calendar_guest_photo_token.py
 tests/services/test_google_calendar_event_type.py
 tests/services/test_google_calendar_profile_photos.py
 tests/services/test_google_calendar_completion.py
