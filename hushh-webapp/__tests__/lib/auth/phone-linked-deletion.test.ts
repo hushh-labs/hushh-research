@@ -32,6 +32,25 @@ describe("confirmLinkedDeletion", () => {
     expect(owner.finalize).toHaveBeenCalledExactlyOnceWith(user);
   });
 
+  it("keeps a lost response that still reads back pending unconfirmed, never refused", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "pending" });
+    const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone");
+    const result = confirmLinkedDeletion(input, ports()).catch(error => error);
+    await vi.runAllTimersAsync();
+    expect(apiErrorCode(await result)).toBe("PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it("never reports a deletion when no holder was found and the claim failed", async () => {
+    vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockResolvedValue({ operation_id: "op-1", state: "refused", code: "PHONE_LINKED_ACCOUNT_NOT_FOUND" });
+    vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockRejectedValue(new ApiError("taken", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" }));
+    const failure = await confirmLinkedDeletion(input, ports()).catch(error => error);
+    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_ACCOUNT_CHANGED");
+    expect(failure.message).not.toMatch(/deleted/i);
+  });
+
   it.each(["PHONE_LINKED_ACCOUNT_PROTECTED", "PHONE_LINKED_DELETION_STALE"])("never claims after a %s refusal", async code => {
     vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockResolvedValue({ operation_id: "op-1", state: "refused", code });
     const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone");

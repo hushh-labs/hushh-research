@@ -19,6 +19,7 @@ type Props = {
   deletePrevious: () => Promise<void>;
   deletionReview: LinkedDeletionPreparation | null;
   deletionNeedsFreshProof: boolean;
+  deletionUnconfirmed: boolean;
   confirmDeletion: (testCode?: string) => Promise<void>;
   restartVerification: () => void;
   returnToPhoneNumber: () => boolean;
@@ -75,7 +76,7 @@ function LinkedDeletionReview(props: Props) {
         <input type="checkbox" className="mt-1" checked={acknowledged} disabled={props.busy} onChange={event => setAcknowledged(event.target.checked)} />
         <span>I understand this can’t be undone.</span>
       </label>
-      <Button type="button" variant="destructive" className="w-full" disabled={!ready} data-voice-control-id="phone-flow-delete-confirm" onClick={() => void props.confirmDeletion(needsCode ? code : undefined)}>{props.busy ? "Deleting…" : "Delete and continue"}</Button>
+      <Button type="button" variant="destructive" className="w-full" disabled={!ready} data-voice-control-id="phone-flow-delete-confirm" onClick={() => void props.confirmDeletion(needsCode ? code : undefined)}>{props.busy ? "Deleting…" : props.deletionUnconfirmed ? "Check again" : "Delete and continue"}</Button>
     </>}
     <Button type="button" variant="none" disabled={props.busy} data-voice-control-id="phone-flow-delete-cancel" onClick={props.returnToPhoneNumber}>Cancel</Button>
   </div>;

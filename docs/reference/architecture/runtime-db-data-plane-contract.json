@@ -2371,9 +2371,9 @@
         "account_phone_linked_deletions"
       ],
       "primary_access_path": "Opaque prepare, single-use phone-proof confirm and status read for deleting the account that holds a verified number; the existing full-account erasure performs the deletion.",
-      "retention_policy": "Prepared operations expire after five minutes and prune one hour later; admitted and refused receipts prune after ninety days. Consumed proof digests stay with their receipt to prevent replay.",
-      "deletion_behavior": "Erasure of the requester or the deleted holder detaches that account id (ON DELETE SET NULL); keyed hashes, binding snapshot and outcome remain until pruning.",
-      "trust_boundary": "No phone number, OTP, bearer token, Firebase identity or email. Requester and holder are referenced by account id until erasure and by hash afterwards.",
+      "retention_policy": "Prepared operations expire after five minutes and prune one hour later; admitted and refused receipts prune after ninety days or with either account. Consumed proof digests stay with their receipt to prevent replay.",
+      "deletion_behavior": "Erasure of the requester or the deleted holder removes its receipts (ON DELETE CASCADE); no account projection survives either erasure.",
+      "trust_boundary": "No phone number, OTP, bearer token, Firebase identity or email. Requester and holder are account ids plus keyed hashes; proofs are single-use digests.",
       "plaintext_posture": "metadata_and_hashes_only",
       "expected_row_growth": "At most five operations per requester per five minutes plus unsettled dispatches; opportunistic cleanup removes at most one hundred expired rows per prepare."
     },

@@ -23,6 +23,7 @@ type Params = {
 export function usePhoneLinkedDeletion(p: Params) {
   const [prepared, setPrepared] = useState<LinkedDeletionPreparation | null>(null);
   const [freshProof, setFreshProof] = useState(false);
+  const [unconfirmed, setUnconfirmed] = useState(false);
   const { phone, conflict, busy, guard, current, inFlight, setBusy, setConflict, setError, prepare, cancel, confirm, fallback, onDeleted } = p;
 
   const review = useCallback(async () => {
@@ -33,7 +34,7 @@ export function usePhoneLinkedDeletion(p: Params) {
     try {
       const value = await prepare(phone);
       if (!current()) return;
-      setPrepared(value); setFreshProof(false); setConflict("delete");
+      setPrepared(value); setFreshProof(false); setUnconfirmed(false); setConflict("delete");
     } catch (error) {
       if (!current()) return;
       unavailable = apiErrorCode(error) === "PHONE_LINKED_DELETION_UNAVAILABLE";
@@ -54,22 +55,24 @@ export function usePhoneLinkedDeletion(p: Params) {
     } catch (error) {
       if (!current() || committed) return;
       const code = apiErrorCode(error);
-      // Only an unconfirmed outcome holds Back; every other result is definite.
-      guard.pending = code === "PHONE_LINKED_DELETION_SUPPORT_REQUIRED";
+      // Back is held only while a request is in flight: the server never
+      // dispatches an operation twice, so leaving after a read-back is safe.
+      guard.pending = false;
+      setUnconfirmed(code === "PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
       setFreshProof(linkedDeletionNeedsFreshProof(code));
       setError(linkedDeletionMessage(code));
     } finally { inFlight.current = false; if (current()) setBusy(false); }
   }, [busy, confirm, conflict, current, guard, inFlight, onDeleted, phone, prepared, setBusy, setError]);
 
-  /** Leave the review; false while an unconfirmed deletion still owns the screen. */
+  /** Leave the review; false only while a confirmation request is in flight. */
   const leave = useCallback(() => {
     if (guard.pending) return false;
     const operation = prepared?.operation_id;
-    setPrepared(null); setFreshProof(false);
+    setPrepared(null); setFreshProof(false); setUnconfirmed(false);
     // Best effort: an expired or changed session must never break Back.
     if (operation && cancel) void Promise.resolve().then(() => cancel(operation)).catch(() => undefined);
     return true;
   }, [cancel, guard, prepared]);
 
-  return { prepared, freshProof, review, submit, leave };
+  return { prepared, freshProof, unconfirmed, review, submit, leave };
 }

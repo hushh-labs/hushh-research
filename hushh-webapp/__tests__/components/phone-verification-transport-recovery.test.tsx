@@ -118,7 +118,7 @@ describe("in-place deletion of the account linked to the number", () => {
     expect(confirmLinkedDeletion).toHaveBeenCalledExactlyOnceWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: "123456" });
   });
 
-  it("cancels from the review, but an unconfirmed deletion keeps the review open", async () => {
+  it("cancels from the review, and an unconfirmed deletion offers Check again without trapping Back", async () => {
     const cancel = vi.fn().mockResolvedValue({});
     const confirmLinkedDeletion = vi.fn().mockRejectedValue(new ApiError("unknown outcome", 409, { code: "PHONE_LINKED_DELETION_SUPPORT_REQUIRED" }));
     const flow = renderPhoneVerificationFlow({ confirmVerification: vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED")),
@@ -135,16 +135,18 @@ describe("in-place deletion of the account linked to the number", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete my previous account" }));
     fireEvent.click(await screen.findByRole("checkbox", { name: "I understand this can’t be undone." }));
     fireEvent.click(screen.getByRole("button", { name: "Delete and continue" }));
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("We couldn’t confirm the deletion yet."));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.getByRole("heading", { name: "Delete the account linked to ••01?" })).toBeVisible();
-    expect(cancel).toHaveBeenCalledOnce();
-    expect(confirmLinkedDeletion).toHaveBeenCalledExactlyOnceWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: undefined });
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("We couldn’t confirm the deletion. Check again, or contact one@hushh.ai."));
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(confirmLinkedDeletion).toHaveBeenCalledTimes(2));
+    // Re-reading the same operation is safe: the server never dispatches it twice.
+    expect(confirmLinkedDeletion).toHaveBeenLastCalledWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: undefined });
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    await screen.findByRole("heading", { name: "This number is linked to another account" });
     expect(flow.onCompleted).not.toHaveBeenCalled();
   });
 
-  it("sends an expired proof back to number verification instead of retrying deletion", async () => {
-    const confirmLinkedDeletion = vi.fn().mockRejectedValue(new ApiError("stale", 409, { code: "PHONE_LINKED_PROOF_REQUIRED" }));
+  it.each(["PHONE_LINKED_PROOF_REQUIRED", "ACCOUNT_DELETION_PAUSED"])("sends a spent operation (%s) back to number verification instead of retrying it", async refusal => {
+    const confirmLinkedDeletion = vi.fn().mockRejectedValue(new ApiError("spent", 409, { code: refusal }));
     const flow = renderPhoneVerificationFlow({ confirmVerification: vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED")),
       prepareLinkedDeletion: prepared("sms"), confirmLinkedDeletion, cancelLinkedDeletion: vi.fn() });
     const code = await reachCodeStep(flow.startVerification);

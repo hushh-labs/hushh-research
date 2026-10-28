@@ -163,14 +163,8 @@ async def _assert_linked_deleted(conn, recorded, baseline):
         PHONE,
     )
     assert owner == OWNERS["receiving-a"]
-    receipts = await conn.fetch(
-        "SELECT state,target_user_id,proof_event_digest IS NOT NULL AS proven "
-        "FROM account_phone_linked_deletions WHERE state<>'cancelled'"
-    )
-    # Final erasure detached the holder id; the admitted receipt survives.
-    assert [dict(row) for row in receipts] == [
-        {"state": "admitted", "target_user_id": None, "proven": True}
-    ]
+    # The holder's final erasure removed its deletion receipt with it.
+    assert await conn.fetchval("SELECT count(*) FROM account_phone_linked_deletions") == 0
     assert await conn.fetchval("SELECT count(*) FROM account_phone_recovery_continuations") == 0
     assert recorded.unlink_count == 0
 

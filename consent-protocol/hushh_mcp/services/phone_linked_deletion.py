@@ -40,15 +40,6 @@ from hushh_mcp.services.user_identifier_service import normalize_phone_identifie
 logger = logging.getLogger(__name__)
 
 DeletePort = Callable[[str, Callable[[Any], None]], Awaitable[dict[str, Any]]]
-# Definite refusals raised inside the admission transaction before any commit.
-_DELETE_REFUSALS = frozenset(
-    {
-        "ACCOUNT_DELETION_PAUSED",
-        "PERSONAL_AGENT_DEPROVISION_REQUIRED",
-        "PHONE_LINKED_DELETION_STALE",
-        "PHONE_TRANSFER_IN_PROGRESS",
-    }
-)
 _SELECT = """SELECT *,expires_at>clock_timestamp() AS live,
     dispatched_at<clock_timestamp()-INTERVAL '30 seconds' AS stale
     FROM account_phone_linked_deletions WHERE operation_id=$1::uuid AND requester_hash=$2"""
@@ -59,10 +50,12 @@ _SELECT_FOR_UPDATE = """SELECT *,expires_at>clock_timestamp() AS live,
 _PRUNE = """DELETE FROM account_phone_linked_deletions WHERE operation_id IN
     (SELECT operation_id FROM account_phone_linked_deletions
      WHERE (state IN ('prepared','cancelled') AND expires_at<clock_timestamp()-INTERVAL '1 hour')
-        OR (state IN ('admitted','refused') AND expires_at<clock_timestamp()-INTERVAL '90 days')
+        OR (state IN ('admitted','refused','pending','action_required')
+            AND expires_at<clock_timestamp()-INTERVAL '90 days')
      ORDER BY expires_at LIMIT 100)"""
+# A rate limit, not a lock: an unsettled receipt never blocks the requester for good.
 _OPEN_DRAFTS = """SELECT count(*) FROM account_phone_linked_deletions WHERE requester_hash=$1 AND
-    (state IN ('pending','action_required') OR created_at>clock_timestamp()-INTERVAL '5 minutes')"""
+    created_at>clock_timestamp()-INTERVAL '5 minutes'"""
 _INSERT = """INSERT INTO account_phone_linked_deletions
     (operation_id,requester_user_id,requester_hash,target_user_id,target_hash,phone_digest,
      binding_revision,generation,transport,expires_at)
@@ -223,10 +216,10 @@ async def confirm(
         owner, operation, normalized, row["transport"], phone_id_token, test_code
     )
     # Holder facts are decided only after possession is proven.
-    if row["target_hash"] is None:
-        return await _refuse(owner, operation, "PHONE_LINKED_ACCOUNT_NOT_FOUND")
     if proof.uid and await _recovery_required(proof.uid, normalized):
         return await _refuse(owner, operation, "PHONE_LINKED_DELETION_RECOVERY_REQUIRED")
+    if row["target_hash"] is None:
+        return await _refuse(owner, operation, "PHONE_LINKED_ACCOUNT_NOT_FOUND")
     refused = await _admit(owner, operation, row, proof)
     if refused is not None:
         return refused
@@ -272,16 +265,17 @@ async def _dispatch(owner: str, operation: str, row: Any, delete: DeletePort) ->
     except Exception as exc:
         logger.warning("phone_linked_deletion.dispatch_uncertain error=%s", type(exc).__name__)
         result = None
-    code = str(result.get("error_code") or "") if isinstance(result, dict) else ""
-    if isinstance(result, dict) and result.get("success") is True:
+    returned = isinstance(result, dict)
+    if returned and result.get("success") is True:
         state, code = "admitted", ""
-    elif code in _DELETE_REFUSALS:
-        state = "refused"
     else:
-        # A failed commit can still have committed: only the tombstone decides.
+        # Only the committed tombstone decides. A returned failure has finished
+        # its transaction (definite); a raised one may still be committing.
         async with transaction() as conn:
             admitted = await conn.fetchval(_ADMITTED, row["target_hash"])
-        state, code = ("admitted", "") if admitted else ("action_required", code)
+        code = str(result.get("error_code") or "ACCOUNT_DELETION_FAILED") if returned else ""
+        state = "admitted" if admitted else "refused" if returned else "action_required"
+        code = "" if admitted else code
     async with transaction() as conn:
         await conn.execute(_FINISH, operation, state, code or None)
         finished = await _row(conn, owner, operation)

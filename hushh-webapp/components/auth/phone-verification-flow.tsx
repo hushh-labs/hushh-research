@@ -942,7 +942,8 @@ export function usePhoneVerificationFlow({
 
   return { ready: formOwner === ownerKey, step, busy, maskedPhone, submittedPhoneNumber, verificationCode, codeError, phoneNumberError, operationError,
     conflict, transferPending, transferEligible, handleTransfer, recoverPrevious,
-    deletionReview: deletion.prepared, deletionNeedsFreshProof: deletion.freshProof, deletePrevious: deletion.review, confirmDeletion: deletion.submit,
+    deletionReview: deletion.prepared, deletionNeedsFreshProof: deletion.freshProof, deletionUnconfirmed: deletion.unconfirmed,
+    deletePrevious: deletion.review, confirmDeletion: deletion.submit,
     restartVerification: () => { if (current() && !phoneFlowInFlightRef.current && deletion.leave()) { advanceEntryRevision(); setVerificationCode(""); setOperationError(null); setConflict(null); changeStep("phone"); } },
     startFreshSms: () => handleStartVerification(false, submittedPhoneNumber, "sms"),
     reviewTransfer: () => { if (current() && visit.entryRevision === entryRevision && conflict === "choices" && transferEligible && !busy && !phoneFlowInFlightRef.current) { advanceEntryRevision(); setConflict("review"); setOperationError(null); } },

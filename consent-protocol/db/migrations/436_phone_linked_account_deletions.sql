@@ -2,9 +2,9 @@
 -- state only: no raw phone, proof, Firebase identity, email or provider data.
 CREATE TABLE IF NOT EXISTS public.account_phone_linked_deletions (
  operation_id uuid PRIMARY KEY,
- requester_user_id text REFERENCES public.actor_profiles(user_id) ON DELETE SET NULL,
+ requester_user_id text REFERENCES public.actor_profiles(user_id) ON DELETE CASCADE,
  requester_hash text NOT NULL CHECK(requester_hash ~ '^sha256:[0-9a-f]{64}$'),
- target_user_id text REFERENCES public.actor_profiles(user_id) ON DELETE SET NULL,
+ target_user_id text REFERENCES public.actor_profiles(user_id) ON DELETE CASCADE,
  target_hash text CHECK(target_hash ~ '^sha256:[0-9a-f]{64}$'),
  phone_digest text NOT NULL CHECK(phone_digest ~ '^hmac-sha256:[0-9a-f]{64}$'),
  binding_revision bigint CHECK(binding_revision>=0),
@@ -19,8 +19,7 @@ CREATE TABLE IF NOT EXISTS public.account_phone_linked_deletions (
  expires_at timestamptz NOT NULL,
  dispatched_at timestamptz,
  CHECK(expires_at>created_at AND expires_at<=created_at+INTERVAL '5 minutes 1 second'),
- -- Erasure may detach either account id (ON DELETE SET NULL); the hashes and
- -- binding snapshot stay, so no CHECK may tie an id to its snapshot.
+ -- A target is recorded only when a live verified holder existed at preparation.
  CHECK((target_hash IS NULL)=(binding_revision IS NULL) AND (target_hash IS NULL)=(generation IS NULL)),
  CHECK((proof_event_digest IS NULL)=(dispatched_at IS NULL)),
  CHECK(state NOT IN ('pending','admitted','action_required')
@@ -36,5 +35,5 @@ CREATE INDEX IF NOT EXISTS phone_linked_deletions_expiry
  ON public.account_phone_linked_deletions(expires_at);
 REVOKE ALL ON public.account_phone_linked_deletions FROM PUBLIC;
 COMMENT ON TABLE public.account_phone_linked_deletions IS
- 'Phone-proven deletion admission. A fresh proof of the number authorizes the existing full-account erasure of its current verified holder; unique proof event digests prevent replay. Prepared rows are opaque and live five minutes; terminal receipts prune after 90 days. Erasure of either account detaches its id and keeps only hashes.';
+ 'Phone-proven deletion admission. A fresh proof of the number authorizes the existing full-account erasure of its current verified holder; unique proof event digests prevent replay. Prepared rows are opaque and live five minutes; terminal receipts prune after 90 days. Erasure of either account removes its receipts.';
 SELECT public.install_account_deletion_write_guards();
