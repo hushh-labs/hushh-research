@@ -67,7 +67,9 @@ export function registerFinanceScreenChecks(
         await manageAction.click();
         await expect(page.getByTestId("action-result")).toHaveText("Open sources");
         await expect(overview.getByText("Invested", { exact: true })).toBeVisible();
-        expect(await overview.getByRole("heading", { name: "Your portfolio" }).evaluate(el => getComputedStyle(el).fontSize)).toBe("14px");
+        expect(await overview.getByRole("heading", { name: "Your portfolio", exact: true }).evaluate(el => getComputedStyle(el).fontSize)).toBe("14px");
+        expect(await overview.evaluate(el => getComputedStyle(el).getPropertyValue("--font-app-body").trim()))
+          .toBe(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--font-app-body").trim()));
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
         await expect(overview.getByText("Balance snapshot · This source hasn’t supplied dated balance history.")).toBeVisible();
         if (width >= 1024) {
@@ -81,10 +83,9 @@ export function registerFinanceScreenChecks(
           });
           expect(Math.abs(widths.workspace - widths.available)).toBeLessThanOrEqual(1);
           const value = await overview.getByTestId("portfolio-value-card").boundingBox();
-          const options = await overview.getByTestId("portfolio-overview-options").boundingBox();
-          expect(Math.abs(value!.y - options!.y)).toBeLessThanOrEqual(2);
-          const shell = await overview.getByTestId("portfolio-overview-options").locator("[data-slot=\"settings-group-shell\"]").boundingBox();
-          expect(Math.abs(value!.height - shell!.height)).toBeLessThanOrEqual(2);
+          const briefing = await overview.getByTestId("portfolio-briefing").boundingBox();
+          expect(Math.abs(value!.y - briefing!.y)).toBeLessThanOrEqual(2);
+          expect(value!.x + value!.width).toBeLessThanOrEqual(briefing!.x);
         }
         await overview.screenshot({ path: test.info().outputPath(`overview-${width}-${theme}.png`) });
         await overview.getByRole("button", { name: "Share portfolio PDF" }).click();
