@@ -653,7 +653,7 @@ class UatKaiSmoke:
             key_id=f"kai-smoke-{int(time.time())}",
         )
 
-    def authenticate(self, *, ensure_developer_token: bool = True) -> None:
+    def authenticate(self) -> None:
         now = int(time.time())
         custom_token = jwt.encode(
             {
@@ -695,8 +695,7 @@ class UatKaiSmoke:
             passphrase=self.passphrase,
         )
         self.log("Authenticated as the maintainer smoke user and issued a real VAULT_OWNER token.")
-        if ensure_developer_token:
-            self.ensure_developer_token()
+        self.ensure_developer_token()
 
     def ensure_developer_token(self) -> None:
         payload = self._request(

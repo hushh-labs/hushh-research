@@ -751,8 +751,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
             if path.exists()
         )
         required_pr_skill_phrases = [
-            "Dev intake",
-            "protected Dev",
+            "Dev intake", "protected Dev",
             "Retained train campaigns",
             "Run the delegation router at intake",
         ]

@@ -298,20 +298,7 @@ class GitHub:
     def attempt_pins(self, environment: str, run_id: int) -> list[dict]:
         require(type(run_id) is int and run_id > 0, "Invalid acceptance run")
         inventory = self.read(f"runs/{run_id}/artifacts?per_page=100")
-        require(isinstance(inventory, dict), "Artifact inventory is malformed")
-        artifacts = inventory.get("artifacts")
-        total = inventory.get("total_count")
-        require(
-            type(total) is int
-            and 0 <= total <= 100
-            and isinstance(artifacts, list)
-            and len(artifacts) == total
-            and all(
-                isinstance(item, dict) and isinstance(item.get("name"), str)
-                for item in artifacts
-            ),
-            "Artifact inventory is incomplete or malformed",
-        )
+        artifacts = _provenance.bounded_artifact_inventory(inventory)
         pins = {}
         pattern = rf"release-acceptance-{re.escape(environment)}-{run_id}-([1-9][0-9]*)"
         for item in artifacts:

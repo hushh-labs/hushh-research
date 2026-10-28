@@ -4,15 +4,12 @@ import json
 import uuid
 from pathlib import Path
 
-import pytest
-
 from hushh_mcp.consent.export_envelope import (
     ConsentExportAadV2,
     ConsentExportEnvelopeSubmissionV2,
     connector_key_fingerprint,
 )
 from hushh_mcp.consent.export_projection import decrypt_scoped_export_package
-from scripts import uat_kai_regression_smoke as smoke_module
 from scripts.uat_kai_regression_smoke import (
     SAMPLE_BROKERAGE_PATH,
     UatKaiSmoke,
@@ -21,45 +18,6 @@ from scripts.uat_kai_regression_smoke import (
 from tests._deploy_contract import backend_deploy_surface
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-@pytest.mark.parametrize("ensure_token", [None, True, False])
-def test_authentication_only_mutates_developer_token_when_requested(monkeypatch, ensure_token):
-    smoke = UatKaiSmoke.__new__(UatKaiSmoke)
-    smoke.firebase_auth_service_account = {
-        "client_email": "fixture@example.test",
-        "private_key": "fixture",
-    }
-    smoke.firebase_api_key = "fixture"
-    smoke.user_id = "fixture-owner"
-    smoke.passphrase = "fixture"
-    smoke.timeout = 1
-    monkeypatch.setattr(smoke_module.jwt, "encode", lambda *_args, **_kwargs: "custom-token")
-
-    class Response:
-        status_code = 200
-
-        def json(self):
-            return {"idToken": "firebase-token"}
-
-    class VaultResponse:
-        def json(self):
-            return {"token": "vault-token"}
-
-    monkeypatch.setattr(smoke_module.requests, "post", lambda *_args, **_kwargs: Response())
-    smoke._request = lambda *_args, **_kwargs: VaultResponse()
-    smoke.log = lambda *_args: None
-    mutations = []
-    smoke.ensure_developer_token = lambda: mutations.append("developer-token")
-
-    if ensure_token is None:
-        smoke.authenticate()
-    else:
-        smoke.authenticate(ensure_developer_token=ensure_token)
-
-    assert smoke.auth.firebase_id_token == "firebase-token"
-    assert smoke.auth.vault_owner_token == "vault-token"
-    assert mutations == ([] if ensure_token is False else ["developer-token"])
 
 
 def test_sample_brokerage_manifest_exposes_portfolio_without_provenance() -> None:
