@@ -11,6 +11,7 @@ from hushh_mcp.services.drive_live_reader import _open_url
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_packet_display import packet_file_label
 from hushh_mcp.services.drive_period_packet_contract import PacketPeriod, current_year_periods
+from hushh_mcp.services.drive_period_packet_metrics import discovery
 from hushh_mcp.services.drive_request_discovery import discovery_evidence_matches
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -187,6 +188,44 @@ def legacy_frozen_preview(row, build):
     )
 
 
+_TAGGING_COUNTS = ("financial", "review", "other", "pending")
+
+
+def tagging_summary(row, build, now):
+    """Owner-only organizing progress: an explicit allowlist, never the stored work state.
+
+    The queue column is the authority for a pending retry. A stored "running" without a
+    live organizing lease, or an earlier "failed" whose retry is still scheduled, is
+    reported as the state the queue will actually act on next.
+    """
+    stored = build.get("tagging")
+    if not stored:
+        return None
+    retrying = row.get("tagging_pending") is True
+    live = bool(
+        build.get("lease_kind") == "tagging"
+        and row.get("lease_expires_at")
+        and row["lease_expires_at"] > now
+    )
+    status = stored.get("status")
+    if status == "running" and not live:
+        status = "queued" if retrying else "failed"
+    elif status == "failed" and retrying:
+        status = "queued"
+    counts = stored.get("counts") or {}
+    return {
+        "status": status,
+        "policyVersion": stored.get("policyVersion"),
+        "counts": {key: counts[key] for key in _TAGGING_COUNTS if key in counts},
+        **({"failureCode": stored["failureCode"]} if stored.get("failureCode") else {}),
+        **(
+            {"retryAt": stored["retryAt"]}
+            if status == "queued" and retrying and stored.get("retryAt")
+            else {}
+        ),
+    }
+
+
 def preview_summary(store, row):
     build = store._build(row)
     saved = build.get("preview", {})
@@ -233,6 +272,7 @@ def preview_summary(store, row):
         if build.get("requested_at") or saved
         else "not_started"
     )
+    tagging = tagging_summary(row, build, now)
     return {
         "status": status,
         "revision": row["revision"],
@@ -241,7 +281,7 @@ def preview_summary(store, row):
         "stale": bool(saved and (pending or row.get("error_code") or saved.get("errorCode"))),
         "updatedAt": saved.get("updatedAt"),
         "errorCode": row.get("error_code") or saved.get("errorCode"),
-        **({"tagging": build["tagging"]} if build.get("tagging") else {}),
+        **({"tagging": tagging} if tagging else {}),
     }
 
 
@@ -321,6 +361,8 @@ async def snapshot_search(store, job, build, search_job_id):
         }
         # Until the new scan has usable output, keep the last successful preview visible.
         updated = {**store._build(head), **build, "search_job_id": str(search_job_id)}
+        metrics = {**updated.get("metrics", {}), "discovery": discovery(checkpoint, search)}
+        updated["metrics"] = metrics
         if files or complete or not updated.get("preview"):
             updated.update(preview=saved, refresh_pending=False)
             from hushh_mcp.services.drive_packet_public_summary import update_preview_projection
