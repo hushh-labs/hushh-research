@@ -1668,6 +1668,39 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testLateContentPaneRetirementCannotPoisonAReplacementDocument() {
+        let privacy = HushhSessionPrivacyShield.shared.snapshot().generation
+        let shield = HushhSessionPrivacyShield.shared
+        shield.observeDocument("public-retirement-old")
+        shield.observeDocument("public-retirement-current")
+        let plugin = HushhNativeChromePlugin()
+        XCTAssertTrue(plugin.acceptContentPaneRetirementDocument("public-retirement-current"),
+            "Cleanup may bind the first observed document")
+        XCTAssertFalse(plugin.acceptContentPaneRetirementDocument("public-retirement-old"),
+            "A late cleanup cannot replace the current document even when both were observed")
+        XCTAssertTrue(plugin.acceptContentPaneRetirementDocument("public-retirement-current"),
+            "The current document remains usable after the stale cleanup")
+        let old = NativeContentPaneIdentity(document: "old-document", ownerEpoch: "owner", generation: 1, privacyGeneration: privacy)
+        var firstDocument = NativeContentPaneFence()
+        XCTAssertTrue(firstDocument.beginRetirement(old), "Cleanup may precede the first admitted acquisition")
+        XCTAssertTrue(firstDocument.release(old))
+        XCTAssertFalse(firstDocument.acquire(old), "First-document cleanup still tombstones a late acquisition")
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        container.frame = web.frame
+        let next = NativeContentPaneIdentity(document: "new-document", ownerEpoch: "owner", generation: 1, privacyGeneration: privacy)
+        XCTAssertTrue(container.acquireContentPane(old, viewport: container.bounds.size))
+        XCTAssertTrue(container.beginContentPaneRetirement(old))
+        let delayedCompletion = { container.releaseContentPane(old) }
+        container.resetContentPane(document: next.document)
+        XCTAssertFalse(delayedCompletion(), "An old completion cannot retire the replacement document's empty fence")
+        XCTAssertTrue(container.acquireContentPane(next, viewport: container.bounds.size))
+        XCTAssertTrue(container.beginContentPaneRetirement(next))
+        XCTAssertTrue(container.releaseContentPane(next))
+        XCTAssertFalse(container.acquireContentPane(next, viewport: container.bounds.size), "Same-document retirement still rejects late acquisition")
+    }
+
+    @MainActor
     func testPendingNativeCloseSurvivesContentRefreshAndUncoversTheSameWebViewOnlyAfterAcknowledgement() async throws {
         let state = privateDrawerState(family: "history")
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))

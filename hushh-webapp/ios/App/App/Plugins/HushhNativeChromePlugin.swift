@@ -790,9 +790,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func releaseContentPane(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.readContentPaneCall(call),
-                  !self.retiredDocuments.contains(identity.document),
-                  HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
-                  self.compositor?.beginContentPaneRetirement(identity) == true else {
+                  self.acceptContentPaneRetirementDocument(identity.document) else {
+                call.reject("NATIVE_CONTENT_PANE_RETIRE_STALE"); return
+            }
+            guard self.compositor?.beginContentPaneRetirement(identity) == true else {
                 call.reject("NATIVE_CONTENT_PANE_RETIRE_STALE"); return
             }
             HushhSessionPrivacyShield.shared.retireProfilePanePreparation(identity)
@@ -802,7 +803,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 if let presenter = slot.presenter { dismissal.enter(); presenter.retire { dismissal.leave() } }
             }
             dismissal.notify(queue: .main) {
-                guard self.compositor?.releaseContentPane(identity) == true else {
+                guard self.document == identity.document, !self.retiredDocuments.contains(identity.document),
+                      HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
+                      self.compositor?.releaseContentPane(identity) == true else {
                     call.reject("NATIVE_CONTENT_PANE_RETIRE_STALE"); return
                 }
                 call.resolve(self.paneReceipt(identity, phase: "retired"))
@@ -1596,6 +1599,15 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         slot.presenter = presenter
         presenter.present()
     }
+    // Cleanup may precede the first acquisition, but it cannot replace an
+    // active document merely because the privacy shield has observed both.
+    func acceptContentPaneRetirementDocument(_ requested: String) -> Bool {
+        guard !retiredDocuments.contains(requested),
+              HushhSessionPrivacyShield.shared.acceptsDocument(requested),
+              document == nil || document == requested else { return false }
+        if document == nil { acceptDocument(requested) }
+        return true
+    }
     private func acceptDocument(_ next: String) {
         guard document != next else { return }
         if let document {
@@ -1603,7 +1615,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             invalidatePresentation()
             slots.removeAll()
             compositor?.resetGroups()
-            compositor?.resetContentPane()
+            compositor?.resetContentPane(document: next)
         }
         document = next
     }

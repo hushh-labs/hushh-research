@@ -21,24 +21,31 @@ struct NativeContentPaneFence {
     private(set) var identity: NativeContentPaneIdentity?
     private(set) var retiring = false
     private var retiredGeneration = 0
+    private var document: String?
+    init(document: String? = nil) { self.document = document }
     mutating func acquire(_ next: NativeContentPaneIdentity) -> Bool {
-        guard next.valid, next.generation > retiredGeneration else { return false }
+        guard next.valid, document == nil || document == next.document, next.generation > retiredGeneration else { return false }
         if let identity {
             guard !retiring, identity.document == next.document, identity.ownerEpoch == next.ownerEpoch,
                   identity.generation == next.generation, next.privacyGeneration >= identity.privacyGeneration else { return false }
         }
+        document = next.document
         identity = next
         return true
     }
     mutating func beginRetirement(_ requested: NativeContentPaneIdentity) -> Bool {
-        guard requested.valid, identity == nil || identity?.sameLifetime(as: requested) == true else { return false }
+        guard requested.valid, document == nil || document == requested.document,
+              identity == nil || identity?.sameLifetime(as: requested) == true else { return false }
+        document = requested.document
         retiredGeneration = max(retiredGeneration, requested.generation)
         retiring = true
         return true
     }
     mutating func release(_ requested: NativeContentPaneIdentity) -> Bool {
         // Tombstone a not-yet-delivered acquisition as well as an installed one.
-        guard requested.valid, identity == nil || identity?.sameLifetime(as: requested) == true else { return false }
+        guard requested.valid, document == nil || document == requested.document,
+              identity == nil || identity?.sameLifetime(as: requested) == true else { return false }
+        document = requested.document
         retiredGeneration = max(retiredGeneration, requested.generation)
         identity = nil
         retiring = false
@@ -410,8 +417,8 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         !contentPaneFence.retiring && contentPane == identity
     }
 
-    func resetContentPane() {
-        contentPaneFence = NativeContentPaneFence()
+    func resetContentPane(document: String) {
+        contentPaneFence = NativeContentPaneFence(document: document)
         underlay.layer.zPosition = contentBackedPresentation ? 0 : -1
     }
 
