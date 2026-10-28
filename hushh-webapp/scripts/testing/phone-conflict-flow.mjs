@@ -167,20 +167,20 @@ try {
           const mutation = page.waitForResponse(response => new URL(response.url()).pathname === "/api/account/delete-lost-vault" && response.request().method() === "POST");
           await page.getByRole("button", { name: "Permanently delete account", exact: true }).click();
           assert.equal((await mutation).status(), 202);
-          await page.getByRole("heading", { name: /Deleting your account|Checking your account deletion/ }).waitFor();
+          stage = "delete_pending_login";
+          await page.waitForURL(url => url.pathname === "/login" &&
+            url.searchParams.get("auth_notice") === "account_deletion_requested");
+          await page.getByRole("status").filter({ hasText: /^Deletion requested\./ }).waitFor();
+          await page.getByTestId("phone-fixture-auth").filter({ hasText: /^anonymous:settled$/ }).waitFor();
           await page.reload();
-          await page.getByRole("heading", { name: /Deleting your account|Checking your account deletion/ }).waitFor();
+          await page.getByRole("status").filter({ hasText: /^Deletion requested\./ }).waitFor();
           assert.equal(erasures, 1);
           await fixtureRequest("drain", scenario);
-          const refresh = page.getByRole("button", { name: /^(Refresh status|Check status)$/ });
-          if (await refresh.count()) await refresh.click();
-          await page.waitForURL(url => url.pathname === "/login" && url.searchParams.has("auth_notice"));
-          assert.equal(new URL(page.url()).searchParams.get("auth_notice"), "account_deleted",
-            "Authoritative cleanup completion must confirm erasure without inventing identity disposition or signup readiness");
-          await page.getByRole("status").filter({ hasText: /^This account’s information was deleted\./ }).first().waitFor();
+          assert.equal(new URL(page.url()).searchParams.get("auth_notice"), "account_deletion_requested",
+            "A signed-out pending notice must not become a completion claim without a new status read");
           assert.equal(await page.getByText("Your old account is deleted. Continue below to start fresh.", { exact: true }).count(), 0);
           assert.equal(erasures, 1);
-          record("delete_real_sql_worker_and_terminal_ui");
+          record("delete_real_sql_worker_and_signed_out_pending_handoff");
         }
       } else if (scenario === "transfer") {
         await page.getByRole("button", { name: "Use this number on this account", exact: true }).click();

@@ -368,7 +368,7 @@ async def test_recorded_phone_browser_journeys(
             except AssertionError as error:
                 if not readback_failure:
                     raise
-                report = json.loads(str(error).removeprefix("Browser loop failed: "))
+                report = json.loads(str(error).splitlines()[-1])
                 assert report["code"] == "PHONE_BROWSER_LOOP_FAILED"
                 assert report["stage"] == "transfer_readback"
                 assert report["diagnostics"]["transfer"] == {
