@@ -20,6 +20,20 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
+const persona = vi.hoisted(() => ({
+  riaOnboardingStatus: { verification_status: "verified" } as {
+    verification_status?: string;
+    advisory_status?: string;
+  } | null,
+}));
+
+vi.mock("@/lib/persona/persona-context", () => ({
+  usePersonaState: () => ({
+    riaOnboardingStatus: persona.riaOnboardingStatus,
+    loading: false,
+  }),
+}));
+
 vi.mock("@/lib/interaction/interaction-intent-coordinator", () => ({
   useInteractionIntents: () => [],
 }));
@@ -34,6 +48,25 @@ describe("RiaRouteSelector", () => {
     navigation.push.mockClear();
     navigation.replace.mockClear();
     navigation.pathname = "/ria/profile";
+    persona.riaOnboardingStatus = { verification_status: "verified" };
+  });
+
+  it("does not offer Picks to someone who is not a verified RIA", () => {
+    persona.riaOnboardingStatus = { verification_status: "pending" };
+
+    render(<RiaRouteSelector />);
+
+    expect(screen.getByRole("tab", { name: "Profile" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Clients" })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Picks" })).toBeNull();
+  });
+
+  it("does not offer Picks before verification status is known", () => {
+    persona.riaOnboardingStatus = null;
+
+    render(<RiaRouteSelector />);
+
+    expect(screen.queryByRole("tab", { name: "Picks" })).toBeNull();
   });
 
   it("renders the RIA primary selector with route-driven active state", () => {

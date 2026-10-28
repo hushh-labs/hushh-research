@@ -881,8 +881,12 @@ async def renaissance_screening(firebase_uid: str = Depends(require_firebase_aut
 
 
 @router.get("/picks")
-async def get_active_ria_pick_package(firebase_uid: str = Depends(require_firebase_auth)):
-    """Return the authenticated RIA's encrypted active Picks package."""
+async def get_active_ria_pick_package(firebase_uid: str = Depends(_require_ria_verified)):
+    """Return the verified RIA's encrypted active Picks package.
+
+    Picks is an advisor-only surface: anyone who is not a verified RIA gets 403
+    here, matching what the app shows them (no Picks tab, no Picks page).
+    """
     service = RIAIAMService()
     try:
         return await service.get_active_ria_pick_package(firebase_uid)
@@ -895,7 +899,7 @@ async def get_active_ria_pick_package(firebase_uid: str = Depends(require_fireba
 @router.post("/picks/parse")
 async def parse_ria_picks_csv(
     payload: RIAPicksParseRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_require_ria_verified),
 ):
     _ = firebase_uid
     service = RIAIAMService()
@@ -919,7 +923,7 @@ async def parse_ria_picks_csv(
 @router.post("/picks")
 async def upload_ria_picks(
     payload: RIAPicksSyncRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_require_ria_verified),
 ):
     service = RIAIAMService()
     try:

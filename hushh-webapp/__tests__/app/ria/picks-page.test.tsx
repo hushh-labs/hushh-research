@@ -178,6 +178,9 @@ vi.mock("@/components/ria/ria-page-shell", () => ({
   RiaPageShell: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
+  RiaVerificationGate: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
   RiaCompatibilityState: ({
     title,
     description,
