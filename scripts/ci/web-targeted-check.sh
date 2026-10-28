@@ -207,6 +207,7 @@ fi
 # Calendar owns a transport-backed fixture for connected Schedule. Keep this
 # explicitly registered; the general layout script enumerates its own specs.
 if has_match '^hushh-webapp/(components/calendar/|lib/calendar/|lib/services/google-calendar-service\.ts|lib/services/calendar-insights-service\.ts|e2e/calendar-connected-workspace\.layout\.spec\.ts|e2e/fixtures/calendar-connected)'; then
+  run_full_suite_check "Calendar HUSSH person photos" npm run test:calendar-hussh-photos
   run_check "Calendar workspace layout" npm run test:calendar-workspace-layout
   ran=1
 fi

@@ -42,6 +42,9 @@ vi.mock("@/lib/vault/vault-context", () => ({
     retryOwnerTokenRenewal: mocks.retryOwnerTokenRenewal,
   }),
 }));
+vi.mock("@/lib/calendar/use-calendar-hussh-people", () => ({
+  useCalendarHusshPeople: () => new Map(),
+}));
 vi.mock("@/lib/services/google-calendar-service", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/google-calendar-service")>(),
   GoogleCalendarService: {
@@ -352,6 +355,22 @@ describe("CalendarConnectedWorkspace", () => {
     expect(screen.getByRole("heading", { name: "Executive snapshot" })).toBeInTheDocument();
     expect(mocks.availability).not.toHaveBeenCalled();
     expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();
+  });
+
+  it("keeps the meeting-files permission action connected in the legacy Calendar view", async () => {
+    const onAllowMeetingFiles = vi.fn();
+    mocks.insights.mockImplementation(async (path: string, body: { date: string; time_zone: string; account_id: string }) => path === "meetings" ? {
+      date: body.date, time_zone: body.time_zone, account_id: body.account_id,
+      meetings: [], checked_events: 0,
+      complete: false, next_cursor: null, limitations: ["permission_required"],
+    } : { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0, time_zone: "UTC" });
+    render(<CalendarConnectedWorkspace userId="owner" status={status} busy={false}
+      getIdToken={mocks.getIdToken} onConnect={mocks.onConnect} onChat={mocks.onChat}
+      onDisconnect={mocks.onDisconnect} onAllowMeetingFiles={onAllowMeetingFiles} />);
+    fireEvent.click(control("Insights"));
+    fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Allow recording and notes access" }));
+    expect(onAllowMeetingFiles).toHaveBeenCalledExactlyOnceWith("default");
   });
 
   it("does not describe loading or a failed event fetch as an empty day", async () => {
