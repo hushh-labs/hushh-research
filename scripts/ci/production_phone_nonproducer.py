@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 
@@ -12,6 +13,12 @@ _MUTATORS = (
     "gcloud run deploy",
     "cold_fallback.py",
     "backend-phone-rollback.sh",
+)
+# Reviewed restoration job from 0c32dc1cba0e5a0a4d7a3f9c257baf32e2e4b14b,
+# used by healthy run 40475676949/2 before two additive dispatch gates.
+# This recognizes only its exact nonproducer source; it grants no health authority.
+_REVIEWED_RESTORATION_BLOCKS = frozenset(
+    {"94db30af3be1742efd4f2105f43aa2508d74fbceb58a2d3cc26c92795ea24d62"}
 )
 
 
@@ -41,10 +48,14 @@ def _job_block(text: str, name: str) -> str:
 
 
 def _source(workflow: str, canonical: str, lease_markers: tuple[str, ...]) -> None:
-    # Changed historical job shapes require explicit compatibility review.
+    # Every other changed historical job shape still requires compatibility review.
     block = _job_block(workflow, JOB_ID)
     _require(
-        block == _job_block(canonical, JOB_ID)
+        (
+            block == _job_block(canonical, JOB_ID)
+            or hashlib.sha256(block.encode()).hexdigest()
+            in _REVIEWED_RESTORATION_BLOCKS
+        )
         and not any(marker in block for marker in (*lease_markers, *_MUTATORS)),
         "restoration source or cold-producer absence is unproved",
     )

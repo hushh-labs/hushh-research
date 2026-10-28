@@ -3,15 +3,39 @@
 """An isolated UAT success cannot become a shared release ordinal."""
 
 from copy import deepcopy
+import json
+from pathlib import Path
+import re
 import unittest
 import test_release_cadence as fixtures
 
 core, run = fixtures.core, fixtures.run
 
 
+def enabled_has_hourly_wake(policy: dict, workflow: str) -> bool:
+    if not policy["enabled"]:
+        return True
+    triggers = workflow.split("\npermissions:", 1)[0]
+    return bool(
+        re.search(r"(?m)^  repository_dispatch:\s*\n\s+types: \[capacity-maintenance-clock\]", triggers)
+        and re.search(r"(?m)^\s+- cron: ['\"]17 \* \* \* \*['\"]", triggers)
+    )
+
+
 class NonReleaseQualificationTest(unittest.TestCase):
     # Reuse the existing inert GitHub/ledger port without inheriting its tests.
     invoke = fixtures.ReconciliationTest.invoke
+
+    def test_enabling_cadence_requires_restoring_hourly_wake(self):
+        root = Path(__file__).resolve().parents[2]
+        policy = json.loads((root / "config/release-cadence.json").read_text())
+        workflow = (root / ".github/workflows/release-cadence.yml").read_text()
+        self.assertTrue(enabled_has_hourly_wake(policy, workflow))
+        enabled = {**policy, "enabled": True}
+        quiet = "on:\n  schedule:\n    - cron: '7 3 * * *'\npermissions:\n"
+        self.assertFalse(enabled_has_hourly_wake(enabled, quiet))
+        restored = "on:\n  repository_dispatch:\n    types: [capacity-maintenance-clock]\n  schedule:\n    - cron: '17 * * * *'\npermissions:\n"
+        self.assertTrue(enabled_has_hourly_wake(enabled, restored))
 
     def test_successful_noop_does_not_poison_the_counter(self):
         jobs = {
