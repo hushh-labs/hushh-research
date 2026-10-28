@@ -123,11 +123,7 @@ async def test_full_account_delete_forwards_only_authenticated_uid(monkeypatch):
         lambda _user_id: {"personas": ["investor"], "investor_marketplace_opt_in": False},
     )
 
-    async def _full_delete(
-        user_id,
-        *,
-        requested_target,
-    ):
+    async def _full_delete(user_id, *, requested_target, **_consent):
         captured["user_id"] = user_id
         captured["target"] = requested_target
         return {"success": True, "account_deleted": True}
