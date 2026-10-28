@@ -2205,7 +2205,6 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                             )
 
     def test_source_is_authorized_before_any_cloud_access(self):
-        original_load = MAINTENANCE.load_release
         cases = (
             ("uat", "ankitkumarsingh1702", "", "deploy-uat.yml", "org/repo", True),
             ("uat", "unapproved-actor", "", "deploy-uat.yml", "org/repo", False),
@@ -2276,7 +2275,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                             {
                                 "GITHUB_REPOSITORY": "org/repo",
                                 "GITHUB_OUTPUT": str(output),
-                            },
+                            }, clear=True,
                         ),
                         mock.patch.object(
                             sys,
@@ -2304,15 +2303,6 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                         ),
                         mock.patch.object(
                             MAINTENANCE, "download", side_effect=download
-                        ),
-                        mock.patch.object(
-                            MAINTENANCE,
-                            "load_release",
-                            side_effect=lambda repo, run_id, target, lane: (
-                                ({"status": "healthy", "final": {"backend_revision": revision(3)["metadata"]["name"], "frontend_revision": "hushh-webapp-00003-abc"}} if artifact_available else None)
-                                if lane == "production"
-                                else original_load(repo, run_id, target, lane)
-                            ),
                         ),
                         mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                         mock.patch.object(MAINTENANCE, "restore_state"),
