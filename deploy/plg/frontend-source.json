@@ -1,0 +1,229 @@
+{
+  "schemaVersion": 1,
+  "kind": "plg-frontend-source-v1",
+  "sourceSha": "2a860818549f2d6c16d1f98bd8fb9cebe01a1f84",
+  "baselineSha": "5de6ee29abe3b00642bd6b745c608279091810b3",
+  "productionBaselineSha": "d8a5fa4858741e611d39fd4f1f28b1ab930d057c",
+  "sourceTree": "c439140f2a6c34b9e76243baf6f5d4eb66eeae50",
+  "baselineTree": "70000fabb2cef2d38d2b8dd643b591e9b50b44eb",
+  "project": "hushh-pda",
+  "region": "us-central1",
+  "scope": "frontend",
+  "services": [
+    "hushh-webapp"
+  ],
+  "migrations": "none",
+  "replacementAccounts": 0,
+  "changes": [
+    {
+      "path": "contracts/architecture/runtime-topology-index.v1.json",
+      "status": "M",
+      "before": {
+        "blob": "f4530f9b96bc17840111b0b9d4a04d2820075410",
+        "sha256": "93a5d6494afe5ea41ba64c5977b3e0b2d2a34e3dbaf343e657b9d973f5fb4a25"
+      },
+      "after": {
+        "blob": "3959cc76d5bec16385095f6fdf9a570117505ad7",
+        "sha256": "4884f2a1bd39c9ac234c2065df74baee0c6dd95e10175f9e6cd3fb27078b2550"
+      }
+    },
+    {
+      "path": "docs/reference/architecture/api-contracts.md",
+      "status": "M",
+      "before": {
+        "blob": "b1131f521a35fdf19df967b64579399d189edac6",
+        "sha256": "046cf5d93ecde5c077e4985cdad16cbed42b1c7833c0b83b165ac00e8da8b9ab"
+      },
+      "after": {
+        "blob": "f81cc8eb920d99ecd6b2e0618327a56b0aff4d7e",
+        "sha256": "00035f17b945c2a5cf95fe581276579bcab7db69cf6656f8404f5b72db601550"
+      }
+    },
+    {
+      "path": "hushh-webapp/__tests__/api/plg-email-unsubscribe.test.ts",
+      "status": "A",
+      "before": null,
+      "after": {
+        "blob": "d4e189fe0bf30df641aef9a6ea16b82a6ba8641b",
+        "sha256": "890ec36441229158a53e823003fec6e5785232ec25c98b6331111fd4b6a43777"
+      }
+    },
+    {
+      "path": "hushh-webapp/__tests__/components/marketing-preference.test.tsx",
+      "status": "M",
+      "before": {
+        "blob": "e719d68297a22e84b4c712836da6ce0616b88de3",
+        "sha256": "5cff50f440e5804ba2bec77d274a1451b3007a597eda8ffcfdf8ca67cdb04336"
+      },
+      "after": {
+        "blob": "fe84dab591fac19d9b66c30ffa0d532abdd58b45",
+        "sha256": "b384bbd34413dbdbea1175dc4f035c60051e63870f7804370d63f21a53716b60"
+      }
+    },
+    {
+      "path": "hushh-webapp/__tests__/services/observability-growth.test.ts",
+      "status": "M",
+      "before": {
+        "blob": "4cac11361c2c93d3652b2d13d2b652bd096d9ae7",
+        "sha256": "87ef80062829c4eaa00a3d1efc4293efc5635903c369002b15d4d46f16b3ca9f"
+      },
+      "after": {
+        "blob": "d38cef29d9ec11269e4228435b953f2f60e50300",
+        "sha256": "30e81ddd2d1476f0002b4432572ecf42f7430cea17214cf5b47a430486b1ef76"
+      }
+    },
+    {
+      "path": "hushh-webapp/__tests__/services/post-auth-route-service.test.ts",
+      "status": "M",
+      "before": {
+        "blob": "6ebbb29c42d2fc6da7806a51df93b85868632c68",
+        "sha256": "4ea73d47644f7a6ef19b0e1a980c2cc18d853f616e4cb83f12413cdc2da11de7"
+      },
+      "after": {
+        "blob": "094018ea2e5ac0e10a5a34af9eec4254c131473e",
+        "sha256": "af8817f59bcedba1acc73273926a1cea566264b0ab597e1d11a4322f3aea6c46"
+      }
+    },
+    {
+      "path": "hushh-webapp/app/api/_utils/plg-email-unsubscribe.ts",
+      "status": "A",
+      "before": null,
+      "after": {
+        "blob": "7a37e4277aa0fbeb11b015046bc69b2f46d8e56d",
+        "sha256": "5b721f4f5ae141f173831eec8d4b9508513a77896538225388772a95f1a8a4c5"
+      }
+    },
+    {
+      "path": "hushh-webapp/app/api/plg-email/unsubscribe/[token]/route.ts",
+      "status": "A",
+      "before": null,
+      "after": {
+        "blob": "ff192354779c6eb110cb7c1200b13643ca5519b2",
+        "sha256": "f884206ba2336692bc7d814c7a6f033659be15bfd4859652ed908c279114544e"
+      }
+    },
+    {
+      "path": "hushh-webapp/components/account/marketing-preference-panel.tsx",
+      "status": "M",
+      "before": {
+        "blob": "f1e7f0f20a194081f2a4eef2e4a8a30dc93e8d01",
+        "sha256": "d85149ac4e43b4462b0faf88bfe778a379c8830e32911e9c4f23f592612299cf"
+      },
+      "after": {
+        "blob": "11b8ea368904c29a34b6ebeb71de78d1f2cb4ca6",
+        "sha256": "8a2482113836d930121037fdc109f2a2131d9e7a4c630581db5a3433a9f96118"
+      }
+    },
+    {
+      "path": "hushh-webapp/components/profile/profile-workspace-page.tsx",
+      "status": "M",
+      "before": {
+        "blob": "1af3eecb77c3e514ba16ebf1eeb8aef26bef48ad",
+        "sha256": "afb8087b2a17af2cbb7623d7aa1220dd3e1c5eb5200cdcf8177d2c11cbabb375"
+      },
+      "after": {
+        "blob": "37b5e0e3045260a79a1319b6b71a9b5b358db0a7",
+        "sha256": "825ed9107115c10ac056b089d8f9df531e7d4a79a2f5ddfe00a51e117bafb698"
+      }
+    },
+    {
+      "path": "hushh-webapp/contracts/ui-review/back/525467f86a142d1f81b707b1d0f094c9dbffc752805c3bbc181f7c185cab24b6.json",
+      "status": "A",
+      "before": null,
+      "after": {
+        "blob": "a2a6a9ff458fd4d24eb99987a1c5aa3947051bcd",
+        "sha256": "f0ce4acda705579bfde8a774f036afb7110c99a6f0c8c84e917e82569bab7c17"
+      }
+    },
+    {
+      "path": "hushh-webapp/contracts/ui-review/back/e380bd311325bdcffaa2adeede22fe0129ce800d1c5822aaee2d2739d5771a8e.json",
+      "status": "A",
+      "before": null,
+      "after": {
+        "blob": "8e0f646fb6b13fec71a4cc1f16e7b5708cef8aa8",
+        "sha256": "ee73330ccc0f9fccdbaca7eb340a3ee030075ed3c85e14b7a20d93b4b8598dad"
+      }
+    },
+    {
+      "path": "hushh-webapp/contracts/ui-review/search/6269be30d154d9932695bf1a90a8adfa989b4df74e34e16fb9c52cfe2ce55146.json",
+      "status": "A",
+      "before": null,
+      "after": {
+        "blob": "a2594c2d6f170e2b8c78a08555b1d79bff159a2f",
+        "sha256": "1c50c489374b44874509a2e7c3251424f612cafbd40de574c87468534fa3118d"
+      }
+    },
+    {
+      "path": "hushh-webapp/frontend-native-surface-map.generated.json",
+      "status": "M",
+      "before": {
+        "blob": "79077700c644fedbfa91ec1c06c6cd5608f1073e",
+        "sha256": "caea96209c163fef19ed7af13990e7a75b92e05a62eca5f3606671f811e63485"
+      },
+      "after": {
+        "blob": "02f513966396942162393f36b994ac903c1c94a5",
+        "sha256": "7527cdaa32d063b5e7e8b3d944646b4c48666b24566edceda56fc5277bde0ed1"
+      }
+    },
+    {
+      "path": "hushh-webapp/lib/navigation/routes.ts",
+      "status": "M",
+      "before": {
+        "blob": "12f0377c446a6ab184f27d4c35d129cd87d69425",
+        "sha256": "ce8030ee01db843bda7864e1a082caa04a8ee9b04b03ffa7257f7b1a3c33841e"
+      },
+      "after": {
+        "blob": "30c8868e880287eb0e1e6f61fc0c2791f7127883",
+        "sha256": "5e8997fd9212b9cbf0d842664b8e22ef1e26bbca89c7b24b89fa4ed2d14ae27e"
+      }
+    },
+    {
+      "path": "hushh-webapp/lib/observability/growth.ts",
+      "status": "M",
+      "before": {
+        "blob": "19bb2f235fa2b8fd093efe3d3e75a195759869ba",
+        "sha256": "e002bc871307fb21f1529f9bb6c9bba6cdc29d7aebf59490eb61362f3a7327de"
+      },
+      "after": {
+        "blob": "47e50313859296007cc8da60d6bb4c9d944630be",
+        "sha256": "2a3bda0118acbfedaa45e765a4d5efc7dd5bfe1030c4557a9b97ce88957fe780"
+      }
+    },
+    {
+      "path": "hushh-webapp/lib/observability/log-redactor.ts",
+      "status": "M",
+      "before": {
+        "blob": "cfa099173499855f1874f867dc38d4b0629d88c1",
+        "sha256": "acb382daaba3dfc7b042d71b38054c1328a871b35fe0815b941468410e0eacc5"
+      },
+      "after": {
+        "blob": "e5e6929e8330d368267f786dc49ff9b46cf4a697",
+        "sha256": "6811f503b037d7894e76bc48d06c01e2652790965009a994a72b8cef0af396e1"
+      }
+    },
+    {
+      "path": "hushh-webapp/lib/observability/route-map.ts",
+      "status": "M",
+      "before": {
+        "blob": "4b1aa48b0e5155493ea7c50aa279baa5a0c844be",
+        "sha256": "85739d162defffb86978eee2d369acdd4fa5426190c9e00e69c288239c6a6b23"
+      },
+      "after": {
+        "blob": "a2063dccc64e99df5568aef781f8fb58d3304f8e",
+        "sha256": "20d78148f33f5aec6591939b958753c455790a7377f8f0be982fa2e1ce59542b"
+      }
+    },
+    {
+      "path": "hushh-webapp/next.config.ts",
+      "status": "M",
+      "before": {
+        "blob": "0cf1e68060ddb16c10ed0398b16d955ebd2e0536",
+        "sha256": "2634bf7e4f36968a2bae099d3452695e35e03a0a8490b9635f71b7a2d490db82"
+      },
+      "after": {
+        "blob": "4ab5df0054bf3b6ffec5aab2924dba949eab7355",
+        "sha256": "5288d1131a557fba9b6fd6822056b051364e6f2c770adfb0eb29c78db5757e08"
+      }
+    }
+  ]
+}

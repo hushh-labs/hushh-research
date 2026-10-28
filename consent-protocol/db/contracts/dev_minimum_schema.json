@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 435,
+  "expected_migration_version": 436,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -413,6 +413,24 @@
       "identity_hash",
       "phone_digest",
       "revoked_at"
+    ],
+    "account_phone_linked_deletions": [
+      "operation_id",
+      "requester_user_id",
+      "requester_hash",
+      "target_user_id",
+      "target_hash",
+      "phone_digest",
+      "binding_revision",
+      "generation",
+      "transport",
+      "proof_event_digest",
+      "failed_proof_count",
+      "state",
+      "result_code",
+      "created_at",
+      "expires_at",
+      "dispatched_at"
     ],
     "account_phone_recovery_continuations": [
       "operation_id",
@@ -4163,5 +4181,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 435
+  "expected_schema_head": 436
 }

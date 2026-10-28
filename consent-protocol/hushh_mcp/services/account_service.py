@@ -9,7 +9,7 @@ import os
 from collections.abc import Iterable
 from datetime import datetime, timezone
 from time import monotonic
-from typing import Any, Dict, Literal
+from typing import Any, Callable, Dict, Literal
 
 from sqlalchemy import text
 
@@ -95,6 +95,22 @@ _RECOVERY_ERASURE_BATCH_SIZE = 100
 
 def _is_release_fence_refusal(exc: BaseException) -> bool:
     return _postgres_sqlstate(exc) == "55000" and _RELEASE_FENCE_MESSAGE in str(exc)
+
+
+class AccountDeletionAdmissionRefused(RuntimeError):
+    """A caller's check refused inside the admission transaction; nothing committed."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+    def result(self) -> Dict[str, Any]:
+        return {
+            "success": False,
+            "account_deleted": False,
+            "error_code": self.code,
+            "error": self.code,
+        }
 
 
 TRANSACTIONAL_ACCOUNT_ERASURE_TABLES = frozenset(
@@ -1406,8 +1422,13 @@ class AccountService:
         *,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
-        """Delete either the whole account or one persona."""
+        """Delete either the whole account or one persona.
+
+        ``admission_check`` runs inside the full-account admission transaction,
+        under the owner's exclusive lifecycle locks, before anything commits.
+        """
         requested_target = self._normalized_target(target)
         actor_profile = await asyncio.to_thread(self._load_actor_profile, user_id)
         personas = (
@@ -1432,6 +1453,7 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                admission_check=admission_check,
             )
 
         remaining_personas = [persona for persona in personas if persona != requested_target]
@@ -1948,6 +1970,7 @@ class AccountService:
         backend_only: bool = False,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Prepare durable cleanup, or execute the attested UAT-only local reset."""
         if backend_only and (
@@ -1962,7 +1985,10 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                admission_check=admission_check,
             )
+        if admission_check is not None:
+            raise ValueError("admission_check_requires_prepared_cleanup")
         cleanup = await self._erase_shared_files_if_present(user_id, backend_only=backend_only)
         if cleanup is not None:
             return cleanup
@@ -1977,6 +2003,7 @@ class AccountService:
         requested_target: DeleteAccountTarget,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Persist approval and custody before returning; the existing worker continues."""
 
@@ -1991,7 +2018,10 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                admission_check=admission_check,
             )
+        except AccountDeletionAdmissionRefused as refused:
+            return refused.result()
         except PhoneTransferInProgressError:
             return {
                 "success": False,

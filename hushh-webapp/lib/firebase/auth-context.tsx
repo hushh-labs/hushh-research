@@ -38,6 +38,7 @@ import { AuthService } from "@/lib/services/auth-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { createPhoneVerificationRecovery } from "@/lib/auth/phone-verification-recovery";
+import { confirmLinkedDeletion, type LinkedDeletionInput } from "@/lib/auth/phone-linked-deletion";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -211,7 +212,7 @@ interface AuthContextType {
     options?: { resendCode?: boolean; transport?: "sms" },
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmPhoneVerification: (otp: string) => Promise<User>;
-  confirmPhoneTransfer: () => Promise<User>;
+  confirmPhoneTransfer: () => Promise<User>; confirmPhoneLinkedDeletion: (input: LinkedDeletionInput) => Promise<User>;
   startPhoneReplacement: (
     phoneNumber: string,
     options?: { resendCode?: boolean; transport?: "sms" },
@@ -2195,6 +2196,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     phoneVerificationOwnerRef.current = null;
     return currentUser;
   }, [requirePhoneVerificationOwner]);
+  const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput) => {
+    const principal = principalRef.current;
+    return confirmLinkedDeletion(input, { user: () => userRef.current, retained: () => phoneTransferProofRef.current,
+      requireOwner: requirePhoneVerificationOwner, finalize: (verified) => {
+        phoneTransferProofRef.current = null; setConfirmationResult(null); setNativeVerificationId(null); setPhoneVerificationPhoneNumber(null);
+        if (!Capacitor.isNativePlatform()) resetRecaptcha(); applyAuthUser(verified, principal); phoneVerificationOwnerRef.current = null; } });
+  }, [applyAuthUser, requirePhoneVerificationOwner]);
 
   // Replacement and first verification share the same isolated possession proof.
   const confirmPhoneReplacement = confirmPhoneVerification;
@@ -2286,7 +2294,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Methods
       startPhoneVerification,
       confirmPhoneVerification,
-      confirmPhoneTransfer,
+      confirmPhoneTransfer, confirmPhoneLinkedDeletion,
       startPhoneReplacement,
       confirmPhoneReplacement,
       signOut,
@@ -2311,7 +2319,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       accountPrincipal,
       startPhoneVerification,
       confirmPhoneVerification,
-      confirmPhoneTransfer,
+      confirmPhoneTransfer, confirmPhoneLinkedDeletion,
       startPhoneReplacement,
       confirmPhoneReplacement,
       signOut,

@@ -7,7 +7,6 @@ import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceCard } from "@/components/app-ui/surfaces";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
@@ -19,8 +18,8 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 import { boardOccasionKind, isCountedBoardEvent } from "@/lib/calendar/calendar-board-event";
-import { googleAvatarSource } from "@/lib/profile/provider-avatar";
-import type { CalendarPhotoStatus } from "@/lib/calendar/calendar-photo-account-status";
+import type { GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
+import { calendarHusshPerson, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
 import { connectionAvatarInitials } from "@/components/connections/connection-person-avatar";
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { GoogleCalendarService, type CalendarBoardAccount, type CalendarBoardConflict, type CalendarBoardDay, type CalendarEventSummary, type CalendarInvitation } from "@/lib/services/google-calendar-service";
@@ -29,13 +28,15 @@ import { CalendarInvitationActions } from "./calendar-invitation-actions";
 import { CalendarConflictPanel } from "./calendar-conflict-panel";
 import { CalendarCompactAction } from "./calendar-compact-action";
 import { CalendarInvitations } from "./calendar-invitations";
+import { CalendarPersonAvatar } from "./calendar-person-avatar";
 import { CalendarInsights } from "./calendar-insights";
 import { calendarDate, eventTime, availabilityTimeRangeLabel, calendarResponse, CalendarMeetingIcon, meetingProvider } from "./calendar-schedule-presentation";
 import styles from "./calendar-account-board.module.css";
 
 type Props = {
   userId: string;
-  status: CalendarPhotoStatus;
+  status: GoogleCalendarStatus;
+  calendarPeople: CalendarHusshPeople;
   busy: boolean;
   connectionRevision?: number;
   connectionNotice?: React.ReactNode;
@@ -95,7 +96,7 @@ function JoinVideoIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.5" /><path d="m15.5 10 6-3v10l-6-3" /></svg>;
 }
 
-export function CalendarAccountBoard({ userId, status, busy, connectionRevision, connectionNotice, token, getIdToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onAllowMeetingFiles, onConnect, onMailConnect, onChat }: Props) {
+export function CalendarAccountBoard({ userId, status, calendarPeople, busy, connectionRevision, connectionNotice, token, getIdToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onAllowMeetingFiles, onConnect, onMailConnect, onChat }: Props) {
   const [zone, setZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const now = Math.max(Date.now(), useCoarseClock(60_000));
   const today = calendarDate(now, zone);
@@ -225,8 +226,10 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
               const otherItems = account.events.filter(event => !isCountedBoardEvent(event) && boardOccasionKind(event) === null);
               const scrollEvents = meetings.length + otherItems.length > 3;
               const [accountName, accountDomain] = accountEmailParts(account.google_email);
-              const photoUrl = account.profile_photo_url ?? status.accounts?.find(item => item.account_id === account.account_id)?.profile_photo_url;
-              const safePhotoUrl = photoUrl ? googleAvatarSource(photoUrl)?.href : null;
+              const verifiedAccount = status.accounts?.find(item => item.account_id === account.account_id);
+              const husshPhoto = verifiedAccount?.google_email_verified === true && verifiedAccount.google_email?.trim().toLowerCase() === account.google_email?.trim().toLowerCase()
+                ? calendarHusshPerson(calendarPeople, account.google_email)?.photoUrl ?? null
+                : null;
               const renderEvent = (event: CalendarEventSummary) => {
                 const choice: Selection = { accountId: account.account_id, calendarId: event.calendar_id || "primary", eventId: event.id || "" };
                 const count = board.conflicts.filter(pair => pairIncludes(pair, choice)).length;
@@ -253,7 +256,7 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
               };
               return <SurfaceCard key={account.account_id} role="group" aria-label={`Calendar account ${accountLabel(account.google_email)}`} className={styles.account} data-account-index={index}>
                 <div className={styles.accountHeader}>
-                  <Avatar className={styles.accountAvatar} data-photo-url={safePhotoUrl || undefined}>{safePhotoUrl ? <AvatarImage src={safePhotoUrl} alt="" referrerPolicy="no-referrer" /> : null}<AvatarFallback aria-hidden="true">{connectionAvatarInitials(accountName)}</AvatarFallback></Avatar>
+                  <CalendarPersonAvatar name={accountName} photoUrl={husshPhoto} className={styles.accountAvatar} fallbackText={connectionAvatarInitials(accountName)} source="hussh" />
                   <div className={styles.accountIdentity} title={account.google_email}><div className={styles.accountName}>{accountName}</div>{accountDomain ? <span className={styles.accountDomain}>{accountDomain}</span> : null}</div>
                   <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${accountLabel(account.google_email)}`}><MoreHorizontal aria-hidden className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
                     <DropdownMenuItem onSelect={() => onDisconnectAccount(account.account_id)}>Disconnect this Calendar account</DropdownMenuItem>
@@ -281,7 +284,7 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
         </> : null}
       </> : tab === "invitations" ? <section className={styles.secondary} aria-label="Invitations">
         <label className={styles.accountPicker}>Calendar account<span className={styles.accountPickerControl}><select value={invitationAccount} onChange={event => setInvitationAccount(event.target.value)}>{(status.accounts || []).map(account => <option key={account.account_id} value={account.account_id}>{accountLabel(account.google_email)}</option>)}</select><ChevronDown aria-hidden="true" className={styles.accountPickerChevron} /></span></label>
-        {status.accounts?.find(account => account.account_id === invitationAccount)?.connected ? <CalendarInvitations key={invitationAccount} workspaceLayout connectedProfiles userId={userId} accountId={invitationAccount} accountEmail={status.accounts.find(account => account.account_id === invitationAccount)?.google_email} accountPhotoUrl={status.accounts.find(account => account.account_id === invitationAccount)?.profile_photo_url} accountGrantedScopes={status.accounts.find(account => account.account_id === invitationAccount)?.scope_csv} accountGrantGeneration={status.accounts.find(account => account.account_id === invitationAccount)?.grant_generation} accountSubjectSha256={status.accounts.find(account => account.account_id === invitationAccount)?.provider_subject_sha256} accountHostedDomain={status.accounts.find(account => account.account_id === invitationAccount)?.hosted_domain} accountGuestPhotoAccess={status.accounts.find(account => account.account_id === invitationAccount)?.guest_photo_access} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={invitationAccount === "default" ? onConnect : () => onReconnectAccount(invitationAccount)} onMailConnect={onMailConnect} onResult={() => { notifyCalendarChanged(userId); setRevision(value => value + 1); }} /> : <p role="alert">Reconnect this account to see its invitations.</p>}
+        {status.accounts?.find(account => account.account_id === invitationAccount)?.connected ? <CalendarInvitations key={invitationAccount} workspaceLayout calendarPeople={calendarPeople} userId={userId} accountId={invitationAccount} accountEmail={status.accounts.find(account => account.account_id === invitationAccount)?.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={invitationAccount === "default" ? onConnect : () => onReconnectAccount(invitationAccount)} onMailConnect={onMailConnect} onResult={() => { notifyCalendarChanged(userId); setRevision(value => value + 1); }} /> : <p role="alert">Reconnect this account to see its invitations.</p>}
       </section> : <section className={styles.secondary} aria-label="Calendar insights">
         <label className={styles.accountPicker}>Calendar account<span className={styles.accountPickerControl}><select value={insightsAccount} onChange={event => setInsightsAccount(event.target.value)}>{(status.accounts || []).map(account => <option key={account.account_id} value={account.account_id}>{accountLabel(account.google_email)}</option>)}</select><ChevronDown aria-hidden="true" className={styles.accountPickerChevron} /></span></label>
         {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${status.accounts?.find(account => account.account_id === insightsAccount)?.grant_generation}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} getIdToken={getIdToken} onAllowMeetingFiles={onAllowMeetingFiles} /> : <p role="alert">Reconnect this account to see its insights.</p>}

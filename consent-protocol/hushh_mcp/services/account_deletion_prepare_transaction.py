@@ -1,5 +1,7 @@
 """Bounded database transaction that prepares durable full-account cleanup."""
 
+from typing import Any, Callable
+
 from hushh_mcp.services.account_answer_erasure import guard_answer_erasure
 from hushh_mcp.services.account_deletion_inventory_review import ACCOUNT_ERASURE_SQL_LIMITS
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
@@ -14,6 +16,7 @@ def prepare_full_account_cleanup_transaction(
     requested_target: str,
     reviewed_inventory_sha256: str | None,
     accept_local_erasure: bool,
+    admission_check: Callable[[Any], None] | None = None,
 ):
     """Lock the owner, recheck the reviewed inventory, and persist the intent."""
     with get_connection() as conn:
@@ -26,7 +29,7 @@ def prepare_full_account_cleanup_transaction(
             from hushh_mcp.services.account_generation_service import AccountGenerationService
 
             identity = AccountGenerationService.identity_in_transaction(conn, user_id)
-        return AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
+        prepared = AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
             conn,
             user_id=user_id,
             firebase_uid=identity,
@@ -35,3 +38,6 @@ def prepare_full_account_cleanup_transaction(
             reviewed_inventory_sha256=reviewed_inventory_sha256,
             accept_local_erasure=accept_local_erasure,
         )
+        if admission_check is not None:
+            admission_check(conn)
+        return prepared

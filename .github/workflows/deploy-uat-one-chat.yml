@@ -96,9 +96,11 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/capacity-tools"
           cp scripts/ci/runtime-capacity-budget.py "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py"
           cp scripts/ci/runtime_capacity_inventory.py "${RUNNER_TEMP}/capacity-tools/runtime_capacity_inventory.py"
+          cp scripts/ci/runtime_capacity_cli.py scripts/ci/runtime_capacity_target_scope.py "${RUNNER_TEMP}/capacity-tools/"
           cp config/runtime-capacity.json "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json"
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py"
+          cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
 
       - name: Validate exact main SHA and actor
@@ -117,6 +119,7 @@ jobs:
           git checkout --detach "$TARGET_SHA"
           cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py" scripts/ci/runtime-capacity-budget.py
           cp "${RUNNER_TEMP}/capacity-tools/runtime_capacity_inventory.py" scripts/ci/runtime_capacity_inventory.py
+          cp "${RUNNER_TEMP}/capacity-tools/runtime_capacity_cli.py" "${RUNNER_TEMP}/capacity-tools/runtime_capacity_target_scope.py" scripts/ci/
           cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json" config/runtime-capacity.json
 
       - name: Require exact-SHA dev acceptance for the backend

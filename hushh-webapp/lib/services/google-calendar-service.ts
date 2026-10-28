@@ -9,6 +9,7 @@ export type { CalendarReadRecovery, CalendarSource } from "@/lib/services/google
 export type GoogleCalendarAccount = {
   account_id: string;
   google_email: string | null;
+  google_email_verified?: boolean;
   profile_photo_url?: string | null;
   status: "connected" | "needs_reauth" | "disconnected";
   connected: boolean;
