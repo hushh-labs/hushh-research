@@ -3529,9 +3529,11 @@ class CommandLifecycleTest(unittest.TestCase):
                 process = mock.Mock(pid=123)
                 process.poll.return_value = returncode
                 with (
+                    mock.patch.object(process_group.os, "name", "posix"),
                     mock.patch.object(process_group.sys, "platform", platform),
+                    mock.patch.object(process_group.signal, "SIGKILL", 9, create=True),
                     mock.patch.object(process_group.subprocess, "Popen", return_value=process),
-                    mock.patch.object(process_group.os, "killpg", side_effect=PermissionError),
+                    mock.patch.object(process_group.os, "killpg", side_effect=PermissionError, create=True),
                     mock.patch.object(process_group, "_group_is_absent", return_value=absent, create=True),
                 ):
                     if accepted:
