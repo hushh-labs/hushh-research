@@ -51,6 +51,9 @@ history, with exact-SHA Dev acceptance still required before deployment. Main
 candidates retain mandatory Main smoke. Automatic selection retains its current
 Main baseline until the UAT selector and historical baseline are qualified. The
 prepared UAT-tip selector refuses unknown, concurrent or non-forward baselines.
+Its selection-time snapshot rechecks the remote UAT tip after reading receipts.
+Before activation, the deployment admission must recheck that same tip under
+the mutation lock; selection alone cannot fence a later branch update.
 
 For production, `sha` remains the UAT-accepted application. When approval landed
 as a different Main merge, `main_approval_sha` requires that merge's Main smoke,
