@@ -275,7 +275,6 @@ jobs:
               - '.github/workflows/editor-performance-nightly.yml'
               - 'scripts/ci/**'
               - '!scripts/ci/web-check.sh'
-              - '!scripts/ci/web-core-check.sh'
               - '!scripts/ci/web-full-check.sh'
               - '!scripts/ci/web-full-suite-check.sh'
               - '!scripts/ci/web-targeted-check.sh'
