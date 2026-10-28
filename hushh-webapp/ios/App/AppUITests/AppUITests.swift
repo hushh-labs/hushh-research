@@ -4853,11 +4853,16 @@ final class AppUITests: XCTestCase {
                 let scroll = app.scrollViews["native-profile-menu-scroll"].firstMatch
                 func row(_ label: String) -> XCUIElement { app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch }
                 func find(_ label: String) -> Bool {
-                    for _ in 0..<12 {
-                        if row(label).exists && row(label).isHittable { return true }
-                        if scroll.exists { scroll.swipeUp() }
+                    // Nested pages retain their reading position. On return,
+                    // a row can be above or below the visible viewport.
+                    for upwards in [true, false] {
+                        for _ in 0..<6 {
+                            if row(label).exists && row(label).isHittable { return true }
+                            guard scroll.exists && scroll.isHittable else { return false }
+                            if upwards { scroll.swipeUp() } else { scroll.swipeDown() }
+                        }
                     }
-                    return false
+                    return row(label).exists && row(label).isHittable
                 }
                 func filter(_ value: String) -> Bool {
                     for _ in 0..<12 { if search.exists && search.isHittable { break }; if scroll.exists { scroll.swipeDown() } }
@@ -4908,7 +4913,11 @@ final class AppUITests: XCTestCase {
                 driveBack.tap()
                 // Compact UIKit Back has the same accessibility label on
                 // both pages. Prove the destination body before another Back.
-                guard find("Trusted documents"), waitForAdmittedControl(catalogBack) else { XCTFail("PROFILE_NATIVE_DRIVE_RETURN_FAILED"); return }
+                guard find("Trusted documents"), waitForAdmittedControl(catalogBack) else {
+                    let trusted = row("Trusted documents")
+                    print("PROFILE_DRIVE_RETURN_STATE drive=\(app.navigationBars["Google Drive"].exists) trust=\(app.navigationBars["Trusted documents"].exists) row=\(trusted.exists) row_hittable=\(trusted.exists && trusted.isHittable) back=\(catalogBack.exists && catalogBack.isHittable) scroll=\(scroll.exists && scroll.isHittable)")
+                    XCTFail("PROFILE_NATIVE_DRIVE_RETURN_FAILED"); return
+                }
                 catalogBack.tap()
                 guard filter(""), waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_CONNECTOR_CATALOG_RETURN_FAILED"); return }
                 nativeAccountBack.tap()
