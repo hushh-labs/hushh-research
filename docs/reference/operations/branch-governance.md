@@ -5,6 +5,21 @@ The canonical state-changing operator procedure is the
 This page defines branch policy and governed cohorts; it does not redefine the
 exact-head Admin PR landing or environment dispatch sequence.
 
+## Visual Map
+
+The UAT branch and its default selector remain staged until their historical
+baseline is reconciled and the transition is separately authorized.
+
+```mermaid
+flowchart LR
+  feature["Feature branches"] --> dev["Protected Dev"]
+  dev -->|"Selected changes and dependencies"| uat["Protected UAT"]
+  uat -->|"Exact application acceptance"| main["Main approval"]
+  main -->|"Explicit production approval"| prod["Production"]
+  operations["Governed operations / hotfix"] --> main
+  legacy["Retained legacy train"] -.->|"Reviewed reconciliation"| dev
+```
+
 ## Dev / UAT branch preparation
 
 The protected Dev branch is the configured development intake and the default
@@ -140,7 +155,7 @@ lane. The target-branch setting does not grant a bot Main merge authority.
 | Lane | Source and authority |
 |---|---|
 | Dev | Feature PRs target protected `dev`; governed operators deploy an exact CI-green SHA through Main-owned tooling. Explicit feature refs remain supported. |
-| UAT | Existing Main-based default and Dev acceptance remain active. The planned transition selects dependency-complete changes into protected `uat` and qualifies the exact assembled SHA in CI before UAT. |
+| UAT | Existing Main-based default and Dev acceptance remain active. The approved direction selects dependency-complete changes into protected `uat` and qualifies the exact assembled SHA in CI before UAT once the admission path is ready. |
 | Main | Review accepted UAT content for release. When its approval merge differs from the tested application SHA, require identical complete Git trees and preserve both identities. |
 | Main operations/hotfix | A governed maintainer may branch from `origin/main` and open a PR directly into `main` by actor identity. CI, conversations, queue/Admin SOP and landed smoke remain mandatory. Merging does not deploy. |
 | Production | Explicit UAT-accepted application plus Main approval, or the separately approved manual emergency route. Automatic publication remains disabled. |
@@ -150,21 +165,6 @@ lane. The target-branch setting does not grant a bot Main merge authority.
 and the currently declared promotion heads. This authorizes PR routing only;
 it does not establish Dev/UAT acceptance or authorize a deployment. Keep
 `allow_auto_merge` enabled so eligible PRs can enter the ordinary queue.
-
-## Visual Map
-
-The UAT branch and its default selector remain staged until their historical
-baseline is reconciled and the transition is separately authorized.
-
-```mermaid
-flowchart LR
-  feature["Feature branches"] --> dev["Protected Dev"]
-  dev -->|"Selected changes and dependencies"| uat["Protected UAT"]
-  uat -->|"Exact application acceptance"| main["Main approval"]
-  main -->|"Explicit production approval"| prod["Production"]
-  operations["Governed operations / hotfix"] --> main
-  legacy["Retained legacy train"] -.->|"Reviewed reconciliation"| dev
-```
 
 ### Carry stable fixes back to development
 
