@@ -581,6 +581,9 @@ mounted tab opens its local exact-time form.
 | Conflict | **Overlaps {first conflict title}**, fallback **another meeting**. It is not a separate conflict fetch per row. |
 | Selected event absent | **This invitation is no longer in the current window. Ask One to check it again.** for a selected handoff ID absent from the read. |
 
+Avatar matches are transient Calendar views of existing authorized profile and
+Connection records. They do not create a guest-photo Live Memory source.
+
 Migration `434_calendar_guest_photo_access.sql` adds the Calendar photo-grant
 columns with `false` defaults. It remains applied for compatibility and is not
 rewritten or rolled back; a rollback refuses to remove active photo grants.
