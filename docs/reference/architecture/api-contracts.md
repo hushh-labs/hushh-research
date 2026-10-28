@@ -2518,16 +2518,21 @@ client; missing/legacy state requires restarting the connection, with no unfence
 fallback. Deploy matching native/web assets with the backend. Real provider
 revocation/reauthorization ordering is not proven by local transaction tests.
 
-For a first Calendar connection, the same OAuth attempt also requests optional
-`contacts.readonly` access for invitation guest photos. Historical Calendar
-grants keep their prior scope; a new grant records `guest_photo_access=true`
-only when Google's token response confirms that scope. Web and native starts
-use this same attempt-bound decision, and `status`/`accounts[]` expose the flag,
-scope, provider subject digest and grant generation. A missing photo grant
-leaves invitations usable with initials. The token broker below returns a
-short-lived Contacts-only bearer after verifying both owner credentials and
-the selected account; People reads occur in the browser and Google may omit a
-guest's profile photo even when the permission is granted.
+New Calendar connections, including additional accounts, do not request
+`contacts.readonly` solely for guest photos. Calendar person avatars use the
+current HUSSH photo for an active Connection whose email is verified and
+matches exactly, or for the signed-in owner's verified primary/linked email.
+Missing, ambiguous, private, unverified and non-HUSSH people retain initials.
+The Connections list adds `emailVerified` from the authoritative actor profile;
+an absent field is unverified. An account card also requires
+`accounts[].google_email_verified=true`, derived from matching Google's current
+verified userinfo email to that account's stored email under its grant. A
+verified userinfo result is cached for at most 60 seconds; a failed fresh
+lookup leaves initials. Calendar does not request a photo-only
+token or call Google People. Existing Google grants are not revoked or forced
+to reconnect. Historical Calendar photo grants, `guest_photo_access` fields,
+and the token broker below remain for compatibility with existing clients;
+separate Contacts functionality retains its own scope preservation.
 
 Drive connection, selection, processing, reading and sharing use the external
 connector routes under `/api/connectors` and `/api/connectors/google_drive/sharing`. The former
@@ -2551,7 +2556,7 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/calendar/connect/native/start` | Firebase Bearer | Create an owner-bound, generation-fenced native attempt; return public client settings and opaque state. |
 | POST   | `/api/one/calendar/connect/native/complete` | Firebase Bearer | Exchange the native code only with the matching state, owner, service and permission; missing state is rejected. |
 | GET    | `/api/one/calendar/status/{user_id}`  | Firebase Bearer    | Return non-sensitive Calendar connection and permission state, including each owner-bound Calendar account ID/status and a three-account limit. |
-| POST | `/api/one/calendar/guest-photo-token` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Return a no-store, short-lived Contacts-only browser token when the selected Calendar account has a recorded photo grant and matching owner, subject digest and grant generation. Reject broader or unproven Google scope. Never call People on the backend. |
+| POST | `/api/one/calendar/guest-photo-token` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Compatibility endpoint for existing clients with a historical photo grant. Returns a no-store, short-lived Contacts-only browser token only after owner, subject digest, grant generation and scope checks. The Calendar workspace no longer calls it. |
 | POST   | `/api/one/calendar/disconnect`        | Firebase Bearer    | Disable the selected Calendar `account_id`; the default preserves sibling Google services, while an additional Calendar-only credential is erased and its provider token revoked best-effort. |
 | POST   | `/api/one/calendar/events`            | VAULT_OWNER Bearer | Read bounded primary-calendar events in a supplied ISO-8601 time range.                                             |
 | POST   | `/api/one/calendar/availability`      | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars.                                                         |
