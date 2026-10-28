@@ -667,7 +667,7 @@ describe("CalendarAgentPage", () => {
     const existing = { account_id: "second", google_email: "second@example.com", connected: true, status: "connected", access_level: "manage", calendar_list_access: true };
     const added = { account_id: "third", google_email: "third@example.com", connected: true, status: "connected", access_level: "manage", calendar_list_access: true };
     mocks.status.mockResolvedValue({ configured: true, connected: false, status: "disconnected", scope_csv: "", accounts: [existing] });
-    mocks.startNativeConnect.mockResolvedValue({ server_client_id: "native-client", access_level: "manage", include_calendar_list: true, state: "state" });
+    mocks.startNativeConnect.mockResolvedValue({ server_client_id: "native-client", access_level: "manage", include_calendar_list: true, include_guest_photos: true, state: "state" });
     mocks.connectCalendar.mockResolvedValue({ serverAuthCode: "auth-code" });
     mocks.completeNativeConnect.mockResolvedValue({ configured: true, connected: false, status: "disconnected", scope_csv: "", accounts: [existing, added] });
     render(<CalendarAgentPage />);
@@ -676,6 +676,7 @@ describe("CalendarAgentPage", () => {
       route_id: "one_calendar", action: "connected", result: "success",
     }));
     expect(mocks.startNativeConnect).toHaveBeenCalledWith(expect.objectContaining({ additional: true }));
+    expect(mocks.connectCalendar).toHaveBeenCalledWith(expect.objectContaining({ includeGuestPhotos: true }));
   });
 
   it("preserves the structured free-window selection in the existing chat handoff", async () => {

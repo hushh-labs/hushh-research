@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 432,
+  "expected_migration_version": 433,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -2062,6 +2062,7 @@
       "status",
       "scope_csv",
       "access_level",
+      "guest_photo_access",
       "refresh_token_ciphertext",
       "refresh_token_iv",
       "refresh_token_tag",
@@ -2130,6 +2131,7 @@
       "access_level",
       "created_at",
       "disconnected_at",
+      "guest_photo_access",
       "last_used_at",
       "provider",
       "scope_csv",
@@ -4132,5 +4134,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 432
+  "expected_schema_head": 433
 }

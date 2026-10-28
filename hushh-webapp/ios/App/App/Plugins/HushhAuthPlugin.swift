@@ -763,6 +763,9 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         if call.getBool("includeCalendarList") == true {
             calendarScopes.append("https://www.googleapis.com/auth/calendar.calendarlist.readonly")
         }
+        if call.getBool("includeGuestPhotos") == true {
+            calendarScopes.append("https://www.googleapis.com/auth/contacts.readonly")
+        }
         GIDSignIn.sharedInstance.signIn(
             withPresenting: viewController,
             hint: nil,

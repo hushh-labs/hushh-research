@@ -14,6 +14,11 @@ export type GoogleCalendarAccount = {
   connected: boolean;
   access_level: "read" | "manage" | null;
   calendar_list_access: boolean;
+  guest_photo_access?: boolean;
+  scope_csv?: string;
+  grant_generation?: string;
+  provider_subject_sha256?: string;
+  hosted_domain?: string | null;
 };
 export type GoogleCalendarStatus = GoogleConnectionStatus & {
   accounts?: GoogleCalendarAccount[];
@@ -32,6 +37,7 @@ type NativeOAuthStart = {
   access_level: "read" | "manage";
   state: string;
   include_calendar_list?: boolean;
+  include_guest_photos?: boolean;
 };
 
 export type CalendarExecution = {

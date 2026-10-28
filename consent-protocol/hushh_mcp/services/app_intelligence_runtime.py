@@ -1286,6 +1286,11 @@ def _discover_native_semantic_actions(
     return sorted(discovered, key=lambda item: (item["service_id"], item["tool_name"]))
 
 
+# Browser-only credential brokers must never enter the agent capability catalog,
+# even as unbound endpoint metadata. They are not semantic agent actions.
+_INTERNAL_AUTHORITY_ROUTES = frozenset({"/api/one/calendar/guest-photo-token"})
+
+
 def _endpoint_auth_boundary(route: Any) -> str:
     """Classify only the route's auth boundary, never its request values."""
     dependant = getattr(route, "dependant", None)
@@ -1316,7 +1321,11 @@ def _discover_service_api_endpoints_from_router(
     for route in getattr(router, "routes", ()) or ():
         path = str(getattr(route, "path", "") or "").strip()
         methods = getattr(route, "methods", None)
-        if not path or not isinstance(methods, (set, frozenset, list, tuple)):
+        if (
+            path in _INTERNAL_AUTHORITY_ROUTES
+            or not path
+            or not isinstance(methods, (set, frozenset, list, tuple))
+        ):
             continue
         operation_name = str(getattr(route, "name", "") or "").strip()
         auth_boundary = _endpoint_auth_boundary(route)
@@ -1410,6 +1419,8 @@ def _discover_service_api_endpoints_from_source(service_id: str) -> list[dict[st
             if not route_path.startswith("/"):
                 continue
             path = f"{prefix.rstrip('/')}{route_path}" if prefix else route_path
+            if path in _INTERNAL_AUTHORITY_ROUTES:
+                continue
             result.append(
                 {
                     "capability_id": f"api.{clean_service_id}.{method.lower()}.{node.name}",

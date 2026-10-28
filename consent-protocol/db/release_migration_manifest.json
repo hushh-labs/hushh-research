@@ -368,7 +368,8 @@
     "429_drive_empty_sale_finalization.sql",
     "430_one_area_discovery.sql",
     "431_phone_recovery_actions.sql",
-    "432_document_delivery_background.sql"
+    "432_document_delivery_background.sql",
+    "433_calendar_guest_photo_access.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -781,6 +782,7 @@
     "429_drive_empty_sale_finalization.sql": "rollback/429_drive_empty_sale_finalization.rollback.sql",
     "430_one_area_discovery.sql": "rollback/430_one_area_discovery.rollback.sql",
     "431_phone_recovery_actions.sql": "rollback/431_phone_recovery_actions.rollback.sql",
-    "432_document_delivery_background.sql": "rollback/432_document_delivery_background.rollback.sql"
+    "432_document_delivery_background.sql": "rollback/432_document_delivery_background.rollback.sql",
+    "433_calendar_guest_photo_access.sql": "rollback/433_calendar_guest_photo_access.rollback.sql"
   }
 }

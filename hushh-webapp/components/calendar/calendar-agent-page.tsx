@@ -406,6 +406,7 @@ export function CalendarAgentPage({
           serverClientId: start.server_client_id,
           accessLevel: start.access_level,
           ...(start.include_calendar_list ? { includeCalendarList: true } : {}),
+          ...(start.include_guest_photos ? { includeGuestPhotos: true } : {}),
         });
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         const completed = await GoogleCalendarService.completeNativeConnect({
