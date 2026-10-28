@@ -93,7 +93,8 @@ def test_warmed_process_first_turn_imports_nothing_before_answering():
     assert _modules_imported_by_first_turn("warm") == 0
 
 
-def test_warmup_reaches_the_model_without_opening_any_connection(monkeypatch):
+@pytest.mark.parametrize("pod", [False, True])
+def test_warmup_reaches_the_model_without_opening_any_connection(monkeypatch, pod):
     """The warmup runs on every worker at startup: no database, provider or peer."""
     import socket
 
@@ -105,6 +106,16 @@ def test_warmup_reaches_the_model_without_opening_any_connection(monkeypatch):
 
     monkeypatch.setattr(socket.socket, "connect", no_connection)
     monkeypatch.setattr(socket.socket, "connect_ex", no_connection)
+    monkeypatch.setenv("HUSSH_POD_MODE", "1" if pod else "0")
+    monkeypatch.setenv("HUSSH_POD_MEMORY_ENABLED", "true")
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_memory_service.resolve_pod_memory_service",
+        lambda: pytest.fail("warmup opened owner memory or custody"),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.agent_tree._before_one_tool",
+        lambda *_args, **_kwargs: pytest.fail("warmup executed a tool"),
+    )
     marked: list[bool] = []
     monkeypatch.setattr(
         "hushh_mcp.one_adk.agui_turn_timing.mark_turn_path_warmed", lambda: marked.append(True)
@@ -125,3 +136,41 @@ async def test_failed_warmup_is_logged_and_never_raises(monkeypatch, caplog):
 
     assert "startup.one_turn_path_warm_failed reason=RuntimeError" in caplog.text
     assert "private detail" not in caplog.text
+
+
+@pytest.mark.parametrize("reached", [False, True])
+async def test_private_startup_requires_successful_provider_free_rehearsal(monkeypatch, reached):
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_session_authority.active_session_authority", lambda: None
+    )
+    monkeypatch.setattr(turn_warmup, "warm_one_turn_path", lambda: reached)
+    if reached:
+        await turn_warmup.warm_private_pod_turn_path()
+    else:
+        with pytest.raises(RuntimeError, match="PRIVATE_POD_TURN_WARMUP_FAILED"):
+            await turn_warmup.warm_private_pod_turn_path()
+
+
+@pytest.mark.parametrize("changed", [False, True])
+async def test_private_startup_refuses_a_fenced_or_replaced_authority(monkeypatch, changed):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    authority = SimpleNamespace(require_held=AsyncMock(side_effect=PermissionError("fenced")))
+    current = [authority]
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_session_authority.active_session_authority", lambda: current[0]
+    )
+
+    def warmed():
+        if changed:
+            current[0] = object()
+        return True
+
+    monkeypatch.setattr(turn_warmup, "warm_one_turn_path", warmed)
+    with pytest.raises(RuntimeError if changed else PermissionError):
+        await turn_warmup.warm_private_pod_turn_path()
+    if changed:
+        authority.require_held.assert_not_awaited()
+    else:
+        authority.require_held.assert_awaited_once()

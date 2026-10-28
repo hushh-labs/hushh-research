@@ -18,6 +18,49 @@ class AdkEventCleanupError(RuntimeError):
 class AdkEventTimeoutError(TimeoutError):
     """The event boundary's own deadline expired, rather than a provider error."""
 
+    def __init__(self, *, phase: str = "unknown", elapsed_seconds: float = 0, event_count: int = 0):
+        super().__init__("ADK event deadline expired")
+        self.phase = phase
+        self.elapsed_seconds = elapsed_seconds
+        self.event_count = event_count
+
+
+def _deadline_error(phase: str, started: float, event_count: int) -> AdkEventTimeoutError:
+    elapsed = round(asyncio.get_running_loop().time() - started, 3)
+    logger.warning(
+        "adk_event_source.deadline phase=%s elapsed_seconds=%s event_count=%s",
+        phase,
+        elapsed,
+        event_count,
+    )
+    return AdkEventTimeoutError(phase=phase, elapsed_seconds=elapsed, event_count=event_count)
+
+
+async def _produce_events(iterator, queue, demand, stopping):
+    # ADK keeps ContextVar scopes across yields: one task owns iteration/closure.
+    try:
+        while not stopping.is_set():
+            await demand.wait()
+            demand.clear()
+            try:
+                event = await anext(iterator)
+            except StopAsyncIteration:
+                await queue.put((False, None))
+                return
+            if stopping.is_set():
+                return
+            await queue.put((True, event))
+    except Exception as exc:
+        await queue.put((False, exc))
+    finally:
+        close = getattr(iterator, "aclose", None)
+        if callable(close):
+            try:
+                async with asyncio.timeout(_CLOSE_TIMEOUT_S):
+                    await close()
+            except Exception as exc:
+                logger.debug("adk_event_source.close_failed error_type=%s", type(exc).__name__)
+
 
 async def bounded_adk_events(
     source: AsyncIterator[T],
@@ -36,46 +79,18 @@ async def bounded_adk_events(
     demand = asyncio.Event()
     stopping = asyncio.Event()
 
-    async def produce():
-        # ADK holds ContextVar/telemetry scopes across yields. Advancing anext
-        # in a different wait_for Task each time breaks their token ownership.
-        # One producer owns iteration and closure; the consumer times queue waits.
-        try:
-            while not stopping.is_set():
-                # Do not advance the source while a caller holds a yielded
-                # event: advancing could execute another side-effectful tool.
-                await demand.wait()
-                demand.clear()
-                try:
-                    event = await anext(iterator)
-                except StopAsyncIteration:
-                    await queue.put((False, None))
-                    return
-                if stopping.is_set():
-                    return
-                await queue.put((True, event))
-        except Exception as exc:
-            await queue.put((False, exc))
-        finally:
-            close = getattr(iterator, "aclose", None)
-            if callable(close):
-                try:
-                    async with asyncio.timeout(_CLOSE_TIMEOUT_S):
-                        await close()
-                except Exception as exc:
-                    logger.debug("adk_event_source.close_failed error_type=%s", type(exc).__name__)
-
-    producer = asyncio.create_task(produce())
+    producer = asyncio.create_task(_produce_events(iterator, queue, demand, stopping))
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + total_timeout_s
-    saw_event = False
+    started = loop.time()
+    deadline = started + total_timeout_s
+    event_count = 0
     try:
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
-                raise AdkEventTimeoutError
+                raise _deadline_error("total", started, event_count)
             idle_started = loop.time()
-            idle_limit = between_event_timeout_s if saw_event else first_event_timeout_s
+            idle_limit = between_event_timeout_s if event_count else first_event_timeout_s
             # Demand exactly once for this outer event. A nested callback can
             # extend the idle wait, never request another source advancement.
             demand.set()
@@ -88,7 +103,14 @@ async def bounded_adk_events(
                     idle_started = max(idle_started, last_progress)
                 timeout = min(idle_started + idle_limit - now, deadline - now)
                 if timeout <= 0:
-                    raise AdkEventTimeoutError
+                    phase = (
+                        "total"
+                        if now >= deadline
+                        else "between_events"
+                        if event_count
+                        else "first_event"
+                    )
+                    raise _deadline_error(phase, started, event_count)
                 try:
                     is_event, value = await asyncio.wait_for(queue.get(), timeout)
                     break
@@ -101,7 +123,7 @@ async def bounded_adk_events(
                 if isinstance(value, Exception):
                     raise value
                 return
-            saw_event = True
+            event_count += 1
             yield cast(T, value)
     finally:
         stopping.set()

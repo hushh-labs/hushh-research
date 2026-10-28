@@ -648,6 +648,7 @@ tests/test_consent_db_revocation_worker.py
 tests/scripts/test_eval_specialist_turns.py
 tests/test_consent_refresh_bootstrap.py
 tests/test_hushh_adk_turn.py
+tests/test_adk_event_timeout_details.py
 tests/test_agent_runtime_declarations.py
 tests/test_one_manifest_subagent_prompts.py
 tests/test_nav_a2a_agent.py
@@ -742,6 +743,7 @@ tests/test_pod_browser_adk_continuation.py
 tests/test_pod_browser_sessions.py
 tests/test_pod_binding_transactions.py
 tests/test_pod_consent_authority.py
+tests/test_pod_consent_wire_scope.py
 tests/test_pod_ingress_axis.py
 tests/test_pod_session_authority.py
 tests/test_pod_turn_route.py
@@ -858,6 +860,7 @@ tests/test_chat_history_rollout.py
 tests/test_one_agent_chat_ingress.py
 
 tests/test_pod_server.py
+tests/test_pod_startup_order.py
 
 # Execute the real deploy shell with immutable-artifact fixtures.
 tests/test_personal_agent_deploy_lane.py

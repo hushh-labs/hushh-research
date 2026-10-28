@@ -55,6 +55,7 @@ from fastapi import APIRouter, Body, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.routes.one.pod_identity_auth import verify_pod_request
+from hushh_mcp.consent.pkm_scope_policy import consent_token_scope_value
 from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.pod_access_audit import (
     PodAccessUnavailable,
@@ -131,7 +132,7 @@ async def verify_consent_for_pod(
         "valid": True,
         "userId": user_id,
         "hushhId": owner_hushh_id,
-        "scope": str(getattr(parsed, "scope", "") or ""),
+        "scope": consent_token_scope_value(parsed),
         "agentId": getattr(parsed, "agent_id", "") or "",
     }
 

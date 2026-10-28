@@ -52,6 +52,12 @@ Non-owned surfaces:
 
 ## Workflow
 
+For private-worker startup, follow the existing dev pod runbook's qualification
+section: rehearse ADK with a stub and tool metadata only, never owner custody or
+provider calls; recheck incarnation before admitting work. Verify the owned
+Gunicorn socket in the actual image. Preserve timeout deadlines and report their
+phase separately from provider, memory and recovery acceptance.
+
 1. Confirm whether the change is about orchestration, tool surface, or agent packaging before editing code.
 2. Keep orchestration docs and relevant tests aligned with the implementation.
 3. Route trust, consent, or scope-enforcement questions into `security-audit`.
