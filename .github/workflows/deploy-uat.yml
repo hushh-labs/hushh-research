@@ -566,14 +566,18 @@ jobs:
           # Secrets sync publishes the client flag to the canonical runtime config that the
           # serving revision reads, and its new instances would then refuse startup, for
           # every scope and for any rollback to it. Turn admission off in a backend release first.
-          [ -n "${SERVING_BACKEND_REVISION}" ] || exit 0
+          # Anything this step cannot read (no serving revision, a secret binding) fails closed.
+          if [ -z "${SERVING_BACKEND_REVISION}" ]; then
+            echo "::error::The serving backend revision is unknown, so HUSSH_TECH_CLIENT_ENABLED cannot be checked against it." >&2
+            exit 1
+          fi
           admission="$(gcloud run revisions describe "${SERVING_BACKEND_REVISION}" \
             --project="${SERVING_PROJECT_ID}" \
             --region="${SERVING_REGION}" \
             --format=json \
-            | python3 -c 'import json, sys; env = json.load(sys.stdin)["spec"]["containers"][0].get("env", []); print(next((str(e.get("value", "")).strip().lower() for e in env if e.get("name") == "ACCOUNT_GENERATION_ADMISSION_ENABLED"), ""))')"
-          if [ "${admission}" = true ]; then
-            echo "::error::Serving backend ${SERVING_BACKEND_REVISION} admits account generations. Deploy the backend with ACCOUNT_GENERATION_ADMISSION_UAT_ENABLED=false before enabling HUSSH_TECH_CLIENT_ENABLED." >&2
+            | python3 -c 'import json, sys; found = [e for e in json.load(sys.stdin)["spec"]["containers"][0].get("env", []) if e.get("name") == "ACCOUNT_GENERATION_ADMISSION_ENABLED"]; print("unknown" if len(found) > 1 or any("valueFrom" in e for e in found) else str(found[0].get("value", "")).strip().lower() if found else "")')"
+          if [ "${admission}" = true ] || [ "${admission}" = unknown ]; then
+            echo "::error::Serving backend ${SERVING_BACKEND_REVISION} may admit account generations (${admission}). Deploy the backend with ACCOUNT_GENERATION_ADMISSION_UAT_ENABLED=false before enabling HUSSH_TECH_CLIENT_ENABLED." >&2
             exit 1
           fi
 
@@ -1011,7 +1015,7 @@ jobs:
             --one-location-nearby-presence-mode "${{ vars.ONE_LOCATION_NEARBY_PRESENCE_MODE_UAT || '' }}" \
             --one-location-nearby-presence-cohort "${{ vars.ONE_LOCATION_NEARBY_PRESENCE_COHORT_UAT || '' }}" \
             --hushh-trusted-device-uat-allowlist "${{ vars.HUSSH_TRUSTED_DEVICE_UAT_ALLOWLIST || '' }}" \
-            --hushh-tech-client-enabled "${{ vars.HUSSH_TECH_CLIENT_ENABLED || 'false' }}" \
+            --hushh-tech-client-enabled "${{ steps.generation-admission.outputs.client_enabled }}" \
             --hushh-tech-developer-app-id "${{ vars.HUSSH_TECH_DEVELOPER_APP_ID || '' }}" \
             --hushh-tech-allowed-audience "hushh-tech-uat" \
             --hushh-tech-allowed-redirect-uris "https://uat.hushhtech.com/auth/hushh-research/callback" \

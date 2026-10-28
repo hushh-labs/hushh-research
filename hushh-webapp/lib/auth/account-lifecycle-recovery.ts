@@ -9,8 +9,13 @@ type Terminal = { outcome: "terminal"; code: AuthSessionInvalidationCode };
 // still runs that departure's device purge before offering a new account.
 type Recovery = Terminal | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery; departure?: AuthSessionInvalidationCode };
 
+// Registration refusals that mean this identity cannot recover here (missing Firebase
+// user, review mint); any other 401, such as an expired token, stays recoverable.
+const TERMINAL_REGISTRATION_REFUSALS: ReadonlySet<unknown> = new Set(["AUTH_ACCOUNT_NOT_FOUND", "ACCOUNT_FRESH_IDENTITY_REQUIRED"]);
+const REPLACEMENT_OWNER = /^acct_[0-9a-f]{32}$/;
+
 /** Purpose-bound reads only. The AuthProvider caller retains owner/episode authority. */
-export async function resolveAccountLifecycleRecovery(idToken: string, deadlineMs: number, terminal: Terminal): Promise<Recovery> {
+export async function resolveAccountLifecycleRecovery(idToken: string, deadlineMs: number, terminal: Terminal, departingOwner?: string): Promise<Recovery> {
   let knownTerminal = terminal;
   if (terminal.code === "account_not_found" || terminal.code === "account_deleted") {
     try {
@@ -26,10 +31,17 @@ export async function resolveAccountLifecycleRecovery(idToken: string, deadlineM
   }
   try {
     const response = await withinAccountSessionValidationBudget(ApiService.getAccountRegistrationStatus(idToken), deadlineMs);
-    // Existing rollout-off policy preserves the independently established result.
-    // With admission on, a refused identity (missing Firebase user, review mint)
-    // answers 401 instead and keeps that same result.
-    if (response.status === 404 || response.status === 401) return knownTerminal;
+    // Existing rollout-off policy preserves the independently established result. A
+    // replacement owner can neither authenticate nor be deleted without admission, so
+    // there its erasure is unproven: sign out and keep its device state.
+    if (response.status === 404) {
+      return departingOwner && REPLACEMENT_OWNER.test(departingOwner)
+        ? {outcome: "terminal", code: "session_invalid"} : knownTerminal;
+    }
+    if (response.status === 401 && hasJsonResponseContentType(response)) {
+      const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
+      if (TERMINAL_REGISTRATION_REFUSALS.has(body?.detail?.code)) return knownTerminal;
+    }
     if (response.ok && hasJsonResponseContentType(response)) {
       const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
       const registration = parseAccountRegistrationRecovery(body);

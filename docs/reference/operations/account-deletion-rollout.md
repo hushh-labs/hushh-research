@@ -208,13 +208,19 @@ Known limits while the remaining consumers qualify:
   Re-verification that withdraws the owner keeps it as the departing owner, and push
   cleanup accepts the session's Firebase UID as the same session. When admission
   offers start fresh in place of the terminal sign-out, the web first runs that
-  sign-out's device purge for the departing owner. Two cases still
-  fall back to the Firebase UID and leave that device's replacement-owner previews,
-  push registration or durable copies in place until the next admitted sign-out:
-  a cold start that signs out while session validation is unavailable, and a
-  terminal deletion seen first on a second device after a cold start. Closing them
-  needs a device-persisted, hash-only identity-to-owner binding and the Firebase
-  identity in the web, iOS and Android preview-key records.
+  sign-out's device purge for the departing owner. A backend without admission
+  cannot prove a replacement owner erased, so it signs that owner out
+  (`session_invalid`) and keeps its device state. Three cases still fall back to
+  the Firebase UID:
+  - a cold start that signs out while session validation is unavailable;
+  - a terminal deletion seen first on a second device after a cold start;
+  - start fresh offered after a reload or cold start.
+
+  A deleted replacement owner is never admitted again, so its previews, push
+  registration and durable copies then stay on that device until app data is
+  cleared. Closing these cases needs a device-persisted, hash-only
+  identity-to-owner binding, plus the Firebase identity in the web, iOS and
+  Android preview-key records.
 - The private Drive and V1 workers run without the flag. They still resolve `acct_`
   owners, but skip the generation-0 retirement recheck for queued work.
 - With the flag on, owner-to-Firebase mapping reads the database and takes the

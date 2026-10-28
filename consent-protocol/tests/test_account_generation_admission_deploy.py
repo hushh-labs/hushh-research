@@ -108,11 +108,34 @@ def test_uat_decides_generation_admission_before_secrets_and_the_deletion_fence(
     assert enabled == expected
 
 
+ADMISSION_ENV = "ACCOUNT_GENERATION_ADMISSION_ENABLED"
+SECRET_BINDING = {"secretKeyRef": {"name": "flag", "key": "latest"}}
+
+
 @pytest.mark.parametrize(
-    "serving_admission,refused", [("true", True), (" TRUE ", True), ("false", False), (None, False)]
+    "serving_env,revision,refused",
+    [
+        ([{"name": ADMISSION_ENV, "value": "true"}], "consent-protocol-00001-abc", True),
+        ([{"name": ADMISSION_ENV, "value": " TRUE "}], "consent-protocol-00001-abc", True),
+        ([{"name": ADMISSION_ENV, "value": "false"}], "consent-protocol-00001-abc", False),
+        ([], "consent-protocol-00001-abc", False),
+        # What this step cannot read fails closed.
+        (
+            [{"name": ADMISSION_ENV, "valueFrom": SECRET_BINDING}],
+            "consent-protocol-00001-abc",
+            True,
+        ),
+        (
+            [{"name": ADMISSION_ENV, "value": "false"}, {"name": ADMISSION_ENV, "value": "true"}],
+            "consent-protocol-00001-abc",
+            True,
+        ),
+        ([], "", True),
+        (None, "consent-protocol-00001-abc", True),
+    ],
 )
 def test_uat_refuses_the_hushhtech_client_while_the_serving_backend_admits_generations(
-    tmp_path: Path, serving_admission: str | None, refused: bool
+    tmp_path: Path, serving_env: list[dict] | None, revision: str, refused: bool
 ) -> None:
     # Turning admission off and the client on in one release would still restart the
     # serving revision's instances into a refused startup after secrets sync.
@@ -125,6 +148,13 @@ def test_uat_refuses_the_hushhtech_client_while_the_serving_backend_admits_gener
     assert (
         f"      - name: {SERVING_REFUSAL}\n"
         "        if: steps.generation-admission.outputs.client_enabled == 'true'\n"
+        "        shell: bash\n"
+        "        env:\n"
+        "          SERVING_BACKEND_REVISION: ${{ steps.predeploy-state.outputs.backend_revision }}\n"
+    ) in workflow
+    # The runtime receives the decided value, never a differently spliced raw variable.
+    assert (
+        '--hushh-tech-client-enabled "${{ steps.generation-admission.outputs.client_enabled }}"'
     ) in workflow
     decision_dir = tmp_path / "decision"
     decision_dir.mkdir()
@@ -136,23 +166,25 @@ def test_uat_refuses_the_hushhtech_client_while_the_serving_backend_admits_gener
         HUSSH_TECH_CLIENT_ENABLED=" On ",
     )
     assert outputs.get("client_enabled") == "true"
-    env = (
-        []
-        if serving_admission is None
-        else [{"name": "ACCOUNT_GENERATION_ADMISSION_ENABLED", "value": serving_admission}]
-    )
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     gcloud = bin_dir / "gcloud"
-    revision = json.dumps({"spec": {"containers": [{"env": env}]}})
-    gcloud.write_text(f"#!/bin/sh\necho '{revision}'\n", encoding="utf-8")
+    payload = json.dumps({"spec": {"containers": [{"env": serving_env}]}})
+    # The stub answers only the exact serving-revision describe; anything else fails.
+    gcloud.write_text(
+        "#!/bin/sh\n"
+        f'[ "$1 $2 $3 $4" = "run revisions describe {revision}" ] || exit 3\n'
+        'case "$*" in *--format=json*) ;; *) exit 3 ;; esac\n'
+        + ("exit 1\n" if serving_env is None else f"echo '{payload}'\n"),
+        encoding="utf-8",
+    )
     gcloud.chmod(0o755)
     returncode, _ = _run_step(
         workflow,
         SERVING_REFUSAL,
         tmp_path,
         PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-        SERVING_BACKEND_REVISION="consent-protocol-00001-abc",
+        SERVING_BACKEND_REVISION=revision,
         SERVING_PROJECT_ID="project",
         SERVING_REGION="region",
     )

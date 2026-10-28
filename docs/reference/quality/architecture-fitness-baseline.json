@@ -27607,7 +27607,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_world_model_invitations.py",
       "symbol": "test_claim_contract_on_single_connection_postgres",
-      "value": 268
+      "value": 271
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29998,7 +29998,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_world_model_invitations.py",
       "symbol": null,
-      "value": 557
+      "value": 560
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -86693,10 +86693,10 @@
       {
         "key": "function_size|consent-protocol/tests/test_world_model_invitations.py|test_claim_contract_on_single_connection_postgres|function exceeds the advisory gene budget",
         "before": 258,
-        "after": 268,
-        "source_sha256": "bcfcec7bd50329bde854083f584baed1c832b396b2079af484fa7ddccfcbec13",
+        "after": 271,
+        "source_sha256": "d2a9d97d65c8745835e147d0133a4f0f20c86864352f473a6aade0464861a66b",
         "reviewer": "owner-split migration; per-group adversarial review",
-        "review": "Single-connection probe proves the external identity read runs outside the locked claim transaction (fails if moved under the lock)."
+        "review": "Single-connection probe proves the external identity read runs outside the locked claim transaction, and the locked rechecks reuse that record (both fail if regressed)."
       },
       {
         "key": "function_size|consent-protocol/hushh_mcp/services/world_model_invitations.py|claim|function exceeds the advisory gene budget",
@@ -86717,10 +86717,10 @@
       {
         "key": "module_size|consent-protocol/tests/test_world_model_invitations.py||module exceeds the advisory operon budget",
         "before": 547,
-        "after": 557,
-        "source_sha256": "bcfcec7bd50329bde854083f584baed1c832b396b2079af484fa7ddccfcbec13",
+        "after": 560,
+        "source_sha256": "d2a9d97d65c8745835e147d0133a4f0f20c86864352f473a6aade0464861a66b",
         "reviewer": "owner-split migration; per-group adversarial review",
-        "review": "Single-connection probe proves the external identity read runs outside the locked claim transaction (fails if moved under the lock)."
+        "review": "Single-connection probe proves the external identity read runs outside the locked claim transaction, and the locked rechecks reuse that record (both fail if regressed)."
       }
     ]
   }

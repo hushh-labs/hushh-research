@@ -23,6 +23,21 @@ from hushh_mcp.services.support_email_service import (
 
 logger = logging.getLogger(__name__)
 
+# The unlocked read only decides whether a recipient is needed; the locked one is authority.
+# The recipient is resolved before the owner graph lock, so the locked read itself must see
+# a deletion approved since then: deletion holds that lock exclusively until it commits.
+_SENDABLE_EVENT = """SELECT p.enabled,p.email_enabled,p.generation,p.active_draft_id,
+    EXISTS(SELECT 1 FROM account_deletion_tombstones t
+      WHERE t.user_id_hash='sha256:'||encode(sha256(convert_to(p.user_id,'UTF8')),'hex')) AS deleted
+    FROM pwm_research_preferences p JOIN pwm_completion_events e USING(user_id)
+    WHERE p.user_id=$1 AND e.draft_id=$2 AND e.lease_id=$3 AND e.email_state='leased'"""
+_LOCKED_SENDABLE_EVENT = """SELECT p.enabled,p.email_enabled,p.generation,p.active_draft_id,
+    EXISTS(SELECT 1 FROM account_deletion_tombstones t
+      WHERE t.user_id_hash='sha256:'||encode(sha256(convert_to(p.user_id,'UTF8')),'hex')) AS deleted
+    FROM pwm_research_preferences p JOIN pwm_completion_events e USING(user_id)
+    WHERE p.user_id=$1 AND e.draft_id=$2 AND e.lease_id=$3 AND e.email_state='leased'
+    FOR UPDATE OF p,e"""
+
 
 def send_ready_email(*, email, draft_id, outcome):
     sender = SupportEmailService()
@@ -127,10 +142,7 @@ class WorldModelNotificationWorker:
 
     async def _sendable(self, conn, event, lease, *, for_update):
         current = await conn.fetchrow(
-            """SELECT p.enabled,p.email_enabled,p.generation,p.active_draft_id
-            FROM pwm_research_preferences p JOIN pwm_completion_events e USING(user_id)
-            WHERE p.user_id=$1 AND e.draft_id=$2 AND e.lease_id=$3 AND e.email_state='leased'"""
-            + (" FOR UPDATE OF p,e" if for_update else ""),
+            _LOCKED_SENDABLE_EVENT if for_update else _SENDABLE_EVENT,
             event["user_id"],
             event["draft_id"],
             lease,
@@ -139,6 +151,7 @@ class WorldModelNotificationWorker:
         return bool(
             one_profile_research_enabled()
             and current
+            and not current.get("deleted")
             and current["enabled"]
             and current["email_enabled"]
             and current["generation"] == event["generation"]

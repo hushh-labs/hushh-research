@@ -744,7 +744,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Captured with the terminal evidence, before a later start fresh can
         // admit this identity's next owner.
         const departingOwner = lastAdmittedOwnerFor(candidateUser.uid) ?? candidateUser.uid;
-        const recovery = await resolveAccountLifecycleRecovery(idToken, deadlineMs, terminal);
+        const recovery = await resolveAccountLifecycleRecovery(idToken, deadlineMs, terminal, departingOwner);
         // Registration replaces the terminal sign-out that would have purged
         // the departed owner's device state, so purge it here instead.
         if (recovery.outcome === "unavailable" && recovery.registration && recovery.departure) {
