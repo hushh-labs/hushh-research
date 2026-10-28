@@ -38,7 +38,9 @@ Rollback remains the existing qualification switch. No Dev deployment or
 physical acceptance is implied for the integrated source. After installation,
 the app reached its passphrase gate; a public eight-character XCUI input probe
 delivered six characters and was cleared without submitting. The newer build's
-warm scroll check therefore stopped at Chat admission, before scrolling.
+warm scroll check therefore stopped at Chat admission, before scrolling. A
+public-only refocus experiment delivered five of eight characters and was also
+cleared; it was not adopted and does not establish the input-loss cause.
 
 ### iPhone stock-app reference — 2026-10-27
 
