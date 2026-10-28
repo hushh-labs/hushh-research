@@ -582,6 +582,11 @@ mounted tab opens its local exact-time form.
 | Conflict | **Overlaps {first conflict title}**, fallback **another meeting**. It is not a separate conflict fetch per row. |
 | Selected event absent | **This invitation is no longer in the current window. Ask One to check it again.** for a selected handoff ID absent from the read. |
 
+Migration `434_calendar_guest_photo_access.sql` adds the Calendar photo-grant
+columns with `false` defaults. Apply it after canonical migration 433 and
+before serving the new Calendar backend. A rollback refuses to remove active
+photo grants.
+
 ### Invitation detail and every close path
 
 Selection opens the shared `Dialog` at every viewport width. Hidden title
