@@ -18,9 +18,23 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated audit — 2026-10-28
 
+The subsequent Dev-backed qualification app from `1f59682cfc` is installed on
+the iPhone. Its signed source executable SHA-256 is
+`133669444f34a1d5393aa20d4f40f366378494de090ddb8e8ffe00aefde14ec8`;
+all 1,789 exported web assets matched the signed bundle, and the pinned package
+manifest and lockfile remained unchanged. Dev uses the repository's
+UAT-compatible runtime label while targeting the Dev backend. Installed bytes
+were not read back. The app reached the Vault gate. Whole-value reviewer input
+was not acknowledged and Unlock was not submitted, including after a public
+input probe passed with the matching Xcode toolchain. Re-focusing the field did
+not resolve the failure; that experimental test change was removed. The earlier
+Mail test on `b3dff87177` did not reach Mail because its starting Chat composer
+was not admitted after the Finance setup journey. Neither result establishes
+an authentication rejection or a Mail product defect.
+
 The local source integrates main through `84b80bcab6` and the shared upstream
-branch in `b3dff87177`. The iPhone has a Dev-backed Release qualification build
-from `b3dff87177` installed: its signed source app executable SHA-256 is
+branch in `b3dff87177`. The earlier Dev-backed Release qualification build
+from `b3dff87177` had signed source app executable SHA-256
 `edbb637b7471e99abddf1414e0f62278158243a4073c61ab635448fe427e2365` and its
 matching signed source test executable SHA-256 is
 `40a5f3ef560a4a4f89b220bdd88520848f5827e332ed9c8f22be05b72cb291ab`.
@@ -120,7 +134,7 @@ password, pricing and runtime editors. A Release iPhone simulator run preserved
 selection, shortening, Unicode and marked text; a secure-field case and three
 existing editor-lifecycle checks also passed. A negative control reproducing the
 old collapsed selection failed as expected. This is not physical-device or
-real-keyboard/IME acceptance. The installed device build is `b3dff87177`.
+real-keyboard/IME acceptance. The installed device build is `1f59682cfc`.
 The same projection was subsequently applied to native phone-number and OTP
 fields; its simulator check and the existing phone-scene lifecycle check passed.
 Main through `f103c68b38` was integrated in `46ee7ba445`, retaining both sides

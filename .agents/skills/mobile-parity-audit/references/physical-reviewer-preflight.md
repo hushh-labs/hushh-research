@@ -16,6 +16,9 @@ another reviewer store or a privileged app-unlock route.
    harness change. Keep executable digests and install receipts with the run,
    and require the requested case's observed markers before interpreting its
    result. A stale installed runner is not evidence against the new feature.
+   Select the matching `DEVELOPER_DIR` for both build and every attach-only
+   `xcodebuild` invocation; selecting it for the build alone leaves tests on
+   the Mac's default Xcode and can drop secure-field input.
    Serialize dependency installation, web export, native resource sync and
    packaging. Compare exported application files with the signed bundle before
    installation; a successful native build can still contain stale web assets.
@@ -90,7 +93,10 @@ another reviewer store or a privileged app-unlock route.
    iOS 27.2 candidate, Xcode 27.1 delivered six of eight public characters;
    Xcode 27.2 passed both public samples and the subsequent normal reviewer
    unlock. This comparison identifies a working toolchain, not every possible
-   input-loss cause. Keep synthetic counts separate from private input, which
+   input-loss cause. On a later candidate, both public samples passed but the
+   private entry was incomplete even with the matching toolchain; re-focusing
+   the field did not resolve it. Do not infer private-input admission from the
+   public probe alone. Keep synthetic counts separate from private input, which
    must remain process-only and produce only acknowledgement booleans.
 7. Check that the native privacy cover has actually retired before private
    input. XCTest can report an underlying WebKit control as hittable while
