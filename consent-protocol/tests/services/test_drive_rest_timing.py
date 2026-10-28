@@ -173,6 +173,18 @@ async def test_financial_candidate_metadata_uses_the_real_fenced_group_transport
     adapter.get_file_facts.assert_not_awaited()
 
 
+def _as_deployed(record):
+    """A captured log line as the worker writes it, after the runtime redactor."""
+    from mcp_modules.log_redaction import SensitiveLogFilter
+
+    # Built directly: makeLogRecord would run the installed redacting record factory.
+    copy = logging.LogRecord(
+        record.name, record.levelno, record.pathname, record.lineno, record.msg, record.args, None
+    )
+    SensitiveLogFilter().filter(copy)
+    return copy.getMessage()
+
+
 @pytest.mark.feature_drive_packets
 @pytest.mark.trace_loop
 @pytest.mark.parametrize("failure", ["missing_operation", "unknown_oauth_code", "storage_timeout"])
@@ -185,7 +197,7 @@ async def test_financial_tagger_settles_real_transport_oauth_failures_without_pr
     from hushh_mcp.services import drive_financial_packet_tagging as tagging
     from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
     from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
-    from mcp_modules.log_redaction import SensitiveLogFilter, redact_log_value
+    from mcp_modules.log_redaction import redact_log_value
     from tests.services.test_google_drive_rest_transport import FILE_ID, transport
 
     monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "true")
@@ -236,22 +248,7 @@ async def test_financial_tagger_settles_real_transport_oauth_failures_without_pr
     if failure == "missing_operation":
         drive._oauth.current_credential.assert_not_awaited()
     worker.embedder.embed.assert_not_awaited()
-
-    def deployed(record):
-        # As the worker writes it: the runtime redactor masks identifier-like tokens.
-        copy = logging.LogRecord(
-            record.name,
-            record.levelno,
-            record.pathname,
-            record.lineno,
-            record.msg,
-            record.args,
-            None,
-        )
-        SensitiveLogFilter().filter(copy)
-        return copy.getMessage()
-
-    shown = "\n".join(deployed(record) for record in caplog.records)
+    shown = "\n".join(_as_deployed(record) for record in caplog.records)
     assert f"period_packet.tagging outcome=deferred code={code} settled=queued" in shown
     assert all(redact_log_value(saved) == saved for saved in tags.FAILURE_CODES)
     for private in (
