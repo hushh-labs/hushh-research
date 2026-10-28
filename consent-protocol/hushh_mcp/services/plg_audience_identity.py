@@ -22,7 +22,9 @@ FIELDS = (
 def owned_record(record, owner: str):
     # Copy only the fields consumed by the private audience projection. Firebase
     # export records can contain password hashes and must never be forwarded.
-    return SimpleNamespace(uid=owner, **{key: getattr(record, key, None) for key in FIELDS})
+    return SimpleNamespace(
+        uid=owner, firebase_uid=record.uid, **{key: getattr(record, key, None) for key in FIELDS}
+    )
 
 
 def captured_records(owners: list[str], lookup):

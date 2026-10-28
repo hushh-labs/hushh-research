@@ -351,7 +351,8 @@ async def _registered_customers(conn, eligible, policy):
     customers = {
         uid
         for uid in active
-        if policy.eligible(
+        if getattr(eligible[uid], "firebase_uid", uid) not in policy.account_ids
+        and policy.eligible(
             uid,
             identities.get(uid),
             (

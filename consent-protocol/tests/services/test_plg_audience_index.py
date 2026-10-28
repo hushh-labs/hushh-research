@@ -19,6 +19,30 @@ from tests.services.test_plg_evidence import (
 NOW = datetime(2026, 10, 29, tzinfo=timezone.utc)
 
 
+def test_registry_generation_switch_preserves_disabled_baseline_and_source_continuation(
+    monkeypatch,
+):
+    from firebase_admin import auth
+
+    monkeypatch.setattr(
+        audience, "get_firebase_auth_app", lambda: SimpleNamespace(project_id="hushh-pda")
+    )
+    source = SimpleNamespace(
+        users=[SimpleNamespace(uid="retired")], **{"next_page_token": "sdk-next"}
+    )
+    monkeypatch.setattr(auth, "list_users", lambda **_: source)
+    calls = []
+    monkeypatch.setattr(audience, "current_records", lambda records: calls.append(records) or [])
+    monkeypatch.delenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", raising=False)
+    assert audience._firebase_page(None) is source and calls == []
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+    projected = audience._firebase_page(None)
+    assert calls == [source.users]
+    assert (
+        projected.users == [] and projected.scanned == 1 and projected.next_page_token == "sdk-next"
+    )
+
+
 def test_captured_replacement_reads_firebase_identity_but_keeps_attempt_owner(monkeypatch):
     owner = "acct_" + "a" * 32
 
@@ -96,6 +120,31 @@ def test_current_directory_projection_excludes_retirement_and_preserves_owner(mo
 
 
 @pytest.mark.asyncio
+async def test_owner_projection_preserves_internal_firebase_identity_exclusion(monkeypatch):
+    owner = "acct_" + "c" * 32
+    records = {owner: identity.owned_record(SimpleNamespace(uid="internal-identity"), owner)}
+    monkeypatch.setattr(
+        audience.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value={owner}),
+    )
+    monkeypatch.setattr(
+        audience.ActorIdentityService, "read_provider_phone_fallbacks", AsyncMock(return_value={})
+    )
+    monkeypatch.setattr(
+        audience.ActorIdentityService,
+        "get_many",
+        AsyncMock(return_value={owner: {"email": "valid@example.test"}}),
+    )
+    monkeypatch.setattr(
+        audience.ActorIdentityService, "get_many_verified_email_aliases", AsyncMock(return_value={})
+    )
+    policy = SimpleNamespace(account_ids=frozenset({"internal-identity"}), eligible=lambda *_: True)
+    active, _, _, excluded = await audience._registered_customers(object(), records, policy)
+    assert active == set() and excluded == 1
+
+
+@pytest.mark.asyncio
 async def test_index_search_loads_only_matching_identities_and_retains_excluded_continuation(
     monkeypatch,
 ):
@@ -137,7 +186,11 @@ async def test_index_search_loads_only_matching_identities_and_retains_excluded_
     )
     result = await index.source_page(audience.AudienceRequest(segment="failed"), None, NOW, 25)
     assert identity_calls == [ids[:25]]
-    assert result.users == [] and result.next_page_token == "attempts:" + ids[24]
+    assert (
+        result.users == []
+        and result.scanned == 25
+        and result.next_page_token == "attempts:" + ids[24]
+    )
     args = conn.fetch.call_args.args
     assert args[4] == "" and args[6:9] == (["one.task"], ["client_reported"], "failed")
 
