@@ -1052,16 +1052,13 @@ the workflow can then be deleted.
 | Gate | Purpose | Behavior |
 |------|---------|----------|
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range, blocks on open GitHub secret-scanning alerts, and reports Dependabot backlog through the GitHub API |
-| Upstream Sync | Detect consent-protocol subtree drift against upstream | Advisory only; warnings are non-blocking |
 | Main Freshness Gate (job name `Base Freshness Gate`) | Keep a branch's base fresh enough that what CI tested is what lands | Pull requests into `main`: `MAIN_SYNC_MODE: bounded`, blocking when the merge-base is over 24 h old or, after the base its checks tested, `main` changed a file the PR changes ([details](#base-freshness-on-pull-requests)). Pull requests into `integration/pr-train`, `dev`, `uat` and every `merge_group`: `block`, failing any lag. Feeds `CI Status Gate` |
 | CI Status Gate | Single required check for branch protection | Runs on every outcome (`if: always()`), because GitHub reads a skipped required check as a pass. Fails if any job fails, is cancelled or times out. Every lane the path filters (or a dispatch scope) select must have **succeeded**: Web Core, Web Targeted Contracts, Web Full Suite (Vitest) and Integration for frontend; Protocol, MCP Package and Integration for backend, including Protocol Database; the iOS and Android native lanes; Web Editor Performance (macOS) for `editor`. UI Contracts, Secret Scan, Governance, Path filters, Preflight Gate and DCO must succeed on every run, and a pull request also needs PR Base Policy and, into `main`, `integration/pr-train`, `dev` or `uat`, Base Freshness Gate. Lanes the filters did not select may be skipped. A dispatch publishes the separate dev-only `Branch Validation Gate` and fails for partial or unknown scopes ([Dispatched runs](#dispatched-runs)). Pinned by `consent-protocol/tests/test_ci_status_gate_fails_closed.py`, which runs the gate's own script |
 
 Operational note:
 
-- `Upstream Sync` and `Main Freshness Gate` are different surfaces.
-- `Upstream Sync` must summarize the actual `consent-protocol/` subtree state from `scripts/ci/subtree-sync-check.sh`.
-- `Main Freshness Gate` only describes branch currency relative to `main`.
-- Local pre-push keeps upstream sync opt-in for shipping speed. Use `./bin/hushh protocol check-sync` or `CONSENT_PRE_PUSH_SYNC_CHECK=1 git push`; CI remains the shared advisory evidence lane.
+- Branch freshness checks the actual PR destination; it does not imply optional mirror parity.
+- Maintainers can inspect the optional mirror with `./bin/hushh protocol check-sync` or opt in to a push check with `CONSENT_PRE_PUSH_SYNC_CHECK=1 git push`. Normal PR validation does not run that advisory check.
 
 ## Live GitHub Enforcement
 

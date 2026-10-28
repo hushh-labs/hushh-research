@@ -1451,22 +1451,6 @@ jobs:
           path: ${{ runner.temp }}/ci-verification-plan.json
           if-no-files-found: error
 
-  # ============================================================================
-  # Upstream Sync Check (one-directional: warns if upstream has unpulled commits)
-  # ============================================================================
-  subtree-sync-check:
-    name: "Upstream Sync"
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Check if upstream consent-protocol has unpulled commits
-        continue-on-error: true
-        run: bash scripts/ci/subtree-sync-check.sh
-
   main-freshness-gate:
     name: "Base Freshness Gate"
     if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
