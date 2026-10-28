@@ -97,7 +97,7 @@ export function ownerPacketStatus(packet: DrivePacket): OwnerPacketStatus {
   if (packet.kind === "provider_discovery") {
     const preview = packet.preview;
     if (preview?.status === "not_started") return { word: "Not searched", tone: "waiting", order: 4, detail: "Files appear when the search starts." };
-    if (preview?.status === "failed") return { word: "Couldn’t check", tone: "attention", order: 3, detail: "Saved files are still available. Refresh to try again." };
+    if (preview?.status === "failed") return { word: "Couldn’t check", tone: "attention", order: 3, detail: failedSearchDetail(packet) };
     if (preview?.status === "searching") return { word: "Searching", tone: "waiting", order: 4, detail: "You can leave this page." };
     if (preview?.status === "queued") return { word: "Queued", tone: "waiting", order: 4, detail: "You can leave this page." };
     if (preview?.status === "partial") return { word: "Files found so far", tone: "waiting", order: 4, detail: "The search is still incomplete." };
@@ -125,6 +125,38 @@ export function ownerPacketStatus(packet: DrivePacket): OwnerPacketStatus {
   if (!packet.canList) return { word: "Too large to list", tone: "attention", order: 3, detail: "A packet over 120 documents can’t be listed." };
   if (packet.listingRevision > 0) return { word: "Not listed", tone: "ready", order: 2, detail: "Only you can see it." };
   return { word: "Ready to list", tone: "ready", order: 0, detail: "Only you can see it until you list it." };
+}
+
+/** Only what is true: earlier results may be absent, and only an unversioned packet can be refreshed. */
+function failedSearchDetail(packet: DiscoveryDrivePacket): string {
+  const earlier = (packet.preview?.matched ?? 0) > 0, refresh = packet.version === 0;
+  if (earlier && refresh) return "Earlier results are still shown. Refresh to try again.";
+  if (refresh) return "Refresh to try again.";
+  return earlier ? "Earlier results are still shown." : "Try again later.";
+}
+
+export type OwnerSortingStatus = {
+  word: "Sorting files" | "Sorting paused" | "Files sorted" | "Files sorted so far" | "Couldn’t sort files";
+  tone: PacketTone; detail?: string; value?: string;
+};
+
+/**
+ * Labels for found financial files, separate from the search. Advisory only: found
+ * files stay listed whatever happens here. Null when there is no sorting state to report,
+ * including the moment between a new search and its first sorting batch.
+ */
+export function ownerSortingStatus(packet: DrivePacket): OwnerSortingStatus | null {
+  if (packet.kind !== "provider_discovery" || packet.category !== "financial" || !packet.preview?.matched) return null;
+  const tagging = packet.preview.tagging;
+  if (!tagging) return null;
+  const { financial, review, other, pending } = tagging.counts;
+  const sorted = financial + review + other, total = sorted + pending;
+  const value = total ? `${sorted.toLocaleString("en-US")} of ${total.toLocaleString("en-US")}` : undefined;
+  if (tagging.status === "completed") return { word: "Files sorted", tone: "ready" };
+  if (tagging.status === "partial") return { word: "Files sorted so far", tone: "waiting", value };
+  if (tagging.status === "failed") return { word: "Couldn’t sort files", tone: "attention", value, detail: "Found files are still listed." };
+  if (tagging.retryAt) return { word: "Sorting paused", tone: "waiting", value, detail: "Trying again later." };
+  return { word: "Sorting files", tone: "waiting", value };
 }
 
 /** "Ready to list · 3 documents · Jan–Jun 2026". */

@@ -174,6 +174,13 @@ def assert_trace(caplog, request_id, *, retries):
     assert sum(status == "error" for _, status, _ in stages) == retries
     assert all(float(duration) < 45000 for _, _, duration in stages)
     assert any("period_packet.search outcome=completed matched=137" in m for m in tags)
+    # Per-scan cost facts: 75 + 64 provider rows, a duplicate folded and one row
+    # outside the period, under one fixed query tag.
+    saved = [m for m in tags if "period_packet.saved" in m]
+    assert re.search(
+        r"query_tag=[0-9a-f]{16} pages=2 fetched=139 kept=137 date_excluded=1 incomplete=False",
+        saved[-1],
+    )
     assert all(
         "Private loop" not in m and "loop-file-" not in m and "synthetic-owner" not in m
         for m in messages

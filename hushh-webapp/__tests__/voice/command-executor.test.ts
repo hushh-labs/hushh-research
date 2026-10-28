@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { buildKaiMarketRoute } from "@/lib/navigation/routes";
+import { buildKaiImportRoute, buildKaiMarketRoute } from "@/lib/navigation/routes";
 
 const toastInfoMock = vi.fn();
 const toastErrorMock = vi.fn();
@@ -32,6 +32,14 @@ function baseInput() {
 describe("executeKaiCommand", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it.each(["/one/kai?tab=portfolio", "/one/kai/portfolio/sources"])("retains %s as the voice import Back origin", currentRoute => {
+    const input = baseInput();
+    const result = executeKaiCommand({ ...input, command: "import", currentRoute });
+    const routeAfter = buildKaiImportRoute(currentRoute);
+    expect(input.router.push).toHaveBeenCalledWith(routeAfter);
+    expect(result.actionResult).toMatchObject({ routeBefore: currentRoute, routeAfter, screenAfter: "import" });
   });
 
   it("opens the comparison preview for voice analyze commands", () => {

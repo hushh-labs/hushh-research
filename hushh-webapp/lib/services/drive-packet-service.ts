@@ -42,7 +42,9 @@ export type DrivePacketPreview = {
   revision: number; matched: number | null; complete: boolean; stale: boolean; updatedAt: string | null; errorCode: string | null;
   documents?: DrivePacketDocument[]; nextCursor?: string | null; limited?: boolean;
   tagging?: { status: "queued" | "running" | "completed" | "partial" | "failed";
-    counts: { financial: number; review: number; other: number; pending: number }; policyVersion: string };
+    counts: { financial: number; review: number; other: number; pending: number }; policyVersion: string;
+    /** Present only while a failed sorting attempt waits for its scheduled retry. */
+    retryAt?: string };
 };
 export type DrivePacket = LegacyDrivePacket | DiscoveryDrivePacket;
 /** Calendar dates, "YYYY-MM-DD". */
@@ -116,13 +118,18 @@ function optionalPacketTag(value: unknown): DrivePacketDocument["packetTag"] {
     return { bucket: item.bucket as "financial" | "review" | "other", reason: label(item.reason, 500) };
   } catch { return undefined; }
 }
+/** A bad optional time drops only itself. */
+function optionalDate(value: unknown): string | undefined {
+  try { return typeof value === "string" ? date(value) ?? undefined : undefined; } catch { return undefined; }
+}
 function optionalTagging(value: unknown): DrivePacketPreview["tagging"] {
   try {
     const item = record(value), counts = record(item.counts);
     if (typeof item.status !== "string" || !["queued", "running", "completed", "partial", "failed"].includes(item.status)) return undefined;
+    const retryAt = optionalDate(item.retryAt);
     return { status: item.status as NonNullable<DrivePacketPreview["tagging"]>["status"],
       counts: { financial: count(counts.financial), review: count(counts.review), other: count(counts.other), pending: count(counts.pending) },
-      policyVersion: label(item.policyVersion, 128) };
+      policyVersion: label(item.policyVersion, 128), ...(retryAt ? { retryAt } : {}) };
   } catch { return undefined; }
 }
 function contents(value: unknown): DrivePacketContents {

@@ -5,6 +5,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from hushh_mcp.market_data.movers import (
+    MOVERS_COVERAGE_VERSION,
+    MOVERS_REFRESH_SECONDS,
+    complete_movers,
+    mover_payload,
+)
+from hushh_mcp.market_data.ports import MarketDataUnavailable
 from hushh_mcp.services.market_history_policy import daily_history_cache_window
 from hushh_mcp.services.market_refresh_policy import (
     LAST_CLOSE_RETENTION_SECONDS,
@@ -104,6 +111,10 @@ class PublicModuleCache:
         return (result.value, result.stale, result.age_seconds, tier, cache_hit)
 
     def has_recoverable_degradation(self, key: str, payload: Any) -> bool:
+        if key.startswith("movers:"):
+            # Retire old sampled payloads once. New incomplete observations still
+            # obey the normal session TTL, instead of retrying for every viewer.
+            return mover_payload(payload).get("coverage_version") != MOVERS_COVERAGE_VERSION
         if not isinstance(payload, dict):
             return False
         provider_status = payload.get("provider_status")
@@ -218,6 +229,11 @@ class PublicModuleCache:
         self, key, price_module, fetcher, store, fresh_ttl_seconds, stale_ttl_seconds
     ) -> Any:
         requested_at = self.clock()
+        if key.startswith("movers:"):
+            retry_key = f"refresh:{key}"
+            if self.cache.is_provider_in_cooldown(retry_key):
+                raise MarketDataUnavailable("movers_refresh_cooldown")
+            self.cache.mark_provider_cooldown(retry_key, MOVERS_REFRESH_SECONDS)
         if price_module:
             with market_price_refresh_scope():
                 value = await fetcher()
@@ -240,6 +256,10 @@ class PublicModuleCache:
                     value = await fetcher()
             else:
                 value = await fetcher()
+        previous = self.cache.peek(key)
+        if key.startswith("movers:") and previous and complete_movers(previous.value):
+            if not complete_movers(value):
+                raise MarketDataUnavailable("movers_incomplete_refresh")
         provider_status = {}
         if isinstance(value, dict) and isinstance(value.get("provider_status"), dict):
             provider_status = value.get("provider_status") or {}
