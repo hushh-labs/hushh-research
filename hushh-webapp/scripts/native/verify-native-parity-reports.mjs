@@ -67,6 +67,20 @@ function validateReport({ platform, reportPath, requiredRoutes }) {
   const results = Array.isArray(report.results) ? report.results : [];
   const resultsByRoute = new Map(results.map((result) => [result.route, result]));
 
+  if (report.audit_complete !== true) {
+    fail(failures, platform, "route audit did not complete");
+  }
+  if (report.completed_routes !== report.audited_routes || report.completed_routes !== results.length) {
+    fail(failures, platform, "completed route count does not match the audit and its results");
+  }
+  if (resultsByRoute.size !== results.length) {
+    fail(failures, platform, "route audit contains duplicate results");
+  }
+  for (const result of results) {
+    if (result.skipped === true) {
+      fail(failures, platform, `${result.route} was skipped`);
+    }
+  }
   if (report.audited_routes < requiredRoutes.length) {
     fail(
       failures,

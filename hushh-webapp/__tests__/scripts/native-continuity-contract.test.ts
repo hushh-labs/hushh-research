@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 
@@ -17,6 +18,27 @@ function source(relativePath: string): string {
 }
 
 describe("native cold-audit and continuity contract", () => {
+  it("does not count skipped or incomplete route audits as parity evidence", () => {
+    const directory = mkdtempSync(join(tmpdir(), "hushh-native-parity-"));
+    try {
+      const route = { route: "/one", classification: "native-required-functional", expectedMarker: "one", expectedRoute: "/one", expectedAuth: "authenticated", allowedDataStates: ["loaded"] };
+      const result = { route: "/one", ok: true, observed: { ready: "1", found: "1", marker: "one", route: "/one", auth: "authenticated", data: "loaded" } };
+      const report = { audited_routes: 1, completed_routes: 1, audit_complete: true, failed_routes: 0, passed_routes: 1, results: [result] };
+      writeFileSync(join(directory, "native-route-inventory.json"), JSON.stringify({ routes: [route] }));
+      const verify = (value: unknown) => {
+        writeFileSync(join(directory, "native-ios-parity-report.json"), JSON.stringify(value));
+        return spawnSync(process.execPath, [join(root, "scripts/native/verify-native-parity-reports.mjs"), "--platform=ios"], { cwd: directory, encoding: "utf8" });
+      };
+      expect(verify(report).status).toBe(0);
+      expect(verify({ ...report, results: [{ ...result, skipped: true }] }).status).not.toBe(0);
+      expect(verify({ ...report, audit_complete: false }).status).not.toBe(0);
+      expect(verify({ ...report, completed_routes: 0 }).status).not.toBe(0);
+      expect(verify({ ...report, audited_routes: 2, completed_routes: 2, passed_routes: 2, results: [result, result] }).status).not.toBe(0);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("does not pass reviewer passphrase strings to XCTest diagnostic operands", () => {
     const uiTests = source("ios/App/AppUITests/AppUITests.swift");
     const start = uiTests.indexOf("private func assertReviewerPassphraseAliasesMatch()");
