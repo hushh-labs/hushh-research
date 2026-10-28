@@ -1305,7 +1305,7 @@ function ProfilePageContent({
   const [nativeVoiceAvailable, setNativeVoiceAvailable] = useState(false);
   const voiceParent = profilePanelParentForPresentation("preferences", panePresentation?.history);
   const [nativeRuntimeAvailable, setNativeRuntimeAvailable] = useState(false);
-  const runtimeSettings = useGeminiRuntimeSettingsModel({ userId: applicationOwnerId, vaultKey, vaultOwnerToken,
+  const runtimeSettings = useGeminiRuntimeSettingsModel({ userId: applicationOwnerId, vaultKey, vaultOwnerToken, getCurrentVaultOwnerToken: getVaultOwnerToken,
     needsVaultCreation: vaultAccess.needsVaultCreation, needsUnlock: vaultAccess.needsUnlock,
     onRequestVaultCreation: () => requestVaultUnlock("profile_data"), onRequestVaultUnlock: () => requestVaultUnlock("profile_data"),
     enabled: activePanel === "preferences" && activeDetail === "gemini" && (presentation !== "native-page" || nativeMenuOpen) });

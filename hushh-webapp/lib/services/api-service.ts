@@ -1909,7 +1909,7 @@ export class ApiService {
     return response.json();
   }
 
-  static async selectManagedGeminiRuntime(): Promise<{
+  static async selectManagedGeminiRuntime(isEffectCurrent?: () => boolean): Promise<{
     status: "ready";
     model: string;
     location: string;
@@ -1918,7 +1918,7 @@ export class ApiService {
   }> {
     const token = await this.getFirebaseToken();
     const response = await apiFetch("/api/one/runtime/managed/select", {
-      method: "POST",
+      method: "POST", isEffectCurrent,
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),

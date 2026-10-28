@@ -18,6 +18,9 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated audit — 2026-10-28
 
+The integration includes main through `6b8ec6c63e`; the installed app below
+predates that merge. The other agent's root-worktree edits were preserved.
+
 The iPhone now has a Dev-backed qualification app built from `f9350c1940`.
 Its signed source app executable SHA-256 is
 `103b65d420932e2cdaa4bb93f5f754760b38825efdcb0d400de91bdaacdd2571`, and its
@@ -47,12 +50,17 @@ The bottom-chrome top-of-scroll correction in `325598ffad` passed its focused
 iOS simulator test and a negative control, but has not been physically
 qualified. The Profile AI-selection corrections in `db56101939` and
 `20528d552e` passed their focused suite and typecheck and are in the installed
-web assets, but were not exercised in the locked session. A wider admission
-experiment was removed after review:
-provider discovery can still change renderer during a visit, and operation
-locks, current server catalog and mutation permission need coherent native
-ownership before that family can be qualified. Neither correction establishes
-app-wide native, accessibility or performance acceptance.
+web assets, but were not exercised in the locked session. A settings visit now
+checks live Vault authority before starting a managed AI change, and shared and
+cloud-default dispatches check the originating visit. Pre-vault onboarding
+retains its existing path. Managed AI is not shown as selected or enabled while
+existing settings are unread; a failed read offers a retry. These later
+corrections are not in the installed candidate. A proposed stable React handoff was removed after review found that
+it could release navigation guards during a multi-step provider removal. Provider
+discovery can still change renderer during a visit; current catalog coverage,
+operation locks and permission changes need coherent ownership before native
+provider editing can be qualified. These corrections do not establish app-wide
+native, accessibility or performance acceptance.
 
 The earlier Dev-backed qualification app from `c002957256` had
 Its signed source app executable SHA-256 is

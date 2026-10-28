@@ -93,6 +93,32 @@ beforeEach(() => {
 
 describe("Gemini runtime admission", () => {
 
+  it.each([
+    { needsVaultCreation: false, needsUnlock: true, action: "unlock" },
+    { needsVaultCreation: true, needsUnlock: false, action: "create" },
+    { needsVaultCreation: false, needsUnlock: false, action: "reconnect" },
+  ])("does not change managed AI before the settings visit can $action the vault", async ({ needsVaultCreation, needsUnlock, action }) => {
+    const unlock = vi.fn();
+    const create = vi.fn();
+    const hook = renderHook(() => useGeminiRuntimeSettingsModel({
+      userId: "fresh-user", vaultKey: null, vaultOwnerToken: null,
+      needsVaultCreation, needsUnlock, onRequestVaultUnlock: unlock, onRequestVaultCreation: create,
+    }));
+    await waitFor(() => expect(hook.result.current.placement).toBe("shared"));
+    let selected: boolean | undefined;
+    await act(async () => { selected = await hook.result.current.selectManaged(); });
+    expect(selected).toBe(false);
+    expect(selectManagedGeminiRuntimeMock).not.toHaveBeenCalled();
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+    if (action === "reconnect") {
+      expect(unlock).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+      expect(toastErrorMock).toHaveBeenCalledWith("Your vault is reconnecting. Try again.");
+    } else {
+      expect(action === "unlock" ? unlock : create).toHaveBeenCalledOnce();
+    }
+  });
+
   it("does not show a native AI selection until saved settings are known", () => {
     const model = {
       current: () => true, isSaving: false, isRemoving: false,
@@ -107,6 +133,80 @@ describe("Gemini runtime admission", () => {
     expect(managed()?.selected).toBe(true);
     hook.rerender({ hasSavedKey: false, loadFailed: true });
     expect(managed()?.selected).toBe(false);
+  });
+
+  it("does not present or save managed AI while existing settings are unread", async () => {
+    loadRuntimeSecretMock.mockReturnValue(new Promise(() => {}));
+    render(<GeminiRuntimeSettingsCard userId="fresh-user" vaultKey="fixture-key" vaultOwnerToken="fixture-token"
+      needsVaultCreation={false} needsUnlock={false} onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()} />);
+    await waitFor(() => expect(getPersonalAgentStatusMock).toHaveBeenCalled());
+    const managed = runtimeChoice("profile-managed-runtime");
+    expect(managed).toBeDisabled();
+    expect(managed).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByText("Selected")).toBeNull();
+    expect(selectManagedGeminiRuntimeMock).not.toHaveBeenCalled();
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps BYOK from invalidating an unfinished settings read", async () => {
+    let finish!: (value: null) => void;
+    loadRuntimeSecretMock.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const hook = renderHook(() => useGeminiRuntimeSettingsModel({
+      userId: "fresh-user", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token",
+      needsVaultCreation: false, needsUnlock: false, onRequestVaultUnlock: vi.fn(), onRequestVaultCreation: vi.fn(),
+    }));
+    await waitFor(() => expect(hook.result.current.placement).toBe("shared"));
+    await act(async () => { await hook.result.current.selectByok(); });
+    expect(hook.result.current.mode).toBe("hushh_managed_vertex");
+    await act(async () => { finish(null); });
+    await waitFor(() => expect(hook.result.current.hasSavedKey).toBe(false));
+    await act(async () => { await hook.result.current.selectByok(); });
+    expect(hook.result.current.mode).toBe("byok");
+  });
+
+  it("withdraws a managed selection guard when the Vault token expires without a render", async () => {
+    let liveToken: string | null = "fixture-token";
+    let finish!: (value: { status: string; model: string; location: string; agentScheduled: boolean; agentReason: string }) => void;
+    selectManagedGeminiRuntimeMock.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const hook = renderHook(() => useGeminiRuntimeSettingsModel({
+      userId: "fresh-user", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token",
+      getCurrentVaultOwnerToken: () => liveToken,
+      needsVaultCreation: false, needsUnlock: false, onRequestVaultUnlock: vi.fn(), onRequestVaultCreation: vi.fn(),
+    }));
+    await waitFor(() => expect(hook.result.current.hasSavedKey).toBe(false));
+    let pending!: Promise<boolean>;
+    act(() => { pending = hook.result.current.selectManaged(); });
+    await waitFor(() => expect(selectManagedGeminiRuntimeMock).toHaveBeenCalledOnce());
+    liveToken = null;
+    const isCurrent = selectManagedGeminiRuntimeMock.mock.calls[0][0] as () => boolean;
+    expect(isCurrent()).toBe(false);
+    await act(async () => {
+      finish({ status: "ready", model: "fixture", location: "global", agentScheduled: false, agentReason: "" });
+      expect(await pending).toBe(false);
+    });
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+  });
+
+  it("does not clear the agent during key removal after the Vault token expires", async () => {
+    let liveToken: string | null = "fixture-token";
+    const hook = renderHook(() => useGeminiRuntimeSettingsModel({
+      userId: "fresh-user", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token",
+      getCurrentVaultOwnerToken: () => liveToken,
+      needsVaultCreation: false, needsUnlock: false, onRequestVaultUnlock: vi.fn(), onRequestVaultCreation: vi.fn(),
+    }));
+    await waitFor(() => expect(hook.result.current.placement).toBe("shared"));
+    let finish!: (value: unknown) => void;
+    getPersonalAgentStatusMock.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    let pending!: Promise<boolean>;
+    act(() => { pending = hook.result.current.removeByok(); });
+    await waitFor(() => expect(getPersonalAgentStatusMock).toHaveBeenCalledTimes(2));
+    liveToken = null;
+    await act(async () => {
+      finish({ hostingMode: "byoc", state: "active", deploymentTarget: "user_gcp", aiSelection: { version: 1, providers: ["gemini"] } });
+      expect(await pending).toBe(false);
+    });
+    expect(ownerPodRequestMock).not.toHaveBeenCalled();
+    expect(removeRuntimeSecretMock).not.toHaveBeenCalled();
   });
 
   it("keeps native AI selection unresolved while a failed read is retried", async () => {
