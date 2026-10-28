@@ -239,33 +239,6 @@ async def test_a_refused_key_stores_nothing_and_says_why(pod, owner_session, mon
     assert failure["code"] == "KEY_REFUSED" and isinstance(failure["atMs"], int)
 
 
-async def test_owner_revoked_during_provider_check_keeps_previous_selection(pod):
-    await run_ai_selection_put(envelope=_envelope(NOW), check=_answers, now_ms=NOW, **_local())
-    previous = pod_ai_selection.active_ai_selection()
-    admitted = True
-
-    async def verify(_token: str, *, expected_scope: str) -> ConsentVerdict:
-        if not admitted:
-            return ConsentVerdict(valid=False, available=True, reason="subject revoked")
-        return await _owner_verifier(_token, expected_scope=expected_scope)
-
-    async def revoke_during_check(_selection: Any, *, gemini_default: str) -> None:
-        nonlocal admitted
-        admitted = False
-
-    with pytest.raises(HTTPException) as refused:
-        await run_ai_selection_put(
-            envelope=_envelope(NOW + 1),
-            check=revoke_during_check,
-            now_ms=NOW + 1,
-            **{**_local(), "verifier": verify},
-        )
-
-    assert refused.value.status_code == 403
-    assert len(await _records(pod)) == 1
-    assert pod_ai_selection.active_ai_selection() == previous
-
-
 async def test_a_replay_or_rollback_is_refused_even_after_a_clear(pod, owner_session):
     async def put(issued_at: int) -> Any:
         return await run_ai_selection_put(

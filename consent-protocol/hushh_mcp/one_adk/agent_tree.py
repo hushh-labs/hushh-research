@@ -161,7 +161,11 @@ from hushh_mcp.one_adk.specialist_availability import (
 )
 from hushh_mcp.one_adk.specialist_focus import specialist_focus_instruction as focus_instruction
 from hushh_mcp.one_adk.turn_location import get_my_location
-from hushh_mcp.one_adk.web_search import instruction_for_head, web_search_tools
+from hushh_mcp.one_adk.web_search import (
+    instruction_for_head,
+    search_model_for_text_head,
+    web_search_tools,
+)
 from hushh_mcp.one_adk.workspace_mcp_tools import (
     READ_WORKSPACE_TOOL,
     STATE_DRIVE_SEARCH_SELECTION,
@@ -176,7 +180,6 @@ from hushh_mcp.runtime_providers import (
     thinking_config_for,
 )
 from hushh_mcp.runtime_providers.managed_text import (
-    ManagedPrimaryTextModel,
     managed_text_agent,
     one_chat_root_model,
 )
@@ -2787,16 +2790,7 @@ def build_one_text_agent(
     omit them because they have no frontend session to execute those tools.
     """
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
-    if isinstance(text_model, ManagedPrimaryTextModel) and google_search_model is None:
-        # Search keeps the same Azure-only processor and invocation authority.
-        # Native search requires LOW/default rather than minimal reasoning.
-        google_search_model = text_model.model_copy(
-            update={
-                "allow_web_search": True,
-                "default_reasoning_effort": "low",
-                "text_verbosity": "low",
-            }
-        )
+    google_search_model = search_model_for_text_head(text_model, google_search_model)
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
