@@ -67,6 +67,31 @@ describe("Calendar Insights meeting library", () => {
     expect(replace).toHaveBeenCalled();
   });
 
+  it("shows both files from two verified Calendar copies and downloads through the file's source", async () => {
+    const row = { ...meetingRow("a", "Shared occurrence", ["recording", "notes"]),
+      sources: [{ calendar_id: "primary", event_id: "a" }, { calendar_id: "shared", event_id: "copy-a" }] };
+    mocks.insights.mockImplementation(async (path: string, body: { event_id?: string; date: string; time_zone: string }) => {
+      if (path === "meetings") return meetingPage([row], true, body.date, body.time_zone);
+      if (path === "meetings/detail") return { discovery: "checked", complete: true, event: { title: row.title }, artifacts: [
+        body.event_id === "a"
+          ? { file_id: "recording-file", kind: "recording", state: "available", title: "Recording", url: "https://drive.google.com/file/d/recording-file/view", can_download: true }
+          : { file_id: "note-file", kind: "notes", state: "available", title: "Meeting notes", url: "https://docs.google.com/document/d/note-file/edit", can_download: true },
+      ] };
+      return { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 };
+    });
+    mocks.fileAction.mockResolvedValue("https://docs.google.com/document/d/note-file/export?format=pdf");
+    vi.spyOn(window, "open").mockReturnValue({ location: { replace: vi.fn() }, closed: false, close: vi.fn(), opener: null } as unknown as Window);
+    render(insights());
+    fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Shared occurrence/ }));
+    expect(await screen.findByText("Recording")).toBeInTheDocument();
+    expect(await screen.findAllByText("Meeting notes")).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole("button", { name: "Download" })[1]);
+    await waitFor(() => expect(mocks.fileAction).toHaveBeenCalledWith("download", expect.objectContaining({
+      calendar_id: "shared", event_id: "copy-a", file_id: "note-file", occurrence_id: row.occurrence_id,
+    }), "firebase-owner-token", expect.any(AbortSignal)));
+  });
+
   it("drops a late response after switching Google accounts", async () => {
     let resolveSecond!: (value: ReturnType<typeof meetingPage>) => void;
     const secondPending = new Promise<ReturnType<typeof meetingPage>>(resolve => { resolveSecond = resolve; });

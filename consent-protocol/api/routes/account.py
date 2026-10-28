@@ -2305,6 +2305,9 @@ async def _perform_account_deletion(
     )
 
     if result.get("success") is True and result.get("cleanup_pending") is True:
+        from hushh_mcp.services.account_cleanup_runtime import wake_cleanup_worker
+
+        wake_cleanup_worker()  # Admission committed: erase now, not at the next tick.
         return JSONResponse(
             status_code=202,
             content=result,

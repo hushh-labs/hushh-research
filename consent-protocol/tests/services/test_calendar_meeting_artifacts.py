@@ -226,7 +226,12 @@ def test_markdown_notes_are_viewable_and_pdf_export_is_full_file_action(monkeypa
     monkeypatch.setattr(
         artifacts_module,
         "inspect_token",
-        AsyncMock(return_value={"https://www.googleapis.com/auth/drive.meet.readonly"}),
+        AsyncMock(
+            return_value={
+                "https://www.googleapis.com/auth/meetings.space.readonly",
+                "https://www.googleapis.com/auth/drive.meet.readonly",
+            }
+        ),
     )
     drive.get_file_facts.return_value = {
         "title": "Meeting notes",
@@ -366,7 +371,12 @@ def test_viewable_file_with_denied_download_stays_visible(monkeypatch):
     monkeypatch.setattr(
         artifacts_module,
         "inspect_token",
-        AsyncMock(return_value={"https://www.googleapis.com/auth/drive.meet.readonly"}),
+        AsyncMock(
+            return_value={
+                "https://www.googleapis.com/auth/meetings.space.readonly",
+                "https://www.googleapis.com/auth/drive.meet.readonly",
+            }
+        ),
     )
     drive.get_file_facts.return_value = {
         "title": "Recording",
@@ -441,7 +451,12 @@ def test_revoked_file_does_not_leak_old_content(monkeypatch):
     monkeypatch.setattr(
         artifacts_module,
         "inspect_token",
-        AsyncMock(return_value={"https://www.googleapis.com/auth/drive.meet.readonly"}),
+        AsyncMock(
+            return_value={
+                "https://www.googleapis.com/auth/meetings.space.readonly",
+                "https://www.googleapis.com/auth/drive.meet.readonly",
+            }
+        ),
     )
     drive.get_file_facts.side_effect = DriveReadError("source_unavailable", status_code=403)
     result = run(

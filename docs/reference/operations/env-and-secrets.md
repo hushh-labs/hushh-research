@@ -369,8 +369,20 @@ Live head keeps an explicit pin.
   mailbox credential is never stored in the repo or Secret Manager; sending rides
   the delegated service identity. Forwarding from `one@hushh.ai` to a person is a
   Google Workspace admin setting, not a repo concern.
-- Automatic account mail is limited to the first-account welcome and confirmed
-  passkey-add, passkey-remove, and existing-vault passphrase-change notices.
+- Automatic account mail is limited to the first-account welcome, confirmed
+  passkey-add, passkey-remove, existing-vault passphrase-change and phone-link
+  change notices, and the `account_deleted` notice. The deletion notice is sent
+  by the deletion worker at most once, only after a full-account erasure
+  commits, to the retained sign-in's verified email. Hussh reads the address into
+  memory and never stores it (the One mailbox keeps its Sent copy, as for every
+  account notice), so a lost or uncertain send is logged
+  (`account_deletion.notice_failed`, or `account_security_email.failed`) and
+  never replayed or backfilled. Outside production it sends only when test mode
+  redirects it to `SUPPORT_EMAIL_TEST_TO` (UAT), because non-production shares
+  sign-ins with production and must never tell a real person their account is
+  gone. Otherwise it logs `account_deletion.notice_skipped` with
+  `reason=sender_unconfigured` or `reason=live_outside_prod` (shared Dev,
+  which mounts the Firebase admin identity but no test-mode secrets).
   Routine welcome-back, sign-out, phone-conflict, and client-inferred connector
   emails are retired. The separate `hushh-mail-api` frontend binding remains
   only for user-requested Save my Soul email; it must not send account notices.

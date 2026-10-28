@@ -20,6 +20,7 @@ export type MeetingArtifact = {
   file_id: string; kind: "recording" | "notes" | "transcript"; state: string;
   title?: string; url?: string; text?: string; text_format?: "plain" | "markdown";
   truncated?: boolean; can_download?: boolean; mime_type?: string; preview_state?: string;
+  provenance?: "calendar_linked";
 };
 export type MeetingDetail = {
   event: Meeting; calendar_id: string; discovery: string; complete: boolean;
