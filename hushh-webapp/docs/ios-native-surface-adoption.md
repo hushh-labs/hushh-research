@@ -16,6 +16,24 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Integrated audit — 2026-10-28
+
+The local integrated source `95dc95d6da` includes main and the shared branch.
+Its generated map contains 161 routes and 17 separately enumerated query-driven
+views; enumeration is discovery, not acceptance. The physical iPhone runs the
+earlier Dev-backed qualification app `773bd90a6f`, not this integrated source.
+Ordinary builds retain the established renderer and the qualification switch.
+
+| Family | Renderer and operation owner | Evidence and remaining qualification |
+| --- | --- | --- |
+| Profile and nested settings | Typed native scenes where admitted; React feature owners and complete web handoff elsewhere | Read-only journeys covered Hosting, Updates, Account, Payouts, Memory sharing, World Model, Security, Devices, Connectors, Invite, Help and Legal on `773bd90a6f`. The Memory editor was unavailable; Pricing returned Retry while its Dev endpoint returned 503; AI provider used web. No full-family or mutation acceptance. |
+| Bottom navigation and Agent Dock | Retained native bar and dock; shared route, scroll and voice owners | On `773bd90a6f`, three Feed scroll/reversal cycles preserved the dock, WebView and draft with no interactive web duplicate. The check accepts voice-readiness labels and does not establish voice availability or frame pacing. |
+| Privacy and interruption | Existing native privacy and presentation owners | Ten warm Profile background/resume cycles and Control Center recovery passed on `773bd90a6f`; other interruption and overlay combinations remain unqualified. |
+| Other routes and nested states | Existing feature owners and renderer-specific fallbacks | The generated inventory covers route discovery, not every interaction state. Native completion, visual and accessibility review, mutation fixtures and physical performance acceptance remain open. |
+
+Rollback remains the existing qualification switch. No Dev deployment or
+physical acceptance is implied for the integrated source.
+
 ### iPhone stock-app reference — 2026-10-27
 
 On an iPhone 16e running iOS 27.2, a credential-free XCTest opened Settings,
