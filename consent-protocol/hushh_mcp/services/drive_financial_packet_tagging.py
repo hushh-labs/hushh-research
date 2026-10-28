@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 from hushh_mcp.services import drive_financial_packet_tag_store as tags
 from hushh_mcp.services.drive_document_prefix import PREFIX_POLICY
+from hushh_mcp.services.drive_financial_packet_failures import failure_code
 from hushh_mcp.services.drive_groups.adapters import IsolatedHeadEmbedder, TransportHeadSource
 from hushh_mcp.services.drive_groups.indexer import classify_candidates
 from hushh_mcp.services.drive_groups.models import load_bundle
@@ -34,21 +35,6 @@ def _refresh_pending(error):
         and error.status_code == 409
         and str(error) == "refresh_in_progress"
     )
-
-
-def _failure_code(error):
-    if isinstance(error, DriveOAuthError):
-        code = str(error)
-        return code if code in tags.OAUTH_FAILURE_CODES else "oauth_unavailable"
-    if isinstance(error, ConnectorLifecycleError):
-        code = str(error)
-        return code if code in tags.LIFECYCLE_FAILURE_CODES else "connector_unavailable"
-    if isinstance(error, DriveReadError) and error.retryable:
-        return "provider_unavailable"
-    # The worker's own budget or a shutdown ended the batch: not a packet fault.
-    if isinstance(error, (TimeoutError, asyncio.CancelledError)):
-        return "processing_timeout"
-    return "processing_unavailable"
 
 
 class CandidateReads:
@@ -241,7 +227,7 @@ class FinancialPacketTagger:
             asyncio.CancelledError,
         ) as error:
             # No file, source evidence, sale version or owner result is removed.
-            code = _failure_code(error)
+            code = failure_code(error)
             try:
                 settled = await tags.commit(self.store, job, error=code)
             except (

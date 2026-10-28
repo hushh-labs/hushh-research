@@ -7,6 +7,10 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_owner_cohort
+from hushh_mcp.services.drive_financial_packet_failures import (
+    FAILURE_CODES,
+    TRANSIENT_FAILURE_CODES,
+)
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_period_packet_preview import document, write_build
 from hushh_mcp.services.drive_request_discovery import discovery_evidence_matches
@@ -16,48 +20,10 @@ from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 POLICY = "financial-packet-organizing-v1"
 BATCH = 8
-# Fixed codes from the credential path. Anything else, such as a raw provider
-# message, collapses to oauth_unavailable and never reaches a log or saved state.
-OAUTH_FAILURE_CODES = frozenset(
-    {
-        "connector_unavailable",
-        "invalid_argument",
-        "reconnect_required",
-        "connection_changed",
-        "insufficient_scope",
-        "unexpected_scope",
-        "connector_configuration_invalid",
-        "refresh_in_progress",
-        "provider_unavailable",
-        "provider_response_invalid",
-        "provider_response_too_large",
-        "grant_rejected",
-        "identity_not_verified",
-        "profile_unavailable",
-    }
-)
-LIFECYCLE_FAILURE_CODES = frozenset(
-    {"connector_storage_unavailable", "connector_unavailable", "revocation_in_progress"}
-)
-# The only failure codes saved with an attempt, and so the only ones an owner can see.
-FAILURE_CODES = (
-    OAUTH_FAILURE_CODES
-    | LIFECYCLE_FAILURE_CODES
-    | {"oauth_unavailable", "processing_timeout", "processing_unavailable"}
-)
 QUICK_RETRY_ATTEMPTS = 3
 QUICK_RETRY_SECONDS = 300
-# Failures that pass on their own (refresh contention, provider or storage
-# unavailability, a slow batch) get a few slow retries before organizing stops,
+# Failures that pass on their own get a few slow retries before organizing stops,
 # so recovery needs no operator database write. Retries stay bounded.
-TRANSIENT_FAILURE_CODES = frozenset(
-    {
-        "refresh_in_progress",
-        "provider_unavailable",
-        "connector_storage_unavailable",
-        "processing_timeout",
-    }
-)
 SLOW_RETRY_ATTEMPTS = 7
 SLOW_RETRY_SECONDS = 6 * 3600
 

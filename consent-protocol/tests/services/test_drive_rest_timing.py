@@ -185,6 +185,7 @@ async def test_financial_tagger_settles_real_transport_oauth_failures_without_pr
     from hushh_mcp.services import drive_financial_packet_tagging as tagging
     from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
     from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
+    from mcp_modules.log_redaction import SensitiveLogFilter, redact_log_value
     from tests.services.test_google_drive_rest_transport import FILE_ID, transport
 
     monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "true")
@@ -228,14 +229,23 @@ async def test_financial_tagger_settles_real_transport_oauth_failures_without_pr
     assert await worker.run_one() == "deferred"
     code = {
         "missing_operation": "connector_unavailable",
-        "storage_timeout": "connector_storage_unavailable",
+        "storage_timeout": "storage_unavailable",
     }.get(failure, "oauth_unavailable")
     commit.assert_awaited_once_with(worker.store, job, error=code)
     adapter.get_file_facts.assert_not_awaited()
     if failure == "missing_operation":
         drive._oauth.current_credential.assert_not_awaited()
     worker.embedder.embed.assert_not_awaited()
-    assert f"period_packet.tagging outcome=deferred code={code} settled=queued" in caplog.text
+
+    def deployed(record):
+        # As the worker writes it: the runtime redactor masks identifier-like tokens.
+        record = logging.makeLogRecord(record.__dict__)
+        SensitiveLogFilter().filter(record)
+        return record.getMessage()
+
+    shown = "\n".join(deployed(record) for record in caplog.records)
+    assert f"period_packet.tagging outcome=deferred code={code} settled=queued" in shown
+    assert all(redact_log_value(saved) == saved for saved in tags.FAILURE_CODES)
     for private in (
         FILE_ID,
         source["name"],
