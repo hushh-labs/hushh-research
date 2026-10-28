@@ -18,8 +18,10 @@ class AdkEventCleanupError(RuntimeError):
 class AdkEventTimeoutError(TimeoutError):
     """The event boundary's own deadline expired, rather than a provider error."""
 
-    def __init__(self, *, phase: str = "unknown", elapsed_seconds: float = 0, event_count: int = 0):
-        super().__init__("ADK event deadline expired")
+    def __init__(
+        self, *args, phase: str = "unknown", elapsed_seconds: float = 0, event_count: int = 0
+    ):
+        super().__init__(*args)
         self.phase = phase
         self.elapsed_seconds = elapsed_seconds
         self.event_count = event_count
