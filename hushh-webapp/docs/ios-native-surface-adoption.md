@@ -21,7 +21,34 @@ evidence, not admission or release claims for the latest implementation.
 The integration includes main through `6b8ec6c63e`. The other agent's
 root-worktree edits were preserved.
 
-The iPhone now has the Dev-backed qualification app from `67e347a99e`.
+The iPhone now has the Dev-backed qualification app from `491f4a7e44`. Its
+signed source app executable SHA-256 is
+`0bec8298086f3ca99b943cc1e8b0abcd6fc264803d12904da5d103ef4f2e6c85`; the
+matching test executable is unchanged from `67e347a99e`. All 1,804 exported
+web assets matched the signed bundle, signatures verified and the committed
+Swift package pins remained unchanged. Installed bytes were not read back.
+The app was launched with public Vault layout diagnostics. Attach-only XCTest
+entered the running app, then passed the credential-free Vault keyboard,
+recovery/sign-out reachability and background/resume layout check. No private
+credential or protected journey was exercised. This Release qualification
+build uses `ENABLE_TESTABILITY=YES`, not a distribution-performance build.
+
+The shared native pane fence now rejects an old document's late retirement
+after a replacement document is bound. A simulator regression and the existing
+covered-control isolation test passed, and a negative control reproduced the
+old failure. A separate source review found a remaining liveness case: a new
+observed document can reserve a pane, have acquisition refused before native
+admission, and then have its cleanup rejected while the previous document is
+still current. Its JavaScript retirement barrier can remain blocked. A safe
+recovery must also prove any previous owned presenter has actually detached;
+the fence change alone is not complete native presentation qualification.
+
+The protocol stage at `67e347a99e` passed its parallel and serial portions
+(25,373 and 1,688 tests respectively); the subsequent candidate changes are
+limited to native Swift and this inventory. Web-core passed separately at
+`67e347a99e`. These staged results are not a full exact-head core or CI pass.
+
+The preceding Dev-backed qualification app was built from `67e347a99e`.
 Its signed source app executable SHA-256 is
 `5d1144c3ae27835d45b7850429bf81135ddb39311df645713d66275d7399ce8e`, and its
 test executable SHA-256 is
