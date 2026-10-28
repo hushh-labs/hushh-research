@@ -410,12 +410,18 @@ describe("VaultFlow create validation", () => {
     await act(async () => {});
     expect(unlockWithMethodMock).not.toHaveBeenCalled();
     fireEvent.change(password, { target: { value: "fixture-passphrase" } });
+    fireEvent.compositionStart(password);
+    expect(screen.getByRole("button", { name: "Unlock", exact: true })).toBeDisabled();
+    fireEvent.keyDown(password, { key: "Enter" });
+    await act(async () => {});
+    expect(unlockWithMethodMock).not.toHaveBeenCalled();
     fireEvent.keyDown(password, { key: "Enter", isComposing: true });
     await act(async () => {});
     expect(unlockWithMethodMock).not.toHaveBeenCalled();
     fireEvent.keyDown(password, { key: "Enter", keyCode: 229 });
     await act(async () => {});
     expect(unlockWithMethodMock).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(password);
     fireEvent.keyDown(password, { key: "Enter", isComposing: false });
     await waitFor(() => expect(unlockWithMethodMock).toHaveBeenCalledOnce());
   });
