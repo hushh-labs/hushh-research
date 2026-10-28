@@ -5564,9 +5564,11 @@ claims the number through the existing `/phone/claim` or `/phone/uat-test/*`
 writers. An explicit OTP claim is never blocked by a holder whose full-account
 deletion is committed: the canonical per-number writer detaches that dead
 binding atomically. Provisional phone-orphan intents and background provider
-hydration never release a binding. Production stays off until
-`HUSHH_PHONE_LINKED_DELETION_ENABLED` is set; while off, the delete choice
-keeps the previous-account sign-in handoff.
+hydration never release a binding. Phone-possession deletion is off by default
+in every environment and requires explicit `HUSHH_PHONE_LINKED_DELETION_ENABLED`
+opt-in. The default delete choice preserves the previous-account sign-in handoff
+and its existing account-ownership verification. A shared test code does not
+activate this separate deletion policy.
 
 Native verification extends the existing isolated proof bridge rather than
 linking the primary Firebase user. Owner/attempt fences suppress stale native

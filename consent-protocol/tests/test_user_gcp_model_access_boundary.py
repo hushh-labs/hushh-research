@@ -471,3 +471,28 @@ def test_bridge_render_does_not_authorize_sibling_pods(monkeypatch, approved_bri
     )
     assert _env_entries(cfg, BRIDGE_ENV) == []
     assert _env_entries(cfg, "GOOGLE_CLOUD_PROJECT") == [USER_PROJECT]
+
+
+@pytest.mark.feature_auth_reliability
+@pytest.mark.trace_loop
+@pytest.mark.parametrize("operation", ["cleanup", "inspect"])
+async def test_retained_cleanup_profile_requires_exact_controller_authority(monkeypatch, operation):
+    from dataclasses import replace
+    from unittest.mock import Mock
+
+    from hushh_mcp.services.compute_backend import resolve_compute_backend_for_spec
+    from hushh_mcp.services.compute_backend_resolution import cleanup_spec
+    from tests import hosted_pod_support
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    registry = Mock()
+    spec = cleanup_spec(hosted_pod_support.historical_cleanup_snapshot(), registry=registry)
+    spec = replace(
+        spec, hosted_admission_guard=replace(spec.hosted_admission_guard, operation=operation)
+    )
+    backend = resolve_compute_backend_for_spec(spec)
+    deployment = spec.private_gcp_deployment
+    assert backend._private_deployment == deployment
+    assert deployment.inference_model == "gemini-synthetic"
+    assert registry.mock_calls == []
+    hosted_pod_support.assert_current_profile_required(spec.hosted_admission_guard)

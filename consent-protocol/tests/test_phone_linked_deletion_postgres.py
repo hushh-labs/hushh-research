@@ -58,10 +58,10 @@ async def db(database_url, monkeypatch):
             "HUSHH_UAT_PHONE_TEST_CODE": CODE,
         }.items():
             monkeypatch.setenv(name, value)
+        monkeypatch.setenv("HUSHH_PHONE_LINKED_DELETION_ENABLED", "true")
         for name in (
             "APP_RUNTIME_PROFILE",
             "HUSHH_DEPLOY_ENV",
-            "HUSHH_PHONE_LINKED_DELETION_ENABLED",
             "REVIEWER_UID",
             "REVIEWER_COUNTERPART_UID",
             "UAT_SMOKE_USER_ID",

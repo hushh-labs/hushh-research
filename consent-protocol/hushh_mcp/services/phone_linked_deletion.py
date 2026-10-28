@@ -4,8 +4,8 @@ A fresh real SMS proof (or, in UAT only, the configured fixture code) authorizes
 the existing full-account erasure of the number's current verified holder.
 Preparation is opaque: nothing about the holder is decided or revealed before
 the proof verifies. The requester then claims the number through the existing
-phone writers, which never treat an admitted deletion as an owner. Production
-stays off unless explicitly enabled.
+phone writers, which never treat an admitted deletion as an owner. This policy
+stays off in every environment unless explicitly enabled.
 """
 
 from __future__ import annotations
@@ -93,11 +93,11 @@ def _production_runtime() -> bool:
 
 
 def enabled() -> bool:
-    """Off in production until the founder chooses its safeguards; explicit env wins."""
+    """Explicit opt-in only; the default delete flow requires the previous owner."""
     explicit = str(os.getenv("HUSHH_PHONE_LINKED_DELETION_ENABLED") or "").strip().lower()
     if explicit:
         return explicit in {"1", "true", "yes", "on"}
-    return not _production_runtime()
+    return False
 
 
 def _require_enabled() -> None:

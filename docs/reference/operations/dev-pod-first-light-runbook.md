@@ -48,6 +48,11 @@ admission or database latency.
 
 ## Maintaining an existing owner's software release
 
+Retained cleanup and inspection validate the frozen model assignment only when
+an exact typed controller is bound to that deployment. Provisioning and upgrades
+still validate current policy; cleanup never gains allocation or processing authority.
+
+
 This section governs upgrades; the dated first-light checks above and legacy
 bootstrap exception below are historical.
 Dev's control plane is `hushh-pda-dev`. A user-cloud deployment can live in a

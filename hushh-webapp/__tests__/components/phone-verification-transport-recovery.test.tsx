@@ -160,3 +160,23 @@ describe("in-place deletion of the account linked to the number", () => {
     expect(confirmLinkedDeletion).toHaveBeenCalledOnce();
   });
 });
+
+
+it("@feature_auth_reliability @trace_loop preserves delete intent when phone-only deletion is disabled", async () => {
+  const prepare = vi.fn().mockRejectedValue(new ApiError("disabled", 503,
+    { detail: { code: "PHONE_LINKED_DELETION_UNAVAILABLE" } }));
+  const deletePreviousAccount = vi.fn().mockResolvedValue(undefined);
+  const recoverPreviousAccount = vi.fn();
+  const confirmLinkedDeletion = vi.fn();
+  const flow = renderPhoneVerificationFlow({
+    startVerification: vi.fn().mockRejectedValue(conflict("PHONE_TEST_NUMBER_IN_USE")),
+    prepareLinkedDeletion: prepare, confirmLinkedDeletion,
+    deletePreviousAccount, recoverPreviousAccount,
+  });
+  await beginOccupiedPhone();
+  fireEvent.click(screen.getByRole("button", { name: "Delete my previous account" }));
+  await waitFor(() => expect(deletePreviousAccount).toHaveBeenCalledExactlyOnceWith("+16505550101"));
+  expect(recoverPreviousAccount).not.toHaveBeenCalled();
+  expect(confirmLinkedDeletion).not.toHaveBeenCalled();
+  expect(flow.onCompleted).not.toHaveBeenCalled();
+});
