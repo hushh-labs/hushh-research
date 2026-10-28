@@ -380,7 +380,14 @@ function OwnerVaultFlow({
   const passphraseComposingRef = useRef(false);
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
+  const [confirmPassphraseComposing, setConfirmPassphraseComposing] = useState(false);
+  const confirmPassphraseComposingRef = useRef(false);
+  const suppressComposingSubmitRef = useRef(false);
+  const composingSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showConfirmPassphrase, setShowConfirmPassphrase] = useState(false);
+  useEffect(() => () => {
+    if (composingSubmitTimerRef.current !== null) clearTimeout(composingSubmitTimerRef.current);
+  }, []);
   const [recoveryKey, setRecoveryKey] = useState<string>("");
   const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
   const [copied, setCopied] = useState(false);
@@ -621,6 +628,8 @@ function OwnerVaultFlow({
       : null;
   const canCreatePassphrase =
     !isUnlocking &&
+    !passphraseComposing &&
+    !confirmPassphraseComposing &&
     passphrase.length >= 8 &&
     passphrase === confirmPassphrase;
 
@@ -897,7 +906,8 @@ function OwnerVaultFlow({
   }, [step, nativeTestConfig.vaultPassphrase]);
 
   const handleCreatePassphrase = async () => {
-    if (isUnlocking || createPassphraseAttemptRef.current) {
+    if (isUnlocking || createPassphraseAttemptRef.current ||
+        passphraseComposingRef.current || confirmPassphraseComposingRef.current) {
       return;
     }
     if (passphrase.length < 8) {
@@ -966,7 +976,11 @@ function OwnerVaultFlow({
 
   const handleCreatePassphraseSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canCreatePassphrase) {
+    if (suppressComposingSubmitRef.current) {
+      suppressComposingSubmitRef.current = false;
+      return;
+    }
+    if (!canCreatePassphrase || passphraseComposingRef.current || confirmPassphraseComposingRef.current) {
       return;
     }
     void handleCreatePassphrase();
@@ -1842,6 +1856,18 @@ function OwnerVaultFlow({
               data-vault-create-form
               className={cn("space-y-3", setupPresentation ? "w-full max-w-none" : "mx-auto max-w-[21rem]")}
               onSubmit={handleCreatePassphraseSubmit}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || !(passphraseComposingRef.current || confirmPassphraseComposingRef.current ||
+                    event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) return;
+                // Let the IME handle Enter, but ignore an implicit form submit
+                // from that same key event after compositionEnd has fired.
+                suppressComposingSubmitRef.current = true;
+                if (composingSubmitTimerRef.current !== null) clearTimeout(composingSubmitTimerRef.current);
+                composingSubmitTimerRef.current = setTimeout(() => {
+                  suppressComposingSubmitRef.current = false;
+                  composingSubmitTimerRef.current = null;
+                }, 0);
+              }}
             >
               <VaultFlowHeader
                 user={user}
@@ -1880,6 +1906,15 @@ function OwnerVaultFlow({
                       placeholder="Create password"
                       value={passphrase}
                       onChange={(e) => setPassphrase(e.target.value)}
+                      onCompositionStart={() => {
+                        passphraseComposingRef.current = true;
+                        setPassphraseComposing(true);
+                      }}
+                      onCompositionEnd={(event) => {
+                        passphraseComposingRef.current = false;
+                        setPassphrase(event.currentTarget.value);
+                        setPassphraseComposing(false);
+                      }}
                       autoFocus={!setupPresentation}
                       autoComplete="new-password"
                       autoCorrect="off"
@@ -1919,6 +1954,15 @@ function OwnerVaultFlow({
                       placeholder="Confirm password"
                       value={confirmPassphrase}
                       onChange={(e) => setConfirmPassphrase(e.target.value)}
+                      onCompositionStart={() => {
+                        confirmPassphraseComposingRef.current = true;
+                        setConfirmPassphraseComposing(true);
+                      }}
+                      onCompositionEnd={(event) => {
+                        confirmPassphraseComposingRef.current = false;
+                        setConfirmPassphrase(event.currentTarget.value);
+                        setConfirmPassphraseComposing(false);
+                      }}
                       autoComplete="new-password"
                       autoCorrect="off"
                       autoCapitalize="off"

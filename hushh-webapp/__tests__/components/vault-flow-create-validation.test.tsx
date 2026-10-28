@@ -382,6 +382,46 @@ describe("VaultFlow create validation", () => {
     expect(onRecoveryKeyDisclosureChange).toHaveBeenLastCalledWith(false);
   });
 
+  it("never creates a vault while either password field has unfinished composition", async () => {
+    render(<VaultFlow user={user} onSuccess={vi.fn()} />);
+    const password = await screen.findByLabelText("Password");
+    const confirmation = screen.getByLabelText("Confirm password");
+    const form = confirmation.closest("form")!;
+    const createButton = screen.getByRole("button", { name: "Create password" });
+    fireEvent.change(password, { target: { value: "fixture-password" } });
+    fireEvent.change(confirmation, { target: { value: "fixture-password" } });
+
+    for (const field of [password, confirmation]) {
+      fireEvent.compositionStart(field);
+      expect(createButton).toBeDisabled();
+      fireEvent.submit(form);
+      await act(async () => {});
+      expect(createVaultMock).not.toHaveBeenCalled();
+      fireEvent.compositionEnd(field);
+    }
+
+    fireEvent.submit(form);
+    await waitFor(() => expect(createVaultMock).toHaveBeenCalledOnce());
+    expect(createVaultMock).toHaveBeenCalledWith("fixture-password");
+  });
+
+  it("does not create a vault from the Enter that confirms an IME candidate", async () => {
+    render(<VaultFlow user={user} onSuccess={vi.fn()} />);
+    const password = await screen.findByLabelText("Password");
+    const confirmation = screen.getByLabelText("Confirm password");
+    const form = confirmation.closest("form")!;
+    fireEvent.change(password, { target: { value: "fixture-password-final" } });
+    fireEvent.change(confirmation, { target: { value: "fixture-password-final" } });
+    fireEvent.compositionStart(confirmation);
+    fireEvent.keyDown(confirmation, { key: "Enter", keyCode: 229, isComposing: true });
+    fireEvent.compositionEnd(confirmation);
+    fireEvent.submit(form);
+    await act(async () => {});
+    expect(createVaultMock).not.toHaveBeenCalled();
+    fireEvent.submit(form);
+    await waitFor(() => expect(createVaultMock).toHaveBeenCalledWith("fixture-password-final"));
+  });
+
   it("unlocks only the replacement owner's vault while Firebase UID stays unchanged", async () => {
     const ownerId = "acct_" + "a".repeat(32);
     publishValidatedAuthSessionPrincipal({ firebaseUid: user.uid, ownerId, accountGeneration: 1 });
