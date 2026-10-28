@@ -3363,10 +3363,9 @@ class ConnectionsService:
                 return "pending_incoming"
             return "none"
 
-        # Annotated on the row, not inferred from which tab asked. The row has
-        # to be able to say what it is even when the audience is "all" -- voice
-        # name-resolution searches across everyone, and a row that only knew its
-        # kind from its tab would go back to being unlabelled there.
+        # Annotated on the row, not inferred from which tab asked: voice name
+        # resolution searches everyone, and a row that only knew its kind from
+        # its tab would go back to being unlabelled there. Same for roleLabel.
         ria_user_ids = self._verified_ria_user_ids([str(p.get("userId") or "") for p in people])
         public_person_refs = self._public_person_refs([str(p.get("userId") or "") for p in people])
 
@@ -3424,6 +3423,7 @@ class ConnectionsService:
                     "relationship": relationship(str(p.get("userId") or "")),
                     **mutual_payload(str(p.get("userId") or "")),
                     "isRia": str(p.get("userId") or "") in ria_user_ids,
+                    **({"roleLabel": p.get("roleLabel")} if "roleLabel" in p else {}),
                 }
                 for p in people
             ],
