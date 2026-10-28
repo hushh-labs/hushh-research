@@ -19,7 +19,7 @@ export const HUSHH_TECH_LAUNCH_PATH = "/products/hushh-tech/launch";
 
 export type KaiMarketTab = "market" | "portfolio" | "analysis";
 export type KaiPortfolioSection =
-  "holdings" | "allocation" | "performance" | "sources";
+  "holdings" | "allocation" | "performance" | "sources" | "analysis";
 
 /** Build every canonical Finance workspace URL from one path and explicit tab. */
 export function buildKaiMarketRoute(
@@ -269,6 +269,7 @@ export const ROUTES = {
   KAI_PORTFOLIO_HOLDINGS: "/one/kai/portfolio/holdings",
   KAI_PORTFOLIO_ALLOCATION: "/one/kai/portfolio/allocation",
   KAI_PORTFOLIO_PERFORMANCE: "/one/kai/portfolio/performance",
+  KAI_PORTFOLIO_ANALYSIS: "/one/kai/portfolio/analysis",
   KAI_PORTFOLIO_SOURCES: "/one/kai/portfolio/sources",
   KAI_DASHBOARD: buildKaiMarketRoute("portfolio"),
   KAI_ANALYSIS: buildKaiMarketRoute("analysis"),
