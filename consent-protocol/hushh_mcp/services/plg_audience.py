@@ -337,6 +337,84 @@ def _matches(row: dict, request: AudienceRequest) -> bool:
     return bool(activity["counts"].get(key, 0) > 0)
 
 
+async def _registered_customers(conn, eligible, policy):
+    active = await AccountDeletionLifecycleService.active_projection_user_ids(
+        conn, user_ids=eligible
+    )
+    excluded = len(eligible) - len(active)
+    identity_service = ActorIdentityService()
+    phones = await identity_service.read_provider_phone_fallbacks(
+        conn, candidates={uid: str(eligible[uid].phone_number or "") for uid in active}
+    )
+    identities = await identity_service.get_many(active, conn=conn)
+    aliases = await identity_service.get_many_verified_email_aliases(active, conn=conn)
+    customers = {
+        uid
+        for uid in active
+        if policy.eligible(
+            uid,
+            identities.get(uid),
+            (
+                *(reporting_identifiers(eligible[uid]) or ()),
+                *aliases.get(uid, []),
+            ),
+        )
+    }
+    return customers, identities, phones, excluded + len(active) - len(customers)
+
+
+async def _audience_rows(conn, eligible, active, identities, phones, request, at):
+    result = []
+    since = at - timedelta(days=7)
+    ids = sorted(active)
+    epochs = {
+        r["user_id"]: r
+        for r in await conn.fetch(
+            "SELECT user_id,generation,started_at FROM one_product_activity_epochs "
+            "WHERE user_id=ANY($1::text[]) ORDER BY user_id FOR SHARE",
+            ids,
+            timeout=5,
+        )
+    }
+    observations = await conn.fetch(ATTEMPTS_SQL, ids, request.agentId, since, at, timeout=5)
+    if len(observations) > 100000:
+        raise ValueError("audience attempt page exceeds bound")
+    capped = {
+        r["user_id"]
+        for r in await conn.fetch(
+            "SELECT user_id FROM one_product_activity_observations "
+            "WHERE user_id=ANY($1::text[]) AND observed_at >= $2 AND observed_at <= $3 "
+            "GROUP BY user_id,(observed_at AT TIME ZONE 'UTC')::date HAVING COUNT(*)>=500",
+            ids,
+            since,
+            at,
+            timeout=5,
+        )
+    }
+    verified = await value_summaries(conn, ids, request.agentId, since, at)
+    for uid in eligible:
+        if uid not in active:
+            continue
+        row = {
+            "accountId": uid,
+            "agentId": request.agentId,
+            "identity": _identity(eligible[uid], identities.get(uid), phones.get(uid)),
+            "activity": summarize_attempts(
+                [r for r in observations if r["user_id"] == uid],
+                agent_id=request.agentId,
+                now=at,
+                grace=request.graceMinutes,
+                epoch=epochs.get(uid),
+                limited=uid in capped,
+                enabled=enabled_for(uid),
+            ),
+            "verified": verified[uid],
+        }
+        if _matches(row, request):
+            result.append(row)
+    return result
+
+
 async def audience_page(request: AudienceRequest, secret: str, now: datetime) -> dict:
     policy = reporting_policy()
     page, at = _cursor(request, secret, now)
@@ -362,78 +440,11 @@ async def audience_page(request: AudienceRequest, secret: str, now: datetime) ->
         async with pool.acquire(timeout=3) as conn, conn.transaction(isolation="read_committed"):
             await conn.execute("SET LOCAL statement_timeout='5s'")
             await conn.execute("SET LOCAL lock_timeout='1s'")
-            active = await AccountDeletionLifecycleService.active_projection_user_ids(
-                conn, user_ids=eligible
+            active, identities, phones, withheld = await _registered_customers(
+                conn, eligible, policy
             )
-            excluded += len(eligible) - len(active)
-            identity_service = ActorIdentityService()
-            phones = await identity_service.read_provider_phone_fallbacks(
-                conn, candidates={uid: str(eligible[uid].phone_number or "") for uid in active}
-            )
-            identities = await identity_service.get_many(active, conn=conn)
-            aliases = await identity_service.get_many_verified_email_aliases(active, conn=conn)
-            customers = {
-                uid
-                for uid in active
-                if policy.eligible(
-                    uid,
-                    identities.get(uid),
-                    (
-                        *(reporting_identifiers(eligible[uid]) or ()),
-                        *aliases.get(uid, []),
-                    ),
-                )
-            }
-            excluded += len(active) - len(customers)
-            active = customers
-            ids = sorted(active)
-            epochs = {
-                r["user_id"]: r
-                for r in await conn.fetch(
-                    "SELECT user_id,generation,started_at FROM one_product_activity_epochs "
-                    "WHERE user_id=ANY($1::text[]) ORDER BY user_id FOR SHARE",
-                    ids,
-                    timeout=5,
-                )
-            }
-            observations = await conn.fetch(
-                ATTEMPTS_SQL, ids, request.agentId, since, at, timeout=5
-            )
-            if len(observations) > 100000:
-                raise ValueError("audience attempt page exceeds bound")
-            capped = {
-                r["user_id"]
-                for r in await conn.fetch(
-                    "SELECT user_id FROM one_product_activity_observations "
-                    "WHERE user_id=ANY($1::text[]) AND observed_at >= $2 AND observed_at <= $3 "
-                    "GROUP BY user_id,(observed_at AT TIME ZONE 'UTC')::date HAVING COUNT(*)>=500",
-                    ids,
-                    since,
-                    at,
-                    timeout=5,
-                )
-            }
-            verified = await value_summaries(conn, ids, request.agentId, since, at)
-            for uid in eligible:
-                if uid not in active:
-                    continue
-                row = {
-                    "accountId": uid,
-                    "agentId": request.agentId,
-                    "identity": _identity(eligible[uid], identities.get(uid), phones.get(uid)),
-                    "activity": summarize_attempts(
-                        [r for r in observations if r["user_id"] == uid],
-                        agent_id=request.agentId,
-                        now=at,
-                        grace=request.graceMinutes,
-                        epoch=epochs.get(uid),
-                        limited=uid in capped,
-                        enabled=enabled_for(uid),
-                    ),
-                    "verified": verified[uid],
-                }
-                if _matches(row, request):
-                    result.append(row)
+            excluded += withheld
+            result = await _audience_rows(conn, eligible, active, identities, phones, request, at)
     return {
         "version": 1,
         "environment": "production",

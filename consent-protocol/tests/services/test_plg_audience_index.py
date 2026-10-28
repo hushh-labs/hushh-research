@@ -255,6 +255,22 @@ async def test_real_index_sql_fences_epochs_and_matches_correlated_terminal_stat
                 26,
             )
             assert {row["user_id"] for row in result} == owners
+    finally:
+        await conn.close()  # Temporary tables disappear without touching shared schema.
+
+
+@pytest.mark.db
+@pytest.mark.asyncio
+async def test_real_current_owner_sql_excludes_retired_and_missing_replacements():
+    configured = os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
+    if not configured:
+        pytest.skip("Canonical disposable PostgreSQL URL is required")
+    import asyncpg
+    from sqlalchemy.engine import make_url
+
+    url = make_url(configured).set(drivername="postgresql").render_as_string(hide_password=False)
+    conn = await asyncpg.connect(url, command_timeout=10)
+    try:
         await conn.execute("""CREATE TEMP TABLE account_generations(
           identity_hash text, identity_uid text,owner_id text,generation integer,retired_at timestamptz)
         """)
@@ -280,4 +296,4 @@ async def test_real_index_sql_fences_epochs_and_matches_correlated_terminal_stat
             "legacy": "legacy",
         }
     finally:
-        await conn.close()  # Temporary tables disappear without touching shared schema.
+        await conn.close()
