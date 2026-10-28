@@ -514,7 +514,18 @@ Response includes the catalog, fixed seven-day `windowStart`/`asOf`, `scanned`,
 `excluded`, bounded `rows` and `nextCursor`. Each row contains account ID,
 selected agent, nullable identity fields with source/verification flags,
 activity coverage/counts/timestamps/action ID and verified outcome support.
-Filters apply to each source page; an empty matching page can have a continuation.
+Positive attempt-status filters (`failed`, `blocked`, `cancelled`, `returned`,
+`possible_incomplete`, `in_progress`) first select matching retained, correlated,
+current-epoch attempts, then read at most 25 matching registered identities.
+They do not stop after walking unrelated registry pages. Remaining filters apply
+to each registry page; an empty matching page can have a continuation.
+When generation admission is enabled, directory identities project to their current
+active application owner. Retained attempts resolve their exact captured owner
+back to Firebase for identity reads; they never move to a replacement account.
+Retired, deleted, unregistered and internally excluded matches are still withheld,
+and continuation survives pages consisting entirely of withheld candidates.
+`scanned` counts source candidates including these exclusions. Switching from a
+previous registry-based status cursor requires a fresh search.
 No global filtered total or stable directory snapshot is claimed. The signed
 cursor binds all filters, production project, page size and activity anchor and
 expires after 15 minutes. Directory identity remains current on every page;
