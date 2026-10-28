@@ -231,6 +231,9 @@ tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_financial_raw_records_not_shareable.py
+tests/test_finance_sharing_contract.py
+tests/test_finance_consent_lifecycle.py
+tests/test_finance_pod_owner_feed.py
 tests/test_partner_developer_apps.py
 tests/test_hushh_tech_client_migration.py
 tests/test_hushh_tech_synthetic_import.py
@@ -1321,6 +1324,7 @@ tests/routes/test_wallet_artwork_route.py
 tests/test_wallet_card_validation.py
 tests/routes/test_wallet_card_access_route.py
 tests/test_wallet_card_access_postgres.py
+tests/test_finance_sharing_postgres.py
 tests/test_wallet_universal_sharing_postgres.py
 
 # Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local

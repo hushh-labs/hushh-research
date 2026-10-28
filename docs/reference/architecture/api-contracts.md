@@ -1,5 +1,61 @@
 # API Contracts
 
+## Finance sharing with connections
+
+`FinanceSharingService` uses `ApiService.apiFetch` on Web, iOS and Android.
+Web forwards through `/api/one/[...path]`; native calls the same hub endpoints
+through the existing platform-aware transport. No new native plugin is needed.
+All routes require matching Firebase identity and `X-Hushh-Consent` vault-owner
+authority and return `private, no-store` responses with scrubbed errors.
+
+| Endpoint | Contract |
+| --- | --- |
+| `POST /api/one/finance/shares` | Confirm one immutable policy and recipient-encrypted view per selected connection; exact request-ID retries return the original grants. |
+| `GET /api/one/finance/shares?direction=outgoing\|received&cursor=…` | Participant-bound metadata history; 50 items, opaque UUID cursor. History does not authorize a read. |
+| `GET /api/one/finance/shares/{grantId}` | Recheck recipient/owner, connection, blocks, active recipient key, current expiry and revocation before returning that participant's ciphertext copy. |
+| `PUT /api/one/finance/shares/{grantId}` | Owner-only ongoing update with `expectedRevision`; immutable policy and recipient key, active lifetime, CAS and revocation checks. Snapshots reject updates. |
+| `DELETE /api/one/finance/shares/{grantId}` | Owner-only terminal stop for one recipient; clear its ciphertext. |
+
+Create accepts `requestId`, `policy`, `ownerConfig`, and 1–20 recipient entries
+(`grantId`, `personRef`, `envelope`, `ownerEnvelope`, `contentHash`). The strict
+version-1 policy contains `mode`, selected `sections`, encrypted-configuration
+`selectionHash`, `showAmounts`, canonical `model_processing`, and
+`durationSeconds` (3600, 86400, 604800; null only for explicit ongoing access).
+Lifetimes begin at the server-confirmed creation time. Contents and source/account
+locators are encrypted on the owner client; the server stores no financial
+plaintext. The 4 MB request budget and individual envelope bounds apply on both
+backend and proxy. Raw financial PKM scopes remain blocked.
+Both configuration and content digests include independent random 256-bit
+commitment nonces inside their encrypted payloads. Metadata cannot test guesses
+of selected notes or financial figures. Unselected notes and stock selections
+are removed from the owner configuration; unchanged information does not publish
+a new revision merely because a nonce changes. An explicitly approved One review
+checks the exact content commitment, then strips its nonce before model input.
+
+Recipient views expose only the selected curated sections. Amounts-off exports
+exclude structured balances, dollar gains, quantities, prices and cost basis;
+history is rebased to percentage balance change. It is not investment return.
+Current sharing supports USD portfolios and refuses known mixed/foreign currency.
+Missing saved history remains unavailable. Account identifiers, transactions and
+provider credentials never enter the structured export; an explicitly selected
+owner note is shared as written.
+
+One review is an explicit `financeShare` forwarded input on the existing agent
+chat transport, bound to `grantId`, `revision` and exact `projectionText` digest.
+Only the authenticated recipient with current owner model-processing permission
+may submit it. The current recipient processing-provider approval still applies.
+The signed private-pod consent metadata feed accepts `finance:{grantId}:{revision}`
+references with fresh nonces; it carries policy/digest/lifecycle metadata only.
+Existing shared-context tool blocking, request-secret lifetime and history/model
+redaction apply. Authority is checked again around model generation.
+
+Migration 433 qualifies the grant/request tables and terminal disconnect/block
+guards. Rollback is code-only and preserves issued encrypted objects. Expired
+ciphertext is cleared on access/history reconciliation; dormant ciphertext and
+confirmation metadata remain until reconciliation or account erasure. Production
+qualification must separately verify the migration, exact authenticated
+two-person journey, platform transport and current processing-provider approval.
+
 ## Visual Map
 
 Which credential plane authorizes which FastAPI route family, and how first-party
