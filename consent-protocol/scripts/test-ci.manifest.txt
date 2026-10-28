@@ -95,7 +95,9 @@ tests/services/test_drive_live_formats.py
 # full-replacement PUT), and the review counts the event's real guests.
 tests/services/test_google_calendar_service.py
 tests/services/test_google_calendar_oauth_scopes.py
+tests/services/test_google_connection_account_binding.py
 tests/test_google_connection_routes.py
+tests/services/test_calendar_native_optional_scope.py
 tests/services/test_google_calendar_guest_photo_token.py
 tests/services/test_google_calendar_event_type.py
 tests/services/test_google_calendar_profile_photos.py
@@ -571,7 +573,6 @@ tests/test_reserved_branches.py
 # on both sides), spans without values, the per-item grant shape, and the
 # plaintext summary envelope that refuses a leaked label or value.
 tests/test_secrets_area.py
-tests/test_scope_catalog_self_corrects_stale_rows.py
 tests/services/test_structure_decision_is_the_models.py
 tests/services/test_intent_frame_is_the_models.py
 tests/test_agent_stage_skips_are_visible.py
@@ -1498,8 +1499,6 @@ tests/services/test_calendar_schedule_boundaries.py
 tests/services/test_calendar_attendance_service.py
 tests/services/test_calendar_invitations.py
 tests/services/test_calendar_meeting_artifacts.py
-tests/services/test_calendar_native_optional_scope.py
-tests/services/test_google_connection_account_binding.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.

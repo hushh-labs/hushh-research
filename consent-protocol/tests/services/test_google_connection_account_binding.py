@@ -836,6 +836,9 @@ async def test_concurrent_replacement_refuses_stale_callback(monkeypatch, bounda
 async def test_cached_bearer_is_admitted_against_one_provider_grant_snapshot(
     monkeypatch, admitted, shared_hub_owner
 ):
+    # The shared fixture supplies active lifecycle and placement admission before
+    # the token read reaches the provider-grant snapshot.
+
     class SnapshotDb:
         def __init__(self):
             self.calls = []

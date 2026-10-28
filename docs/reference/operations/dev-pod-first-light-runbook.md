@@ -954,6 +954,16 @@ first owner request returned504; missing warmup is a measured startup hazard, no
 yet proof of that request's sole cause. No further owner model call follows an
 uncertain attempt until its outcome and repair are reconciled.
 
+The October28 pilot also observed `foreign_incarnation` during first app admission
+on the original image. A Cloud Run revision can contain successive worker
+incarnations; matching revision names do not establish a matching admission epoch.
+Keep the stale proof rejected. On that explicit refusal, the app may obtain a fresh
+owner-authorized binding and sign one new challenge, sharing the existing single
+retry bound with consumed-grant recovery. Do not retry an ambiguous admission
+transport outcome, revocation or other authorization refusal. Qualify cold and warm
+connections against the new image before claiming reliable first admission;
+provider-free warmup alone does not prove this boundary.
+
 Native Memory Bank remained billing-blocked in both dev owner projects on October27;
 the owner confirmed the balance was not cleared. Do not retry that prerequisite or
 substitute another memory project. Consent withdrawal and bridge inference are

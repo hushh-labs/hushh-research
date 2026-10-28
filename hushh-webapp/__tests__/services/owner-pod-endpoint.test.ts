@@ -9,16 +9,10 @@
  * done.
  */
 import "fake-indexeddb/auto";
-import { createPublicKey, verify as nodeVerify } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as ownerPod from "@/lib/services/owner-pod-endpoint";
-import { endpointBody, FakeWorld, json, POD_URL, USER } from "../fixtures/owner-pod";
-
-function verifyDer(publicKeySpkiB64: string, payload: string, signatureB64: string): boolean {
-  const key = createPublicKey({ key: Buffer.from(publicKeySpkiB64, "base64"), format: "der", type: "spki" });
-  return nodeVerify("sha256", Buffer.from(payload, "utf8"), { key, dsaEncoding: "der" }, Buffer.from(signatureB64, "base64"));
-}
+import { endpointBody, FakeWorld, json, POD_URL, USER, verifyDer } from "../fixtures/owner-pod";
 
 describe("owner pod endpoint", () => {
   let world: FakeWorld;
@@ -318,27 +312,39 @@ describe("owner pod endpoint", () => {
     expect(world.calls.filter((c) => c.url.endsWith("/pod-binding")).map((c) => c.init.method)).toEqual(["GET", "POST", "GET"]);
   });
 
-  it("reissues a consumed binding once and pins only after successful admission", async () => {
+  it.each(["stale_version", "foreign_incarnation"])("recovers %s once with a fresh verified proof", async (code) => {
     world.bindingIssued = true;
     world.bindingVersion = 1;
     const transport = world.transport();
     const direct = transport.direct;
     let attempts = 0;
+    let oldProof = "";
     transport.direct = async (url, init) => {
-      if (url.endsWith("/session/admit") && ++attempts === 1) {
-        expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
-        return json({ detail: { code: "stale_version" } }, 403);
+      if (url.endsWith("/session/admit")) {
+        const proof = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (++attempts === 1) {
+          oldProof = String(proof.proof);
+          expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
+          world.rotateChallenge(code === "foreign_incarnation" ? 4 : 3);
+          return json({ detail: { code } }, 403);
+        }
+        expect(proof.epoch).toBe(world.epoch);
+        expect(verifyDer(world.appPublicKey, world.challengePayload, String(proof.proof))).toBe(true);
+        expect(verifyDer(world.appPublicKey, world.challengePayload, oldProof)).toBe(false);
       }
       return direct(url, init);
     };
     await ownerPod.refreshEndpointFromHub(USER, transport);
     expect(attempts).toBe(2);
-    expect((await ownerPod.currentPodSession(USER, transport)).version).toBe(2);
+    expect(world.admitted).toHaveLength(1);
+    const session = await ownerPod.currentPodSession(USER, transport);
+    expect(session.version).toBe(2);
+    expect(session.epoch).toBe(world.epoch);
     expect(world.calls.filter((c) => c.url.endsWith("/pod-binding") && c.init.method === "POST")).toHaveLength(1);
     expect(await ownerPod.loadPinnedEndpoint(USER)).not.toBeNull();
   });
 
-  it.each(["stale_version", "revoked", "bad_signature"])("bounds retries and preserves refusal for %s", async (code) => {
+  it.each(["stale_version", "foreign_incarnation", "revoked", "bad_signature", "transport_unknown"])("bounds retries and preserves refusal for %s", async (code) => {
     world.bindingIssued = true;
     world.bindingVersion = 1;
     const transport = world.transport();
@@ -347,13 +353,16 @@ describe("owner pod endpoint", () => {
     transport.direct = async (url, init) => {
       if (url.endsWith("/session/admit")) {
         attempts += 1;
+        if (code === "transport_unknown") throw new TypeError("Lost admission response");
         return json({ detail: { code } }, 403);
       }
       return direct(url, init);
     };
-    await expect(ownerPod.refreshEndpointFromHub(USER, transport)).rejects.toThrow(`POD_ADMISSION_REFUSED:${code}`);
-    expect(attempts).toBe(code === "stale_version" ? 2 : 1);
-    expect(world.calls.filter((c) => c.url.endsWith("/pod-binding") && c.init.method === "POST")).toHaveLength(code === "stale_version" ? 1 : 0);
+    const expected = code === "transport_unknown" ? "Lost admission response" : `POD_ADMISSION_REFUSED:${code}`;
+    await expect(ownerPod.refreshEndpointFromHub(USER, transport)).rejects.toThrow(expected);
+    const recoverable = code === "stale_version" || code === "foreign_incarnation";
+    expect(attempts).toBe(recoverable ? 2 : 1);
+    expect(world.calls.filter((c) => c.url.endsWith("/pod-binding") && c.init.method === "POST")).toHaveLength(recoverable ? 1 : 0);
     expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
   });
 

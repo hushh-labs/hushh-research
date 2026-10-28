@@ -1,5 +1,5 @@
 {
-  "version": "2026.10-dev.34",
+  "version": "2026.10-dev.35",
   "channel": "dev",
   "summary": "Reliable private-pod startup and owner processing consent.",
   "notes": {
