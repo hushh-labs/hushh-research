@@ -34,6 +34,11 @@ Ordinary builds retain the established renderer and the qualification switch.
 | Privacy and interruption | Existing native privacy and presentation owners | Ten warm Profile background/resume cycles and Control Center recovery passed on `773bd90a6f`; other interruption and overlay combinations remain unqualified. |
 | Other routes and nested states | Existing feature owners and renderer-specific fallbacks | The generated inventory covers route discovery, not every interaction state. Native completion, visual and accessibility review, mutation fixtures and physical performance acceptance remain open. |
 
+At integrated source `95dc95d6da`, the existing Profile feature-page geometry
+regression passed in Chromium and WebKit, including its 390 × 844, 1024 × 1366
+and 1440 × 900 pane checks. This is browser layout evidence, not iPad device or
+native transition acceptance.
+
 Rollback remains the existing qualification switch. No Dev deployment or
 physical acceptance is implied for the integrated source. After installation,
 the app reached its passphrase gate; a public eight-character XCUI input probe
