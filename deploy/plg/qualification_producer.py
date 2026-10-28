@@ -316,13 +316,14 @@ def iam(folder: Path, current: dict) -> None:
 
 
 def iam_pre(folder: Path, current: dict) -> None:
+    import qualification_attachment
     import qualification_iam
 
     cloud = qualification_iam.ReadCloud(Target(current["environment"]))
     proof = qualification_iam.verify(
         Target(current["environment"]), require_service=False, cloud=cloud
     )
-    cloud.verify_runtime_attachment()
+    qualification_attachment.verify(cloud)
     write(folder, "iam-pre", proof)
 
 

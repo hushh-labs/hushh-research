@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import importlib
+import json
 import time
 from pathlib import Path
 from urllib.error import HTTPError
@@ -259,35 +260,36 @@ def test_transport_refuses_secret_payload_and_write_methods(iam):
         reader._read("secretmanager", "v1/projects/x/secrets/y/versions/latest:access")
     with pytest.raises(ValueError, match="iam_method_invalid"):
         reader._read("secretmanager", "v1/projects/x/secrets/y:setIamPolicy", policy_body=True)
-    with pytest.raises(ValueError, match="iam_attachment_permission_path_invalid"):
-        reader._read(
-            "iam",
-            "v1/projects/other/serviceAccounts/other:testIamPermissions",
-            attachment_permission=True,
-        )
 
 
-def test_runtime_attachment_check_requires_the_exact_permission(iam, monkeypatch):
+def test_runtime_attachment_check_requires_the_exact_permission(iam):
+    import io
+
+    attachment = importlib.import_module("qualification_attachment")
     reader = object.__new__(iam.ReadCloud)
     reader.target = iam.Target("dev")
+    reader._token = "synthetic-token"
+    reader._deadline = time.monotonic() + 30
     calls = []
 
-    def observe(api, path, **kwargs):
-        calls.append((api, path, kwargs))
-        return {"permissions": ["iam.serviceAccounts.actAs"]}
+    class Opener:
+        value = b'{"permissions":["iam.serviceAccounts.actAs"]}'
 
-    monkeypatch.setattr(reader, "_read", observe)
-    reader.verify_runtime_attachment()
+        def open(self, request, timeout):
+            calls.append((request.full_url, json.loads(request.data)))
+            return io.BytesIO(self.value)
+
+    reader._opener = Opener()
+    attachment.verify(reader)
     assert calls == [
         (
-            "iam",
-            f"v1/projects/{reader.target.project}/serviceAccounts/{reader.target.runtime_sa}:testIamPermissions",
-            {"attachment_permission": True},
+            f"https://iam.googleapis.com/v1/projects/{reader.target.project}/serviceAccounts/{reader.target.runtime_sa}:testIamPermissions",
+            {"permissions": ["iam.serviceAccounts.actAs"]},
         )
     ]
-    monkeypatch.setattr(reader, "_read", lambda *_a, **_kw: {})
+    reader._opener.value = b"{}"
     with pytest.raises(ValueError, match="qualification_runtime_attachment_permission_missing"):
-        reader.verify_runtime_attachment()
+        attachment.verify(reader)
 
 
 def test_only_service_404_is_tolerated_for_predeploy(iam):
