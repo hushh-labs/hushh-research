@@ -98,6 +98,10 @@ browser suites. The dedicated `pre-pr-readiness` workflow retains its full local
 gate. `codex pre-pr` already invokes `./bin/hushh ci`; do not run both separately
 or require either for every incremental commit.
 
+For local core, pass `CI_IMPACT_BASE_SHA` only after verifying the actual PR
+target and merge base. The existing change-aware selector owns PKM rehearsal
+selection; an unknown base remains conservative.
+
 ```bash
 ./bin/hushh codex ci-status
 ./scripts/ci/orchestrate.sh core

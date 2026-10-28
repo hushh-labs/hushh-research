@@ -14,6 +14,28 @@ default remains staged until its historical baseline and predecessor gates are
 qualified together. Main remains the release-control source; this transition
 does not rewind application source or database history.
 
+The approved direction for UAT-focused work is direct admission after CI on the
+exact selected application, without requiring a preceding Dev deployment. That
+path is not yet implemented: the current UAT workflow still requires a Dev
+receipt. It must gain a qualified exact-source CI proof and a distinct receipt
+before that requirement can change. Production continues to require acceptance
+of the same application and services in UAT.
+
+The future direct receipt must identify the protected UAT application commit and
+tree, the trusted Main-owned validation workflow and its current run attempt,
+the exact security evidence, and the selected services. A PR merge-tree result or
+an older successful attempt alone is not proof of the selected application.
+Historical Dev-backed receipts must remain verifiable. If no qualified Dev image
+exists, UAT builds the selected source with its own environment configuration.
+
+The capability graph's committed comparison metadata currently depends on the
+target base: the Dev sync has already produced different metadata from Main for
+the same authored change. Before making selective promotion automatic, make the
+committed history deterministic and separately validate each actual target-base
+transition. Runtime workflow compatibility and exact mirror checks remain
+required. Exact-tree promotion also needs the tested UAT candidate to incorporate
+the reviewed Main baseline; a later Main change may require a new UAT candidate.
+
 `branch_flow.prepared_branches` in `config/ci-governance.json` declares protection
 policy references for `dev` and `uat`. These are branch policies, separate from
 the top-level `dev` and `uat` environment dispatch cohorts. A declaration does
@@ -66,8 +88,9 @@ The following work remains before the UAT selection transition:
 
 1. Maintain Dev intake without discarding train or active branch work.
 2. Select dependency-complete changes into UAT; stabilize there and carry fixes
-   back to Dev. Keep both deployments manual. Qualify the final assembled SHA in
-   Dev before UAT; an original cherry-picked commit's receipt cannot qualify it.
+   back to Dev. Keep both deployments manual. Until the direct-CI path is
+   qualified, the final assembled SHA still needs Dev acceptance; an original
+   cherry-picked commit's receipt cannot qualify it.
 3. Promote the exact UAT-qualified application SHA through a reviewed Main
    promotion. Record the Main approval merge separately, prove no new content was
    introduced, and preserve service-specific acceptance and rollback.
@@ -117,7 +140,7 @@ lane. The target-branch setting does not grant a bot Main merge authority.
 | Lane | Source and authority |
 |---|---|
 | Dev | Feature PRs target protected `dev`; governed operators deploy an exact CI-green SHA through Main-owned tooling. Explicit feature refs remain supported. |
-| UAT | Existing Main-based default remains active. A future qualified transition can select dependency-complete Dev changes into protected `uat` and accept the exact assembled SHA on Dev before UAT. |
+| UAT | Existing Main-based default and Dev acceptance remain active. The planned transition selects dependency-complete changes into protected `uat` and qualifies the exact assembled SHA in CI before UAT. |
 | Main | Review accepted UAT content for release. When its approval merge differs from the tested application SHA, require identical complete Git trees and preserve both identities. |
 | Main operations/hotfix | A governed maintainer may branch from `origin/main` and open a PR directly into `main` by actor identity. CI, conversations, queue/Admin SOP and landed smoke remain mandatory. Merging does not deploy. |
 | Production | Explicit UAT-accepted application plus Main approval, or the separately approved manual emergency route. Automatic publication remains disabled. |
@@ -143,11 +166,22 @@ flowchart LR
   legacy["Retained legacy train"] -.->|"Reviewed reconciliation"| dev
 ```
 
+### Carry stable fixes back to development
+
+A reviewed UAT or production hotfix creates a follow-up for Dev containing the
+source change, required dependencies and a link to the destination PR. Reconcile
+that fix by behavior against the current Dev base, verify its destination CI and
+record the merged Dev commit before closing the follow-up. A selective cherry-pick
+or equivalent reviewed change is appropriate; do not merge all of UAT into Dev or
+all of Dev into UAT. This is currently an operator procedure, not an automated
+back-sync guarantee. An automated reminder must preserve those same review and
+freshness boundaries before it is enabled.
+
 ## Working Rules
 
 1. New development starts from the intended protected Dev baseline and targets Dev. Preserve the active branch and dependency context.
 2. After the UAT transition is authorized, curate UAT explicitly. A merge or cherry-pick produces a new assembled SHA; individual source receipts cannot qualify it.
-3. Accept that assembled SHA on Dev, then UAT, through Main-owned workflows and exact service receipts.
+3. Until direct-CI admission is qualified, accept that assembled SHA on Dev and then UAT through Main-owned workflows and exact service receipts.
 4. Promote accepted UAT content to Main without adding untested content; preserve the application/approval mapping. Concurrent Main changes require reconciliation and affected verification.
 5. Governed maintainer operations/hotfix PRs can target Main directly. Retain legacy train promotions without treating that branch as new intake or deploying automatically.
 6. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
