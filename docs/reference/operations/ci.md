@@ -409,7 +409,8 @@ supported app/backend compatibility remains a release requirement. The shared
 GitHub-hosted runner limit can still cause scheduling delays; separate locks do
 not reserve runner capacity.
 
-Automatic release admission gives UAT precedence: queued, requested, pending,
+When automatic release cadence is enabled with its required hourly wake restored,
+admission gives UAT precedence: queued, requested, pending,
 waiting or running UAT workflows defer new releases in the ledger. The observer
 exits immediately instead of sleeping on a runner, then retries on every terminal
 UAT result (including failure/cancellation), release completion or the hourly
@@ -457,13 +458,15 @@ both policy periods. Missing transition metadata means the original 4/8 policy.
 
 Monitoring runs in GitHub inside the same observer job, after checkpoint
 publication. It adds no workflow, runner job, polling loop or UAT dependency.
-Completion events report failures and verified milestones when delivered. The
-observer also subscribes to the existing `capacity-maintenance-clock` repository
-dispatch, whose GitHub environment timer waits without a runner. This reuses its
-hourly broadcast without changing the clock, adding a producer job or touching
-UAT. The existing hourly cron remains a fallback; GitHub can delay scheduled runs.
-Only the repository bot's exact clock event is accepted on protected main; clock
-events cannot request full replay or checkpoint recovery. Unresolved recorded
+Completion events report failures and verified milestones when delivered. While
+automatic releases are disabled, a daily scheduled observation provides a
+fallback without an hourly Actions run. GitHub can delay scheduled runs. The
+capacity-maintenance clock and its independent cleanup checks are unchanged.
+Before enabling automatic releases, restore the reviewed hourly wake and cron,
+verify the certified ledger and unresolved failures, and separately authorize
+any production or native publication. Disabled observations do not refresh the
+90-day checkpoint artifact, and disabled mode cannot recertify it. Preserve the
+certificate and track its expiry as an unresolved recovery requirement. Unresolved recorded
 child failures are rechecked for governed retries without replaying settled
 release artifacts. More than 20 unresolved failures stops reconciliation for
 operator recovery rather than silently dropping history or growing polling work.
@@ -513,9 +516,9 @@ its pending app build without redispatching the deployment. Ambiguous dispatches
 missing receipts, altered state and failed releases stop that release lane and
 remain visible in the Actions summary; they do not change UAT's result.
 
-The observer also runs a weekly full reconciliation for missed completion events
-and old successful reruns. While a public version is under review, Ubuntu
-preflight records a deferred receipt and allocates no Mac. An hourly observer
+When enabled, the observer also runs a weekly full reconciliation for missed
+completion events and old successful reruns. While a public version is under review, Ubuntu
+preflight records a deferred receipt and allocates no Mac. The restored hourly observer
 revisits the latest deferred candidate without redeploying production; newer
 milestones supersede older deferred app candidates. TestFlight uses an independent
 beta version train and continues while public review is pending. History queries split before GitHub's filtered-query

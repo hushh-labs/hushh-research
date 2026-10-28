@@ -282,7 +282,7 @@ def issue_body(state: dict | None, journal: dict, controller: int, *, display: d
     count = str(state["count"]) if state else "unavailable"
     lines = [MARKER, "# Automatic UAT release monitoring", "",
              f"Verified UAT count: {count}. TestFlight every 2; production every 4.",
-             "Completion events and the existing hourly fallback run in GitHub; no laptop is needed.",
+             "Completion events and scheduled monitoring run in GitHub; no laptop is needed.",
              "UAT has separate dependencies and locks. Shared runner capacity is best effort.", "",
              f"Last controller: {controller}. Run links and verified milestones appear in comments."]
     if display.get("automation_enabled") is False:
