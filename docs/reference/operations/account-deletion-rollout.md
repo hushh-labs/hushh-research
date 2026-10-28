@@ -972,9 +972,35 @@ Migration `431_phone_recovery_actions.sql` adds bounded, non-authorizing recover
 continuations and own-device action receipts. Producers use the existing
 `AUTH_PHONE_RECOVERY_ENABLED` flag. Turning it off retains status/readback and
 completed cleanup; it does not erase pending work. Shared codes never grant
-cross-owner transfer, deletion or device authority. Account erasure cascades the
+cross-owner transfer or device authority; the only cross-owner deletion is the
+separately gated phone-linked deletion (436) below. Account erasure cascades the
 new metadata. Unknown device dispatches retain their consumed proof event and
 cannot be automatically submitted again.
+
+## Phone-linked account deletion (436)
+
+Migration `436_phone_linked_account_deletions.sql` adds hash-only admission
+receipts for deleting the account that holds a verified number after the
+requester proves that number. `HUSHH_PHONE_LINKED_DELETION_ENABLED` is unset by
+default: on outside production, off in any production runtime until enabled
+explicitly; `AUTH_PHONE_RECOVERY_ENABLED` still gates producers. Real numbers
+need a fresh transfer-grade SMS proof whose authentication event is single-use.
+The configured fixture code counts only for configured UAT fixture numbers in
+UAT or the isolated fixture runtime, never in a production runtime and never
+through the Dev reviewer transport; five wrong codes cancel the operation.
+Reviewer fixtures are refused with `PHONE_LINKED_ACCOUNT_PROTECTED`.
+
+Preparation is opaque: it never reveals whether a number has an account.
+Confirmation rechecks the holder's binding, records admission before dispatch,
+and runs the existing full-account erasure, whose admission transaction rechecks
+the binding again under the holder's exclusive lifecycle locks. A refusal returned
+by the erasure (release fence, private-agent cleanup, phone transfer, stale
+binding) commits nothing and is final for that operation; a raised outcome is
+settled only from the committed full-account tombstone and is never dispatched
+again. An explicit OTP claim no longer treats a holder with a committed
+full-account deletion as an owner; background hydration and provisional
+phone-orphan intents never release a binding. Erasure of either account cascades
+its receipts. Rollback refuses to drop retained receipts.
 
 Production rollback qualification now requires both migrations 425 and 431 in
 its immutable source. A 425-only image exposes the former unguarded device DELETE

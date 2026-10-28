@@ -706,6 +706,7 @@ example file or local Secret Manager read does not establish deployed parity.
 | `SUPPORT_EMAIL_TEST_TO` | Optional | No | Local/UAT env | Non-production verification recipient. |
 | `SUPPORT_EMAIL_MODE` | Optional | No | Local/UAT env | `live` or `test`. |
 | `HUSHH_UAT_PHONE_TEST_NUMBERS` | UAT test only | Yes | UAT Secret Manager | Comma-separated E.164 allowlist for fixed-code phone verification; only honored when `ENVIRONMENT=uat`. |
+| `HUSHH_PHONE_LINKED_DELETION_ENABLED` | Production opt-in | No | Deploy environment | Phone-proven deletion of the account holding a verified number. Unset: on outside production, off in production. Fixture codes never authorize it in any production runtime. |
 | `HUSHH_UAT_PHONE_TEST_CODE` | UAT test only | Yes | UAT Secret Manager | Fixed OTP for the UAT phone allowlist. Never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET` | Optional | Yes | UAT Secret Manager | Optional HMAC key for stateless UAT phone challenge IDs; falls back to `APP_SIGNING_KEY`. |
 | `HUSHH_PROD_PHONE_TEST_ENABLED` | Production test only | No | Prod Cloud Run env | Must be exactly enabled before production fixed-code phone verification is honored. |
