@@ -18,8 +18,19 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated audit — 2026-10-28
 
-The iPhone now has a Dev-backed qualification app built from `6e362ad3aa`.
+The iPhone now has a Dev-backed qualification app built from `9b2b238a6b`.
 Its signed source app executable SHA-256 is
+`ab3b150e3bf49a2f7ff428ef73d878cb05e89a624645efaa6fb0dbbfd70da189`, and its
+test executable SHA-256 is
+`76322159f92cc3c54a78deb71eb95105db430ddc3c523853d0dcb3ec2b378547`.
+All 1,804 exported web assets matched the signed bundle, the native plugin
+backend matches Dev and the committed Swift package pins were unchanged. Installed
+bytes were not read back. Attach-only XCTest entered the running app, observed
+the uncovered Vault gate, and passed the passphrase-configuration regression
+without entering a credential. This is not protected-session or visual acceptance.
+
+The previous Dev-backed qualification app was built from `6e362ad3aa`.
+Its signed source app executable SHA-256 was
 `8e087f56256c295e9d1f05a33374b0801ba157c45d6b578543f6392ffcf37e13`, and its
 test executable SHA-256 is
 `7be045167bfb587d39e13a5ebdb1f239e76ccdb91fdb0e3e1a32463142a5e58b`.
@@ -34,8 +45,9 @@ review. The React hard Vault is not native-qualified.
 The bottom-chrome top-of-scroll correction in `325598ffad` passed its focused
 iOS simulator test and a negative control, but has not been physically
 qualified. The Profile AI-selection corrections in `db56101939` and
-`20528d552e` passed their focused suite and typecheck; they are not in the
-installed web assets. A wider admission experiment was removed after review:
+`20528d552e` passed their focused suite and typecheck and are in the installed
+web assets, but were not exercised in the locked session. A wider admission
+experiment was removed after review:
 provider discovery can still change renderer during a visit, and operation
 locks, current server catalog and mutation permission need coherent native
 ownership before that family can be qualified. Neither correction establishes
