@@ -1050,8 +1050,8 @@ function OwnerVaultFlow({
   }, [beginAttempt, currentRpId, enableGeneratedDefault, finalizeUnlock, finishAttempt, isCurrentAttempt, ownerId]);
 
   const handleUnlockPassphrase = useCallback(async () => {
-    const passphraseToUse = passphrase;
-    return handleUnlockPassphraseWith(passphraseToUse);
+    if (!passphrase) return;
+    return handleUnlockPassphraseWith(passphrase);
   }, [handleUnlockPassphraseWith, passphrase]);
 
   useEffect(() => {
@@ -2045,9 +2045,11 @@ function OwnerVaultFlow({
                       aria-label="Vault password"
                       value={passphrase}
                       onChange={(e) => setPassphrase(e.target.value)}
-                      onKeyDown={(e) =>
-                        e.key === "Enter" && handleUnlockPassphrase()
-                      }
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+                        event.preventDefault();
+                        void handleUnlockPassphrase();
+                      }}
                       autoFocus
                       autoComplete="current-password"
                       autoCorrect="off"

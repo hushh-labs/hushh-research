@@ -399,6 +399,27 @@ describe("VaultFlow create validation", () => {
     expect(getOrIssueVaultOwnerTokenMock).not.toHaveBeenCalledWith(user.uid);
   });
 
+  it("does not submit an unfinished password composition on Enter", async () => {
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(vaultState("passphrase", [passphraseWrapper]));
+    unlockWithMethodMock.mockResolvedValue("verified-fixture-key");
+    getOrIssueVaultOwnerTokenMock.mockResolvedValue({ token: "fixture-token", expiresAt: Date.now() + 60000 });
+    render(<VaultFlow user={user} onSuccess={vi.fn()} />);
+    const password = await screen.findByLabelText("Vault password");
+    fireEvent.keyDown(password, { key: "Enter" });
+    await act(async () => {});
+    expect(unlockWithMethodMock).not.toHaveBeenCalled();
+    fireEvent.change(password, { target: { value: "fixture-passphrase" } });
+    fireEvent.keyDown(password, { key: "Enter", isComposing: true });
+    await act(async () => {});
+    expect(unlockWithMethodMock).not.toHaveBeenCalled();
+    fireEvent.keyDown(password, { key: "Enter", keyCode: 229 });
+    await act(async () => {});
+    expect(unlockWithMethodMock).not.toHaveBeenCalled();
+    fireEvent.keyDown(password, { key: "Enter", isComposing: false });
+    await waitFor(() => expect(unlockWithMethodMock).toHaveBeenCalledOnce());
+  });
+
   it("opens fresh vault creation directly in the canonical credential layout", async () => {
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
