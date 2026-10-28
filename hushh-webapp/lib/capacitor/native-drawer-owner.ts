@@ -31,7 +31,12 @@ export function nativeDrawerOwnerIsCurrent(owner: Owner): boolean {
     current.owner.ownerGeneration === owner.ownerGeneration;
 }
 
-export function createNativeDrawerIdentity(family: NativeDrawerFamily): NativeDrawerIdentity | null {
+export function createNativePresentationIdentity(): (Owner & { revision: number }) | null {
   const owner = captureNativeDrawerOwner();
-  return owner ? { ...owner, family, revision: ++revision } : null;
+  return owner ? { ...owner, revision: ++revision } : null;
+}
+
+export function createNativeDrawerIdentity(family: NativeDrawerFamily): NativeDrawerIdentity | null {
+  const identity = createNativePresentationIdentity();
+  return identity ? { ...identity, family } : null;
 }

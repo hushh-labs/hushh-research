@@ -11,6 +11,7 @@ import { usePacketPublications, PacketPublicationsView } from "@/components/cons
 import { useNativeConnectors } from "@/components/profile/use-native-connectors";
 import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import type { ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
 import type { NativeDrawerChoice } from "@/lib/capacitor/native-drawers";
 const preference = { enabled: true, revision: 0, disclosure: "drive-financial-summary-default-v1" as const };
@@ -78,6 +79,31 @@ describe("@feature_drive_packets @trace_loop owner profile visibility", () => {
     await act(async () => release({ ...preference, enabled: false, revision: 99 }));
     expect(result.current.preference).toEqual({ ...preference, revision: 3 });
     expect(state.setVisibility).not.toHaveBeenCalled();
+  });
+  it("dismisses a boxed loading-toast handle when its owner retires during a save", async () => {
+    let settle!: (value: typeof preference) => void;
+    state.setVisibility.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+    const handle = Object.assign(246, { unwrap: async () => preference });
+    const promise = vi.spyOn(morphyToast, "promise").mockReturnValueOnce(handle);
+    const dismiss = vi.spyOn(morphyToast, "dismiss").mockImplementation(() => undefined);
+    const { result, rerender, unmount } = renderHook(() => usePacketPublications(true));
+    try {
+      await waitFor(() => expect(result.current.loaded).toBe(true));
+      act(() => { void result.current.setEnabled(false); });
+      expect(promise).toHaveBeenCalledTimes(1);
+      state.uid = "replacement"; state.ownerId = "replacement";
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "replacement", ownerId: "replacement", accountGeneration: 0 });
+      rerender();
+      expect(dismiss).toHaveBeenCalledWith(246);
+      await act(async () => settle({ ...preference, enabled: false, revision: 1 }));
+      await waitFor(() => expect(result.current.loaded).toBe(true));
+      expect(result.current.preference).toEqual(preference);
+      expect(state.setVisibility).toHaveBeenCalledTimes(1);
+    } finally {
+      unmount();
+      await act(async () => settle?.({ ...preference, enabled: false, revision: 1 }));
+      promise.mockRestore(); dismiss.mockRestore();
+    }
   });
   it("offers the same single switch in disconnected native Drive details and rejects a retired owner's callback", async () => {
     const { result, rerender } = renderHook(() => {

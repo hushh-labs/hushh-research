@@ -69,13 +69,13 @@ async def verify_private_mcp_account(
     from hushh_mcp.one_adk.mcp_review_service import verify_account
     from hushh_mcp.one_adk.mcp_turn_scope import validate_mcp_turn_configurations
     from hushh_mcp.one_adk.pod_custody_mcp import merge_turn_configurations
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
     await owner.require_access()
     if body.connectorConfiguration is None:
         raise HTTPException(400, detail="Unlock and provide the current connector settings.")
     records = validate_mcp_turn_configurations([body.connectorConfiguration])
-    if owner_cloud_agent() and not merge_turn_configurations(list(records.values()), []):
+    if private_pod_runtime() and not merge_turn_configurations(list(records.values()), []):
         raise HTTPException(409, detail="Connector unavailable.")
     result = await _mcp_review_response(
         verify_account,

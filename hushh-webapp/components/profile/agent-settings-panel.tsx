@@ -1,242 +1,32 @@
 "use client";
 
 import { CloudHostingHealth } from "./cloud-hosting-health";
-
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
-import { AgentUpdateActivity } from "@/components/profile/agent-update-activity";
+import { AgentUpdateActivity } from "./agent-update-activity";
 import { BrowserActivationPanel } from "@/components/computer-use/browser-activation-panel";
-import { AzureHostingNotice } from "@/components/profile/azure-hosting-notice";
-import { CloudRemovalControl } from "@/components/profile/cloud-removal-control";
-import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
-import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
-import { canInstallUpdate, updateCheckMessage, releaseLabel, updateActivityLabel } from "@/lib/feed/agent-update-status";
-import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
-import { profileHostingSetupHref } from "@/lib/navigation/profile-routes";
-import { agentUpdateApprovalToast } from "@/lib/one/agent-update-approval";
-import { AZURE_UPDATE_AWAITING_LABEL, useAzureUpdateAwaitingSignIn } from "@/lib/one/azure-update-sign-in";
-import { useAzureUpdateProgress } from "@/lib/one/use-azure-update-progress";
+import { AzureHostingNotice } from "./azure-hosting-notice";
+import { CloudRemovalControl } from "./cloud-removal-control";
+import { canInstallUpdate, releaseLabel } from "@/lib/feed/agent-update-status";
+import { Button } from "@/lib/morphy-ux/morphy";
 import { isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
-import { ApiService } from "@/lib/services/api-service";
-import {
-  snapshotValidatedAuthSessionOwner,
-  isValidatedAuthSessionOwnerCurrent,
-} from "@/lib/auth/session-owner";
+import { HOST_LABELS, agentSettingsSummary, useAgentSettingsController, type AgentSettingsController } from "./use-agent-settings-controller";
+export { HOST_LABELS, agentSettingsSummary, useAgentSettingsController } from "./use-agent-settings-controller";
+export type { AgentSettingsController } from "./use-agent-settings-controller";
 
-const HOST_LABELS = {
-  shared: "Hussh Shared",
-  byoc: "Your cloud",
-  hussh_pods: "Hussh Pods",
-  pending: "Setup in progress",
-  unplaced: "Not chosen yet",
-  unknown: "Hosting unavailable",
-} as const;
-
-type HostingMode = keyof typeof HOST_LABELS;
-
-function isHostingMode(value: unknown): value is HostingMode {
-  return typeof value === "string" && value in HOST_LABELS;
+export function AgentSettingsPanel({ kind, userId, controller }: {
+  kind: "hosting" | "software-updates"; userId: string; controller?: AgentSettingsController;
+}) {
+  return controller ? <AgentSettingsBody model={controller} /> : <OwnedAgentSettingsPanel kind={kind} userId={userId} />;
 }
 
-export function AgentSettingsPanel({
-  kind,
-  userId,
-}: {
-  kind: "hosting" | "software-updates";
-  userId: string;
-}) {
-  const router = useRouter();
-  const { status, update, refresh } = useAgentDeploymentFollow({ userId });
-  const azureUpdate = useAzureUpdateProgress({ onSettled: refresh });
-  const [busy, setBusy] = useState(false);
-  const [observedInspection, setInspection] = useState<{ value: Awaited<ReturnType<typeof ApiService.inspectPersonalAgentHosting>>; current: () => boolean } | null>(null);
-  const inspection = observedInspection?.current() ? observedInspection.value : null;
-  const busyRef = useRef(false);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
-  const mode: HostingMode = isHostingMode(status?.hostingMode)
-    ? (status.hostingMode as HostingMode)
-    : "unknown";
-  const isPod = mode === "byoc" || mode === "hussh_pods";
-  const needsLinkRecovery = mode === "byoc" && status?.state === "failed";
-  // An approved Azure update starts only with the owner's Microsoft sign-in.
-  const awaitingMicrosoft = useAzureUpdateAwaitingSignIn({
-    deploymentTarget: kind === "software-updates" ? status?.deploymentTarget : null,
-    update,
-  });
-  const working =
-    !update.failed &&
-    update.presentationState !== "blocked" &&
-    (update.inProgress || ["scheduled", "updating"].includes(update.presentationState ?? ""));
+function OwnedAgentSettingsPanel({ kind, userId }: { kind: "hosting" | "software-updates"; userId: string }) {
+  return <AgentSettingsBody model={useAgentSettingsController({ kind, userId })} />;
+}
 
-  async function checkStatus() {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
-    const owner = snapshotValidatedAuthSessionOwner();
-    const current = () => mounted.current && !!owner && owner.userId === userId && isValidatedAuthSessionOwnerCurrent(owner);
-    const request = ApiService.getPersonalAgentStatus().then(async (next) => {
-      if (!isHostingMode(next.hostingMode) || next.hostingMode === "unknown") {
-        throw new Error("Hosting status unavailable");
-      }
-      if (kind === "hosting" && isOwnerCloudTarget(next.deploymentTarget)) {
-        const checked = await ApiService.inspectPersonalAgentHosting();
-        if (!current()) throw new DOMException("Session changed", "AbortError");
-        setInspection({ value: checked, current });
-      }
-      return next;
-    });
-    try {
-      await morphyToast
-        .promise(request, {
-          loading:
-            kind === "hosting" ? "Checking hosting…" : "Checking for updates…",
-          success: (next) =>
-            kind === "hosting"
-              ? isOwnerCloudTarget(next.deploymentTarget) ? "Cloud resources checked." : `Hosting confirmed: ${HOST_LABELS[next.hostingMode as HostingMode]}.`
-              : updateCheckMessage(next),
-          error:
-            kind === "hosting"
-              ? "Couldn’t verify hosting. Try again."
-              : "Couldn’t check for updates. Try again.",
-        })
-        .unwrap();
-      refresh();
-      dispatchFeedStateChanged();
-    } catch {
-      // The promise toast owns the transient error.
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-    }
-  }
-
-  async function act(action: "approve" | "defer") {
-    if (
-      busyRef.current ||
-      !isPod ||
-      !canInstallUpdate(status) ||
-      !update.releaseId ||
-      working
-    )
-      return;
-    busyRef.current = true;
-    setBusy(true);
-    // An Azure approval is recorded, then Microsoft signs in beside this pane;
-    // called inside the click, so the popup keeps the gesture blockers require.
-    const request: Promise<void> =
-      action === "approve"
-        ? azureUpdate.approve({ agent: status, releaseId: update.releaseId, idempotencyKey: crypto.randomUUID() })
-            .then(() => undefined)
-        : ApiService.deferPersonalAgentUpdate({
-            releaseId: update.releaseId,
-          }).then(() => undefined);
-    try {
-      await morphyToast
-        .promise(request, action === "approve" ? agentUpdateApprovalToast(status?.deploymentTarget) : {
-          loading: "Saving your reminder…",
-          success: "We’ll remind you later.",
-          error: "We couldn’t complete that request. Try again.",
-        })
-        .unwrap();
-      dispatchFeedStateChanged();
-      refresh();
-    } catch {
-      // The promise toast owns the transient error.
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-    }
-  }
-
-  async function reconnectDirectPod() {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
-    try {
-      await morphyToast
-        .promise(ApiService.reconnectOwnerPod(), {
-          loading: "Reconnecting your pod…",
-          success: "Pod connection checked.",
-          error:
-            "Your pod could not be reached. Check its connection and try again.",
-        })
-        .unwrap();
-      refresh();
-      dispatchFeedStateChanged();
-    } catch {
-      // The promise toast owns the transient error.
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-    }
-  }
-
-  async function sendFailureReport() {
-    if (busyRef.current || !update.failed || !update.operationId) return;
-    busyRef.current = true;
-    setBusy(true);
-    try {
-      await morphyToast.promise(
-        ApiService.reportPersonalAgentUpdateFailure({ operationId: update.operationId }),
-        {
-          loading: "Sending update report…",
-          success: "Report sent. Private files and conversations were not included.",
-          error: "The report could not be sent. Your pod is unchanged; try again later.",
-        },
-      ).unwrap();
-    } catch {
-      // A failed report never changes the update operation.
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-    }
-  }
-
-  async function recoverExistingPod() {
-    if (busyRef.current || !needsLinkRecovery) return;
-    const owner = snapshotValidatedAuthSessionOwner();
-    const isEffectCurrent = () => Boolean(
-      mounted.current && owner?.userId === userId &&
-      owner && isValidatedAuthSessionOwnerCurrent(owner),
-    );
-    if (!isEffectCurrent()) return;
-    busyRef.current = true;
-    setBusy(true);
-    let recoveryToast: ReturnType<typeof morphyToast.promise> | undefined;
-    try {
-      recoveryToast = morphyToast.promise(
-        ApiService.adoptOrphanPod({ isEffectCurrent }).then((result) => {
-          if (!isEffectCurrent()) throw new DOMException("Session changed", "AbortError");
-          if (!result.adopted) throw new Error("POD_RECOVERY_UNAVAILABLE");
-        }),
-        {
-          loading: "Finding your existing pod…",
-          success: () => isEffectCurrent() ? "Existing pod linked. Checking its status…" : null,
-          error: () => isEffectCurrent() ? "Your existing pod could not be linked. It needs attention before setup or updates can continue." : null,
-        },
-      );
-      await recoveryToast.unwrap();
-      if (isEffectCurrent()) {
-        refresh();
-        dispatchFeedStateChanged();
-      }
-    } catch {
-      // Recovery refusal must never fall back to provisioning or reset.
-    } finally {
-      if (!isEffectCurrent()) {
-        const toastId = recoveryToast?.valueOf();
-        if (typeof toastId === "number" || typeof toastId === "string")
-          morphyToast.dismiss(toastId);
-      }
-      busyRef.current = false;
-      if (mounted.current) setBusy(false);
-    }
-  }
+function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
+  const { kind, userId, status, update, refresh, azureUpdate, busy, inspection, mode, isPod,
+    needsLinkRecovery, awaitingMicrosoft, working, checkStatus, act, reconnectDirectPod,
+    sendFailureReport, recoverExistingPod, chooseHosting, browser, azureHosting } = model;
 
   if (kind === "hosting") {
     const canManageCloud =
@@ -259,7 +49,7 @@ export function AgentSettingsPanel({
           <CloudHostingHealth inspection={inspection} />
         </SettingsGroup>
         {mode === "byoc" && ownerCloudProvider(status?.deploymentTarget) === "azure" ? (
-          <AzureHostingNotice onRebuilt={refresh} />
+          <AzureHostingNotice model={azureHosting} />
         ) : null}
 
         <SettingsGroup
@@ -271,7 +61,7 @@ export function AgentSettingsPanel({
             title="Hussh Shared"
             description={mode === "byoc" ? "To switch, review and remove your current cloud below. Your Hussh account stays." : "Hussh runs and updates the shared service automatically."}
             trailing={mode === "shared" ? "Current" : mode === "unplaced" ? "Choose" : undefined}
-            onClick={mode === "unplaced" ? () => router.push(profileHostingSetupHref()) : undefined}
+            onClick={mode === "unplaced" ? chooseHosting : undefined}
             chevron={mode === "unplaced"}
           />
           <SettingsRow
@@ -286,7 +76,7 @@ export function AgentSettingsPanel({
             }
             onClick={
               canManageCloud
-                ? () => router.push(profileHostingSetupHref())
+                ? chooseHosting
                 : undefined
             }
             chevron={canManageCloud}
@@ -331,35 +121,7 @@ export function AgentSettingsPanel({
     );
   }
 
-  const activity = awaitingMicrosoft ? AZURE_UPDATE_AWAITING_LABEL : updateActivityLabel(update);
-  const stateLabel = !status
-    ? "Checking update status…"
-    : mode === "shared"
-      ? "Updated automatically by Hussh"
-      : mode === "pending" || mode === "unplaced"
-        ? "Available after setup finishes"
-        : mode === "unknown"
-          ? "Hosting status unavailable"
-          : activity
-            ? activity
-            : update.presentationState === "deferred" && !canInstallUpdate(status)
-              ? "Update reminder saved"
-              : update.available === true && canInstallUpdate(status)
-                ? "Update ready for your approval"
-                : update.available === true
-                  ? updateCheckMessage(status)
-                  : status.installedReleaseVerified === true &&
-                      update.available === false
-                    ? "Up to date"
-                    : "Running version not verified";
-  const release = isPod ? status?.availableRelease : null;
-  const installedVersion = status?.installedRelease?.version;
-  const installedReleasedAt = installedVersion && installedVersion === release?.version
-    ? release.releasedAt : null;
-  const versionLabel =
-    mode === "shared"
-      ? installedVersion?.replace(/^Managed service /, "Managed build ")
-      : installedVersion ? releaseLabel(installedVersion, installedReleasedAt) : null;
+  const { stateLabel, release, versionLabel } = agentSettingsSummary(model);
   return (
     <div className="space-y-5">
       <SettingsGroup density="compact">
@@ -384,7 +146,7 @@ export function AgentSettingsPanel({
           update.presentationState === "blocked" && Boolean(update.operationId)} /> : null}
 
       {mode === "byoc" && isOwnerCloudTarget(status?.deploymentTarget) && status?.browserActivationAvailable ? (
-        <BrowserActivationPanel userId={userId} disabled={busy || working} onScheduled={refresh} />
+        <BrowserActivationPanel userId={userId} disabled={busy || working} onScheduled={refresh} model={browser} />
       ) : null}
 
       {release && update.available ? (

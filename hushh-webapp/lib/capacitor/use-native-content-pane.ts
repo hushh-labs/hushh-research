@@ -11,6 +11,8 @@ let generation = 0;
 // Serialize plane retirement, not product operations. An uncertain retirement
 // rejects the next admission; it never restores a duplicate or retries a send.
 let retirement: Promise<unknown> = Promise.resolve();
+/** Explicit handoff waits for the retiring focused WebView plane. */
+export function awaitNativeContentPaneRetirement(): Promise<unknown> { return retirement; }
 export function contentPaneAcknowledged(receipt: NativeContentPaneReceipt, identity: NativeContentPaneIdentity, phase: "active" | "retired") {
   return receipt?.phase === phase && receipt.documentId === identity.documentId && receipt.ownerEpoch === identity.ownerEpoch &&
     receipt.generation === identity.generation && receipt.privacyGeneration === identity.privacyGeneration;

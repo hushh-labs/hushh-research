@@ -74,6 +74,7 @@ def evaluate(
     branch_flow = policy.get("branch_flow") or {}
     main_branch = str(branch_flow.get("promotion_branch") or "main")
     train_branch = str(branch_flow.get("train_branch") or "integration/pr-train")
+    intake_branch = str(branch_flow.get("intake_branch") or train_branch)
     allowed_main_heads = set(branch_flow.get("main_allowed_head_branches") or [train_branch])
 
     if not base_ref:
@@ -94,7 +95,7 @@ def evaluate(
         return (
             False,
             f"Direct PRs into {main_branch} are blocked for non-maintainers. "
-            f"Target {train_branch}, or promote {allowed} into {main_branch}.",
+            f"Target {intake_branch}, or promote {allowed} into {main_branch}.",
         )
     return True, f"PR base policy passed for head={head_ref or '<unknown>'} base={base_ref}."
 
@@ -103,6 +104,7 @@ def self_test(policy: dict[str, Any]) -> int:
     branch_flow = policy.get("branch_flow") or {}
     main_branch = str(branch_flow.get("promotion_branch") or "main")
     train_branch = str(branch_flow.get("train_branch") or "integration/pr-train")
+    intake_branch = str(branch_flow.get("intake_branch") or train_branch)
     maintainers = sorted(_governed_maintainers(policy))
     a_maintainer = maintainers[0] if maintainers else "maintainer"
     # (base_ref, head_ref, actor, expected)
@@ -112,6 +114,7 @@ def self_test(policy: dict[str, Any]) -> int:
         (main_branch, "feature/example", "not-a-maintainer", False),
         (main_branch, "feature/example", a_maintainer, True),
         (train_branch, "feature/example", "", True),
+        (intake_branch, "feature/example", "", True),
         ("feature/stack-base", "feature/follow-up", "", True),
     ]
     failures: list[str] = []

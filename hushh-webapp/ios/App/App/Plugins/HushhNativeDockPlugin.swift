@@ -447,7 +447,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     private var viewport = CGSize.zero
     private var observers = [NSObjectProtocol]()
     private var requestedVisible = false
-    #if DEBUG
+    #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
     private var admissionProbe: NativeTestStatusLabel?
     #endif
     private var compositor: NativePresentationContainer? { bridge?.viewController?.view as? NativePresentationContainer }
@@ -469,7 +469,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     override func load() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            #if DEBUG
+            #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
             if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics") || NativeDrawerQualificationPolicy.coherentShell,
                let parent = self.bridge?.viewController?.view {
                 let probe = NativeTestStatusLabel(frame: .zero, showOverlay: false)
@@ -497,7 +497,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                         }
                         return // Never hide the dock or discard its draft for ordinary coverage.
                     }
-                    #if DEBUG
+                    #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
                     let probePrivacy = HushhSessionPrivacyShield.shared.snapshot()
                     self.admissionProbe?.accessibilityElementsHidden = notification.name == UIApplication.willResignActiveNotification ||
                         !probePrivacy.appIsActive || probePrivacy.shielded
@@ -531,7 +531,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     private func rejectApply(_ call: CAPPluginCall, code: String) {
-        #if DEBUG
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         // Fixed refusal codes only. Never expose editor text, the call object,
         // identities, attachments or provider errors through the opt-in probe.
         admissionProbe?.update(status: code)
@@ -542,7 +542,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     deinit {
         observers.forEach(NotificationCenter.default.removeObserver)
-        #if DEBUG
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         admissionProbe?.removeFromSuperview()
         #endif
     }

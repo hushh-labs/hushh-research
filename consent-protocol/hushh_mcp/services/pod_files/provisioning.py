@@ -290,5 +290,5 @@ def bucket_matches(value: dict[str, Any], *, bucket: str, kms_key: str) -> bool:
         and value.get("name") == bucket
         and (value.get("encryption") or {}).get("defaultKmsKeyName") == kms_key
         and iam.get("publicAccessPrevention") == "enforced"
-        and (iam.get("uniformBucketLevelAccess") or {}).get("enabled")
+        and (iam.get("uniformBucketLevelAccess") or {}).get("enabled") is True
     )

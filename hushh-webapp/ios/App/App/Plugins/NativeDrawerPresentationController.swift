@@ -62,7 +62,7 @@ final class NativeDrawerModel: ObservableObject {
         // UIKit owns presentation/pop motion. The authored React Back owner
         // commits the route; an arbitrary path cannot dispatch an operation.
         let deviceAncestor = [["security", "devices", "device-unlink"], ["security", "vault", "vault-method"], ["security", "vault", "vault-remove"]].contains(navigationPath) && path == ["security"]
-        let workspaceAncestor = (NativeDrawerProjection.validPayoutPath(navigationPath) || NativeDrawerProjection.validMemoryPath(navigationPath) || NativeDrawerProjection.validFinancePath(navigationPath) || NativeDrawerProjection.validWorldModelPath(navigationPath)) && !path.isEmpty && path.count + 1 < navigationPath.count
+        let workspaceAncestor = (NativeDrawerProjection.validAgentSettingsPath(navigationPath) || NativeDrawerProjection.validPayoutPath(navigationPath) || NativeDrawerProjection.validMemoryPath(navigationPath) || NativeDrawerProjection.validFinancePath(navigationPath) || NativeDrawerProjection.validWorldModelPath(navigationPath) || NativeDrawerProjection.validConnectorPath(navigationPath)) && !path.isEmpty && path.count + 1 < navigationPath.count
         guard interactionEnabled, projection.navigationLocked != true, !navigationTransitioning, !choicePending, !backPending, projection.identity == state.identity,
               projection.updateSequence == state.updateSequence, projection.privacyGeneration == state.privacyGeneration,
               projection.profileDestinationId == state.profileDestinationId,
@@ -362,11 +362,23 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
             interactivePopGestureRecognizer?.isEnabled = previous
             popEnabledBeforeNavigationLock = nil
         }
-        navigationBar.isUserInteractionEnabled = admitted && !model.choicePending && model.projection.navigationLocked != true
-        navigationBar.accessibilityElementsHidden = !admitted || model.choicePending || model.projection.navigationLocked == true
+        let barInteractive = admitted && !model.choicePending && model.projection.navigationLocked != true
+        if navigationBar.isUserInteractionEnabled != barInteractive {
+            navigationBar.isUserInteractionEnabled = barInteractive
+        }
+        if navigationBar.accessibilityElementsHidden != !barInteractive {
+            navigationBar.accessibilityElementsHidden = !barInteractive
+        }
         for page in [rootPage] + Array(pages.values) {
-            page.viewIfLoaded?.isUserInteractionEnabled = admitted
-            page.viewIfLoaded?.accessibilityElementsHidden = !admitted
+            // Retention preserves the presentation, not interaction ownership.
+            // Covered and cached destinations must not compete with the
+            // visible page for touch or accessibility, including after a pop.
+            let active = admitted && page === visibleViewController
+            guard let view = page.viewIfLoaded else { continue }
+            // UIKit owns these retained controls. Compatible refreshes must
+            // not invalidate their presentation with identical state writes.
+            if view.isUserInteractionEnabled != active { view.isUserInteractionEnabled = active }
+            if view.accessibilityElementsHidden != !active { view.accessibilityElementsHidden = !active }
         }
     }
     func retire() {

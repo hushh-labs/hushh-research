@@ -862,19 +862,15 @@ def test_a_bucket_name_owned_by_someone_else_is_not_treated_as_success() -> None
 
 
 def test_a_bucket_we_already_own_still_counts_as_success() -> None:
-    """Re-running a bootstrap against our own bucket must not be an error."""
-    bucket_name = f"one-pod-{HUSHH_ID.lower()}-blobs"
-    session = _Session(
-        [_Response(200, {"done": True, "response": {}})] * 20,
-        routes={
-            "storage/v1/b": [
-                _Response(409, text="conflict"),
-                _Response(200, {"items": [{"name": bucket_name}]}),
-            ]
-        },
-    )
+    """Re-running against a bucket with the approved settings must succeed."""
+    session = _Session([_Response(200, {"done": True, "response": {}})] * 20)
     boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
+    observed = next(c for c in boot.plan_calls(plan) if c["step"] == "cmek_bucket")["body"]
+    session._routes["storage/v1/b"] = [
+        _Response(409, text="conflict"),
+        _Response(200, {"items": [observed]}),
+    ]
     result = boot.apply(plan, dry_run=False)
     bucket = next(s for s in result["steps"] if s["step"] == "cmek_bucket")
     assert bucket["ok"] is True
@@ -1483,11 +1479,14 @@ def test_bucket_creation_observation_requires_acknowledged_incarnation(case):
         body["name"] = "foreign-bucket"
     elif case == "missing_generation":
         body.pop("generation")
+    session = _Session()
+    boot = _boot(session)
     responses = [_Response(200, body)]
     if case == "adopted":
-        responses = [_Response(409, body), _Response(200, {"items": [{"name": bucket_name}]})]
-    session = _Session(routes={"storage/v1/b": responses})
-    result = _boot(session).apply(plan, dry_run=False)
+        observed = next(c for c in boot.plan_calls(plan) if c["step"] == "cmek_bucket")["body"]
+        responses = [_Response(409, body), _Response(200, {"items": [observed]})]
+    session._routes["storage/v1/b"] = responses
+    result = boot.apply(plan, dry_run=False)
     step = next(step for step in result["steps"] if step["step"] == "cmek_bucket")
     assert step["ok"] is (case != "foreign")
     if case == "created":

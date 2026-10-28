@@ -8,6 +8,21 @@ export function googleAvatarSource(source: string): URL | null {
   } catch { return null; }
 }
 
+/** People API photo URLs use a different Google-hosted path from Sign-In avatars. */
+export function googlePeoplePhotoSource(source: string): URL | null {
+  if (source.length > 4096) return null;
+  try {
+    const url = new URL(source);
+    if (url.protocol !== "https:" || url.username || url.password || url.port || url.hash) return null;
+    if (!/^lh[3-6](?:-tt|-d[a-gz])?\.(?:google|googleusercontent)\.com$/.test(url.hostname)) return null;
+    if (!url.pathname.startsWith("/") || url.pathname.startsWith("//")) return null;
+    if ([...url.searchParams.keys()].some(key => key !== "sz")) return null;
+    const size = url.searchParams.get("sz");
+    if (size && !/^[1-9][0-9]{0,3}$/.test(size)) return null;
+    return url;
+  } catch { return null; }
+}
+
 export function providerAvatarAtSize(source: string | null, pixels = 768): string | null {
   if (!source) return null;
   const url = googleAvatarSource(source);

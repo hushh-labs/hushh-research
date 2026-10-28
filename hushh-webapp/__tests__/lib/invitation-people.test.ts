@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { connectedInvitationPeople, invitationPhotoUrl } from "@/lib/calendar/invitation-people";
+import { connectedInvitationPeople, connectedInvitationPhotoUrl, invitationGooglePhoto } from "@/lib/calendar/invitation-people";
 import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
 
 const connection = (email: string, displayName: string, photoUrl: string | null = null): ConnectionSummaryEntry => ({
@@ -19,12 +19,16 @@ describe("Calendar connected people", () => {
     expect(people.has("unknown@example.com")).toBe(false);
   });
 
-  it("uses a verified photo only for the selected Calendar account", () => {
+  it("prioritizes the selected Google account and never substitutes a Hussh-uploaded guest photo", () => {
     const people = connectedInvitationPeople([connection("manish@example.test", "Manish", "https://images.example.test/manish.jpg")]);
+    expect(people.get("manish@example.test")?.displayName).toBe("Manish");
     const ownerPhoto = "https://lh3.googleusercontent.com/a/owner=s96-c";
-    expect(invitationPhotoUrl(people, " OWNER@example.test ", "owner@example.test", ownerPhoto)).toBe(ownerPhoto);
-    expect(invitationPhotoUrl(people, "manish@example.test", "owner@example.test", ownerPhoto)).toBe("https://images.example.test/manish.jpg");
-    expect(invitationPhotoUrl(people, "stranger@example.test", "owner@example.test", ownerPhoto)).toBeNull();
-    expect(invitationPhotoUrl(people, "owner@example.test", "owner@example.test", "https://evil.example.test/avatar")).toBeNull();
+    const googlePhotos = new Map([["manish@example.test", { url: "https://lh3.googleusercontent.com/profile/manish/photo.jpg", source: "google_profile" as const }]]);
+    expect(invitationGooglePhoto(" OWNER@example.test ", "owner@example.test", ownerPhoto)?.url).toBe(ownerPhoto);
+    expect(invitationGooglePhoto("manish@example.test", "owner@example.test", ownerPhoto, googlePhotos)?.url).toBe(googlePhotos.get("manish@example.test")?.url);
+    expect(invitationGooglePhoto("manish@example.test", "owner@example.test", ownerPhoto)).toBeNull();
+    expect(connectedInvitationPhotoUrl(people, "manish@example.test", "owner@example.test", ownerPhoto)).toBe("https://images.example.test/manish.jpg");
+    expect(invitationGooglePhoto("stranger@example.test", "owner@example.test", ownerPhoto)).toBeNull();
+    expect(invitationGooglePhoto("owner@example.test", "owner@example.test", "https://evil.example.test/avatar")).toBeNull();
   });
 });

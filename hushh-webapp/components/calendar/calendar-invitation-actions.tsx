@@ -12,6 +12,7 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
 import { MAX_CALENDAR_DECLINE_REASON_LENGTH, calendarDeclineMessage, sameCalendarInvitationOccurrence } from "@/lib/calendar/calendar-recipient-copy";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { GoogleCalendarService, GoogleCalendarError, type CalendarAttendanceResult, type CalendarAttendanceReview, type CalendarInvitation } from "@/lib/services/google-calendar-service";
 import { calendarDate, eventTime, shiftCalendarDate, timeRangeLabel } from "./calendar-schedule-presentation";
 import styles from "./calendar-invitations.module.css";
@@ -47,14 +48,17 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
   const [reviewRequired, setReviewRequired] = useState(false);
   const busyCallback = useRef(onBusyChange); busyCallback.current = onBusyChange;
   const handedOff = useRef(false);
+  const reviewTransport = useRef<"rsvp" | "workspace" | "vault">("rsvp");
   const flight = useRef(false), lifetime = useRef({ current: 0 });
   useEffect(() => { const scope = lifetime.current; scope.current++; return () => { scope.current++; busyCallback.current?.(false); }; }, []);
   const duration = event.start?.dateTime && event.end?.dateTime ? Math.round((Date.parse(event.end.dateTime) - Date.parse(event.start.dateTime)) / 60000) : 30;
   const offer = decision === "offer_times";
-  const run = async (work: (current: () => boolean) => Promise<void>) => {
+  const run = async (work: (current: () => boolean) => Promise<void>, needsVault = false) => {
     if (flight.current || handedOff.current) return;
-    const epoch = snapshotVaultSessionEpoch(), mounted = lifetime.current.current;
-    const current = () => isVaultSessionEpochCurrent(epoch) && mounted === lifetime.current.current;
+    const epoch = snapshotVaultSessionEpoch(), owner = snapshotValidatedAuthSessionOwner(), mounted = lifetime.current.current;
+    const current = () => mounted === lifetime.current.current &&
+      (!owner || isValidatedAuthSessionOwnerCurrent(owner)) &&
+      (!needsVault || isVaultSessionEpochCurrent(epoch));
     flight.current = true; setBusy(true); busyCallback.current?.(true); setFailure(null);
     try { await work(current); }
     catch (error) {
@@ -67,23 +71,37 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
       }
     } finally { flight.current = false; if (current() && !handedOff.current) { setBusy(false); busyCallback.current?.(false); } }
   };
-  const prepare = (next: InvitationDecision, send = false) => run(async current => {
+  const prepare = (next: InvitationDecision, send = false) => {
+    const transport = !workspaceLayout ? "vault" : next === "offer_times" || send ? "workspace" : "rsvp";
+    const needsVault = transport === "vault";
+    return run(async current => {
     setDecision(next); setReview(null); setResult(null);
-    if (!token) throw new GoogleCalendarError("Unlock your vault before changing your response.", "calendar_owner_required", 401);
+    if (needsVault && !token) throw new GoogleCalendarError("Unlock your vault to send an organizer email.", "calendar_owner_required", 401);
     const firebaseIdToken = await getIdToken();
     if (!current()) return;
     const clockMinutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
     const proposedEndTime = endTime === "00:00" ? "24:00" : endTime;
     const outgoingMessage = next === "declined" && send && !onSend ? calendarDeclineMessage(event, zone, message) : message;
-    const prepared = await GoogleCalendarService.reviewAttendance({
-      firebaseIdToken, vaultOwnerToken: token, eventId: event.id, calendarId: event.calendar_id, accountId,
+    const responseStatus: "accepted" | "declined" = next === "accepted" ? "accepted" : "declined";
+    const mailReview = {
+      firebaseIdToken, eventId: event.id, calendarId: event.calendar_id, accountId,
       expectedAccountEmail: expectedAccountEmail || undefined,
-      responseStatus: next === "accepted" ? "accepted" : "declined",
+      responseStatus,
       offerTimes: next === "offer_times", exactTime: next === "offer_times",
       sendMessage: next === "declined" || next === "offer_times",
       message: outgoingMessage, date, timeZone: zone, startTime, endTime: proposedEndTime,
       // The service derives elapsed duration in the selected zone, including DST.
       durationMinutes: next === "offer_times" ? Math.max(1, clockMinutes(proposedEndTime) - clockMinutes(startTime)) : Math.max(1, Math.min(1440, duration)),
+      isEffectCurrent: current,
+    };
+    const prepared = transport === "vault"
+      ? await GoogleCalendarService.reviewAttendance({ ...mailReview, vaultOwnerToken: token! })
+      : transport === "workspace"
+        ? await GoogleCalendarService.reviewWorkspaceAttendance(mailReview)
+        : await GoogleCalendarService.reviewRsvp({
+      firebaseIdToken, eventId: event.id, calendarId: event.calendar_id, accountId,
+      expectedAccountEmail: expectedAccountEmail || undefined,
+      responseStatus: next === "accepted" ? "accepted" : "declined", timeZone: zone,
       isEffectCurrent: current,
     });
     if (!current()) return;
@@ -91,15 +109,21 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
     if (next === "declined" && send && !onSend && !sameCalendarInvitationOccurrence(event, prepared)) {
       throw new GoogleCalendarError("This invitation changed while the email was prepared. Refresh Calendar and review it again; nothing was sent.", "calendar_event_changed", 409);
     }
+    reviewTransport.current = transport;
     setReview(prepared);
     if (send && (next !== "declined" || onSend) && prepared.recipient?.toLowerCase() === event.organizer?.email?.toLowerCase() && !reviewRequired && !prepared.conflicts?.length && !prepared.unchecked_calendars?.length) await execute(prepared, current);
-  });
+    }, needsVault);
+  };
   const execute = async (review: CalendarAttendanceReview, current: () => boolean) => {
-    if (!token) return;
+    if (reviewTransport.current === "vault" && !token) throw new GoogleCalendarError("Unlock your vault to send an organizer email.", "calendar_owner_required", 401);
     const firebaseIdToken = await getIdToken();
     if (!current()) return;
     const epoch = snapshotVaultSessionEpoch();
-    const confirmation = GoogleCalendarService.confirmAttendance({ firebaseIdToken, vaultOwnerToken: token, accountId, reviewId: review.review_id, reviewToken: review.review_token, isEffectCurrent: onSend ? () => isVaultSessionEpochCurrent(epoch) : current });
+    const confirmation = reviewTransport.current === "vault"
+      ? GoogleCalendarService.confirmAttendance({ firebaseIdToken, vaultOwnerToken: token!, accountId, reviewId: review.review_id, reviewToken: review.review_token, isEffectCurrent: onSend ? () => isVaultSessionEpochCurrent(epoch) : current })
+      : reviewTransport.current === "workspace"
+        ? GoogleCalendarService.confirmWorkspaceAttendance({ firebaseIdToken, accountId, reviewId: review.review_id, reviewToken: review.review_token, isEffectCurrent: current })
+        : GoogleCalendarService.confirmRsvp({ firebaseIdToken, accountId, reviewId: review.review_id, reviewToken: review.review_token, isEffectCurrent: current });
     if (onSend && review.recipient) {
       const outcome = confirmation.then(result => {
         if (isVaultSessionEpochCurrent(epoch) && ["accepted", "declined", "tentative"].includes(result.calendar)) notifyCalendarChanged(userId);
@@ -122,8 +146,8 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
     if (["accepted", "declined", "tentative"].includes(response.calendar)) notifyCalendarChanged(userId);
     onResult?.(response);
   };
-  const confirm = () => run(async current => { if (review) await execute(review, current); });
-  const edit = () => { setReview(null); setResult(null); };
+  const confirm = () => run(async current => { if (review) await execute(review, current); }, reviewTransport.current === "vault");
+  const edit = () => { reviewTransport.current = "rsvp"; setReview(null); setResult(null); };
   return <div className={styles.actions} data-workspace={workspaceLayout} aria-label="Invitation actions" aria-busy={busy}>
     {result ? <div className={styles.review} role="status"><p>{attendanceResultMessage(result)}</p><Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => { setResult(null); setDecision("view"); }}>Done</Button></div> : review ? <div className={styles.review}>
       <h3>{review.response_status === "accepted" ? "Accept invitation?" : "Decline invitation?"}</h3><p>{review.title}</p><p className={styles.muted}>{eventTime(event, zone)}</p>
@@ -135,20 +159,19 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
       <h3>Offer another time</h3><p className={styles.muted}>Choose the exact time to propose. The duration is calculated automatically.</p>
       <div className="grid grid-cols-2 gap-3"><label className="col-span-2 space-y-1"><span>Date</span><Input disabled={busy} aria-label="Alternative date" type="date" value={date} onChange={e => { setDate(e.target.value); edit(); }} /></label><label className="space-y-1"><span>From</span><Input disabled={busy} aria-label="Alternative start time" type="time" value={startTime} onChange={e => { setStartTime(e.target.value); edit(); }} /></label><label className="space-y-1"><span>Until</span><Input disabled={busy} aria-label="Alternative end time" type="time" value={endTime} onChange={e => { setEndTime(e.target.value); edit(); }} /></label></div>
       <label className="block space-y-1"><span>Reason and message to organiser</span><Textarea disabled={busy} aria-label="Message to organiser" value={message} maxLength={8000} onChange={e => { setMessage(e.target.value); edit(); }} /></label>
-      <div className="flex flex-wrap gap-2"><Button disabled={busy || !token || !date || (endTime !== "00:00" && startTime >= endTime) || !message.trim()} onClick={() => void prepare("offer_times", true)}>{busy ? "Checking availability…" : reviewRequired ? "Review again" : "Check time & send email"}</Button><Button disabled={busy} variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => setDecision("view")}>Back</Button></div>
+      <div className="flex flex-wrap gap-2"><Button disabled={busy || (!workspaceLayout && !token) || !date || (endTime !== "00:00" && startTime >= endTime) || !message.trim()} onClick={() => void prepare("offer_times", true)}>{busy ? "Checking availability…" : reviewRequired ? "Review again" : "Check time & send email"}</Button><Button disabled={busy} variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => setDecision("view")}>Back</Button></div>
     </div> : decision === "declined" ? <div className={styles.review}>
       <h3>Why can’t you attend?</h3>
-      <p className={styles.muted}>{onSend ? `Your reason will be emailed to ${event.organizer?.email || "the organizer"} when you choose Decline & send email.` : `Review the email to ${event.organizer?.email || "the organizer"} before sending.`}</p>
+      <p className={styles.muted}>Review decline updates only your Calendar response. Add a reason if you also want to email {event.organizer?.email || "the organizer"}.</p>
       <label className="block space-y-1"><span>Reason for declining</span><Textarea disabled={busy} aria-label="Reason for declining" value={message} maxLength={onSend ? 8000 : MAX_CALENDAR_DECLINE_REASON_LENGTH} onChange={e => { setMessage(e.target.value); edit(); }} /></label>
-      <div className="flex flex-wrap gap-2"><Button disabled={busy || !token || !message.trim() || (!onSend && message.length > MAX_CALENDAR_DECLINE_REASON_LENGTH)} onClick={() => void prepare("declined", true)}>{busy ? "Preparing…" : reviewRequired ? "Review again" : onSend ? "Decline & send email" : "Review decline email"}</Button><Button disabled={busy} variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => setDecision("view")}>Back</Button></div>
+      <div className="flex flex-wrap gap-2">{workspaceLayout ? <Button disabled={busy} onClick={() => void prepare("declined")}>{busy ? "Preparing…" : "Review decline"}</Button> : null}{workspaceLayout || token ? <Button disabled={busy || !message.trim() || (!onSend && message.length > MAX_CALENDAR_DECLINE_REASON_LENGTH)} onClick={() => void prepare("declined", true)}>{reviewRequired ? "Review email again" : onSend ? "Decline & send email" : "Review decline email"}</Button> : null}<Button disabled={busy} variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => setDecision("view")}>Back</Button></div>
     </div> : <>
       {initialDecision !== "view" ? <p className={styles.muted}>Review your {initialDecision === "accepted" ? "accept" : "decline"} response before confirming.</p> : null}
-      <div className={styles.actionPair}><CalendarCompactAction data-voice-control-id="calendar_invitation_accept" disabled={busy || !token || !event.can_respond || event.response_status === "accepted"} onClick={() => void prepare("accepted")}><CheckCircle aria-hidden className="size-4" />Accept</CalendarCompactAction><CalendarCompactAction data-voice-control-id="calendar_invitation_decline" disabled={busy || !token || !event.can_respond || event.response_status === "declined"} onClick={() => { setDecision("declined"); edit(); }}><X aria-hidden className="size-4" />Decline</CalendarCompactAction></div>
-      <CalendarCompactAction data-voice-control-id="calendar_invitation_offer" className={styles.offerButton} disabled={busy || !token || !event.can_respond} onClick={() => { if (onOfferTimes) onOfferTimes(); else { setDecision("offer_times"); edit(); } }}><CalendarClock aria-hidden className="size-4 shrink-0" />Decline & offer another time</CalendarCompactAction>
+      <div className={styles.actionPair}><CalendarCompactAction data-voice-control-id="calendar_invitation_accept" disabled={busy || (!workspaceLayout && !token) || !event.can_respond || event.response_status === "accepted"} onClick={() => void prepare("accepted")}><CheckCircle aria-hidden className="size-4" />Accept</CalendarCompactAction><CalendarCompactAction data-voice-control-id="calendar_invitation_decline" disabled={busy || (!workspaceLayout && !token) || !event.can_respond || event.response_status === "declined"} onClick={() => { setDecision("declined"); edit(); }}><X aria-hidden className="size-4" />Decline</CalendarCompactAction></div>
+      <CalendarCompactAction data-voice-control-id="calendar_invitation_offer" className={styles.offerButton} disabled={busy || (!workspaceLayout && !token) || !event.can_respond} onClick={() => { if (onOfferTimes) onOfferTimes(); else { setDecision("offer_times"); edit(); } }}><CalendarClock aria-hidden className="size-4 shrink-0" />Decline & offer another time</CalendarCompactAction>
     </>}
     {failure ? <p role="alert">{failure.message}</p> : null}
     {!event.can_respond ? <p className={styles.muted}>This calendar only allows viewing. Respond from your own Calendar invitation.</p> : null}
-    {!token ? <p className={styles.muted}>Unlock your vault to respond to this invitation.</p> : null}
     {failure?.recovery === "permission" || failure?.recovery === "reconnect" || failure?.recovery === "connect" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect(failure.reasonCode === "calendar_list_permission_required" ? "read" : "manage", failure.reasonCode === "calendar_list_permission_required")}>Allow Calendar access</CalendarCompactAction> : null}
     {failure?.reasonCode?.startsWith("GMAIL") && onMailConnect ? <CalendarCompactAction disabled={busy} onClick={onMailConnect}>Enable Mail sending</CalendarCompactAction> : null}
   </div>;

@@ -9,8 +9,8 @@ execution rather than degrade to an ungrounded provider request.
 The existing text runtime collects events into a JSON response. Its transient
 ADK session uses InMemorySessionService; persistent agent experience belongs to
 the separately resolved pod memory service. PKM remains the information authority.
-Own-cloud owners reach this route browser to agent (the hub relay refuses them);
-a Hussh-hosted pod is still reached through the hub relay, which sees that turn.
+Private owners use admitted browser-to-pod authority with a signed managed dev
+binding where required, never Shared fallback or the hub's model identity.
 
 Mounting and execution require pod mode and HUSSH_POD_TURN_ENABLED. The hub's
 shared turn implementation is separate. The pod Live endpoint reuses the existing
@@ -330,9 +330,9 @@ def _require_local_session(consent_token: str, session: dict | None) -> None:
             },
         )
     if session is None:
-        from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+        from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
-        if owner_cloud_agent():
+        if private_pod_runtime():
             raise HTTPException(403, detail={"code": "POD_OWNER_SESSION_REQUIRED"})
         return
     if str(session.get("role") or "") != ROLE_APP:
@@ -838,6 +838,7 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
     if owner_azure_model() is not None:
         return "user_azure_mi"
     from hushh_mcp.runtime_settings import (  # noqa: PLC0415
+        pod_hosted_adc_enabled,
         pod_managed_model_enabled,
         pod_user_adc_enabled,
     )
@@ -853,6 +854,8 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
     # identity. Putting it earlier would let a mis-set FLEET flag capture a BYOC pod
     # and quietly bill a person's thinking to hushh while their own project sat idle,
     # and nothing in the answer would look wrong.
+    if pod_hosted_adc_enabled():
+        return "hosted_pod_adc"
     if pod_user_adc_enabled():
         return "user_adc"
     if pod_managed_model_enabled():

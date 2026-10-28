@@ -13,10 +13,12 @@ const LABELS = { gmail: 'Gmail', calendar: 'Calendar', drive: 'Drive', contacts:
 export function useGoogleConnectorTransitionReview(ownerId: string | undefined, vaultEpoch: number) {
   const identity = useRef({ ownerId, vaultEpoch });
   useLayoutEffect(() => { identity.current = { ownerId, vaultEpoch }; }, [ownerId, vaultEpoch]);
-  const pending = useRef<{ ownerId: string; vaultEpoch: number; resolve: (approved: boolean) => void } | null>(null);
-  const [terms, setTerms] = useState<{ review: GoogleConnectorTransitionReview; presentation?: 'calendar' } | null>(null);
-  const settle = useCallback((approved: boolean) => {
+  type Request = { ownerId: string; vaultEpoch: number; resolve: (approved: boolean) => void };
+  const pending = useRef<Request | null>(null);
+  const [terms, setTerms] = useState<{ review: GoogleConnectorTransitionReview; presentation?: 'calendar'; request: Request } | null>(null);
+  const settle = useCallback((approved: boolean, expected: Request | null) => {
     const request = pending.current;
+    if (!request || request !== expected) return;
     pending.current = null;
     setTerms(null);
     if (!request) return;
@@ -35,11 +37,14 @@ export function useGoogleConnectorTransitionReview(ownerId: string | undefined, 
     if (!ownerId || identity.current.ownerId !== ownerId || identity.current.vaultEpoch !== vaultEpoch ||
         !isVaultSessionEpochCurrent(vaultEpoch) || pending.current) return Promise.resolve(false);
     return new Promise((resolve) => {
-      pending.current = { ownerId, vaultEpoch, resolve };
-      setTerms({ review, presentation });
+      const request = { ownerId, vaultEpoch, resolve };
+      pending.current = request;
+      setTerms({ review, presentation, request });
     });
   }, [ownerId, vaultEpoch]);
-  const transitionDialog = <Dialog open={terms !== null} onOpenChange={(open) => { if (!open) settle(false); }}>
+  const cancelReview = () => settle(false, terms?.request ?? null);
+  const approveTransition = () => settle(true, terms?.request ?? null);
+  const transitionDialog = <Dialog open={terms !== null} onOpenChange={(open) => { if (!open) cancelReview(); }}>
     <DialogContent className={terms?.presentation === 'calendar' ? calendarPresentation.portal : undefined} data-calendar-presentation={terms?.presentation === 'calendar' || undefined}>
       <DialogHeader className="pr-8 text-left">
         <DialogTitle>Replace Google access?</DialogTitle>
@@ -47,11 +52,12 @@ export function useGoogleConnectorTransitionReview(ownerId: string | undefined, 
       </DialogHeader>
       {terms && <p className="text-sm">{terms.review.services.map((service) => LABELS[service]).join(', ')}</p>}
       <DialogFooter>
-        <ShellActionSurface variant="pill" className={terms?.presentation === 'calendar' ? `${calendarPresentation.utility} !border-transparent !bg-transparent !shadow-none` : 'min-h-11'} onClick={() => settle(false)}>Not now</ShellActionSurface>
-        <ShellActionSurface variant="pill" className={terms?.presentation === 'calendar' ? 'min-h-11 !border-transparent !bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]' : 'min-h-11'} rippleEffect={terms?.presentation === 'calendar' ? 'fill' : 'glass'} onClick={() => settle(true)}>Replace and sign in</ShellActionSurface>
+        <ShellActionSurface variant="pill" className={terms?.presentation === 'calendar' ? `${calendarPresentation.utility} !border-transparent !bg-transparent !shadow-none` : 'min-h-11'} onClick={cancelReview}>Not now</ShellActionSurface>
+        <ShellActionSurface variant="pill" className={terms?.presentation === 'calendar' ? 'min-h-11 !border-transparent !bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]' : 'min-h-11'} rippleEffect={terms?.presentation === 'calendar' ? 'fill' : 'glass'} onClick={approveTransition}>Replace and sign in</ShellActionSurface>
       </DialogFooter>
     </DialogContent>
   </Dialog>;
-  const cancelTransition = useCallback(() => settle(false), [settle]);
-  return { confirmTransition, transitionDialog, transitionPending: terms !== null, cancelTransition };
+  const cancelTransition = useCallback(() => settle(false, pending.current), [settle]);
+  return { confirmTransition, transitionDialog, transitionPending: terms !== null, cancelTransition,
+    review: terms?.review ?? null, approveTransition, cancelReview };
 }

@@ -96,7 +96,7 @@ import { CustomConnectorsSettings, type CustomConnectorSettingsModel } from "@/c
 import { PrivateOwnerConnectorsPanel } from "@/components/connections/private-owner-connectors-panel";
 import { connectorAccessPurpose } from "@/lib/agent/connector-access-copy";
 import { CatalogConnectorDetails } from "@/components/agent/catalog-connector-details";
-import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
+import { useConnectorPlacement } from "./use-connector-placement";
 
 type Props = {
   open: boolean;
@@ -171,6 +171,8 @@ type ConnectorListEntry = {
 export type ConnectorDetailAction = { label: string; disabled: boolean; run: () => void; destructive?: boolean };
 /** Feature facts and existing commands, not a native UI schema or service port. */
 export type ConnectorDetailPresentation =
+  | { kind: "private-google" | "private-stripe"; status: string; purpose: string; message: string; notes: readonly string[];
+      busy: boolean; actions: readonly ConnectorDetailAction[] }
   | { kind: "social"; network: "instagram" | "linkedin"; link: string; current: () => boolean; inputRevision: () => number; changeLink: (link: string, expectedRevision?: number) => boolean }
   | { kind: "drive"; account: string; status: string; message: string; notes: readonly string[]; connected: boolean; busy: boolean; mutationPending: () => boolean;
       actions: readonly ConnectorDetailAction[]; background: { enabled: boolean | null; description: string; busy: boolean; change: (next: boolean) => void; retry?: ConnectorDetailAction } | null;
@@ -188,6 +190,8 @@ export type ConnectorDetailPresentation =
   | { kind: "curated"; name: string; description: string; account?: string; status: string; message: string;
       connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction };
 export type ConnectorsPanelPresentation = {
+  /** False while an authored presentation has no complete native counterpart. */
+  nativeComplete?: boolean;
   selectedConnector: { id: string; name: string } | null;
   /** Null for families whose complete private presentation is not mapped yet. */
   detail: ConnectorDetailPresentation | null;
@@ -369,33 +373,33 @@ function selectedNativePickerFiles(
 }
 
 export function ConnectorsPanel(props: Props) {
-  const { user } = useAuth();
+  const { user, userId: applicationOwnerId } = useAuth();
   // Discard all local state on account switch or lock; don't display the prior
   // owner's account labels, pending selection or status on the new session.
   const { vaultOwnerToken, vaultKey, getVaultKey, getVaultOwnerToken } = useVault();
   const customAccessIsCurrent = useCallback(() => Boolean(vaultKey && typeof getVaultKey === "function" && typeof getVaultOwnerToken === "function" &&
     getVaultKey() === vaultKey && getVaultOwnerToken()), [getVaultKey, getVaultOwnerToken, vaultKey]);
-  const [resolvedPlacement, setPlacement] = useState<{ owner: string; mode: 'shared' | 'private' | 'unavailable' } | null>(null);
-  const placement = resolvedPlacement?.owner === user?.uid ? resolvedPlacement?.mode : null;
-  useEffect(() => {
-    let active = true;
-    if (!props.open || !user?.uid) return;
-    void ownerContentIsPrivate().then((privateAgent) => {
-      if (active) setPlacement({ owner: user.uid, mode: privateAgent ? 'private' : 'shared' });
-    }, () => { if (active) setPlacement({ owner: user.uid, mode: 'unavailable' }); });
-    return () => { active = false; };
-  }, [props.open, user?.uid]);
+  const { placement, refresh: retryPlacement } = useConnectorPlacement(props.open, user?.uid ?? null, applicationOwnerId ?? null);
   if (placement !== 'shared') {
     if (!props.open) return null;
-    if (placement === null) return <p role="status" className="p-4 text-sm">Checking where your agent runs…</p>;
-    if (placement === 'unavailable') return <p role="status" className="p-4 text-sm">Your agent's hosting could not be verified. Try again.</p>;
+    if (placement === null || placement === 'unavailable') {
+      const webBody = <div className="p-4 text-sm"><p role="status">{placement === null
+        ? "Checking where your agent runs…" : "Your agent's hosting could not be verified. Try again."}</p>
+        {placement === 'unavailable' ? <Button variant="outline" onClick={() => void retryPlacement()}>Retry</Button> : null}</div>;
+      // The retained owner is hidden; every state must reach its authored
+      // presentation port rather than disappearing inside that hidden subtree.
+      return props.render ? props.render({ nativeComplete: true, selectedConnector: null, detail: null, custom: null,
+        catalog: { query: "", search: () => undefined, show: () => undefined,
+          status: placement === null ? "loading" : "unavailable", groups: [], retry: retryPlacement },
+        confirmation: null, webBody }) : webBody;
+    }
     return <PrivateOwnerConnectorsPanel key={`${user?.uid}:${Boolean(vaultOwnerToken)}`} {...props} />;
   }
-  const ownerKey = `${user?.uid ?? "signed-out"}:${Boolean(vaultOwnerToken)}`;
+  const ownerKey = `${applicationOwnerId ?? "signed-out"}:${Boolean(vaultOwnerToken)}`;
   if (props.render && props.surface === "profile") {
     return <CustomConnectorsSettings key={ownerKey}
-      access={{ userId: user?.uid ?? "", vaultKey: vaultKey ?? "", vaultOwnerToken: vaultOwnerToken ?? "" }}
-      enabled={props.open && Boolean(user?.uid && vaultKey && vaultOwnerToken)} onPrepareRecovery={props.onPrepareRecovery}
+      access={{ userId: applicationOwnerId ?? "", vaultKey: vaultKey ?? "", vaultOwnerToken: vaultOwnerToken ?? "" }}
+      enabled={props.open && Boolean(applicationOwnerId && vaultKey && vaultOwnerToken)} onPrepareRecovery={props.onPrepareRecovery}
       isAccessCurrent={customAccessIsCurrent}
       render={(model, body) => <OwnerConnectorsPanel {...props} customAccessIsCurrent={customAccessIsCurrent} customPresentation={{ model, body }} />} />;
   }
@@ -427,7 +431,7 @@ function OwnerConnectorsPanel({
   customAccessIsCurrent,
 }: Props & { customPresentation?: { model: CustomConnectorSettingsModel; body: ReactNode }; customAccessIsCurrent?: () => boolean }) {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, userId: applicationOwnerId } = useAuth();
   const { vaultOwnerToken, vaultKey } = useVault();
   const hasOwnerToken = Boolean(vaultOwnerToken);
   const authGeneration = snapshotValidatedAuthSessionOwner()?.generation;
@@ -2551,9 +2555,9 @@ function OwnerConnectorsPanel({
                 </SettingsGroup>
               ),
             )}
-            {customPresentation ? customPresentation.body : open && user?.uid && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
-              key={user.uid}
-              access={{ userId: user.uid, vaultKey, vaultOwnerToken }}
+            {customPresentation ? customPresentation.body : open && applicationOwnerId && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
+              key={applicationOwnerId}
+              access={{ userId: applicationOwnerId, vaultKey, vaultOwnerToken }}
               isAccessCurrent={customAccessIsCurrent}
               onPrepareRecovery={onPrepareRecovery}
             /> : null}
@@ -2591,9 +2595,9 @@ function OwnerConnectorsPanel({
             {query && matchingEntries.length === 0 ? (
               <p role="status" className="py-4 text-center text-sm text-muted-foreground">No connectors found</p>
             ) : null}
-            {!query && customPresentation ? customPresentation.body : !query && open && user?.uid && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
-              key={user.uid}
-              access={{ userId: user.uid, vaultKey, vaultOwnerToken }}
+            {!query && customPresentation ? customPresentation.body : !query && open && applicationOwnerId && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
+              key={applicationOwnerId}
+              access={{ userId: applicationOwnerId, vaultKey, vaultOwnerToken }}
               isAccessCurrent={customAccessIsCurrent}
               onPrepareRecovery={onPrepareRecovery}
             /> : null}
@@ -3073,7 +3077,7 @@ function OwnerConnectorsPanel({
                 onConnect={() => void connectCurated(selectedCatalog.connectorId, selectedCatalog.displayName)}
                 onDisconnect={() => setConfirm(`curated:${selectedCatalog.connectorId}`)}
                 statusLabel={labels[selectedCatalog.status] ?? "Status unavailable"}
-                access={user?.uid && vaultKey && vaultOwnerToken ? { userId: user.uid, vaultKey, vaultOwnerToken } : null}
+                access={applicationOwnerId && vaultKey && vaultOwnerToken ? { userId: applicationOwnerId, vaultKey, vaultOwnerToken } : null}
                 onPrepareRecovery={onPrepareRecovery}
               />
             )}

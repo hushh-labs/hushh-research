@@ -46,6 +46,33 @@ def test_the_axes_default_to_the_deployment_default() -> None:
     assert spec.model_credential_mode is None
 
 
+def test_managed_private_assignment_routes_without_claiming_user_cloud(monkeypatch):
+    from hushh_mcp.services.hosted_gcp_backend import HostedGcpBackend
+    from hushh_mcp.services.private_gcp_deployment import PrivateGcpDeployment
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    deployment = PrivateGcpDeployment(
+        owner="HA1SPEC001",
+        hosting_mode="hussh_hosted",
+        environment="dev",
+        project="hosted-owner-project",
+        region="us-central1",
+        image="us-central1-docker.pkg.dev/hosted-owner-project/one-pod/"
+        "consent-protocol-pod@sha256:" + "a" * 64,
+        hub_principal="consent-plane@hushh-pda-dev.iam.gserviceaccount.com",
+    )
+    backend = resolve_compute_backend_for_spec(
+        _spec(deployment_target=BACKEND_GCP, private_gcp_deployment=deployment)
+    )
+    assert isinstance(backend, HostedGcpBackend)
+    assert backend.backend_id == BACKEND_GCP
+    assert backend.live is False
+    with pytest.raises(ValueError, match="override another"):
+        resolve_compute_backend_for_spec(
+            _spec(deployment_target=BACKEND_USER_GCP, private_gcp_deployment=deployment)
+        )
+
+
 def test_a_persons_target_selects_their_backend_not_the_deployments(monkeypatch) -> None:
     """The whole point. The hub is configured for one target; the person has another.
 

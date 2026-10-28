@@ -329,6 +329,7 @@ tests/test_contacts_never_reach_the_server.py
 tests/test_dependency_health_classifier.py
 tests/test_capability_health.py
 tests/test_managed_vertex_readiness_script.py
+tests/test_managed_probe_pacing.py
 tests/test_verify_uat_release.py
 
 # Contact matching correctness.
@@ -458,6 +459,8 @@ tests/test_frontend_prebuilt_image_contract.py
 tests/test_production_image_promotion_contract.py
 tests/test_uat_backend_image_promotion.py
 tests/test_predecessor_acceptance_contract.py
+tests/test_uat_application_selection.py
+tests/test_production_emergency.py
 
 # First-party document renewal: expiry is not revocation, but revoked lineage
 # can never renew or regain authority through a later grant/duplicate token.
@@ -957,6 +960,7 @@ tests/test_health_ready.py
 tests/test_health_ready_pod_fleet.py
 tests/test_hosted_cloud_choice.py
 tests/test_hosted_tier_guard.py
+tests/test_hosted_gcp_backend.py
 tests/test_journey_is_traceable.py
 tests/test_journey_parity.py
 tests/test_kms_key_resolver.py
@@ -1095,6 +1099,7 @@ tests/test_email_chat_service.py
 
 # Restored after updating to the deliberate product changes they predated (2026-10-02).
 tests/test_pod_memory_routes.py
+tests/test_pod_memory_provider_grant.py
 tests/test_pod_turn_relay.py
 tests/test_one_grounding_honesty.py
 tests/test_pod_data_door_specialist.py
@@ -1495,6 +1500,7 @@ tests/test_todo_wallet_inventory_postgres.py
 
 tests/test_world_model_research_context.py
 tests/test_pwm_runtime_probe.py
+tests/scripts/test_azure_readiness_deadline.py
 tests/scripts/test_probe_azure_openai_readiness.py
 
 tests/services/test_drive_packet_public_summary.py
@@ -1528,6 +1534,14 @@ tests/test_phone_production_receipt.py
 tests/routes/test_area_discovery.py
 tests/services/test_area_discovery_postgres.py
 
+tests/test_hosted_pilot_admission_postgres.py
+tests/test_hosted_pod_bootstrap_postgres.py
+tests/test_hosted_bootstrap_reconciliation_postgres.py
+tests/test_hosted_pod_direct_postgres.py
+tests/test_hosted_pod_preparation_postgres.py
+
+tests/test_hosted_private_runtime.py
+tests/test_pod_runtime_writer.py
 # Additive server-readable copies preserve legacy sale authority.
 tests/services/test_document_delivery_background.py
 tests/services/test_document_delivery_background_exports.py

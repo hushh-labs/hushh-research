@@ -33,6 +33,25 @@ def owner_cloud_provider() -> Optional[str]:
 
     if not pod_mode():
         return None
+    # Hosted private pods reuse KMS envelope custody. A key's presence describes
+    # encryption, not who owns the cloud account. Explicit hosted or malformed
+    # deployment markers must never acquire legacy owner-cloud capabilities.
+    from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV, PrivateGcpDeployment
+
+    marker = os.environ.get(HOSTING_ENV)
+    if marker is not None:
+        try:
+            deployment = PrivateGcpDeployment.decode(marker)
+            if (
+                deployment.hosting_mode != BACKEND_USER_GCP
+                or deployment.owner != os.getenv("HUSSH_ID")
+                or deployment.project != os.getenv("GOOGLE_CLOUD_PROJECT")
+                or deployment.kms_key != os.getenv(_GCP_KEY_ENV)
+                or deployment.environment != os.getenv("HUSHH_DEPLOY_ENV")
+            ):
+                return None
+        except ValueError:
+            return None
     gcp = bool((os.environ.get(_GCP_KEY_ENV) or "").strip())
     azure = bool((os.environ.get(_AZURE_KEY_ENV) or "").strip())
     if gcp == azure:
@@ -44,6 +63,17 @@ def owner_cloud_provider() -> Optional[str]:
 def owner_cloud_agent() -> bool:
     """True only inside an agent that runs in its owner's own cloud account."""
     return owner_cloud_provider() is not None
+
+
+def private_pod_runtime() -> bool:
+    """Require private custody/session behavior without claiming owner-cloud placement.
+
+    Invalid managed configuration raises instead of reopening a legacy hub path.
+    This is runtime configuration classification, not remote attestation.
+    """
+    from hushh_mcp.services.private_gcp_deployment import hosted_runtime_deployment
+
+    return hosted_runtime_deployment() is not None or owner_cloud_agent()
 
 
 def pod_owner_user_id() -> str:
@@ -68,4 +98,4 @@ def pod_owner_user_id() -> str:
     return owners.pop() if len(owners) == 1 else ""
 
 
-__all__ = ["owner_cloud_agent", "owner_cloud_provider", "pod_owner_user_id"]
+__all__ = ["owner_cloud_agent", "owner_cloud_provider", "pod_owner_user_id", "private_pod_runtime"]

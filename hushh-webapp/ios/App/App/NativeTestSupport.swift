@@ -698,7 +698,7 @@ enum NativeTestResetter {
 }
 
 final class NativeTestStatusLabel: UIButton {
-    #if DEBUG
+    #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
     /// Synchronous, bounded public evidence only. No asynchronous WebKit
     /// completion is needed to inspect the current native presentation.
     var currentValue: ((String?) -> String)?
@@ -734,7 +734,7 @@ final class NativeTestStatusLabel: UIButton {
     }
 }
 
-#if DEBUG
+#if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
 /// Attach-only layout evidence, separate from reviewer bootstrap and its
 /// persistent status store. Opt-in snapshots contain public geometry and passive
 /// event counts only; they cannot invoke unlock or inspect credential values.
@@ -815,7 +815,11 @@ final class NativeVaultLayoutProbe {
                             "methodClicks", "methodPointerUps", "passphraseFields", "dockActive", "dockFailureStage", "dockFailureCode",
                             "bottomProgress", "appScrollTop", "appScrollRange", "appScrollHeight", "appScrollClientHeight", "appScrollRootCount", "windowScrollRange", "oneRosterPresent",
                             "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
-                            "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial"])
+                            "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial",
+                            "routeKind", "globalErrorKind", "phoneGate", "nativeChoiceBootstrap", "nativeChoiceReady", "nativeChoicePresented", "nativeChoiceBlocked",
+                            "nativeChoiceCount", "nativeChoiceViewportWidth", "walletNativeMode", "walletWeb", "walletIntro",
+                            "nativeChoice0X", "nativeChoice0Y", "nativeChoice0Width", "nativeChoice0Height", "nativeChoice0Hit", "nativeChoice0Mode",
+                            "nativeChoice1X", "nativeChoice1Y", "nativeChoice1Width", "nativeChoice1Height", "nativeChoice1Hit", "nativeChoice1Mode"])
             var payload = [String: Any]()
             for (key, value) in values where keys.contains(key) {
                 guard let number = value as? NSNumber,
@@ -824,6 +828,13 @@ final class NativeVaultLayoutProbe {
             }
             self.sequence += 1
             payload["sequence"] = self.sequence
+            payload["nativeWebInteractive"] = webView.isUserInteractionEnabled
+            payload["nativeWebAXHidden"] = webView.accessibilityElementsHidden
+            payload["nativeWebInWindow"] = webView.window != nil
+            payload["nativeChoicePreparationCount"] = NativeOwnedChoiceCoordinator.preparationCount
+            payload["walletPresentationCount"] = NativeWalletPanelPresentation.presentationCount
+            payload["workspaceAdmissionStage"] = HushhNativeDrawersPlugin.workspaceAdmissionStage
+            payload["nativeChoicePreparationStage"] = NativeOwnedChoiceCoordinator.preparationStage
             // Read UIKit's current docked-keyboard layout guide independently
             // of the Capacitor height event consumed by CSS. A hardware/floating
             // keyboard need not reserve a full-width inset.
@@ -832,6 +843,8 @@ final class NativeVaultLayoutProbe {
             payload["nativeBottomSafeArea"] = webView.safeAreaInsets.bottom
             payload["regionRefusal"] = (webView.superview as? NativePresentationContainer)?.lastRegionRefusal ?? 0
             payload["baseEditorFocused"] = (webView.superview as? NativePresentationContainer)?.baseEditorFocused ?? false
+            payload["nativeBaseConcealed"] = (webView.superview as? NativePresentationContainer)?.preparationBaseIsConcealed ?? false
+            payload["nativeIsolation"] = (webView.superview as? NativePresentationContainer)?.interactionIsolated ?? false
             if let container = webView.superview as? NativePresentationContainer,
                let frame = container.lastRejectedInitialFrame {
                 for (key, value) in [("initialTopDelta", frame.minY - container.bounds.minY),
@@ -917,6 +930,16 @@ final class NativeVaultLayoutProbe {
         } catch { /* Malformed public diagnostics grant no authority. */ }
       }
       const result = {
+        walletNativeMode: Math.max(0, ['checking', 'native', 'web', 'blocked'].indexOf(document.querySelector('[data-native-wallet-workspace]')?.getAttribute('data-native-wallet-workspace')) + 1),
+        walletWeb: !!document.querySelector('[data-testid="wallet-card-browser"]'),
+        walletIntro: !!document.querySelector('[data-testid="wallet-introduction"]'),
+        nativeChoiceBootstrap: window.__HUSHH_NATIVE_DRAWER_BOOTSTRAP__?.ownedChoices === true,
+        nativeChoiceReady: document.querySelectorAll('[data-native-owned-choice="ready"]').length,
+        nativeChoicePresented: document.querySelectorAll('[data-native-owned-choice="presented"]').length,
+        nativeChoiceBlocked: document.querySelectorAll('[data-native-owned-choice="blocked"]').length,
+        routeKind: Math.max(0, ['/', '/one', '/login', '/register', '/register/phone', '/one/setup'].indexOf(location.pathname) + 1),
+        globalErrorKind: Math.max(0, ['Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError'].indexOf(document.querySelector('[data-native-global-error]')?.getAttribute('data-native-global-error')) + 1),
+        phoneGate: !!document.querySelector('[data-figma-phone-step]'),
         ...profileGuards,
         bottomProgress: finite(getComputedStyle(progressConsumer).getPropertyValue('--bottom-chrome-progress')),
         appScrollTop: scrollRoot?.scrollTop,
@@ -937,6 +960,21 @@ final class NativeVaultLayoutProbe {
         dockFailureStage: finite(dockFailure?.dataset.nativeDockFailureStage),
         dockFailureCode: finite(dockFailure?.dataset.nativeDockFailureCode)
       };
+      // Public shared-control geometry only. No labels, values, selection,
+      // account information or executable UI commands cross this probe.
+      const choices = Array.from(document.querySelectorAll('[data-slot="select-trigger"]'))
+        .filter(node => node.getClientRects().length && !node.closest('[inert], [aria-hidden="true"]'));
+      result.nativeChoiceCount = choices.length;
+      result.nativeChoiceViewportWidth = innerWidth;
+      choices.slice(0, 2).forEach((node, index) => {
+        const rect = node.getBoundingClientRect();
+        result[`nativeChoice${index}X`] = rect.left;
+        result[`nativeChoice${index}Y`] = rect.top;
+        result[`nativeChoice${index}Width`] = rect.width;
+        result[`nativeChoice${index}Height`] = rect.height;
+        result[`nativeChoice${index}Hit`] = node.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+        result[`nativeChoice${index}Mode`] = ({ ready: 1, presented: 2, blocked: 3 })[node.getAttribute('data-native-owned-choice')] || 0;
+      });
       // Authored public pane geometry, not a named AX heading or inferred
       // operation. Neither contents nor account/route labels are read.
       const profile = document.querySelector('[data-testid="profile-pane"][data-state="open"]') ||

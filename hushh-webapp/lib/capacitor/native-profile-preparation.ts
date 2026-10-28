@@ -4,7 +4,7 @@ import { nativePrivacyCanInteract, nativePrivacyCanPrepareProfile, nativePrivacy
 
 export const PROFILE_PREPARATION_SCENES = ["account-name", "referral-handle", "phone", "writing-style", "support",
   "vault-passphrase", "request-price", "world-model-fact-edit", "world-model-sources", "world-model-public-profiles", "world-model-invitation",
-  "runtime-provider", "connector-custom-server", "connector-profile-link", "connector-packet-price", "memory-financial-context"] as const;
+  "runtime-provider", "connector-custom-server", "connector-profile-link", "connector-packet-price", "memory-financial-context", "payment-funding", "payment-country"] as const;
 export type ProfilePreparationScene = typeof PROFILE_PREPARATION_SCENES[number];
 export type ProfilePreparationDescription = { visitId: string; formScene: ProfilePreparationScene | null };
 export function nativeProfileTargetCanPrepare(state: NativeSessionPrivacyState | undefined | null,

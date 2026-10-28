@@ -20,7 +20,11 @@ class MemoryLog:
     async def replay(self) -> list[dict]:
         return deepcopy(self.records)
 
-    async def append(self, kind: str, payload: dict) -> dict:
+    async def append(self, kind: str, payload: dict, *, expected_seq: int | None = None) -> dict:
+        if expected_seq is not None and expected_seq != len(self.records):
+            from hushh_mcp.services.pod_commit_log import PodLogConflict
+
+            raise PodLogConflict("synthetic stale mutation snapshot")
         record = {
             "seq": len(self.records) + 1,
             "kind": kind,
@@ -189,7 +193,7 @@ async def test_cancelled_recovery_and_idle_append_reconcile_before_admission(mon
     admission = PodUpgradeAdmission(log_resolver=lambda: log)
     append, replay = log.append, log.replay
 
-    async def interrupted_idle(kind, payload):
+    async def interrupted_idle(kind, payload, **kwargs):
         result = await append(kind, payload)
         if kind == "pod_upgrade_idle":
             raise asyncio.CancelledError
@@ -236,10 +240,10 @@ async def test_failed_durability_cannot_authorize_replacement(phase, failure) ->
                 raise OSError("unavailable")
             return None if failure == "missing" else {"seq": 1, "sha": ""}
 
-        async def append(self, kind, payload):
+        async def append(self, kind, payload, **kwargs):
             if kind == f"pod_upgrade_{phase}":
                 return self.broken()
-            return await super().append(kind, payload)
+            return await super().append(kind, payload, **kwargs)
 
         async def replay(self):
             if phase == "cursor" and self.records:

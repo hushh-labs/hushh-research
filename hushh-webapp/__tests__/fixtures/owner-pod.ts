@@ -48,6 +48,7 @@ export class FakeWorld {
   bindingIssuedOffsetMs = -1000;
   bindingExpiresOffsetMs = 24 * 3600 * 1000;
   deploymentTarget = "user_gcp";
+  hostingMode: string | undefined;
 
   transport(): ownerPod.OwnerPodTransport {
     return {
@@ -66,6 +67,7 @@ export class FakeWorld {
     if (path === "/api/one/personal-agent/verification-keys") return json({ kind: "pod_verification_keys_v1", keys: { kid: publicRaw } });
     if (path === "/api/one/personal-agent/endpoint") return json(this.endpoint);
     const binding = {
+      ...(this.hostingMode === undefined ? {} : { hosting_mode: this.hostingMode }),
       kind: "pod_binding_v1", hushh_id: "ha1_owner", user_id: USER,
       environment: "dev", url: POD_URL, pod_key_id: "podk_1",
       subject_id: "tdv_app_1", subject_kind: "app", subject_public_key: this.appPublicKey,

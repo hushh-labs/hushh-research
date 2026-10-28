@@ -29,8 +29,8 @@ from tests.test_pod_upgrade_admission import MemoryLog
 
 
 class SealedFixture(MemoryLog):
-    async def append(self, kind, payload):
-        record = await super().append(kind, payload)
+    async def append(self, kind, payload, *, expected_seq=None):
+        record = await super().append(kind, payload, expected_seq=expected_seq)
         self.records[-1]["sha"] = hashlib.sha256(json.dumps(record).encode()).hexdigest()
         return deepcopy(self.records[-1])
 

@@ -50,6 +50,23 @@ beforeEach(() => {
 });
 
 describe("approving an Azure update beside the app", () => {
+  it.each([false, true])("does not start stale approval sign-in or close a reused popup (reused=%s)", async reused => {
+    let finish!: () => void;
+    mocks.approve.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    const popup = fakePopup();
+    vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+    let active = true;
+    const pending = approveAgentUpdate({ deploymentTarget: "user_azure", releaseId: RELEASE,
+      idempotencyKey: "click", popup: openAzureUpdateSignInPopup("user_azure"), isCurrent: () => active });
+    if (reused) openAzureUpdateSignInPopup("user_azure"); else active = false;
+    finish();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.upgrade).not.toHaveBeenCalled();
+    expect(mocks.assign).not.toHaveBeenCalled();
+    expect(popup.location.assign).not.toHaveBeenCalled();
+    expect(popup.close).toHaveBeenCalledTimes(reused ? 0 : 1);
+  });
+
   it("records the release, then sends the click's popup to Microsoft and keeps this tab", async () => {
     const popup = fakePopup();
     await expect(

@@ -14,7 +14,8 @@ export function useMarketingPreference(userId: string | null, surface: "setup" |
   useLayoutEffect(() => {
     scope.active = true;
     const retireToast = () => {
-      if (typeof scope.toast === "string" || typeof scope.toast === "number") morphyToast.dismiss(scope.toast);
+      const toastId = scope.toast?.valueOf();
+      if (typeof toastId === "string" || typeof toastId === "number") morphyToast.dismiss(toastId);
       scope.toast = undefined;
     };
     const unsubscribe = Capacitor.isNativePlatform() ? subscribeNativePrivacyObservation(retireToast) : () => undefined;

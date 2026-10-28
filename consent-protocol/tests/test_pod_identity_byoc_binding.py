@@ -53,6 +53,11 @@ def _arrange(monkeypatch, *, verified_email: str, bound: dict[str, str] | None =
 
     monkeypatch.setattr(pia, "_bound_service_account", _fake_bound)
 
+    async def _legacy_row(_hushh_id):
+        return {"deployment_target": "gcp", "backend": "gcp", "backend_metadata": {}}
+
+    monkeypatch.setattr(pia, "_identity_placement_row", _legacy_row)
+
 
 @pytest.mark.asyncio
 async def test_the_managed_fleet_account_is_still_accepted(monkeypatch) -> None:
@@ -151,3 +156,91 @@ def test_the_backend_records_the_account_the_hub_will_trust() -> None:
     assert account in str(plan), (
         "the account the hub will trust is not the one the bootstrap creates"
     )
+
+
+@pytest.mark.asyncio
+async def test_fleet_identity_cannot_assert_a_dedicated_hosted_owner(monkeypatch):
+    from tests.hosted_pod_support import hosted_registry_row
+
+    _arrange(monkeypatch, verified_email=FLEET_SA)
+    row = hosted_registry_row()
+
+    async def lookup(_hushh_id):
+        return row
+
+    monkeypatch.setattr(pia, "_identity_placement_row", lookup)
+    assert await pia.verify_pod_identity(_Req(row["hushh_id"]), "Bearer t") is None
+
+
+def test_retained_hosted_access_survives_admission_expiry_but_not_owner_or_uid_drift():
+    from copy import deepcopy
+
+    from hushh_mcp.services.compute_backend import is_private_pod_row
+    from hushh_mcp.services.hosted_gcp_placement import retained_hosted_placement
+    from tests.hosted_pod_support import hosted_registry_row
+
+    row = hosted_registry_row()
+    assert is_private_pod_row(row)
+    assert retained_hosted_placement(row).project == "hussh-pilot-owner-a"
+    for defect in ("owner", "uid", "principal", "erasure", "model", "mixed"):
+        changed = deepcopy(row)
+        if defect == "owner":
+            changed["user_id"] = "owner-b"
+        elif defect == "uid":
+            changed["backend_metadata"]["serviceUid"] = "different-incarnation"
+        elif defect == "principal":
+            changed["backend_metadata"]["runtime_service_account"] = OTHER_SA
+        elif defect == "model":
+            changed["model_credential_mode"] = "shared"
+        elif defect == "mixed":
+            changed["deployment_target"] = "user_gcp"
+        else:
+            changed["backend_metadata"]["erasure"] = {}
+        assert retained_hosted_placement(changed) is None
+        assert not is_private_pod_row(changed)
+
+
+async def test_the_audience_is_verified_not_merely_the_signature(monkeypatch):
+    """Without an audience, verify_oauth2_token checks only that Google signed it —
+    so a token the pod SA minted for ANY other service would be accepted, and the
+    whole decision would rest on the email claim alone. A pod mints its hub token
+    audience-bound precisely so it cannot be replayed elsewhere."""
+    from api.routes.one import pod_identity_auth
+
+    seen: dict = {}
+
+    class _FakeIdToken:
+        @staticmethod
+        def verify_oauth2_token(token, request, audience=None):
+            seen["audience"] = audience
+            return {"email": "pod@proj.iam.gserviceaccount.com", "email_verified": True}
+
+    monkeypatch.setattr(pod_identity_auth, "pod_hub_identity_auth_enabled", lambda: True)
+    monkeypatch.setattr(
+        pod_identity_auth,
+        "pod_hub_allowed_service_account",
+        lambda: "pod@proj.iam.gserviceaccount.com",
+    )
+    monkeypatch.setattr(
+        pod_identity_auth, "pod_hub_expected_audience", lambda: "https://hub.example"
+    )
+    # `from google.oauth2 import id_token` is an ATTRIBUTE lookup on the package,
+    # so patching sys.modules would not intercept it.
+    import google.oauth2
+
+    monkeypatch.setattr(google.oauth2, "id_token", _FakeIdToken, raising=False)
+
+    req = _Req("hushh-abc")
+    req.headers = {"X-Hushh-Pod-Id": "hushh-abc"}
+
+    async def legacy_row(_hushh_id):
+        return {"deployment_target": "gcp", "backend": "gcp", "backend_metadata": {}}
+
+    monkeypatch.setattr(pod_identity_auth, "_identity_placement_row", legacy_row)
+    result = await pod_identity_auth.verify_pod_identity(req, "Bearer tok")
+
+    assert result == "hushh-abc"
+    assert seen["audience"] == "https://hub.example"
+    # Action coordination refuses the fleet identity even when it asserts a
+    # real owner. Its existing read-only compatibility path above is preserved.
+    assert await pod_identity_auth.verify_pod_identity(req, "Bearer tok", owner_bound=True) is None

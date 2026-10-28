@@ -286,6 +286,7 @@ struct HushhChromeConfiguration {
 
     static func parse(kind: String, value: String?, options: [JSObject]?, minimum: String?, maximum: String?, palette: JSObject? = nil) -> Self? {
         var result = Self()
+        if kind == "map-check-in" { return ["idle", "active"].contains(value ?? "") ? result : nil }
         if kind == "appearance" { return ["light", "dark", "system"].contains(value ?? "") ? result : nil }
         if kind == "accent" {
             guard ["blue", "gold"].contains(value ?? "") else { return nil }
@@ -924,6 +925,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                              presentation: ChromePresentation, focus: ChromeFocusRequest,
                              layout: @escaping (CGSize) -> Void) -> AnyView? {
         let theme = presentation.theme
+        if #available(iOS 26.0, *), NativeMapActionPresentation.ids[kind] != nil {
+            return NativeMapActionPresentation.control(kind: kind, label: label, value: presentation.value, theme: theme, focus: focus,
+                action: { [weak self] in self?.activateControl(controlId) }, layout: layout).map { AnyView($0.disabled(!presentation.enabled)) }
+        }
         if let preference = HushhNativePreferencePresentation.control(
             kind: kind, value: presentation.value, width: width, theme: theme, focus: focus,
             select: { [weak self] value in self?.requestChoice(controlId, value: value) },
@@ -1484,7 +1489,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     // policy. Moving drawer controls deliberately keep their React renderer.
     static let stationaryChatControlIds = [
         "history": "chat-history-toggle", "agent-surface": "chat-agent-surface",
-        "more": "stationary-more", "selection": "bounded-selection", "date": "bounded-date"
+        "map-close": "map-close", "map-locate": "map-locate", "map-check-in": "map-check-in",
+        "more": "stationary-more", "add": "stationary-add", "selection": "bounded-selection", "date": "bounded-date"
     ]
     private func admits(_ kind: String, controlId: String) -> Bool {
         if compositor?.contentBackedPresentation == true {
@@ -1521,6 +1527,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         case "close", "history-close": return "xmark"
         case "history": return expanded ? "xmark" : "line.3.horizontal"
         case "more": return "ellipsis"
+        case "add": return "plus"
         case "selection": return "chevron.up.chevron.down"
         case "date": return "calendar"
         case "accent": return "circle.lefthalf.filled"
@@ -1533,6 +1540,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func admittedValue(_ value: String?, slot: ChromeSlot, forUpdate: Bool) -> Bool {
         switch slot.kind {
+        case "map-check-in": return forUpdate ? ["idle", "active"].contains(value ?? "") : value == nil
         case "agent-surface": return ["one", "puppy"].contains(value ?? "")
         case "appearance": return ["light", "dark", "system"].contains(value ?? "")
         case "accent": return ["blue", "gold"].contains(value ?? "")
@@ -1680,7 +1688,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func identity(_ call: CAPPluginCall) -> HushhNativeChromeState.Identity? {
         guard let controlId = call.getString("controlId"),
-              ["top-shell-back", "profile-back", "chat-history-toggle", "chat-history-close", "chat-agent-surface", "stationary-more", "bounded-selection", "bounded-date", "profile-close", "profile-appearance", "profile-accent"].contains(controlId),
+              ["top-shell-back", "profile-back", "chat-history-toggle", "chat-history-close", "chat-agent-surface", "stationary-more", "stationary-add", "bounded-selection", "bounded-date", "profile-close", "profile-appearance", "profile-accent"].contains(controlId),
               let document = call.getString("documentId"), !document.isEmpty, document.count <= 128,
               let owner = call.getString("ownerEpoch"), !owner.isEmpty, owner.count <= 128,
               let revision = call.getInt("revision"), revision >= 0,
@@ -1703,8 +1711,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         guard let value = call.getObject("frame"), let x = value["x"] as? Double, let y = value["y"] as? Double,
               let width = value["width"] as? Double, let height = value["height"] as? Double,
               let viewport = viewport(call), [x, y, width, height].allSatisfy({ $0.isFinite }),
-              (kind == "appearance" || kind == "accent" ? HushhNativePreferencePresentation.admitsWidth(width, kind: kind) : kind == "agent-surface" ? width >= 88 && width <= 320 : width == 44),
-              height == 44, x >= 0, y >= 0,
+              (NativeMapActionPresentation.ids[kind] != nil ? NativeMapActionPresentation.sizeAllowed(kind, width: width, height: height) : (kind == "appearance" || kind == "accent" ? HushhNativePreferencePresentation.admitsWidth(width, kind: kind) : kind == "agent-surface" ? width >= 88 && width <= 320 : width == 44) && height == 44), x >= 0, y >= 0,
               x + width <= viewport.width, y + height <= viewport.height else { return nil }
         return CGRect(x: x, y: y, width: width, height: height)
     }

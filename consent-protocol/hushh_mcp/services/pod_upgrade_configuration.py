@@ -96,3 +96,9 @@ def preserve_image_upgrade_configuration(
             annotations[name] = old_annotations[name]
         else:
             annotations.pop(name, None)
+
+    from hushh_mcp.services.hosted_update_configuration import (
+        require_preserved_private_configuration,
+    )
+
+    require_preserved_private_configuration(desired)

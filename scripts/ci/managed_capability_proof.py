@@ -149,6 +149,28 @@ def _attempt_receipts(value: Any) -> list[dict[str, Any]]:
             }:
                 raise ValueError("Invalid failure stage")
             clean["failure_stage"] = stage
+        if "phase_ms" in attempt:
+            phases = attempt["phase_ms"]
+            if (
+                not isinstance(phases, dict)
+                or set(phases)
+                != {
+                    "credential_setup",
+                    "token_acquisition",
+                    "primary_http",
+                    "response_validation",
+                }
+                or any(
+                    type(ms) is not int or not 0 <= ms <= 420000
+                    for ms in phases.values()
+                )
+            ):
+                raise ValueError("Invalid readiness phase timings")
+            clean["phase_ms"] = dict(phases)
+        if "deadline_expired" in attempt:
+            if type(attempt["deadline_expired"]) is not bool:
+                raise ValueError("Invalid readiness deadline flag")
+            clean["deadline_expired"] = attempt["deadline_expired"]
         result.append(clean)
     return result
 
@@ -278,7 +300,7 @@ def execution_diagnostics(provider: str, values: list[dict]) -> dict:
                 "classification": stage.get("classification", "dependency_ok"),
                 "elapsed_ms": stage["elapsed_ms"],
             }
-            for key in ("error_type", "failure_stage"):
+            for key in ("error_type", "failure_stage", "phase_ms", "deadline_expired"):
                 if key in stage:
                     attempt[key] = stage[key]
             history.append({"probe": "primary_http", "attempts": [attempt]})

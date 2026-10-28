@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
 import { NO_UPDATE } from "@/lib/feed/use-agent-deployment-follow";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({ follow: vi.fn(), push: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
@@ -14,6 +15,8 @@ vi.mock("@/lib/services/api-service", () => ({ ApiService: {} }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionOwner("owner");
   mocks.follow.mockReturnValue({
     status: { hostingMode: "unplaced" },
     update: NO_UPDATE,

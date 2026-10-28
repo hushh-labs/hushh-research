@@ -34,11 +34,15 @@ ISSUER = "https://auth.crm.example"
 MCP = {"endpoint": "https://mcp.crm.example/mcp", "issuer": ISSUER, "clientId": "client-1"}
 
 
-@pytest.fixture
-def agent(monkeypatch, tmp_path):
+@pytest.fixture(params=["byoc", "hosted"])
+def agent(monkeypatch, tmp_path, request):
     log, tokens, google = h.install(
         monkeypatch, tmp_path, connectors={"mcp_crm": h.credential("mcp_crm", (), mcp=dict(MCP))}
     )
+    if request.param == "hosted":
+        from tests.hosted_pod_support import install_hosted_runtime
+
+        install_hosted_runtime(monkeypatch, owner=h.OWNER_HUSHH)
     yield log
     h.uninstall()
 
@@ -84,6 +88,9 @@ async def test_invalid_grant_marks_the_login_for_reauth_and_leaves_it_out(agent)
 
 
 async def test_nothing_is_built_outside_an_owner_cloud_agent(agent, monkeypatch):
+    from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV
+
+    monkeypatch.delenv(HOSTING_ENV, raising=False)
     monkeypatch.delenv("HUSSH_POD_KMS_KEY")
     minter, posts = _tokens((200, {"access_token": "x"}))
     assert await custody_configurations(minter) == [] and posts == []

@@ -141,16 +141,46 @@ export function useNativeNavigationBlockedUntilSettled(active: boolean, owningLa
   }, [active, retained, ref]);
 }
 
-/** Native controls are outside the DOM: authored overlay mounts must isolate them too. */
+/** Native controls are outside the DOM. Observe the shared primitive's authored
+ * presentation state, including retained closed portals and actual exit motion;
+ * mounting alone is not permission to isolate the shell indefinitely. */
 export function useNativeNavigationOverlayRef<T extends HTMLElement>(forwardedRef?: Ref<T>, enabled = true, owningLayer?: string) {
   const token = useRef(Symbol("native-navigation-overlay"));
+  const observation = useRef<(() => void) | undefined>(undefined);
   const release = useCallback(() => {
     if (overlays.delete(token.current)) publish();
   }, []);
-  useLayoutEffect(() => release, [release]);
+  useLayoutEffect(() => () => { observation.current?.(); release(); }, [release]);
   return useCallback((node: T | null) => {
+    observation.current?.();
+    observation.current = undefined;
     if (isNativeIOS()) {
-      if (node && enabled) { overlays.set(token.current, owningLayer); publish(); } else release();
+      if (node && enabled) {
+        let generation = 0;
+        let retired = false;
+        const reconcile = () => {
+          const current = ++generation;
+          if (node.hidden) { release(); return; }
+          if (node.dataset.state !== "closed") {
+            if (!overlays.has(token.current) || overlays.get(token.current) !== owningLayer) {
+              overlays.set(token.current, owningLayer); publish();
+            }
+            return;
+          }
+          const animations = node.getAnimations?.().filter(animation =>
+            (animation.effect as KeyframeEffect | null)?.target === node &&
+            animation.effect?.getComputedTiming().iterations !== Infinity &&
+            (animation.playState === "running" || animation.playState === "paused")) ?? [];
+          if (!animations.length) { release(); return; }
+          void Promise.allSettled(animations.map(animation => animation.finished)).then(() => {
+            if (!retired && generation === current) release();
+          });
+        };
+        const observer = new MutationObserver(reconcile);
+        observer.observe(node, { attributes: true, attributeFilter: ["data-state", "hidden"] });
+        observation.current = () => { retired = true; generation++; observer.disconnect(); };
+        reconcile();
+      } else release();
     }
     if (typeof forwardedRef === "function") forwardedRef(node);
     else if (forwardedRef) forwardedRef.current = node;

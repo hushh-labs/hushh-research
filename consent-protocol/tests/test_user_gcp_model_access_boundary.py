@@ -66,6 +66,41 @@ def _env_of(cfg: dict) -> dict[str, str]:
     return {e["name"]: e.get("value", "") for e in container.get("env", []) if "value" in e}
 
 
+def test_byoc_upgrade_retains_existing_custom_custody_without_new_hosting_marker(monkeypatch):
+    from copy import deepcopy
+
+    from hushh_mcp.runtime_settings import managed_ai_settings
+    from hushh_mcp.services.pod_owner_cloud import owner_cloud_provider
+    from hushh_mcp.services.pod_upgrade_configuration import preserve_image_upgrade_configuration
+    from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("HUSSH_POD_MODE", "true")
+    monkeypatch.delenv("HUSSH_POD_KEY_VAULT_KEY", raising=False)
+    backend = UserGcpBackend(
+        user_project=USER_PROJECT,
+        hushh_invoker_sa="consent-plane@hushh-pda-dev.iam.gserviceaccount.com",
+    )
+    old = backend.render_deploy_config(_spec(), image_digest="sha256:" + "a" * 64)
+    old_env = old["spec"]["template"]["spec"]["containers"][0]["env"]
+    retained_key = (
+        f"projects/{USER_PROJECT}/locations/us-central1/keyRings/owner-selected/cryptoKeys/recovery"
+    )
+    next(e for e in old_env if e["name"] == "HUSSH_POD_KMS_KEY")["value"] = retained_key
+    desired = backend.render_deploy_config(_spec(), image_digest="sha256:" + "b" * 64)
+    observed = deepcopy(old)
+    preserve_image_upgrade_configuration(old, desired)
+    assert old == observed
+    installed = _env_of(desired)
+    assert installed["HUSSH_POD_KMS_KEY"] == retained_key
+    assert HOSTING_ENV not in installed
+    monkeypatch.delenv(HOSTING_ENV, raising=False)
+    for key, value in installed.items():
+        monkeypatch.setenv(key, value)
+    assert owner_cloud_provider() == "user_gcp"
+    assert managed_ai_settings().project == USER_PROJECT
+
+
 def test_vertex_project_is_the_users_even_when_the_hub_names_its_own(monkeypatch) -> None:
     """The regression. Set the hub's Vertex project and it must not reach the pod."""
     monkeypatch.setenv("HUSSH_POD_VERTEX_PROJECT", HUSHH_PROJECT)
@@ -84,6 +119,7 @@ def test_vertex_project_is_the_users_even_when_the_hub_names_its_own(monkeypatch
 
 
 def test_browser_configuration_approval_repairs_only_the_exact_dev_bridge(monkeypatch):
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://dev.one.hussh.si")
     from copy import deepcopy
 
     from hushh_mcp.services.pod_browser.capability_update import (

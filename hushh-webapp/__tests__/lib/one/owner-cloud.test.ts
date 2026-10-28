@@ -4,12 +4,23 @@ import {
   OWNER_CLOUD_TARGETS,
   isAzureHomeSelectable,
   isOwnerCloudTarget,
+  isPrivatePodBinding,
   ownerCloudProvider,
 } from "@/lib/one/owner-cloud";
 
 describe("the owner-cloud question", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("separates managed direct bindings from owner-cloud classification", () => {
+    expect(isPrivatePodBinding({ deployment_target: "gcp", environment: "dev", hosting_mode: "hussh_hosted" })).toBe(true);
+    for (const binding of [
+      { deployment_target: "gcp", environment: "dev" },
+      { deployment_target: "gcp", environment: "uat", hosting_mode: "hussh_hosted" },
+      { deployment_target: "user_gcp", environment: "dev", hosting_mode: "hussh_hosted" },
+      { deployment_target: "user_gcp", environment: "dev", hosting_mode: null },
+    ]) expect(isPrivatePodBinding(binding)).toBe(false);
   });
 
   it("names exactly the person's own Google Cloud and Azure homes", () => {

@@ -4,7 +4,7 @@
 # Fires automatically for every CLEAN merge (git merge/pull with no
 # conflicts) regardless of which command or tool created it — unlike
 # scripts/git/sync-main.sh, this runs even if nobody remembers to use it.
-# See ~/.claude/skills/merge-regression-guard (2026-08-19 incident).
+# See scripts/git/check-merge-regression.sh (2026-08-19 incident).
 #
 # Advisory by default: prints a report, never blocks the commit. The
 # detector (scripts/git/check-merge-regression.sh) has a demonstrated
