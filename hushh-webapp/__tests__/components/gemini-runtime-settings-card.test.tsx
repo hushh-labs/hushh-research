@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GeminiRuntimeSettingsCard, useGeminiRuntimeSettingsModel } from "@/components/connections/gemini-runtime-settings-card";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { useAiPlacement } from "@/lib/connections/use-ai-placement";
 
 const {
   selectManagedGeminiRuntimeMock,
@@ -90,6 +91,65 @@ beforeEach(() => {
   });
 
 describe("GeminiRuntimeSettingsCard setup choice", () => {
+
+  it.each([
+    { status: { hostingMode: "shared" }, placement: "shared" },
+    { status: { hostingMode: "byoc", state: "active", deploymentTarget: "user_gcp", cloudProject: "old-project" }, placement: "gcp" },
+  ])("never renders a previous $placement hosting observation for a replacement owner", async ({ status, placement }) => {
+    let resolveReplacement!: (value: unknown) => void;
+    getPersonalAgentStatusMock
+      .mockResolvedValueOnce(status)
+      .mockReturnValueOnce(new Promise(resolve => { resolveReplacement = resolve; }));
+    const firstGuard = () => () => true;
+    const replacementGuard = () => () => true;
+    const reset = vi.fn();
+    const renders: Array<{ placement: string; project: string | null }> = [];
+    const { result, rerender } = renderHook(({ guard }) => {
+      const state = useAiPlacement(guard, reset);
+      renders.push({ placement: state.placement, project: state.ownCloudProject });
+      return state;
+    }, { initialProps: { guard: firstGuard } });
+
+    await waitFor(() => expect(result.current.placement).toBe(placement));
+    const replacementRender = renders.length;
+    rerender({ guard: replacementGuard });
+    expect(renders[replacementRender]).toEqual({ placement: "loading", project: null });
+
+    await act(async () => {
+      resolveReplacement({ hostingMode: "byoc", state: "active", deploymentTarget: "user_gcp", cloudProject: "synthetic-project" });
+    });
+    await waitFor(() => expect(result.current.placement).toBe("gcp"));
+  });
+
+  it("fences the real settings visit and ignores an old owner's late placement read", async () => {
+    publishValidatedAuthSessionOwner("owner-a");
+    let finishOld!: (value: unknown) => void;
+    let finishNew!: (value: unknown) => void;
+    getPersonalAgentStatusMock
+      .mockResolvedValueOnce({ hostingMode: "shared" })
+      .mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }))
+      .mockReturnValueOnce(new Promise(resolve => { finishNew = resolve; }));
+    const renders: string[] = [];
+    const hook = renderHook(({ userId }) => {
+      const model = useGeminiRuntimeSettingsModel({ userId, vaultKey: "fixture-key", vaultOwnerToken: "fixture-token",
+        needsVaultCreation: false, needsUnlock: false, onRequestVaultUnlock: vi.fn(), onRequestVaultCreation: vi.fn() });
+      renders.push(model.placement);
+      return model;
+    }, { initialProps: { userId: "owner-a" } });
+
+    await waitFor(() => expect(hook.result.current.placement).toBe("shared"));
+    act(() => hook.result.current.refreshPlacement());
+    await waitFor(() => expect(getPersonalAgentStatusMock).toHaveBeenCalledTimes(2));
+    publishValidatedAuthSessionOwner("owner-b");
+    const replacementRender = renders.length;
+    hook.rerender({ userId: "owner-b" });
+    expect(renders[replacementRender]).toBe("loading");
+    await waitFor(() => expect(getPersonalAgentStatusMock).toHaveBeenCalledTimes(3));
+    await act(async () => { finishNew({ hostingMode: "byoc", state: "active", deploymentTarget: "user_gcp" }); });
+    await waitFor(() => expect(hook.result.current.placement).toBe("gcp"));
+    await act(async () => { finishOld({ hostingMode: "shared" }); });
+    expect(hook.result.current.placement).toBe("gcp");
+  });
 
   it("does not manufacture a selected choice before the fresh user confirms one", () => {
     getPersonalAgentStatusMock.mockReturnValue(new Promise(() => {}));
