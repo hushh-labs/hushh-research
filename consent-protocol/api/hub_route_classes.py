@@ -150,6 +150,7 @@ POST /api/one/agent-chat/proposals/typed
 POST /api/one/agent-chat/runs/{conversation_id}/queue
 POST /api/one/calendar/availability
 POST /api/one/calendar/events
+POST /api/one/calendar/guest-photo-token
 POST /api/one/calendar/insights
 POST /api/one/calendar/meetings
 POST /api/one/calendar/meetings/detail

@@ -36,8 +36,8 @@ def finance_db(projection_db, monkeypatch):  # noqa: F811
           INSERT INTO one_location_recipient_keys(user_id,key_id,status,public_key_jwk)
             SELECT user_id,user_id||'-key','active','{}'::jsonb FROM actor_profiles;""")
         )
-    db.apply_migrations(["434_finance_connection_sharing.sql"])
-    db.apply_migrations(["434_finance_connection_sharing.sql"])
+    db.apply_migrations(["435_finance_connection_sharing.sql"])
+    db.apply_migrations(["435_finance_connection_sharing.sql"])
     return db, FinanceSharingService(db=db)
 
 

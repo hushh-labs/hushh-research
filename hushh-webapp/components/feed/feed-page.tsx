@@ -1346,10 +1346,10 @@ function FeedPageSession({
         periodNote={documentPricePrompt.periodNote}
         detailsPending={documentPricePrompt.detailsPending}
         paymentRequired={documentPricePrompt.paymentRequired}
-        lockedAmountCents={documentPricePrompt.lockedAmountCents}
         estimateCents={documentPricePrompt.estimateCents ?? null}
         initialAmountCents={documentPricePrompt.initialAmountCents}
         priceOnly={documentPricePrompt.priceOnly}
+        oneCopyRequested={documentPricePrompt.oneCopyRequested}
         busy={documentPricePrompt.busy}
         error={documentPricePrompt.error}
         onSubmit={documentPricePrompt.submit}

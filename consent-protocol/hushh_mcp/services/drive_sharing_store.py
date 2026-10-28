@@ -2904,6 +2904,7 @@ class DriveSharingStore(DriveDocumentStore):
             now = datetime.now(UTC)
             result = {
                 **self._summary(row),
+                **background_consent.projection(private),
                 "purpose": private["purpose"],
                 "reason": private.get("reason", ""),
                 "_agentPackageRequired": private.get("agent_package_required") is True,
@@ -3108,7 +3109,8 @@ class DriveSharingStore(DriveDocumentStore):
 
     def _trusted_price_target(self, connection, row, private, now) -> bool:
         """Pricing does not create consent or expand the existing Trusted authority."""
-        if private.get("agent_package_required") is True:
+        # A One copy request waits for the owner's combined Allow, even when Trusted.
+        if private.get("agent_package_required") is True or background_consent.requested(private):
             return False
         return bool(
             row["status"] == "pending"

@@ -221,6 +221,7 @@ the current review/revision exists.
 | --- | --- |
 | Allow request / Set price | Mode-dependent title; paid/free wording explains when sharing begins. |
 | Purpose, Share with, Period, Access | Review information. Viewer access is until removed; period conflicts show chosen dates. |
+| One copy terms | Shown only when the review requests a One copy and the step is not price-only. Allow then also sends `oneCopyAccepted`; a Drive-only request never does, because the server refuses an acceptance it did not ask for. **Set price** on a Trusted One copy request opens the full review instead, because pricing alone cannot accept the copy. |
 | Price | Optional requester estimate is informational. Presets **$10**, **$20**, **$30**, **Custom**; default $10 unless valid draft exists. |
 | Custom price | Amount in USD; $0.50–$500 under cents policy, $1–$500 under legacy whole-dollar policy. Enter invokes the same submit as footer. |
 | Allow / Allow · $amount / Save / Save · $amount | Reads current token and revision at tap. Normal mode calls allow; price-only calls setRequestPrice. Owner/vault-session fences prevent stale commit. |
@@ -613,6 +614,7 @@ Sources: [price sheet](../../components/consent/document-request-price-sheet.tsx
 | --- | --- |
 | Price title/explanation | `Allow request`; `Set price`; `{requester} pays this once matching files are found. Nothing is shared before payment.` (fallback `The requester`); `Your private agent finds the matching files and shares them.` |
 | Terms | `Loading request…`; `Share with`; `Period`; `Access`; `Viewer, until removed`; `The note says {span}. We used the picked dates: {dates}.` / `We used the picked dates: {dates}.` |
+| One copy terms | `Allow also lets Hussh keep encrypted copies of these files for this requester. Hussh can open them for delivery. You can stop One access and see its activity. Files the requester saved can’t be recalled.` |
 | Price controls | `Price`; `Requester saw an estimate of {price}`; `$10`; `$20`; `$30`; `Custom`; `Custom price`; `$`; placeholder `Amount in USD` / `Whole dollars` |
 | Validation | `Choose a price from $0.50 to $500.`; `Choose a whole-dollar price from $1 to $500.` |
 | Footer/earnings | `Allow`; `Allow · {price}`; `Save`; `Save · {price}`; `Cancel`; `Your net earnings are calculated after delivery, minus Hushh's 3% commission and the actual Stripe fee. Undelivered files are refunded to the requester.` |

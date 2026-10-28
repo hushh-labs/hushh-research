@@ -4,7 +4,7 @@ import type { GooglePhotoGrant } from "./google-invitation-photo-token";
 
 export type GoogleInvitationPhoto = {
   url: string;
-  source: "google_profile" | "google_contact" | "workspace_profile" | "workspace_contact";
+  source: "google_profile" | "workspace_profile";
 };
 
 type FieldSource = { type?: string; id?: string };
@@ -15,16 +15,13 @@ type Person = {
   photos?: { url?: string; default?: boolean; metadata?: FieldMetadata }[];
 };
 type ContactsResponse = { results?: { person?: Person }[] };
-type DirectoryResponse = { people?: Person[]; nextPageToken?: string };
 const PERSON_FIELDS = "emailAddresses,photos,metadata";
 const MAX_CONTACT_RESULTS = 30;
-const MAX_DIRECTORY_PAGES = 2;
 export const MAX_INVITATION_PHOTO_GUESTS = 40;
 
 export class GooglePhotoProviderError extends Error {
-  constructor(readonly kind: "revoked" | "provider_blocked", permission: GooglePhotoGrant["permission"]) {
+  constructor(readonly kind: "revoked" | "provider_blocked") {
     super(kind === "revoked" ? "Google photo permission expired or was revoked. Calendar still works."
-      : permission === "directory" ? "Google blocked Workspace directory photos. The People API and Workspace administrator directory sharing and app policy must allow access. Calendar still works."
       : "Google blocked Contacts photos. The People API must be enabled and this OAuth app approved for Contacts access. Calendar still works.");
   }
 }
@@ -52,15 +49,15 @@ export function photoFromExactPeople(email: string, people: readonly Person[], t
     const matchingEmail = Boolean(sourceId && exactFields.some(address =>
       address.metadata?.source?.type === type && address.metadata?.source?.id === sourceId &&
       (!["PROFILE", "ACCOUNT", "DOMAIN_PROFILE"].includes(type || "") || address.metadata?.verified === true)));
+    // A saved contact may have a photo chosen by the Calendar owner. Only a
+    // Google profile source can represent the attendee's own account photo.
     const source = !matchingEmail ? null
       : type === "PROFILE" || type === "ACCOUNT" ? "google_profile"
-      : type === "DOMAIN_PROFILE" ? "workspace_profile"
-      : type === "CONTACT" ? "google_contact"
-      : type === "DOMAIN_CONTACT" ? "workspace_contact" : null;
+      : type === "DOMAIN_PROFILE" ? "workspace_profile" : null;
     const url = googlePeoplePhotoSource(photo.url || "")?.href;
     return source && url ? { url, source } as GoogleInvitationPhoto : null;
   }).filter((value): value is GoogleInvitationPhoto => value !== null);
-  const priority = ["google_profile", "workspace_profile", "google_contact", "workspace_contact"];
+  const priority = ["google_profile", "workspace_profile"];
   return ranked.sort((left, right) => priority.indexOf(left.source) - priority.indexOf(right.source))[0] || null;
 }
 
@@ -82,8 +79,8 @@ async function googleJson<T>(url: URL, grant: GooglePhotoGrant, signal: AbortSig
       cache: "no-store", signal: controller.signal,
     });
     if (!response.ok) {
-      if (response.status === 401) throw new GooglePhotoProviderError("revoked", grant.permission);
-      if (response.status === 403) throw new GooglePhotoProviderError("provider_blocked", grant.permission);
+      if (response.status === 401) throw new GooglePhotoProviderError("revoked");
+      if (response.status === 403) throw new GooglePhotoProviderError("provider_blocked");
       throw new Error("Google photos could not be loaded.");
     }
     return await response.json() as T;
@@ -94,7 +91,6 @@ async function googleJson<T>(url: URL, grant: GooglePhotoGrant, signal: AbortSig
 }
 
 export async function warmGoogleContactsPhotoSearch(grant: GooglePhotoGrant, signal: AbortSignal): Promise<void> {
-  if (grant.permission !== "contacts") return;
   const url = new URL("https://people.googleapis.com/v1/people:searchContacts");
   url.searchParams.set("query", "");
   url.searchParams.set("pageSize", "1");
@@ -114,53 +110,34 @@ export async function lookupGoogleInvitationPhoto(grant: GooglePhotoGrant, email
   if (grant.expiresAt <= Date.now() || signal.aborted) return null;
   const normalized = exactInvitationEmails([email])[0];
   if (!normalized) return null;
-  if (grant.permission === "contacts") {
-    const url = new URL("https://people.googleapis.com/v1/people:searchContacts");
-    url.searchParams.set("query", normalized);
-    url.searchParams.set("pageSize", String(MAX_CONTACT_RESULTS));
-    url.searchParams.set("readMask", PERSON_FIELDS);
-    url.searchParams.append("sources", "READ_SOURCE_TYPE_CONTACT");
-    url.searchParams.append("sources", "READ_SOURCE_TYPE_PROFILE");
-    const result = await googleJson<ContactsResponse>(url, grant, signal);
-    const people = (result.results || []).map(item => item.person).filter((person): person is Person => Boolean(person));
-    const matched = uniqueExactPerson(normalized, people, people.length >= MAX_CONTACT_RESULTS);
-    if (!matched) return null;
-    const searchPhoto = photoFromExactPeople(normalized, [matched]);
-    // A resourceName returned by People is provider data. Never construct one
-    // from the email or assume Calendar's optional legacy Profile ID is this ID.
-    if (/^people\/[A-Za-z0-9_-]+$/.test(matched.resourceName || "")) {
-      const detail = new URL(`https://people.googleapis.com/v1/${matched.resourceName}`);
-      detail.searchParams.set("personFields", PERSON_FIELDS);
-      detail.searchParams.append("sources", "READ_SOURCE_TYPE_CONTACT");
-      detail.searchParams.append("sources", "READ_SOURCE_TYPE_PROFILE");
-      try {
-        const profile = await googleJson<Person>(detail, grant, signal);
-        if (uniqueExactPerson(normalized, [profile])) {
-          const fullPhoto = photoFromExactPeople(normalized, [profile]);
-          if (fullPhoto?.source === "google_profile") return fullPhoto;
-          return fullPhoto || searchPhoto;
-        }
-      } catch (error) {
-        if (error instanceof GooglePhotoProviderError) throw error;
-      }
-    }
-    return searchPhoto;
-  }
-  // Directory access is domain limited. Never query an external guest with it.
-  const domain = grant.hostedDomain;
-  if (!domain || normalized.split("@")[1] !== domain) return null;
-  const url = new URL("https://people.googleapis.com/v1/people:searchDirectoryPeople");
+  const url = new URL("https://people.googleapis.com/v1/people:searchContacts");
   url.searchParams.set("query", normalized);
+  url.searchParams.set("pageSize", String(MAX_CONTACT_RESULTS));
   url.searchParams.set("readMask", PERSON_FIELDS);
-  url.searchParams.set("pageSize", "100");
-  url.searchParams.append("sources", "DIRECTORY_SOURCE_TYPE_DOMAIN_PROFILE");
-  url.searchParams.append("sources", "DIRECTORY_SOURCE_TYPE_DOMAIN_CONTACT");
-  const people: Person[] = [];
-  for (let page = 0; page < MAX_DIRECTORY_PAGES; page += 1) {
-    const result = await googleJson<DirectoryResponse>(url, grant, signal);
-    people.push(...(result.people || []));
-    if (!result.nextPageToken) return photoFromExactPeople(normalized, people);
-    url.searchParams.set("pageToken", result.nextPageToken);
+  url.searchParams.append("sources", "READ_SOURCE_TYPE_CONTACT");
+  url.searchParams.append("sources", "READ_SOURCE_TYPE_PROFILE");
+  const result = await googleJson<ContactsResponse>(url, grant, signal);
+  const people = (result.results || []).map(item => item.person).filter((person): person is Person => Boolean(person));
+  const matched = uniqueExactPerson(normalized, people, people.length >= MAX_CONTACT_RESULTS);
+  if (!matched) return null;
+  const searchPhoto = photoFromExactPeople(normalized, [matched]);
+  // A resourceName returned by People is provider data. Never construct one
+  // from the email or assume Calendar's optional legacy Profile ID is this ID.
+  if (/^people\/[A-Za-z0-9_-]+$/.test(matched.resourceName || "")) {
+    const detail = new URL(`https://people.googleapis.com/v1/${matched.resourceName}`);
+    detail.searchParams.set("personFields", PERSON_FIELDS);
+    detail.searchParams.append("sources", "READ_SOURCE_TYPE_CONTACT");
+    detail.searchParams.append("sources", "READ_SOURCE_TYPE_PROFILE");
+    try {
+      const profile = await googleJson<Person>(detail, grant, signal);
+      if (uniqueExactPerson(normalized, [profile])) {
+        const fullPhoto = photoFromExactPeople(normalized, [profile]);
+        if (fullPhoto?.source === "google_profile") return fullPhoto;
+        return fullPhoto || searchPhoto;
+      }
+    } catch (error) {
+      if (error instanceof GooglePhotoProviderError) throw error;
+    }
   }
-  return null;
+  return searchPhoto;
 }

@@ -277,6 +277,8 @@ export interface DocumentPricePrompt {
    */
   moneyPolicy?: "legacy_whole_dollars" | "drive_cents";
   priceOnly?: boolean;
+  /** The review asks for a One copy: the sheet shows its terms and Allow accepts them. */
+  oneCopyRequested?: boolean;
   purpose: string | null;
   recipientEmail: string | null;
   periodStart: string | null;
@@ -306,6 +308,7 @@ type DocumentPriceTerms = {
   estimateCents: number | null;
   moneyPolicy: "legacy_whole_dollars" | "drive_cents";
   priceOnly?: boolean;
+  oneCopyRequested: boolean;
   purpose: string;
   recipientEmail: string;
   periodStart: string | null;
@@ -1068,8 +1071,9 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         return;
       }
       if (load !== priceLoadRef.current) return;
-      if (review.agentPackage) {
-        // Package approval requires the owner to read its current assessment.
+      if (review.agentPackage || (target.priceOnly && review.oneCopyRequested === true)) {
+        // Package approval requires the owner to read its current assessment. A
+        // Trusted One copy request is never priced alone: it needs the full Allow.
         priceLoadRef.current += 1;
         setPriceOpen(false);
         setPriceTerms(null);
@@ -1114,6 +1118,8 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         // On 2026-10-17 a cents price on a whole-dollar request got a 422.
         moneyPolicy: review.wholeDollarPrice === true ? "legacy_whole_dollars" : "drive_cents",
         priceOnly: target.priceOnly === true,
+        // Sealed with the request; only the review says whether Allow covers a One copy.
+        oneCopyRequested: review.oneCopyRequested === true,
         purpose: review.purpose.purpose,
         recipientEmail: review.recipientEmail,
         periodStart: review.purpose.periodStart,
@@ -1177,7 +1183,13 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         await submit(
           token,
           target.requestId,
-          { revision: terms.revision, amountCents: price },
+          {
+            revision: terms.revision,
+            amountCents: price,
+            // The owner read the One copy terms in this sheet. A Drive-only
+            // request refuses an acceptance, so it is sent only when asked.
+            ...(terms.oneCopyRequested && !terms.priceOnly ? { oneCopyAccepted: true } : {}),
+          },
           documentSessionGuard(token),
         );
       } catch (cause) {
@@ -1227,6 +1239,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
       estimateCents: priceTerms?.estimateCents ?? null,
       moneyPolicy: priceTerms?.moneyPolicy ?? "drive_cents",
       priceOnly: priceTerms?.priceOnly ?? priceTarget?.priceOnly ?? false,
+      oneCopyRequested: priceTerms?.oneCopyRequested === true && priceTerms.priceOnly !== true,
       purpose: priceTerms?.purpose ?? null,
       recipientEmail: priceTerms?.recipientEmail ?? null,
       periodStart: priceTerms?.periodStart ?? null,

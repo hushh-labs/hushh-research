@@ -847,9 +847,10 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     }
   });
 
-  it("opens package review from Feed even when an older row omitted its package marker", async () => {
-    mocks.review.mockResolvedValue(ownerReview({ agentPackage: { status: "ready" } }));
-    const { result } = renderWith(documentEntry(DOC_ID));
+  it.each([[{}, { agentPackage: { status: "ready" } }], [{ ownerPayoutAccountReady: true, owner_decision_available: false, owner_price_available: true }, { oneCopyRequested: true }]])(
+    "opens the full review from Feed for a package, or a Trusted One copy request on Set price (%#)", async (row, review) => {
+    mocks.review.mockResolvedValue(ownerReview(review));
+    const { result } = renderWith(documentEntry(DOC_ID, row));
     act(() => { actionOf(documentRow(result), "allow").run(); });
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
     expect(mocks.push.mock.lastCall?.[0]).toContain(encodeURIComponent(`document_share_request:${DOC_ID}`));
@@ -942,15 +943,14 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
       "vault-token", DOC_ID, { revision: 3, amountCents: 100 }, expect.any(Function));
   });
 
-  it("keeps cents for a request whose review sets no whole-dollar rule", async () => {
+  it.each([false, true])("keeps cents and accepts a One copy only when the review asks (2026-10-28 422; requested=%s)", async (oneCopyRequested) => {
+    mocks.review.mockResolvedValue(ownerReview(oneCopyRequested ? { oneCopyRequested } : {}));
     mocks.allow.mockResolvedValue({ requestId: DOC_ID, status: "pending", revision: 3 });
     const { result } = renderWith(documentEntry(DOC_ID));
     act(() => { actionOf(documentRow(result), "allow").run(); });
-    await waitFor(() => expect(result.current.documentPricePrompt.detailsPending).toBe(false));
-    expect(result.current.documentPricePrompt.moneyPolicy).toBe("drive_cents");
+    await waitFor(() => expect(result.current.documentPricePrompt).toMatchObject({ detailsPending: false, moneyPolicy: "drive_cents", oneCopyRequested }));
     act(() => result.current.documentPricePrompt.submit(50));
-    await waitFor(() => expect(mocks.allow).toHaveBeenCalledExactlyOnceWith(
-      "vault-token", DOC_ID, { revision: 3, amountCents: 50 }, expect.any(Function)));
+    await waitFor(() => expect(mocks.allow).toHaveBeenCalledExactlyOnceWith("vault-token", DOC_ID, { revision: 3, amountCents: 50, ...(oneCopyRequested ? { oneCopyAccepted: true } : {}) }, expect.any(Function)));
   });
 
   it("holds Allow until the request's terms load, and sends nothing without them", async () => {
