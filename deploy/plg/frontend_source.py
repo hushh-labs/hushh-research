@@ -31,9 +31,9 @@ require = backend.require
 RECORD = Path(__file__).with_name("frontend-source.json")
 BASELINE_SHA = "5de6ee29abe3b00642bd6b745c608279091810b3"
 PRODUCTION_BASELINE_SHA = "d8a5fa4858741e611d39fd4f1f28b1ab930d057c"
-SOURCE_SHA = "cfe8c062bd1c455249fc4626720d426edaf9668a"
+SOURCE_SHA = "2a860818549f2d6c16d1f98bd8fb9cebe01a1f84"
 BASELINE_TREE = "70000fabb2cef2d38d2b8dd643b591e9b50b44eb"
-SOURCE_TREE = "aa1487f18955567be3fd8120849951839bd8894f"
+SOURCE_TREE = "c439140f2a6c34b9e76243baf6f5d4eb66eeae50"
 MAX_BLOB_BYTES = 4 * 1024 * 1024
 MAX_RECORD_BYTES = 64 * 1024
 
@@ -52,6 +52,7 @@ ALLOWED_CHANGES = {
     "hushh-webapp/components/account/marketing-preference-panel.tsx": "M",
     "hushh-webapp/components/profile/profile-workspace-page.tsx": "M",
     "hushh-webapp/contracts/ui-review/back/525467f86a142d1f81b707b1d0f094c9dbffc752805c3bbc181f7c185cab24b6.json": "A",
+    "hushh-webapp/contracts/ui-review/back/e380bd311325bdcffaa2adeede22fe0129ce800d1c5822aaee2d2739d5771a8e.json": "A",
     "hushh-webapp/contracts/ui-review/search/6269be30d154d9932695bf1a90a8adfa989b4df74e34e16fb9c52cfe2ce55146.json": "A",
     "hushh-webapp/frontend-native-surface-map.generated.json": "M",
     "hushh-webapp/lib/navigation/routes.ts": "M",
