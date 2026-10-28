@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 433,
+  "expected_migration_version": 434,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -4669,5 +4669,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 433
+  "expected_schema_head": 434
 }
