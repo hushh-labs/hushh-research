@@ -5,7 +5,9 @@ import type { AuthSessionInvalidationCode } from "./session-invalidation";
 import { hasJsonResponseContentType, readBoundedAccountSessionStatusBody, withinAccountSessionValidationBudget } from "./account-session-status";
 
 type Terminal = { outcome: "terminal"; code: AuthSessionInvalidationCode };
-type Recovery = Terminal | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery };
+// A registration result names the terminal evidence it replaces, so the caller
+// still runs that departure's device purge before offering a new account.
+type Recovery = Terminal | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery; departure?: AuthSessionInvalidationCode };
 
 /** Purpose-bound reads only. The AuthProvider caller retains owner/episode authority. */
 export async function resolveAccountLifecycleRecovery(idToken: string, deadlineMs: number, terminal: Terminal): Promise<Recovery> {
@@ -25,11 +27,13 @@ export async function resolveAccountLifecycleRecovery(idToken: string, deadlineM
   try {
     const response = await withinAccountSessionValidationBudget(ApiService.getAccountRegistrationStatus(idToken), deadlineMs);
     // Existing rollout-off policy preserves the independently established result.
-    if (response.status === 404) return knownTerminal;
+    // With admission on, a refused identity (missing Firebase user, review mint)
+    // answers 401 instead and keeps that same result.
+    if (response.status === 404 || response.status === 401) return knownTerminal;
     if (response.ok && hasJsonResponseContentType(response)) {
       const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
       const registration = parseAccountRegistrationRecovery(body);
-      if (registration) return {outcome: "unavailable", registration};
+      if (registration) return {outcome: "unavailable", registration, departure: knownTerminal.code};
     }
   } catch { /* Keep identity for purpose-bound recovery, never admit it. */ }
   return {outcome: "unavailable"};

@@ -8,6 +8,7 @@ pause every account deletion.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -37,7 +38,22 @@ def _step_script(workflow: str, name: str) -> str:
 
 
 GENERATION_DECISION = "Decide account generation admission before the deletion fence"
+SERVING_REFUSAL = "Refuse the HushhTech client beside a serving revision that admits generations"
 OWNER_SPLIT_MARKER = "hushh-webapp/__tests__/lib/auth/application-owner-ratchet.contract.test.ts"
+
+
+def _run_step(workflow: str, name: str, tmp_path: Path, **env: str) -> tuple[int, dict[str, str]]:
+    output = tmp_path / "github-output"
+    result = subprocess.run(  # noqa: S603 - Checked-in workflow code and fixed test values.
+        ["bash", "-euc", _step_script(workflow, name)],
+        cwd=tmp_path,
+        env={**os.environ, "GITHUB_OUTPUT": str(output), **env},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    lines = output.read_text(encoding="utf-8").splitlines() if output.exists() else []
+    return result.returncode, dict(line.split("=", 1) for line in lines if "=" in line)
 
 
 def _decide_generation_admission(
@@ -47,18 +63,8 @@ def _decide_generation_admission(
         marker = tmp_path / OWNER_SPLIT_MARKER
         marker.parent.mkdir(parents=True)
         marker.write_text("", encoding="utf-8")
-    output = tmp_path / "github-output"
-    result = subprocess.run(  # noqa: S603 - Checked-in workflow code and fixed test values.
-        ["bash", "-euc", _step_script(workflow, GENERATION_DECISION)],
-        cwd=tmp_path,
-        env={**os.environ, "GITHUB_OUTPUT": str(output), **env},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    lines = output.read_text(encoding="utf-8").splitlines() if output.exists() else []
-    enabled = next((line.split("=", 1)[1] for line in lines if line.startswith("enabled=")), None)
-    return result.returncode, enabled
+    returncode, outputs = _run_step(workflow, GENERATION_DECISION, tmp_path, **env)
+    return returncode, outputs.get("enabled")
 
 
 @pytest.mark.parametrize(
@@ -71,6 +77,9 @@ def _decide_generation_admission(
         # Refused whatever the target: the serving revision would fail startup.
         ("true", " True ", True, None),
         ("true", "on", False, None),
+        # Python's strip() at startup also removes Unicode and separator whitespace.
+        ("true", "true ", True, None),
+        ("true", "true\x1f", True, None),
         ("yes", "false", True, None),
     ],
 )
@@ -97,6 +106,57 @@ def test_uat_decides_generation_admission_before_secrets_and_the_deletion_fence(
     )
     assert (returncode != 0) is (expected is None)
     assert enabled == expected
+
+
+@pytest.mark.parametrize(
+    "serving_admission,refused", [("true", True), (" TRUE ", True), ("false", False), (None, False)]
+)
+def test_uat_refuses_the_hushhtech_client_while_the_serving_backend_admits_generations(
+    tmp_path: Path, serving_admission: str | None, refused: bool
+) -> None:
+    # Turning admission off and the client on in one release would still restart the
+    # serving revision's instances into a refused startup after secrets sync.
+    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat.yml")
+    steps = _workflow_steps(workflow)
+    refusal = steps.index(SERVING_REFUSAL)
+    assert steps.index("Capture predeploy Cloud Run state") < refusal
+    assert refusal < steps.index("Sync canonical hosted runtime secrets")
+    assert refusal < steps.index("Qualify uninterrupted account deletion")
+    assert (
+        f"      - name: {SERVING_REFUSAL}\n"
+        "        if: steps.generation-admission.outputs.client_enabled == 'true'\n"
+    ) in workflow
+    decision_dir = tmp_path / "decision"
+    decision_dir.mkdir()
+    _, outputs = _run_step(
+        workflow,
+        GENERATION_DECISION,
+        decision_dir,
+        ACCOUNT_GENERATION_ADMISSION_ENABLED="false",
+        HUSSH_TECH_CLIENT_ENABLED=" On ",
+    )
+    assert outputs.get("client_enabled") == "true"
+    env = (
+        []
+        if serving_admission is None
+        else [{"name": "ACCOUNT_GENERATION_ADMISSION_ENABLED", "value": serving_admission}]
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    gcloud = bin_dir / "gcloud"
+    revision = json.dumps({"spec": {"containers": [{"env": env}]}})
+    gcloud.write_text(f"#!/bin/sh\necho '{revision}'\n", encoding="utf-8")
+    gcloud.chmod(0o755)
+    returncode, _ = _run_step(
+        workflow,
+        SERVING_REFUSAL,
+        tmp_path,
+        PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        SERVING_BACKEND_REVISION="consent-protocol-00001-abc",
+        SERVING_PROJECT_ID="project",
+        SERVING_REGION="region",
+    )
+    assert (returncode != 0) is refused
 
 
 @pytest.mark.parametrize(

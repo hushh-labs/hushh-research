@@ -81,6 +81,35 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
   });
 
+  it("purges the erased replacement owner's device state before offering a new account", async () => {
+    const { CacheSyncService } = await import("@/lib/cache/cache-sync-service");
+    vi.mocked(CacheSyncService.onAccountDeleted).mockClear();
+    const ownerId = "acct_" + "e".repeat(32);
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => activeSessionResponse("account-owner", ownerId, 1));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
+    mocks.apiGetAccountCleanupStatus.mockResolvedValue(cleanupStatusResponse("complete"));
+    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "fresh_identity_required" }));
+    act(() => requestExplicitSessionVerification());
+    await screen.findByRole("heading", { name: "Verify it’s you" });
+    // Registration replaces the terminal sign-out, so its erased-account purge runs here, keyed by the owner.
+    expect(mocks.clearDeviceSecretsForDeletedAccount).toHaveBeenCalledWith(ownerId);
+    expect(CacheSyncService.onAccountDeleted).toHaveBeenCalledWith(ownerId);
+    expect(mocks.clearForUser).toHaveBeenCalledWith(ownerId, { deleteDurableReceipts: true });
+    expect(mocks.clearDeviceSecretsForDeletedAccount).not.toHaveBeenCalledWith("account-owner");
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("signs out when admission-on registration status refuses a missing identity", async () => {
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
+    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
+    renderProvider();
+    // The same terminal result as the admission-off 404, never an open-ended verification gate.
+    await waitFor(() => expect(mocks.replaceDocument).toHaveBeenCalledWith("/login?auth_notice=account_not_found"));
+    expect(mocks.clearDeviceSecretsForDeletedAccount).toHaveBeenCalledWith("account-owner");
+  });
+
   it("keeps unknown historical cleanup on review without offering account activation", async () => {
     mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
     mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "action_required", reason: "historical_cleanup_unconfirmed" }));

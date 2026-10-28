@@ -25167,7 +25167,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/notifications/fcm-service.ts",
       "symbol": null,
-      "value": 1639
+      "value": 1644
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27607,7 +27607,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_world_model_invitations.py",
       "symbol": "test_claim_contract_on_single_connection_postgres",
-      "value": 258
+      "value": 268
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28134,7 +28134,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/world_model_invitations.py",
       "symbol": "claim",
-      "value": 99
+      "value": 100
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29521,7 +29521,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/world_model_invitations.py",
       "symbol": "create",
-      "value": 84
+      "value": 85
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29998,7 +29998,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_world_model_invitations.py",
       "symbol": null,
-      "value": 547
+      "value": 557
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -86559,8 +86559,8 @@
     "acceptance": "Focused common-renderer, exact identity, environment refusal and BYOC custom-custody upgrade regressions; not whole-pilot completion."
   },
   "start_fresh_owner_split_review_20261028": {
-    "base_revision": "f2b9787a291d01966f2465b850f6b66b3232668b",
-    "scope": "16 exact module ceilings only, each +1 to +13 lines from moving application-owner uses to the validated owner for same-login start fresh. No new findings, no function exceptions and no global 500/250/80 budget changes.",
+    "base_revision": "0c279ce919486b6a95241f8244e19e44cc6b35e7",
+    "scope": "20 exact module and function ceilings only, each +1 to +18 lines, from moving application-owner uses to the validated owner for same-login start fresh and from resolving generation-aware owner identity outside the owner graph lock. No new findings, no function exceptions and no global 500/250/80 budget changes.",
     "entries": [
       {
         "key": "module_size|hushh-webapp/components/consent/consent-center-page.tsx||module exceeds the advisory operon budget",
@@ -86605,10 +86605,10 @@
       {
         "key": "module_size|hushh-webapp/lib/notifications/fcm-service.ts||module exceeds the advisory operon budget",
         "before": 1626,
-        "after": 1639,
-        "source_sha256": "70f3e0bcad937a5218f2eba926020f85dc69c65c6e3c0d426e2472dde67d9f32",
+        "after": 1644,
+        "source_sha256": "4c2d5359afc17e9b44445a356badc50e691450a343ed4cb6f6245f21d4a6076a",
         "reviewer": "owner-split migration; per-group adversarial review",
-        "review": "Departing push session resolved by its owner or Firebase UID so sign-out clears a withdrawn start-fresh owner."
+        "review": "Departing push session resolved by its owner or Firebase UID so sign-out clears a withdrawn start-fresh owner; clearing returns that owner for push unregistration."
       },
       {
         "key": "module_size|hushh-webapp/app/profile/pkm-agent-lab/page-client.tsx||module exceeds the advisory operon budget",
@@ -86689,6 +86689,38 @@
         "source_sha256": "d79bf86b1a176e98ddd3aed5f2e45b90914c4c0642130b0a23493a22c32cf30f",
         "reviewer": "owner-split migration; per-group adversarial review",
         "review": "Generation-0 fixture adds userId equal to its Firebase UID for the validated-owner contract."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_world_model_invitations.py|test_claim_contract_on_single_connection_postgres|function exceeds the advisory gene budget",
+        "before": 258,
+        "after": 268,
+        "source_sha256": "bcfcec7bd50329bde854083f584baed1c832b396b2079af484fa7ddccfcbec13",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Single-connection probe proves the external identity read runs outside the locked claim transaction (fails if moved under the lock)."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/world_model_invitations.py|claim|function exceeds the advisory gene budget",
+        "before": 99,
+        "after": 100,
+        "source_sha256": "06f2bc1437390f61b5f92d99c398b380da1bb1c11b297eefdd645911fb734c9e",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Resolves the generation-aware owner record before the owner graph lock and reuses it in the locked recheck, so admission-on identity reads cannot self-block on that lock."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/world_model_invitations.py|create|function exceeds the advisory gene budget",
+        "before": 84,
+        "after": 85,
+        "source_sha256": "06f2bc1437390f61b5f92d99c398b380da1bb1c11b297eefdd645911fb734c9e",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Resolves the generation-aware owner record before the owner graph lock and reuses it in the locked recheck, so admission-on identity reads cannot self-block on that lock."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_world_model_invitations.py||module exceeds the advisory operon budget",
+        "before": 547,
+        "after": 557,
+        "source_sha256": "bcfcec7bd50329bde854083f584baed1c832b396b2079af484fa7ddccfcbec13",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Single-connection probe proves the external identity read runs outside the locked claim transaction (fails if moved under the lock)."
       }
     ]
   }

@@ -1554,14 +1554,19 @@ function departingSessionOwner(userId?: string): string | undefined | null {
     : null;
 }
 
-/** Local preview privacy is independent of Firebase/network token cleanup. */
-export async function clearLocalChatNotificationState(userId?: string): Promise<void> {
+/**
+ * Local preview privacy is independent of Firebase/network token cleanup.
+ * Returns the owner it cleared (null for another session), because clearing ends
+ * the session record that later push cleanup would resolve that owner from.
+ */
+export async function clearLocalChatNotificationState(userId?: string): Promise<string | undefined | null> {
   const departingOwner = departingSessionOwner(userId);
-  if (departingOwner === null) return;
+  if (departingOwner === null) return null;
   lastKnownSession = null;
   notificationSessionGeneration++;
   pendingChatTaps = [];
   await clearCurrentNotificationDevice(departingOwner);
+  return departingOwner;
 }
 
 export async function deleteFCMToken(

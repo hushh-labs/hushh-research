@@ -87,7 +87,9 @@ describe("sign-out push cleanup", () => {
     await initializeFCM(ownerId, "id-token").catch(() => undefined);
     publishPendingAuthSessionIdentity("external-uid");
     try {
-      await deleteFCMToken("external-uid", "firebase-token");
+      const getIdToken = vi.fn().mockResolvedValue("firebase-token");
+      // Through the provider's caller: its preview clear ends the session record first.
+      await settleSignOutNotifications({ uid: "external-uid", getIdToken } as unknown as User, "external-uid");
       expect(mocks.clearPreview).toHaveBeenCalledWith(ownerId);
       expect(mocks.unregister).toHaveBeenCalledWith(ownerId, "firebase-token", undefined, expect.any(AbortSignal), expect.any(String));
     } finally {

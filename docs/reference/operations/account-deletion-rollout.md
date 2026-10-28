@@ -167,11 +167,16 @@ Startup refuses generations only beside a truthy `HUSSH_TECH_CLIENT_ENABLED`
 (`hushh_mcp/runtime_readiness.py`). Each deploy workflow decides the flag once in
 "Decide account generation admission before the deletion fence", before any fence
 installs. UAT runs that step for every scope, before runtime secrets sync, and
-refuses that pairing there. A configuration error therefore fails before it can
-strand deletions behind a failed release, or restart the serving revision into a
-refused startup. The workflow runs from main but deploys any target SHA, so the step
-turns admission on only when the target contains the web owner split. The marker is
-the owner ratchet test; older targets deploy with it off.
+refuses that pairing there, normalizing the client flag exactly as startup does.
+Secrets sync also publishes the client flag to the runtime config that the serving
+revision reads, so UAT refuses a truthy client flag while the serving backend still
+admits generations. To turn on the HushhTech exchange, first deploy the backend with
+`ACCOUNT_GENERATION_ADMISSION_UAT_ENABLED=false`, then set the client flag. A
+configuration error therefore fails before it can strand deletions behind a failed
+release, or restart the serving revision into a refused startup. The workflow runs
+from main but deploys any target SHA, so the step turns admission on only when the
+target contains the web owner split. The marker is the owner ratchet test; older
+targets deploy with it off.
 WorkOS generation-0 memberships are supported (427). Replacement SSO enrollment
 and the HushhTech custom-auth exchange return explicit unavailable outcomes before
 provider mutation or exchange; they never bind an old callback to the latest owner.
@@ -201,7 +206,9 @@ Known limits while the remaining consumers qualify:
   Firebase-UID owner arguments and UID-to-owner comparisons elsewhere in the web app.
 - Departure cleanup knows a replacement owner only while this page has admitted it.
   Re-verification that withdraws the owner keeps it as the departing owner, and push
-  cleanup accepts the session's Firebase UID as the same session. Two cases still
+  cleanup accepts the session's Firebase UID as the same session. When admission
+  offers start fresh in place of the terminal sign-out, the web first runs that
+  sign-out's device purge for the departing owner. Two cases still
   fall back to the Firebase UID and leave that device's replacement-owner previews,
   push registration or durable copies in place until the next admitted sign-out:
   a cold start that signs out while session validation is unavailable, and a
@@ -210,9 +217,23 @@ Known limits while the remaining consumers qualify:
   identity in the web, iOS and Android preview-key records.
 - The private Drive and V1 workers run without the flag. They still resolve `acct_`
   owners, but skip the generation-0 retirement recheck for queued work.
+- With the flag on, owner-to-Firebase mapping reads the database and takes the
+  owner's lifecycle locks shared on its own connection. Code that holds the owner
+  graph lock must resolve the external identity first (`fresh_owner_record`); PWM
+  invitations and research-ready email do. Profile research, Magic admission,
+  business suggestions, developer access and passkey session mints still run that
+  read on the event loop, so contention on one owner's lock can stall a worker for
+  up to three seconds. Research-ready email still matches the Firebase UID, so a
+  replacement owner does not receive it yet.
 - The first release that turns admission on rolls back to a revision without it. A
   replacement account created in that window gets `AUTH_ACCOUNT_NOT_FOUND` until a
-  later healthy release turns it on again.
+  later healthy release turns it on again. The two services roll back separately:
+  a frontend-only rollback restores the pre-split web app beside the admission
+  backend, which can start a replacement whose owner-keyed requests that web app
+  then sends under the Firebase UID.
+- Email sign-in codes issued by a revision without admission are consumed and then
+  refused (`enrollment_expired`) by the first revision with it, for their five-minute
+  lifetime. The person requests a new code.
 
 An owner-to-Firebase mapping is suitable for reads; it cannot authorize a deferred
 Firebase mutation across retirement. Device and passkey mints now map the exact

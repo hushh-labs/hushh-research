@@ -316,6 +316,16 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
     monkeypatch.setattr(
         invites, "owner_identity", AsyncMock(return_value={"email": "recipient@example.test"})
     )
+
+    async def record_outside_owner_lock(user_id):
+        # With generation admission on, the external identity read takes the owner's
+        # graph lock shared on its own connection. This pool's only connection is free
+        # only outside the locked transaction, so a read under that lock times out here.
+        async with pool.acquire(timeout=1) as probe:
+            await probe.fetchval("SELECT 1")
+        return SimpleNamespace(uid=user_id)
+
+    monkeypatch.setattr(invites, "fresh_owner_record", record_outside_owner_lock)
     from hushh_mcp.services import one_owner_admission
 
     monkeypatch.setattr(one_owner_admission, "get_pool", AsyncMock(return_value=pool))
