@@ -11,7 +11,7 @@ vi.mock("@/components/ui/avatar", () => ({
   // This test mock needs a raw img to inspect its source without Next image loading.
   // eslint-disable-next-line @next/next/no-img-element
   AvatarImage: ({ src }: { src: string }) => <img src={src} alt="" />,
-  AvatarFallback: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+  AvatarFallback: ({ children }: { children: ReactNode }) => <span data-slot="avatar-fallback">{children}</span>,
 }));
 
 const event: CalendarInvitation = {
@@ -21,18 +21,29 @@ const event: CalendarInvitation = {
   organizer: { email: "organizer@example.test" },
   attendees: [{ email: "manish@example.test", display_name: "Manish", response_status: "accepted" }],
 };
-const husshPhoto = "https://images.example.test/hussh-manish.png";
-const people = new Map([["manish@example.test", { displayName: "Manish", photoUrl: husshPhoto }]]);
+const chatPhoto = "https://images.example.test/hussh-manish.png";
+const husshPhoto = "data:image/png;base64,aGVsbG8=";
+const chatPeople = new Map([["manish@example.test", { displayName: "Manish", photoUrl: chatPhoto }]]);
+const people = new Map([["manish@example.test", { userId: "manish", displayName: "Manish", photoUrl: husshPhoto }]]);
 
 describe("invitation photo presentation boundaries", () => {
-  it("keeps the Hussh connection photo in Chat while Calendar requires a Google source", () => {
-    const chat = render(<CalendarInvitationDetail event={event} zone="UTC" people={people} />);
-    expect(chat.container.querySelector(`img[src="${husshPhoto}"]`)).toBeTruthy();
+  it("shows the HUSSH connection photo in Calendar and leaves Chat's source unchanged", () => {
+    const chat = render(<CalendarInvitationDetail event={event} zone="UTC" people={chatPeople} />);
+    expect(chat.container.querySelector(`img[src="${chatPhoto}"]`)).toBeTruthy();
     chat.unmount();
 
-    const workspace = render(<CalendarInvitationDetail event={event} zone="UTC" people={people} workspaceLayout accountEmail="owner@example.test" />);
+    const workspace = render(<CalendarInvitationDetail event={event} zone="UTC" people={people} workspaceLayout />);
+    const guest = within(workspace.getByRole("list", { name: "Guests" })).getByRole("listitem", { name: /manish/i });
+    expect(guest.querySelector("img")?.getAttribute("src")).toBe(husshPhoto);
+    expect(guest.querySelector("[data-photo-source=hussh]")).toBeTruthy();
+    expect(guest.textContent).toContain("Manish");
+  });
+
+  it("keeps an initial when a HUSSH photo URL is not admitted", () => {
+    const unsafe = new Map([["manish@example.test", { userId: "manish", displayName: "Manish", photoUrl: "https://images.example.test/other.png" }]]);
+    const workspace = render(<CalendarInvitationDetail event={event} zone="UTC" people={unsafe} workspaceLayout />);
     const guest = within(workspace.getByRole("list", { name: "Guests" })).getByRole("listitem", { name: /manish/i });
     expect(guest.querySelector("img")).toBeNull();
-    expect(guest.textContent).toContain("Manish");
+    expect(guest.querySelector("[data-slot=avatar-fallback]")?.textContent).toBe("M");
   });
 });

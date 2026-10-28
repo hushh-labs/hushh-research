@@ -432,7 +432,7 @@ class GoogleConnectionService:
 
     async def _calendar_picture(
         self, *, user_id: str, account_id: str, row: dict[str, Any]
-    ) -> str | None:
+    ) -> dict[str, str | None] | None:
         return await self._calendar_photos.lookup(user_id=user_id, account_id=account_id, row=row)
 
     async def calendar_accounts_status(self, *, user_id: str) -> dict[str, Any]:
