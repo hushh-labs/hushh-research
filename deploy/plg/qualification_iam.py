@@ -59,6 +59,7 @@ class ReadCloud:
         path: str,
         *,
         policy_body=False,
+        attachment_permission=False,
         query=None,
         missing_service=False,
     ):
@@ -78,6 +79,15 @@ class ReadCloud:
                 api == "cloudresourcemanager" and path.endswith(":getIamPolicy"),
                 "iam_method_invalid",
             )
+        if attachment_permission:
+            require(
+                api == "iam"
+                and not policy_body
+                and not query
+                and path
+                == f"v1/projects/{self.target.project}/serviceAccounts/{self.target.runtime_sa}:testIamPermissions",
+                "iam_attachment_permission_path_invalid",
+            )
         if missing_service:
             require(
                 api == "run"
@@ -90,10 +100,14 @@ class ReadCloud:
         params = "?" + urlencode(query) if query else ""
         request = Request(
             f"https://{api}.googleapis.com/{path}{params}",
-            data=json.dumps({"options": {"requestedPolicyVersion": 3}}).encode()
-            if policy_body
-            else None,
-            method="POST" if policy_body else "GET",
+            data=(
+                json.dumps({"permissions": ["iam.serviceAccounts.actAs"]}).encode()
+                if attachment_permission
+                else json.dumps({"options": {"requestedPolicyVersion": 3}}).encode()
+                if policy_body
+                else None
+            ),
+            method="POST" if policy_body or attachment_permission else "GET",
             headers={
                 "Authorization": "Bearer " + self._token,
                 "Content-Type": "application/json",
@@ -186,6 +200,18 @@ class ReadCloud:
         return self._read(
             "iam",
             f"v1/projects/{self.target.project}/serviceAccounts/{self.target.runtime_sa}",
+        )
+
+    def verify_runtime_attachment(self):
+        """Check the hosted caller's effective actAs on only the fixed runtime SA."""
+        result = self._read(
+            "iam",
+            f"v1/projects/{self.target.project}/serviceAccounts/{self.target.runtime_sa}:testIamPermissions",
+            attachment_permission=True,
+        )
+        require(
+            result.get("permissions") == ["iam.serviceAccounts.actAs"],
+            "qualification_runtime_attachment_permission_missing",
         )
 
     def role(self, role):

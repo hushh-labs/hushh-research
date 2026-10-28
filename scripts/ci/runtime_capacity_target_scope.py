@@ -338,23 +338,132 @@ def non_target_routing(
     """Inspect declared routing, including opaque route-bearing config in memory."""
     versions: set[str] = set()
 
+    def decoded(value: str) -> str:
+        for _ in range(4):
+            next_value = unquote(value)
+            if next_value == value:
+                return value
+            value = next_value
+        raise BudgetError("unresolved non-target encoded routing")
+
     def inspect(value: Any) -> None:
         for item in _walk(value):
             if isinstance(item, str) and any(
-                endpoint in unquote(item) for endpoint in endpoints
+                endpoint in decoded(item) for endpoint in endpoints
             ):
                 raise BudgetError(
                     "non-target workload references isolated DEV instance"
                 )
 
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate key")
+            result[key] = value
+        return result
+
     inspect(workload)
     for node in _walk(workload):
         if not isinstance(node, dict):
             continue
-        # A secret/config volume needs an explicit route adapter; don't infer
-        # zero demand from an absent Cloud SQL annotation alone.
-        if node.get("volumes"):
+        # Every projected secret is resolved and inspected in memory. Unknown
+        # volume types and opaque/indirect config remain unverified.
+        if "volumes" in node and not isinstance(node["volumes"], list):
             raise BudgetError("unresolved non-target volume routing")
+        if node.get("volumes"):
+            volumes = node["volumes"]
+            if (
+                not isinstance(volumes, list)
+                or len(volumes) > 32
+                or resolve_secret is None
+            ):
+                raise BudgetError("unresolved non-target volume routing")
+            names = set()
+            for volume in volumes:
+                if not isinstance(volume, dict) or set(volume) != {"name", "secret"}:
+                    raise BudgetError("unresolved non-target volume routing")
+                volume_name, secret = volume["name"], volume["secret"]
+                if (
+                    not isinstance(volume_name, str)
+                    or not re.fullmatch(r"[A-Za-z0-9_-]{1,253}", volume_name)
+                    or volume_name in names
+                    or not isinstance(secret, dict)
+                    or set(secret) != {"secretName", "items"}
+                    or not isinstance(secret["items"], list)
+                    or not 1 <= len(secret["items"]) <= 32
+                ):
+                    raise BudgetError("unresolved non-target volume routing")
+                names.add(volume_name)
+                paths = set()
+                for item in secret["items"]:
+                    if (
+                        not isinstance(item, dict)
+                        or set(item) != {"key", "path"}
+                        or not isinstance(item["key"], str)
+                        or not re.fullmatch(r"latest|[1-9][0-9]*", item["key"])
+                        or not isinstance(item["path"], str)
+                        or not re.fullmatch(
+                            r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", item["path"]
+                        )
+                        or any(part in {".", ".."} for part in item["path"].split("/"))
+                        or item["path"] in paths
+                    ):
+                        raise BudgetError("unresolved non-target volume routing")
+                    paths.add(item["path"])
+                    reference = route_secret_reference(
+                        workload,
+                        {"name": secret["secretName"], "key": item["key"]},
+                        aliases,
+                    )
+                    normalized = {"valueFrom": {"secretKeyRef": reference}}
+                    resolved = observe_route_secret(
+                        resolve_secret, workload, normalized, "hushh-pda-dev"
+                    )
+                    payload = _route_payload(resolved, reference, aliases)
+                    inspect(payload)
+                    try:
+                        config = json.loads(payload, object_pairs_hook=unique_pairs)
+                    except (TypeError, ValueError):
+                        raise BudgetError(
+                            "unresolved non-target volume routing"
+                        ) from None
+                    if not isinstance(config, dict):
+                        raise BudgetError("unresolved non-target volume routing")
+                    for section in _walk(config):
+                        if isinstance(section, dict):
+                            for key, value in section.items():
+                                if re.search(
+                                    r"(?:base64|encoded|compressed|encrypted)",
+                                    str(key),
+                                    re.I,
+                                ):
+                                    raise BudgetError(
+                                        "unresolved non-target volume routing"
+                                    )
+                                if re.search(
+                                    r"(?:include|import|reference)", str(key), re.I
+                                ):
+                                    raise BudgetError(
+                                        "unresolved non-target volume routing"
+                                    )
+                                if isinstance(value, str) and re.search(
+                                    r"(?:config|setting)", str(key), re.I
+                                ):
+                                    raise BudgetError(
+                                        "unresolved non-target volume routing"
+                                    )
+                        if isinstance(section, str) and (
+                            "$" in decoded(section)
+                            or section.lstrip().startswith(("{", "["))
+                        ):
+                            raise BudgetError("unresolved non-target volume routing")
+                    inspect(config)
+                    versions.add(resolved.resource_name)
+                    if item["key"] == "latest":
+                        pending_latest.append(
+                            (workload, normalized, resolved.resource_name)
+                        )
         name = node.get("name")
         if not isinstance(name, str) or not _route_setting(name):
             continue

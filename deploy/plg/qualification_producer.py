@@ -30,6 +30,7 @@ PHASES = (
     "schema-post",
     "iam-pre",
     "image",
+    "capacity-early",
     "capacity",
     "deploy",
     "iam",
@@ -201,7 +202,7 @@ def build_image(folder: Path, current: dict) -> None:
     write(folder, "image", proof)
 
 
-def capacity(folder: Path, current: dict) -> None:
+def capacity(folder: Path, current: dict, *, early: bool = False) -> None:
     command = [
         sys.executable,
         str(validation.ROOT / "scripts/ci/runtime-capacity-budget.py"),
@@ -219,10 +220,19 @@ def capacity(folder: Path, current: dict) -> None:
         timeout=300,
         check=False,
     )
-    require(
-        result.returncode == 0 and len(result.stdout) <= 1024 * 1024,
-        "qualification_actual_capacity_not_admitted",
-    )
+    if result.returncode != 0 or len(result.stdout) > 1024 * 1024:
+        # The collector may include sensitive configuration in errors. Expose
+        # only exact, fixed refusal classes and never forward its raw stderr.
+        safe_errors = {
+            b"capacity budget blocked: unresolved non-target volume routing": "qualification_capacity_volume_unresolved",
+            b"capacity budget blocked: non-target route secret is unavailable": "qualification_capacity_route_secret_unavailable",
+            b"capacity budget blocked: non-target route secret changed during collection": "qualification_capacity_route_secret_changed",
+            b"capacity budget blocked: non-target workload references isolated DEV instance": "qualification_capacity_non_target_references_database",
+        }
+        refusal = safe_errors.get(
+            result.stderr.strip(), "qualification_actual_capacity_not_admitted"
+        )
+        require(False, refusal)
     proof = {
         "report": json.loads(result.stdout),
         "observedAt": now(),
@@ -233,7 +243,7 @@ def capacity(folder: Path, current: dict) -> None:
         ],
     }
     proofs.capacity(proof, Target(current["environment"]))
-    write(folder, "capacity", proof)
+    write(folder, "capacity-early" if early else "capacity", proof)
 
 
 def deploy_prerequisites(folder: Path, target: Target, versions: dict) -> None:
@@ -308,9 +318,11 @@ def iam(folder: Path, current: dict) -> None:
 def iam_pre(folder: Path, current: dict) -> None:
     import qualification_iam
 
+    cloud = qualification_iam.ReadCloud(Target(current["environment"]))
     proof = qualification_iam.verify(
-        Target(current["environment"]), require_service=False
+        Target(current["environment"]), require_service=False, cloud=cloud
     )
+    cloud.verify_runtime_attachment()
     write(folder, "iam-pre", proof)
 
 
@@ -441,6 +453,9 @@ def main() -> int:
                 {
                     "source": source,
                     "image": build_image,
+                    "capacity-early": lambda folder, current: capacity(
+                        folder, current, early=True
+                    ),
                     "capacity": capacity,
                     "deploy": deploy,
                     "iam-pre": iam_pre,

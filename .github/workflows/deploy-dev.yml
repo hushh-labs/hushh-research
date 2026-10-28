@@ -1968,6 +1968,9 @@ jobs:
       - name: Verify isolated runtime IAM prerequisites
         run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase iam-pre --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
 
+      - name: Preflight isolated capacity before image build
+        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase capacity-early --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
+
       - name: Build exact PLG source image
         timeout-minutes: 25
         run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase image --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""

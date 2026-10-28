@@ -259,6 +259,35 @@ def test_transport_refuses_secret_payload_and_write_methods(iam):
         reader._read("secretmanager", "v1/projects/x/secrets/y/versions/latest:access")
     with pytest.raises(ValueError, match="iam_method_invalid"):
         reader._read("secretmanager", "v1/projects/x/secrets/y:setIamPolicy", policy_body=True)
+    with pytest.raises(ValueError, match="iam_attachment_permission_path_invalid"):
+        reader._read(
+            "iam",
+            "v1/projects/other/serviceAccounts/other:testIamPermissions",
+            attachment_permission=True,
+        )
+
+
+def test_runtime_attachment_check_requires_the_exact_permission(iam, monkeypatch):
+    reader = object.__new__(iam.ReadCloud)
+    reader.target = iam.Target("dev")
+    calls = []
+
+    def observe(api, path, **kwargs):
+        calls.append((api, path, kwargs))
+        return {"permissions": ["iam.serviceAccounts.actAs"]}
+
+    monkeypatch.setattr(reader, "_read", observe)
+    reader.verify_runtime_attachment()
+    assert calls == [
+        (
+            "iam",
+            f"v1/projects/{reader.target.project}/serviceAccounts/{reader.target.runtime_sa}:testIamPermissions",
+            {"attachment_permission": True},
+        )
+    ]
+    monkeypatch.setattr(reader, "_read", lambda *_a, **_kw: {})
+    with pytest.raises(ValueError, match="qualification_runtime_attachment_permission_missing"):
+        reader.verify_runtime_attachment()
 
 
 def test_only_service_404_is_tolerated_for_predeploy(iam):
