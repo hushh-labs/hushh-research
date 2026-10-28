@@ -126,6 +126,9 @@ async def test_email_keeps_authority_until_provider_stops(monkeypatch, cancel_co
 
     async def thread(fn, *args, **kwargs):
         if fn is mod.lookup_fresh_owner_identity:
+            # With generation admission on, this read takes the owner's graph lock shared on
+            # its own connection, so it must never run inside the locked transaction.
+            assert not held["value"], "recipient lookup ran under the owner graph lock"
             return SimpleNamespace(
                 uid="owner", disabled=False, email_verified=True, email="owner@example.test"
             )
@@ -168,10 +171,13 @@ async def test_email_keeps_authority_until_provider_stops(monkeypatch, cancel_co
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("blocked_by", ["flag", "expired", "consent", "generation", "draft"])
+@pytest.mark.parametrize(
+    "blocked_by", ["flag", "expired", "consent", "generation", "draft", "deleted"]
+)
 async def test_notification_revalidates_authority(monkeypatch, blocked_by):
     generation, draft = uuid4(), uuid4()
     current = {
+        "deleted": blocked_by == "deleted",
         "enabled": blocked_by != "consent",
         "email_enabled": True,
         "generation": uuid4() if blocked_by == "generation" else generation,

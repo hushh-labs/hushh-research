@@ -74,7 +74,7 @@ const newsPage: KaiMarketNewsPage = {
   provider_status: {},
 };
 
-export function useAuth() { return { user: isNewsFixture() ? { uid: "market-news-layout" } : null, loading: false }; }
+export function useAuth() { const user = isNewsFixture() ? { uid: "market-news-layout" } : null; return { user, userId: user?.uid ?? null, loading: false }; }
 export function useVault() { return { vaultKey: null, vaultOwnerToken: null }; }
 export function useStaleResource() {
   const [data, setData] = useState(isNewsFixture() ? newsPage : payload);

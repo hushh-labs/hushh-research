@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ScopeTariffEditor, type SharingPriceReviewRequest } from "@/components/consent/scope-tariff-editor";
 import { useCommerceSession } from "@/components/consent/use-commerce-session";
+import { useAuth } from "@/hooks/use-auth";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useVault } from "@/lib/vault/vault-context";
@@ -21,7 +22,8 @@ export function PkmDomainSharing({ userId, title, manifest, pendingKey, onChange
   heading?: string;
   onPaymentsNavigate?: () => boolean;
 }) {
-  const { user, capture } = useCommerceSession(`domain-sharing:${userId}:${manifest.domain}:${manifest.manifest_version}`);
+  const { userId: ownerId } = useAuth();
+  const { capture } = useCommerceSession(`domain-sharing:${userId}:${manifest.domain}:${manifest.manifest_version}`);
   const { vaultOwnerToken, isVaultUnlocked } = useVault();
   const [catalog, setCatalog] = useState<ReadonlyArray<Record<string, unknown>>>([]);
   const [checking, setChecking] = useState(true);
@@ -34,7 +36,7 @@ export function PkmDomainSharing({ userId, title, manifest, pendingKey, onChange
   const handles = sections.map(section => section.scopeHandle!);
   const whole = targets.find(target => target.machineScope === `attr.${manifest.domain}.*`);
   const available = sections.length > 0 && sections.every(section => section.enabled);
-  const valid = Boolean(user?.uid === userId && isVaultUnlocked && vaultOwnerToken &&
+  const valid = Boolean(ownerId === userId && isVaultUnlocked && vaultOwnerToken &&
     (!manifest.user_id || manifest.user_id === userId) && Number.isSafeInteger(manifest.manifest_version) && manifest.manifest_version > 0);
 
   useEffect(() => {

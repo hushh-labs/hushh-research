@@ -101,19 +101,18 @@ function WalletProfileShell({ embedded, title, description, children, preview }:
 type WalletCardWorkspaceProps = { embedded?: boolean; passVariant?: WalletPassVariant; active?: boolean; nativeRender?: (model: WalletProfileOwner) => ReactNode };
 
 export function WalletCardWorkspace(props: WalletCardWorkspaceProps = {}) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
   // Owner changes and vault locks discard all card, draft, and visitor state
   // during render. Late requests can only update the unmounted owner's tree.
-  const ownerScope = `${user?.uid ?? "anonymous"}:${isVaultUnlocked && vaultOwnerToken ? "ready" : "locked"}`;
+  const ownerScope = `${userId ?? "anonymous"}:${isVaultUnlocked && vaultOwnerToken ? "ready" : "locked"}`;
   return <WalletCardOwnerWorkspace key={ownerScope} {...props} />;
 }
 
 export function useWalletProfileOwner({ embedded = false, passVariant = "profile", active = true, nativeRender }: WalletCardWorkspaceProps) {
-  const { user, loading: authLoading, phoneNumber } = useAuth();
+  const { user, userId, loading: authLoading, phoneNumber } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
   const avatarUrl = useEffectiveAvatarUrl();
-  const userId = user?.uid ?? null;
   const loadGeneration = useRef(0);
 
   const [stage, setStage] = useState<WalletCardStage>("loading");

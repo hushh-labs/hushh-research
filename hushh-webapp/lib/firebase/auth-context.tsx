@@ -85,6 +85,7 @@ import {
   snapshotValidatedAuthSessionOwner,
   isValidatedAuthSessionOwnerCurrent,
   getAuthSessionGeneration,
+  lastAdmittedOwnerFor,
   type AuthSessionVerificationRequiredDetail,
   type AuthSessionOwnerSnapshot,
 } from "@/lib/auth/session-owner";
@@ -109,8 +110,31 @@ const NATIVE_SESSION_PRIVACY_READ_BUDGET_MS = 2_000;
 
 type AccountSessionValidationResult =
   | { outcome: "active"; principal: AccountPrincipalBinding }
-  | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery }
+  | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery; departure?: AuthSessionInvalidationCode }
   | { outcome: "terminal"; code: AuthSessionInvalidationCode };
+
+const DEPARTED_ACCOUNT_CODES: ReadonlySet<AuthSessionInvalidationCode> = new Set([
+  "account_not_found", "account_deleted", "account_deleted_ready_to_start_fresh",
+  "account_deletion_finishing", "account_deletion_identity_retained",
+]);
+
+/**
+ * The backend or Firebase confirmed this account is gone (never an uncertain
+ * outcome or a disabled account), so the device key material it owned goes too.
+ * Durable device copies follow only a backend-confirmed erasure, never the
+ * broader Firebase account_not_found.
+ */
+function purgeDepartedAccountDevice(ownerId: string, code: AuthSessionInvalidationCode): void {
+  if (!DEPARTED_ACCOUNT_CODES.has(code)) return;
+  void UserLocalStateService.clearDeviceSecretsForDeletedAccount(ownerId);
+  if (code === "account_not_found") return;
+  CacheSyncService.onAccountDeleted(ownerId);
+  void UserLocalStateService.clearForUser(ownerId, {
+    deleteDurableReceipts: true,
+  }).catch((error: unknown) => {
+    console.warn("[AuthProvider] Deleted-account device cleanup incomplete:", error);
+  });
+}
 
 function authInvalidationUserIdFromError(error: unknown): string | null {
   let current: unknown = error;
@@ -715,8 +739,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return { outcome: "active", principal };
       };
 
-      const resolveRegistrationRecovery = (idToken: string, terminal: AccountSessionValidationResult): Promise<AccountSessionValidationResult> =>
-        terminal.outcome === "terminal" ? resolveAccountLifecycleRecovery(idToken, deadlineMs, terminal) : Promise.resolve(terminal);
+      const resolveRegistrationRecovery = async (idToken: string, terminal: AccountSessionValidationResult): Promise<AccountSessionValidationResult> => {
+        if (terminal.outcome !== "terminal") return terminal;
+        // Captured with the terminal evidence, before a later start fresh can
+        // admit this identity's next owner.
+        const departingOwner = lastAdmittedOwnerFor(candidateUser.uid) ?? candidateUser.uid;
+        const recovery = await resolveAccountLifecycleRecovery(idToken, deadlineMs, terminal, departingOwner);
+        // Registration replaces the terminal sign-out that would have purged
+        // the departed owner's device state, so purge it here instead.
+        if (recovery.outcome === "unavailable" && recovery.registration && recovery.departure) {
+          purgeDepartedAccountDevice(departingOwner, recovery.departure);
+        }
+        return recovery;
+      };
 
       const resolveDeletionInProgress = async (
         idToken: string,
@@ -1040,8 +1075,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // A terminal native cold-restore event is dispatched before the restored
         // user is published. Retain that exact UID in the invalidation latch so
         // its local vault/cache state is still destroyed during sign-out.
+        // A withdrawn start-fresh owner is still this identity's departing owner.
         const currentUid =
-          initiatingPrincipal?.ownerId ?? currentUser?.uid ??
+          initiatingPrincipal?.ownerId ?? lastAdmittedOwnerFor(currentUser?.uid) ?? currentUser?.uid ??
           terminalInvalidationLatchRef.current?.invalidatedUserId ??
           null;
         const redirectTo = options?.redirectTo || ROUTES.HOME;
@@ -1068,7 +1104,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           ownsExpectedSession = stillOwnsExpectedSession();
           if (!ownsExpectedSession) return;
 
-          const cleanupTasks: Promise<unknown>[] = [AuthService.signOut(expectedFirebaseUid)];
+          // signOut keys local notification cleanup by the application owner.
+          const cleanupTasks: Promise<unknown>[] = [AuthService.signOut(currentUid ?? expectedFirebaseUid)];
           // The httpOnly session cookie exists only on the web/Next.js origin.
           // Native static builds authenticate directly against the backend, where
           // `/api/auth/session` is intentionally not a route.
@@ -1385,30 +1422,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         : "session_invalid";
       console.warn("🔒 [AuthProvider] Auth session invalidated:", code);
       const invalidatedUserId = eventUserId || currentUserId;
-      if (
-        invalidatedUserId &&
-        (code === "account_not_found" || code === "account_deleted" || code === "account_deleted_ready_to_start_fresh" || code === "account_deletion_finishing" || code === "account_deletion_identity_retained")
-      ) {
-        // The backend or Firebase confirmed this account is gone (never an
-        // uncertain outcome or a disabled account), so the device key material
-        // it owned goes too -- also on sibling tabs and other devices. This
-        // runs before the duplicate-signal latch so a later deletion signal is
-        // not lost behind an earlier session_invalid teardown.
-        void UserLocalStateService.clearDeviceSecretsForDeletedAccount(
-          invalidatedUserId,
-        );
-        // Durable device copies follow only a backend-confirmed erasure, never
-        // the broader Firebase account_not_found. Deletion settles after a 202
-        // handoff, so delete-account.ts's own terminal purge never runs.
-        if (code !== "account_not_found") {
-          CacheSyncService.onAccountDeleted(invalidatedUserId);
-          void UserLocalStateService.clearForUser(invalidatedUserId, {
-            deleteDurableReceipts: true,
-          }).catch((error: unknown) => {
-            console.warn("[AuthProvider] Deleted-account device cleanup incomplete:", error);
-          });
-        }
-      }
+      // Also on sibling tabs and other devices. This runs before the
+      // duplicate-signal latch so a later deletion signal is not lost behind an
+      // earlier session_invalid teardown. Deletion settles after a 202 handoff,
+      // so delete-account.ts's own terminal purge never runs.
+      if (invalidatedUserId) purgeDepartedAccountDevice(invalidatedUserId, code);
       if (
         terminalInvalidationLatchRef.current ||
         authRecoveryInFlightRef.current

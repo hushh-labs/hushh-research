@@ -24,7 +24,10 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
 }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.owner ? { uid: mocks.owner } : null }),
+  useAuth: () => ({
+    user: mocks.owner ? { uid: mocks.owner } : null,
+    userId: mocks.owner,
+  }),
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname }));
 vi.mock("sonner", () => ({ toast: { success: mocks.toast, error: vi.fn() } }));

@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { AuthService } from "@/lib/services/auth-service";
+import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import {
   PodScheduledTasksClient,
   type ScheduledTasksStatus,
@@ -42,7 +42,7 @@ export function ScheduleFileDialog({
   useEffect(() => () => work.current?.abort(), []);
   useEffect(() => {
     if (!open) return;
-    const owner = AuthService.getCurrentUser()?.uid;
+    const owner = snapshotValidatedAuthSessionOwner()?.userId;
     if (!owner) return;
     const request = new AbortController();
     setStatus(null);
@@ -52,14 +52,14 @@ export function ScheduleFileDialog({
       .then((value) => {
         if (
           !request.signal.aborted &&
-          AuthService.getCurrentUser()?.uid === owner
+          snapshotValidatedAuthSessionOwner()?.userId === owner
         )
           setStatus(value);
       })
       .catch(() => {
         if (
           !request.signal.aborted &&
-          AuthService.getCurrentUser()?.uid === owner
+          snapshotValidatedAuthSessionOwner()?.userId === owner
         )
           setMessage("Could not verify scheduling. Reopen to try again.");
       });
@@ -72,7 +72,7 @@ export function ScheduleFileDialog({
   useBackLayer(ROUTES.ONE_FILES, open ? 2 : 0, close);
 
   const schedule = async () => {
-    const owner = AuthService.getCurrentUser()?.uid;
+    const owner = snapshotValidatedAuthSessionOwner()?.userId;
     const runAt = Math.floor(new Date(when).getTime() / 1000);
     if (pending.current) return;
     if (!owner) {
@@ -99,7 +99,7 @@ export function ScheduleFileDialog({
     const request = new AbortController();
     work.current = request;
     const current = () =>
-      !request.signal.aborted && AuthService.getCurrentUser()?.uid === owner;
+      !request.signal.aborted && snapshotValidatedAuthSessionOwner()?.userId === owner;
     const operation = new PodScheduledTasksClient(owner)
       .organizeFile(file, runAt, selection.requestId, request.signal)
       .then((task) => {

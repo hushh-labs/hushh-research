@@ -16,6 +16,12 @@ from hushh_mcp.services.pod_consent_read import PodConsentReadPort
 async def admit_continuation(
     forwarded: dict, input_data: RunAgentInput, owner: PodChatContext, app_name: str
 ) -> dict:
+    if forwarded.get("consentContinuation") is None and forwarded.get("financeShare") is None:
+        return {}
+
+    async def finance_lookup(owner_id, source_ref):
+        return await PodConsentReadPort(owner).get(requester_user_id=owner_id, bundle_id=source_ref)
+
     try:
         return await admit_session_continuation(
             forwarded,
@@ -25,6 +31,7 @@ async def admit_continuation(
             app_name=app_name,
             get_bundle=PodConsentReadPort(owner).get,
             person_name=lambda _: "they",
+            finance_lookup=finance_lookup,
         )
     except ConsentContinuationError as exc:
         raise HTTPException(exc.status_code, detail=str(exc)) from None

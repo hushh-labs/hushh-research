@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
   assign: vi.fn(),
   refresh: vi.fn(),
   pathname: "/one/setup/cloud/azure/return",
-  auth: { user: { uid: "owner" } as { uid: string } | null, loading: false, sessionVerificationRequired: false },
+  auth: { user: { uid: "owner" } as { uid: string } | null, userId: "owner" as string | null, loading: false, sessionVerificationRequired: false },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -222,7 +222,7 @@ describe("verified owner cold entry before shell hydration", () => {
     vi.clearAllMocks();
     resetBootSurfaceForTests();
     mocks.pathname = "/one/setup/cloud/azure/return";
-    mocks.auth = { user: { uid: "owner" }, loading: false, sessionVerificationRequired: false };
+    mocks.auth = { user: { uid: "owner" }, userId: "owner", loading: false, sessionVerificationRequired: false };
     complete.mockResolvedValue({ status: "upgrade_started", jobId: "job-2", operationId: "op", releaseId: "rel_exact" });
     setupStatus.mockResolvedValue(job({ status: "running" }));
   });
@@ -274,7 +274,7 @@ describe("verified owner cold entry before shell hydration", () => {
   it.each(["different route", "signed out", "verification pending", "loading"])(
     "does not recover with %s", async (condition) => {
       if (condition === "different route") mocks.pathname = "/login";
-      if (condition === "signed out") mocks.auth.user = null;
+      if (condition === "signed out") { mocks.auth.user = null; mocks.auth.userId = null; }
       if (condition === "verification pending") mocks.auth.sessionVerificationRequired = true;
       if (condition === "loading") mocks.auth.loading = true;
       render(<AzureReturnBootRecovery />);
@@ -297,7 +297,7 @@ describe("verified owner cold entry before shell hydration", () => {
   it("cancels the pending recovery if the owner signs out", async () => {
     const view = render(<AzureReturnBootRecovery />);
     await act(async () => { await vi.advanceTimersByTimeAsync(BOOT_TIMING.stuckAfterMs - 1); });
-    mocks.auth = { ...mocks.auth, user: null };
+    mocks.auth = { ...mocks.auth, user: null, userId: null };
     view.rerender(<AzureReturnBootRecovery />);
     await act(async () => { await vi.advanceTimersByTimeAsync(BOOT_TIMING.stuckAfterMs); });
     expect(mocks.refresh).not.toHaveBeenCalled();

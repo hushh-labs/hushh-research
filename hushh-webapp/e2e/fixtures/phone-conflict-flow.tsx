@@ -1,7 +1,8 @@
 /** Production phone journey, with recorded provider selection outside the app. */
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Toaster } from "sonner";
+import { Toaster } from "../../components/ui/sonner";
+import "../../app/globals.css";
 import { AuthProvider, useAuth } from "../../lib/firebase/auth-context";
 import { VaultContext } from "../../lib/vault/vault-context";
 import { PhoneMandatePageContent } from "../../app/register-phone/page";
@@ -37,7 +38,12 @@ function Journey() {
       {notice ? <p role="status">{notice.message}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
     </main> : <main><h1>Journey destination</h1><output data-testid="phone-fixture-destination">{path}</output>{notice ? <p role="status">{notice.message}</p> : null}</main>}
-    <Toaster />
+    <Toaster
+      position="top-center"
+      closeButton
+      offset={{ top: "calc(var(--top-inset, 0px) + 12px)" }}
+      mobileOffset={{ top: "calc(var(--top-inset, 0px) + 12px)", left: "1rem", right: "1rem" }}
+    />
   </>;
 }
 createRoot(document.getElementById("root")!).render(<AuthProvider><VaultContext.Provider value={lockedVault}><Journey /></VaultContext.Provider></AuthProvider>);

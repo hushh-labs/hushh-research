@@ -75,6 +75,7 @@ export function PhoneMandatePageContent() {
   const recoveryId = phoneRecoveryId(searchParams.get("recovery"));
   const {
     user,
+    userId: ownerId,
     loading,
     phoneNumber,
     sessionVerificationRequired,
@@ -109,12 +110,14 @@ export function PhoneMandatePageContent() {
       }
 
       const identity = await AccountIdentityService.syncCurrentUser(activeUser);
+      // Root state is keyed by the application owner, not the Firebase UID.
+      const owner = ownerId ?? activeUser.uid;
       // Phone verification is an onboarding boundary, not a generic post-auth
       // redirect. Refresh the authoritative root state before resolving a
       // destination: a stale cached bootstrap result must never let a newly
       // verified account skip One setup and land in Profile/Home.
       const setupResolved = await PreVaultUserStateService.bootstrapState(
-        activeUser.uid,
+        owner,
         {
           force: true,
         },
@@ -167,7 +170,7 @@ export function PhoneMandatePageContent() {
         ? claimRoute
         : setupResolved
         ? await PostAuthRouteService.resolveAfterLogin({
-            userId: activeUser.uid,
+            userId: owner,
             redirectPath,
             idToken,
             phoneNumber: activeUser.phoneNumber,
@@ -175,7 +178,7 @@ export function PhoneMandatePageContent() {
           })
         : buildOneSetupRoute({ returnTo: redirectPath });
       await PreVaultUserStateService.syncOnboardingJourney({
-        userId: activeUser.uid,
+        userId: owner,
         // A destination is never proof that root onboarding resolved. Only the
         // hub's durable Finish/Skip write can move the journey to completion.
         phase: resolvePostPhoneOnboardingPhase(setupResolved),
@@ -189,7 +192,7 @@ export function PhoneMandatePageContent() {
       });
       router.replace(nextPath);
     },
-    [redirectPath, refreshUser, router, user, phoneNumber],
+    [ownerId, redirectPath, refreshUser, router, user, phoneNumber],
   );
 
   const [verificationStep, setVerificationStep] = useState<
@@ -211,7 +214,7 @@ export function PhoneMandatePageContent() {
   const [admissionRetry, setAdmissionRetry] = useState(0);
 
   useEffect(() => {
-    if (!user || sessionVerificationRequired || recoveryId) return;
+    if (!user || !ownerId || sessionVerificationRequired || recoveryId) return;
     const userId = user.uid;
     let cancelled = false;
     setAdmission(null);
@@ -223,7 +226,7 @@ export function PhoneMandatePageContent() {
     }
     void (async () => {
       if (admissionRetry > 0) {
-        await PreVaultUserStateService.bootstrapState(userId, { force: true });
+        await PreVaultUserStateService.bootstrapState(ownerId, { force: true });
       }
       // Accepting a token invitation is an explicit phone-verification operation.
       // Generic onboarding correctly exempts established accounts, but applying
@@ -252,7 +255,7 @@ export function PhoneMandatePageContent() {
         }
       }
       const nextPath = await PostAuthRouteService.resolveAfterLogin({
-        userId,
+        userId: ownerId,
         redirectPath,
         phoneNumber,
         hostname: window.location.hostname,
@@ -271,7 +274,7 @@ export function PhoneMandatePageContent() {
     // Admission is per owner, not per token refresh or OTP callback. Once the
     // form opens, keep it mounted until its completion handler settles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid, redirectPath, admissionRetry, sessionVerificationRequired, recoveryId]);
+  }, [user?.uid, ownerId, redirectPath, admissionRetry, sessionVerificationRequired, recoveryId]);
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -305,7 +308,8 @@ export function PhoneMandatePageContent() {
     );
   }
 
-  if (sessionVerificationRequired) {
+  // Like PhoneMandateGuard: without a validated owner, admission cannot run.
+  if (sessionVerificationRequired || (!loading && !ownerId)) {
     return (
       <SessionVerificationRecovery
         onRetry={() => void retrySessionVerification()}

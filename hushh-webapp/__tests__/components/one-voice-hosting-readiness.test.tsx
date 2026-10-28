@@ -7,7 +7,7 @@ import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 const { state, hosting, readiness } = vi.hoisted(() => ({
   state: { uid: "owner-a" }, hosting: vi.fn(), readiness: vi.fn(),
 }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid }, userId: state.uid }) }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {
   getPersonalAgentStatus: hosting, getOneVoiceReadiness: readiness,
 } }));

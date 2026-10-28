@@ -61,6 +61,8 @@ let browserUserId: string | null = null;
 let browserGeneration = 0;
 let browserPrincipal: AccountPrincipalBinding | null = null;
 let browserFirebaseUid: string | null = null;
+// Kept through a withdrawal of the same identity so departure cleanup still reaches that owner.
+let lastAdmittedPrincipal: AccountPrincipalBinding | null = null;
 const generationListeners = new Set<() => void>();
 
 /** Identity payloads stay in this module; subscribers only learn that it changed. */
@@ -83,6 +85,7 @@ export function publishValidatedAuthSessionOwner(userId: string | null): void {
   if (typeof window === "undefined") return;
   const normalizedUserId = String(userId || "").trim() || null;
   if (browserUserId === normalizedUserId && browserPrincipal === null && browserFirebaseUid === normalizedUserId) return;
+  if (lastAdmittedPrincipal?.firebaseUid !== normalizedUserId) lastAdmittedPrincipal = null;
   browserPrincipal = null;
   browserFirebaseUid = normalizedUserId;
   browserUserId = normalizedUserId;
@@ -94,6 +97,7 @@ export function publishValidatedAuthSessionOwner(userId: string | null): void {
 export function publishPendingAuthSessionIdentity(firebaseUid: string, forceNewEpisode = false): void {
   if (typeof window === "undefined") return;
   if (!forceNewEpisode && browserUserId === null && browserPrincipal === null && browserFirebaseUid === firebaseUid) return;
+  if (lastAdmittedPrincipal?.firebaseUid !== firebaseUid) lastAdmittedPrincipal = null;
   browserUserId = null;
   browserPrincipal = null;
   browserFirebaseUid = firebaseUid;
@@ -110,6 +114,7 @@ export function publishValidatedAuthSessionPrincipal(principal: AccountPrincipal
   browserUserId = principal.ownerId;
   browserFirebaseUid = principal.firebaseUid;
   browserPrincipal = { ...principal };
+  lastAdmittedPrincipal = { ...principal };
   browserGeneration += 1;
   notifyAuthSessionGeneration();
 }
@@ -117,6 +122,18 @@ export function publishValidatedAuthSessionPrincipal(principal: AccountPrincipal
 export function snapshotValidatedAuthSessionPrincipal(): (AccountPrincipalBinding & AuthSessionOwnerSnapshot) | null {
   if (typeof window === "undefined" || !browserPrincipal || !browserUserId) return null;
   return { ...browserPrincipal, userId: browserUserId, generation: browserGeneration };
+}
+
+/** Maps only the current session's owner to its Firebase identity; any other value passes through. */
+export function firebaseUidForOwner(ownerId: string): string {
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  return principal?.ownerId === ownerId ? principal.firebaseUid : ownerId;
+}
+
+/** The owner last admitted for this Firebase identity, even after a withdrawal. Departure cleanup only. */
+export function lastAdmittedOwnerFor(firebaseUid: string | null | undefined): string | null {
+  if (typeof window === "undefined" || !firebaseUid) return null;
+  return lastAdmittedPrincipal?.firebaseUid === firebaseUid ? lastAdmittedPrincipal.ownerId : null;
 }
 
 /** Includes anonymous transitions so a prior guest session cannot become current again. */

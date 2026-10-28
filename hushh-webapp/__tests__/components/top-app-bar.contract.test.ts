@@ -350,7 +350,7 @@ describe("Top app bar responsive contract", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
     expect(source).toContain("showVaultUnlockAction");
-    expect(source).toContain("VaultService.checkVault(user.uid)");
+    expect(source).toContain("VaultService.checkVault(userId)");
     expect(source).toContain('aria-label="Unlock vault"');
     expect(source).toContain("<AccentedKeyIcon");
     expect(source).not.toContain(

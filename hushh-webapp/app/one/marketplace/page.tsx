@@ -453,7 +453,7 @@ function OneMarketplaceDisabledView() {
 }
 
 function OneMarketplacePageImpl() {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const token = vaultOwnerToken ?? undefined;
 
@@ -477,7 +477,7 @@ function OneMarketplacePageImpl() {
   const [received, setReceived] = useState<MarketplaceRequest[]>([]);
   // Per-request decrypted delivery state, populated lazily on "View delivered information".
   const [deliveries, setDeliveries] = useState<Record<string, DeliveryState>>({});
-  useEffect(() => { setDeliveries({}); }, [user?.uid, isVaultUnlocked]);
+  useEffect(() => { setDeliveries({}); }, [userId, isVaultUnlocked]);
 
   const [records, setRecords] = useState<DomainRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -510,7 +510,7 @@ function OneMarketplacePageImpl() {
   // decryption happens locally and a slice from another device simply can't open.
   const viewDelivery = useCallback(
     async (request: MarketplaceRequest) => {
-      if (!vaultOwnerToken || !user?.uid) {
+      if (!vaultOwnerToken || !userId) {
         toast.error("Unlock your vault to open the delivered slice.");
         return;
       }
@@ -518,7 +518,7 @@ function OneMarketplacePageImpl() {
       const current = () => isVaultSessionEpochCurrent(vaultEpoch);
       setDeliveries((current) => ({ ...current, [request.id]: { status: "loading" } }));
       try {
-        const delivery = await openMarketplaceDeliveryPresentations({ request, userId: user.uid, vaultKey, vaultOwnerToken });
+        const delivery = await openMarketplaceDeliveryPresentations({ request, userId, vaultKey, vaultOwnerToken });
         if (!current()) return;
         if (!delivery) {
           setDeliveries((current) => ({ ...current, [request.id]: { status: "empty" } }));
@@ -542,7 +542,7 @@ function OneMarketplacePageImpl() {
         }));
       }
     },
-    [vaultOwnerToken, vaultKey, user?.uid],
+    [vaultOwnerToken, vaultKey, userId],
   );
 
   // Load the anonymized cross-user Buyer directory (other users' published slices).
@@ -567,7 +567,7 @@ function OneMarketplacePageImpl() {
   // manifest is the source of shareable sections and their consent posture.
   useEffect(() => {
     let cancelled = false;
-    if (!user?.uid) {
+    if (!userId) {
       setRecords([]);
       return;
     }
@@ -581,12 +581,12 @@ function OneMarketplacePageImpl() {
     setError(null);
     (async () => {
       try {
-        const metadata = await PersonalKnowledgeModelService.getMetadata(user.uid, false, token);
+        const metadata = await PersonalKnowledgeModelService.getMetadata(userId, false, token);
         const summaries = (metadata.domains || []).filter((d) => d.key);
         const loaded = await Promise.all(
           summaries.map(async (summary) => {
             const manifest = await PersonalKnowledgeModelService.getDomainManifest(
-              user.uid,
+              userId,
               summary.key,
               token
             ).catch(() => null);
@@ -617,11 +617,11 @@ function OneMarketplacePageImpl() {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid, isVaultUnlocked, token, refreshToken]);
+  }, [userId, isVaultUnlocked, token, refreshToken]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!user?.uid || !token || records.length === 0) {
+    if (!userId || !token || records.length === 0) {
       setPublishedProfiles({});
       return;
     }
@@ -629,7 +629,7 @@ function OneMarketplacePageImpl() {
       records.map(async (record) => ({
         domain: record.summary.key,
         rows: await PersonalKnowledgeModelService.listPublicProfileProjections({
-          userId: user.uid,
+          userId,
           domain: record.summary.key,
           vaultOwnerToken: token,
         }).catch(() => []),
@@ -647,7 +647,7 @@ function OneMarketplacePageImpl() {
     return () => {
       cancelled = true;
     };
-  }, [records, token, user?.uid, refreshToken]);
+  }, [records, token, userId, refreshToken]);
 
   interface Section {
     key: string;
@@ -712,7 +712,7 @@ function OneMarketplacePageImpl() {
   // Encrypted PKM posture is independent from public-profile publishing.
   const runPosture = useCallback(
     async (section: Section, nextPosture: PkmVisibilityPosture) => {
-      if (!user?.uid || !vaultOwnerToken) {
+      if (!userId || !vaultOwnerToken) {
         toast.error("Unlock your vault to change sharing.");
         return;
       }
@@ -728,7 +728,7 @@ function OneMarketplacePageImpl() {
       replaceManifest(section.domainKey, optimistic);
       try {
         const { manifest } = await applySlicePosture({
-          userId: user.uid,
+          userId,
           domain: section.domainKey,
           domainTitle: section.domainTitle,
           permission: {
@@ -744,7 +744,7 @@ function OneMarketplacePageImpl() {
 
         const fresh = token
           ? await PersonalKnowledgeModelService.getDomainManifest(
-              user.uid,
+              userId,
               section.domainKey,
               token,
               true
@@ -759,11 +759,11 @@ function OneMarketplacePageImpl() {
             : "One will ask before sharing this section."
         );
       } catch (err) {
-        if (err instanceof PkmScopeExposureError && err.status === 409 && user?.uid && token) {
+        if (err instanceof PkmScopeExposureError && err.status === 409 && userId && token) {
           // Client manifest was stale (a prior change bumped the version). Re-sync
           // the live manifest so the next toggle uses the current version.
           const fresh = await PersonalKnowledgeModelService.getDomainManifest(
-            user.uid,
+            userId,
             section.domainKey,
             token,
             true
@@ -782,12 +782,12 @@ function OneMarketplacePageImpl() {
         });
       }
     },
-    [user?.uid, vaultOwnerToken, token, replaceManifest]
+    [userId, vaultOwnerToken, token, replaceManifest]
   );
 
   const runPublish = useCallback(
     async (section: Section) => {
-      if (!user?.uid || !vaultOwnerToken || !vaultKey) {
+      if (!userId || !vaultOwnerToken || !vaultKey) {
         toast.error("Unlock your vault to publish a public profile.");
         return;
       }
@@ -798,7 +798,7 @@ function OneMarketplacePageImpl() {
       setPending((current) => ({ ...current, [section.key]: true }));
       try {
         const handle = await publishPublicProfileForPermission({
-          userId: user.uid,
+          userId,
           domain: section.domainKey,
           domainTitle: section.domainTitle,
           permission: {
@@ -825,17 +825,17 @@ function OneMarketplacePageImpl() {
         });
       }
     },
-    [user?.uid, vaultKey, vaultOwnerToken],
+    [userId, vaultKey, vaultOwnerToken],
   );
 
   const runUnpublish = useCallback(
     async (section: Section) => {
       const handle = publishedProfiles[section.key];
-      if (!user?.uid || !vaultOwnerToken || !handle) return;
+      if (!userId || !vaultOwnerToken || !handle) return;
       setPending((current) => ({ ...current, [section.key]: true }));
       try {
         await PersonalKnowledgeModelService.unpublishPublicProfileProjection({
-          userId: user.uid,
+          userId,
           domain: section.domainKey,
           publicProfileHandle: handle,
           vaultOwnerToken,
@@ -856,7 +856,7 @@ function OneMarketplacePageImpl() {
         });
       }
     },
-    [publishedProfiles, user?.uid, vaultOwnerToken],
+    [publishedProfiles, userId, vaultOwnerToken],
   );
 
   const onTogglePosture = useCallback(
@@ -912,14 +912,14 @@ function OneMarketplacePageImpl() {
   // owner's inbox — this is a two-account request, not a simulated one.
   const confirmRequestListing = useCallback(() => {
     const listing = requestListing;
-    if (!listing || !vaultOwnerToken || !vaultKey || !user || !requestPurpose.trim()) {
+    if (!listing || !vaultOwnerToken || !vaultKey || !userId || !requestPurpose.trim()) {
       setRequestListing(null);
       return;
     }
     setRequestListing(null);
     void (async () => {
       try {
-        const connector = await OneKycClientZkService.ensureConnector({ userId: user.uid, vaultKey, vaultOwnerToken });
+        const connector = await OneKycClientZkService.ensureConnector({ userId, vaultKey, vaultOwnerToken });
         await OneMarketplaceService.requestListing({
           vaultOwnerToken,
           listingId: listing.listingId,
@@ -933,7 +933,7 @@ function OneMarketplacePageImpl() {
         toast.error("Couldn't file the request. Try again.");
       }
     })();
-  }, [requestListing, vaultOwnerToken, vaultKey, user, requestPurpose, requestHours, loadReceived]);
+  }, [requestListing, vaultOwnerToken, vaultKey, userId, requestPurpose, requestHours, loadReceived]);
 
   // Approve/deny live entirely in the Consent Guardian now — a marketplace
   // request surfaces there as a normal consent row (see
@@ -1012,7 +1012,7 @@ function OneMarketplacePageImpl() {
       <div className="mb-5">
         <MarketplaceChatPanel
           vaultOwnerToken={token ?? null}
-          userId={user?.uid ?? null}
+          userId={userId}
           vaultKey={vaultKey}
           onStateChanged={loadReceived}
           onPublishSlice={onPublishSlice}
@@ -1138,7 +1138,7 @@ function OneMarketplacePageImpl() {
                           <>
                             <PriceLine input={priceInput(section)} token={token} showMath />
                             <PreviewToggle
-                              userId={user?.uid}
+                              userId={userId ?? undefined}
                               vaultKey={vaultKey}
                               token={token}
                               domainKey={section.domainKey}

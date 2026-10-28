@@ -213,7 +213,10 @@ vi.mock("next/navigation", () => {
 
 vi.mock("@/hooks/use-auth", () => ({
   useRequireAuth: mockUseRequireAuth,
-  useAuth: () => ({ user: mockUseRequireAuth().user }),
+  useAuth: () => {
+    const auth = mockUseRequireAuth();
+    return { user: auth.user, userId: auth.userId ?? null };
+  },
 }));
 
 vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
@@ -237,7 +240,7 @@ vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
 // CapabilityExploreCard (rendered on the location tab) reads useAuth from the
 // firebase auth context directly, so it needs its own stub in this harness.
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: { uid: "user_a" }, loading: false }),
+  useAuth: () => ({ user: { uid: "user_a" }, userId: "user_a", loading: false }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({

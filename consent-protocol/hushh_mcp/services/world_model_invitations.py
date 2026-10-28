@@ -15,7 +15,7 @@ from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users_async
 from hushh_mcp.services.one_owner_admission import owner_setup_resolved
-from hushh_mcp.services.world_model_service import owner_identity
+from hushh_mcp.services.world_model_service import fresh_owner_record, owner_identity
 
 
 def contact_commitment(contact: str) -> str:
@@ -28,9 +28,14 @@ def contact_commitment(contact: str) -> str:
     return hmac.new(key, b"pwm-claim-contact-v1\x00" + value.encode(), hashlib.sha256).hexdigest()
 
 
-async def verified_owner(user_id, consent_token, *, conn=None):
+async def verified_owner(user_id, consent_token, *, conn=None, record=None):
+    # A recheck under the owner graph lock reuses the record read before that lock:
+    # its generation-aware read takes the same lock shared on another connection.
     identity = await owner_identity(
-        user_id, consent_token, **({"conn": conn} if conn is not None else {})
+        user_id,
+        consent_token,
+        **({"conn": conn} if conn is not None else {}),
+        **({"record": record} if record is not None else {}),
     )
     if identity is None or not await owner_setup_resolved(user_id, conn=conn):
         raise PermissionError("Complete setup and verify your contact first")
@@ -87,7 +92,8 @@ async def create(
         if preview is None:
             preview = {"has_preview": False, "subject_name": subject_name}
 
-    await verified_owner(user_id, consent_token)
+    record = await fresh_owner_record(user_id)
+    await verified_owner(user_id, consent_token, record=record)
     commitment = contact_commitment(contact)
     secondary_commitment = contact_commitment(secondary_contact) if secondary_contact else None
     if secondary_commitment == commitment:
@@ -99,7 +105,7 @@ async def create(
     # Transaction-scoped owner lock makes the outstanding-invitation cap shared.
     async with pool.acquire(timeout=5) as conn, conn.transaction():
         await lock_connection_graph_users_async(conn, user_ids=[user_id])
-        await verified_owner(user_id, consent_token, conn=conn)
+        await verified_owner(user_id, consent_token, conn=conn, record=record)
         if preview_draft_id:
             current_draft = await reviews.STORE.get(user_id, conn=conn)
             if (
@@ -131,7 +137,8 @@ async def create(
 
 
 async def claim(user_id, consent_token, token):
-    await verified_owner(user_id, consent_token)
+    record = await fresh_owner_record(user_id)
+    await verified_owner(user_id, consent_token, record=record)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     pool = await get_pool()
     async with pool.acquire(timeout=5) as conn, conn.transaction():
@@ -141,7 +148,7 @@ async def claim(user_id, consent_token, token):
         if not inviter:
             raise ValueError("Invitation unavailable")
         await lock_connection_graph_users_async(conn, user_ids=[user_id, inviter])
-        identity = await verified_owner(user_id, consent_token, conn=conn)
+        identity = await verified_owner(user_id, consent_token, conn=conn, record=record)
         commitments = [
             contact_commitment(value)
             for key, value in identity.items()
@@ -277,7 +284,8 @@ async def preview(token):
 
 
 async def reject(user_id, consent_token, token):
-    await verified_owner(user_id, consent_token)
+    record = await fresh_owner_record(user_id)
+    await verified_owner(user_id, consent_token, record=record)
     pool = await get_pool()
     async with pool.acquire(timeout=5) as conn, conn.transaction():
         token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -287,7 +295,7 @@ async def reject(user_id, consent_token, token):
         if not inviter:
             return {"rejected": True}
         await lock_connection_graph_users_async(conn, user_ids=[user_id, inviter])
-        identity = await verified_owner(user_id, consent_token, conn=conn)
+        identity = await verified_owner(user_id, consent_token, conn=conn, record=record)
         commitments = [
             contact_commitment(identity[k]) for k in ("email", "phone_number") if identity.get(k)
         ]

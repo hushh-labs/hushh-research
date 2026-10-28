@@ -33,11 +33,11 @@ import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/n
 /** Continuous unlocked-session updates only. Closed/locked operation requires
  * the separately reviewed owner-controlled runtime, never a browser key cache. */
 export function LivingMemoryBridge() {
-  const { user } = useAuth();
+  const { userId: ownerId } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   useEffect(() => {
-    if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) return;
-    const userId = user.uid;
+    if (!ownerId || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) return;
+    const userId = ownerId;
     const epoch = snapshotVaultSessionEpoch();
     let stopped = false;
     let running = false;
@@ -284,6 +284,6 @@ export function LivingMemoryBridge() {
       clearMemoryDocument(userId);
       clearLivingSourceSessionVerification(userId);
     };
-  }, [user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked]);
+  }, [ownerId, vaultKey, vaultOwnerToken, isVaultUnlocked]);
   return null;
 }

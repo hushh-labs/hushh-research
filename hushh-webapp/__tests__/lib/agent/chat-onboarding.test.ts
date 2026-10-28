@@ -258,7 +258,7 @@ describe("what to help with first", () => {
     const workspace = readFileSync(join(root, "components/agent/agent-chat-workspace.tsx"), "utf8");
     expect(calendar).toContain('const connect = async (accessLevel: "read" | "manage" = "read",');
     expect(connectors).toContain('const connectMail = (purpose: "send" | "compose" = "send") =>');
-    expect(connectors).toContain('createGmailOAuthPopupAttempt(user.uid, purpose === "send" ? "send" : "read")');
+    expect(connectors).toContain('createGmailOAuthPopupAttempt(applicationOwnerId, purpose === "send" ? "send" : "read")');
     expect(workspace).toMatch(/if \(provider === "calendar"\) \{\s*calendarChatRecoveryRef\.current\(\);/);
     expect(workspace).not.toMatch(/if \(provider === "calendar"\) \{\s*router\.push\(ROUTES\.CALENDAR\);/);
   });

@@ -13,6 +13,15 @@ boundary line: "Updates while the app is open and unlocked." See the
 
 ## Visual Map
 
+Finance connection shares intentionally remain outside Live Memory. They are
+recipient-bound encrypted consent artifacts, not authority to capture another
+person's portfolio in the recipient's PKM, inventory, journal, or derived memory.
+Owner-side publication reads the existing financial source after its confirmed
+save. One's explicit review uses transient request secrets and the existing
+no-tools shared-context boundary; revocation/expiry redacts derived context and
+history. The authoritative relationship/policy/ciphertext records are declared
+as `finance_connection_sharing` in the runtime DB contract.
+
 ```mermaid
 flowchart LR
   Authority[Owner source authority] --> Snapshot[Verified bounded snapshot]

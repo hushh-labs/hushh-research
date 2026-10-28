@@ -27,12 +27,13 @@ import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-ac
 import { ROUTES } from "@/lib/navigation/routes";
 
 export function GlobalVoiceActionHandlers() {
-  const { user, signOut } = useAuth();
+  const { user, userId, signOut } = useAuth();
 
   useLocalOnboardingActionHandler(
     "profile.sign_out",
     async () => {
-      const ownerUid = user?.uid;
+      // signOut compares expectedUserId with the validated owner, not the Firebase UID.
+      const ownerUid = userId;
       if (!ownerUid) {
         return { status: "failed" as const, summary: "This session has already ended." };
       }

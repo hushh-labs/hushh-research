@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const memory = vi.hoisted(() => ({ retrieve: vi.fn(), approve: vi.fn() }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" }, userId: "owner" }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: true, vaultKey: "test-key", vaultOwnerToken: "test-token" }) }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getIdToken: async () => "test-id-token" } }));
 vi.mock("@/lib/services/account-identity-service", () => ({ AccountIdentityService: { refreshIdentityForSession: async () => ({ user_id: "owner", display_name: "Owner", email: "owner@example.test", photo_url: null }) } }));

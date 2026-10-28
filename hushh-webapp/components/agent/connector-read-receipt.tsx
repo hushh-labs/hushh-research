@@ -179,11 +179,11 @@ type LiveConnectionState = "checking" | "connected" | "reconnect" | "not_connect
  * surface; a failed read keeps the original prompt ("unknown").
  */
 function useLiveConnection(provider: WorkspaceConnectorProvider): LiveConnectionState {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const vaultOwnerToken = useContext(VaultContext)?.vaultOwnerToken ?? null;
   const idTokenProvider = useCallback(() => user?.getIdToken() ?? Promise.resolve(""), [user]);
   const calendar = useCalendarConnectionStatus({
-    userId: provider === "calendar" ? user?.uid ?? null : null,
+    userId: provider === "calendar" ? userId : null,
     idTokenProvider: provider === "calendar" && user ? idTokenProvider : null,
   });
   const [drive, setDrive] = useState<{ token: string; state: LiveConnectionState } | null>(null);
@@ -294,21 +294,21 @@ function CustomConnectorsCard({
 function GmailConnectorChatCard({ onOpenConnections }: {
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
 }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const token = useCallback(() => user?.getIdToken() ?? Promise.resolve(""), [user]);
-  const gmail = useGmailConnectorStatus({ userId: user?.uid, idTokenProvider: user ? token : null });
+  const gmail = useGmailConnectorStatus({ userId, idTokenProvider: user ? token : null });
   const [confirm, setConfirm] = useState(false);
   const [confirmOwner, setConfirmOwner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const ownerUid = user?.uid;
+  const ownerUid = userId;
   const refreshGmailStatus = gmail.refreshStatus;
   useEffect(() => {
     if (!ownerUid) return;
     void refreshGmailStatus().catch(() => undefined);
   }, [ownerUid, refreshGmailStatus]);
   useEffect(() => {
-    if (confirmOwner && confirmOwner !== user?.uid) setConfirm(false);
-  }, [confirmOwner, user?.uid]);
+    if (confirmOwner && confirmOwner !== userId) setConfirm(false);
+  }, [confirmOwner, userId]);
   const connected = Boolean(gmail.status?.connected && !gmail.status?.needs_reauth);
   const action = connected ? "Disconnect Gmail" : gmail.status?.needs_reauth ? "Reconnect Gmail" : "Connect Gmail";
   const gmailState = gmail.loadingStatus && !gmail.status ? "Checking" : connected ? "Connected" : gmail.status?.needs_reauth ? "Reconnect needed" : "Not connected";
@@ -318,7 +318,7 @@ function GmailConnectorChatCard({ onOpenConnections }: {
     title={`Gmail · ${gmailState}`}
     detail={!connected ? "Connecting does not share information with anyone." : undefined}
     action={<Button type="button" variant="muted" size="compact" disabled={busy || !user || (!connected && !onOpenConnections) || (gmail.loadingStatus && !gmail.status)}
-      onClick={event => { if (connected) { setConfirmOwner(user?.uid ?? null); setConfirm(true); } else onOpenConnections?.("gmail", event.currentTarget); }}>{action}</Button>}
+      onClick={event => { if (connected) { setConfirmOwner(userId); setConfirm(true); } else onOpenConnections?.("gmail", event.currentTarget); }}>{action}</Button>}
   >
     <AlertDialog open={confirm} onOpenChange={setConfirm}><AlertDialogContent size="sm"><AlertDialogHeader>
       <AlertDialogTitle>Disconnect Gmail?</AlertDialogTitle>
@@ -326,7 +326,7 @@ function GmailConnectorChatCard({ onOpenConnections }: {
     </AlertDialogHeader><AlertDialogFooter><AlertDialogCancel size="standard" className="min-w-0 w-full px-3" disabled={busy}>Cancel</AlertDialogCancel>
       <AlertDialogAction size="standard" className="min-w-0 w-full px-3" aria-label="Disconnect Gmail" disabled={busy} onClick={event => {
         event.preventDefault();
-        if (!confirmOwner || confirmOwner !== user?.uid || !connected) { setConfirm(false); return; }
+        if (!confirmOwner || confirmOwner !== userId || !connected) { setConfirm(false); return; }
         setBusy(true);
         const operation = gmail.disconnectGmail().then(result => {
           if (!result || result.connected) throw new Error("disconnect_failed");

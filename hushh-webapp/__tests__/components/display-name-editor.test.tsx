@@ -123,7 +123,7 @@ describe("DisplayNameEditor", () => {
     let model!: ReturnType<typeof useDisplayNameEditor>;
     let completion: ReturnType<typeof model.submit> | undefined;
     function Consumer() {
-      const editor = useDisplayNameEditor({ user: testUser });
+      const editor = useDisplayNameEditor({ user: testUser, ownerId: testUser.uid });
       useLayoutEffect(() => { model = editor; });
       useLayoutEffect(() => () => { completion = model.submit(); }, []);
       return null;
@@ -136,7 +136,7 @@ describe("DisplayNameEditor", () => {
   });
 
   it("starts from the current name and keeps Save off until it changes", () => {
-    render(<DisplayNameEditor user={testUser} />);
+    render(<DisplayNameEditor user={testUser} ownerId={testUser.uid} />);
     expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue(
       "Jhumma Kumari",
     );
@@ -149,14 +149,14 @@ describe("DisplayNameEditor", () => {
       data: { user_id: "user-1", display_name: "Stored Name" },
       isStale: false,
     } as never);
-    render(<DisplayNameEditor user={testUser} />);
+    render(<DisplayNameEditor user={testUser} ownerId={testUser.uid} />);
     expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue(
       "Stored Name",
     );
   });
 
   it("shows the mirrored rule inline and never calls the service for an invalid name", () => {
-    render(<DisplayNameEditor user={testUser} />);
+    render(<DisplayNameEditor user={testUser} ownerId={testUser.uid} />);
     typeName("@jhumma");
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Display name cannot contain links or handles.",
@@ -177,7 +177,7 @@ describe("DisplayNameEditor", () => {
       user_id: "user-1",
       display_name: "Jhumma Kay",
     });
-    render(<DisplayNameEditor user={testUser} onSaved={onSaved} />);
+    render(<DisplayNameEditor user={testUser} ownerId={testUser.uid} onSaved={onSaved} />);
 
     typeName("  Jhumma    Kumari-Two ");
     fireEvent.click(screen.getByRole("button", { name: "Save name" }));
@@ -208,7 +208,7 @@ describe("DisplayNameEditor", () => {
   it("never claims success when the response carries no name", async () => {
     const onSaved = vi.fn();
     vi.mocked(AccountIdentityService.updateDisplayName).mockResolvedValue(null);
-    render(<DisplayNameEditor user={testUser} onSaved={onSaved} />);
+    render(<DisplayNameEditor user={testUser} ownerId={testUser.uid} onSaved={onSaved} />);
 
     typeName("New Name");
     fireEvent.click(screen.getByRole("button", { name: "Save name" }));
@@ -233,7 +233,7 @@ describe("DisplayNameEditor", () => {
     vi.mocked(AccountIdentityService.refreshCurrentUserIdentity).mockReturnValue(pending);
     const otherUser = { ...testUser, uid: "user-2", displayName: "Other Owner" } as User;
     const onSaved = vi.fn();
-    const { rerender } = render(<DisplayNameEditor user={testUser} onSaved={onSaved} />);
+    const { rerender } = render(<DisplayNameEditor user={testUser} ownerId={testUser.uid} onSaved={onSaved} />);
     if (operation === "save") {
       typeName("Pending Name");
       fireEvent.click(screen.getByRole("button", { name: "Save name" }));
@@ -242,9 +242,9 @@ describe("DisplayNameEditor", () => {
         status: "updated", display_name: "Pending Name",
       }));
     }
-    rerender(<DisplayNameEditor user={otherUser} onSaved={onSaved} />);
+    rerender(<DisplayNameEditor user={otherUser} ownerId={otherUser.uid} onSaved={onSaved} />);
     expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue("Other Owner");
-    rerender(<DisplayNameEditor user={testUser} onSaved={onSaved} />);
+    rerender(<DisplayNameEditor user={testUser} ownerId={testUser.uid} onSaved={onSaved} />);
     typeName("Current Draft");
     await act(async () => complete({ user_id: "user-1", display_name: "Old Completion" }));
     expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue("Current Draft");
@@ -258,7 +258,7 @@ describe("DisplayNameEditor", () => {
     vi.mocked(AccountIdentityService.updateDisplayName).mockResolvedValue({
       user_id: "user-2", display_name: "Other Owner's Name",
     });
-    render(<DisplayNameEditor user={testUser} onSaved={onSaved} />);
+    render(<DisplayNameEditor user={testUser} ownerId={testUser.uid} onSaved={onSaved} />);
     typeName("Current Draft");
     fireEvent.click(screen.getByRole("button", { name: "Save name" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Save name" })).toBeEnabled());
@@ -270,7 +270,7 @@ describe("DisplayNameEditor", () => {
   it("admits one pending submit even when two presentation callbacks outrun a render", async () => {
     let complete!: (identity: { user_id: string; display_name: string }) => void;
     vi.mocked(AccountIdentityService.updateDisplayName).mockReturnValue(new Promise(resolve => { complete = resolve; }));
-    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser }));
+    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser, ownerId: testUser.uid }));
     act(() => result.current.changeDraft("New Name"));
     let first!: ReturnType<typeof result.current.submit>;
     let second!: ReturnType<typeof result.current.submit>;
@@ -283,7 +283,7 @@ describe("DisplayNameEditor", () => {
 
   it("rejects retained presentation callbacks after owner retirement, including A to B to A", async () => {
     const otherUser = { ...testUser, uid: "user-2", displayName: "Other Owner" } as User;
-    const { result, rerender } = renderHook(({ user }) => useDisplayNameEditor({ user }), {
+    const { result, rerender } = renderHook(({ user }) => useDisplayNameEditor({ user, ownerId: user.uid }), {
       initialProps: { user: testUser },
     });
     act(() => result.current.changeDraft("Old Draft"));
@@ -300,7 +300,7 @@ describe("DisplayNameEditor", () => {
   });
 
   it("rejects a retained submit whose same-owner draft has been replaced", async () => {
-    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser }));
+    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser, ownerId: testUser.uid }));
     act(() => result.current.changeDraft("First Name"));
     const oldSubmit = result.current.submit;
     act(() => result.current.changeDraft("Second Name"));
@@ -315,7 +315,7 @@ describe("DisplayNameEditor", () => {
     let complete!: (identity: { user_id: string; display_name: string }) => void;
     vi.mocked(AccountIdentityService.refreshCurrentUserIdentity).mockReturnValue(new Promise(resolve => { complete = resolve; }));
     vi.mocked(AccountIdentityService.updateDisplayName).mockResolvedValue({ user_id: testUser.uid, display_name: "New Saved Name" });
-    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser }));
+    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser, ownerId: testUser.uid }));
     act(() => useVoiceSessionStore.getState().emitToolResult("update_display_name", {
       status: "updated", display_name: "Voice Name",
     }));
@@ -328,7 +328,7 @@ describe("DisplayNameEditor", () => {
 
   it("keeps a provider-confirmed voice name when its shadow still has the old name", async () => {
     vi.mocked(AccountIdentityService.refreshCurrentUserIdentity).mockResolvedValue({ user_id: testUser.uid, display_name: "Old Shadow" });
-    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser }));
+    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser, ownerId: testUser.uid }));
     await act(async () => useVoiceSessionStore.getState().emitToolResult("update_display_name", {
       status: "committed_sync_pending", display_name: "Committed Name",
     }));
@@ -341,7 +341,7 @@ describe("DisplayNameEditor", () => {
     vi.mocked(AccountIdentityService.updateDisplayName).mockReturnValue(new Promise(resolve => { complete = resolve; }));
     vi.mocked(AccountIdentityService.refreshCurrentUserIdentity).mockResolvedValue({ user_id: testUser.uid, display_name: "New Voice Name" });
     const onSaved = vi.fn();
-    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser, onSaved }));
+    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser, ownerId: testUser.uid, onSaved }));
     act(() => result.current.changeDraft("Pending Name"));
     let pending!: ReturnType<typeof result.current.submit>;
     act(() => { pending = result.current.submit(); });
@@ -364,7 +364,7 @@ describe("DisplayNameEditor", () => {
         },
       }),
     );
-    render(<DisplayNameEditor user={testUser} />);
+    render(<DisplayNameEditor user={testUser} ownerId={testUser.uid} />);
 
     typeName("Jhumma Two");
     fireEvent.click(screen.getByRole("button", { name: "Save name" }));
@@ -395,7 +395,7 @@ describe("DisplayNameEditor", () => {
         detail: { code: "IDENTITY_PROVIDER_UNAVAILABLE" },
       }),
     );
-    render(<DisplayNameEditor user={testUser} />);
+    render(<DisplayNameEditor user={testUser} ownerId={testUser.uid} />);
     typeName("Jhumma Two");
     fireEvent.click(screen.getByRole("button", { name: "Save name" }));
     await waitFor(() => {
@@ -413,7 +413,7 @@ describe("DisplayNameEditor", () => {
       user_id: "user-1",
       display_name: "Voice Name",
     });
-    render(<DisplayNameEditor user={testUser} />);
+    render(<DisplayNameEditor user={testUser} ownerId={testUser.uid} />);
 
     act(() => {
       useVoiceSessionStore.getState().emitToolResult("update_display_name", {
@@ -436,7 +436,7 @@ describe("DisplayNameEditor", () => {
   });
 
   it("ignores voice results that are not a confirmed update", () => {
-    render(<DisplayNameEditor user={testUser} />);
+    render(<DisplayNameEditor user={testUser} ownerId={testUser.uid} />);
     act(() => {
       useVoiceSessionStore.getState().emitToolResult("update_display_name", {
         status: "invalid",
@@ -459,12 +459,12 @@ describe("DisplayNameEditor", () => {
   it("renders Cancel only when asked and disables the field without a user", () => {
     const onCancel = vi.fn();
     const { rerender } = render(
-      <DisplayNameEditor user={testUser} onCancel={onCancel} />,
+      <DisplayNameEditor user={testUser} ownerId={testUser.uid} onCancel={onCancel} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalled();
 
-    rerender(<DisplayNameEditor user={null} />);
+    rerender(<DisplayNameEditor user={null} ownerId={null} />);
     expect(
       screen.queryByRole("button", { name: "Cancel" }),
     ).not.toBeInTheDocument();

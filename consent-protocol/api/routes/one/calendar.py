@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, verify_user_id_match
+from api.middlewares.rate_limit import limiter
 from hushh_mcp.services.google_calendar_service import get_google_calendar_service
 from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
@@ -30,6 +31,7 @@ class CalendarConnectStart(_UserRequest):
     login_hint: str | None = Field(default=None, max_length=512)
     additional: bool = False
     account_id: str | None = Field(default=None, min_length=1, max_length=128)
+    include_meeting_files: bool = False
 
 
 class CalendarConnectComplete(_UserRequest):
@@ -40,6 +42,7 @@ class CalendarConnectComplete(_UserRequest):
 
 class CalendarNativeConnectStart(BaseModel):
     include_calendar_list: bool = False
+    include_meeting_files: bool = False
     additional: bool = False
     account_id: str | None = Field(default=None, min_length=1, max_length=128)
     access_level: Literal["read", "manage"] = "read"
@@ -53,6 +56,12 @@ class CalendarNativeConnectComplete(_UserRequest):
 
 class CalendarDisconnect(_UserRequest):
     account_id: str = Field(default="default", min_length=1, max_length=128)
+
+
+class CalendarGuestPhotoToken(_UserRequest):
+    account_id: str = Field(default="default", min_length=1, max_length=128)
+    grant_generation: str = Field(pattern=r"^[a-f0-9]{64}$")
+    provider_subject_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
 class CalendarRange(BaseModel):
@@ -120,6 +129,7 @@ async def start_connect(
             login_hint=payload.login_hint,
             **({"calendar_additional": True} if payload.additional else {}),
             **({"calendar_account_id": payload.account_id} if payload.account_id else {}),
+            **({"include_meeting_files": True} if payload.include_meeting_files else {}),
         )
     except Exception as exc:
         raise _http(exc) from exc
@@ -157,6 +167,9 @@ async def start_native_connect(
             **(
                 {"include_calendar_list": True} if payload and payload.include_calendar_list else {}
             ),
+            **(
+                {"include_meeting_files": True} if payload and payload.include_meeting_files else {}
+            ),
             **({"calendar_additional": True} if payload and payload.additional else {}),
             **(
                 {"calendar_account_id": payload.account_id}
@@ -191,6 +204,30 @@ async def calendar_status(user_id: str, firebase_uid: str = Depends(require_fire
     verify_user_id_match(firebase_uid, user_id)
     try:
         return await get_google_connection_service().calendar_accounts_status(user_id=user_id)
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/guest-photo-token")
+@limiter.limit("12/minute")
+async def guest_photo_token(
+    request: Request,
+    response: Response,
+    payload: CalendarGuestPhotoToken,
+    firebase_uid: str = Depends(hub_content_firebase),
+    vault_owner: dict = Depends(hub_content_owner),
+):
+    verify_user_id_match(firebase_uid, payload.user_id)
+    verify_user_id_match(str(vault_owner["user_id"]), firebase_uid)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    try:
+        return await get_google_connection_service().calendar_guest_photo_token(
+            user_id=firebase_uid,
+            account_id=payload.account_id,
+            expected_generation=payload.grant_generation,
+            expected_subject_sha256=payload.provider_subject_sha256,
+        )
     except Exception as exc:
         raise _http(exc) from exc
 

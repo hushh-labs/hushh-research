@@ -141,9 +141,9 @@ export function PersonProfilePage(props: Props) {
 function PersonProfileSession({ personRef, initialProfile }: Props) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId, loading: authLoading } = useAuth();
   const { vaultOwnerToken, isVaultUnlocked } = useVault();
-  const connectorFeatures = usePersonConnectorFeatures(user?.uid, vaultOwnerToken, isVaultUnlocked);
+  const connectorFeatures = usePersonConnectorFeatures(userId ?? undefined, vaultOwnerToken, isVaultUnlocked);
   const packetCatalogAvailable = connectorFeatures.availability.status === "ready"
     && (connectorFeatures.availability.agentPackages || connectorFeatures.availability.periodPackets);
   const resolvedPersonRef = useMemo(() => {
@@ -396,7 +396,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   }, [resolvedPersonRef, user?.uid]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !userId) return;
     const refresh = () => {
       requestGeneration.current += 1;
       viewerReadGeneration.current += 1;
@@ -406,8 +406,8 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
         ? { ...current, profile: null } : current);
       setViewerReloadToken((value) => value + 1);
     };
-    const unsubscribe = subscribeToConnectionGraphChanges(({ userId }) => {
-      if (userId === user.uid) refresh();
+    const unsubscribe = subscribeToConnectionGraphChanges((event) => {
+      if (event.userId === userId) refresh();
     });
     const onPush = (event: Event) => {
       const detail = (event as CustomEvent<{ data?: { type?: string } }>).detail;
@@ -437,7 +437,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
       window.removeEventListener(FCM_MESSAGE_EVENT, onPush);
     };
-  }, [resolvedPersonRef, user]);
+  }, [resolvedPersonRef, user, userId]);
 
   useEffect(() => {
     if (!requestIntent || !viewerProfile) return;
@@ -581,7 +581,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   };
 
   const updateRelationship = async (action: "connect" | "cancel" | "remove"): Promise<boolean> => {
-    if (!user || !viewerProfile && action !== "connect") return false;
+    if (!user || !userId || !viewerProfile && action !== "connect") return false;
     setRelationshipBusy(true);
     try {
       const idToken = await user.getIdToken();
@@ -604,9 +604,9 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
       setCatalogLoading(false);
       setCatalogError(false);
       if (action === "remove") {
-        CacheSyncService.onConnectionGraphMutated(user.uid);
+        CacheSyncService.onConnectionGraphMutated(userId);
       } else {
-        CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        CacheSyncService.onConnectionCapabilityMutated(userId);
       }
       setRelationshipState({ personRef: resolvedPersonRef, viewerUid: user.uid, value: relationship });
       setViewerProfileState((current) =>
@@ -665,14 +665,14 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   }), [allGrants, viewerProfile?.requestHistory]);
 
   const cancelInformationRequest = async (bundleId: string) => {
-    if (!user || !vaultOwnerToken) {
+    if (!user || !userId || !vaultOwnerToken) {
       toast.error("Unlock your vault to cancel this request.");
       return;
     }
     setCancellingBundleId(bundleId);
     try {
       await PersonProfileService.cancelInformationRequest({ bundleId, vaultOwnerToken });
-      CacheSyncService.onConsentMutated(user.uid);
+      CacheSyncService.onConsentMutated(userId);
       setBundleDetailsState((current) => ({ ...current, details: Object.fromEntries(
         Object.entries(current.details).filter(([id]) => id !== bundleId),
       ) }));
@@ -897,7 +897,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
               <>
                   <DocumentRequestButton
                     returnFocusRef={requestScopeReturnFocusRef}
-                    key={`files:${user.uid}:${resolvedPersonRef}`}
+                    key={`files:${userId}:${resolvedPersonRef}`}
                     canRequest={canRequest}
                     showTrigger={showRequestActions}
                     availability={connectorFeatures.availability}
@@ -908,7 +908,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
                   />
                 {/* Stay mounted while authority refreshes so accepted confirmation survives. */}
                 <RequestScopeButton
-                  key={`question:${user.uid}:${resolvedPersonRef}`}
+                  key={`question:${userId}:${resolvedPersonRef}`}
                   personRef={resolvedPersonRef}
                   personName={profile.displayName || "this person"}
                   canRequest={canRequest}
@@ -918,7 +918,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
                 />
                   <RequestCardsButton
                     returnFocusRef={requestScopeReturnFocusRef}
-                    key={`card:${user.uid}:${resolvedPersonRef}`}
+                    key={`card:${userId}:${resolvedPersonRef}`}
                     personRef={resolvedPersonRef}
                     personName={profile.displayName || "this person"}
                     canRequest={canRequest}

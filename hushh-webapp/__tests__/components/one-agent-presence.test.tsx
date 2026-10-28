@@ -28,7 +28,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultOwnerToken: "vault-owner-token" }),
 }));
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: { uid: "presence-owner" } }),
+  useAuth: () => ({ user: { uid: "presence-owner" }, userId: "presence-owner" }),
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),

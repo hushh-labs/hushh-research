@@ -30,14 +30,14 @@ export function useRiaClientWorkspaceState({
   clientId: string;
   forceTestProfile?: boolean;
 }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { riaCapability, loading: personaLoading } = usePersonaState();
   const cache = useMemo(() => CacheService.getInstance(), []);
   const isTestProfile = forceTestProfile || isKaiTestProfileUser(clientId);
   const detailCacheKey =
-    user?.uid && clientId ? CACHE_KEYS.RIA_CLIENT_DETAIL(user.uid, clientId) : null;
+    userId && clientId ? CACHE_KEYS.RIA_CLIENT_DETAIL(userId, clientId) : null;
   const workspaceCacheKey =
-    user?.uid && clientId ? CACHE_KEYS.RIA_WORKSPACE(user.uid, clientId) : null;
+    userId && clientId ? CACHE_KEYS.RIA_WORKSPACE(userId, clientId) : null;
   const cachedDetail = useMemo(
     () => (detailCacheKey ? cache.peek<RiaClientDetail>(detailCacheKey) : null),
     [cache, detailCacheKey]
@@ -110,12 +110,13 @@ export function useRiaClientWorkspaceState({
       return;
     }
 
-    if (!user) {
+    if (!user || !userId) {
       setLoading(false);
       return;
     }
 
     const currentUser = user;
+    const ownerId = userId;
     let cancelled = false;
 
     async function load() {
@@ -125,7 +126,7 @@ export function useRiaClientWorkspaceState({
         setIamUnavailable(false);
         const idToken = await currentUser.getIdToken();
         const clientDetail = await RiaService.getClientDetail(idToken, clientId, {
-          userId: currentUser.uid,
+          userId: ownerId,
         });
         if (cancelled) return;
         setDetail(clientDetail);
@@ -136,7 +137,7 @@ export function useRiaClientWorkspaceState({
         ) {
           try {
             const workspacePayload = await RiaService.getWorkspace(idToken, clientId, {
-              userId: currentUser.uid,
+              userId: ownerId,
             });
             if (!cancelled) {
               setWorkspace(workspacePayload);
@@ -172,17 +173,17 @@ export function useRiaClientWorkspaceState({
     return () => {
       cancelled = true;
     };
-  }, [cachedDetail?.data, cachedWorkspace?.data, clientId, isTestProfile, user]);
+  }, [cachedDetail?.data, cachedWorkspace?.data, clientId, isTestProfile, user, userId]);
 
   async function refreshWorkspace() {
-    if (!user || !clientId || isTestProfile) return;
+    if (!user || !userId || !clientId || isTestProfile) return;
     try {
       setLoading(true);
       const idToken = await user.getIdToken();
       const [clientDetail, workspacePayload] = await Promise.all([
-        RiaService.getClientDetail(idToken, clientId, { userId: user.uid, force: true }),
+        RiaService.getClientDetail(idToken, clientId, { userId, force: true }),
         RiaService.getWorkspace(idToken, clientId, {
-          userId: user.uid,
+          userId,
           force: true,
         }).catch(() => null),
       ]);

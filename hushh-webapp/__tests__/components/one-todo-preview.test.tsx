@@ -28,6 +28,7 @@ vi.mock("@/lib/vault/session-epoch", () => ({ snapshotVaultSessionEpoch: () => m
 
 const props = (uid = "owner", unlocked = true) => ({
   user: { uid, getIdToken: vi.fn().mockResolvedValue("fixture") } as unknown as User,
+  ownerId: uid,
   vaultKey: unlocked ? "fixture-key" : null,
   vaultOwnerToken: unlocked ? "fixture-token" : null,
   isVaultUnlocked: unlocked,

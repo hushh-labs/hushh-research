@@ -1,5 +1,5 @@
 import { ApiService } from "./api-service";
-import { AuthService } from "./auth-service";
+import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { readComputerUseJson } from "@/lib/computer-use/direct-transport";
 
 export type ScheduledTask = {
@@ -128,7 +128,7 @@ export class PodScheduledTasksClient {
   ): Promise<unknown> {
     const request = new AbortController();
     const current = () =>
-      AuthService.getCurrentUser()?.uid === this.ownerId &&
+      snapshotValidatedAuthSessionOwner()?.userId === this.ownerId &&
       !request.signal.aborted;
     if (!current()) throw new Error("SCHEDULE_OWNER_CHANGED");
     const abort = () => request.abort();

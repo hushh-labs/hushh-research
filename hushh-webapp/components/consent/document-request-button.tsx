@@ -34,11 +34,11 @@ export function DocumentRequestButton({
   showTrigger?: boolean;
   returnFocusRef?: RefObject<HTMLButtonElement | null>;
 }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken, vaultOwnerToken } = useVault();
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [intent, setIntent] = useState<"files" | "query" | null>(null);
-  if (!user) return null;
+  if (!user || !userId) return null;
   if (!isVaultUnlocked) return draft ? null : <>
     {showTrigger && (["files", "query"] as const).map((action) => <Button data-consent-role="compact-action" key={action} size="standard" variant="none" onClick={() => { setIntent(action); setUnlockOpen(true); }}>
       {renderTrigger?.(action === "files" ? "Request files" : "Ask about files") ?? (action === "files" ? "Request files" : "Ask about files")}
@@ -47,8 +47,8 @@ export function DocumentRequestButton({
   </>;
   return (
     <UnlockedRequestButton
-      key={`${user.uid}:${personRef}:${draft?.clientRequestId ?? "manual"}`}
-      userId={user.uid}
+      key={`${userId}:${personRef}:${draft?.clientRequestId ?? "manual"}`}
+      userId={userId}
       personRef={personRef}
       personName={personName}
       draft={draft}

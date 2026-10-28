@@ -214,7 +214,7 @@ export const useSearchParams = () => { React.useSyncExternalStore(callback => { 
 const user = { uid: "fixture-owner", displayName: "Alex Rivera", metadata: { creationTime: "2026-01-01T00:00:00Z" }, getIdToken: async () => "fixture-token" };
 export const useEffectiveAvatarUrl = () => null;
 export const useReferralStream = () => ({ connected: true });
-export const useAuth = () => { publishValidatedAuthSessionOwner(user.uid); return { user, loading: false }; };
+export const useAuth = () => { publishValidatedAuthSessionOwner(user.uid); return { user, userId: user.uid, loading: false }; };
 // Layout proof must never start real provider authentication.
 export const AuthService = { reauthenticateIdentity: async () => { throw new Error("Identity verification is outside the layout fixture."); } };
 export const useVault = () => ({

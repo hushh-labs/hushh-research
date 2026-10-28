@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: "user_1" } }),
+  useAuth: () => ({ user: { uid: "user_1" }, userId: "user_1" }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => mocks.vault }));
 vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({

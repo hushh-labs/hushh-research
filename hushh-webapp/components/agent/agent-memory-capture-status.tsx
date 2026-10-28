@@ -34,8 +34,8 @@ function MemorySaveCardWithOffers({
   canConfirmNeedsOwner?: boolean;
 }) {
   const router = useRouter();
-  const { user } = useAuth();
-  const ownerUserId = user?.uid ?? null;
+  const { userId } = useAuth();
+  const ownerUserId = userId;
   const openOffer = useCallback((offer: ReservedOfferItem) => {
     if (ownerUserId && offer.prefill) {
       stageReservedOfferPrefill({ ownerUserId, ownerFeature: offer.ownerFeature, prefill: offer.prefill });

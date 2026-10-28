@@ -10,9 +10,9 @@ import { Button } from "@/lib/morphy-ux/button";
 export function AnswerPaymentReturnNotice({ requestId, checkout }: {
   requestId: string; checkout: string;
 }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const [message, setMessage] = useState("Checking payment status…");
-  const identity = `${user?.uid ?? ""}:${requestId}`;
+  const identity = `${userId ?? ""}:${requestId}`;
   const [checkedIdentity, setCheckedIdentity] = useState(identity);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {

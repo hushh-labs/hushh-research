@@ -91,6 +91,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         uid: "user-123",
         getIdToken: vi.fn().mockResolvedValue("token-abc"),
       },
+      userId: "user-123",
       loading: false,
     });
     mocks.gmailReceiptsService.completeConnect.mockResolvedValue({
@@ -330,6 +331,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         uid: "user-456",
         getIdToken: vi.fn().mockResolvedValue("token-def"),
       },
+      userId: "user-456",
       loading: false,
     });
     view.rerender(<ProfileGmailOAuthReturnPage />);

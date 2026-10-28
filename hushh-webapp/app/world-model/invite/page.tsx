@@ -29,7 +29,7 @@ type Preview = Awaited<ReturnType<typeof WorldModelInvitationsService.preview>>;
 
 export default function WorldModelInvitePage() {
   const router = useRouter();
-  const { user, loading, sessionVerificationRequired } = useAuth();
+  const { user, userId, loading, sessionVerificationRequired } = useAuth();
   const { isVaultUnlocked } = useVault();
   const continuation = useRef(0);
   const [token, setToken] = useState<string | null>(null);
@@ -41,7 +41,7 @@ export default function WorldModelInvitePage() {
     continuation.current += 1;
     setBusy(false);
     return () => { continuation.current += 1; };
-  }, [user?.uid, loading, sessionVerificationRequired, isVaultUnlocked, token]);
+  }, [userId, loading, sessionVerificationRequired, isVaultUnlocked, token]);
   useEffect(() => {
     const read = () => {
       const fromFragment = new URLSearchParams(window.location.hash.slice(1)).get("claim");
@@ -56,7 +56,7 @@ export default function WorldModelInvitePage() {
         setToken(null);
         return;
       }
-      const ownerId = sessionVerificationRequired ? null : user?.uid ?? null;
+      const ownerId = sessionVerificationRequired ? null : userId;
       const recovered = handoff
         ? readWorldModelInvitationHandoff(handoff, ownerId)
         : null;
@@ -70,7 +70,7 @@ export default function WorldModelInvitePage() {
     read();
     window.addEventListener("hashchange", read);
     return () => window.removeEventListener("hashchange", read);
-  }, [loading, sessionVerificationRequired, user?.uid]);
+  }, [loading, sessionVerificationRequired, userId]);
   useEffect(() => {
     let active = true;
     setPreview(null);
@@ -106,10 +106,10 @@ export default function WorldModelInvitePage() {
     };
   }, [accountSwitchHandoff, token]);
   function continueWithThisAccount() {
-    if (!accountSwitchHandoff || !user || loading || sessionVerificationRequired) return;
+    if (!accountSwitchHandoff || !userId || loading || sessionVerificationRequired) return;
     const recovered = switchWorldModelInvitationHandoffAccount(
       accountSwitchHandoff,
-      user.uid,
+      userId,
     );
     setAccountSwitchHandoff(null);
     setToken(recovered || "");
@@ -121,7 +121,7 @@ export default function WorldModelInvitePage() {
     if (!preview || !token || busy) return;
     const id = createWorldModelInvitationHandoff(
       token,
-      user && !sessionVerificationRequired ? user.uid : null,
+      user && !sessionVerificationRequired ? userId : null,
     );
     if (!id) {
       setMessage("Couldn’t keep this invitation through sign-in. Please try again in this tab.");
@@ -135,14 +135,14 @@ export default function WorldModelInvitePage() {
       return;
     }
     const owner = snapshotValidatedAuthSessionOwner();
-    if (!owner || owner.userId !== user.uid) return;
+    if (!userId || !owner || owner.userId !== userId) return;
     const request = ++continuation.current;
     const stillCurrent = () => continuation.current === request
       && isValidatedAuthSessionOwnerCurrent(owner);
     setBusy(true);
     try {
       const next = await PostAuthRouteService.resolveAfterLogin({
-        userId: user.uid,
+        userId,
         redirectPath: destination,
       });
       if (!stillCurrent()) return;

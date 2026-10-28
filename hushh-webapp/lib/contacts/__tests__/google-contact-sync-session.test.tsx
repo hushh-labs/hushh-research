@@ -31,7 +31,7 @@ const mocks = vi.hoisted(() => ({
   probe: vi.fn(),
 }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.owner ? { uid: mocks.owner } : null }),
+  useAuth: () => ({ user: mocks.owner ? { uid: mocks.owner } : null, userId: mocks.owner || null }),
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname }));
 vi.mock("@/lib/capacitor", () => ({

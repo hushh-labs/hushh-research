@@ -2,7 +2,7 @@ import { ownerContentIsPrivate } from './private-agent-specialist-chat';
 import { privateGoogleStatus, disconnectPrivateGoogle, requireSharedGoogleExchange, PrivateGoogleUnsupportedError } from './private-google-connections';
 import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
-import { AuthService } from "@/lib/services/auth-service";
+import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CACHE_TTL, CacheService } from "@/lib/services/cache-service";
 import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 import {
@@ -39,7 +39,9 @@ function trackGmailEventForOwner(
   eventName: Parameters<typeof trackEvent>[0],
   payload: Parameters<typeof trackEvent>[1],
 ): void {
-  if (AuthService.getCurrentUser()?.uid !== userId) return;
+  // Only the current owner's events count. After start fresh the retired owner
+  // still equals the Firebase UID, so the UID cannot stand in for the owner.
+  if (!userId || userId !== snapshotValidatedAuthSessionOwner()?.userId) return;
   trackEvent(eventName, payload as never);
 }
 

@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.user }),
+  useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null }),
 }));
 
 vi.mock("@/lib/services/feed-service", () => ({

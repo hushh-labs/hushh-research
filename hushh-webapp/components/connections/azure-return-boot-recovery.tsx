@@ -31,9 +31,9 @@ const RECOVERABLE_OWNER_ROUTES = new Set<string>([
 export function AzureReturnBootRecovery() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, loading, sessionVerificationRequired } = useAuth();
+  const { userId, loading, sessionVerificationRequired } = useAuth();
   const attempted = useRef(false);
-  const ownerId = user?.uid ?? null;
+  const ownerId = userId;
 
   useEffect(() => {
     if (

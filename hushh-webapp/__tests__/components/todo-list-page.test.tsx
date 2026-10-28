@@ -56,7 +56,7 @@ vi.mock("@/lib/feed/use-feed-briefing", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.user }),
+  useAuth: () => ({ user: mocks.user, userId: mocks.user.uid }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({

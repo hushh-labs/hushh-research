@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ uid: "bob", key: "vault-key" as string | null, token: "owner-token" as string | null, open: vi.fn(), directory: vi.fn(), state: vi.fn(), error: vi.fn(), native: false }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => mocks.native } }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.uid } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.uid }, userId: mocks.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks.key, getVaultOwnerToken: () => mocks.token }) }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: () => null }));
 vi.mock("@/lib/one-location/service", () => ({ OneLocationService: { listRecipientsPage: mocks.directory, getState: mocks.state } }));

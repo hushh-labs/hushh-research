@@ -1,5 +1,61 @@
 # API Contracts
 
+## Finance sharing with connections
+
+`FinanceSharingService` uses `ApiService.apiFetch` on Web, iOS and Android.
+Web forwards through `/api/one/[...path]`; native calls the same hub endpoints
+through the existing platform-aware transport. No new native plugin is needed.
+All routes require matching Firebase identity and `X-Hushh-Consent` vault-owner
+authority and return `private, no-store` responses with scrubbed errors.
+
+| Endpoint | Contract |
+| --- | --- |
+| `POST /api/one/finance/shares` | Confirm one immutable policy and recipient-encrypted view per selected connection; exact request-ID retries return the original grants. |
+| `GET /api/one/finance/shares?direction=outgoing\|received&cursor=…` | Participant-bound metadata history; 50 items, opaque UUID cursor. History does not authorize a read. |
+| `GET /api/one/finance/shares/{grantId}` | Recheck recipient/owner, connection, blocks, active recipient key, current expiry and revocation before returning that participant's ciphertext copy. |
+| `PUT /api/one/finance/shares/{grantId}` | Owner-only ongoing update with `expectedRevision`; immutable policy and recipient key, active lifetime, CAS and revocation checks. Snapshots reject updates. |
+| `DELETE /api/one/finance/shares/{grantId}` | Owner-only terminal stop for one recipient; clear its ciphertext. |
+
+Create accepts `requestId`, `policy`, `ownerConfig`, and 1–20 recipient entries
+(`grantId`, `personRef`, `envelope`, `ownerEnvelope`, `contentHash`). The strict
+version-1 policy contains `mode`, selected `sections`, encrypted-configuration
+`selectionHash`, `showAmounts`, canonical `model_processing`, and
+`durationSeconds` (3600, 86400, 604800; null only for explicit ongoing access).
+Lifetimes begin at the server-confirmed creation time. Contents and source/account
+locators are encrypted on the owner client; the server stores no financial
+plaintext. The 4 MB request budget and individual envelope bounds apply on both
+backend and proxy. Raw financial PKM scopes remain blocked.
+Both configuration and content digests include independent random 256-bit
+commitment nonces inside their encrypted payloads. Metadata cannot test guesses
+of selected notes or financial figures. Unselected notes and stock selections
+are removed from the owner configuration; unchanged information does not publish
+a new revision merely because a nonce changes. An explicitly approved One review
+checks the exact content commitment, then strips its nonce before model input.
+
+Recipient views expose only the selected curated sections. Amounts-off exports
+exclude structured balances, dollar gains, quantities, prices and cost basis;
+history is rebased to percentage balance change. It is not investment return.
+Current sharing supports USD portfolios and refuses known mixed/foreign currency.
+Missing saved history remains unavailable. Account identifiers, transactions and
+provider credentials never enter the structured export; an explicitly selected
+owner note is shared as written.
+
+One review is an explicit `financeShare` forwarded input on the existing agent
+chat transport, bound to `grantId`, `revision` and exact `projectionText` digest.
+Only the authenticated recipient with current owner model-processing permission
+may submit it. The current recipient processing-provider approval still applies.
+The signed private-pod consent metadata feed accepts `finance:{grantId}:{revision}`
+references with fresh nonces; it carries policy/digest/lifecycle metadata only.
+Existing shared-context tool blocking, request-secret lifetime and history/model
+redaction apply. Authority is checked again around model generation.
+
+Migration 433 qualifies the grant/request tables and terminal disconnect/block
+guards. Rollback is code-only and preserves issued encrypted objects. Expired
+ciphertext is cleared on access/history reconciliation; dormant ciphertext and
+confirmation metadata remain until reconciliation or account erasure. Production
+qualification must separately verify the migration, exact authenticated
+two-person journey, platform transport and current processing-provider approval.
+
 ## Visual Map
 
 Which credential plane authorizes which FastAPI route family, and how first-party
@@ -2462,6 +2518,17 @@ client; missing/legacy state requires restarting the connection, with no unfence
 fallback. Deploy matching native/web assets with the backend. Real provider
 revocation/reauthorization ordering is not proven by local transaction tests.
 
+For a first Calendar connection, the same OAuth attempt also requests optional
+`contacts.readonly` access for invitation guest photos. Historical Calendar
+grants keep their prior scope; a new grant records `guest_photo_access=true`
+only when Google's token response confirms that scope. Web and native starts
+use this same attempt-bound decision, and `status`/`accounts[]` expose the flag,
+scope, provider subject digest and grant generation. A missing photo grant
+leaves invitations usable with initials. The token broker below returns a
+short-lived Contacts-only bearer after verifying both owner credentials and
+the selected account; People reads occur in the browser and Google may omit a
+guest's profile photo even when the permission is granted.
+
 Drive connection, selection, processing, reading and sharing use the external
 connector routes under `/api/connectors` and `/api/connectors/google_drive/sharing`. The former
 `/api/one/drive/*` compatibility routes are retired: they are neither mounted
@@ -2484,6 +2551,7 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/calendar/connect/native/start` | Firebase Bearer | Create an owner-bound, generation-fenced native attempt; return public client settings and opaque state. |
 | POST   | `/api/one/calendar/connect/native/complete` | Firebase Bearer | Exchange the native code only with the matching state, owner, service and permission; missing state is rejected. |
 | GET    | `/api/one/calendar/status/{user_id}`  | Firebase Bearer    | Return non-sensitive Calendar connection and permission state, including each owner-bound Calendar account ID/status and a three-account limit. |
+| POST | `/api/one/calendar/guest-photo-token` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Return a no-store, short-lived Contacts-only browser token when the selected Calendar account has a recorded photo grant and matching owner, subject digest and grant generation. Reject broader or unproven Google scope. Never call People on the backend. |
 | POST   | `/api/one/calendar/disconnect`        | Firebase Bearer    | Disable the selected Calendar `account_id`; the default preserves sibling Google services, while an additional Calendar-only credential is erased and its provider token revoked best-effort. |
 | POST   | `/api/one/calendar/events`            | VAULT_OWNER Bearer | Read bounded primary-calendar events in a supplied ISO-8601 time range.                                             |
 | POST   | `/api/one/calendar/availability`      | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars.                                                         |
@@ -2985,7 +3053,9 @@ auth-required response.
 | GET    | `/api/ria/picks`                                           | Read the signed-in advisor's encrypted-PKM-backed Picks bootstrap; legacy uploads are intentionally unavailable                                                                                        |
 | POST   | `/api/ria/picks`                                           | Sync the owner PKM-derived `ria.advisor_package`, including its bounded investor debate thesis, to currently authorized explicit Picks share artifacts; the thesis is available only to a selected investor source during a live debate run |
 | GET    | `/api/kai/market/insights/{user_id}`                       | Investor market home payload with rights-gated `pick_sources[]` and RIA feed share metadata                                                                                                            |
-| GET    | `/api/one/connections/directory`                           | Paginated Connect directory over named, active profiles whose Firebase accounts still exist and are enabled, including people without a verified phone and verified RIAs in the `all` audience. Strangers are listed only when they finished signing up in this environment (a `vault_keys` row with `vault_status = 'active'`); people with no vault row or only a `placeholder` one appear only to a viewer who already has a relationship with them (an active connection, a pending connection request, or an active trusted-connection edge, in either direction). The directory-bounded `context` and `scope-catalog` lookups below apply the same rule. Account, vault and relationship eligibility are resolved before logical pagination; nameless placeholders, strangers without an active vault, and deleted or disabled accounts do not consume result slots. Short cached account checks may take up to 60 seconds to reflect an external auth change; an unavailable auth provider returns a retryable error. A name is listed whatever the marketplace or contact-sync settings say; explicit discoverability opt-outs keep a stranger out of email and phone lookups only; email and phone labels stay masked. Distinct accounts with the same name remain separate. The `ria` audience narrows to verified advisers. |
+| GET    | `/api/one/connections/directory`                           | Paginated Connect directory over named, active profiles whose Firebase accounts still exist and are enabled, including people without a verified phone and verified RIAs in the `all` audience. Strangers are listed when they chose to be (`actor_profiles.directory_listed = TRUE`, migration 433, which needs no vault) or, when they never chose, when they finished signing up in this environment (a `vault_keys` row with `vault_status = 'active'` enrolled here); a person who set `directory_listed = FALSE`, and people with no vault row or only a `placeholder` one, appear only to a viewer who already has a relationship with them (an active connection, a pending connection request, or an active trusted-connection edge, in either direction). The directory-bounded `context` and `scope-catalog` lookups below apply the same rule. Account, vault and relationship eligibility are resolved before logical pagination; nameless placeholders, strangers without an active vault, and deleted or disabled accounts do not consume result slots. Short cached account checks may take up to 60 seconds to reflect an external auth change; an unavailable auth provider returns a retryable error. A name is listed whatever the marketplace or contact-sync settings say; explicit discoverability opt-outs keep a stranger out of email and phone lookups only; email and phone labels stay masked. Distinct accounts with the same name remain separate. The `ria` audience narrows to verified advisers. Each row carries `roleLabel`, what the person says they do, or null. |
+| GET    | `/api/one/connections/directory-presence`                  | The caller's own people-search presence: `listed` (true, false, or null when never chosen), `effectiveListed` (what the directory does today, so null falls back to the enrolled-vault rule), `roleLabel`, `vaultEnrolled`, `roleLabelMaxLength`. |
+| PUT    | `/api/one/connections/directory-presence`                  | Partial update of the caller's own presence: `listed` (true lists them by name with no vault, false hides them from strangers, null returns to the vault rule) and `role_label` (what they do, trimmed, at most 80 plain-text characters; empty clears it). Only fields present in the body change. Returns the same payload as GET. |
 | GET    | `/api/one/connections/{counterpart_user_id}/context`       | Firebase-authenticated, directory-bounded person lookup with current connection state and the latest participant-pair request. An accepted historical request does not establish current Location eligibility. This read grants no action or information-sharing authority. |
 | GET    | `/api/one/connections/{counterpart_user_id}/scope-catalog` | Server-authorized metadata and opaque handles available for a bilateral proposal                                                                                                                       |
 | POST   | `/api/one/connections/requests`                            | Create a connection request with `requested_scope_handles[]` and `offered_scope_handles[]`                                                                                                             |

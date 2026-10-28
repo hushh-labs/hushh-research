@@ -128,6 +128,8 @@ export interface HushhAuthPlugin extends NativeDeletionPhoneProofPlugin {
     serverClientId: string;
     accessLevel: "read" | "manage";
     includeCalendarList?: boolean;
+    includeGuestPhotos?: boolean;
+    includeMeetingFiles?: boolean;
   }): Promise<{
     serverAuthCode: string;
   }>;

@@ -30,11 +30,10 @@ export function VaultStatusInline({
    */
   mode?: "informational" | "blocking";
 }) {
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId, loading: authLoading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const [checkFailed, setCheckFailed] = useState(false);
-  const userId = user?.uid;
 
   useEffect(() => {
     if (!userId) {

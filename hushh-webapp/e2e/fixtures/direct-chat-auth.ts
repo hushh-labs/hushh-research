@@ -5,9 +5,9 @@ let browserUserAvailable = true;
 let tokenAvailable = true;
 const listeners = new Set<() => void>();
 const user = () => ({ uid, getIdToken: async () => "synthetic-token" });
-let snapshot = { user: user(), loading: false, isAuthenticated: true };
+let snapshot = { user: user(), userId: uid, loading: false, isAuthenticated: true };
 publishValidatedAuthSessionOwner(uid);
-export function changeOwner(next: string) { uid = next; publishValidatedAuthSessionOwner(uid); snapshot = { user: user(), loading: false, isAuthenticated: true }; for (const listener of listeners) listener(); }
+export function changeOwner(next: string) { uid = next; publishValidatedAuthSessionOwner(uid); snapshot = { user: user(), userId: uid, loading: false, isAuthenticated: true }; for (const listener of listeners) listener(); }
 export function useAuth() { return useSyncExternalStore((listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => snapshot); }
 
 export const auth = { get currentUser() { return browserUserAvailable ? snapshot.user : null; } };

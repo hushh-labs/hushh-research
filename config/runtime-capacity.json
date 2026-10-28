@@ -5,11 +5,38 @@
   "admission_limit": 900,
   "administrative_reserve": 100,
   "environments": {
+    "dev": {
+      "capacity_scope": "plg-isolated-dev-v1",
+      "project": "hushh-pda-dev",
+      "database_instance": "plg-qualification-pg",
+      "connection_policy": {"database_max_connections": 100, "admission_limit": 80, "administrative_reserve": 10},
+      "non_database_services": ["consent-protocol", "dev-kai-redirect", "guard-api", "guard-console", "guard-dispatcher", "guard-writer", "hushh-webapp"],
+      "non_target_jobs": ["consent-protocol-genai-readiness", "files-proof-queue-recovery-20261001", "guard-observer", "marketplace-investor-replenisher", "obs-supabase-data-health"],
+      "services": {
+        "consent-protocol-plg-qual": {
+          "container": "consent-protocol",
+          "optional_existing": true,
+          "candidate_opt_in": true,
+          "workers_per_instance": 1,
+          "count_retained_revisions": true,
+          "candidate": {"max_instances": 1, "workers_per_instance": 1, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
+        }
+      },
+      "jobs": {}
+    },
     "uat": {
       "project": "hushh-pda-uat",
       "database_instance": "hushh-uat-pg",
       "non_database_services": ["hushh-adk-openwebui", "hushh-adk-playground", "hushh-ria-intelligence-api", "hushh-webapp"],
       "services": {
+        "consent-protocol-plg-qual": {
+          "container": "consent-protocol",
+          "optional_existing": true,
+          "candidate_opt_in": true,
+          "workers_per_instance": 1,
+          "count_retained_revisions": true,
+          "candidate": {"max_instances": 1, "workers_per_instance": 1, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
+        },
         "consent-protocol": {
           "container": "consent-protocol",
           "workers_per_instance": 2,

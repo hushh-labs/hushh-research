@@ -139,14 +139,16 @@ export function CalendarAgentPage({
   skippingSetup = false,
   connectionPending = false,
 }: CalendarAgentPageProps) {
-  const { user, loading } = useAuth();
+  const { user, userId, loading } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
-  const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(user?.uid, snapshotVaultSessionEpoch());
-  const renderedOwnerId = user?.uid ?? null;
+  const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(userId ?? undefined, snapshotVaultSessionEpoch());
+  const renderedOwnerId = userId;
   const latestUserRef = useRef(user);
+  const latestOwnerIdRef = useRef(userId);
   useEffect(() => {
     latestUserRef.current = user;
-  }, [user]);
+    latestOwnerIdRef.current = userId;
+  }, [user, userId]);
   const activeOwnerIdRef = useRef<string | null>(renderedOwnerId);
   activeOwnerIdRef.current = renderedOwnerId;
   useEffect(() => {
@@ -207,8 +209,8 @@ export function CalendarAgentPage({
   const refresh = useCallback(async () => {
     const currentUser = latestUserRef.current;
     if (!currentUser || connectionPending) return null;
-    if (currentUser.uid !== renderedOwnerId) return null;
-    const operationOwnerId = currentUser.uid;
+    const operationOwnerId = latestOwnerIdRef.current;
+    if (!operationOwnerId || operationOwnerId !== renderedOwnerId) return null;
     const request = ++statusRequestRef.current;
     const isCurrent = () => identityRef.current === identity &&
       statusRequestRef.current === request && activeOwnerIdRef.current === operationOwnerId;
@@ -288,12 +290,12 @@ export function CalendarAgentPage({
       const currentUser = latestUserRef.current;
       const isCurrent = () => !lifetime?.signal.aborted && identityRef.current === identity &&
         activeOwnerIdRef.current === operationOwnerId && statusRequestRef.current === settlementRequest &&
-        currentUser?.uid === operationOwnerId;
-      if (!currentUser || !isCurrent()) return;
+        latestOwnerIdRef.current === operationOwnerId;
+      if (!currentUser || !operationOwnerId || !isCurrent()) return;
       try {
         const idToken = await currentUser.getIdToken();
         if (!isCurrent()) return;
-        const next = await GoogleCalendarService.status(idToken, currentUser.uid);
+        const next = await GoogleCalendarService.status(idToken, operationOwnerId);
         if (!isCurrent()) return;
         const verified = additional
           ? next.accounts?.some(account => account.connected &&
@@ -344,11 +346,11 @@ export function CalendarAgentPage({
     }
   };
 
-  const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false, additional = false, accountId?: string) => {
-    if (!user || busyRef.current) return;
-    if (status?.connected && status.access_level === "manage") accessLevel = "manage";
-    includeCalendarList = includeCalendarList || status?.calendar_list_access === true;
-    const operationOwnerId = user.uid;
+  const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false, additional = false, accountId?: string, includeMeetingFiles = false) => {
+    if (!user || !userId || busyRef.current) return;
+    if (!additional && status?.connected && status.access_level === "manage") accessLevel = "manage";
+    includeCalendarList = includeCalendarList || includeMeetingFiles || (!additional && status?.calendar_list_access === true);
+    const operationOwnerId = userId;
     statusRequestRef.current += 1;
     const native = Capacitor.isNativePlatform();
     // Open the consent window inside this click, before any await, so the
@@ -367,6 +369,10 @@ export function CalendarAgentPage({
       if (activeOwnerIdRef.current !== operationOwnerId) { popup?.close(); return; }
       if (privateAgent) {
         popup?.close();
+        if (includeMeetingFiles) {
+          toast.error("Meeting file access is not available for private Google connections yet.");
+          return;
+        }
         if (!vaultKey || !vaultOwnerToken) { toast.error('Unlock your vault to connect Google.'); return; }
         const outcome = await connectGoogleConnector('calendar', {
           vaultOwnerCapability: vaultOwnerToken,
@@ -398,6 +404,7 @@ export function CalendarAgentPage({
           idToken,
           accessLevel,
           ...(includeCalendarList ? { includeCalendarList: true } : {}),
+          ...(includeMeetingFiles ? { includeMeetingFiles: true } : {}),
           ...(additional ? { additional: true } : {}),
           ...(accountId ? { accountId } : {}),
         });
@@ -406,6 +413,8 @@ export function CalendarAgentPage({
           serverClientId: start.server_client_id,
           accessLevel: start.access_level,
           ...(start.include_calendar_list ? { includeCalendarList: true } : {}),
+          ...(start.include_guest_photos ? { includeGuestPhotos: true } : {}),
+          ...(start.include_meeting_files ? { includeMeetingFiles: true } : {}),
         });
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         const completed = await GoogleCalendarService.completeNativeConnect({
@@ -446,6 +455,7 @@ export function CalendarAgentPage({
         ...(additional ? { additional: true } : {}),
         ...(accountId ? { accountId } : {}),
         ...(accountId ? { loginHint: status?.accounts?.find(account => account.account_id === accountId)?.google_email || undefined } : {}),
+          ...(includeMeetingFiles ? { includeMeetingFiles: true } : {}),
       });
       if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) {
         popup?.close();
@@ -542,8 +552,8 @@ export function CalendarAgentPage({
   };
 
   const disconnect = async (accountId = "default") => {
-    if (!user || busyRef.current) return;
-    const operationOwnerId = user.uid;
+    if (!user || !userId || busyRef.current) return;
+    const operationOwnerId = userId;
     statusRequestRef.current += 1;
     setBusy(true);
     const operation = user
@@ -654,14 +664,14 @@ export function CalendarAgentPage({
   );
 
   const connectMail = async () => {
-    if (!user || busyRef.current) return;
+    if (!user || !userId || busyRef.current) return;
     const attemptIdentity = identity;
     const cancel = new AbortController();
     popupCancelRef.current = cancel;
     const started = connectGmailInPlace({
       owner: user, purpose: "send", signal: popupLifetimeRef.current?.signal,
       cancelSignal: cancel.signal,
-      isCurrent: () => identityRef.current === attemptIdentity && activeOwnerIdRef.current === user.uid,
+      isCurrent: () => identityRef.current === attemptIdentity && activeOwnerIdRef.current === userId,
     });
     setBusy(true); setPopupWaiting(started.surface === "window");
     try {
@@ -674,12 +684,13 @@ export function CalendarAgentPage({
     }
   };
 
-  if ((connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && user && status) {
+  if ((connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && user && userId && status) {
     return <>
-      <CalendarConnectedWorkspace userId={user.uid} status={status} busy={busy}
+      <CalendarConnectedWorkspace userId={userId} status={status} busy={busy}
         onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
         onAddAccount={() => { void connect("manage", true, true); }}
         onReconnectAccount={(accountId) => { void connect("manage", true, true, accountId); }}
+        onAllowMeetingFiles={(accountId) => { const selected = status.accounts?.find(account => account.account_id === accountId); void connect(selected?.access_level || "read", selected?.calendar_list_access === true, accountId !== "default", accountId === "default" ? undefined : accountId, true); }}
         onDisconnectAccount={(accountId) => { setDisconnectAccountId(accountId); setDisconnectConfirmOpen(true); }}
         onChat={(prompt, slot, invitation, attendance) => openCalendarChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}

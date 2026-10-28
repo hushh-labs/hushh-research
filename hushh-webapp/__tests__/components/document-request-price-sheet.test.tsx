@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   DocumentRequestPriceSheet,
+  ONE_COPY_ALLOW_DISCLOSURE,
   type DocumentRequestPriceSheetProps,
 } from "@/components/consent/document-request-price-sheet";
 
@@ -201,6 +202,18 @@ describe("DocumentRequestPriceSheet", () => {
     expect(screen.getByText("Viewer, until removed")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Allow · $10" }));
     expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith(1000);
+  });
+
+  // Allow also accepts a requested One copy, so its terms show before Allow is
+  // possible. Set price grants no copy and never shows them.
+  it("shows the One copy terms with an Allow that accepts them, never beside Set price", () => {
+    const { props, rerender } = renderSheet({ oneCopyRequested: true, detailsPending: true });
+    expect(screen.queryByText(ONE_COPY_ALLOW_DISCLOSURE)).toBeNull();
+    rerender(<DocumentRequestPriceSheet {...props} detailsPending={false} />);
+    expect(screen.getByText(ONE_COPY_ALLOW_DISCLOSURE)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Allow · $10" })).toBeEnabled();
+    rerender(<DocumentRequestPriceSheet {...props} detailsPending={false} priceOnly />);
+    expect(screen.queryByText(ONE_COPY_ALLOW_DISCLOSURE)).toBeNull();
   });
 
   it("shows no price for a free request and submits null", () => {

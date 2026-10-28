@@ -21,16 +21,16 @@ import { useGoogleConnectorTransitionReview } from './google-connector-transitio
 /** Only an intent arrives. The phone supplies its own auth, unlock and signed pod admission. */
 export function NativePrivateGoogleConnectorHandoff() {
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, userId, loading } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
-  const { confirmTransition, transitionDialog, transitionPending, cancelTransition } = useGoogleConnectorTransitionReview(user?.uid, snapshotVaultSessionEpoch());
+  const { confirmTransition, transitionDialog, transitionPending, cancelTransition } = useGoogleConnectorTransitionReview(userId ?? undefined, snapshotVaultSessionEpoch());
   const [connector, setConnector] = useState<GoogleConnector | null>(null);
   const [paused, setPaused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const intentEpoch = useRef(0);
-  const owner = useRef(user?.uid);
-  owner.current = user?.uid;
+  const owner = useRef(userId);
+  owner.current = userId;
   useEffect(() => {
     const receive = (event: Event) => {
       const detail: unknown = (event as CustomEvent).detail;
@@ -41,7 +41,7 @@ export function NativePrivateGoogleConnectorHandoff() {
     return () => window.removeEventListener(GOOGLE_CONNECTOR_HANDOFF_EVENT, receive);
   }, [cancelTransition]);
   useEffect(() => { if (user && vaultKey && vaultOwnerToken) setPaused(false); }, [user, vaultKey, vaultOwnerToken]);
-  useLayoutEffect(() => { setMessage(''); setBusy(false); }, [user?.uid, vaultKey, vaultOwnerToken]);
+  useLayoutEffect(() => { setMessage(''); setBusy(false); }, [userId, vaultKey, vaultOwnerToken]);
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     let disposed = false;
@@ -61,7 +61,7 @@ export function NativePrivateGoogleConnectorHandoff() {
     return () => { disposed = true; remove?.(); };
   }, [cancelTransition]);
   const connect = async () => {
-    const uid = user?.uid;
+    const uid = userId;
     if (!connector || !uid || !vaultKey || !vaultOwnerToken || busy) return;
     const epoch = snapshotVaultSessionEpoch();
     const intent = intentEpoch.current;

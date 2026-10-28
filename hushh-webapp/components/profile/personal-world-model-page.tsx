@@ -354,7 +354,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     (paneState.open
       ? paneState.location.panel === "world-model"
       : resolveProfileRouteState(pathname, searchParams).panel === "world-model");
-  const { user, loading, sessionVerificationRequired, phoneNumber } = useAuth();
+  const { user, userId, loading, sessionVerificationRequired, phoneNumber } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked, tokenExpiresAt } =
     useVault();
   // mounted is false only while no app-level reader is attached. retryAt is
@@ -378,6 +378,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const ready = Boolean(
     enabled && !loading &&
     user &&
+    userId &&
     !sessionVerificationRequired &&
     isVaultUnlocked &&
     vaultKey &&
@@ -386,8 +387,8 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   );
   const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
   const session = useMemo<WorldModelSession>(() => ({ live: false, generation: 0, decisions: new Set(), preferencePending: false,
-    enabled: ready, owner: user?.uid ?? null, key: vaultKey, token: vaultOwnerToken, epoch }),
-    [ready, user?.uid, vaultKey, vaultOwnerToken, epoch]);
+    enabled: ready, owner: userId, key: vaultKey, token: vaultOwnerToken, epoch }),
+    [ready, userId, vaultKey, vaultOwnerToken, epoch]);
   const scope = useMemo(() => ({ live: false, controller: null as AbortController | null, session, present }), [session, present]);
   useLayoutEffect(() => { session.live = ready; return () => { session.live = false; session.decisions.clear(); }; }, [session, ready]);
   useLayoutEffect(() => {
@@ -425,16 +426,16 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const [focusAfter, setFocusAfter] = useWorldModelSessionState<{
     later: readonly string[];
   } | null>(session, null);
-  const revision = usePkmDomainChangeRevision(ready ? user?.uid : null, MARKDOWN_MEMORY_DOMAIN);
+  const revision = usePkmDomainChangeRevision(ready ? userId : null, MARKDOWN_MEMORY_DOMAIN);
   const authority = useRef({
     ready: ready && present, scope,
-    owner: user?.uid,
+    owner: userId,
     key: vaultKey,
     token: vaultOwnerToken,
   });
   authority.current = {
     ready: ready && present, scope,
-    owner: user?.uid,
+    owner: userId,
     key: vaultKey,
     token: vaultOwnerToken,
   };
@@ -454,11 +455,11 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     researchProfiles(urls);
   }, [scopeCurrent, researchProfiles, session]);
   const memory =
-    ready && loaded && loaded.owner === user?.uid && loaded.key === vaultKey
+    ready && loaded && loaded.owner === userId && loaded.key === vaultKey
       ? loaded.memory
       : null;
   const sourcedFacts =
-    ready && sourced && sourced.owner === user?.uid && sourced.key === vaultKey
+    ready && sourced && sourced.owner === userId && sourced.key === vaultKey
       ? sourced.facts
       : [];
 
@@ -485,7 +486,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     };
   }, [scopeCurrent, scope, session]);
 
-  const ownerId = user?.uid;
+  const ownerId = userId;
   useEffect(() => {
     if (!ready || !ownerId || !vaultKey || !vaultOwnerToken || !mounted) {
       setSourced(null);
@@ -875,7 +876,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const checkpoint = !preparing && (retry || spent || retrying) ? progress : null;
   const StatusIcon = STATUS_ICON[status.kind];
 
-  return { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, sections, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, canResearchPublicProfiles, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory, canFindMore, findMore, findMoreRequest, publicSourceCandidates, canCheckForUpdates };
+  return { ready, mounted, user, userId, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, sections, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, canResearchPublicProfiles, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory, canFindMore, findMore, findMoreRequest, publicSourceCandidates, canCheckForUpdates };
 }
 export type PersonalWorldModelModel = ReturnType<typeof usePersonalWorldModelModel>;
 
@@ -889,14 +890,14 @@ export function PersonalWorldModelPage({ model, ...props }: PersonalWorldModelPa
 }
 
 function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAccount }: PersonalWorldModelPageOptions & { model: PersonalWorldModelModel }) {
-  const { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory } = model;
+  const { ready, mounted, user, userId, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory } = model;
   const content = (
     <SurfaceStack compact data-pwm-page>
       <SettingsPresentationProvider density="compact">
         {ready && mounted ? (
           <WorldModelClaimInvitation
-            key={`claim:${user!.uid}:${vaultOwnerToken}`}
-            ownerId={user!.uid}
+            key={`claim:${userId}:${vaultOwnerToken}`}
+            ownerId={userId!}
             vaultKey={vaultKey!}
             vaultOwnerToken={vaultOwnerToken!}
             onClaimed={() => setClaims((value) => value + 1)}
@@ -1142,8 +1143,8 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               </SettingsGroup>
             ) : null}
             <WorldModelOptions
-              key={`options:${user!.uid}:${vaultOwnerToken}`}
-              ownerId={user!.uid}
+              key={`options:${userId}:${vaultOwnerToken}`}
+              ownerId={userId!}
               vaultKey={vaultKey!}
               vaultOwnerToken={vaultOwnerToken!}
               name={user!.displayName ?? ""}

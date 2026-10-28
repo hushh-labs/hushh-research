@@ -18,7 +18,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false, compa
   // Native capture protection is not yet a scoped viewer capability. Keep that
   // surface unavailable instead of presenting CSS as screenshot prevention.
   const nativeViewerUnavailable = Capacitor.isNativePlatform();
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const [open, setOpen] = useState(false);
   const [result, setResult] = useState<{ owner: string; grant: string; data: CardAccessView; deadline: number } | null>(null);
   const [failed, setFailed] = useState(false);
@@ -28,9 +28,9 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false, compa
   const epoch = useRef(0);
   const verifying = useRef(false);
   const focused = useRef(true);
-  const view = result && result.owner === user?.uid && result.grant === grantId ? result : null;
+  const view = result && result.owner === userId && result.grant === grantId ? result : null;
   const close = () => { epoch.current += 1; setOpen(false); setResult(null); setBusy(false); setFailed(false); };
-  useEffect(() => { epoch.current += 1; setResult(null); setOpen(false); setBusy(false); }, [user?.uid, grantId]);
+  useEffect(() => { epoch.current += 1; setResult(null); setOpen(false); setBusy(false); }, [userId, grantId]);
   // A Wallet history action may open the same protected viewer. The viewer
   // stays mounted independently while the identity popup backgrounds history.
   useEffect(() => {
@@ -46,7 +46,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false, compa
   });
   useEffect(() => () => { epoch.current += 1; }, []);
   useEffect(() => {
-    if (!open || !user || senderIsViewer || nativeViewerUnavailable) return;
+    if (!open || !user || !userId || senderIsViewer || nativeViewerUnavailable) return;
     let cancelled = false;
     const currentEpoch = epoch.current;
     const current = () => !cancelled && currentEpoch === epoch.current && focused.current && document.visibilityState !== "hidden";
@@ -61,7 +61,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false, compa
         const data = await WalletCardAccessService.view(token, grantId);
         if (!current()) return;
         const duration = Math.max(0, Date.parse(data.expiresAt) - Date.parse(data.serverNow));
-        setResult({ owner: user.uid, grant: grantId, data, deadline: started + duration });
+        setResult({ owner: userId, grant: grantId, data, deadline: started + duration });
         setRemaining(Math.ceil(Math.max(0, duration - (performance.now() - started)) / 1000));
         setFailed(false);
       } catch { if (current()) { setResult(null); setFailed(true); } }
@@ -70,7 +70,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false, compa
     void refresh();
     const timer = window.setInterval(() => void refresh(), 2000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [open, user, grantId, senderIsViewer, nativeViewerUnavailable, refreshKey]);
+  }, [open, user, userId, grantId, senderIsViewer, nativeViewerUnavailable, refreshKey]);
   useEffect(() => {
     if (!view || view.data.status !== "active") return;
     const tick = () => {

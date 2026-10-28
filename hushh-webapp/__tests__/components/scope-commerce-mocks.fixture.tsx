@@ -20,7 +20,7 @@ vi.mock("@/lib/services/answer-request-service", () => ({ AnswerRequestService: 
   gates: mocks.answerGates, payoutAccount: mocks.answerAccount, payoutLink: mocks.answerLink, payoutOnboarding: mocks.answerOnboarding,
 } }));
 vi.mock("@/components/consent/document-hashcoins", () => ({ DocumentHashcoinPayouts: () => null }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null }) }));
 vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname, useSearchParams: () => new URLSearchParams(mocks.search), useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/components/profile/use-native-payouts", () => ({ useNativePayouts: () => ({
   pages: [{ id: "payouts", title: "Payments and earnings", sections: [] }], rows: new Map(), busy: false,

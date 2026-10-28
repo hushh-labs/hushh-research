@@ -234,11 +234,11 @@ export function WalletWorkspace() {
       void loadWalletCardArtwork(kind).catch(() => {});
     }
   }, []);
-  const { user, loading: authLoading, sessionVerificationRequired } = useAuth();
+  const { user, userId, loading: authLoading, sessionVerificationRequired } = useAuth();
   const authBlocked = authLoading || Boolean(sessionVerificationRequired);
   const sharingUserRef = useRef(user);
   sharingUserRef.current = user;
-  const renderedOwnerId = user?.uid ?? null;
+  const renderedOwnerId = userId;
   const activeOwnerIdRef = useRef<string | null>(renderedOwnerId);
   activeOwnerIdRef.current = renderedOwnerId;
   useEffect(() => {
@@ -473,9 +473,9 @@ export function WalletWorkspace() {
   );
   const vaultContext = useCallback(() => {
     const token = vaultOwnerToken && getVaultOwnerTokenRef.current();
-    if (authBlocked || vaultEpoch !== snapshotVaultSessionEpoch() || !user?.uid || !vaultKey || !token) return null;
-    return { userId: user.uid, vaultKey, vaultOwnerToken: token };
-  }, [user?.uid, vaultKey, vaultOwnerToken, authBlocked, vaultEpoch]);
+    if (authBlocked || vaultEpoch !== snapshotVaultSessionEpoch() || !userId || !vaultKey || !token) return null;
+    return { userId, vaultKey, vaultOwnerToken: token };
+  }, [userId, vaultKey, vaultOwnerToken, authBlocked, vaultEpoch]);
   useEffect(() => {
     const ownerId = profileVisit.ownerId;
     if (!ownerId || !profileVisit.authorized) {
@@ -559,11 +559,11 @@ export function WalletWorkspace() {
   const [referralErrorVisit, setReferralErrorVisit] = useState<typeof profileVisit | null>(null);
   const referralReadRevision = useRef(0);
   const loadReferral = useCallback(async () => {
-    if (!user) return;
+    if (!user || !userId) return;
     const visit = profileVisit;
     const revision = ++referralReadRevision.current;
     const isCurrent = () => profileVisitRef.current === visit &&
-      activeOwnerIdRef.current === user.uid && revision === referralReadRevision.current;
+      activeOwnerIdRef.current === userId && revision === referralReadRevision.current;
     if (!isCurrent()) return;
     setReferralErrorVisit(null);
     try {
@@ -574,7 +574,7 @@ export function WalletWorkspace() {
     } catch {
       if (isCurrent()) setReferralErrorVisit(visit);
     }
-  }, [user, profileVisit]);
+  }, [user, userId, profileVisit]);
   const revokeReferral = useCallback(async (slug: string) => {
     const visit = profileVisit;
     const context = vaultContext();
@@ -754,7 +754,7 @@ export function WalletWorkspace() {
   // number decrypted from the vault. The owner still commits it here.
   useEffect(() => {
     if (introductionOpen || view.kind !== "list" || filing) return;
-    const offer = peekSecretOffer({ ownerUserId: user?.uid, fileTo: "wallet" });
+    const offer = peekSecretOffer({ ownerUserId: userId, fileTo: "wallet" });
     const context = vaultContext();
     if (!offer || !context) return;
     let active = true;
@@ -772,7 +772,7 @@ export function WalletWorkspace() {
     return () => {
       active = false;
     };
-  }, [introductionOpen, filing, user?.uid, vaultContext, view.kind]);
+  }, [introductionOpen, filing, userId, vaultContext, view.kind]);
 
   const focusedCardId = focusedCardIdOf(view);
   const focusedCard = cards.find((card) => card.cardId === selectedDeckCardId) ?? cards[0] ?? null;
@@ -809,7 +809,7 @@ export function WalletWorkspace() {
     };
     if (!context || !isCurrent()) return null;
     return { ...context, isCurrent, getIdToken: async () => {
-      if (!isCurrent() || sharingUserRef.current?.uid !== context.userId) throw new Error("Wallet changed.");
+      if (!isCurrent() || activeOwnerIdRef.current !== context.userId || !sharingUserRef.current) throw new Error("Wallet changed.");
       return sharingUserRef.current.getIdToken();
     } };
   }, [vaultContext]);
@@ -825,7 +825,7 @@ export function WalletWorkspace() {
     };
     if (!context || !isCurrent()) return null;
     return { ...context, isCurrent, getIdToken: async () => {
-      if (!isCurrent() || sharingUserRef.current?.uid !== context.userId) throw new Error("Wallet changed.");
+      if (!isCurrent() || activeOwnerIdRef.current !== context.userId || !sharingUserRef.current) throw new Error("Wallet changed.");
       return sharingUserRef.current.getIdToken();
     } };
   }, []);

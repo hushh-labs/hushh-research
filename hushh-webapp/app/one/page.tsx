@@ -13,8 +13,11 @@ import { useDirectMessagesUnreadCount } from "@/lib/direct-messages/use-direct-m
 
 export default function OneHomePage() {
   const router = useRouter();
-  const { user, loading, sessionVerificationRequired } = useAuth();
-  const messagesUnreadCount = useDirectMessagesUnreadCount(loading || sessionVerificationRequired ? null : user);
+  const { user, userId, loading, sessionVerificationRequired } = useAuth();
+  const messagesUnreadCount = useDirectMessagesUnreadCount(
+    loading || sessionVerificationRequired ? null : user,
+    userId,
+  );
   // Dashboard stays coarse (no vault/oauth enrichment) to stay cheap, but opts
   // into `enrichRia` — a single cached getOnboardingStatus call — so the
   // "N of 6 ready" count matches the /one/setup hub. Without it, an onboarded
@@ -29,7 +32,7 @@ export default function OneHomePage() {
     }
   }, [loading, router, user]);
 
-  if (loading || !user) {
+  if (loading || !user || !userId) {
     return (
       <HushhLoader
         stage={loading ? "session" : "redirect"}
@@ -49,7 +52,7 @@ export default function OneHomePage() {
       />
       <OneDashboardPage
         capabilityStatusById={byId}
-        userId={user.uid}
+        userId={userId}
         messagesUnreadCount={messagesUnreadCount}
       />
     </>

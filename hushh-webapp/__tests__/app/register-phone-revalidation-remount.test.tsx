@@ -78,6 +78,8 @@ vi.mock("@/components/auth/phone-verification-flow", () => ({
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: authState.current.user,
+    // Generation-0 accounts: the application owner equals the Firebase UID.
+    userId: (authState.current.user?.uid as string | undefined) ?? null,
     loading: authState.current.loading,
     phoneNumber: null,
     startPhoneVerification: vi.fn(),

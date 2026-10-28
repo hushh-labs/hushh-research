@@ -9,11 +9,15 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
 import type { DashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
+import { FinanceShareFlow } from "@/components/kai/sharing/finance-share-flow";
+import type { FinanceSource } from "@/lib/finance-sharing/contract";
 
-export function PortfolioReportAction({ model, source, period, disabled, busy, onExport }: {
+export function PortfolioReportAction({ model, source, period, disabled, busy, onExport, sharingSource }: {
   model: DashboardViewModel; source: string; period: string; disabled?: boolean; busy?: boolean; onExport: () => void;
+  sharingSource?: FinanceSource;
 }) {
   const [open, setOpen] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const pathname = usePathname();
   const params = useSearchParams();
   const active = pathname !== "/one/kai" || params.get("tab") === "portfolio";
@@ -21,9 +25,13 @@ export function PortfolioReportAction({ model, source, period, disabled, busy, o
   useBackLayer(pathname, visible ? 1 : 0, () => { setOpen(false); return true; }, pathname === "/one/kai" ? { tab: "portfolio" } : undefined);
   const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
   return <>
-    <ShellActionSurface variant="icon" aria-label="Share portfolio PDF" data-voice-control-id="share_portfolio_pdf" disabled={disabled || busy} onClick={() => setOpen(true)}>
-      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
-    </ShellActionSurface>
+    <div className="flex items-center gap-2">
+      {sharingSource ? <ShellActionSurface variant="icon" aria-label="Share Finance with connections" disabled={busy} onClick={() => setSharing(true)}><Share2 className="h-4 w-4" /></ShellActionSurface> : null}
+      <ShellActionSurface variant="icon" aria-label="Share portfolio PDF" data-voice-control-id="share_portfolio_pdf" disabled={disabled || busy} onClick={() => setOpen(true)}>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+      </ShellActionSurface>
+    </div>
+    {sharingSource ? <FinanceShareFlow open={sharing && active} onOpenChange={setSharing} model={model} source={sharingSource} /> : null}
     <KaiControlSurface open={visible} onOpenChange={setOpen} title="Portfolio report" description={`${source} · ${period}`} surfaceClassName={styles.detail}
       footer={<ShellActionSurface variant="pill" disabled={busy} onClick={onExport}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}Export PDF</ShellActionSurface>}>
       <div className="space-y-5">

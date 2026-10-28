@@ -67,7 +67,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
   const change = useCallback((update: (value: Local) => Local) => {
     if (visit.current()) setStored(previous => visit.current() ? { visit, local: update(previous?.visit === visit ? previous.local : initial()) } : previous);
   }, [visit]);
-  const session = { ownerId: model.user?.uid ?? "", vaultKey: model.vaultKey ?? "", vaultOwnerToken: model.vaultOwnerToken ?? "" };
+  const session = { ownerId: model.userId ?? "", vaultKey: model.vaultKey ?? "", vaultOwnerToken: model.vaultOwnerToken ?? "" };
   const source = useWorldModelSources({ ...session, name: model.user?.displayName ?? "", present: active && model.ready && local.panel === "sources" });
   const invitations = useWorldModelInvitations({ ...session, enabled: active && model.ready && local.panel === "invitations" });
   const claim = useWorldModelClaimInvitation({ ...session, enabled: active && model.ready,

@@ -62,6 +62,7 @@ async def test_additional_calendar_account_does_not_impersonate_default_status()
             "connected": True,
             "access_level": "manage",
             "scope_csv": "",
+            "guest_photo_access": False,
             "grant_generation": connection_generation(
                 {
                     "provider_subject": "google-second",

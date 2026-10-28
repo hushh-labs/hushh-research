@@ -40,6 +40,7 @@ import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   DOCUMENT_REQUEST_PRICE_RULE,
   DocumentRequestPriceSheet,
+  ONE_COPY_ALLOW_DISCLOSURE,
 } from "@/components/consent/document-request-price-sheet";
 import { DocumentRequestRequesterPanel } from "@/components/consent/document-request-requester-panel";
 import { BackgroundDocumentLink } from "./background-document-files";
@@ -438,17 +439,17 @@ export function DocumentShareReview({
    */
   surface?: "sheet" | "inline";
 }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   // Viewer access goes to the Google account linked to this One sign-in, so
   // the recipient opens each original as that account, not the browser default.
   const googleEmail =
     user?.providerData?.find((provider) => provider?.providerId === "google.com")?.email ?? null;
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
-  if (!user || !isVaultUnlocked)
+  if (!userId || !isVaultUnlocked)
     return <BodyText role="status">Unlock your vault to review.</BodyText>;
   return (
     <UnlockedDocumentReview
-      key={`${user.uid}:${requestId}:${snapshotVaultSessionEpoch()}`}
+      key={`${userId}:${requestId}:${snapshotVaultSessionEpoch()}`}
       requestId={requestId}
       getToken={getVaultOwnerToken}
       onChanged={onChanged}
@@ -1592,6 +1593,7 @@ function UnlockedDocumentReview({
         </Button> : null}
       </> : null}
 
+      {review?.oneCopyRequested && ownerDecision && !removal && !priceOnly ? <HelperText>{ONE_COPY_ALLOW_DISCLOSURE}</HelperText> : null}
       {review && agentPackage && !v1Package && !removal ? <>
         <DocumentPackageDetails review={review} agentPackage={agentPackage} hairlines={HAIRLINES} />
         {review.preparationError === "package_existing_access_requires_review" ?
@@ -1632,7 +1634,8 @@ function UnlockedDocumentReview({
           periodEnd={review.purpose.periodEnd}
           periodNote={ownerPeriodNote}
           paymentRequired={review.paymentRequired === true}
-          description={review.oneCopyRequested ? "Allow Drive sharing and encrypted, server-readable One copies for this requester. Preparation continues in the background. Saved files can’t be recalled." : review.paymentRequired ? "Allow this exact package at your chosen price. Files are shared after the requester pays." : "Allow your private agent to share this exact package."}
+          description={review.paymentRequired ? "Allow this exact package at your chosen price. Files are shared after the requester pays." : "Allow your private agent to share this exact package."}
+          oneCopyRequested={review.oneCopyRequested === true}
           estimateCents={review.estimateCents ?? null}
           initialAmountCents={agentPackage.suggestedPriceCents ?? review.priceCents ?? null}
           busy={activity === "allowing"}
@@ -1642,7 +1645,6 @@ function UnlockedDocumentReview({
         />
       </> : null}
 
-      {review?.oneCopyRequested && ownerDecision && !removal ? <HelperText>Allow also authorizes One to fetch and store encrypted, server-readable copies in the background for this requester. You can stop One access; saved files can’t be recalled. Access activity is visible to you.</HelperText> : null}
       {review && !agentPackage && ownerDecision && !removal ? <>
         <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">“{review.purpose.purpose}”</BodyText>
         <dl className={HAIRLINES}>
@@ -1701,7 +1703,7 @@ function UnlockedDocumentReview({
           periodEnd={review.purpose.periodEnd}
           periodNote={ownerPeriodNote}
           paymentRequired={review.paymentRequired === true}
-          description={review.oneCopyRequested && !priceOnly ? "Allow Drive sharing and encrypted, server-readable One copies for this requester. Preparation continues in the background. Saved files can’t be recalled. Access activity is visible to you." : undefined}
+          oneCopyRequested={review.oneCopyRequested === true}
           estimateCents={review.estimateCents ?? null}
           initialAmountCents={review.priceCents ?? null}
           priceOnly={priceOnly}

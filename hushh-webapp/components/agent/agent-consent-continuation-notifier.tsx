@@ -89,12 +89,12 @@ function chatIsVisible(): boolean {
 }
 
 export function AgentConsentContinuationNotifier(): null {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultKey, getVaultOwnerToken } = useVault();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const ownerId = user?.uid ?? null;
+  const ownerId = userId;
   const requestedAnswer = searchParams?.get(INFORMATION_REQUEST_QUERY) ?? null;
   const pathnameRef = useRef(pathname);
   const ringRef = useRef<() => void>(() => undefined);

@@ -21,7 +21,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
-import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { firebaseUidForOwner, snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { CalendarClock } from "@/components/icons";
 
@@ -66,7 +66,7 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
     setChecking(true);
     setMessage("");
     setPlacementMessage("");
-    const current = () => !request.signal.aborted && AuthService.getCurrentUser()?.uid === ownerId &&
+    const current = () => !request.signal.aborted && AuthService.getCurrentUser()?.uid === firebaseUidForOwner(ownerId) &&
       isValidatedAuthSessionOwnerCurrent(owner);
     void ApiService.getPersonalAgentStatus({ signal: request.signal })
       .then(async (hosting) => {
@@ -112,7 +112,7 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
     const current = () =>
       Boolean(signal && !signal.aborted) &&
       owner?.userId === ownerId && isValidatedAuthSessionOwnerCurrent(owner) &&
-      AuthService.getCurrentUser()?.uid === ownerId;
+      AuthService.getCurrentUser()?.uid === firebaseUidForOwner(ownerId);
     if (!current()) { active.current = false; setBusy(""); return; }
     let settledState: ScheduledTask["state"] | null = null;
     const request = client.control(task, operation, signal).then((updated) => {

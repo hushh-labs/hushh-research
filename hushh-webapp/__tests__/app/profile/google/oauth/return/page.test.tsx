@@ -24,6 +24,7 @@ vi.mock("@/hooks/use-auth", () => ({
     user: mocks.ownerId
       ? { uid: mocks.ownerId, getIdToken: mocks.getIdToken }
       : null,
+    userId: mocks.ownerId || null,
     loading: false,
   }),
 }));

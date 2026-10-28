@@ -1195,6 +1195,8 @@ export async function streamAgentChat(input: {
    * the server admits it only for an approved grant and keeps it for this turn.
    */
   consentContinuation?: AgentChatConsentContinuation;
+  /** Exact recipient-decrypted curated Finance object; server rechecks active model authority. */
+  financeShare?: { grantId: string; revision: number; projectionText: string };
   /**
    * The turn a "One has something for you" tap starts. Only the opaque feed
    * row id is sent; the server admits it only for an item it actually pushed.
@@ -2147,6 +2149,7 @@ export async function streamAgentChat(input: {
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
+        ...(input.financeShare ? { financeShare: input.financeShare } : {}),
         ...(input.feedAttention ? { feedAttention: { itemId: input.feedAttention.itemId } } : {}),
         ...(input.resumeMcpReview?.approval ? { mcpApproval: {
           directiveId: input.resumeMcpReview.approval.directiveId,

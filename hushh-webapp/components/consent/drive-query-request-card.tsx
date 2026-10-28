@@ -114,16 +114,16 @@ export function DriveQueryRequestCard({
   direction?: Direction;
   initial?: DriveQueryView;
 }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
-  if (!user || !isVaultUnlocked)
+  if (!userId || !isVaultUnlocked)
     return (
       <BodyText role="status">Unlock your vault to see this question.</BodyText>
     );
   return (
     <UnlockedDriveQueryCard
-      key={`${user.uid}:${requestId}:${snapshotVaultSessionEpoch()}`}
-      userId={user.uid}
+      key={`${userId}:${requestId}:${snapshotVaultSessionEpoch()}`}
+      userId={userId}
       requestId={requestId}
       direction={direction}
       initial={

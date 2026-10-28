@@ -89,7 +89,7 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.currentUser, loading: false }),
+  useAuth: () => ({ user: mocks.currentUser, userId: mocks.currentUser?.uid ?? null, loading: false }),
 }));
 
 vi.mock("@/lib/cache/use-stale-resource", () => ({

@@ -9,7 +9,10 @@ from types import SimpleNamespace
 import pytest
 
 from hushh_mcp.services.google_connection_service import (
+    CALENDAR_GUEST_PHOTO_SCOPE,
     CALENDAR_LIST_READ_SCOPE,
+    CALENDAR_MEET_DRIVE_READ_SCOPE,
+    CALENDAR_MEET_READ_SCOPE,
     GoogleConnectionError,
     GoogleConnectionService,
 )
@@ -54,17 +57,44 @@ def test_optional_native_calendar_list_access_leaves_initial_base_consent_unchan
     assert set(GoogleConnectionService.scopes("calendar", "read")) <= set(base["scopes"])
 
 
+def test_meeting_file_scopes_are_explicit_and_native_start_echoes_request(monkeypatch) -> None:
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(service, "_client_id", lambda: "synthetic-client")
+    monkeypatch.setattr(service, "_signed_state", lambda _: "synthetic-state")
+    monkeypatch.setattr(
+        service,
+        "_encrypt",
+        lambda *_, **__: {"ciphertext": "synthetic", "iv": "synthetic", "tag": "aad-gcm-v1"},
+    )
+    result = asyncio.run(
+        service.start_native(
+            user_id="owner", service="calendar", access_level="read", include_meeting_files=True
+        )
+    )
+    assert result["include_meeting_files"] is True
+    assert result["include_calendar_list"] is True
+    assert CALENDAR_MEET_READ_SCOPE not in service.scopes("calendar", "read")
+    assert CALENDAR_MEET_DRIVE_READ_SCOPE not in service.scopes("calendar", "read")
+
+
 @pytest.mark.parametrize("optional_list", [False, True])
+@pytest.mark.parametrize("meeting_files", [False, True])
+@pytest.mark.parametrize("guest_photos", [False, True])
 def test_native_completion_accepts_only_the_exact_trusted_scope_set(
-    monkeypatch, optional_list: bool
+    monkeypatch, optional_list: bool, meeting_files: bool, guest_photos: bool
 ) -> None:
     service = GoogleConnectionService(db=_Db())
     monkeypatch.setattr(service, "is_configured", lambda: True)
     monkeypatch.setattr(service, "_client_id", lambda: "synthetic-client")
     monkeypatch.setattr(service, "_client_secret", lambda: "synthetic-test-secret")
     requested = {"openid", "email", "profile", *service.scopes("calendar", "read")}
-    if optional_list:
+    if optional_list or meeting_files:
         requested.add(CALENDAR_LIST_READ_SCOPE)
+    if meeting_files:
+        requested.update({CALENDAR_MEET_READ_SCOPE, CALENDAR_MEET_DRIVE_READ_SCOPE})
+    if guest_photos:
+        requested.add(CALENDAR_GUEST_PHOTO_SCOPE)
     calls: list[dict[str, object]] = []
 
     async def consume(**_: object):
@@ -106,7 +136,9 @@ def test_native_completion_accepts_only_the_exact_trusted_scope_set(
     assert calls[1]["service"] == "calendar"
 
 
-@pytest.mark.parametrize("boundary", ["extra_scope", "wrong_service", "manage_as_read"])
+@pytest.mark.parametrize(
+    "boundary", ["extra_scope", "wrong_service", "manage_as_read", "partial_meeting_scope"]
+)
 def test_native_attempt_cannot_change_service_or_access_at_completion(
     monkeypatch, boundary: str
 ) -> None:
@@ -116,6 +148,8 @@ def test_native_attempt_cannot_change_service_or_access_at_completion(
     scopes = {"openid", "email", "profile", *service.scopes("calendar", level)}
     if boundary == "extra_scope":
         scopes.add("https://www.googleapis.com/auth/drive")
+    if boundary == "partial_meeting_scope":
+        scopes.add(CALENDAR_MEET_READ_SCOPE)
 
     async def consume(**_: object):
         return "attempt-id", {
@@ -174,3 +208,44 @@ def test_optional_requested_scope_requires_explicit_google_grant_before_storage(
 
     assert caught.value.status_code == 403
     assert caught.value.reason_code == "calendar_list_permission_required"
+
+
+@pytest.mark.parametrize("returned_scope", [None, "base_only"])
+def test_meeting_permission_requires_both_scopes_in_google_response(
+    monkeypatch, returned_scope: str | None
+) -> None:
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(
+        service,
+        "_userinfo",
+        lambda *_, **__: asyncio.sleep(0, result={"sub": "synthetic-provider"}),
+    )
+    monkeypatch.setattr(service, "_connection", lambda *_, **__: asyncio.sleep(0, result=None))
+    requested = (
+        *service.scopes("calendar", "read"),
+        CALENDAR_MEET_READ_SCOPE,
+        CALENDAR_MEET_DRIVE_READ_SCOPE,
+    )
+    token = {
+        "access_token": "synthetic-access",
+        "refresh_token": "synthetic-refresh",
+        "expires_in": 3600,
+    }
+    if returned_scope == "base_only":
+        token["scope"] = " ".join(service.scopes("calendar", "read"))
+
+    with pytest.raises(GoogleConnectionError) as caught:
+        asyncio.run(
+            service._store_authorized_connection(
+                user_id="owner",
+                service="calendar",
+                token=token,
+                requested_scopes=requested,
+                oauth_started_at=datetime.now(UTC),
+                attempt_id="attempt-id",
+                expected_generation=connection_generation(None),
+            )
+        )
+
+    assert caught.value.status_code == 403
+    assert caught.value.reason_code == "calendar_meeting_files_permission_required"

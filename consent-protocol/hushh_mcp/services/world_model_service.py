@@ -76,7 +76,24 @@ def content_access(user_id, consent_token):
     return hub_content_check(user_id, check_owner)
 
 
-async def owner_identity(user_id, consent_token, *, conn=None):
+def _matching_owner_record(user_id):
+    record = lookup_fresh_owner_identity(user_id)
+    if not firebase_record_matches_owner(user_id, record) or getattr(record, "disabled", True):
+        raise PermissionError("Owner identity changed")
+    return record
+
+
+async def fresh_owner_record(user_id):
+    """The owner's current external record, matched generation-aware off the event loop.
+
+    With generation admission on, both reads take this owner's lifecycle locks shared on
+    their own connection. Call this before a transaction locks the owner, and pass the
+    record into the locked recheck instead of reading it again under the lock.
+    """
+    return await asyncio.wait_for(run_in_threadpool(_matching_owner_record, user_id), 5)
+
+
+async def owner_identity(user_id, consent_token, *, conn=None, record=None):
     if (
         await validate_first_party_owner_token(
             user_id, consent_token, **({"conn": conn} if conn is not None else {})
@@ -84,9 +101,8 @@ async def owner_identity(user_id, consent_token, *, conn=None):
         is None
     ):
         raise PermissionError("Owner session ended")
-    record = await asyncio.wait_for(run_in_threadpool(lookup_fresh_owner_identity, user_id), 5)
-    if not firebase_record_matches_owner(user_id, record) or getattr(record, "disabled", True):
-        raise PermissionError("Owner identity changed")
+    if record is None:
+        record = await fresh_owner_record(user_id)
     identity = await resolve_profile_research_identity(
         user_id, record, **({"conn": conn} if conn is not None else {})
     )

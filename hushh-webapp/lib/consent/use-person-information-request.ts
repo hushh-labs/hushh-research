@@ -20,7 +20,7 @@ export type PersonInformationDraft = {
  * draft reconcile a lost acknowledgement instead of creating another request.
  */
 export function usePersonInformationRequest(personRef: string) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,14 +41,14 @@ export function usePersonInformationRequest(personRef: string) {
       generation.current += 1;
       abortRef.current?.abort();
     };
-  }, [personRef, user?.uid, vaultKey, isVaultUnlocked]);
+  }, [personRef, userId, vaultKey, isVaultUnlocked]);
 
   async function submitWithReceipt(draft: PersonInformationDraft): Promise<{
     bundle: InformationRequestBundle;
     idempotencyKey: string;
   } | null> {
     if (inFlight.current) return null;
-    if (!user || !vaultKey || !vaultOwnerToken || !isVaultUnlocked || !personRef) {
+    if (!user || !userId || !vaultKey || !vaultOwnerToken || !isVaultUnlocked || !personRef) {
       setError("Unlock your vault before requesting information.");
       return null;
     }
@@ -60,7 +60,7 @@ export function usePersonInformationRequest(personRef: string) {
       return null;
     }
     const run = generation.current;
-    const fingerprint = JSON.stringify([user.uid, personRef, scopeRefs, purpose, draft.durationHours]);
+    const fingerprint = JSON.stringify([userId, personRef, scopeRefs, purpose, draft.durationHours]);
     if (retry.current?.fingerprint !== fingerprint) retry.current = { fingerprint, key: crypto.randomUUID() };
     const idempotencyKey = retry.current.key;
     inFlight.current = true;
@@ -76,7 +76,7 @@ export function usePersonInformationRequest(personRef: string) {
         controller.signal.addEventListener("abort", aborted, { once: true });
         void (async () => {
           try {
-            const connector = await OneKycClientZkService.ensureConnector({ userId: user.uid, vaultKey, vaultOwnerToken });
+            const connector = await OneKycClientZkService.ensureConnector({ userId, vaultKey, vaultOwnerToken });
             if (stale()) return;
             const created = await PersonProfileService.createInformationRequest({
               personRef, scopeRefs, purpose, durationSeconds: draft.durationHours * 3600,
@@ -87,7 +87,7 @@ export function usePersonInformationRequest(personRef: string) {
             // becomes stale before its acknowledgement is painted. Invalidate
             // the owner-scoped consent projections from the mutation boundary
             // so Chat, Profile, and Consent Center cannot reuse old state.
-            CacheSyncService.onConsentMutated(user.uid);
+            CacheSyncService.onConsentMutated(userId);
             dispatchConsentStateChanged({
               action: "request",
               bundleId: created.bundleId,

@@ -20,6 +20,7 @@ from .career import router as career_router
 from .circle_chat import router as circle_chat_router
 from .client_connectors import router as client_connectors_router
 from .command_proposals import router as command_proposals_router
+from .connection_presence import router as connection_presence_router
 from .connections import router as connections_router
 from .credits import router as credits_router
 from .directory_claims import router as directory_claims_router
@@ -27,6 +28,7 @@ from .drive_actions import router as drive_actions_router
 from .email_chat import router as email_chat_router
 from .feed import router as feed_router
 from .feed_events import router as feed_events_router
+from .finance_sharing import router as finance_sharing_router
 from .first_connect_insights import router as first_connect_insights_router
 from .gmail_delivery import router as gmail_delivery_router
 from .gmail_information_requests import router as gmail_information_requests_router
@@ -90,9 +92,11 @@ router.include_router(advisors_router)
 router.include_router(agent_chat_router)
 router.include_router(agent_prompt_router)
 router.include_router(connections_router)
+router.include_router(connection_presence_router)
 router.include_router(area_discovery_router)
 router.include_router(messages_router)
 router.include_router(wallet_card_access_router)
+router.include_router(finance_sharing_router)
 router.include_router(calendar_router)
 router.include_router(circle_chat_router)
 router.include_router(drive_actions_router)

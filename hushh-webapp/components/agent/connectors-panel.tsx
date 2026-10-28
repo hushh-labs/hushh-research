@@ -393,7 +393,7 @@ export function ConnectorsPanel(props: Props) {
           status: placement === null ? "loading" : "unavailable", groups: [], retry: retryPlacement },
         confirmation: null, webBody }) : webBody;
     }
-    return <PrivateOwnerConnectorsPanel key={`${user?.uid}:${Boolean(vaultOwnerToken)}`} {...props} />;
+    return <PrivateOwnerConnectorsPanel key={`${applicationOwnerId ?? "signed-out"}:${Boolean(vaultOwnerToken)}`} {...props} />;
   }
   const ownerKey = `${applicationOwnerId ?? "signed-out"}:${Boolean(vaultOwnerToken)}`;
   if (props.render && props.surface === "profile") {
@@ -438,8 +438,8 @@ function OwnerConnectorsPanel({
   // Credential renewal advances the transport epoch without ending an unlock.
   // Keep operations tied to the actual owner/key lifetime instead.
   // Comparison-only private identity; never project, log or persist this tuple.
-  const unlockOwner = useMemo(() => [user?.uid, vaultKey, hasOwnerToken, authGeneration] as const,
-    [user?.uid, vaultKey, hasOwnerToken, authGeneration]);
+  const unlockOwner = useMemo(() => [applicationOwnerId, vaultKey, hasOwnerToken, authGeneration] as const,
+    [applicationOwnerId, vaultKey, hasOwnerToken, authGeneration]);
   const liveUnlockOwner = useRef<object | null>(null);
   useLayoutEffect(() => {
     liveUnlockOwner.current = unlockOwner;
@@ -559,7 +559,7 @@ function OwnerConnectorsPanel({
   // offers Cancel.
   const [curatedPopupFor, setCuratedPopupFor] = useState<string | null>(null);
   const latestOverview = useRef<ConnectorOverview | null>(null);
-  const ownerUid = user?.uid;
+  const ownerUid = applicationOwnerId;
   useEffect(
     () => () => curatedPopupSession.current?.abort(),
     [ownerUid],
@@ -637,18 +637,18 @@ function OwnerConnectorsPanel({
     [],
   );
   const gmail = useGmailConnectorStatus({
-    userId: user?.uid,
+    userId: applicationOwnerId ?? undefined,
     enabled: open,
     idTokenProvider: user ? mailToken : null,
     routeHref: ROUTES.HOME,
   });
   const calendar = useCalendarConnectionStatus({
-    userId: user?.uid ?? null,
+    userId: applicationOwnerId ?? null,
     idTokenProvider: user ? mailToken : null,
     enabled: open && Boolean(vaultOwnerToken),
   });
   const financial = usePkmDomainResource({
-    userId: user?.uid ?? "",
+    userId: applicationOwnerId ?? "",
     domain: "financial",
     vaultKey,
     vaultOwnerToken,
@@ -1513,9 +1513,9 @@ function OwnerConnectorsPanel({
   };
   const connectMail = (purpose: "send" | "compose" = "send") => {
     const signal = controller.current?.signal;
-    if (!user || !signal || signal.aborted || mailLock.current) return;
+    if (!user || !applicationOwnerId || !signal || signal.aborted || mailLock.current) return;
     const native = Capacitor.isNativePlatform();
-    const attempt = createGmailOAuthPopupAttempt(user.uid, purpose === "send" ? "send" : "read");
+    const attempt = createGmailOAuthPopupAttempt(applicationOwnerId, purpose === "send" ? "send" : "read");
     const popup = native ? null : openGmailOAuthPopup(attempt);
     if (!native && !popup) {
       setMailMessage(
@@ -1541,7 +1541,7 @@ function OwnerConnectorsPanel({
         if (native) {
           const start = await GmailReceiptsService.startNativeConnect({
             idToken,
-            userId: user.uid,
+            userId: applicationOwnerId,
             purpose,
           });
           if (signal.aborted || !start.configured) return;
@@ -1554,21 +1554,21 @@ function OwnerConnectorsPanel({
               preserveModify: gmail.status?.modify_permission_granted === true,
             });
           } catch (error) {
-            GmailReceiptsService.recordConsentFailure(error, user.uid);
+            GmailReceiptsService.recordConsentFailure(error, applicationOwnerId);
             throw error;
           }
           if (signal.aborted) {
-            GmailReceiptsService.recordConsentFailure({ code: "USER_CANCELLED" }, user.uid);
+            GmailReceiptsService.recordConsentFailure({ code: "USER_CANCELLED" }, applicationOwnerId);
             return;
           }
           if (!result.serverAuthCode?.trim()) {
             const error = new Error("Google did not return a Mail authorization code.");
-            GmailReceiptsService.recordConsentFailure(error, user.uid);
+            GmailReceiptsService.recordConsentFailure(error, applicationOwnerId);
             throw error;
           }
           await GmailReceiptsService.completeNativeConnect({
             idToken,
-            userId: user.uid,
+            userId: applicationOwnerId,
             serverAuthCode: result.serverAuthCode,
             // Native completion records the ordinary connection capability;
             // compose is an additive provider grant retained by the plugin.
@@ -1577,7 +1577,7 @@ function OwnerConnectorsPanel({
         } else if (popup) {
           const start = await GmailReceiptsService.startConnect({
             idToken,
-            userId: user.uid,
+            userId: applicationOwnerId,
             includeGrantedScopes: true,
             purpose,
           });
@@ -1620,7 +1620,7 @@ function OwnerConnectorsPanel({
           if (!status?.connected && webPopupFailureCode) {
             GmailReceiptsService.recordConsentFailure({
               code: webPopupFailureCode,
-            }, user.uid);
+            }, applicationOwnerId);
             webPopupFailureCode = null;
           }
           if (!signal.aborted)
@@ -1638,7 +1638,7 @@ function OwnerConnectorsPanel({
         if (!signal.aborted && webPopupFailureCode) {
           GmailReceiptsService.recordConsentFailure({
             code: webPopupFailureCode,
-          }, user.uid);
+          }, applicationOwnerId);
           webPopupFailureCode = null;
         }
         if (!signal.aborted)
@@ -1749,7 +1749,7 @@ function OwnerConnectorsPanel({
   const curatedRolloutEnabled = overview?.features.curated_mcp_connectors === true;
   const connectCurated = (connectorId: string, name: string) => {
     const signal = controller.current?.signal;
-    if (!vaultOwnerToken || !user?.uid || !signal || signal.aborted || curatedBusy || curatedLock.current) return;
+    if (!vaultOwnerToken || !applicationOwnerId || !signal || signal.aborted || curatedBusy || curatedLock.current) return;
     const connector = overview?.connectors.find((item) => item.connectorId === connectorId);
     if (
       !connector ||
@@ -1914,7 +1914,7 @@ function OwnerConnectorsPanel({
     if (target.startsWith("plaid:") && activeConnector === "plaid") {
       const itemId = target.slice("plaid:".length);
       const financialData = financial.data?.data;
-      const ownerId = user?.uid;
+      const ownerId = applicationOwnerId;
       const ownerToken = vaultOwnerToken;
       const key = vaultKey;
       const signal = controller.current?.signal;
@@ -1944,7 +1944,7 @@ function OwnerConnectorsPanel({
       return;
     }
     if (target === "calendar") {
-      const ownerId = user?.uid;
+      const ownerId = applicationOwnerId;
       const ownerToken = vaultOwnerToken;
       const signal = controller.current?.signal;
       if (!ownerId || !ownerToken || !user || !signal || signal.aborted || calendarBusy) return;
@@ -1953,11 +1953,11 @@ function OwnerConnectorsPanel({
       setCalendarBusy(true);
       void user.getIdToken()
         .then((idToken) => {
-          if (signal.aborted || user.uid !== ownerId || currentToken.current !== ownerToken) return null;
+          if (signal.aborted || applicationOwnerId !== ownerId || currentToken.current !== ownerToken) return null;
           return GoogleCalendarService.disconnect(idToken, ownerId);
         })
         .then((result) => {
-          if (!result || signal.aborted || user.uid !== ownerId || currentToken.current !== ownerToken) return;
+          if (!result || signal.aborted || applicationOwnerId !== ownerId || currentToken.current !== ownerToken) return;
           setCalendarMessage("Calendar disconnected.");
           endDisconnect("calendar");
           calendar.refresh();

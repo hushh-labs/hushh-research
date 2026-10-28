@@ -42,7 +42,7 @@ let currentUser: { uid: string; getIdToken: typeof mocks.getIdToken } | null = {
 };
 
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: currentUser }),
+  useAuth: () => ({ user: currentUser, userId: currentUser?.uid ?? null }),
 }));
 
 vi.mock("@/lib/referral/use-referral-stream", () => ({

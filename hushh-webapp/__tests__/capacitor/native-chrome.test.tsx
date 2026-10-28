@@ -658,7 +658,7 @@ vi.mock("@/lib/capacitor/native-presentation-policy", () => ({
   customNativePresentationEnabled: vi.fn(() => true),
 }));
 
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "dock-reviewer" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "dock-reviewer" }, userId: "dock-reviewer" }) }));
 
 vi.mock("next-themes", () => ({ useTheme: () => ({ resolvedTheme: "light" }) }));
 const profile = vi.hoisted(() => ({ query: "profile_pane=1", unlocked: true, pathname: "/" }));

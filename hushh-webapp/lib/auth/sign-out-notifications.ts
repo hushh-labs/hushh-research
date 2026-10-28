@@ -17,10 +17,12 @@ export async function settleSignOutNotifications(user: User, ownerId: string): P
   const cleanup = async () => {
     const { clearLocalChatNotificationState, deleteFCMToken } = await import("@/lib/notifications/fcm-service");
     // Remove preview keys before asking Firebase for a potentially stalled token.
-    await clearLocalChatNotificationState(ownerId);
+    const departingOwner = await clearLocalChatNotificationState(ownerId);
+    if (departingOwner === null) return;
     const idToken = await user.getIdToken();
     if (controller.signal.aborted) return;
-    await deleteFCMToken(ownerId, idToken, { signal: controller.signal });
+    // A Firebase-UID name resolves to the withdrawn owner only once; reuse it.
+    await deleteFCMToken(departingOwner ?? ownerId, idToken, { signal: controller.signal });
   };
 
   try {

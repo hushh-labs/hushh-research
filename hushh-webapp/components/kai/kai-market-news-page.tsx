@@ -182,9 +182,9 @@ function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
  * issues a second provider fanout just because the person pressed Load more.
  */
 export function KaiMarketNewsPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId: ownerId, loading: authLoading } = useAuth();
   const { vaultOwnerToken } = useVault();
-  const userId = user?.uid ?? "";
+  const userId = ownerId ?? "";
   const trackedSymbols = useMemo(
     () => (userId ? KaiMarketHomeResourceService.resolveTrackedSymbols(userId).slice(0, 3) : []),
     [userId],

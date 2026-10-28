@@ -1,20 +1,31 @@
 """Candidate-only tag claims. Never mutate whole-Drive opt-in or sale manifests."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_owner_cohort
+from hushh_mcp.services.drive_financial_packet_failures import (
+    FAILURE_CODES,
+    TRANSIENT_FAILURE_CODES,
+)
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_period_packet_preview import document, write_build
 from hushh_mcp.services.drive_request_discovery import discovery_evidence_matches
+from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 POLICY = "financial-packet-organizing-v1"
 BATCH = 8
+QUICK_RETRY_ATTEMPTS = 3
+QUICK_RETRY_SECONDS = 300
+# Failures that pass on their own get a few slow retries before organizing stops,
+# so recovery needs no operator database write. Retries stay bounded.
+SLOW_RETRY_ATTEMPTS = 7
+SLOW_RETRY_SECONDS = 6 * 3600
 
 
 def current(store, connection, job):
@@ -234,7 +245,7 @@ async def claim(store, model_version):
             job = await _claim_owner(store, model_version, owner)
             if job:
                 return job
-        except (DriveReadError, HTTPException, PermissionError):
+        except (DriveReadError, HTTPException, PermissionError, ConnectorLifecycleError):
             pass
         await defer_owner(owner)
     return None
@@ -286,60 +297,143 @@ async def require_current(store, job):
     await store._transaction(lambda connection: current(store, connection, job))
 
 
+RECOVERY_MARKER = "unrecorded-failure-rearm-v1"
+# Every stop recorded from now on carries a failure code. Rows last scheduled
+# before this point are the only ones that can lack one, so the pass retires itself.
+UNRECORDED_BEFORE = datetime(2026, 10, 30, tzinfo=UTC)
+
+
+def _unrecorded_stop(store, head):
+    """The sealed build of a stop saved without its cause, else None."""
+    try:
+        build = store._build(head)
+    except DriveReadError:
+        return None  # Advisory recovery never blocks the owner's discovery.
+    tagging, work = build.get("tagging") or {}, build.get("tagging_work") or {}
+    if (
+        tagging.get("status") != "failed"
+        or tagging.get("failureCode")
+        or work.get("recovery") == RECOVERY_MARKER
+    ):
+        return None
+    return build
+
+
+def rearm_unrecorded_failures(store, connection, *, user_id, generation):
+    """Re-arm, once per packet, organizing that stopped before causes were recorded.
+
+    Those stops came from a refresh race fixed alongside this marker. The re-armed
+    packet gets a fresh bounded retry budget; saved labels and the cursor are kept.
+    Recovery needs no operator database write, and only qualifying rows are locked.
+    """
+    candidates = connection.execute(
+        text("""SELECT * FROM drive_packet_heads WHERE user_id=:user
+      AND connection_generation=:generation AND packet_kind='provider_discovery'
+      AND category='financial' AND NOT tagging_pending AND build_envelope IS NOT NULL
+      AND tagging_next_at<:before"""),
+        {"user": user_id, "generation": generation, "before": UNRECORDED_BEFORE},
+    ).mappings()
+    for candidate in [dict(row) for row in candidates]:
+        if _unrecorded_stop(store, candidate) is None:
+            continue
+        head = store._row(
+            connection,
+            """SELECT * FROM drive_packet_heads WHERE packet_id=:id AND revision=:revision
+          AND NOT tagging_pending AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
+          FOR UPDATE SKIP LOCKED""",
+            {"id": candidate["packet_id"], "revision": candidate["revision"]},
+        )
+        build = _unrecorded_stop(store, head) if head else None
+        if build is None:
+            continue
+        build["tagging_work"] = {
+            **build["tagging_work"],
+            "attempts": 0,
+            "recovery": RECOVERY_MARKER,
+        }
+        write_build(store, connection, head, build)
+        connection.execute(
+            text("""UPDATE drive_packet_heads SET tagging_pending=TRUE,
+          tagging_next_at=clock_timestamp() WHERE packet_id=:id"""),
+            {"id": head["packet_id"]},
+        )
+
+
+def _retry_after(error, attempts):
+    """Seconds until the next attempt after a failed batch, or None when organizing stops."""
+    limit = SLOW_RETRY_ATTEMPTS if error in TRANSIENT_FAILURE_CODES else QUICK_RETRY_ATTEMPTS
+    if attempts >= limit:
+        return None
+    return QUICK_RETRY_SECONDS if attempts < QUICK_RETRY_ATTEMPTS else SLOW_RETRY_SECONDS
+
+
+def _save_tags(store, searches, connection, job, build, tags):
+    """Seal each label into its original result, only while that source is unchanged."""
+    work = build["tagging_work"]
+    for item, tag in zip(job["items"], tags, strict=True):
+        fresh = store._row(
+            connection,
+            """SELECT metadata_envelope FROM drive_owner_search_results
+            WHERE user_id=:user AND job_id=:job AND position=:position FOR UPDATE""",
+            {"user": job["user_id"], "job": job["search_id"], "position": item["position"]},
+        )
+        if not fresh:
+            raise DriveReadError("packet_superseded")
+        source = searches.search_cipher.open(
+            fresh["metadata_envelope"],
+            user_id=job["user_id"],
+            resource_id=f"{job['search_id']}:{item['position']}",
+            purpose="owner-search-result",
+        )
+        if {k: v for k, v in source.items() if k != "packetCandidateTag"} != {
+            k: v for k, v in item["source"].items() if k != "packetCandidateTag"
+        }:
+            raise DriveReadError("packet_superseded")
+        source["packetCandidateTag"] = tag
+        changed = connection.execute(
+            text("""UPDATE drive_owner_search_results SET metadata_envelope=CAST(:metadata AS jsonb)
+          WHERE user_id=:user AND job_id=:job AND position=:position"""),
+            {
+                "user": job["user_id"],
+                "job": job["search_id"],
+                "position": item["position"],
+                "metadata": searches._seal(
+                    source,
+                    job["user_id"],
+                    f"{job['search_id']}:{item['position']}",
+                    "owner-search-result",
+                ),
+            },
+        )
+        if changed.rowcount != 1:
+            raise DriveReadError("packet_superseded")
+        work["cursor"] = item["position"]
+        work["counts"][tag["bucket"]] += 1
+        for saved in build.get("preview", {}).get("documents", []):
+            if saved["position"] == item["position"]:
+                saved.update(document(source))
+
+
 async def commit(store, job, tags=None, error=None):
+    """Save one organized batch, or one failed attempt identified by a fixed safe code."""
+    if error is not None and error not in FAILURE_CODES:
+        raise ValueError("A failed tagging attempt needs a fixed failure code")
     searches = DriveOwnerSearchStore(db=store.db)
 
     def operation(connection):
         row, build = current(store, connection, job)
         work = build["tagging_work"]
-        for item, tag in zip(job["items"], tags or [], strict=tags is not None):
-            fresh = store._row(
-                connection,
-                """SELECT metadata_envelope FROM drive_owner_search_results
-                WHERE user_id=:user AND job_id=:job AND position=:position FOR UPDATE""",
-                {"user": job["user_id"], "job": job["search_id"], "position": item["position"]},
-            )
-            if not fresh:
-                raise DriveReadError("packet_superseded")
-            source = searches.search_cipher.open(
-                fresh["metadata_envelope"],
-                user_id=job["user_id"],
-                resource_id=f"{job['search_id']}:{item['position']}",
-                purpose="owner-search-result",
-            )
-            if {k: v for k, v in source.items() if k != "packetCandidateTag"} != {
-                k: v for k, v in item["source"].items() if k != "packetCandidateTag"
-            }:
-                raise DriveReadError("packet_superseded")
-            source["packetCandidateTag"] = tag
-            changed = connection.execute(
-                text("""UPDATE drive_owner_search_results SET metadata_envelope=CAST(:metadata AS jsonb)
-              WHERE user_id=:user AND job_id=:job AND position=:position"""),
-                {
-                    "user": job["user_id"],
-                    "job": job["search_id"],
-                    "position": item["position"],
-                    "metadata": searches._seal(
-                        source,
-                        job["user_id"],
-                        f"{job['search_id']}:{item['position']}",
-                        "owner-search-result",
-                    ),
-                },
-            )
-            if changed.rowcount != 1:
-                raise DriveReadError("packet_superseded")
-            work["cursor"] = item["position"]
-            work["counts"][tag["bucket"]] += 1
-            for saved in build.get("preview", {}).get("documents", []):
-                if saved["position"] == item["position"]:
-                    saved.update(document(source))
+        if tags is not None:
+            _save_tags(store, searches, connection, job, build, tags)
         work["attempts"] = work.get("attempts", 0) + 1 if error else 0
         remaining = max(0, job["matched"] - sum(work["counts"].values()))
-        retry = bool(remaining) and work["attempts"] < 3
+        delay = _retry_after(error, work["attempts"]) if error else 0
+        retry = bool(remaining) and delay is not None
+        # A failed attempt with a scheduled retry is still queued work, not a failure,
+        # and one with nothing left to sort leaves the finished result as it is.
         status = (
             "failed"
-            if error
+            if error and remaining and not retry
             else "queued"
             if remaining
             else "completed"
@@ -353,13 +447,19 @@ async def commit(store, job, tags=None, error=None):
             "status": status,
             "policyVersion": POLICY,
             "counts": {**work["counts"], "pending": remaining},
+            **({"failureCode": error} if error else {}),
+            **(
+                {"retryAt": (datetime.now(UTC) + timedelta(seconds=delay)).isoformat()}
+                if error and retry
+                else {}
+            ),
         }
         write_build(store, connection, row, build)
         connection.execute(
             text("""UPDATE drive_packet_heads SET tagging_pending=:pending,
           tagging_next_at=clock_timestamp()+make_interval(secs=>:delay),lease_id=NULL,lease_expires_at=NULL
           WHERE packet_id=:id"""),
-            {"id": row["packet_id"], "pending": retry, "delay": 300 if error else 0},
+            {"id": row["packet_id"], "pending": retry, "delay": delay if retry else 0},
         )
         return "queued" if retry else status
 

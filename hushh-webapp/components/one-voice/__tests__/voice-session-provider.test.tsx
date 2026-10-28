@@ -44,7 +44,7 @@ const harness = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({ usePathname: () => harness.pathname }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: harness.user }),
+  useAuth: () => ({ user: harness.user, userId: harness.user?.uid ?? null }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => harness.vault }));
 vi.mock("@/lib/agent/agent-runtime-context", () => ({

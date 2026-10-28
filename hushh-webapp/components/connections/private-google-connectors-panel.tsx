@@ -19,16 +19,16 @@ const LABELS: Record<GoogleConnector, string> = { gmail: 'Gmail', calendar: 'Goo
 type Status = 'connected' | 'needs_reauth' | 'absent' | 'unavailable';
 
 export function usePrivateGoogleConnectorsModel({ open, visitKey }: { open: boolean; visitKey?: string | null }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const vaultEpoch = snapshotVaultSessionEpoch();
-  const transition = useGoogleConnectorTransitionReview(user?.uid, vaultEpoch);
+  const transition = useGoogleConnectorTransitionReview(userId ?? undefined, vaultEpoch);
   const { confirmTransition, cancelTransition } = transition;
   const auth = snapshotValidatedAuthSessionOwner();
   const authUserId = auth?.userId, authGeneration = auth?.generation;
-  const visit = useMemo(() => ({ open, uid: user?.uid, vaultEpoch, visitKey,
+  const visit = useMemo(() => ({ open, uid: userId, vaultEpoch, visitKey,
     auth: authUserId && authGeneration !== undefined ? { userId: authUserId, generation: authGeneration } : null,
-  }), [open, user?.uid, vaultEpoch, authUserId, authGeneration, visitKey]);
+  }), [open, userId, vaultEpoch, authUserId, authGeneration, visitKey]);
   const live = useRef<typeof visit | null>(null);
   const pending = useRef<object | null>(null);
   const reads = useRef(0);
@@ -40,7 +40,7 @@ export function usePrivateGoogleConnectorsModel({ open, visitKey }: { open: bool
   const [busy, setBusy] = useState<GoogleConnector | null>(null);
   const [message, setMessage] = useState('');
   const [handoff, setHandoff] = useState<PhoneHandoff | null>(null);
-  const enabled = Boolean(open && user?.uid && vaultKey && vaultOwnerToken);
+  const enabled = Boolean(open && userId && vaultKey && vaultOwnerToken);
   const refresh = useCallback(async () => {
     if (!enabled || !isCurrent()) return;
     const sequence = ++reads.current;

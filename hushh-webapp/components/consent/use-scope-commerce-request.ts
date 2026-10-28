@@ -16,9 +16,9 @@ export function useScopeCommerceRequest(requestId: string) {
     const [request, readiness] = await Promise.all([ScopeCommerceService.scopeRequest(token, requestId), ScopeCommerceService.readiness(token).catch(() => undefined)]);
     return { request, readiness };
   }, [requestId]);
-  const { user, data, refresh, error, capture } = useCommerceRead(`request:${requestId}`, load, value => Boolean(value.request.purchase && PENDING.has(value.request.purchase.status)));
+  const { user, userId, data, refresh, error, capture } = useCommerceRead(`request:${requestId}`, load, value => Boolean(value.request.purchase && PENDING.has(value.request.purchase.status)));
   const [quote, setQuote] = useState<ScopeQuote | null>(null);
-  const { busy, message, run } = useCommerceAction({ user, capture }, requestId);
+  const { busy, message, run } = useCommerceAction({ user, userId, capture }, requestId);
   const [ended, setEnded] = useState(false);
   const keys = useRef({ quote: crypto.randomUUID(), purchase: crypto.randomUUID(), end: crypto.randomUUID() });
   useEffect(() => {
@@ -48,10 +48,10 @@ export function useScopeCommerceRequest(requestId: string) {
   async function prepare(acknowledgement?: NegativeNetAcknowledgement) {
     await run(async (_token, current) => {
       const vaultOwnerToken = getVaultOwnerToken();
-      if (!vaultKey || !vaultOwnerToken || !request?.purchase || !user || request.role !== "owner") throw new Error("Unlock the information owner's vault before preparing this information.");
+      if (!vaultKey || !vaultOwnerToken || !request?.purchase || !userId || request.role !== "owner") throw new Error("Unlock the information owner's vault before preparing this information.");
       const terms = request.negative_net_acknowledgement;
       if ((request.purchase.net_earnings_micro_usd ?? 0) < 0 && (!terms || acknowledgement?.binding !== terms.binding || acknowledgement.acknowledged !== true)) throw new Error("Acknowledge the exact negative earnings and debt consequence before sharing.");
-      await prepareAndStagePaidScopeExport({ purchaseId: request.purchase.id, userId: user.uid, vaultKey, vaultOwnerToken, negativeNetAcknowledgement: acknowledgement });
+      await prepareAndStagePaidScopeExport({ purchaseId: request.purchase.id, userId, vaultKey, vaultOwnerToken, negativeNetAcknowledgement: acknowledgement });
       if (!current()) return;
       await refresh();
       if (current()) dispatchConsentStateChanged({ source: "scope_payment_staged" });

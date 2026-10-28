@@ -74,7 +74,7 @@ function formatStatus(status?: string | null) {
 
 export default function RiaClientsPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { riaCapability, loading: personaLoading } = usePersonaState();
   const allowTestProfiles = canShowKaiTestProfile();
   const kaiTestUserId = getKaiTestUserId();
@@ -83,15 +83,15 @@ export default function RiaClientsPage() {
   const [view, setView] = useState<ClientsView>("connected");
 
   const clientsResource = useStaleResource<RiaClientListResponse>({
-    cacheKey: user?.uid
-      ? `ria_clients_connected_${user.uid}`
+    cacheKey: userId
+      ? `ria_clients_connected_${userId}`
       : "ria_clients_guest",
-    enabled: Boolean(user?.uid && riaCapability !== "setup"),
+    enabled: Boolean(userId && riaCapability !== "setup"),
     load: async () => {
-      if (!user?.uid) throw new Error("Sign in to access clients");
+      if (!user || !userId) throw new Error("Sign in to access clients");
       const idToken = await user.getIdToken();
       return RiaService.listClients(idToken, {
-        userId: user.uid,
+        userId,
         page: 1,
         limit: 100,
       });
@@ -249,7 +249,7 @@ export default function RiaClientsPage() {
               />
             </div>
 
-            <RetainedNearbyPane key={user?.uid ?? "guest"} active={view === "nearby"} />
+            <RetainedNearbyPane key={userId ?? "guest"} active={view === "nearby"} />
             {view === "connected" ? (
               <SettingsGroup
                 embedded

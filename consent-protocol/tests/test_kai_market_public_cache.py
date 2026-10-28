@@ -134,8 +134,8 @@ def test_market_home_cache_key_uses_shared_baseline_and_user_scoped_personalizat
     )
 
     assert baseline_user_a == baseline_user_b
-    assert baseline_user_a.startswith("home:v5:baseline:")
-    assert personalized_user_a.startswith("home:v5:user_a:")
+    assert baseline_user_a.startswith("home:v6:baseline:")
+    assert personalized_user_a.startswith("home:v6:user_a:")
 
 
 def test_repair_quote_symbol_normalizes_known_provider_aliases():

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const navigation = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: navigation.push }) }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner-1" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner-1" }, userId: "owner-1" }) }));
 
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
 import { emptyPkmSaveReceipt } from "@/lib/agent/pkm-save-receipt";

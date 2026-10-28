@@ -19,7 +19,10 @@ const visitNotes = vi.hoisted(() => ({
   loadVisitNotes: vi.fn(),
   removeVisitNote: vi.fn(),
 }));
-const auth = vi.hoisted(() => ({ user: { uid: "user-1" } as { uid: string } | null }));
+const auth = vi.hoisted(() => ({
+  user: { uid: "user-1" } as { uid: string } | null,
+  userId: "user-1" as string | null,
+}));
 const vault = vi.hoisted(() => ({
   vaultKey: "vault-key" as string | null,
   vaultOwnerToken: "owner-token" as string | null,
@@ -62,6 +65,7 @@ describe("PlacesVisitedFlow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     auth.user = { uid: "user-1" };
+    auth.userId = "user-1";
     vault.vaultKey = "vault-key";
     vault.vaultOwnerToken = "owner-token";
     service.listPlaceRatings.mockResolvedValue([]);

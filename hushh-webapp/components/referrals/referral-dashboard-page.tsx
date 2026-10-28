@@ -100,6 +100,7 @@ type Res<T> =
 /** Account-scoped, memory-only reads retain content during background refresh. */
 function useReferralResource<T>(
   user: User | null | undefined,
+  ownerId: string | null,
   resource: string,
   fetcher: (idToken: string) => Promise<T>,
 ): [Res<T>, () => void] {
@@ -108,7 +109,7 @@ function useReferralResource<T>(
     requestScope,
     cacheTtlMs: 0,
     retainOnInvalidate: true,
-    cacheKey: `referral_dashboard_${user?.uid ?? "signed-out"}_${resource}`,
+    cacheKey: `referral_dashboard_${ownerId ?? "signed-out"}_${resource}`,
     enabled: Boolean(user),
     resourceLabel: `referral-${resource}`,
     load: async () => {
@@ -188,14 +189,13 @@ function Section<T>({
 export function ReferralDashboardPage() {
   // Start the hero request before the summary API gates the You tab.
   preload(REFERRAL_HERO_ARTWORK_SRC, { as: "image", fetchPriority: "high" });
-  const { user } = useAuth();
-  const ownerId = user?.uid ?? null;
+  const { userId: ownerId } = useAuth();
   // Keep cached reads and local UI state isolated when the signed-in owner changes.
   return <ReferralDashboardContent key={ownerId ?? "signed-out"} />;
 }
 
 export function useReferralDashboardModel() {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const [tab, setTab] = useState<TabKey>("you");
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const closeHowItWorks = useCallback(() => {
@@ -210,22 +210,22 @@ export function useReferralDashboardModel() {
   // without. Every other read is its own resource below, decoupled so a
   // failure in one (the leaderboard, say) can never hide or zero out a
   // DIFFERENT one that loaded fine (points, say).
-  const [summaryRes, reloadSummary] = useReferralResource(user, "summary", (idToken) =>
+  const [summaryRes, reloadSummary] = useReferralResource(user, userId, "summary", (idToken) =>
     ReferralService.getSummary({ idToken }),
   );
-  const [pointsRes, reloadPoints] = useReferralResource(user, "points", (idToken) =>
+  const [pointsRes, reloadPoints] = useReferralResource(user, userId, "points", (idToken) =>
     ReferralService.getPoints({ idToken }),
   );
-  const [leaderboardRes, reloadLeaderboard] = useReferralResource(user, "leaderboard", (idToken) =>
+  const [leaderboardRes, reloadLeaderboard] = useReferralResource(user, userId, "leaderboard", (idToken) =>
     ReferralService.getLeaderboard({ idToken, limit: 10 }),
   );
-  const [policyRes, reloadPolicy] = useReferralResource(user, "policy", (idToken) =>
+  const [policyRes, reloadPolicy] = useReferralResource(user, userId, "policy", (idToken) =>
     ReferralService.getPolicy({ idToken }),
   );
-  const [milestonesRes, reloadMilestones] = useReferralResource(user, "milestones", (idToken) =>
+  const [milestonesRes, reloadMilestones] = useReferralResource(user, userId, "milestones", (idToken) =>
     ReferralService.getMilestones({ idToken }),
   );
-  const [engagementRes, reloadEngagement] = useReferralResource(user, "engagement", (idToken) =>
+  const [engagementRes, reloadEngagement] = useReferralResource(user, userId, "engagement", (idToken) =>
     ReferralService.getEngagement({ idToken }),
   );
   const [circleRefresh, setCircleRefresh] = useState(0);
@@ -271,13 +271,13 @@ export function useReferralDashboardModel() {
   }, [connected, reloadAll]);
 
   const link = summaryRes.status === "ready" ? summaryRes.data.link : "";
-  const claims = useReferralClaims(user, milestonesRes, reloadMilestones);
-  const shareVisit = useRef<{ active: boolean; owner: string | undefined; link: string } | null>(null);
+  const claims = useReferralClaims(user, userId, milestonesRes, reloadMilestones);
+  const shareVisit = useRef<{ active: boolean; owner: string | null; link: string } | null>(null);
   useLayoutEffect(() => {
-    const visit = { active: true, owner: user?.uid, link };
+    const visit = { active: true, owner: userId, link };
     shareVisit.current = visit;
     return () => { visit.active = false; if (shareVisit.current === visit) shareVisit.current = null; };
-  }, [user?.uid, link]);
+  }, [userId, link]);
 
   const onShare = useCallback(async () => {
     const owner = snapshotValidatedAuthSessionOwner();
@@ -292,7 +292,7 @@ export function useReferralDashboardModel() {
     }
   }, [link]);
 
-  return { user, tab, setTab, board, setBoard, showHowItWorks, setShowHowItWorks, summaryRes, pointsRes,
+  return { user, userId, tab, setTab, board, setBoard, showHowItWorks, setShowHowItWorks, summaryRes, pointsRes,
     leaderboardRes, policyRes, milestonesRes, engagementRes, circleRefresh, link, onShare, reloadAll,
     reloadSummary, reloadPoints, reloadLeaderboard, reloadMilestones, reloadPolicy, reloadEngagement, claims };
 }
@@ -305,7 +305,7 @@ function ReferralDashboardContent() {
   return <ReferralDashboardBody model={model} />;
 }
 function ReferralDashboardBody({ model }: { model: ReferralDashboardModel }) {
-  const { user, tab, setTab, board, setBoard, showHowItWorks, setShowHowItWorks, summaryRes, pointsRes,
+  const { user, userId, tab, setTab, board, setBoard, showHowItWorks, setShowHowItWorks, summaryRes, pointsRes,
     leaderboardRes, policyRes, milestonesRes, engagementRes, circleRefresh, link, onShare, reloadAll,
     reloadSummary, reloadPoints, reloadLeaderboard, reloadMilestones, reloadPolicy, reloadEngagement, claims } = model;
   const dataState =
@@ -346,7 +346,7 @@ function ReferralDashboardBody({ model }: { model: ReferralDashboardModel }) {
               onRetryEngagement={reloadEngagement}
               link={link}
               onShare={onShare}
-              circlePanel={tab === "you" && user ? <CircleWarsPanel userId={user.uid} view="card" refreshKey={circleRefresh} onInvite={onShare} onViewRankings={() => { setTab("standings"); setBoard("circles"); }} /> : null}
+              circlePanel={tab === "you" && userId ? <CircleWarsPanel userId={userId} view="card" refreshKey={circleRefresh} onInvite={onShare} onViewRankings={() => { setTab("standings"); setBoard("circles"); }} /> : null}
             />
           ) : null}
         </>
@@ -355,9 +355,10 @@ function ReferralDashboardBody({ model }: { model: ReferralDashboardModel }) {
       <div>
         <StandingsTab
           user={user}
+          ownerId={userId}
           leaderboardRes={leaderboardRes}
           onRetryLeaderboard={reloadLeaderboard}
-          circlePanel={tab === "standings" && board === "circles" && user ? <CircleWarsPanel userId={user.uid} view="leaderboard" refreshKey={circleRefresh} onInvite={onShare} onViewRankings={() => setBoard("circles")} /> : null}
+          circlePanel={tab === "standings" && board === "circles" && userId ? <CircleWarsPanel userId={userId} view="leaderboard" refreshKey={circleRefresh} onInvite={onShare} onViewRankings={() => setBoard("circles")} /> : null}
           board={board}
           onBoardChange={setBoard}
         />
@@ -661,6 +662,7 @@ function StreakFlame({ engagementRes }: { engagementRes: Res<EngagementStatus> }
 
 function StandingsTab({
   user,
+  ownerId,
   leaderboardRes,
   onRetryLeaderboard,
   circlePanel,
@@ -668,6 +670,7 @@ function StandingsTab({
   onBoardChange,
 }: {
   user: User | null | undefined;
+  ownerId: string | null;
   leaderboardRes: Res<LeaderboardPage>;
   onRetryLeaderboard: () => void;
   circlePanel: React.ReactNode;
@@ -698,7 +701,7 @@ function StandingsTab({
       {board === "circles" ? circlePanel : <div className="space-y-4">
         <h3 className="ui-text-section-title">Individual rankings</h3>
           <Section res={leaderboardRes} onRetry={onRetryLeaderboard} retryLabel="the individual standings">
-            {(leaderboard) => <IndividualReferralRankings key={user?.uid ?? "signed-out"}
+            {(leaderboard) => <IndividualReferralRankings key={ownerId ?? "signed-out"}
               firstPage={leaderboard} user={user} onRefresh={onRetryLeaderboard} />}
           </Section>
       </div>}
@@ -846,16 +849,16 @@ function RewardsTab({
 
 /** Same server-authoritative writer for either body. Re-reads never claim a
  * reward, and a lost response never schedules another fulfillment operation. */
-function useReferralClaims(user: User | null | undefined, milestones: Res<MilestoneProgress>, onClaimed: () => void) {
+function useReferralClaims(user: User | null | undefined, ownerId: string | null, milestones: Res<MilestoneProgress>, onClaimed: () => void) {
   const pending = useRef(new Set<string>());
   const mounted = useRef(true);
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const live = useRef({ user, milestones, onClaimed });
-  useLayoutEffect(() => { live.current = { user, milestones, onClaimed }; });
+  const live = useRef({ user, ownerId, milestones, onClaimed });
+  useLayoutEffect(() => { live.current = { user, ownerId, milestones, onClaimed }; });
   const [state, setState] = useState<Record<string, "saving" | "error">>({});
   const claim = async (key: string) => {
     const snapshot = live.current, owner = snapshotValidatedAuthSessionOwner();
-    const current = () => mounted.current && !!owner && owner.userId === snapshot.user?.uid && live.current.user?.uid === owner.userId && isValidatedAuthSessionOwnerCurrent(owner);
+    const current = () => mounted.current && !!owner && owner.userId === snapshot.ownerId && live.current.ownerId === owner.userId && isValidatedAuthSessionOwnerCurrent(owner);
     const earned = snapshot.milestones.status === "ready" ? snapshot.milestones.data.earned.find(item => item.milestone_key === key) : undefined;
     if (!snapshot.user || !current() || !earned || earned.claimed_at || pending.current.has(key)) return;
     pending.current.add(key); setState(previous => ({ ...previous, [key]: "saving" }));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buyerNotes, buyerPacketStatus, dayRangeLabel, ownerDocumentCount, ownerPacketStatus, ownerStatusLine } from "@/components/consent/packets/packet-copy";
+import { buyerNotes, buyerPacketStatus, dayRangeLabel, ownerDocumentCount, ownerPacketStatus, ownerSortingStatus, ownerStatusLine } from "@/components/consent/packets/packet-copy";
 import type { DiscoveryDrivePacket, DrivePacket } from "@/lib/services/drive-packet-service";
 
 // A synthetic listed packet, as a buyer's list receives it.
@@ -101,6 +101,40 @@ describe("@feature_drive_packets @trace_loop owner packet words", () => {
     const partial = { ...current, preview: { ...preview, status: "partial" as const, matched: 12, complete: false } };
     expect(ownerStatusLine(partial)).toContain("12 files");
     expect(ownerPacketStatus(partial).word).toBe("Files found so far");
+  });
+
+  it("claims earlier results or Refresh only when they exist after a failed search", () => {
+    const failed = { status: "failed" as const, revision: 1, matched: null, complete: false, stale: true,
+      updatedAt: null, errorCode: "provider_unavailable" };
+    const detail = (version: number, matched: number | null) =>
+      ownerPacketStatus({ ...emptyDiscovery, version, preview: { ...failed, matched } }).detail;
+    expect(detail(0, 12)).toBe("Earlier results are still shown. Refresh to try again.");
+    expect(detail(0, null)).toBe("Refresh to try again.");
+    expect(detail(1, 12)).toBe("Earlier results are still shown.");
+    expect(detail(1, null)).toBe("Try again later.");
+  });
+
+  it("shows sorting apart from the search, and never as found-file loss", () => {
+    const found: DiscoveryDrivePacket = { ...emptyDiscovery, category: "financial", state: "building", version: 0,
+      preview: { status: "completed", revision: 3, matched: 400, complete: true, stale: false,
+        updatedAt: "2026-10-27T10:00:00Z", errorCode: null } };
+    const sorting = (tagging?: NonNullable<DiscoveryDrivePacket["preview"]>["tagging"]) =>
+      ownerSortingStatus({ ...found, preview: { ...found.preview!, ...(tagging ? { tagging } : {}) } });
+    const counts = { financial: 0, review: 100, other: 20, pending: 280 };
+    const tagging = { status: "queued" as const, policyVersion: "synthetic-labels", counts };
+    expect(sorting(tagging)).toEqual({ word: "Sorting files", tone: "waiting", value: "120 of 400" });
+    expect(sorting({ ...tagging, retryAt: "2026-10-28T06:00:00Z" }))
+      .toEqual({ word: "Sorting paused", tone: "waiting", value: "120 of 400", detail: "Trying again later." });
+    expect(sorting({ ...tagging, status: "failed" }))
+      .toEqual({ word: "Couldn’t sort files", tone: "attention", value: "120 of 400", detail: "Found files are still listed." });
+    expect(sorting({ ...tagging, status: "completed", counts: { ...counts, review: 380, pending: 0 } }))
+      .toEqual({ word: "Files sorted", tone: "ready" });
+    // No sorting state yet (a new search not yet sorted, or a retained snapshot): no claim.
+    expect(sorting()).toBeNull();
+    expect(ownerPacketStatus({ ...found, preview: { ...found.preview!, tagging: { ...tagging, status: "failed" } } }).word)
+      .toBe("Files found");
+    expect(ownerSortingStatus({ ...found, preview: { ...found.preview!, matched: 0 } })).toBeNull();
+    expect(ownerSortingStatus({ ...found, category: "bank" })).toBeNull();
   });
   // The owner's packets as the server sends them: a version that isn't ready is never "current".
   const owned: DrivePacket = { ...packet, listingRevision: 0, listingEnabled: false, canList: true, canRequest: false };

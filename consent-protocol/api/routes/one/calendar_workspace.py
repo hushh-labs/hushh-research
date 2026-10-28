@@ -366,38 +366,55 @@ async def public_rescheduling_options(request: Request, payload: CalendarPublicO
 
 
 class CalendarMeetingSelection(BaseModel):
-    expected_account_email: str = Field(min_length=1, max_length=512)
+    account_id: str = Field(default="default", min_length=1, max_length=128)
+    expected_account_email: str | None = Field(default=None, min_length=1, max_length=512)
+    expected_grant: str | None = Field(default=None, min_length=64, max_length=64)
+    occurrence_id: str | None = Field(default=None, min_length=64, max_length=64)
     calendar_id: str = Field(min_length=1, max_length=1024)
     event_id: str = Field(min_length=1, max_length=2048)
+    date: str | None = Field(default=None, min_length=10, max_length=10)
+    time_zone: str | None = Field(default=None, min_length=1, max_length=128)
 
 
-def _insights():
+class CalendarMeetingDownload(CalendarMeetingSelection):
+    file_id: str = Field(min_length=10, max_length=255)
+
+
+def _insights(account_id="default"):
     from hushh_mcp.services.calendar_insights_service import CalendarInsightsService
 
-    return CalendarInsightsService()
+    return CalendarInsightsService(schedule=_selected_schedule(account_id), account_id=account_id)
 
 
-def _artifacts():
+def _artifacts(account_id="default"):
     from hushh_mcp.services.calendar_meeting_artifacts import CalendarMeetingArtifacts
 
-    return CalendarMeetingArtifacts()
+    return CalendarMeetingArtifacts(insights=_insights(account_id))
+
+
+class CalendarInsightsDay(CalendarDay):
+    account_id: str = Field(default="default", min_length=1, max_length=128)
 
 
 @router.post("/insights")
 async def insights(
-    payload: CalendarDay,
+    payload: CalendarInsightsDay,
     response: Response,
     firebase_uid: str = Depends(hub_content_firebase_read_only),
 ):
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await _insights().overview(user_id=firebase_uid, **payload.model_dump())
+        return await _insights(payload.account_id).overview(
+            user_id=firebase_uid, **payload.model_dump(exclude={"account_id"})
+        )
     except Exception as exc:
         raise _http(exc) from exc
 
 
-class CalendarMeetingPage(CalendarDay):
-    page: int = Field(default=0, ge=0, le=1000)
+class CalendarMeetingPage(CalendarInsightsDay):
+    cursor: str | None = Field(default=None, min_length=40, max_length=40000)
+    query: str = Field(default="", max_length=120)
+    kind: str = Field(default="all", pattern="^(all|recording|notes)$")
 
 
 @router.post("/meetings")
@@ -408,7 +425,9 @@ async def meeting_library(
 ):
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await _insights().library(user_id=firebase_uid, **payload.model_dump())
+        return await _insights(payload.account_id).library(
+            user_id=firebase_uid, **payload.model_dump(exclude={"account_id"})
+        )
     except Exception as exc:
         raise _http(exc) from exc
 
@@ -419,11 +438,42 @@ async def meeting_detail(
     response: Response,
     firebase_uid: str = Depends(hub_content_firebase_read_only),
 ):
-    response.headers["Cache-Control"] = "private, no-store"
-    try:
-        return await _artifacts().detail(user_id=firebase_uid, **payload.model_dump())
-    except Exception as exc:
-        raise _http(exc) from exc
+    from api.routes.one.calendar_meeting_actions import meeting_detail as action
+
+    return await action(payload, response, firebase_uid, artifacts=_artifacts, http_error=_http)
+
+
+@router.post("/meetings/download")
+async def meeting_download(
+    payload: CalendarMeetingDownload,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
+):
+    """Recheck the exact occurrence and file, then hand off to Google download."""
+    return await _meeting_file_action(payload, response, firebase_uid, download=True)
+
+
+@router.post("/meetings/open")
+async def meeting_open(
+    payload: CalendarMeetingDownload,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
+):
+    """Recheck the exact occurrence and file before opening it in Google."""
+    return await _meeting_file_action(payload, response, firebase_uid, download=False)
+
+
+async def _meeting_file_action(payload, response, firebase_uid, *, download):
+    from api.routes.one.calendar_meeting_actions import meeting_file_action
+
+    return await meeting_file_action(
+        payload,
+        response,
+        firebase_uid,
+        download=download,
+        artifacts=_artifacts,
+        http_error=_http,
+    )
 
 
 @router.post("/meetings/context")
@@ -434,26 +484,17 @@ async def meeting_context(
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     verify_user_id_match(firebase_uid, token["user_id"])
-    response.headers["Cache-Control"] = "private, no-store"
-    try:
-        detail = await _artifacts().detail(user_id=firebase_uid, **payload.model_dump())
-        sources = [
-            {
-                "title": item["title"],
-                "url": item["url"],
-                "text": item["text"],
-                "truncated": item.get("truncated", False),
-            }
-            for item in detail["artifacts"]
-            if item.get("can_ask") and item.get("text")
-        ]
-        if not sources:
-            raise HTTPException(
-                status_code=403,
-                detail={"message": "No meeting text is currently authorized for One."},
-            )
-        return {"title": detail["event"]["title"], "sources": sources}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise _http(exc) from exc
+    if payload.account_id != "default":
+        raise HTTPException(
+            status_code=403,
+            detail={"message": "Meeting chat uses the original Calendar connection."},
+        )
+    from api.routes.one.calendar_meeting_actions import meeting_chat_context
+
+    return await meeting_chat_context(
+        payload,
+        response,
+        firebase_uid,
+        artifacts=_artifacts,
+        http_error=_http,
+    )

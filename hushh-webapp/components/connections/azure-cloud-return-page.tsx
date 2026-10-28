@@ -247,10 +247,9 @@ function useReturnHandBack(view: ReturnView) {
 }
 
 function useCleanupHandBack(view: ReturnView) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const operationId = view.kind === "cleanup" ? view.operationId : null;
   const phase = view.kind === "cleanup" && view.review ? "inspect" : "execute";
-  const userId = user?.uid;
   useEffect(() => {
     if (!operationId || !userId || !isSignInPopup()) return;
     const owner = snapshotValidatedAuthSessionOwner();

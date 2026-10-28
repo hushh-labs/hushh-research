@@ -903,8 +903,7 @@ export function toPortfolioData(financial: FinancialInput): PortfolioData | null
   const accountIds = new Set<string>();
   let cash = 0;
   let total = 0;
-  const holdingEntries = [...tierA.holdings.entries()].sort(([a], [b]) => (a < b ? -1 : 1));
-  for (const [, holding] of holdingEntries) {
+  for (const [, holding] of [...tierA.holdings.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
     if (duplicateIds.has(holding.account_id)) continue;
     const security = tierA.securities.get(holding.security_id);
     const account = accountsById.get(holding.account_id);
@@ -927,6 +926,7 @@ export function toPortfolioData(financial: FinancialInput): PortfolioData | null
       name: security?.name ?? "Unknown",
       quantity: holding.quantity,
       price: holding.institution_price ?? security?.close_price ?? 0,
+      iso_currency_code: holding.iso_currency_code ?? account?.balances.iso_currency_code ?? undefined,
       market_value: marketValue,
       cost_basis: holding.cost_basis ?? undefined,
       unrealized_gain_loss: unrealized,

@@ -55,12 +55,12 @@ export function AnswerRequestReview({
   onResolved,
   onApproved,
 }: AnswerRequestReviewProps) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const matched = request.resolutionMode === "agent" && request.proposedScopes.length > 0;
   const proposed = matched ? request.proposedScopes.map(entry => entry.scope) : [];
   const [refreshTick, setRefreshTick] = useState(0);
-  const coverageKey = JSON.stringify([request.requestId, proposed, request.periodStart, request.periodEnd, user?.uid, snapshotVaultSessionEpoch(), refreshTick]);
+  const coverageKey = JSON.stringify([request.requestId, proposed, request.periodStart, request.periodEnd, userId, snapshotVaultSessionEpoch(), refreshTick]);
   const [checked, setChecked] = useState<{ key: string; value: AnswerScopeAvailability } | null>(null);
   const coverage = checked?.key === coverageKey ? checked.value : null;
   const chosen = coverage?.available ?? [];
@@ -81,8 +81,8 @@ export function AnswerRequestReview({
   }, [pricedSelection, termsKey]);
 
   useEffect(() => {
-    if (!user?.uid) return;
-    const owner = user.uid;
+    if (!userId) return;
+    const owner = userId;
     const refresh = () => setRefreshTick(value => value + 1);
     const stop = subscribeToPkmDomainChanges(detail => {
       if (detail.userId === owner && !(detail.domain === "one_living_sources" && detail.operation === "stored")) refresh();
@@ -94,7 +94,7 @@ export function AnswerRequestReview({
       window.removeEventListener("online", refresh);
       window.removeEventListener("focus", refresh);
     };
-  }, [user?.uid]);
+  }, [userId]);
 
   useEffect(() => {
     if (!matched) return;
@@ -102,14 +102,14 @@ export function AnswerRequestReview({
     let stopped = false;
     const current = () => !stopped && isVaultSessionEpochCurrent(epoch);
     const inspect = async () => {
-      if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken)
+      if (!userId || !isVaultUnlocked || !vaultKey || !vaultOwnerToken)
         throw new Error("Unlock your memory to check these details.");
       const idToken = await AuthService.getIdToken();
       if (!idToken) throw new Error("Sign in to check these details.");
-      const identity = await AccountIdentityService.refreshIdentityForSession(user.uid, idToken, { force: true });
+      const identity = await AccountIdentityService.refreshIdentityForSession(userId, idToken, { force: true });
       if (!identity || !current()) throw new Error("Account identity unavailable.");
       const retrieval = await retrieveApprovedMemoryScopes({
-        userId: user.uid, vaultKey, vaultOwnerToken,
+        userId, vaultKey, vaultOwnerToken,
         approvedScopes: proposed,
         ownerIdentity: { displayName: identity.display_name, email: identity.email, photoUrl: identity.photo_url },
       });
@@ -121,7 +121,7 @@ export function AnswerRequestReview({
     return () => { stopped = true; };
   // coverageKey captures the exact question, scopes, owner and vault session.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coverageKey, isVaultUnlocked, vaultKey, vaultOwnerToken, user?.uid]);
+  }, [coverageKey, isVaultUnlocked, vaultKey, vaultOwnerToken, userId]);
 
   const run = async (action: (token: string) => Promise<unknown>, approved = false) => {
     setBusy(true);
@@ -147,14 +147,14 @@ export function AnswerRequestReview({
     const approvedScopes = pricedSelection?.key === termsKey ? pricedSelection.scopes : [];
     if (!consented || !matched || !approvedScopes.length) { setError("Check the available information and agree to Gemini processing before confirming."); return; }
     void run(async (token) => {
-      if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) throw new Error("Unlock your memory to confirm.");
-      const identity = await AccountIdentityService.refreshIdentityForSession(user.uid, token, { force: true });
+      if (!userId || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) throw new Error("Unlock your memory to confirm.");
+      const identity = await AccountIdentityService.refreshIdentityForSession(userId, token, { force: true });
       if (!identity) throw new Error("Account identity unavailable. Try again.");
       const retrieval = await retrieveApprovedMemoryScopes({
-        userId: user.uid, vaultKey, vaultOwnerToken, approvedScopes,
+        userId, vaultKey, vaultOwnerToken, approvedScopes,
         ownerIdentity: { displayName: identity.display_name, email: identity.email, photoUrl: identity.photo_url },
         readOwnerIdentity: async () => {
-          const fresh = await AccountIdentityService.refreshIdentityForSession(user.uid, token, { force: true });
+          const fresh = await AccountIdentityService.refreshIdentityForSession(userId, token, { force: true });
           return fresh ? { displayName: fresh.display_name, photoUrl: fresh.photo_url } : null;
         },
       });

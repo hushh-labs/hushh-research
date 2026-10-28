@@ -26,7 +26,7 @@ const blocked = (summary: string): Prepared => ({ preparation: { status: "blocke
 
 /** Review-only bridge: the existing editor retains all payment and save authority. */
 export function PkmSharingPriceReview() {
-  const { user, loading, sessionVerificationRequired } = useAuth();
+  const { user, userId, loading, sessionVerificationRequired } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken, getVaultOwnerToken, tokenExpiresAt } = useVault();
   const { capture } = useCommerceSession("pkm-sharing-price-review");
   const [review, setReview] = useState<OpenReview | null>(null);
@@ -38,20 +38,20 @@ export function PkmSharingPriceReview() {
   const choices = useRef(new Map<string, SharingPriceTarget>());
   const executing = useRef(false);
   const authorityRevision = useRef(0);
-  const enabled = Boolean(user && !loading && !sessionVerificationRequired && isVaultUnlocked && vaultOwnerToken);
+  const enabled = Boolean(user && userId && !loading && !sessionVerificationRequired && isVaultUnlocked && vaultOwnerToken);
   useLayoutEffect(() => {
     const offeredChoices = choices.current;
     authorityRevision.current += 1;
     active.current = null; activeBundle.current = null; offeredChoices.clear(); setReview(null); setBundleReview(null); setListingPending(null); setListingError(null);
     return () => { authorityRevision.current += 1; active.current = null; activeBundle.current = null; offeredChoices.clear(); };
-  }, [user, vaultOwnerToken, isVaultUnlocked, sessionVerificationRequired, loading, tokenExpiresAt]);
+  }, [user, userId, vaultOwnerToken, isVaultUnlocked, sessionVerificationRequired, loading, tokenExpiresAt]);
 
   function captureAuthority() {
     const owner = snapshotValidatedAuthSessionOwner();
     const viewCurrent = capture();
     const token = getVaultOwnerToken();
     const revision = authorityRevision.current;
-    if (!enabled || !owner || owner.userId !== user?.uid || token !== vaultOwnerToken || !token || tokenExpiresAt === null || tokenExpiresAt <= Date.now()) return null;
+    if (!enabled || !owner || owner.userId !== userId || token !== vaultOwnerToken || !token || tokenExpiresAt === null || tokenExpiresAt <= Date.now()) return null;
     return { owner, token, current: () => viewCurrent() && isValidatedAuthSessionOwnerCurrent(owner) &&
       authorityRevision.current === revision && getVaultOwnerToken() === token && tokenExpiresAt > Date.now() };
   }
@@ -176,7 +176,7 @@ export function PkmSharingPriceReview() {
 
   if (enabled && bundleReview?.current()) return <Dialog modal open onOpenChange={open => { if (!open) closeBundle(); }}><DialogContent data-pkm-overlay="true">
     <DialogHeader><DialogTitle>{bundleReview.bundle.label}: sharing and price</DialogTitle><DialogDescription>Listing lets people request information. Approval and payment remain separate.</DialogDescription></DialogHeader>
-    <PkmDomainSharing userId={user!.uid} title={bundleReview.bundle.label} manifest={bundleReview.bundle.manifest}
+    <PkmDomainSharing userId={userId!} title={bundleReview.bundle.label} manifest={bundleReview.bundle.manifest}
       pendingKey={listingPending} onChange={updateListing} onPaymentsNavigate={closeBundle}
       proposal={bundleReview.proposal.proposedPriceCents !== undefined || bundleReview.proposal.proposedBaseHours !== undefined ? bundleReview.proposal : undefined} />
     {listingError ? <p role="status">{listingError}</p> : null}

@@ -113,7 +113,7 @@ function reviewRecovery(reasonCode: string | null) {
 }
 
 export function OneVoiceMailDraftBridge() {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const voice = useOptionalVoiceSession();
   const { isVaultUnlocked, tokenExpiresAt, getVaultOwnerToken } = useVault();
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
@@ -129,7 +129,7 @@ export function OneVoiceMailDraftBridge() {
   const handledStepsRef = useRef(new Set<string>());
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  const ownerRef = useRef(user?.uid ?? null);
+  const ownerRef = useRef(userId);
   const getVaultOwnerTokenRef = useRef(getVaultOwnerToken);
   getVaultOwnerTokenRef.current = getVaultOwnerToken;
   const wasVaultUnlockedRef = useRef(isVaultUnlocked);
@@ -223,7 +223,7 @@ export function OneVoiceMailDraftBridge() {
           // edit before closing the card so a late edit response cannot
           // resurrect a draft that the user explicitly cancelled.
           const edits = editsRef.current;
-          if (!outcome || !current?.binding || current.ownerUid !== user?.uid ||
+          if (!outcome || !current?.binding || current.ownerUid !== userId ||
               closedDraftsRef.current.has(outcome.draftRef) ||
               current.binding.draftRef !== outcome.draftRef ||
               current.binding.revision !== outcome.revision) {
@@ -248,7 +248,7 @@ export function OneVoiceMailDraftBridge() {
         }
         if (outcome?.status === "needs_input") {
           if (outcome.reasonCode === "VOICE_APPROVAL_SUPERSEDED" && current?.binding &&
-              current.ownerUid === user?.uid && !closedDraftsRef.current.has(outcome.draftRef) &&
+              current.ownerUid === userId && !closedDraftsRef.current.has(outcome.draftRef) &&
               current.binding.draftRef === outcome.draftRef && current.binding.revision === outcome.revision &&
               outcome.actionId !== null && current.review?.actionId === outcome.actionId) {
             const next: OpenMailDraft = { ...current, review: null, invalidated: true, recoveryCode: null,
@@ -261,7 +261,7 @@ export function OneVoiceMailDraftBridge() {
             return;
           }
           const pending = editsRef.current.inFlight;
-          if (!current?.binding || current.ownerUid !== user?.uid || closedDraftsRef.current.has(outcome.draftRef) ||
+          if (!current?.binding || current.ownerUid !== userId || closedDraftsRef.current.has(outcome.draftRef) ||
               current.binding.draftRef !== outcome.draftRef || !pending || pending.operationId !== outcome.operationId ||
               outcome.revision < current.binding.revision || !draftRef.current) {
             report("failed", { reason: "stale_review" }); return;
@@ -276,7 +276,7 @@ export function OneVoiceMailDraftBridge() {
           if (newerEdits) submitLatestEdit();
           return;
         }
-        if (!outcome || !current?.binding || current.ownerUid !== user?.uid ||
+        if (!outcome || !current?.binding || current.ownerUid !== userId ||
             current.binding.draftRef !== outcome.draftRef || current.binding.revision !== outcome.revision ||
             current.review?.actionId !== outcome.actionId) {
           report("failed", { reason: "stale_review" });
@@ -299,8 +299,8 @@ export function OneVoiceMailDraftBridge() {
         const activeDelivery = deliveryRef.current;
         const current = draftRef.current;
         if (!review) { report("failed", { reason: "invalid_mail_draft" }); return; }
-        if (!user?.uid || !isVaultUnlocked || document.visibilityState !== "visible") {
-          report("failed", { reason: !user?.uid ? "owner_unavailable" : !isVaultUnlocked ? "vault_locked" : "surface_backgrounded" });
+        if (!userId || !isVaultUnlocked || document.visibilityState !== "visible") {
+          report("failed", { reason: !userId ? "owner_unavailable" : !isVaultUnlocked ? "vault_locked" : "surface_backgrounded" });
           return;
         }
         const edits = editsRef.current;
@@ -308,7 +308,7 @@ export function OneVoiceMailDraftBridge() {
         const previous = current ?? activeDelivery;
         const isRetiredSendRecovery = !review.ready && review.operationId === null &&
           review.previousActionId !== null && review.previousRevision !== null &&
-          previous?.ownerUid === user.uid && previous.binding?.draftRef === review.draftRef &&
+          previous?.ownerUid === userId && previous.binding?.draftRef === review.draftRef &&
           previous.binding.revision === review.previousRevision &&
           previous.review?.actionId === review.previousActionId &&
           review.revision > previous.binding.revision && pending === null && edits.latest === null &&
@@ -354,7 +354,7 @@ export function OneVoiceMailDraftBridge() {
           report("failed", { reason: "stale_review" }); return;
         }
         const next: OpenMailDraft = {
-          id: `${review.draftRef}:${review.revision}`, ownerUid: user.uid,
+          id: `${review.draftRef}:${review.revision}`, ownerUid: userId,
           draft: review.draft, recipientName: review.draft.to || "selected recipients",
           verbatimInitialBody: true, reply: null, deliveryRef: review.deliveryRef,
           binding: { draftRef: review.draftRef, revision: review.revision }, review, invalidated: false,
@@ -379,7 +379,7 @@ export function OneVoiceMailDraftBridge() {
         report("failed", { reason: "invalid_mail_draft" });
         return;
       }
-      if (!user?.uid) {
+      if (!userId) {
         report("failed", { reason: "owner_unavailable" });
         return;
       }
@@ -394,7 +394,7 @@ export function OneVoiceMailDraftBridge() {
       }
       const next: OpenMailDraft = {
         id: step.stepId,
-        ownerUid: user.uid,
+        ownerUid: userId,
         recipientName: parsed.toName,
         verbatimInitialBody: true,
         draft: { to: parsed.to, cc: "", bcc: "", subject: parsed.subject, body: parsed.body },
@@ -417,7 +417,7 @@ export function OneVoiceMailDraftBridge() {
 
   // A step succeeds only after the body portal and review card commit.
   useEffect(() => {
-    if (!mailDraft || !host || !isVaultUnlocked || mailDraft.ownerUid !== user?.uid) return;
+    if (!mailDraft || !host || !isVaultUnlocked || mailDraft.ownerUid !== userId) return;
     const report = reportsRef.current.get(mailDraft.id);
     if (!report) return;
     reportsRef.current.delete(mailDraft.id);
@@ -434,7 +434,7 @@ export function OneVoiceMailDraftBridge() {
       draftRef.current = null;
       setMailDraft(null);
     }
-  }, [host, isVaultUnlocked, mailDraft, user?.uid]);
+  }, [host, isVaultUnlocked, mailDraft, userId]);
 
   useEffect(() => {
     const reports = reportsRef.current;
@@ -446,9 +446,9 @@ export function OneVoiceMailDraftBridge() {
   }, [revokeReview]);
 
   useEffect(() => {
-    if (ownerRef.current === (user?.uid ?? null)) return;
+    if (ownerRef.current === userId) return;
     revokeReview(true);
-    ownerRef.current = user?.uid ?? null;
+    ownerRef.current = userId;
     for (const report of reportsRef.current.values()) report("failed", { reason: "owner_changed" });
     reportsRef.current.clear();
     // A previous owner's Send is never reported into the next owner's session.
@@ -460,7 +460,7 @@ export function OneVoiceMailDraftBridge() {
     setRecoveredVoiceSends([]);
     setCheckingCurrentDelivery(false);
     setVaultDialogOpen(false);
-  }, [revokeReview, user?.uid]);
+  }, [revokeReview, userId]);
 
   useEffect(() => {
     const wasUnlocked = wasVaultUnlockedRef.current;
@@ -495,9 +495,10 @@ export function OneVoiceMailDraftBridge() {
   }, [getVaultOwnerToken, isVaultUnlocked, tokenExpiresAt, user]);
 
   useEffect(() => {
-    if (!user?.uid || !isVaultUnlocked || !tokenIsFresh) return;
+    if (!user || !userId || !isVaultUnlocked || !tokenIsFresh) return;
     const owner = user;
-    const actionIds = pendingEmailSendActionIds(owner.uid, "voice");
+    const ownerId = userId;
+    const actionIds = pendingEmailSendActionIds(ownerId, "voice");
     if (!actionIds.length) return;
     let active = true;
     setRecoveredVoiceSends(actionIds.map((actionId) => ({
@@ -513,7 +514,7 @@ export function OneVoiceMailDraftBridge() {
             });
             if (!active) return;
             const terminal = ["sent", "failed", "expired", "cancelled"].includes(result.state);
-            if (terminal) forgetPendingEmailSendAction(owner.uid, actionId);
+            if (terminal) forgetPendingEmailSendAction(ownerId, actionId);
             setRecoveredVoiceSends((current) => current.map((entry) =>
               entry.actionId === actionId
                 ? { ...entry, status: result.state === "sent" ? "sent"
@@ -526,16 +527,16 @@ export function OneVoiceMailDraftBridge() {
       }).catch(() => undefined);
     }
     return () => { active = false; };
-  }, [user, isVaultUnlocked, tokenIsFresh]);
+  }, [user, userId, isVaultUnlocked, tokenIsFresh]);
 
   const checkRecoveredVoiceSend = async (actionId: string) => {
-    if (!user?.uid) return;
+    if (!userId) return;
     const auth = await getMailAuth();
     if (!auth) {
       setVaultDialogOpen(true);
       return;
     }
-    const ownerId = user.uid;
+    const ownerId = userId;
     setRecoveredVoiceSends((current) => current.map((entry) =>
       entry.actionId === actionId ? { ...entry, checking: true } : entry));
     try {
@@ -557,7 +558,7 @@ export function OneVoiceMailDraftBridge() {
 
   const checkCurrentDelivery = async () => {
     const current = deliveryRef.current;
-    if (!current?.actionId || !user?.uid || current.ownerUid !== user.uid) return;
+    if (!current?.actionId || !userId || current.ownerUid !== userId) return;
     const auth = await getMailAuth();
     if (!auth) {
       setVaultDialogOpen(true);
@@ -598,11 +599,11 @@ export function OneVoiceMailDraftBridge() {
     attemptsRef.current.set(id, {
       deliveryRef: openDraft?.deliveryRef ?? null,
       actionId: null,
-      ownerUid: openDraft?.ownerUid ?? user?.uid ?? "",
+      ownerUid: openDraft?.ownerUid ?? userId ?? "",
     });
     const next: MailDelivery = {
       id,
-      ownerUid: openDraft?.ownerUid ?? user?.uid ?? "",
+      ownerUid: openDraft?.ownerUid ?? userId ?? "",
       draft: reviewedDraft,
       recipientName: openDraft?.recipientName ?? "",
       verbatimInitialBody: Boolean(openDraft?.verbatimInitialBody && reviewedDraft.body === openDraft.draft.body),
@@ -686,8 +687,8 @@ export function OneVoiceMailDraftBridge() {
     setMailDelivery(null);
   };
 
-  const visibleDraft = isVaultUnlocked && mailDraft?.ownerUid === user?.uid ? mailDraft : null;
-  const visibleDelivery = isVaultUnlocked && mailDelivery?.ownerUid === user?.uid ? mailDelivery : null;
+  const visibleDraft = isVaultUnlocked && mailDraft?.ownerUid === userId ? mailDraft : null;
+  const visibleDelivery = isVaultUnlocked && mailDelivery?.ownerUid === userId ? mailDelivery : null;
   const visibleRecovered = isVaultUnlocked
     ? recoveredVoiceSends.filter((entry) => entry.actionId !== visibleDelivery?.actionId)
     : [];

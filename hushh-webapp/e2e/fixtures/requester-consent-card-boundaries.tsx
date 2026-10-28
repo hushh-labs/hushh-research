@@ -5,7 +5,7 @@ import { createContext, type AnchorHTMLAttributes, type ReactNode } from "react"
 
 const user = { uid: "synthetic-requester", getIdToken: async () => "synthetic-firebase" };
 export function useAuth() {
-  return { user, loading: false };
+  return { user, userId: user.uid, loading: false };
 }
 const vault = {
   isVaultUnlocked: true,
@@ -18,7 +18,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 export function useRequireAuth() {
-  return { user, loading: false };
+  return { user, userId: user.uid, loading: false };
 }
 export const getApiBaseUrl = () => "";
 export const normalizeNativeBackendUrl = (url: string) => url;

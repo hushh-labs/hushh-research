@@ -30,6 +30,7 @@ vi.mock("@/lib/testing/native-test", async original => {
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: mock.user,
+    userId: mock.user?.uid ?? null,
     loading: false,
     sessionVerificationRequired: false,
   }),

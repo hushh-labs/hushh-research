@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -79,27 +80,26 @@ def _bash() -> str:
 
 @pytest.mark.parametrize("supports_escape_flag", [True, False])
 def test_bounded_reader_keeps_raw_job_logs_in_its_pipe_and_rejects_other_paths(
-    tmp_path, monkeypatch, supports_escape_flag
+    monkeypatch, supports_escape_flag
 ):
     module, *_ = _acceptance_fixture()
-    executable = tmp_path / "gh"
-    executable.write_text(
-        "#!/usr/bin/env python3\n"
-        "import sys\n"
-        f"supports = {supports_escape_flag!r}\n"
-        "if '--help' in sys.argv:\n"
-        "    print('--allow-escape-sequences' if supports else 'usage'); sys.exit(0)\n"
-        "if supports != ('--allow-escape-sequences' in sys.argv): sys.exit(1)\n"
-        "sys.stdout.buffer.write(b'\\x1b[31mfixed synthetic log\\x1b[0m\\n')\n"
-    )
-    executable.chmod(0o755)
-    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    source = f"""import sys
+supports = {supports_escape_flag!r}
+if '--help' in sys.argv:
+    print('--allow-escape-sequences' if supports else 'usage'); sys.exit(0)
+if supports != ('--allow-escape-sequences' in sys.argv): sys.exit(1)
+sys.stdout.buffer.write(b'\\x1b[31mfixed synthetic log\\x1b[0m\\n')"""
+    original = module._bounded_process_read
+
+    def command_port(arguments, timeout):
+        return original([sys.executable, "-I", "-X", "utf8", "-c", source, *arguments[1:]], timeout)
+
+    monkeypatch.setattr(module, "_bounded_process_read", command_port)
     if supports_escape_flag:
         with pytest.raises(module.Refused, match="GitHub lookup failed"):
             module.bounded_github_read("jobs/42/logs", 5)
-    assert module.bounded_github_read("jobs/42/logs", 5, allow_escape_sequences=True) == (
-        b"\x1b[31mfixed synthetic log\x1b[0m\n"
-    )
+    raw = module.bounded_github_read("jobs/42/logs", 5, allow_escape_sequences=True)
+    assert raw == b"\x1b[31mfixed synthetic log\x1b[0m\n"
     for path in ("jobs/0/logs", "jobs/42/logs?redirect=1", "artifacts/42/zip"):
         with pytest.raises(module.Refused, match="exact job log"):
             module.bounded_github_read(path, 5, allow_escape_sequences=True)

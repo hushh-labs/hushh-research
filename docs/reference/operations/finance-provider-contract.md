@@ -321,3 +321,30 @@ linear areas with a fading fill. Color follows the daily change, including small
 or cached moves; freshness remains in the quote status. The dotted guide is the
 explicitly labeled first observed level, not previous close. Index axes and
 tooltips use points. No timestamps, history points or provider calls are added.
+
+## Market mover coverage (2026-10-27)
+
+Market requires three distinct rising stocks and three distinct falling stocks.
+The old outage fallback ranked only a small watchlist; three rising entries and
+one falling entry therefore produced two empty Losers slots. The market-wide
+producer now validates price, finite percentage, direction and uniqueness before
+capping its buckets. If FMP supplies fewer than three on a side, the transitional
+adapter reads the corresponding Yahoo Finance predefined JSON screener, bounded
+to twelve records per missing bucket. It accepts US-market equity observations
+and retains the provider quote time. This is an API read, not HTML scraping or a
+per-symbol scan, and it remains behind the existing mover provider port.
+
+The shared mover cache retires old coverage payloads during an open session and
+limits recovery to a 120-second attempt window. A partial refresh cannot replace
+an eligible complete market-wide snapshot; retained rows keep their observed
+values/times and carry stale metadata. Closed sessions make no mover-provider
+requests and retain the shared snapshot for seven days. Home cache keys advance
+to v6 so an assembled old watchlist sample does not mask repaired coverage.
+Watchlist samples no longer populate the market-wide columns. If no eligible
+complete snapshot or provider response exists, quotes remain unavailable rather
+than inventing companies, prices, or negative returns.
+
+This correction retains the transitional provider and does not select a licensed
+replacement or establish display/redistribution rights. A live read confirmed
+both JSON screeners supplied enough equity observations; that is provider-path
+evidence, not proof of a deployed UAT revision or future provider availability.

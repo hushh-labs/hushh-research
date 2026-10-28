@@ -38,6 +38,8 @@ CREATE TABLE actor_profiles (
   user_id TEXT PRIMARY KEY,
   public_person_ref TEXT,
   public_profile_status TEXT NOT NULL DEFAULT 'active',
+  directory_listed BOOLEAN,
+  role_label TEXT,
   contact_discoverable BOOLEAN NOT NULL DEFAULT FALSE,
   contact_sync_consent_enabled_at TIMESTAMPTZ,
   contact_sync_consent_rule_version BIGINT NOT NULL DEFAULT 0,
@@ -58,14 +60,10 @@ CREATE TABLE actor_identity_cache (
   custom_photo_url TEXT
 );
 CREATE TABLE marketplace_public_profiles (
-  user_id TEXT PRIMARY KEY,
-  display_name TEXT,
-  is_discoverable BOOLEAN
+  user_id TEXT PRIMARY KEY, display_name TEXT, is_discoverable BOOLEAN
 );
 CREATE TABLE ria_profiles (
-  user_id TEXT PRIMARY KEY,
-  display_name TEXT,
-  verification_status TEXT
+  user_id TEXT PRIMARY KEY, display_name TEXT, verification_status TEXT
 );
 CREATE TABLE connections (
   user_a_id TEXT NOT NULL,

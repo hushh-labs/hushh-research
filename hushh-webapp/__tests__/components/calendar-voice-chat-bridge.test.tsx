@@ -4,7 +4,7 @@ import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 const mocks = vi.hoisted(() => ({ stop: vi.fn(), navigate: vi.fn(), user: { uid: "owner" }, unlocked: true }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultOwnerToken: mocks.unlocked ? "synthetic-owner" : null }) }));
 vi.mock("@/components/one-voice/voice-session-provider", () => ({ useOptionalVoiceSession: () => ({ stop: mocks.stop }) }));
 vi.mock("@/lib/navigation/agent-navigation", () => ({ navigateToAgentChat: mocks.navigate }));

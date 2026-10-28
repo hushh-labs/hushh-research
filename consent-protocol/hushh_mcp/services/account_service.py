@@ -17,6 +17,10 @@ from db.db_client import get_db, get_db_connection
 from hushh_mcp.consent.audit_logger import get_trace_id
 from hushh_mcp.services import account_choice_erasure as choices
 from hushh_mcp.services.account_answer_erasure import guard_answer_erasure
+from hushh_mcp.services.account_connection_sharing_erasure import (
+    CONNECTION_SHARING_ERASURE_TABLES,
+    connection_sharing_erasure_queries,
+)
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     _postgres_sqlstate,
@@ -368,27 +372,7 @@ class AccountService:
             "marketplace_recipient_keys": text(
                 "DELETE FROM marketplace_recipient_keys WHERE user_id = :user_id"
             ),
-            "wallet_card_access_audit": text(
-                "DELETE FROM wallet_card_access_audit WHERE actor_user_id = :user_id"
-            ),
-            "wallet_card_requests": text(
-                "DELETE FROM wallet_card_requests WHERE requester_user_id = :user_id OR target_user_id = :user_id"
-            ),
-            "wallet_card_access_grants": text(
-                "DELETE FROM wallet_card_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
-            ),
-            "wallet_profile_access_grants": text(
-                "DELETE FROM wallet_profile_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
-            ),
-            "wallet_profile_share_requests": text(
-                "DELETE FROM wallet_profile_share_requests WHERE owner_user_id = :user_id"
-            ),
-            "wallet_card_share_requests": text(
-                "DELETE FROM wallet_card_share_requests WHERE owner_user_id = :user_id"
-            ),
-            "wallet_card_registrations": text(
-                "DELETE FROM wallet_card_registrations WHERE owner_user_id = :user_id"
-            ),
+            **connection_sharing_erasure_queries(),
             "pkm_packets": text("DELETE FROM pkm_packets WHERE owner_user_id = :user_id"),
             # A paid, undelivered packet is money owed back to the buyer: move it
             # to refund_pending (the reconcile refunds it, then removes the row)
@@ -1577,13 +1561,7 @@ class AccountService:
                 "live_memory_hosted_pilot_grants",
                 "agent_chat_messages",
                 "agent_chat_conversations",
-                "wallet_card_access_audit",
-                "wallet_profile_access_grants",
-                "wallet_card_requests",
-                "wallet_card_access_grants",
-                "wallet_profile_share_requests",
-                "wallet_card_share_requests",
-                "wallet_card_registrations",
+                *CONNECTION_SHARING_ERASURE_TABLES,
                 "messages",
                 "conversations",
                 "direct_message_blocks",
@@ -1639,6 +1617,8 @@ class AccountService:
                 # The preference world model is private intelligence about the owner,
                 # keyed by user_id. It belongs in the pod, so a reset must not leave a
                 # copy behind on the control plane.
+                "finance_access_grants",
+                "finance_share_requests",
                 "wallet_card_access_audit",
                 "wallet_card_access_grants",
                 "wallet_card_share_requests",
@@ -2367,13 +2347,7 @@ class AccountService:
                         "live_memory_hosted_pilot_grants",
                         "agent_chat_messages",
                         "agent_chat_conversations",
-                        "wallet_card_access_audit",
-                        "wallet_profile_access_grants",
-                        "wallet_card_requests",
-                        "wallet_card_access_grants",
-                        "wallet_profile_share_requests",
-                        "wallet_card_share_requests",
-                        "wallet_card_registrations",
+                        *CONNECTION_SHARING_ERASURE_TABLES,
                         "messages",
                         "conversations",
                         "direct_message_blocks",
@@ -2595,6 +2569,8 @@ class AccountService:
                     "one_location_envelopes",
                     "one_location_share_grants",
                     "one_location_recipient_keys",
+                    "finance_access_grants",
+                    "finance_share_requests",
                     "wallet_card_access_audit",
                     "wallet_card_access_grants",
                     "wallet_card_share_requests",

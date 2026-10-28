@@ -25,7 +25,7 @@ const harness = vi.hoisted(() => ({
   voice: null as { reportMailDelivery: (deliveryRef: string, actionId: string) => void; reportMailDraftChange: (change: MailDraftChange) => boolean } | null,
 }));
 
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: harness.user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: harness.user, userId: harness.user?.uid ?? null }) }));
 vi.mock("@/components/one-voice/voice-session-provider", () => ({
   useOptionalVoiceSession: () => harness.voice,
 }));

@@ -18,6 +18,9 @@ vi.mock("@/lib/services/google-calendar-service", async importOriginal => ({
   },
 }));
 vi.mock("@/lib/perf/use-periodic-task", () => ({ usePeriodicTask: vi.fn(), useCoarseClock: () => Date.now() }));
+vi.mock("@/components/calendar/calendar-insights", () => ({
+  CalendarInsights: ({ account }: { account: { account_id: string } }) => <div data-testid="insights-account">{account.account_id}</div>,
+}));
 
 import { CalendarAccountBoard } from "@/components/calendar/calendar-account-board";
 import type { CalendarBoardDay, GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
@@ -100,6 +103,19 @@ describe("three-account Calendar board", () => {
     await waitFor(() => expect(mocks.confirmWorkspaceConflict).toHaveBeenCalledOnce());
     expect(within(dialog).getByText("Calendar: declined · Mail: sent")).toBeTruthy();
     expect(mocks.onChat).not.toHaveBeenCalled();
+  });
+
+  it("selects each of the three accounts in Insights without the Board summary", () => {
+    render(page());
+    fireEvent.click(screen.getByRole("tab", { name: "Insights" }));
+    const insights = screen.getByRole("region", { name: "Calendar insights" });
+    const selector = within(insights).getByRole("combobox", { name: "Calendar account" });
+    expect(within(insights).getByTestId("insights-account")).toHaveTextContent("default");
+    fireEvent.change(selector, { target: { value: "second" } });
+    expect(within(insights).getByTestId("insights-account")).toHaveTextContent("second");
+    fireEvent.change(selector, { target: { value: "third" } });
+    expect(within(insights).getByTestId("insights-account")).toHaveTextContent("third");
+    expect(within(insights).queryByText("Across your connected accounts today")).toBeNull();
   });
 
   it("hands a single-account opening to One with its exact bounds", async () => {

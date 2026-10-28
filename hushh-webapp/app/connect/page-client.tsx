@@ -555,14 +555,14 @@ async function resolveConnectionForVoice({
 }
 
 export default function ConnectPageClient() {
-  const { user, phoneNumber, resolveVerifiedPhoneNumber } = useRequireAuth();
+  const { user, userId, phoneNumber, resolveVerifiedPhoneNumber } = useRequireAuth();
   const router = useRouter();
 
   const searchParams = useSearchParams();
   const commandReviewPerson = searchParams.get(CONNECT_REVIEW_PERSON_PARAM);
   const openedCommandReview = useRef<string | null>(null);
-  const connectOwnerRef = useRef(user?.uid);
-  connectOwnerRef.current = user?.uid;
+  const connectOwnerRef = useRef(userId);
+  connectOwnerRef.current = userId;
   /**
    * The route-backed Connect surface, from `?tab=`.
    *
@@ -613,15 +613,15 @@ export default function ConnectPageClient() {
   });
 
   const [tab, setTab] = useState<ConnectTab>("people");
-  const [connectionsSearchDraft, setConnectionsSearchDraft] = useState({ ownerId: user?.uid ?? null, query: "" });
-  const connectionsQuery = connectionsSearchDraft.ownerId === (user?.uid ?? null) ? connectionsSearchDraft.query : "";
-  const setConnectionsQuery = useCallback((value: string) => setConnectionsSearchDraft({ ownerId: user?.uid ?? null, query: value }), [user?.uid]);
+  const [connectionsSearchDraft, setConnectionsSearchDraft] = useState({ ownerId: userId, query: "" });
+  const connectionsQuery = connectionsSearchDraft.ownerId === userId ? connectionsSearchDraft.query : "";
+  const setConnectionsQuery = useCallback((value: string) => setConnectionsSearchDraft({ ownerId: userId, query: value }), [userId]);
   const debouncedConnectionsDraft = useDebouncedValue(connectionsSearchDraft, 300);
-  const debouncedConnectionsQuery = debouncedConnectionsDraft.ownerId === (user?.uid ?? null) ? debouncedConnectionsDraft.query : "";
+  const debouncedConnectionsQuery = debouncedConnectionsDraft.ownerId === userId ? debouncedConnectionsDraft.query : "";
   useEffect(() => {
     setConnectionView(connectionEntryView);
     setConnectionsQuery("");
-  }, [connectionEntryView, setConnectionsQuery, user?.uid]);
+  }, [connectionEntryView, setConnectionsQuery, userId]);
   /**
    * What the Circles tab is doing, reported up.
    *
@@ -673,7 +673,7 @@ export default function ConnectPageClient() {
   const [people, setPeople] = useState<DirectoryPerson[]>(() =>
     query.trim()
       ? []
-      : (readSavedDirectoryFirstPage(user?.uid, "all")?.items ?? []),
+      : (readSavedDirectoryFirstPage(userId, "all")?.items ?? []),
   );
   const peopleCountRef = useRef(people.length);
   peopleCountRef.current = people.length;
@@ -686,9 +686,9 @@ export default function ConnectPageClient() {
   // not empty: it opened on "My connections (0) · No connections yet" and
   // then jumped when nine connections landed (Galaxy S24 Ultra, 2026-09-22).
   const [initialFirstPage] = useState<ConnectionPage | null>(() =>
-    user?.uid
+    userId
       ? CacheService.getInstance().get<ConnectionPage>(
-          CACHE_KEYS.CONNECTIONS_FIRST_PAGE(user.uid, "all"),
+          CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, "all"),
         )
       : null,
   );
@@ -709,7 +709,7 @@ export default function ConnectPageClient() {
   );
   // Whose rows are on screen, as "uid:audience"; null when there are none.
   const connectionsListOwnerRef = useRef<string | null>(
-    initialFirstPage && user?.uid ? `${user.uid}:all` : null,
+    initialFirstPage && userId ? `${userId}:all` : null,
   );
   // Open by default: My connections is the first thing a person opens
   // Connect to see, and a collapsed panel hid the list (and its only retry
@@ -828,7 +828,7 @@ export default function ConnectPageClient() {
     return () => {
       batchDraftGenerationRef.current += 1;
     };
-  }, [user?.uid]);
+  }, [userId]);
 
   useEffect(() => {
     // A new requested person invalidates the previous review even when the
@@ -929,8 +929,8 @@ export default function ConnectPageClient() {
         setConnectionsHasMore(false);
         setConnectionsLoaded(false);
       }
-      const cacheKey = user?.uid
-        ? CACHE_KEYS.CONNECTIONS_FIRST_PAGE(user.uid, audience)
+      const cacheKey = userId
+        ? CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, audience)
         : null;
 
       try {
@@ -972,7 +972,7 @@ export default function ConnectPageClient() {
         }
       }
     },
-    [loadConnectionsPage, user?.uid],
+    [loadConnectionsPage, userId],
   );
 
   const reconcileConnectionSurfaces = useCallback(
@@ -1044,7 +1044,7 @@ export default function ConnectPageClient() {
     accountPhoneNumber: phoneNumber ?? user?.phoneNumber,
     accountEmail: user?.email,
     resolveVerifiedAccountPhoneNumber: resolveVerifiedPhoneNumber,
-    userId: user?.uid,
+    userId,
     // Await the display refresh. A failed read preserves the successful sync
     // and exposes a retry beside the list rather than repeating the import.
     //
@@ -1067,7 +1067,7 @@ export default function ConnectPageClient() {
     // Only when the rows on screen belong to someone or something else: the
     // first run would otherwise wipe this person's cached page for the same
     // audience, which is exactly what the seed is for.
-    const listOwner = `${user?.uid ?? ""}:${connectionAudience}`;
+    const listOwner = `${userId ?? ""}:${connectionAudience}`;
     const clearBeforeLoad = connectionsListOwnerRef.current !== listOwner;
     connectionsListOwnerRef.current = listOwner;
     void refreshConnectionsFirstPage({
@@ -1077,7 +1077,7 @@ export default function ConnectPageClient() {
     return () => {
       connectionsRequestRef.current += 1;
     };
-  }, [connectionAudience, refreshConnectionsFirstPage, user?.uid]);
+  }, [connectionAudience, refreshConnectionsFirstPage, userId]);
 
   useEffect(() => {
     void loadOutgoingRequestIds();
@@ -1104,7 +1104,6 @@ export default function ConnectPageClient() {
   }, [reconcileConnectionSurfaces]);
 
   useEffect(() => {
-    const userId = user?.uid;
     if (!userId) return;
 
     const unsubscribeGraph = subscribeToConnectionGraphChanges((detail) => {
@@ -1168,10 +1167,10 @@ export default function ConnectPageClient() {
       document.removeEventListener("visibilitychange", refreshOnFocus);
       removeLifecycleListener();
     };
-  }, [reconcileConnectionSurfaces, user?.uid]);
+  }, [reconcileConnectionSurfaces, userId]);
 
   useEffect(() => {
-    if (!user?.uid || surface === "circles") return;
+    if (!userId || surface === "circles") return;
     // A remote graph push is the immediate path. Keep a bounded repair read
     // while Connect remains visible, since FCM and SSE are best-effort.
     const timer = window.setInterval(() => {
@@ -1186,7 +1185,7 @@ export default function ConnectPageClient() {
       }
     }, 60_000);
     return () => window.clearInterval(timer);
-  }, [reconcileConnectionSurfaces, surface, user?.uid]);
+  }, [reconcileConnectionSurfaces, surface, userId]);
 
   // Push is the primary "your request was accepted" signal, but native has no
   // SSE fallback. While a sent request is pending and this screen is visible,
@@ -1296,7 +1295,7 @@ export default function ConnectPageClient() {
   }, [inviteToOneShare]);
 
   const [directoryRefreshNonce, setDirectoryRefreshNonce] = useState(0);
-  const directoryScopeKey = `${user?.uid ?? ""}:${directoryAudience}:${pageSize}:${trimmedQuery}`;
+  const directoryScopeKey = `${userId ?? ""}:${directoryAudience}:${pageSize}:${trimmedQuery}`;
   const resultSetKey = `${directoryScopeKey}:${directoryRefreshNonce}`;
   const [renderedDirectoryScopeKey, setRenderedDirectoryScopeKey] =
     useState(directoryScopeKey);
@@ -1314,7 +1313,7 @@ export default function ConnectPageClient() {
       setPeople(
         trimmedQuery
           ? []
-          : (readSavedDirectoryFirstPage(user?.uid, directoryAudience)?.items ??
+          : (readSavedDirectoryFirstPage(userId, directoryAudience)?.items ??
               []),
       );
     }
@@ -1327,7 +1326,7 @@ export default function ConnectPageClient() {
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!user || surface === "circles" || tab === "nearby") return;
+      if (!user || !userId || surface === "circles" || tab === "nearby") return;
       try {
         directoryRequestPendingRef.current = true;
         if (currentPage <= 1) setHasMore(false);
@@ -1363,7 +1362,7 @@ export default function ConnectPageClient() {
           if (currentPage === 1) {
             directoryRetryAttemptRef.current = 0;
             if (!trimmedQuery) {
-              saveDirectoryFirstPage(user.uid, directoryAudience, page);
+              saveDirectoryFirstPage(userId, directoryAudience, page);
             }
           }
           // Selections deliberately survive this. They used to be pruned to
@@ -1413,6 +1412,7 @@ export default function ConnectPageClient() {
     };
   }, [
     user,
+    userId,
     trimmedQuery,
     currentPage,
     pageSize,
@@ -1520,8 +1520,8 @@ export default function ConnectPageClient() {
       requestedScopeHandles: string[] = [],
       offeredScopeHandles: string[] = [],
     ): Promise<boolean> => {
-      if (!user) return false;
-      const ownerId = user.uid;
+      if (!user || !userId) return false;
+      const ownerId = userId;
       const generation = batchDraftGenerationRef.current;
       const isCurrent = () =>
         connectOwnerRef.current === ownerId &&
@@ -1541,7 +1541,7 @@ export default function ConnectPageClient() {
           throw new Error(
             "The request state changed. Refresh Connect before trying again.",
           );
-        const outgoing = request.requesterUserId === user.uid;
+        const outgoing = request.requesterUserId === ownerId;
         setPeople((prev) =>
           prev.map((p) =>
             p.userId === person.userId
@@ -1559,7 +1559,7 @@ export default function ConnectPageClient() {
             ...current,
             [person.userId]: request.id,
           }));
-        CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        CacheSyncService.onConnectionCapabilityMutated(userId);
         // A Circle roster open behind this sheet is now stale: the row that
         // said "Connect" should say "Requested". Re-read rather than patch.
         toast.success(
@@ -1584,7 +1584,7 @@ export default function ConnectPageClient() {
         if (isCurrent()) setBusyId(null);
       }
     },
-    [user, router],
+    [user, userId, router],
   );
 
   const sendConnectRequest = useCallback(
@@ -1630,9 +1630,9 @@ export default function ConnectPageClient() {
 
   const handleRemove = useCallback(
     async (connection: ConnectionSummaryEntry) => {
-      if (!user) return;
+      if (!user || !userId) return;
       const generation = batchDraftGenerationRef.current;
-      const isCurrent = () => connectOwnerRef.current === user.uid && batchDraftGenerationRef.current === generation;
+      const isCurrent = () => connectOwnerRef.current === userId && batchDraftGenerationRef.current === generation;
       try {
         setBusyId(connection.connectionId);
         const idToken = await user.getIdToken();
@@ -1649,7 +1649,7 @@ export default function ConnectPageClient() {
         if (!isCurrent()) return;
         setCircleRefreshToken((token) => token + 1);
         suppressNextLocalGraphEventRef.current = true;
-        CacheSyncService.onConnectionGraphMutated(user.uid);
+        CacheSyncService.onConnectionGraphMutated(userId);
         // Let the directory offer "Connect" again for this person.
         setPeople((prev) =>
           prev.map((p) =>
@@ -1668,7 +1668,7 @@ export default function ConnectPageClient() {
         if (isCurrent()) { setBusyId(null); setPendingRemoveTarget(null); }
       }
     },
-    [refreshConnectionsFirstPage, user],
+    [refreshConnectionsFirstPage, user, userId],
   );
 
   const handleLoadMoreConnections = useCallback(async () => {
@@ -1764,7 +1764,7 @@ export default function ConnectPageClient() {
    */
   const openBatchConnectDraft = useCallback(
     async (people: DirectoryPerson[]) => {
-      if (!user || people.length === 0) return;
+      if (!user || !userId || people.length === 0) return;
       // Close the sheet, change the selection, reopen: the first load is still
       // in flight and would land on the second draft, clearing its loading flag
       // before its own catalogs arrive. That un-holds Send with no handles
@@ -1773,7 +1773,7 @@ export default function ConnectPageClient() {
       // gets to write.
       const generation = batchDraftGenerationRef.current + 1;
       batchDraftGenerationRef.current = generation;
-      const ownerId = user.uid;
+      const ownerId = userId;
       const isCurrent = () =>
         batchDraftGenerationRef.current === generation &&
         connectOwnerRef.current === ownerId;
@@ -1824,13 +1824,13 @@ export default function ConnectPageClient() {
         );
       }
     },
-    [user],
+    [user, userId],
   );
 
   useEffect(() => {
-    if (!user || !commandReviewPerson || commandReviewPerson.length > 128)
+    if (!user || !userId || !commandReviewPerson || commandReviewPerson.length > 128)
       return;
-    const key = `${user.uid}:${commandReviewPerson}`;
+    const key = `${userId}:${commandReviewPerson}`;
     if (openedCommandReview.current === key) return;
     let cancelled = false;
     void (async () => {
@@ -1872,7 +1872,7 @@ export default function ConnectPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [user, commandReviewPerson, openBatchConnectDraft, router]);
+  }, [user, userId, commandReviewPerson, openBatchConnectDraft, router]);
 
   const toggleBatchRequestedHandle = useCallback(
     (userId: string, handle: string, checked: boolean) => {
@@ -1907,8 +1907,9 @@ export default function ConnectPageClient() {
   const handleConnectMultiple = useCallback(async () => {
     if (
       !user ||
+      !userId ||
       !batchConnectDraft ||
-      batchConnectDraft.ownerId !== user.uid ||
+      batchConnectDraft.ownerId !== userId ||
       batchConnectDraft.loadingCatalogs ||
       batchSendingRef.current ||
       batchConnectDraft.people.length === 0
@@ -1916,7 +1917,7 @@ export default function ConnectPageClient() {
       return;
     const draft = batchConnectDraft;
     const draftPeople = draft.people;
-    const ownerId = user.uid;
+    const ownerId = userId;
     const generation = batchDraftGenerationRef.current;
     const isCurrent = () =>
       connectOwnerRef.current === ownerId &&
@@ -2003,7 +2004,7 @@ export default function ConnectPageClient() {
 
       const failedCount = sendable.length - successfulUserIds.size;
       if (successfulUserIds.size > 0) {
-        CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        CacheSyncService.onConnectionCapabilityMutated(userId);
         // Report what happened rather than only what worked. A partial send
         // that says "Sent 6 requests" leaves two people quietly unasked.
         const sentCount = Object.keys(outgoing).length;
@@ -2073,11 +2074,11 @@ export default function ConnectPageClient() {
         setIsConnectingMultiple(false);
       }
     }
-  }, [user, batchConnectDraft, router]);
+  }, [user, userId, batchConnectDraft, router]);
 
   const cancelConnectionRequest = useCallback(
     async (person: DirectoryPerson) => {
-      if (!user) return;
+      if (!user || !userId) return;
       const requestId = outgoingRequestIds[person.userId] || person.userId;
       try {
         setBusyId(person.userId);
@@ -2094,7 +2095,7 @@ export default function ConnectPageClient() {
           const { [person.userId]: _cancelled, ...remaining } = current;
           return remaining;
         });
-        CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        CacheSyncService.onConnectionCapabilityMutated(userId);
         setCircleRefreshToken((token) => token + 1);
         toast.success("Connection request cancelled");
       } catch (cancelError) {
@@ -2107,7 +2108,7 @@ export default function ConnectPageClient() {
         setBusyId(null);
       }
     },
-    [outgoingRequestIds, user],
+    [outgoingRequestIds, user, userId],
   );
 
   // Present connections in a stable, predictable order: alphabetical by the
@@ -2151,7 +2152,7 @@ export default function ConnectPageClient() {
   // Filter before sort, and read `isRia` rather than the tab: a row says what
   // it is, so a connection the server has not annotated is simply not an
   // advisor, instead of becoming one by sitting under the advisor tab.
-  const connectionSearch = useConnectionSearch({ ownerId: user?.uid ?? null, query: debouncedConnectionsQuery, audience: connectionAudience, loadPage: loadConnectionsPage, revision: connections });
+  const connectionSearch = useConnectionSearch({ ownerId: userId, query: debouncedConnectionsQuery, audience: connectionAudience, loadPage: loadConnectionsPage, revision: connections });
   const sortedConnections = connectionSearch.active ? connectionSearch.items : connections;
   const connectionGroups = useMemo(() => {
     if (isAdvisorTab) return [{ key: "advisors", label: null, items: sortedConnections }];
@@ -2160,7 +2161,7 @@ export default function ConnectPageClient() {
       { key: "other", label: "Other connections", items: sortedConnections.filter(connection => connection.connectedFromContacts !== true) },
     ].filter(group => group.items.length > 0);
   }, [isAdvisorTab, sortedConnections]);
-  const pendingRemoveConnection = pendingRemoveTarget?.ownerId === user?.uid && pendingRemoveTarget?.generation === batchDraftGenerationRef.current ? pendingRemoveTarget.connection : null;
+  const pendingRemoveConnection = pendingRemoveTarget?.ownerId === userId && pendingRemoveTarget?.generation === batchDraftGenerationRef.current ? pendingRemoveTarget.connection : null;
 
   // Voice surface for Connect. Until this existed the route derived the
   // generic "app" screen, so One knew a person was somewhere in the app and
@@ -2423,7 +2424,7 @@ export default function ConnectPageClient() {
   const prepareConnection =
     (remove: boolean): LocalActionPreparer =>
     async (slots, chosenResourceId) => {
-      if (!user)
+      if (!user || !userId)
         return {
           status: "blocked",
           gate: "permission",
@@ -2471,7 +2472,7 @@ export default function ConnectPageClient() {
           return {
             status: "ready",
             binding: {
-              owner: user.uid,
+              owner: userId,
               connectionId: row.connectionId,
               person: row.displayName,
             },
@@ -2516,7 +2517,7 @@ export default function ConnectPageClient() {
         return {
           status: "ready",
           binding: {
-            owner: user.uid,
+            owner: userId,
             userId: row.userId,
             person: row.displayName,
           },
@@ -2754,7 +2755,7 @@ export default function ConnectPageClient() {
   useLocalOnboardingActionHandler("connect.cancel_request", async (slots) => {
     const spokenName =
       typeof slots.person === "string" ? slots.person.trim() : "";
-    if (!user) {
+    if (!user || !userId) {
       return {
         status: "blocked",
         summary: "Sign in before cancelling a request.",
@@ -2798,7 +2799,7 @@ export default function ConnectPageClient() {
       }
       const request = matches[0]!;
       await ConnectionsService.cancel({ idToken, requestId: request.id });
-      CacheSyncService.onConnectionCapabilityMutated(user.uid);
+      CacheSyncService.onConnectionCapabilityMutated(userId);
       await loadOutgoingRequestIds();
       return {
         status: "succeeded",
@@ -2830,7 +2831,7 @@ export default function ConnectPageClient() {
       ) {
         return { status: "blocked", summary: "Choose the connection again." };
       }
-      if (!user) {
+      if (!user || !userId) {
         return {
           status: "blocked",
           summary: "Sign in before removing a connection.",
@@ -2924,7 +2925,7 @@ export default function ConnectPageClient() {
           removedConnection: true,
         });
         suppressNextLocalGraphEventRef.current = true;
-        CacheSyncService.onConnectionGraphMutated(user.uid);
+        CacheSyncService.onConnectionGraphMutated(userId);
         return {
           status: "succeeded",
           // Say the consequence, not just the fact. Removing a connection also
@@ -3109,7 +3110,7 @@ export default function ConnectPageClient() {
             <div className={cn("mx-auto w-full", circleFlowAction !== "circle-detail" && "max-w-[560px]")}>
               <ConnectCirclesTab
                 onStateChange={setCirclesState}
-                currentUserId={user?.uid ?? null}
+                currentUserId={userId}
                 isActive={surface === "circles"}
                 onRequestConnection={sendConnectRequest}
                 onCancelConnectionRequest={cancelConnectionRequest}
@@ -3835,7 +3836,7 @@ export default function ConnectPageClient() {
                                             aria-label={`Options for ${connectionName}`}
                                             aria-haspopup="dialog"
                                             className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
-                                            onClick={() => setPendingRemoveTarget(user ? { ownerId: user.uid, generation: batchDraftGenerationRef.current, connection } : null)}
+                                            onClick={() => setPendingRemoveTarget(userId ? { ownerId: userId, generation: batchDraftGenerationRef.current, connection } : null)}
                                           >
                                             <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
                                           </Button>
@@ -3884,7 +3885,7 @@ export default function ConnectPageClient() {
                         createDialogOpen={createCircleDialogOpen}
                         onCreateDialogOpenChange={setCreateCircleDialogOpen}
                         onStateChange={setCirclesState}
-                        currentUserId={user?.uid ?? null}
+                        currentUserId={userId}
                         isActive={surface === "circles"}
                         // Use the existing exact-person, no-scope connection action.
                         onRequestConnection={sendConnectRequest}
@@ -3892,8 +3893,8 @@ export default function ConnectPageClient() {
                         refreshToken={circleRefreshToken}
                       />
                       <div hidden={circleSearchActive}><LivingConnections
-                        key={user?.uid ?? "signed-out"}
-                        currentUserId={user?.uid ?? null}
+                        key={userId ?? "signed-out"}
+                        currentUserId={userId}
                         circlesState={circlesState}
                         ownerName={user?.displayName || "You"}
                         ownerPhotoUrl={user?.photoURL ?? null}
@@ -3918,7 +3919,7 @@ export default function ConnectPageClient() {
           modal
           open={
             batchConnectDraft !== null &&
-            batchConnectDraft.ownerId === user?.uid
+            batchConnectDraft.ownerId === userId
           }
           onOpenChange={(open) => {
             if (!open && !isConnectingMultiple) closeBatchConnectDraft();
@@ -3941,7 +3942,7 @@ export default function ConnectPageClient() {
               </DialogHeader>
             </div>
 
-            {batchConnectDraft && batchConnectDraft.ownerId === user?.uid ? (
+            {batchConnectDraft && batchConnectDraft.ownerId === userId ? (
               <div className="space-y-4 overflow-y-auto min-h-0 flex-1 px-1 pb-2">
                 <SettingsGroup title="Selected people" separatorInset>
                   {batchConnectDraft.people.map((person) => {

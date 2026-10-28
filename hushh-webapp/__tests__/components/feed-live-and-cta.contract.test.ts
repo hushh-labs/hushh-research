@@ -66,7 +66,7 @@ describe("Feed stays live", () => {
   it("keys the whole Feed session to the authenticated account", () => {
     const feedPage = read("components/feed/feed-page.tsx");
 
-    expect(feedPage).toContain('key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`}');
+    expect(feedPage).toContain('key={`${userId ?? "signed-out"}:${getAuthSessionGeneration()}`}');
   });
 
   it("reports real Feed readiness through the native route beacon", () => {

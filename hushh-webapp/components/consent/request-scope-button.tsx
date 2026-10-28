@@ -56,7 +56,7 @@ export function RequestScopeButton({
   returnFocusRef,
   renderTrigger,
 }: RequestScopeButtonProps) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
@@ -120,7 +120,7 @@ export function RequestScopeButton({
     return () => {
       cancelled = true;
     };
-  }, [personRef, user?.uid, recheck]);
+  }, [personRef, userId, recheck]);
 
   const valid = validAnswerRequest({ question });
 
@@ -156,7 +156,7 @@ export function RequestScopeButton({
         },
         { clientRequestId: attempt.current.id, isEffectCurrent: () => eligibility.current && session === getAuthSessionGeneration() },
       );
-      if (user?.uid) CacheSyncService.onConsentMutated(user.uid);
+      if (userId) CacheSyncService.onConsentMutated(userId);
       setCreated(requestId);
       attempt.current = null;
       reset();

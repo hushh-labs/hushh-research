@@ -263,10 +263,10 @@ are public.
 ## Never build these shortcuts
 
 - no server-side People API route
-- no refresh token for contact matching
+- no refresh token for contact matching; Calendar's separately consented guest-photo grant may use its existing encrypted refresh credential only to mint a short-lived, exact Contacts-only browser token
 - no Google token, contact list, names, or full phone numbers in Hussh logs or
   persistence
-- no Gmail/Calendar OAuth client reuse
+- no Gmail/Calendar OAuth client reuse for signup contact matching
 - no client secret in browser configuration
 - no redirect URI for this GIS token flow
 - no native custom-scheme origin

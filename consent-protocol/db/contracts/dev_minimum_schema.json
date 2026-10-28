@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 432,
+  "expected_migration_version": 435,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -327,6 +327,9 @@
     "verify_erasure_mail_preflight",
     "verify_erasure_owner_access_preflight",
     "verify_erasure_secret_preflight",
+    "guard_finance_share_request",
+    "guard_finance_access_grant",
+    "end_finance_connection_shares",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -479,11 +482,13 @@
       "contact_sync_consent_enabled_at",
       "contact_sync_consent_rule_version",
       "created_at",
+      "directory_listed",
       "investor_marketplace_opt_in",
       "last_active_persona",
       "personas",
       "public_person_ref",
       "public_profile_status",
+      "role_label",
       "updated_at",
       "user_id"
     ],
@@ -1970,6 +1975,30 @@
       "counterpart_user_id",
       "feed_event_id"
     ],
+    "finance_access_grants": [
+      "content_hash",
+      "created_at",
+      "envelope",
+      "id",
+      "message_id",
+      "owner_envelope",
+      "owner_user_id",
+      "recipient_key_id",
+      "recipient_user_id",
+      "request_id",
+      "revision",
+      "revoked_at",
+      "updated_at"
+    ],
+    "finance_share_requests": [
+      "created_at",
+      "expires_at",
+      "fingerprint",
+      "id",
+      "owner_config",
+      "owner_user_id",
+      "policy"
+    ],
     "gmail_mailbox_action_proposals": [
       "action",
       "created_at",
@@ -2062,6 +2091,7 @@
       "status",
       "scope_csv",
       "access_level",
+      "guest_photo_access",
       "refresh_token_ciphertext",
       "refresh_token_iv",
       "refresh_token_tag",
@@ -2130,6 +2160,7 @@
       "access_level",
       "created_at",
       "disconnected_at",
+      "guest_photo_access",
       "last_used_at",
       "provider",
       "scope_csv",
@@ -4132,5 +4163,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 432
+  "expected_schema_head": 435
 }

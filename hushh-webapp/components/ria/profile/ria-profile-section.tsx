@@ -690,7 +690,7 @@ export function RiaProfileSection({
   onRefresh,
 }: RiaProfileSectionProps) {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const {
     riaCapability,
     loading: personaLoading,
@@ -935,7 +935,7 @@ export function RiaProfileSection({
   const handleDeleteProfile = useCallback(async () => {
     // The typed confirmation is re-checked here, not just on the button, so no
     // caller can reach the destructive call without it.
-    if (!user || deleting || !deleteConfirmSatisfied) return;
+    if (!user || !userId || deleting || !deleteConfirmSatisfied) return;
     setDeleting(true);
     try {
       const idToken = await user.getIdToken();
@@ -944,10 +944,10 @@ export function RiaProfileSection({
       //  - local onboarding draft (else a re-onboard resumes prefilled with old data)
       //  - in-memory RIA caches (persona, onboarding status, home, clients, ...)
       //  - IndexedDB device caches under the `ria:` prefix (survive cold start)
-      await RiaOnboardingDraftLocalService.clear(user.uid).catch(() => {});
-      CacheSyncService.onPersonaStateChanged(user.uid);
+      await RiaOnboardingDraftLocalService.clear(userId).catch(() => {});
+      CacheSyncService.onPersonaStateChanged(userId);
       await DeviceResourceCacheService.invalidateResourcePrefix(
-        user.uid,
+        userId,
         "ria:",
       ).catch(() => {});
       // Drop back to the investor persona (server force-bypasses its 30s cache),
@@ -977,6 +977,7 @@ export function RiaProfileSection({
     router,
     switchPersona,
     user,
+    userId,
   ]);
 
   const isBooting = (personaLoading || personaRefreshing || loading) && !status;

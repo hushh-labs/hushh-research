@@ -277,6 +277,8 @@ export interface DocumentPricePrompt {
    */
   moneyPolicy?: "legacy_whole_dollars" | "drive_cents";
   priceOnly?: boolean;
+  /** The review asks for a One copy: the sheet shows its terms and Allow accepts them. */
+  oneCopyRequested?: boolean;
   purpose: string | null;
   recipientEmail: string | null;
   periodStart: string | null;
@@ -306,6 +308,7 @@ type DocumentPriceTerms = {
   estimateCents: number | null;
   moneyPolicy: "legacy_whole_dollars" | "drive_cents";
   priceOnly?: boolean;
+  oneCopyRequested: boolean;
   purpose: string;
   recipientEmail: string;
   periodStart: string | null;
@@ -547,10 +550,10 @@ export function buildDebateFeedAnalysisHref(
 
 export function useFeedActionables({ enabled = true, allPending = false }: { enabled?: boolean; allPending?: boolean } = {}): UseFeedActionablesResult {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, userId: ownerId } = useAuth();
   const { vaultOwnerToken: ownerToken, getVaultOwnerToken } = useVault();
   const vaultOwnerToken = enabled ? ownerToken : null;
-  const userId = enabled ? user?.uid ?? null : null;
+  const userId = enabled ? ownerId : null;
   const agentFollow = useAgentDeploymentFollow({ enabled: Boolean(userId), userId });
   const agentUpdateCard = useAgentUpdateFeedCard({
     userId,
@@ -697,10 +700,10 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     // would re-read the same cached page it was trying to move past.
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to review consents");
+      if (!ownerId || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to review consents");
       return ConsentCenterService.getSummary({
         idToken,
-        userId: user.uid,
+        userId: ownerId,
         mode: "consents",
         force: consentTick > 0 || Boolean(options?.force),
       });
@@ -727,7 +730,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to review consents");
+      if (!ownerId || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to review consents");
       // A new pending count means a request arrived or left: the service's own
       // cached page predates it, so read past it.
       const countChanged =
@@ -735,7 +738,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
       listedPendingCountRef.current = pendingConsentCount;
       return readConsentPage({
         idToken,
-        userId: user.uid,
+        userId: ownerId,
         mode: "consents",
         surface: "pending",
         page: 1,
@@ -766,10 +769,10 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
+      if (!ownerId || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
       return readConsentPage({
         idToken,
-        userId: user.uid,
+        userId: ownerId,
         mode: "consents",
         surface: "pending",
         page: 1,
@@ -797,10 +800,10 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
+      if (!ownerId || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
       return readConsentPage({
         idToken,
-        userId: user.uid,
+        userId: ownerId,
         mode: "consents",
         surface: "pending",
         requestView: "sent",
@@ -830,10 +833,10 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
+      if (!ownerId || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
       return readConsentPage({
         idToken,
-        userId: user.uid,
+        userId: ownerId,
         mode: "consents",
         surface: "active",
         page: 1,
@@ -1035,11 +1038,11 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
       // The row leaves "Needs you" on the next read: a declined request is
       // terminal, so it moves to history rather than being hidden locally.
       dispatchConsentStateChanged({
-        userId: user?.uid,
+        userId: ownerId,
         requestId: `answer_request:${requestId}`,
       });
     },
-    [user?.uid],
+    [ownerId],
   );
 
   // The Feed row carries no request text. Allow therefore reads the owner's
@@ -1068,8 +1071,9 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         return;
       }
       if (load !== priceLoadRef.current) return;
-      if (review.agentPackage) {
-        // Package approval requires the owner to read its current assessment.
+      if (review.agentPackage || (target.priceOnly && review.oneCopyRequested === true)) {
+        // Package approval requires the owner to read its current assessment. A
+        // Trusted One copy request is never priced alone: it needs the full Allow.
         priceLoadRef.current += 1;
         setPriceOpen(false);
         setPriceTerms(null);
@@ -1114,6 +1118,8 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         // On 2026-10-17 a cents price on a whole-dollar request got a 422.
         moneyPolicy: review.wholeDollarPrice === true ? "legacy_whole_dollars" : "drive_cents",
         priceOnly: target.priceOnly === true,
+        // Sealed with the request; only the review says whether Allow covers a One copy.
+        oneCopyRequested: review.oneCopyRequested === true,
         purpose: review.purpose.purpose,
         recipientEmail: review.recipientEmail,
         periodStart: review.purpose.periodStart,
@@ -1177,7 +1183,13 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         await submit(
           token,
           target.requestId,
-          { revision: terms.revision, amountCents: price },
+          {
+            revision: terms.revision,
+            amountCents: price,
+            // The owner read the One copy terms in this sheet. A Drive-only
+            // request refuses an acceptance, so it is sent only when asked.
+            ...(terms.oneCopyRequested && !terms.priceOnly ? { oneCopyAccepted: true } : {}),
+          },
           documentSessionGuard(token),
         );
       } catch (cause) {
@@ -1227,6 +1239,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
       estimateCents: priceTerms?.estimateCents ?? null,
       moneyPolicy: priceTerms?.moneyPolicy ?? "drive_cents",
       priceOnly: priceTerms?.priceOnly ?? priceTarget?.priceOnly ?? false,
+      oneCopyRequested: priceTerms?.oneCopyRequested === true && priceTerms.priceOnly !== true,
       purpose: priceTerms?.purpose ?? null,
       recipientEmail: priceTerms?.recipientEmail ?? null,
       periodStart: priceTerms?.periodStart ?? null,

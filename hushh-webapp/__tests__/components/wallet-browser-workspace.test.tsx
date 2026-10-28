@@ -42,7 +42,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/hooks/use-effective-avatar-url", () => ({ useEffectiveAvatarUrl: () => null }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => { publishValidatedAuthSessionOwner(authMock.user?.uid ?? null); return { user: authMock.user, loading: false }; },
+  useAuth: () => { publishValidatedAuthSessionOwner(authMock.user?.uid ?? null); return { user: authMock.user, userId: authMock.user?.uid ?? null, loading: false }; },
 }));
 
 vi.mock("@/lib/observability/client", () => ({

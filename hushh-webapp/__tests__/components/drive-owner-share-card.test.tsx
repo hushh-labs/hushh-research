@@ -13,7 +13,7 @@ const state = vi.hoisted(() => ({
   },
 }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: state.uid } }),
+  useAuth: () => ({ user: { uid: state.uid }, userId: state.uid }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({

@@ -18,6 +18,10 @@ Runtime traffic authority belongs to these workflows:
 3. [Deploy UAT One Chat Backend Only](../.github/workflows/deploy-uat-one-chat.yml)
 4. [Deploy to Production](../.github/workflows/deploy-production.yml)
 
+The existing Dev/UAT workflows also expose a fixed private
+[PLG qualification target](plg/README.md). Its typed isolated receipt is not
+shared-environment acceptance or authority to promote production traffic.
+
 Humans dispatch governed workflows. Do not deploy images, mutate Cloud Run
 traffic, or repair CORS/runtime variables with direct `gcloud builds submit`,
 `gcloud run deploy`, `gcloud run services update`, or `update-traffic` commands.

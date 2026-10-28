@@ -80,6 +80,42 @@ def test_current_year_pairs_close_only_after_local_period_end():
         PacketPeriod(start=date(2026, 2, 1), end=date(2026, 3, 31), timezone="UTC")
 
 
+def test_owner_tagging_projection_is_an_allowlist_of_what_the_queue_does_next():
+    from hushh_mcp.services.drive_period_packet_preview import tagging_summary
+
+    now = datetime(2026, 10, 28, tzinfo=UTC)
+    counts = {"financial": 0, "review": 8, "other": 0, "pending": 18}
+    stored = {"policyVersion": "v1", "counts": counts, "lease_owner": "internal"}
+
+    def owner_view(status, pending, lease=None, **extra):
+        build = {"tagging": {**stored, "status": status, **extra}, "lease_kind": "tagging"}
+        row = {"tagging_pending": pending, "lease_expires_at": lease}
+        return tagging_summary(row, build, now)
+
+    assert owner_view("running", True, now + timedelta(minutes=1)) == {
+        "status": "running",
+        "policyVersion": "v1",
+        "counts": counts,
+    }
+    # A worker that left "running" behind: report what the queue will act on next.
+    assert owner_view("running", True, now - timedelta(seconds=1))["status"] == "queued"
+    assert owner_view("running", False)["status"] == "failed"
+    # An older "failed" whose retry is still scheduled.
+    assert owner_view("failed", True)["status"] == "queued"
+    waiting = owner_view(
+        "queued", True, failureCode="refresh_in_progress", retryAt="2026-10-28T06:00:00+00:00"
+    )
+    assert waiting["failureCode"] == "refresh_in_progress" and waiting["retryAt"]
+    stopped = owner_view("failed", False, failureCode="reconnect_required", retryAt="stale")
+    assert stopped == {
+        "status": "failed",
+        "policyVersion": "v1",
+        "counts": counts,
+        "failureCode": "reconnect_required",
+    }
+    assert tagging_summary({}, {}, now) is None
+
+
 async def test_disabled_worker_does_not_touch_store(monkeypatch):
     monkeypatch.delenv("DRIVE_PERIOD_PACKETS_ENABLED", raising=False)
     store = SimpleNamespace(due_owners=AsyncMock(side_effect=AssertionError("DB accessed")))

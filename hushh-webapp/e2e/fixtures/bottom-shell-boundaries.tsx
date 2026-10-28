@@ -14,6 +14,7 @@ export const useSearchParams = () => new URLSearchParams();
 
 export const useAuth = () => ({
   user: { uid: "fixture-owner" },
+  userId: "fixture-owner",
   isAuthenticated: true,
 });
 export const useVault = () => ({ isVaultUnlocked: true });

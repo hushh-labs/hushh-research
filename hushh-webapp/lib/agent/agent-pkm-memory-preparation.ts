@@ -7,7 +7,7 @@ import type { PkmReconciliationCandidate } from "@/lib/agent/agent-pkm-context-s
 import { ApiService } from "@/lib/services/api-service";
 import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
 import { placementRefusalMessage } from "@/lib/agent/owner-pod-turn-errors";
-import { AuthService } from "@/lib/services/auth-service";
+import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
@@ -41,7 +41,7 @@ export async function requestPkmMemoryPreparation(
   assertNoUnguardedSecrets([params.message], { allowIdentifierProcessing: params.allowIdentifierProcessing });
   assertNoUnguardedSecrets((params.reconciliationCandidates ?? []).map((candidate) => candidate.message));
   const privateOwner = await resolveMemoryPreparationPlacement();
-  if (AuthService.getCurrentUser()?.uid !== params.userId) {
+  if (snapshotValidatedAuthSessionOwner()?.userId !== params.userId) {
     throw new Error("Your account changed. Nothing was saved.");
   }
   if (params.isEffectCurrent && !params.isEffectCurrent()) {
@@ -91,7 +91,7 @@ export async function requestPkmMemoryPreparation(
   if (!response.ok) await refusePreparationResponse(response, params);
 
   if (
-    AuthService.getCurrentUser()?.uid !== params.userId ||
+    snapshotValidatedAuthSessionOwner()?.userId !== params.userId ||
     (params.isEffectCurrent && !params.isEffectCurrent())
   ) {
     throw new DOMException("The effect session changed.", "AbortError");
@@ -184,7 +184,7 @@ export async function enrichPrivateMemorySharingImpact(
       impacts.set(key, impact);
     }
     if (
-      AuthService.getCurrentUser()?.uid !== params.userId ||
+      snapshotValidatedAuthSessionOwner()?.userId !== params.userId ||
       (params.isEffectCurrent && !params.isEffectCurrent())
     ) {
       throw new DOMException("The effect session changed.", "AbortError");

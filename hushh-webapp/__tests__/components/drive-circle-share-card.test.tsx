@@ -8,7 +8,7 @@ const state = vi.hoisted(() => ({
   invalidate: vi.fn(),
   service: { prepareTrustedShare: vi.fn(), shareOwnerFiles: vi.fn() },
 }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" }, userId: "owner" }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ isVaultUnlocked: state.unlocked, getVaultOwnerToken: state.getToken }),
 }));

@@ -17,7 +17,7 @@ import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-se
 import { resolveOneSetupReturnTo } from "@/lib/navigation/routes";
 
 export function FinanceImportOnboardingSetupClient() {
-  const { user, loading } = useAuth();
+  const { user, userId, loading } = useAuth();
   const { vaultOwnerToken } = useVault();
   const searchParams = useSearchParams();
   const returnTo = resolveOneSetupReturnTo(searchParams.get("return_to"));
@@ -36,7 +36,7 @@ export function FinanceImportOnboardingSetupClient() {
     returnTo,
   });
 
-  if (loading || !user || !coordinator.isReady) {
+  if (loading || !user || !userId || !coordinator.isReady) {
     return <SetupCapabilityLoading label="Preparing Finance setup…" />;
   }
 
@@ -49,12 +49,12 @@ export function FinanceImportOnboardingSetupClient() {
         dataState="loaded"
       />
       <KaiFlow
-        userId={user.uid}
+        userId={userId}
         mode="import"
         vaultOwnerToken={vaultOwnerToken ?? ""}
         onSetupSourceSettled={async (source, callbackAttemptId) => {
-          if (!user) return false;
-          const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
+          if (!userId) return false;
+          const journey = await PreVaultUserStateService.bootstrapState(userId, {
             force: true,
           });
           if (returnTo && PreVaultUserStateService.isSetupResolved(journey)) {
@@ -71,7 +71,7 @@ export function FinanceImportOnboardingSetupClient() {
             return false;
           }
           await PreVaultUserStateService.syncOnboardingJourney({
-            userId: user.uid,
+            userId,
             phase: "capability_setup",
             activeCapability: "finance",
             callbackState: "succeeded",
@@ -82,8 +82,8 @@ export function FinanceImportOnboardingSetupClient() {
           return true;
         }}
         onSetupConnectorAttemptSettled={async (outcome, callbackAttemptId) => {
-          if (!user) return;
-          const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
+          if (!userId) return;
+          const journey = await PreVaultUserStateService.bootstrapState(userId, {
             force: true,
           });
           if (
@@ -95,7 +95,7 @@ export function FinanceImportOnboardingSetupClient() {
             return;
           }
           await PreVaultUserStateService.syncOnboardingJourney({
-            userId: user.uid,
+            userId,
             phase: "external_connector",
             activeCapability: "finance",
             callbackState: outcome,

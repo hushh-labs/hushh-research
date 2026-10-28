@@ -18,9 +18,9 @@ export function ContactInvitationSessionProvider({
 }: {
   children: ReactNode;
 }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const pathname = usePathname();
-  const owner = user?.uid ?? null;
+  const owner = userId;
   const controller = useContactInvitationSession(owner, pathname ?? "");
   const googleController = useGoogleContactSyncSession(owner, pathname ?? "");
   return (

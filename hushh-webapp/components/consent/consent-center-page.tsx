@@ -1270,7 +1270,7 @@ function ConsentEntryDetail({
     setRevokeDialogOpen(false);
   }, [disarmDeny, entry?.id, requestedProposalKey]);
 
-  const { user: previewUser } = useAuth();
+  const { userId: previewUserId } = useAuth();
   const {
     vaultKey: previewVaultKey,
     getVaultOwnerToken: getPreviewVaultOwnerToken,
@@ -1283,7 +1283,7 @@ function ConsentEntryDetail({
     previewEntries.every(isInlineDecidableConsentEntry),
   );
   const sharePreview = useConsentSharePreview({
-    userId: previewUser?.uid,
+    userId: previewUserId,
     vaultKey: previewVaultKey,
     getVaultOwnerToken: getPreviewVaultOwnerToken,
     items: previewEnabled
@@ -2042,7 +2042,7 @@ export function ConsentCenterPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId, loading: authLoading } = useAuth();
   const { getVaultOwnerToken, isVaultUnlocked, vaultKey } = useVault();
   const {
     activeControlId: activeVoiceControlId,
@@ -2146,14 +2146,14 @@ export function ConsentCenterPage() {
   const retryConsentCenter = () => {
     setMutationTick((value) => value + 1);
   };
-  const summaryCacheKey = user?.uid
-    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${consentScopeKey}:${mode}`)
+  const summaryCacheKey = userId
+    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, `${consentScopeKey}:${mode}`)
     : "consent_center_summary_guest";
   const listSurface =
     tab === "requests" ? "pending" : tab === "history" ? "previous" : "active";
-  const listCacheKey = user?.uid
+  const listCacheKey = userId
     ? CACHE_KEYS.CONSENT_CENTER_LIST(
-        user.uid,
+        userId,
         `${consentScopeKey}:${mode}${tab === "requests" && sentDocumentRequests ? ":sent" : ""}`,
         listSurface,
         deferredQuery,
@@ -2238,12 +2238,12 @@ export function ConsentCenterPage() {
   const marketplaceSweptRef = useRef(false);
   useEffect(() => {
     if (marketplaceSweptRef.current) return;
-    if (!isVaultUnlocked || !user?.uid || !vaultKey) return;
+    if (!isVaultUnlocked || !userId || !vaultKey) return;
     const vaultOwnerToken = getVaultOwnerToken();
     if (!vaultOwnerToken) return;
     marketplaceSweptRef.current = true;
     void runMarketplaceDeliverySweep({
-      userId: user.uid,
+      userId,
       vaultKey,
       vaultOwnerToken,
     })
@@ -2259,7 +2259,7 @@ export function ConsentCenterPage() {
           error,
         );
       });
-  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid, vaultKey]);
+  }, [getVaultOwnerToken, isVaultUnlocked, userId, vaultKey]);
 
   // Entries an Allow is in flight for, so a confirmed approval can show its
   // Active row at once (see toLocallyGrantedEntry).
@@ -2310,7 +2310,7 @@ export function ConsentCenterPage() {
     [],
   );
   const genericConsentActions = useConsentActions({
-    userId: user?.uid,
+    userId,
     onActionComplete: handleGenericActionComplete,
   });
   const {
@@ -2360,7 +2360,7 @@ export function ConsentCenterPage() {
     isRequestBusy: isLocationRequestBusy,
     isScopeBusy: isLocationScopeBusy,
   } = useOneLocationConsentActions({
-    userId: user?.uid,
+    userId,
   });
 
   // Information Marketplace rows are end-to-end encrypted slice deliveries and
@@ -2376,7 +2376,7 @@ export function ConsentCenterPage() {
     isRequestBusy: isMarketplaceRequestBusy,
     isScopeBusy: isMarketplaceScopeBusy,
   } = useMarketplaceConsentActions({
-    userId: user?.uid,
+    userId,
   });
 
   const activeAction =
@@ -2454,7 +2454,7 @@ export function ConsentCenterPage() {
       if (isDriveSharingEntry(entry)) return;
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
-          if (!user) return;
+          if (!user || !userId) return;
           const requestId = entry.request_id || entry.id;
           try {
             const idToken = await user.getIdToken();
@@ -2465,7 +2465,7 @@ export function ConsentCenterPage() {
                 scopeSelection?.requestedScopeHandles,
               selectedOfferedScopeHandles: scopeSelection?.offeredScopeHandles,
             });
-            CacheSyncService.onConnectionGraphMutated(user.uid);
+            CacheSyncService.onConnectionGraphMutated(userId);
             markConnectionRequestHandled(requestId);
           } catch (error) {
             console.error(
@@ -2497,6 +2497,7 @@ export function ConsentCenterPage() {
       isMarketplaceEntry,
       markConnectionRequestHandled,
       user,
+      userId,
     ],
   );
   const denyEntry = useCallback(
@@ -2504,7 +2505,7 @@ export function ConsentCenterPage() {
       if (isDriveSharingEntry(entry)) return;
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
-          if (!user) return;
+          if (!user || !userId) return;
           const requestId = entry.request_id || entry.id;
           try {
             const idToken = await user.getIdToken();
@@ -2512,7 +2513,7 @@ export function ConsentCenterPage() {
               idToken,
               requestId,
             });
-            CacheSyncService.onConnectionCapabilityMutated(user.uid);
+            CacheSyncService.onConnectionCapabilityMutated(userId);
             markConnectionRequestHandled(requestId);
           } catch (error) {
             console.error(
@@ -2542,6 +2543,7 @@ export function ConsentCenterPage() {
       isMarketplaceEntry,
       markConnectionRequestHandled,
       user,
+      userId,
     ],
   );
   const revokeEntry = useCallback(
@@ -2745,16 +2747,16 @@ export function ConsentCenterPage() {
   const summaryResource = useStaleResource({
     cacheKey: summaryCacheKey,
     refreshKey: `${consentScopeKey}:${mode}`,
-    enabled: Boolean(user?.uid),
+    enabled: Boolean(userId),
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
-      if (!user?.uid || !idToken) {
+      if (!userId || !idToken) {
         throw new Error("Sign in to review consents");
       }
       return ConsentCenterService.getSummary({
         idToken,
-        userId: user.uid,
+        userId,
         actor: apiActor,
         mode,
         force: Boolean(options?.force),
@@ -2763,25 +2765,25 @@ export function ConsentCenterPage() {
   });
 
   const centerResource = useStaleResource({
-    cacheKey: user?.uid
+    cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER(
-          user.uid,
+          userId,
           `${actor}:${managerView}:active-connections:${deferredQuery}:${connectionsPage}:${selectedId || "list"}`,
         )
       : "consent_center_guest",
     refreshKey: `${actor}:${managerView}:active-connections:${deferredQuery}:${connectionsPage}:${selectedId || "list"}`,
-    enabled: Boolean(user?.uid) && visitedSurfaces.has("connections"),
+    enabled: Boolean(userId) && visitedSurfaces.has("connections"),
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
-      if (!user?.uid || !idToken) {
+      if (!userId || !idToken) {
         throw new Error("Sign in to review consents");
       }
       const [center, activeConnections] = await Promise.all([
         selectedId
           ? ConsentCenterService.getCenter({
               idToken,
-              userId: user.uid,
+              userId,
               actor,
               view: managerView,
               force: Boolean(options?.force),
@@ -2809,9 +2811,9 @@ export function ConsentCenterPage() {
   // SwipeViews panes can stay mounted and independently live, matching how
   // Kai/Location's tab sets already behave under SwipeViews.
   const pendingResource = useStaleResource({
-    cacheKey: user?.uid
+    cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
-          user.uid,
+          userId,
           `${consentScopeKey}:${mode}${sentDocumentRequests ? ":sent" : ""}`,
           "pending",
           deferredQuery,
@@ -2820,16 +2822,16 @@ export function ConsentCenterPage() {
         )
       : "consent_center_list_guest_pending",
     refreshKey: `${consentScopeKey}:${mode}:pending:${sentDocumentRequests ? "sent" : "received"}:${deferredQuery}:${pendingPage}`,
-    enabled: Boolean(user?.uid) && visitedSurfaces.has("requests"),
+    enabled: Boolean(userId) && visitedSurfaces.has("requests"),
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
-      if (!user?.uid || !idToken) {
+      if (!userId || !idToken) {
         throw new Error("Sign in to review consents");
       }
       return ConsentCenterService.listEntries({
         idToken,
-        userId: user.uid,
+        userId,
         actor: apiActor,
         mode,
         surface: "pending",
@@ -2842,9 +2844,9 @@ export function ConsentCenterPage() {
     },
   });
   const activeResource = useStaleResource({
-    cacheKey: user?.uid
+    cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
-          user.uid,
+          userId,
           `${consentScopeKey}:${mode}`,
           "active",
           deferredQuery,
@@ -2853,16 +2855,16 @@ export function ConsentCenterPage() {
         )
       : "consent_center_list_guest_active",
     refreshKey: `${consentScopeKey}:${mode}:active:${deferredQuery}:${activePage}`,
-    enabled: Boolean(user?.uid) && visitedSurfaces.has("active"),
+    enabled: Boolean(userId) && visitedSurfaces.has("active"),
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
-      if (!user?.uid || !idToken) {
+      if (!userId || !idToken) {
         throw new Error("Sign in to review consents");
       }
       return ConsentCenterService.listEntries({
         idToken,
-        userId: user.uid,
+        userId,
         actor: apiActor,
         mode,
         surface: "active",
@@ -2874,9 +2876,9 @@ export function ConsentCenterPage() {
     },
   });
   const previousResource = useStaleResource({
-    cacheKey: user?.uid
+    cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
-          user.uid,
+          userId,
           `${consentScopeKey}:${mode}`,
           "previous",
           deferredQuery,
@@ -2885,16 +2887,16 @@ export function ConsentCenterPage() {
         )
       : "consent_center_list_guest_previous",
     refreshKey: `${consentScopeKey}:${mode}:previous:${deferredQuery}:${previousPage}`,
-    enabled: Boolean(user?.uid) && visitedSurfaces.has("history"),
+    enabled: Boolean(userId) && visitedSurfaces.has("history"),
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
-      if (!user?.uid || !idToken) {
+      if (!userId || !idToken) {
         throw new Error("Sign in to review consents");
       }
       return ConsentCenterService.listEntries({
         idToken,
-        userId: user.uid,
+        userId,
         actor: apiActor,
         mode,
         surface: "previous",
@@ -2924,7 +2926,7 @@ export function ConsentCenterPage() {
   // retained resource; this avoids eager fan-out across hidden tabs while
   // preventing a stale invalidation from rendering as a false empty state.
   useEffect(() => {
-    if (!user?.uid || tab === "connections") return;
+    if (!userId || tab === "connections") return;
     if (
       !listResource ||
       (!listResource.invalidated && listResource.data) ||
@@ -2939,7 +2941,7 @@ export function ConsentCenterPage() {
     // loading has settled before React commits data, causing a redundant fetch
     // loop. Current-tab mutations already use the forced refresh effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, user?.uid]);
+  }, [tab, userId]);
 
   useEffect(() => {
     if (!mutationTick) return;
@@ -2976,7 +2978,7 @@ export function ConsentCenterPage() {
   }, [refreshPendingResource, refreshSummaryResource]);
   useFeedPendingConsentRefresh(
     refreshRequestsQuietly,
-    Boolean(user?.uid) && tab === "requests",
+    Boolean(userId) && tab === "requests",
   );
 
   useEffect(() => {
@@ -3246,7 +3248,7 @@ export function ConsentCenterPage() {
     return null;
   }, [items, selectedBundleId, selectedId]);
   const shouldLookupSelectedPending = Boolean(
-    user?.uid &&
+    userId &&
     selectedId &&
     !isDocumentShareSelection(selectedId) &&
     !isDriveQuerySelection(selectedId) &&
@@ -3258,19 +3260,19 @@ export function ConsentCenterPage() {
   );
   const selectedPendingLookupResource = useStaleResource({
     cacheKey:
-      user?.uid && selectedId
-        ? `consent_pending_lookup:${user.uid}:${selectedId}`
+      userId && selectedId
+        ? `consent_pending_lookup:${userId}:${selectedId}`
         : "consent_pending_lookup_guest",
     refreshKey: `${selectedId || ""}:${mutationTick}:${isVaultUnlocked ? "unlocked" : "locked"}`,
     enabled: shouldLookupSelectedPending,
     load: async () => {
       const vaultOwnerToken = getVaultOwnerToken();
-      if (!user?.uid || !vaultOwnerToken) {
+      if (!userId || !vaultOwnerToken) {
         throw new Error("Unlock your vault to open this consent request.");
       }
       return ConsentCenterService.lookupPendingRequests({
         vaultOwnerToken,
-        userId: user.uid,
+        userId,
         requestIds: selectedId ? [selectedId] : [],
       });
     },
@@ -3796,7 +3798,7 @@ export function ConsentCenterPage() {
                 />
 
                 {/^[A-Za-z0-9_-]{1,128}$/.test(searchParams.get("commerceRequestId") || "") ? (
-                  <ScopeCommerceRequestPanel key={`${user?.uid}:${searchParams.get("commerceRequestId")}`} requestId={searchParams.get("commerceRequestId")!} />
+                  <ScopeCommerceRequestPanel key={`${userId}:${searchParams.get("commerceRequestId")}`} requestId={searchParams.get("commerceRequestId")!} />
                 ) : null}
 
                 {showSessionRecovery ? <SessionExpiryRecovery /> : null}
@@ -4078,7 +4080,7 @@ export function ConsentCenterPage() {
           {isAnswerSelection ? (
             selectedAnswerRequestId ? (
               <AnswerRequestCard
-                key={`${user?.uid}:${selectedAnswerRequestId}`}
+                key={`${userId}:${selectedAnswerRequestId}`}
                 requestId={selectedAnswerRequestId}
               />
             ) : (

@@ -8,7 +8,7 @@ vi.mock("@/lib/services/wallet-card-service", () => ({ WalletCardService: { getC
 vi.mock("@/lib/consent/use-consent-actions", () => ({ useConsentActions: () => ({ handleApprove: mocks.approve, handleDeny: mocks.deny, handleRevoke: mocks.revoke }) }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user.uid }) }));
 vi.mock("@/lib/services/wallet-sharing-service", async (original) => ({ ...await original<object>(), loadWalletSharing: vi.fn() }));
 describe("Wallet Sharing", () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });

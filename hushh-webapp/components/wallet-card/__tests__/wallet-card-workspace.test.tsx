@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   changed: null as (() => void) | null,
 }));
 
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.owner, displayName: "Account name", metadata: { creationTime: "2025-06-01T00:00:00Z" } }, loading: false }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.owner, displayName: "Account name", metadata: { creationTime: "2025-06-01T00:00:00Z" } }, userId: mocks.owner, loading: false }) }));
 vi.mock("@/hooks/use-effective-avatar-url", () => ({ useEffectiveAvatarUrl: () => null }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: true, vaultOwnerToken: `token-${mocks.owner}` }) }));
 vi.mock("@/lib/navigation/use-scroll-reset", () => ({ useScrollReset: () => {} }));

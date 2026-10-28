@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   setLastRiaPath: vi.fn(),
   setObservabilityUserId: vi.fn().mockResolvedValue(true),
   user: null as { uid: string } | null,
+  userId: null as string | null,
   loading: false,
 }));
 
@@ -33,7 +34,7 @@ vi.mock("@/lib/observability/identity", () => ({
   setObservabilityUserId: mocks.setObservabilityUserId,
 }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.user, loading: mocks.loading }),
+  useAuth: () => ({ user: mocks.user, userId: mocks.userId, loading: mocks.loading }),
 }));
 
 vi.mock("@/lib/stores/kai-session-store", () => ({
@@ -54,6 +55,7 @@ describe("ObservabilityRouteObserver", () => {
     vi.clearAllMocks();
     mocks.setObservabilityUserId.mockReset().mockResolvedValue(true);
     mocks.user = null;
+    mocks.userId = null;
     mocks.loading = false;
   });
 
@@ -106,6 +108,7 @@ describe("ObservabilityRouteObserver", () => {
   });
   it("waits for restored auth and binds its ID before recording a product view", async () => {
     mocks.user = { uid: "validated-account" };
+    mocks.userId = "validated-account";
     let releaseBinding: (() => void) | undefined;
     mocks.setObservabilityUserId.mockImplementationOnce(() => new Promise<boolean>((resolve) => { releaseBinding = () => resolve(true); }));
     renderAt("/one");
@@ -120,6 +123,7 @@ describe("ObservabilityRouteObserver", () => {
     vi.useFakeTimers();
     try {
       mocks.user = { uid: "validated-account" };
+      mocks.userId = "validated-account";
       mocks.setObservabilityUserId
         .mockResolvedValueOnce(false)
         .mockResolvedValueOnce(true);
@@ -133,5 +137,21 @@ describe("ObservabilityRouteObserver", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("names a start-fresh account by its owner, never the deleted account's Firebase UID", async () => {
+    // After start fresh the Firebase UID is the retired owner, so the view waits for the owner.
+    mocks.pathname = "/one";
+    mocks.user = { uid: "firebase-uid-of-deleted-account" };
+    const view = render(<ObservabilityRouteObserver />);
+    await act(async () => { await Promise.resolve(); });
+    expect(mocks.setObservabilityUserId).not.toHaveBeenCalled();
+    expect(mocks.trackPageView).not.toHaveBeenCalled();
+
+    mocks.userId = `acct_${"b".repeat(32)}`;
+    view.rerender(<ObservabilityRouteObserver />);
+    await waitFor(() => expect(mocks.trackPageView).toHaveBeenCalledWith("/one", "initial_load"));
+    expect(mocks.setObservabilityUserId).toHaveBeenCalledWith(`acct_${"b".repeat(32)}`);
+    expect(mocks.setObservabilityUserId).not.toHaveBeenCalledWith("firebase-uid-of-deleted-account");
   });
 });

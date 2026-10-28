@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   user: { uid: "owner-1", getIdToken: vi.fn(async () => "firebase-token") },
 }));
 
-vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: mocks.user }) }));
+vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null }) }));
 vi.mock("@/lib/services/public-profile-discovery-service", () => ({
   PublicProfileDiscoveryService: { getStatus: mocks.getStatus, start: mocks.start },
 }));

@@ -23,6 +23,21 @@ from hushh_mcp.services.support_email_service import (
 
 logger = logging.getLogger(__name__)
 
+# The unlocked read only decides whether a recipient is needed; the locked one is authority.
+# The recipient is resolved before the owner graph lock, so the locked read itself must see
+# a deletion approved since then: deletion holds that lock exclusively until it commits.
+_SENDABLE_EVENT = """SELECT p.enabled,p.email_enabled,p.generation,p.active_draft_id,
+    EXISTS(SELECT 1 FROM account_deletion_tombstones t
+      WHERE t.user_id_hash='sha256:'||encode(sha256(convert_to(p.user_id,'UTF8')),'hex')) AS deleted
+    FROM pwm_research_preferences p JOIN pwm_completion_events e USING(user_id)
+    WHERE p.user_id=$1 AND e.draft_id=$2 AND e.lease_id=$3 AND e.email_state='leased'"""
+_LOCKED_SENDABLE_EVENT = """SELECT p.enabled,p.email_enabled,p.generation,p.active_draft_id,
+    EXISTS(SELECT 1 FROM account_deletion_tombstones t
+      WHERE t.user_id_hash='sha256:'||encode(sha256(convert_to(p.user_id,'UTF8')),'hex')) AS deleted
+    FROM pwm_research_preferences p JOIN pwm_completion_events e USING(user_id)
+    WHERE p.user_id=$1 AND e.draft_id=$2 AND e.lease_id=$3 AND e.email_state='leased'
+    FOR UPDATE OF p,e"""
+
 
 def send_ready_email(*, email, draft_id, outcome):
     sender = SupportEmailService()
@@ -125,35 +140,46 @@ class WorldModelNotificationWorker:
 
         return await world_model_jobs.store.has_fresh_checkpoint(conn, user_id)
 
+    async def _sendable(self, conn, event, lease, *, for_update):
+        current = await conn.fetchrow(
+            _LOCKED_SENDABLE_EVENT if for_update else _SENDABLE_EVENT,
+            event["user_id"],
+            event["draft_id"],
+            lease,
+            timeout=5,
+        )
+        return bool(
+            one_profile_research_enabled()
+            and current
+            and not current.get("deleted")
+            and current["enabled"]
+            and current["email_enabled"]
+            and current["generation"] == event["generation"]
+            and current["active_draft_id"] == event["draft_id"]
+            and await owner_setup_resolved(event["user_id"], conn=conn)
+            and await self._draft_available(conn, event["user_id"])
+        )
+
     async def _deliver(self, pool, event, lease):
         state = "suppressed"
         dispatch_started = False
         try:
+            # Resolve the recipient only for an event that may still send, and outside the
+            # owner graph lock: with generation admission on, this read takes that lock
+            # shared on its own connection. The locked pass below rechecks everything.
+            owner = None
+            async with pool.acquire(timeout=5) as conn:
+                sendable = await self._sendable(conn, event, lease, for_update=False)
+            if sendable:
+                owner = await asyncio.wait_for(
+                    run_in_threadpool(lookup_fresh_owner_identity, event["user_id"]), 5
+                )
             async with pool.acquire(timeout=5) as conn, conn.transaction():
                 await lock_connection_graph_users_async(conn, user_ids=[event["user_id"]])
-                current = await conn.fetchrow(
-                    """SELECT p.enabled,p.email_enabled,p.generation,p.active_draft_id
-                    FROM pwm_research_preferences p JOIN pwm_completion_events e USING(user_id)
-                    WHERE p.user_id=$1 AND e.draft_id=$2 AND e.lease_id=$3 AND e.email_state='leased'
-                    FOR UPDATE OF p,e""",
-                    event["user_id"],
-                    event["draft_id"],
-                    lease,
-                    timeout=5,
-                )
-                if (
-                    one_profile_research_enabled()
-                    and current
-                    and current["enabled"]
-                    and current["email_enabled"]
-                    and current["generation"] == event["generation"]
-                    and current["active_draft_id"] == event["draft_id"]
-                    and await owner_setup_resolved(event["user_id"], conn=conn)
-                    and await self._draft_available(conn, event["user_id"])
-                ):
-                    owner = await asyncio.wait_for(
-                        run_in_threadpool(lookup_fresh_owner_identity, event["user_id"]), 5
-                    )
+                if await self._sendable(conn, event, lease, for_update=True):
+                    if owner is None:
+                        # It became sendable after the unlocked check; retry with a recipient.
+                        raise RuntimeError("pwm recipient not resolved")
                     if (
                         getattr(owner, "uid", None) == event["user_id"]
                         and not getattr(owner, "disabled", True)

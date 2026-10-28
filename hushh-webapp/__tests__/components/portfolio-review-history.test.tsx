@@ -12,7 +12,7 @@ vi.mock("@/lib/kai/brokerage/use-portfolio-sources", () => ({ usePortfolioSource
 }) }));
 vi.mock("@/lib/kai/ticker-universe-cache", () => ({ getTickerUniverseSnapshot: () => [], preloadTickerUniverse: async () => [], searchTickerUniverse: () => [], searchTickerUniverseRemote: async () => [] }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "synthetic-owner" } }) }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "synthetic-memory-key", vaultOwnerToken: "synthetic-token" }) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "synthetic-memory-key", vaultOwnerToken: "synthetic-token", getVaultKey: () => "synthetic-memory-key", getVaultOwnerToken: () => "synthetic-token" }) }));
 vi.mock("@/lib/cache/cache-context", () => ({ useCache: () => ({ setPortfolioData: saved.cache }) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }), usePathname: () => "/one/kai/import", useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/lib/services/vault-service", () => ({ VaultService: { checkVault: async () => true } }));

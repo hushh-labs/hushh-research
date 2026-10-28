@@ -128,7 +128,7 @@ function shouldLoadRiaOnboardingStatus(
 
 export function PersonaProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { user, isAuthenticated, loading: authLoading } = useAuth();
+  const { user, userId, isAuthenticated, loading: authLoading } = useAuth();
   const [personaState, setPersonaState] = useState<PersonaState | null>(null);
   const [riaOnboardingStatus, setRiaOnboardingStatus] =
     useState<RiaOnboardingStatus | null>(null);
@@ -146,7 +146,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(
     async (options?: { force?: boolean }) => {
       if (authLoading) return;
-      if (!isAuthenticated || !user) {
+      if (!isAuthenticated || !user || !userId) {
         setPersonaState(null);
         setRiaOnboardingStatus(null);
         setLoading(false);
@@ -156,7 +156,6 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       }
 
       const cache = CacheService.getInstance();
-      const userId = user.uid;
       const force = Boolean(options?.force);
       const cached = readCachedPersona(userId);
 
@@ -225,7 +224,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         setRefreshing(false);
       }
     },
-    [authLoading, isAuthenticated, user],
+    [authLoading, isAuthenticated, user, userId],
   );
 
   const chromeSuppressed = useSessionChromeSuppressed();
@@ -246,9 +245,9 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       if (
         !authLoading &&
         isAuthenticated &&
-        user &&
+        userId &&
         personaStateRef.current &&
-        readCachedPersona(user.uid).personaState
+        readCachedPersona(userId).personaState
       ) {
         return;
       }
@@ -259,7 +258,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
     }
     run();
     return undefined;
-  }, [pathname, refresh, chromeSuppressed, authLoading, isAuthenticated, user]);
+  }, [pathname, refresh, chromeSuppressed, authLoading, isAuthenticated, userId]);
 
   useEffect(() => {
     if (authLoading || !isAuthenticated || !user) return;
@@ -279,17 +278,17 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
 
   const switchPersona = useCallback(
     async (target: Persona) => {
-      if (!user || !isAuthenticated) return null;
+      if (!user || !userId || !isAuthenticated) return null;
       personaMutationSeqRef.current += 1;
       setPersonaTransitionTarget(target);
       try {
         const idToken = await user.getIdToken();
         const next = await RiaService.switchPersona(idToken, target);
         const cache = CacheService.getInstance();
-        CacheSyncService.onPersonaStateChanged(user.uid, {
+        CacheSyncService.onPersonaStateChanged(userId, {
           preservePersonaState: true,
         });
-        cache.set(CACHE_KEYS.PERSONA_STATE(user.uid), next, CACHE_TTL.SESSION);
+        cache.set(CACHE_KEYS.PERSONA_STATE(userId), next, CACHE_TTL.SESSION);
         personaMutationSeqRef.current += 1;
         setPersonaState(next);
         return next;
@@ -299,7 +298,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    [isAuthenticated, user],
+    [isAuthenticated, user, userId],
   );
 
   const riaCapability: RiaCapability = useMemo(() => {

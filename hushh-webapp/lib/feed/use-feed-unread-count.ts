@@ -20,10 +20,10 @@ import { useForegroundChatActive } from "@/lib/agent/foreground-chat-priority";
  * unread items.
  */
 export function useFeedUnreadCount(options?: { enabled?: boolean }): number | null {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const rootChatReady = useRootChatDeferredReady();
   const foregroundChatActive = useForegroundChatActive();
-  const currentUserId = user?.uid ?? null;
+  const currentUserId = userId;
   // Object identity distinguishes separate sessions even when an A -> B -> A
   // account cycle returns to the same uid. State from the first A session is
   // never considered current for the second.
@@ -54,14 +54,14 @@ export function useFeedUnreadCount(options?: { enabled?: boolean }): number | nu
 
   const load = useCallback(
     (force = false, followup = false): Promise<void> => {
-      if (!user?.uid) return Promise.resolve();
+      if (!user || !userId) return Promise.resolve();
       const existing = inFlightRef.current;
       if (existing?.session === session) {
         if (followup) refreshPendingRef.current = true;
         return existing.promise;
       }
 
-      const requestedUserId = user.uid;
+      const requestedUserId = userId;
       const requestId = ++requestSequenceRef.current;
       const isLatestRequest = () => requestSequenceRef.current === requestId;
       const promise = (async () => {
@@ -96,7 +96,7 @@ export function useFeedUnreadCount(options?: { enabled?: boolean }): number | nu
       });
       return promise;
     },
-    [session, user],
+    [session, user, userId],
   );
   useEffect(() => { loadRef.current = load; }, [load]);
 
@@ -107,25 +107,25 @@ export function useFeedUnreadCount(options?: { enabled?: boolean }): number | nu
     feedEpochRef.current = currentFeedInvalidationEpoch(session.userId ?? "");
     setCountState({ session, count: null });
     // Hidden chrome and foreground chat leave bandwidth for the active task.
-    if (!user?.uid || !enabled || !rootChatReady || foregroundChatActive) return;
+    if (!userId || !enabled || !rootChatReady || foregroundChatActive) return;
     void load();
-  }, [user, load, session, enabled, rootChatReady, foregroundChatActive]);
+  }, [user, userId, load, session, enabled, rootChatReady, foregroundChatActive]);
 
   // Shares the Feed's live signal rather than keeping a private timer, so the
   // badge and the Feed list re-check on the same tick and cannot drift into
   // saying different things about the same unread rows.
   useFeedLiveRefresh(
     useCallback(() => void load(true), [load]),
-    Boolean(user?.uid) && enabled && rootChatReady && !foregroundChatActive,
+    Boolean(userId) && enabled && rootChatReady && !foregroundChatActive,
   );
 
   // The badge additionally recounts on a read-only change — that shared signal
   // skips those, precisely so a list does not re-fetch rows it just marked read.
   // For the badge it is the whole point: it is the number that has to drop.
   useEffect(() => {
-    if (!user?.uid || !enabled || !rootChatReady || foregroundChatActive) return;
+    if (!userId || !enabled || !rootChatReady || foregroundChatActive) return;
     const recount = (event: Event) => {
-      const epoch = currentFeedInvalidationEpoch(user.uid);
+      const epoch = currentFeedInvalidationEpoch(userId);
       if (epoch !== feedEpochRef.current) {
         feedEpochRef.current = epoch;
         requestSequenceRef.current += 1;
@@ -135,7 +135,7 @@ export function useFeedUnreadCount(options?: { enabled?: boolean }): number | nu
       const reason = feedStateChangeReason(event);
       if (reason === "read") {
         const cached = CacheService.getInstance().get<number>(
-          CACHE_KEYS.FEED_UNREAD_COUNT(user.uid),
+          CACHE_KEYS.FEED_UNREAD_COUNT(userId),
         );
         if (cached != null) {
           // An optimistic read count is newer than any outstanding recount.
@@ -156,7 +156,7 @@ export function useFeedUnreadCount(options?: { enabled?: boolean }): number | nu
     };
     window.addEventListener(FEED_STATE_CHANGED_EVENT, recount);
     return () => window.removeEventListener(FEED_STATE_CHANGED_EVENT, recount);
-  }, [enabled, load, rootChatReady, foregroundChatActive, session, user?.uid]);
+  }, [enabled, load, rootChatReady, foregroundChatActive, session, userId]);
 
   return countState.session === session ? countState.count : null;
 }

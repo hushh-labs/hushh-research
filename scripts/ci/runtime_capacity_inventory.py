@@ -6,13 +6,27 @@ joins bounded UAT reads before returning any inventory for budget evaluation.
 
 from __future__ import annotations
 
+import importlib.util
+import ipaddress
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
-
-class BudgetError(ValueError):
-    """Inventory or policy is incomplete, so admission cannot be proved."""
+_SCOPE_SPEC = importlib.util.spec_from_file_location(
+    "runtime_capacity_target_scope",
+    Path(__file__).with_name("runtime_capacity_target_scope.py"),
+)
+assert _SCOPE_SPEC and _SCOPE_SPEC.loader
+_scope = importlib.util.module_from_spec(_SCOPE_SPEC)
+_SCOPE_SPEC.loader.exec_module(_scope)
+BudgetError = _scope.BudgetError
+ResolvedRouteSecret = _scope.ResolvedRouteSecret
+VerifiedNonTargetInventory = _scope.VerifiedNonTargetInventory
+ISOLATED_DEV_CONNECTION = _scope.ISOLATED_DEV_CONNECTION
+isolated_dev_scope = _scope.isolated_dev_scope
+non_target_rows = _scope.non_target_rows
+_non_target_routing = _scope.non_target_routing
 
 
 def positive_int(value: Any, label: str, *, zero_ok: bool = False) -> int:
@@ -68,6 +82,11 @@ def _read_service_inventory(
     *,
     non_database: set[str],
     connection_name: str,
+    isolated: bool = False,
+    endpoints: set[str] | None = None,
+    aliases: set[str] | None = None,
+    resolve_secret: Callable | None = None,
+    pending_latest: list | None = None,
 ) -> dict[str, Any]:
     service = read("run", "services", "describe", name, *opts)
     revisions = read("run", "revisions", "list", f"--service={name}", *opts)
@@ -88,7 +107,12 @@ def _read_service_inventory(
         by_name = {(rev.get("metadata") or {}).get("name"): rev for rev in revisions}
         if None in referenced or referenced - by_name.keys():
             raise BudgetError(f"{name}: referenced revision unavailable")
-        for revision in (by_name[revision_name] for revision_name in referenced):
+        selected = (
+            revisions
+            if isolated
+            else [by_name[revision_name] for revision_name in referenced]
+        )
+        for revision in selected:
             annotations = (revision.get("metadata") or {}).get("annotations") or {}
             if connection_name in annotations.get(
                 "run.googleapis.com/cloudsql-instances", ""
@@ -96,26 +120,65 @@ def _read_service_inventory(
                 raise BudgetError(
                     f"{name}: reachable revision attaches to budgeted Cloud SQL"
                 )
+        if isolated:
+            if not isinstance(service.get("spec", {}).get("template"), dict) or len(
+                by_name
+            ) != len(revisions):
+                raise BudgetError(
+                    "non-target service template/revision inventory is incomplete"
+                )
+            if any(
+                not isinstance(key, str) or not key.startswith(name + "-")
+                for key in by_name
+            ):
+                raise BudgetError("non-target retained revision identity is ambiguous")
+            versions: set[str] = set()
+            for workload in (service, *revisions):
+                versions.update(
+                    _non_target_routing(
+                        workload, endpoints, aliases, resolve_secret, pending_latest
+                    )
+                )
+            return {
+                "service": service,
+                "revisions": revisions,
+                "non_target": {
+                    "name": name,
+                    "connections": 0,
+                    "capacity_classification": "not-target-instance",
+                    "checked_revisions": sorted(by_name),
+                    "template_checked": True,
+                    "resolved_secret_versions": sorted(versions),
+                },
+            }
     return {"service": service, "revisions": revisions}
 
 
-def collect_inventory(
-    config: dict[str, Any],
-    region: str,
-    read: Callable[..., Any],
-    *,
-    parallel: bool,
-) -> dict[str, Any]:
-    project = config["project"]
-    sql = read(
-        "sql",
-        "instances",
-        "describe",
-        config["database_instance"],
-        f"--project={project}",
-    )
-    maximum = _database_maximum(sql)
-    opts = (f"--project={project}", f"--region={region}")
+def _isolated_identity(sql, project, region, read):
+    if (
+        sql.get("project") != project
+        or sql.get("name") != "plg-qualification-pg"
+        or sql.get("region") != region
+        or sql.get("connectionName") != ISOLATED_DEV_CONNECTION
+    ):
+        raise BudgetError("isolated DEV SQL identity is not bound")
+    project_record = read("projects", "describe", project)
+    number = str(project_record.get("projectNumber", ""))
+    if project_record.get("projectId") != project or not number.isdigit():
+        raise BudgetError("isolated DEV project identity is unavailable")
+    aliases = {project, number}
+    addresses = sql.get("ipAddresses")
+    if not isinstance(addresses, list) or not addresses:
+        raise BudgetError("isolated DEV SQL endpoint inventory is unavailable")
+    try:
+        endpoints = {str(ipaddress.ip_address(row["ipAddress"])) for row in addresses}
+    except (KeyError, TypeError, ValueError):
+        raise BudgetError("isolated DEV SQL endpoint inventory is malformed") from None
+    endpoints.update({ISOLATED_DEV_CONNECTION, "plg-qualification-pg"})
+    return endpoints, aliases
+
+
+def _service_partition(config, read, opts):
     listed_services = read("run", "services", "list", *opts)
     if not isinstance(listed_services, list):
         raise BudgetError("Cloud Run services inventory unavailable")
@@ -141,23 +204,10 @@ def collect_inventory(
             f"required database services missing: {sorted(required - service_names)}"
         )
 
-    # Only independent reads overlap. Keep describe -> revisions ordering per
-    # service, including every non-database attachment check, and retain the
-    # serial production path for this bounded UAT rollout.
-    collected = _collect_named_inventory(
-        sorted(service_names),
-        lambda name: _read_service_inventory(
-            name,
-            read,
-            opts,
-            non_database=non_database,
-            connection_name=f"{project}:{region}:{config['database_instance']}",
-        ),
-        parallel=parallel,
-    )
-    services = {
-        name: row for name, row in collected.items() if name not in non_database
-    }
+    return service_names, non_database
+
+
+def _job_inventory(read, opts, parallel):
     listed = read("run", "jobs", "list", *opts)
     if not isinstance(listed, list):
         raise BudgetError("Cloud Run jobs inventory unavailable")
@@ -171,4 +221,150 @@ def collect_inventory(
         lambda name: read("run", "jobs", "describe", name, *opts),
         parallel=parallel,
     )
-    return {"database_max_connections": maximum, "services": services, "jobs": jobs}
+    return jobs
+
+
+def _non_target_jobs(
+    config, jobs, read, opts, endpoints, aliases, resolve_secret, pending_latest
+):
+    if set(jobs) != set(config["jobs"]) | set(config["non_target_jobs"]):
+        raise BudgetError("isolated DEV job inventory differs from exact partition")
+    zero_jobs = []
+    for name in config["non_target_jobs"]:
+        versions = _non_target_routing(
+            jobs[name], endpoints, aliases, resolve_secret, pending_latest
+        )
+        executions = read("run", "jobs", "executions", "list", "--job=" + name, *opts)
+        if not isinstance(executions, list) or len(executions) > 10_000:
+            raise BudgetError("non-target job execution inventory is unavailable")
+        active = []
+        seen = set()
+        for execution in executions:
+            execution_name = execution.get("metadata", {}).get("name")
+            if (
+                not isinstance(execution_name, str)
+                or not execution_name.startswith(name + "-")
+                or execution_name in seen
+            ):
+                raise BudgetError("non-target job execution identity is ambiguous")
+            seen.add(execution_name)
+            if execution.get("status", {}).get("completionTime"):
+                continue
+            observed = read(
+                "run", "jobs", "executions", "describe", execution_name, *opts
+            )
+            if observed.get("metadata", {}).get("name") != execution_name:
+                raise BudgetError("non-target execution read changed identity")
+            if (
+                observed.get("metadata", {})
+                .get("labels", {})
+                .get("run.googleapis.com/job")
+                != name
+            ):
+                raise BudgetError("non-target execution belongs to another job")
+            versions.update(
+                _non_target_routing(
+                    observed, endpoints, aliases, resolve_secret, pending_latest
+                )
+            )
+            active.append(execution_name)
+        zero_jobs.append(
+            {
+                "name": name,
+                "connections": 0,
+                "capacity_classification": "not-target-instance",
+                "template_checked": True,
+                "checked_active_executions": sorted(active),
+                "resolved_secret_versions": sorted(versions),
+            }
+        )
+    return zero_jobs
+
+
+def _recheck_routes(
+    config, project, sql, maximum, read, resolve_secret, pending_latest
+):
+    for workload, node, version in pending_latest:
+        current = _scope.observe_route_secret(resolve_secret, workload, node, project)
+        if type(current) is not ResolvedRouteSecret or current.resource_name != version:
+            raise BudgetError("non-target route secret changed during collection")
+    latest_sql = read(
+        "sql",
+        "instances",
+        "describe",
+        config["database_instance"],
+        f"--project={project}",
+    )
+    if (
+        _database_maximum(latest_sql) != maximum
+        or latest_sql.get("connectionName") != ISOLATED_DEV_CONNECTION
+        or latest_sql.get("settings", {}).get("settingsVersion")
+        != sql.get("settings", {}).get("settingsVersion")
+    ):
+        raise BudgetError("isolated DEV SQL changed during collection")
+
+
+def collect_inventory(
+    config: dict[str, Any],
+    region: str,
+    read: Callable[..., Any],
+    *,
+    parallel: bool,
+    environment: str | None = None,
+    resolve_secret: Callable | None = None,
+) -> dict[str, Any]:
+    isolated = isolated_dev_scope(config, region, environment)
+    project = config["project"]
+    sql = read(
+        "sql",
+        "instances",
+        "describe",
+        config["database_instance"],
+        f"--project={project}",
+    )
+    maximum = _database_maximum(sql)
+    endpoints, aliases, pending_latest = set(), set(), []
+    if isolated:
+        endpoints, aliases = _isolated_identity(sql, project, region, read)
+        parallel = False
+    opts = (f"--project={project}", f"--region={region}")
+    service_names, non_database = _service_partition(config, read, opts)
+
+    # Only independent reads overlap. Keep describe -> revisions ordering per
+    # service, including every non-database attachment check, and retain the
+    # serial production path for this bounded UAT rollout.
+    collected = _collect_named_inventory(
+        sorted(service_names),
+        lambda name: _read_service_inventory(
+            name,
+            read,
+            opts,
+            non_database=non_database,
+            connection_name=f"{project}:{region}:{config['database_instance']}",
+            isolated=isolated,
+            endpoints=endpoints,
+            aliases=aliases,
+            resolve_secret=resolve_secret,
+            pending_latest=pending_latest,
+        ),
+        parallel=parallel,
+    )
+    services = (
+        collected
+        if isolated
+        else {name: row for name, row in collected.items() if name not in non_database}
+    )
+    jobs = _job_inventory(read, opts, parallel)
+    result = {"database_max_connections": maximum, "services": services, "jobs": jobs}
+    if not isolated:
+        return result
+    zero_jobs = _non_target_jobs(
+        config, jobs, read, opts, endpoints, aliases, resolve_secret, pending_latest
+    )
+    _recheck_routes(config, project, sql, maximum, read, resolve_secret, pending_latest)
+    result["non_target_workloads"] = VerifiedNonTargetInventory(
+        ISOLATED_DEV_CONNECTION,
+        tuple(collected[name]["non_target"] for name in sorted(non_database)),
+        tuple(zero_jobs),
+    )
+    return result

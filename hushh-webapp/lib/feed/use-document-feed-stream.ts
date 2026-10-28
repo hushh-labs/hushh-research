@@ -42,14 +42,14 @@ const sharedStreams = new Map<string, SharedStream>();
  * Frames are invalidation hints.
  */
 export function useDocumentFeedStream(user: FeedUser | null): void {
-  const { sessionVerificationRequired } = useAuth();
+  const { userId, sessionVerificationRequired } = useAuth();
 
   useEffect(() => {
-    if (!user || typeof window === "undefined") return;
-    let shared = sharedStreams.get(user.uid);
+    if (!user || !userId || typeof window === "undefined") return;
+    let shared = sharedStreams.get(userId);
     if (!shared) {
-      shared = openSharedStream(user);
-      sharedStreams.set(user.uid, shared);
+      shared = openSharedStream(user, userId);
+      sharedStreams.set(userId, shared);
     }
     shared.user = user;
     shared.subscribers += 1;
@@ -58,19 +58,19 @@ export function useDocumentFeedStream(user: FeedUser | null): void {
       entry.subscribers -= 1;
       if (entry.subscribers > 0) return;
       entry.stop();
-      if (sharedStreams.get(user.uid) === entry) sharedStreams.delete(user.uid);
+      if (sharedStreams.get(userId) === entry) sharedStreams.delete(userId);
     };
-  }, [user]);
+  }, [user, userId]);
 
   // A verified session after a failed check is one auth recovery signal.
   useEffect(() => {
-    if (!user) return;
-    sharedStreams.get(user.uid)?.manager.sessionVerification(Boolean(sessionVerificationRequired));
-  }, [user, sessionVerificationRequired]);
+    if (!user || !userId) return;
+    sharedStreams.get(userId)?.manager.sessionVerification(Boolean(sessionVerificationRequired));
+  }, [user, userId, sessionVerificationRequired]);
 }
 
-function openSharedStream(user: FeedUser): SharedStream {
-  const uid = user.uid;
+function openSharedStream(user: FeedUser, ownerId: string): SharedStream {
+  const uid = ownerId; // Owner-scoped stream, channel and caches; the ID-token watch uses user.uid.
   const platform: DocumentFeedPlatform = Capacitor.isNativePlatform() ? "native" : "web";
   // Fence: once another account (or a new sign-in) owns this tab, nothing
   // from this stream reaches its caches or event buses.
@@ -105,7 +105,7 @@ function openSharedStream(user: FeedUser): SharedStream {
     onPhase: (phase) => {
       // A new web ID token is a recovery signal; watch only while blocked.
       if (phase === "auth_blocked" && platform === "web") {
-        stopTokenWatch ??= observeIdTokenChanges(uid, () => manager.tokenChanged());
+        stopTokenWatch ??= observeIdTokenChanges(user.uid, () => manager.tokenChanged());
       } else if (phase !== "auth_blocked" && stopTokenWatch) {
         stopTokenWatch();
         stopTokenWatch = null;

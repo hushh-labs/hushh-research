@@ -29,6 +29,7 @@ python3 scripts/ci/verify-branch-governance-doc-consistency.py
 python3 scripts/ci/verify-branch-governance-doc-consistency.py --self-test
 python3 scripts/ci/test_verify_deployment_environment_governance.py
 python3 scripts/ci/test_release_cadence.py
+python3 scripts/ci/test_release_cadence_qualification.py
 python3 scripts/ci/test_release_cadence_maintenance.py
 python3 scripts/ci/test_release_cadence_monitor.py
 bash scripts/ci/verify-protocol-ci-parity.sh --self-test
@@ -43,6 +44,8 @@ python3 scripts/ci/test_retention_preflight_evidence.py
 python3 scripts/ci/test_wait_uat_capacity.py
 python3 scripts/ci/test_runtime_capacity_budget.py
 python3 scripts/ci/test_runtime_capacity_inventory.py
+python3 scripts/ci/test_runtime_capacity_isolated.py
+python3 scripts/ci/test_runtime_capacity_route_secrets.py
 python3 scripts/ci/test_production_capacity_bridge.py
 python3 scripts/ci/test_production_capacity_recovery.py
 python3 scripts/ci/test_verify_passkey_domain_associations.py

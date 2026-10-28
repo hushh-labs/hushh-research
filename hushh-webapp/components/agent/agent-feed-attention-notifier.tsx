@@ -17,12 +17,12 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
 
 export function AgentFeedAttentionNotifier(): null {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultKey } = useVault();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const ownerId = user?.uid ?? null;
+  const ownerId = userId;
   const requested = searchParams?.get(FEED_ATTENTION_QUERY) ?? null;
 
   // A different person (or none) never inherits another's pending update.

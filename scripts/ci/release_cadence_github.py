@@ -38,6 +38,7 @@ from release_cadence_native import wait_production as wait_production
 from release_cadence_maintenance import (
     adopt_production_baseline, configuration, disabled_snapshot as disabled_snapshot,
     production_baseline, replayed_receipt, retire_obsolete_failures,
+    no_shared_uat_release,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -359,12 +360,9 @@ def reconcile(repository: str, controller_id: int, event: dict, full: bool = Fal
         source = receipt(repository, run["id"], "uat", optional=True)
         if source is None:
             jobs = api(f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
-            by_name = {job["name"]: job for job in jobs["jobs"]}
-            require(jobs["total_count"] == len(jobs["jobs"]) and
-                    by_name.get("Deploy UAT Scope", {}).get("conclusion") == "skipped" and
-                    any(step.get("name") == "Summarize unchanged UAT target" and step.get("conclusion") == "success"
-                        for step in by_name.get("Select UAT target", {}).get("steps", [])),
+            require(no_shared_uat_release(run, jobs, governance["production"]["manual_dispatch_users"]),
                     "Successful UAT run lacks both a release receipt and verified NO_OP proof")
+            # No shared release occurred; this does not admit the isolated app.
             state.setdefault("noops", []).append(run["id"])
             continue
         sha = verified_uat(run, source, repository, governance["uat"]["manual_dispatch_users"])

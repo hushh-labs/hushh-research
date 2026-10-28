@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 const mocks = vi.hoisted(() => ({
   auth: {
     user: null as null | { uid: string; getIdToken: () => Promise<string> },
+    userId: null as string | null,
     loading: false,
   },
   completeOAuth: vi.fn(),
@@ -43,6 +44,7 @@ describe("curated connector OAuth return", () => {
     vi.clearAllMocks();
     mocks.auth = {
       user: { uid: "owner-a", getIdToken: async () => "firebase-token" },
+      userId: "owner-a",
       loading: false,
     };
     mocks.completeOAuth.mockResolvedValue({ connectorId: "hubspot", status: "connected" });
@@ -86,6 +88,7 @@ describe("curated connector OAuth return", () => {
 
   it("refuses another account's handoff without exchanging the code", async () => {
     mocks.auth.user = { uid: "owner-b", getIdToken: async () => "firebase-token" };
+    mocks.auth.userId = "owner-b";
     render(<Callback />);
     await screen.findByText("Missing authorization details. Please try again.");
     expect(mocks.completeOAuth).not.toHaveBeenCalled();

@@ -22,7 +22,7 @@ const m = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: m.uid } }),
+  useAuth: () => ({ user: { uid: m.uid }, userId: m.uid }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({

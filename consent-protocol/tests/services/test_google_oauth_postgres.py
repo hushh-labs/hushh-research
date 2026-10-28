@@ -9,7 +9,6 @@ import base64
 import os
 import secrets
 import threading
-from pathlib import Path
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
@@ -23,6 +22,7 @@ from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     GoogleConnectionService,
 )
+from tests.google_oauth_postgres_support import install_calendar_schema
 
 OWNER = "synthetic-owner"
 
@@ -43,19 +43,7 @@ def pg_service(monkeypatch):
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     try:
         with engine.begin() as connection:
-            connection.execute(text("CREATE TABLE actor_profiles (user_id TEXT PRIMARY KEY)"))
-            migration = (
-                Path(__file__).parents[2]
-                / "db/migrations/144_google_integrations_calendar_foundation.sql"
-            )
-            # The exact canonical table shape; only outer transaction markers
-            # are removed because this fixture already owns the transaction.
-            sql = migration.read_text().replace("BEGIN;", "").replace("COMMIT;", "")
-            connection.exec_driver_sql(sql)
-            connection.execute(
-                text("INSERT INTO actor_profiles(user_id) VALUES (:owner), ('synthetic-other')"),
-                {"owner": OWNER},
-            )
+            install_calendar_schema(connection, OWNER)
         monkeypatch.setenv(
             "GOOGLE_OAUTH_TOKEN_KEY", base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
         )
@@ -75,6 +63,14 @@ def pg_service(monkeypatch):
             return {
                 "access_token": "synthetic-access-" + payload["code"],
                 "refresh_token": "synthetic-refresh-" + payload["code"],
+                # This transaction fixture models an accepted incremental
+                # Google grant; scope-denial behavior has separate unit tests.
+                "scope": "openid email profile "
+                "https://www.googleapis.com/auth/calendar.events.readonly "
+                "https://www.googleapis.com/auth/calendar.freebusy "
+                "https://www.googleapis.com/auth/calendar.calendarlist.readonly "
+                "https://www.googleapis.com/auth/contacts.readonly "
+                "https://www.googleapis.com/auth/drive.readonly",
                 "expires_in": 3600,
             }
 

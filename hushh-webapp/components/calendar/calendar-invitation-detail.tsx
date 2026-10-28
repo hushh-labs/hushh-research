@@ -37,7 +37,7 @@ export function InvitationAvatar({ name, email, photoUrl, photoSource }: { name:
   const tone = [...identity].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 4;
   const cleanPhoto = photoUrl?.trim() || "";
   const safePhoto = cleanPhoto.startsWith("https://") || (cleanPhoto.startsWith("/") && !cleanPhoto.startsWith("//")) ? cleanPhoto : null;
-  const sourceTitle = photoSource === "google_contact" || photoSource === "workspace_contact" ? "Saved Google contact photo" : photoSource ? "Google profile photo" : undefined;
+  const sourceTitle = photoSource ? "Google profile photo" : undefined;
   return <Avatar aria-hidden className={styles.avatar} data-tone={tone} data-photo-source={photoSource} title={sourceTitle}>
     {safePhoto ? <AvatarImage src={safePhoto} alt="" referrerPolicy="no-referrer" /> : null}
     <AvatarFallback className={styles.avatarFallback}>{name.trim().slice(0, 1).toUpperCase() || "?"}</AvatarFallback>
@@ -98,7 +98,7 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), work
             <InvitationAvatar name={name} email={attendee.email} photoUrl={photo?.url} photoSource={photo?.source} />
             {attendee.response_status === "accepted" ? <CheckCircle aria-hidden="true" weight="fill" data-accepted-indicator className={styles.guestAccepted} /> : null}
           </span>
-          <span className={styles.guestCopy}><span>{name}</span>{photo ? <span className="sr-only">{photo.source === "google_contact" || photo.source === "workspace_contact" ? "Saved Google contact photo" : "Google profile photo"}</span> : null}{organizer && attendee.email && name !== attendee.email ? <small>{attendee.email}</small> : null}<small>{organizer ? `Organiser · ${guestStatus(attendee.response_status)}` : guestStatus(attendee.response_status)}</small></span>
+          <span className={styles.guestCopy}><span>{name}</span>{photo ? <span className="sr-only">Google profile photo</span> : null}{organizer && attendee.email && name !== attendee.email ? <small>{attendee.email}</small> : null}<small>{organizer ? `Organiser · ${guestStatus(attendee.response_status)}` : guestStatus(attendee.response_status)}</small></span>
         </li>;
       })}</ul>
     </div></> : <>

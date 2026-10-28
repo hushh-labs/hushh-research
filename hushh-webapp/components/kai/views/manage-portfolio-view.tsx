@@ -144,7 +144,7 @@ const SpinningLoader = (props: any) => (
 
 export function ManagePortfolioView() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const { getPortfolioData, setPortfolioData: setCachePortfolioData } = useCache();
   
@@ -191,7 +191,7 @@ export function ManagePortfolioView() {
       // Step 1: Auth check
       completeStep();
 
-      if (!user?.uid || !vaultKey) {
+      if (!userId || !vaultKey) {
         setIsLoading(false);
         completeStep(); // Complete step 2 even if no data
         return;
@@ -199,7 +199,7 @@ export function ManagePortfolioView() {
 
       try {
         // Fast path: if dashboard already hydrated session cache, skip metadata/blob fetch.
-        const cachedPortfolio = getPortfolioData(user.uid);
+        const cachedPortfolio = getPortfolioData(userId);
         if (cachedPortfolio && Array.isArray(cachedPortfolio.holdings) && cachedPortfolio.holdings.length > 0) {
           setPortfolioData(cachedPortfolio);
           setHoldings(
@@ -216,7 +216,7 @@ export function ManagePortfolioView() {
 
         // Get PKM metadata first so we only decrypt the financial domain when needed.
         const response = await PersonalKnowledgeModelService.getMetadata(
-          user.uid,
+          userId,
           false,
           vaultOwnerToken || undefined
         );
@@ -224,14 +224,14 @@ export function ManagePortfolioView() {
         
         if (financialDomain && financialDomain.attributeCount > 0) {
           // Priority 1: CacheProvider (shared with dashboard)
-          let parsed: PortfolioData | null = getPortfolioData(user.uid);
+          let parsed: PortfolioData | null = getPortfolioData(userId);
           
           // Priority 2: Decrypt the financial PKM domain (fallback)
           if (!parsed) {
             console.log("[ManagePortfolio] No cache, attempting to decrypt the financial PKM domain...");
             try {
               const snapshot = await PkmDomainResourceService.getStaleFirst({
-                userId: user.uid,
+                userId,
                 domain: "financial",
                 vaultKey,
                 vaultOwnerToken: vaultOwnerToken || undefined,
@@ -246,7 +246,7 @@ export function ManagePortfolioView() {
                 parsed = normalizeStoredPortfolio(rawFinancial) as unknown as PortfolioData;
 
                 // Update cache for future use
-                setCachePortfolioData(user.uid, parsed);
+                setCachePortfolioData(userId, parsed);
                 console.log("[ManagePortfolio] Decrypted and cached portfolio data");
               }
             } catch (decryptError) {
@@ -305,7 +305,7 @@ export function ManagePortfolioView() {
 
     loadPortfolio();
   }, [
-    user?.uid,
+    userId,
     vaultKey,
     vaultOwnerToken,
     completeStep,
@@ -315,7 +315,7 @@ export function ManagePortfolioView() {
 
   // Handle save
   const handleSave = useCallback(async () => {
-    if (!user?.uid || !vaultKey) {
+    if (!userId || !vaultKey) {
       toast.error("Please unlock your vault first");
       return;
     }
@@ -353,7 +353,7 @@ export function ManagePortfolioView() {
 
       // 2. Store via prepared-blob path to avoid a second load/decrypt cycle.
       const result = await PkmWriteCoordinator.saveMergedDomain({
-        userId: user.uid,
+        userId,
         domain: "financial",
         vaultKey,
         vaultOwnerToken: vaultOwnerToken || undefined,
@@ -413,9 +413,9 @@ export function ManagePortfolioView() {
       });
 
       if (result.success) {
-        setCachePortfolioData(user.uid, updatedPortfolioData);
+        setCachePortfolioData(userId, updatedPortfolioData);
         CacheSyncService.onPortfolioUpserted(
-          user.uid,
+          userId,
           updatedPortfolioData as unknown as CachedPortfolioData
         );
 
@@ -432,7 +432,7 @@ export function ManagePortfolioView() {
       setIsSaving(false);
     }
   }, [
-    user?.uid,
+    userId,
     vaultKey,
     vaultOwnerToken,
     accountInfo,

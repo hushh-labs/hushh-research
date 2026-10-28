@@ -313,9 +313,18 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
     monkeypatch.setattr(
         invites, "validate_first_party_owner_token", AsyncMock(return_value=object())
     )
-    monkeypatch.setattr(
-        invites, "owner_identity", AsyncMock(return_value={"email": "recipient@example.test"})
-    )
+    owner_identity = AsyncMock(return_value={"email": "recipient@example.test"})
+    monkeypatch.setattr(invites, "owner_identity", owner_identity)
+
+    async def record_outside_owner_lock(user_id):
+        # With generation admission on, the external identity read takes the owner's
+        # graph lock shared on its own connection. This pool's only connection is free
+        # only outside the locked transaction, so a read under that lock times out here.
+        async with pool.acquire(timeout=1) as probe:
+            await probe.fetchval("SELECT 1")
+        return SimpleNamespace(uid=user_id)
+
+    monkeypatch.setattr(invites, "fresh_owner_record", record_outside_owner_lock)
     from hushh_mcp.services import one_owner_admission
 
     monkeypatch.setattr(one_owner_admission, "get_pool", AsyncMock(return_value=pool))
@@ -401,6 +410,10 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
             await invites.preview(third["token"])
         with pytest.raises(ValueError):
             await invites.claim("recipient", "fixture", third["token"])
+        # Each recheck under the owner graph lock reuses the record read before that lock
+        # instead of reading the external identity again.
+        locked = [call for call in owner_identity.await_args_list if "conn" in call.kwargs]
+        assert locked and all(call.kwargs.get("record") for call in locked)
         await _assert_claim_expiry_after_lock_wait(pool, settings)
         await pool.execute("UPDATE vault_keys SET setup_completed=false WHERE user_id='inviter'")
         with pytest.raises(PermissionError):

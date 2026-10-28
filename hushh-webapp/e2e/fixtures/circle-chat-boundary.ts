@@ -1,5 +1,5 @@
 import { createContext } from "react";
-export const useAuth = () => ({ user: { uid: "alice" } });
+export const useAuth = () => ({ user: { uid: "alice" }, userId: "alice" });
 export const VaultContext = createContext({ vaultOwnerToken: "fixture", vaultKey: "fixture" });
 export const OneLocationService = { listCircles: async () => [{ id: "circle", name: "Weekend friends", kind: "friends", role: "owner", memberCount: 2, memberLimit: null }] };
 // Layout/failure fixture adapter only. The spec renders the production chat,

@@ -3675,6 +3675,7 @@ function ProfilePageContent({
           >
             {presentation === "native-page" ? <div ref={setNativeNameHost} /> : <DisplayNameEditor
               user={user}
+              ownerId={applicationOwnerId}
               onSaved={() => setEditingDisplayName(false)}
               onCancel={() => setEditingDisplayName(false)}
             />}
@@ -5230,7 +5231,7 @@ function ProfilePageContent({
           else if (showResetConfirm) await handleResetAccount();
         }],
       ]), editor: destinationId => editingDisplayName && activePanel === "account" && !activeDetail ?
-        <NativeDisplayNameEditor user={user} destinationId={destinationId} portalFallback webHost={nativeNameHost}
+        <NativeDisplayNameEditor user={user} ownerId={applicationOwnerId} destinationId={destinationId} portalFallback webHost={nativeNameHost}
           onWebFallback={() => setNativeAccountException("name")}
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: applicationOwnerId, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,

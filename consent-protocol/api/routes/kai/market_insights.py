@@ -21,6 +21,13 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from api.middleware import require_firebase_auth, verify_user_id_match
+from hushh_mcp.market_data.movers import (
+    MIN_MOVERS,
+    assemble_movers,
+    complete_movers,
+    select_movers,
+    stale_movers,
+)
 from hushh_mcp.operons.kai.fetchers import (
     fetch_market_company_facts,
     fetch_market_data,
@@ -421,11 +428,11 @@ def _market_home_cache_key(
     exchange_suffix = "" if exchange_code == DEFAULT_EXCHANGE else f":x={exchange_code}"
     if not personalized:
         return (
-            f"home:v5:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
+            f"home:v6:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
             f"{exchange_suffix}"
         )
     return (
-        f"home:v5:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:"
+        f"home:v6:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:"
         f"{roster_signature}{exchange_suffix}"
     )
 
@@ -1120,7 +1127,7 @@ async def _get_or_refresh_public_module(
         safe_float=_safe_float,
         refresh_prefixes=MARKET_PRICE_REFRESH_PREFIXES,
         sensitive_prefixes=MARKET_PRICE_SENSITIVE_PREFIXES,
-        last_close_prefixes=shared_last_close.LAST_CLOSE_PREFIXES,
+        last_close_prefixes=(*shared_last_close.LAST_CLOSE_PREFIXES, "movers:"),
     ).read(
         key=key,
         fresh_ttl_seconds=fresh_ttl_seconds,
@@ -1620,6 +1627,8 @@ async def _fetch_pmp_json(paths: list[str], params: dict[str, Any]) -> list[dict
 
 
 def _normalize_mover_row(row: dict[str, Any], source: str) -> dict[str, Any] | None:
+    if row.get("isEtf") is True or row.get("isFund") is True:
+        return None
     symbol = str(row.get("symbol") or row.get("ticker") or "").strip().upper()
     if not symbol:
         return None
@@ -1703,8 +1712,6 @@ async def _legacy_fetch_symbol_series_batch(symbols: list[str]) -> dict[str, lis
 
 
 async def _legacy_fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
-    status_map: dict[str, str] = {}
-
     gainers_task = _fetch_pmp_json(
         ["/stable/biggest-gainers", "/stable/market-gainers", "/stable/market/gainers"], {}
     )
@@ -1718,22 +1725,28 @@ async def _legacy_fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str
         gainers_task, losers_task, active_task
     )
 
-    gainers = [row for row in (_normalize_mover_row(r, "PMP/FMP") for r in gainers_rows) if row]
-    losers = [row for row in (_normalize_mover_row(r, "PMP/FMP") for r in losers_rows) if row]
-    active = [row for row in (_normalize_mover_row(r, "PMP/FMP") for r in active_rows) if row]
+    primary = {
+        bucket: select_movers(
+            [normalized for row in rows if (normalized := _normalize_mover_row(row, "PMP/FMP"))],
+            bucket,
+        )
+        for bucket, rows in (
+            ("gainers", gainers_rows),
+            ("losers", losers_rows),
+            ("active", active_rows),
+        )
+    }
+    missing = [
+        bucket
+        for bucket, rows in primary.items()
+        if len(rows) < (1 if bucket == "active" else MIN_MOVERS)
+    ]
+    fallback = {}
+    if missing:
+        from hushh_mcp.services.market_movers import fetch_mover_recovery
 
-    status_map["movers:gainers"] = "ok" if gainers else "partial"
-    status_map["movers:losers"] = "ok" if losers else "partial"
-    status_map["movers:active"] = "ok" if active else "partial"
-
-    return {
-        "gainers": gainers[:8],
-        "losers": losers[:8],
-        "active": active[:8],
-        "as_of": _now_iso(),
-        "source_tags": ["PMP/FMP"] if (gainers or losers or active) else ["Fallback"],
-        "degraded": not (gainers and losers and active),
-    }, status_map
+        fallback = await fetch_mover_recovery(missing)
+    return assemble_movers(primary, fallback, _now_iso())
 
 
 async def _legacy_fetch_sector_rotation_from_fmp() -> tuple[list[dict[str, Any]], str]:
@@ -1883,62 +1896,6 @@ async def _fetch_sector_rotation_snapshot(
             row["basis"] = "Sector ETF daily return"
         return rows, status
     return await _fetch_sector_rotation_from_fmp()
-
-
-def _fallback_movers_from_watchlist(watchlist: list[dict[str, Any]]) -> dict[str, Any]:
-    rows = [row for row in watchlist if row.get("symbol")]
-
-    by_change = [row for row in rows if isinstance(row.get("change_pct"), (int, float))]
-    by_volume = [row for row in rows if isinstance(row.get("volume"), int)]
-
-    gainers = sorted(by_change, key=lambda item: float(item.get("change_pct") or 0), reverse=True)
-    losers = sorted(by_change, key=lambda item: float(item.get("change_pct") or 0))
-    active = sorted(by_volume, key=lambda item: int(item.get("volume") or 0), reverse=True)
-
-    return {
-        "gainers": [
-            {
-                "symbol": item.get("symbol"),
-                "company_name": item.get("company_name") or item.get("symbol"),
-                "price": item.get("price"),
-                "change_pct": item.get("change_pct"),
-                "volume": item.get("volume"),
-                "source_tags": ["Watchlist Fallback"],
-                "degraded": True,
-                "as_of": item.get("as_of"),
-            }
-            for item in gainers[:6]
-        ],
-        "losers": [
-            {
-                "symbol": item.get("symbol"),
-                "company_name": item.get("company_name") or item.get("symbol"),
-                "price": item.get("price"),
-                "change_pct": item.get("change_pct"),
-                "volume": item.get("volume"),
-                "source_tags": ["Watchlist Fallback"],
-                "degraded": True,
-                "as_of": item.get("as_of"),
-            }
-            for item in losers[:6]
-        ],
-        "active": [
-            {
-                "symbol": item.get("symbol"),
-                "company_name": item.get("company_name") or item.get("symbol"),
-                "price": item.get("price"),
-                "change_pct": item.get("change_pct"),
-                "volume": item.get("volume"),
-                "source_tags": ["Watchlist Fallback"],
-                "degraded": True,
-                "as_of": item.get("as_of"),
-            }
-            for item in active[:6]
-        ],
-        "as_of": _now_iso(),
-        "source_tags": ["Watchlist Fallback"],
-        "degraded": True,
-    }
 
 
 def _fallback_sector_rotation_from_watchlist(
@@ -2745,13 +2702,12 @@ async def _get_market_insights_payload(
         movers_status = (
             movers_pair[1] if len(movers_pair) > 1 and isinstance(movers_pair[1], dict) else {}
         )
-        if not movers_payload.get("gainers") and not movers_payload.get("losers"):
-            movers_payload = _fallback_movers_from_watchlist(watchlist_rows)
-            movers_status = {
-                "movers:gainers": "partial",
-                "movers:losers": "partial",
-                "movers:active": "partial",
-            }
+        movers_payload = {
+            **movers_payload,
+            "degraded": bool(movers_payload.get("degraded")) or not complete_movers(movers_payload),
+        }
+        if movers_stale:
+            movers_payload = stale_movers(movers_payload)
         provider_status.update({str(k): str(v) for k, v in movers_status.items()})
 
         stale = stale or movers_stale

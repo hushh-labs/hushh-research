@@ -230,3 +230,59 @@ def retire_obsolete_failures(ledger, before: int, reviewed_head: str, controller
                                "reason": "obsolete_preupload_failure" if lane in native else "healthy_production_successor"}
         child["state"] = "superseded"
     ledger.save()
+
+
+def isolated_uat_non_release(run: dict, jobs: dict, actors: list[str]) -> bool:
+    rows = jobs.get("jobs") if isinstance(jobs, dict) else None
+    if not (
+        run.get("event") == "workflow_dispatch"
+        and run.get("status") == "completed"
+        and run.get("conclusion") == "success"
+        and (run.get("actor") or {}).get("login") in actors
+        and (run.get("triggering_actor") or {}).get("login") in actors
+        and isinstance(rows, list)
+        and type(jobs.get("total_count")) is int
+        and jobs["total_count"] == len(rows) == 4
+        and all(isinstance(row, dict) for row in rows)
+    ):
+        return False
+    expected = {
+        "Select UAT target": "skipped",
+        "Wait for UAT capacity outside the mutation lock": "skipped",
+        "Deploy UAT Scope": "skipped",
+        "PLG Isolated Uat Acceptance Gate": "success",
+    }
+    for name, verdict in expected.items():
+        matches = [row for row in rows if row.get("name") == name]
+        if (
+            len(matches) != 1
+            or matches[0].get("status") != "completed"
+            or matches[0].get("conclusion") != verdict
+            or matches[0].get("run_id") != run.get("id")
+            or matches[0].get("head_sha") != run.get("head_sha")
+        ):
+            return False
+    return True
+
+
+def no_shared_uat_release(run: dict, jobs: dict, actors: list[str]) -> bool:
+    if isolated_uat_non_release(run, jobs, actors):
+        return True
+    rows = jobs.get("jobs") if isinstance(jobs, dict) else None
+    if not (
+        isinstance(rows, list)
+        and type(jobs.get("total_count")) is int
+        and jobs["total_count"] == len(rows)
+        and all(
+            isinstance(row, dict) and isinstance(row.get("name"), str) for row in rows
+        )
+    ):
+        return False
+    names = {row["name"]: row for row in rows}
+    if len(names) != len(rows):
+        return False
+    return names.get("Deploy UAT Scope", {}).get("conclusion") == "skipped" and any(
+        step.get("name") == "Summarize unchanged UAT target"
+        and step.get("conclusion") == "success"
+        for step in names.get("Select UAT target", {}).get("steps", [])
+    )

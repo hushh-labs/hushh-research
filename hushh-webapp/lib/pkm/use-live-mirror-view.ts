@@ -21,10 +21,10 @@ export type LiveMirrorViewState =
  * after timers were throttled.
  */
 export function useLiveMirrorView(active = true): LiveMirrorViewState {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
   const [, setTick] = useState(0);
-  const uid = user?.uid;
+  const uid = userId;
   useEffect(() => {
     if (!active || !uid || !isVaultUnlocked) return;
     const rerender = () => setTick((tick) => tick + 1);

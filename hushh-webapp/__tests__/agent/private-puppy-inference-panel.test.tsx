@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   refreshPuppyLink: vi.fn(),
 }));
 
-vi.mock("@/lib/firebase", () => ({ useAuth: () => ({ user: { uid: "owner-1" } }) }));
+vi.mock("@/lib/firebase", () => ({ useAuth: () => ({ user: { uid: "owner-1" }, userId: "owner-1" }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultOwnerToken: mocks.ownerToken }),
 }));

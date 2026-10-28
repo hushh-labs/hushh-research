@@ -75,15 +75,15 @@ function coverageLabel(label: string | null): string {
 }
 
 export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [state, setState] = useState<AnswerRequestState | null>(null);
-  const ownerRef = useRef(user?.uid);
-  ownerRef.current = user?.uid;
+  const ownerRef = useRef(userId);
+  ownerRef.current = userId;
   const requestRef = useRef(requestId);
   requestRef.current = requestId;
   const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
-  const identity = `${user?.uid ?? ""}:${requestId}`;
+  const identity = `${userId ?? ""}:${requestId}`;
   const loadSequence = useRef(0);
   const [pending, setPending] = useState<PendingAnswerRequest | null>(null);
   const [payment, setPayment] = useState<AnswerPaymentView | null>(null);
@@ -114,7 +114,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   const load = useCallback(async () => {
     const projectionStarted = performance.now();
     const sequence = ++loadSequence.current;
-    const owner = user?.uid;
+    const owner = userId;
     const epoch = snapshotVaultSessionEpoch();
     const valid = () =>
       sequence === loadSequence.current &&
@@ -160,7 +160,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     } finally {
       if (valid()) setLoading(false);
     }
-  }, [requestId, user?.uid]);
+  }, [requestId, userId]);
 
   useEffect(() => {
     setLoading(true);
@@ -203,7 +203,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     action: (token: string, epoch: number) => Promise<unknown>,
   ) => {
     const epoch = snapshotVaultSessionEpoch();
-    const owner = user?.uid;
+    const owner = userId;
     const valid = () =>
       ownerRef.current === owner && requestRef.current === requestId && isVaultSessionEpochCurrent(epoch);
     setBusy(true);
@@ -215,9 +215,9 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         throw new Error("Session changed. Open this request again.");
       await action(token, epoch);
       if (!valid()) return;
-      if (user?.uid) CacheSyncService.onConsentMutated(user.uid);
+      if (userId) CacheSyncService.onConsentMutated(userId);
       dispatchConsentStateChanged({
-        userId: user?.uid,
+        userId,
         requestId: `answer_request:${requestId}`,
       });
       await load();
@@ -228,7 +228,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     } finally {
       if (valid()) setBusy(false);
     }
-  }, [load, requestId, user?.uid]);
+  }, [load, requestId, userId]);
 
   // Most "Preparation could not finish" failures are a single transient
   // revision conflict (another write landed mid-read) that a fresh reread
@@ -237,11 +237,11 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   // several times before it happens to land between writes.
   const PREPARE_ATTEMPTS = 3;
   const prepare = () => run(async (token, epoch) => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) throw new Error("Unlock your memory to prepare this answer.");
+    if (!user || !userId || !vaultKey || !vaultOwnerToken) throw new Error("Unlock your memory to prepare this answer.");
     setPrepareOutcome(null);
     let result: AnswerSweepResult | null = null;
     for (let attempt = 1; attempt <= PREPARE_ATTEMPTS; attempt += 1) {
-      result = await runAnswerDeliverySweep({ userId: user.uid, vaultKey, vaultOwnerToken,
+      result = await runAnswerDeliverySweep({ userId, vaultKey, vaultOwnerToken,
         firebaseIdToken: token, requestId, ownerIdentity: { displayName: user.displayName, photoUrl: user.photoURL } }, epoch);
       if (result.delivered || result.empty) break;
       if (attempt < PREPARE_ATTEMPTS) await new Promise(resolve => window.setTimeout(resolve, 500 * attempt));
@@ -259,17 +259,17 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         throw new Error("Answer coverage could not be verified. Refresh this question before paying.");
       const url = await AnswerRequestService.checkout(token, requestId);
       // Validated as a Stripe-hosted host by the service before we get here.
-      if (ownerRef.current === user?.uid && requestRef.current === requestId &&
+      if (ownerRef.current === userId && requestRef.current === requestId &&
           isVaultSessionEpochCurrent(epoch)) window.location.assign(url);
     });
 
   useEffect(() => {
     setAnswer(null);
-  }, [user?.uid, isVaultUnlocked, vaultOwnerToken, requestId]);
+  }, [userId, isVaultUnlocked, vaultOwnerToken, requestId]);
 
   const openAnswer = useCallback(() =>
     run(async (token, epoch) => {
-      const owner = user?.uid;
+      const owner = userId;
       if (!owner || !isVaultUnlocked)
         throw new Error("Unlock to read your answer.");
       const envelope = await AnswerRequestService.answer(token, requestId);
@@ -293,11 +293,11 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
       const photoUrl = photoApproved ? answerProfilePhotoUrl(identity?.photoUrl) : null;
       if (photoUrl) photo = { url: photoUrl, name: scopes.some(scope => typeof scope === "string" && isOwnProfileNameScope(scope)) && typeof identity?.displayName === "string" ? identity.displayName : "Profile" };
       setAnswer({ userId: owner, epoch, value: value.answer, photo });
-    }), [isVaultUnlocked, requestId, run, user?.uid]);
+    }), [isVaultUnlocked, requestId, run, userId]);
 
   useEffect(() => {
     if (!pendingOpen) return;
-    if (pendingOpen.userId !== user?.uid || pendingOpen.requestId !== requestId) {
+    if (pendingOpen.userId !== userId || pendingOpen.requestId !== requestId) {
       setPendingOpen(null);
       setUnlockOpen(false);
     } else if (isVaultUnlocked) {
@@ -305,7 +305,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
       setUnlockOpen(false);
       void openAnswer();
     }
-  }, [pendingOpen, user?.uid, requestId, isVaultUnlocked, vaultOwnerToken, openAnswer]);
+  }, [pendingOpen, userId, requestId, isVaultUnlocked, vaultOwnerToken, openAnswer]);
 
   if (loading || loadedIdentity !== identity) {
     return (
@@ -324,7 +324,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         request={pending}
         requesterLabel="The requester"
         onResolved={() => {
-          dispatchConsentStateChanged({ userId: user?.uid, requestId: `answer_request:${requestId}` });
+          dispatchConsentStateChanged({ userId, requestId: `answer_request:${requestId}` });
           void load();
         }}
         onApproved={() => void prepare()}
@@ -443,7 +443,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         {payment.requestStatus === "answered" ? (
           answer &&
           isVaultUnlocked &&
-          answer.userId === user?.uid &&
+          answer.userId === userId &&
           isVaultSessionEpochCurrent(answer.epoch) ? (
             <div className="space-y-3">
               {answer.photo ? <figure aria-label="Approved profile photo" className="flex items-center gap-3">
@@ -462,8 +462,8 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
               disabled={busy}
               onClick={() => {
                 if (isVaultUnlocked) void openAnswer();
-                else if (user) {
-                  setPendingOpen({ userId: user.uid, requestId });
+                else if (userId) {
+                  setPendingOpen({ userId, requestId });
                   setUnlockOpen(true);
                 }
               }}

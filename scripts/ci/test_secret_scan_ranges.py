@@ -134,12 +134,16 @@ def verify_alert_reader_is_required() -> None:
         commands = root / "fixture-bin"
         commands.mkdir()
         stub = commands / "gitleaks"
-        stub.write_text("#!/bin/sh\nexit 0\n")
+        stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
         stub.chmod(0o700)
         reader = ci / "github-security-alerts.sh"
         for state in ("present", "missing", "not_executable"):
             if state != "missing":
-                reader.write_text("#!/bin/sh\nexit 0\n")
+                # Git Bash infers executable scripts from a shebang even when
+                # Windows ignores chmod's POSIX execute bits. Use a plain file
+                # for this case so both filesystems exercise a real refusal.
+                content = ("#!/bin/sh\n" if state == "present" else "") + "exit 0\n"
+                reader.write_text(content, encoding="utf-8", newline="\n")
                 reader.chmod(0o700 if state == "present" else 0o600)
             elif reader.exists():
                 reader.unlink()

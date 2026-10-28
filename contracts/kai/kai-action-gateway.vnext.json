@@ -33179,7 +33179,8 @@
       "aliases": [
         "show my sources",
         "show connected sources",
-        "open sources"
+        "open sources",
+        "manage portfolio"
       ],
       "search_keywords": [
         "sources",
@@ -33217,7 +33218,9 @@
         "path": "route",
         "target": "/one/kai/portfolio/sources"
       },
-      "control_ids": [],
+      "control_ids": [
+        "manage_portfolio"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",

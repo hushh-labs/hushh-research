@@ -26,7 +26,7 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({ CacheSyncService: { onConsentMutated: state.invalidate } }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: state.uid } }),
+  useAuth: () => ({ user: { uid: state.uid }, userId: state.uid }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({

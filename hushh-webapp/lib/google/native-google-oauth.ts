@@ -8,6 +8,7 @@ import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { ApiService } from "@/lib/services/api-service";
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import { ROUTES } from "@/lib/navigation/routes";
+import { snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 const CALLBACK_PATH = ROUTES.PROFILE_GOOGLE_OAUTH_RETURN;
 type Return = { code: string | null; state: string; denied: boolean };
@@ -98,11 +99,14 @@ async function drainReturn() {
   current.processing = true;
   try {
     const idToken = await user.getIdToken();
-    if (attempt !== current || auth.loading || auth.user?.uid !== current.ownerUid) {
+    // The attempt binds the Firebase identity; the API user_id is that identity's validated owner.
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    if (attempt !== current || auth.loading || auth.user?.uid !== current.ownerUid ||
+        !principal || principal.firebaseUid !== user.uid) {
       if (attempt === current) settle("Your session changed. Start the Calendar connection again.");
       return;
     }
-    await GoogleCalendarService.completeConnect({ idToken, userId: user.uid, code: returned.code, state: returned.state });
+    await GoogleCalendarService.completeConnect({ idToken, userId: principal.ownerId, code: returned.code, state: returned.state });
     if (attempt === current) settle(auth.user?.uid === current.ownerUid ? undefined : "Your session changed. Reopen Calendar.");
   } catch {
     if (attempt === current) settle("Google Calendar connection could not be completed. Please try again.");

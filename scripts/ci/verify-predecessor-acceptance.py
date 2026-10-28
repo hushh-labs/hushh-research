@@ -12,14 +12,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.util
-from io import BytesIO
 import json
 import os
-from pathlib import Path
 import re
-import selectors
 import subprocess
 import time
+from io import BytesIO
+from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
 REPOSITORY = "hushh-labs/hushh-research"
@@ -34,12 +33,20 @@ _PROVENANCE_SPEC = importlib.util.spec_from_file_location(
     "release_acceptance_provenance",
     Path(__file__).with_name("release_acceptance_provenance.py"),
 )
-assert _PROVENANCE_SPEC and _PROVENANCE_SPEC.loader
+if not _PROVENANCE_SPEC or not _PROVENANCE_SPEC.loader:
+    raise RuntimeError("Acceptance provenance reader is unavailable")
 _provenance = importlib.util.module_from_spec(_PROVENANCE_SPEC)
 _PROVENANCE_SPEC.loader.exec_module(_provenance)
 Refused = _provenance.Refused
 require = _provenance.require
 _required_checks = _provenance.required_checks
+
+_PROCESS_SPEC = importlib.util.spec_from_file_location(
+    "release_acceptance_process_group", Path(__file__).with_name("process_group.py")
+)
+require(_PROCESS_SPEC and _PROCESS_SPEC.loader, "Acceptance transport is unavailable")
+_process_group = importlib.util.module_from_spec(_PROCESS_SPEC)
+_PROCESS_SPEC.loader.exec_module(_process_group)
 
 
 class MissingAcceptance(Refused):
@@ -47,9 +54,7 @@ class MissingAcceptance(Refused):
 
 
 def selected(scope: str) -> set[str]:
-    require(
-        scope in {"all", "backend", "frontend"}, "Resolved deployment scope is required"
-    )
+    require(scope in {"all", "backend", "frontend"}, "Resolved deployment scope is required")
     return set(SERVICES) if scope == "all" else {scope}
 
 
@@ -92,10 +97,7 @@ def validate(receipt: dict, *, environment: str, sha: str, service: str) -> str 
         and (semantic["success"] or semantic.get("report_present") is True)
         and semantic.get("blocking_failures") == []
         and verification.get("semantic_success") == str(semantic["success"]).lower()
-        and all(
-            verification.get(key) == "true"
-            for key in ("parity_success", "provenance_success")
-        )
+        and all(verification.get(key) == "true" for key in ("parity_success", "provenance_success"))
         and verification.get(f"{service}_provenance") == "success",
         "Required release verification did not pass",
     )
@@ -175,10 +177,7 @@ class GitHub:
             pin.get(key) for key in ("run_id", "run_attempt", "artifact_id")
         )
         require(
-            all(
-                type(value) is int and value > 0
-                for value in (run_id, attempt, artifact_id)
-            ),
+            all(type(value) is int and value > 0 for value in (run_id, attempt, artifact_id)),
             "Invalid acceptance pin",
         )
         run = self.read(f"runs/{run_id}/attempts/{attempt}")
@@ -196,9 +195,7 @@ class GitHub:
         )
         artifact = self.read(f"artifacts/{artifact_id}")
         _provenance.validate_artifact(artifact, pin, environment, MAX_BYTES)
-        receipt = unpack(
-            self.read(f"artifacts/{artifact_id}/zip", binary=True), artifact["digest"]
-        )
+        receipt = unpack(self.read(f"artifacts/{artifact_id}/zip", binary=True), artifact["digest"])
         require(
             receipt.get("run_id") == run_id and receipt.get("run_attempt") == attempt,
             "Receipt belongs to another attempt",
@@ -227,9 +224,7 @@ class GitHub:
                 "UAT has no exact-SHA dev acceptance",
             )
             previous = predecessor.get("services", {}).get(service)
-            require(
-                isinstance(previous, dict), "UAT has no dev receipt for this service"
-            )
+            require(isinstance(previous, dict), "UAT has no dev receipt for this service")
             self.accept(previous, "dev", sha, service)
         return {
             "run_id": run_id,
@@ -238,11 +233,7 @@ class GitHub:
             "artifact_digest": artifact["digest"],
             "workflow": run["path"],
             "repository": REPOSITORY,
-            **(
-                {"image_reference": image_reference}
-                if image_reference is not None
-                else {}
-            ),
+            **({"image_reference": image_reference} if image_reference is not None else {}),
         }
 
     def accepted_application(self, pin: dict, environment: str) -> dict:
@@ -275,9 +266,7 @@ class GitHub:
                 for pin in self.attempt_pins(environment, run.get("id")):
                     for service in sorted(needed - accepted.keys()):
                         try:
-                            accepted[service] = self.accept(
-                                pin, environment, sha, service
-                            )
+                            accepted[service] = self.accept(pin, environment, sha, service)
                         except Refused:
                             # Qualification belongs to this immutable attempt,
                             # not to the latest rerun's status or service scope.
@@ -337,40 +326,16 @@ def bounded_github_read(
 
 def _bounded_process_read(arguments: list[str], timeout: float) -> bytes:
     """Bound bytes and lifetime and always reap this owned CLI child."""
-    with subprocess.Popen(
-        arguments,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    ) as process:
-        try:
-            end, output = time.monotonic() + timeout, bytearray()
-            with selectors.DefaultSelector() as ready:
-                ready.register(process.stdout, selectors.EVENT_READ)
-                while True:
-                    remaining = end - time.monotonic()
-                    require(remaining > 0, "GitHub response timed out")
-                    require(bool(ready.select(remaining)), "GitHub response timed out")
-                    chunk = os.read(process.stdout.fileno(), 65536)
-                    if not chunk:
-                        break
-                    output.extend(chunk)
-                    require(
-                        len(output) <= 2 * MAX_BYTES,
-                        "GitHub response exceeds its bound",
-                    )
-            require(
-                process.wait(timeout=max(0.1, end - time.monotonic())) == 0,
-                "GitHub lookup failed",
-            )
-            return bytes(output)
-        finally:
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=2)
+    try:
+        return _process_group.bounded_stdout(arguments, max_bytes=2 * MAX_BYTES, timeout=timeout)
+    except _process_group.BoundedReadError as error:
+        message = {
+            "size": "GitHub response exceeds its bound",
+            "timeout": "GitHub response timed out",
+        }.get(error.reason, "GitHub lookup failed")
+        raise Refused(message) from None
+    except OSError:
+        raise Refused("GitHub lookup failed") from None
 
 
 def create(args) -> None:
@@ -398,15 +363,11 @@ def create(args) -> None:
         )
         receipt["required_checks"] = _required_checks(release, args.environment)
         receipt["classification"] = json.loads(
-            (
-                args.status.parent / f"{args.environment}-release-classification.json"
-            ).read_text()
+            (args.status.parent / f"{args.environment}-release-classification.json").read_text()
         )
         for service in receipt["resolved_services"]:
             receipt["provenance"][service] = json.loads(
-                (
-                    args.status.parent / f"{args.environment}-{service}-provenance.json"
-                ).read_text()
+                (args.status.parent / f"{args.environment}-{service}-provenance.json").read_text()
             )
             validate(
                 receipt,
@@ -422,8 +383,7 @@ def create(args) -> None:
                 prior.get("status") == "accepted"
                 and prior.get("environment") == "dev"
                 and prior.get("sha") == release["sha"]
-                and set(receipt["resolved_services"])
-                <= prior.get("services", {}).keys(),
+                and set(receipt["resolved_services"]) <= prior.get("services", {}).keys(),
                 "Dev acceptance is missing",
             )
     except (Refused, OSError, ValueError):
@@ -467,8 +427,7 @@ def main() -> int:
             create(args)
         else:
             require(
-                args.sha is not None
-                and re.fullmatch(r"[a-f0-9]{40}", args.sha) is not None,
+                args.sha is not None and re.fullmatch(r"[a-f0-9]{40}", args.sha) is not None,
                 "Full SHA is required",
             )
             receipt = (

@@ -161,7 +161,7 @@ function CodeCells({
 export default function RiaClaimPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, phoneNumber: accountPhone, loading: authLoading } = useAuth();
+  const { user, userId, phoneNumber: accountPhone, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const { refresh: refreshPersonaState } = usePersonaState();
   // Arrives pre-filled when the sign-up phone screen recognised this number.
@@ -284,18 +284,18 @@ export default function RiaClaimPage() {
       // Clear the stale pre-claim persona/onboarding-status caches, then force a
       // fresh read — otherwise "Open your profile" can bounce the just-claimed
       // adviser back into the onboarding wizard off a 30-min-TTL cache hit.
-      if (user) {
-        CacheSyncService.onPersonaStateChanged(user.uid);
+      if (userId) {
+        CacheSyncService.onPersonaStateChanged(userId);
         // Claiming completes RIA setup just as the wizard does, so the Setup
         // hub must stop listing it as remaining. syncSetupCapabilities REPLACES
         // the stored set, so pass the union.
         try {
-          const current = await PreVaultUserStateService.bootstrapState(user.uid, {
+          const current = await PreVaultUserStateService.bootstrapState(userId, {
             force: true,
           });
           if (!current.setupCapabilityIds.includes("ria")) {
             await PreVaultUserStateService.syncSetupCapabilities(
-              user.uid,
+              userId,
               Array.from(new Set([...current.setupCapabilityIds, "ria"])).sort(),
             );
           }
@@ -310,7 +310,7 @@ export default function RiaClaimPage() {
       }
       await refreshPersonaState({ force: true });
     },
-    [firmCrd, phoneDigits, getIdToken, refreshPersonaState, user],
+    [firmCrd, phoneDigits, getIdToken, refreshPersonaState, userId],
   );
 
   // The regulator facts shown on the done screen also belong to the person's
@@ -321,17 +321,17 @@ export default function RiaClaimPage() {
   const factsPersistedRef = useRef(false);
   const persistFactsToPkm = useCallback(() => {
     const facts = completeResult?.facts;
-    if (factsPersistedRef.current || !facts || !user) return;
+    if (factsPersistedRef.current || !facts || !userId) return;
     factsPersistedRef.current = true;
     void RiaService.saveRegulatorProfile({
-      userId: user.uid,
+      userId,
       vaultKey,
       vaultOwnerToken,
       facts,
     }).catch(() => {
       // Best-effort by design; the claim itself is already recorded.
     });
-  }, [completeResult, user, vaultKey, vaultOwnerToken]);
+  }, [completeResult, userId, vaultKey, vaultOwnerToken]);
 
   /** Route a verify result onward: complete it, or ask which adviser. */
   const settleVerifyResult = useCallback(

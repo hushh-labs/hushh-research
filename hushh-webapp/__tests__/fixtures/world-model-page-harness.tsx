@@ -28,6 +28,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: mock.auth.user,
+    userId: (mock.auth.user?.uid as string | undefined) ?? null,
     phoneNumber: mock.auth.phoneNumber,
     loading: false,
     sessionVerificationRequired: false,

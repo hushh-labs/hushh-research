@@ -123,7 +123,7 @@ function recordFromShortlistEntry(entry: NearbyShortlistEntry): NearbyRecord {
 }
 
 export function NearbyAroundYou() {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const userRef = useRef(user);
   userRef.current = user;
   const location = useCurrentLocation();
@@ -231,7 +231,7 @@ export function NearbyAroundYou() {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid]);
+  }, [userId]);
 
   const all = useMemo(() => result?.results ?? [], [result?.results]);
   const laneCounts = useMemo(() => computeLaneCounts(all), [all]);

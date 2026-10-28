@@ -132,7 +132,7 @@ function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay
  * with an armed confirmation. Renders nothing when no payment applies.
  */
 export function RequesterPaymentSection({ requestId, revision, payment, packageDisclosure, ownerName = null, onChanged }: RequesterPaymentSectionProps) {
-  const { user, capture } = useCommerceSession(`document-request:${requestId}:${revision}:${
+  const { user, userId, capture } = useCommerceSession(`document-request:${requestId}:${revision}:${
     payment && "packageDisclosure" in payment ? payment.packageDisclosure?.packageDigest : packageDisclosure?.packageDigest
   }:${payment && "packageDisclosure" in payment ? payment.packageDisclosure?.packageRevision : packageDisclosure?.packageRevision}`);
   const { getVaultOwnerToken } = useVault();
@@ -150,7 +150,7 @@ export function RequesterPaymentSection({ requestId, revision, payment, packageD
     setError(null);
     setReply(null);
     setWithdrawn(false);
-  }, [user?.uid, requestId, revision, packageDisclosure?.packageDigest, packageDisclosure?.packageRevision,
+  }, [userId, requestId, revision, packageDisclosure?.packageDigest, packageDisclosure?.packageRevision,
     payment?.packageDisclosure?.packageDigest, payment?.packageDisclosure?.packageRevision]);
 
   const view = reply && !(payment && MONEY_STATES.has(payment.state)) ? reply : payment;

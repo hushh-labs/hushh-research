@@ -2,17 +2,43 @@
 
 from __future__ import annotations
 
-import asyncio
+import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
-from hushh_mcp.services.calendar_schedule_service import day_window, get_calendar_schedule_service
+from hushh_mcp.services.calendar_invitations import occurrence_key
+from hushh_mcp.services.calendar_schedule_service import (
+    day_window,
+    get_calendar_schedule_service,
+    local_day_window,
+)
+from hushh_mcp.services.google_connection_service import GoogleConnectionError
+
+
+def _occurrence_id(event):
+    return hashlib.sha256(json.dumps(occurrence_key(event), sort_keys=True).encode()).hexdigest()
+
+
+def _grant_id(binding):
+    return hashlib.sha256(json.dumps(binding).encode()).hexdigest()
 
 
 class CalendarInsightsService:
-    def __init__(self, schedule=None):
+    def __init__(self, schedule=None, *, account_id="default"):
         self.schedule = schedule or get_calendar_schedule_service()
         self.calendar = self.schedule.calendar
+        self.account_id = account_id
+
+    async def grant(self, user_id):
+        identity = await self.calendar.connections.read_calendar_grant_identity(user_id=user_id)
+        if not identity or identity.account_id != self.account_id:
+            raise GoogleConnectionError("Reconnect the selected Calendar account.", status_code=403)
+        return identity
+
+    def _occurrence_id_for_event(self, event, calendar_id, *, summarized=False):
+        summary = event if summarized else self.calendar._event_summary(event)
+        return _occurrence_id({**summary, "calendar_id": calendar_id})
 
     async def events(self, *, user_id, start, end):
         binding = await self.schedule._read_binding(user_id)
@@ -27,24 +53,38 @@ class CalendarInsightsService:
             }:
                 complete = False
                 continue
-            page = await self.calendar.list_events(
-                user_id=user_id,
-                start_at=start.isoformat(),
-                end_at=end.isoformat(),
-                calendar_id=source["id"],
-                max_results=250,
-                expected_binding=binding,
-            )
-            complete = complete and not page.get("truncated", False)
-            events.extend(
-                {
-                    **event,
-                    "availability_default_included": source.get(
-                        "availability_default_included", True
-                    ),
-                }
-                for event in page["events"]
-            )
+            token, seen = None, set()
+            for _ in range(20):
+                page = await self.calendar.list_events(
+                    user_id=user_id,
+                    start_at=start.isoformat(),
+                    end_at=end.isoformat(),
+                    calendar_id=source["id"],
+                    max_results=250,
+                    page_token=token,
+                    expected_binding=binding,
+                )
+                events.extend(
+                    {
+                        **event,
+                        "availability_default_included": source.get(
+                            "availability_default_included", True
+                        ),
+                    }
+                    for event in page["events"]
+                )
+                token = page.get("next_page_token")
+                if not token:
+                    if page.get("truncated"):
+                        complete = False
+                    break
+                if token in seen:
+                    raise GoogleConnectionError(
+                        "Calendar pagination changed. Refresh Insights.", status_code=502
+                    )
+                seen.add(token)
+            else:
+                complete = False
         await self.calendar._check_read_binding(user_id, binding)
         # A shared invitation can appear on multiple included calendars.
         # Provider iCalUID plus occurrence identity is authoritative; titles are not.
@@ -153,93 +193,40 @@ class CalendarInsightsService:
             "time_zone": time_zone,
         }
 
-    async def library(self, *, user_id, date, time_zone, page=0):
-        binding = await self.schedule._read_binding(user_id)
-        _, end = day_window(date, time_zone)
-        end = min(end, datetime.now(UTC))
-        events, complete = await self.events(
-            user_id=user_id, start=end - timedelta(days=30), end=end
+    async def library(self, *, user_id, date, time_zone, cursor=None, query="", kind="all"):
+        from hushh_mcp.services.calendar_meeting_library import meeting_library
+
+        return await meeting_library(
+            self,
+            user_id=user_id,
+            date=date,
+            time_zone=time_zone,
+            cursor=cursor,
+            query=query,
+            kind=kind,
         )
-        candidates = [
-            e
-            for e in events
-            if e.get("id")
-            and e.get("status") != "cancelled"
-            and (e.get("conference_id") or e.get("artifact_refs"))
-            and (e.get("end") or {}).get("dateTime")
-            and datetime.fromisoformat(e["end"]["dateTime"].replace("Z", "+00:00")) <= end
-        ]
-        candidates.sort(
-            key=lambda e: datetime.fromisoformat(e["end"]["dateTime"].replace("Z", "+00:00")),
-            reverse=True,
-        )
-        from hushh_mcp.services.calendar_meeting_artifacts import CalendarMeetingArtifacts
 
-        artifacts = CalendarMeetingArtifacts(insights=self)
-        semaphore = asyncio.Semaphore(3)
-
-        async def enrich(event):
-            async with semaphore:
-                try:
-                    async with asyncio.timeout(12):
-                        detail = await artifacts.detail(
-                            user_id=user_id,
-                            calendar_id=event["calendar_id"],
-                            event_id=event["id"],
-                            content=False,
-                        )
-                    return {
-                        **event,
-                        "artifact_kinds": sorted(
-                            {
-                                a["kind"]
-                                for a in detail["artifacts"]
-                                if a["state"] == "available" and not a.get("linked_only")
-                            }
-                        ),
-                        "artifact_status": next(
-                            (
-                                state
-                                for state in (
-                                    "permission_required",
-                                    "temporarily_unavailable",
-                                    "processing",
-                                    "unavailable",
-                                )
-                                if state in detail.get("availability", {}).values()
-                            ),
-                            "not_generated"
-                            if set(detail.get("availability", {}).values()) == {"not_generated"}
-                            else detail["discovery"],
-                        ),
-                    }
-                except TimeoutError:
-                    return {
-                        **event,
-                        "artifact_kinds": [],
-                        "artifact_status": "temporarily_unavailable",
-                    }
-
-        # Bounded provider fan-out; never claim older or unchecked files are absent.
-        offset = page * 6
-        meetings = await asyncio.gather(
-            *(enrich(event) for event in candidates[offset : offset + 6])
-        )
-        await self.calendar._check_read_binding(user_id, binding)
-        return {
-            "complete": complete,
-            "next_page": page + 1 if len(candidates) > offset + 6 else None,
-            "window_days": 30,
-            "meetings": meetings,
-        }
-
-    async def raw_event(self, *, user_id, calendar_id, event_id, expected_account_email=None):
-        binding = await self.schedule._read_binding(user_id)
+    async def raw_event(
+        self,
+        *,
+        user_id,
+        calendar_id,
+        event_id,
+        expected_account_email=None,
+        expected_grant=None,
+        occurrence_id=None,
+        date=None,
+        time_zone=None,
+    ):
+        grant = await self.grant(user_id)
+        binding = grant.binding
+        if expected_grant and expected_grant != _grant_id(binding):
+            raise GoogleConnectionError(
+                "Calendar grant changed. Refresh this day.", status_code=409
+            )
         if expected_account_email is not None:
             status = await self.calendar.connections.status(user_id=user_id, service="calendar")
             if (status.get("google_email") or "").casefold() != expected_account_email.casefold():
-                from hushh_mcp.services.google_connection_service import GoogleConnectionError
-
                 raise GoogleConnectionError(
                     "Calendar account changed. Refresh Calendar.", status_code=409
                 )
@@ -252,7 +239,28 @@ class CalendarInsightsService:
             expected_binding=binding,
         )
         if event.get("id") != event_id or event.get("status") == "cancelled":
-            from hushh_mcp.services.google_connection_service import GoogleConnectionError
-
             raise GoogleConnectionError("Meeting is unavailable", status_code=404)
-        return binding, event
+        if (
+            occurrence_id
+            and _occurrence_id({**self.calendar._event_summary(event), "calendar_id": calendar_id})
+            != occurrence_id
+        ):
+            raise GoogleConnectionError(
+                "Meeting occurrence changed. Refresh this day.", status_code=409
+            )
+        if date or time_zone:
+            if not date or not time_zone:
+                raise GoogleConnectionError("Choose a meeting day and refresh.", status_code=422)
+            start, end = local_day_window(date, time_zone)
+            event_start = (event.get("start") or {}).get("dateTime")
+            try:
+                actual_start = datetime.fromisoformat(event_start.replace("Z", "+00:00"))
+            except (AttributeError, ValueError) as exc:
+                raise GoogleConnectionError(
+                    "Meeting time changed. Refresh this day.", status_code=409
+                ) from exc
+            if actual_start.tzinfo is None or not start <= actual_start < end:
+                raise GoogleConnectionError(
+                    "Meeting day changed. Refresh this day.", status_code=409
+                )
+        return grant, event

@@ -238,8 +238,12 @@ class DrivePeriodPacketService:
         async def organize():
             try:
                 tagger = FinancialPacketTagger(store=self.store)
+                # The drain's stage budget also covers due_owners and the claim, so leave
+                # margin for the batch's own timeout and commit to finish before that
+                # budget cancels it.
                 counts[
-                    "tagging_" + await tagger.run_one(deadline_seconds=max(1, deadline_seconds - 2))
+                    "tagging_"
+                    + await tagger.run_one(deadline_seconds=max(1, deadline_seconds - 10))
                 ] += 1
             except Exception as error:  # Advisory organizing must not cancel discovery siblings.
                 logger.warning(

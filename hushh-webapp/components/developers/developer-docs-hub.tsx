@@ -18,6 +18,7 @@ import { toast } from "sonner";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/use-auth";
+import { snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
@@ -1041,7 +1042,7 @@ export function DeveloperDocsHub({
   const mcpSnippets = useMemo(() => buildMcpSnippets(runtime), [runtime]);
   const isMobile = useIsMobile();
 
-  const { user, loading, signOut, setNativeUser, checkAuth } = useAuth();
+  const { user, userId, loading, signOut, setNativeUser, checkAuth } = useAuth();
   const [integrationTab, setIntegrationTab] = useState<
     "rest" | "remote-mcp" | "npm"
   >("remote-mcp");
@@ -1137,7 +1138,7 @@ export function DeveloperDocsHub({
   }, []);
 
   const refreshAccess = useCallback(
-    async (currentUser = user) => {
+    async (currentUser = user, ownerId = userId) => {
       if (!currentUser) {
         setAccess(null);
         setAccessError(null);
@@ -1152,7 +1153,7 @@ export function DeveloperDocsHub({
       try {
         const idToken = await currentUser.getIdToken();
         const payload = await getDeveloperAccess(idToken, {
-          userId: currentUser.uid,
+          userId: ownerId ?? undefined,
         });
         setAccess(payload);
         const client = payload.access_enabled
@@ -1174,7 +1175,7 @@ export function DeveloperDocsHub({
         setAccessLoading(false);
       }
     },
-    [runtime, user],
+    [runtime, user, userId],
   );
 
   useEffect(() => {
@@ -1182,14 +1183,15 @@ export function DeveloperDocsHub({
       return;
     }
 
-    const nextUid = user?.uid ?? null;
+    // Identity plus owner: a pending sign-in, its validation and sign-out each refresh.
+    const nextUid = user ? `${user.uid}:${userId ?? ""}` : null;
     if (lastAccessRefreshUidRef.current === nextUid) {
       return;
     }
 
     lastAccessRefreshUidRef.current = nextUid;
-    void refreshAccess(user);
-  }, [loading, refreshAccess, user]);
+    void refreshAccess(user, userId);
+  }, [loading, refreshAccess, user, userId]);
 
   async function handleProviderSignIn(provider: "google" | "apple") {
     try {
@@ -1201,14 +1203,19 @@ export function DeveloperDocsHub({
       // The backend decides whether this is the first-account welcome.
       void ApiService.notifyFirstWelcome();
       await checkAuth();
-      await refreshAccess(authResult.user);
+      // Cache under the owner only once it is validated for this sign-in.
+      const principal = snapshotValidatedAuthSessionPrincipal();
+      await refreshAccess(
+        authResult.user,
+        principal?.firebaseUid === authResult.user.uid ? principal.ownerId : null,
+      );
     } catch (error) {
       console.error(`[developers] ${provider} sign-in failed`, error);
     }
   }
 
   async function handleEnableAccess() {
-    if (!user) {
+    if (!user || !userId) {
       toast.error("Sign in before enabling developer access");
       return;
     }
@@ -1217,7 +1224,7 @@ export function DeveloperDocsHub({
     try {
       const idToken = await user.getIdToken();
       const payload = await enableDeveloperAccess(idToken, {
-        userId: user.uid,
+        userId,
       });
       setAccess(payload);
       setRevealedToken(payload.raw_token || null);
@@ -1237,7 +1244,7 @@ export function DeveloperDocsHub({
   }
 
   async function handleRotateKey() {
-    if (!user) {
+    if (!user || !userId) {
       toast.error("Sign in before rotating a token");
       return;
     }
@@ -1245,7 +1252,7 @@ export function DeveloperDocsHub({
     try {
       const idToken = await user.getIdToken();
       const payload = await rotateDeveloperAccessToken(idToken, {
-        userId: user.uid,
+        userId,
       });
       setAccess(payload);
       setRevealedToken(payload.raw_token || null);
@@ -1323,7 +1330,7 @@ export function DeveloperDocsHub({
   }
 
   async function handleSaveProfile() {
-    if (!user) {
+    if (!user || !userId) {
       toast.error("Sign in before updating your app profile");
       return;
     }
@@ -1335,7 +1342,7 @@ export function DeveloperDocsHub({
         idToken,
         profileDraft,
         {
-          userId: user.uid,
+          userId,
         },
       );
       setAccess(payload);

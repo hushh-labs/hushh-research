@@ -41,7 +41,7 @@ describe("Messages action count", () => {
   it("recounts every arrival/read, including 100+ messages and repeated read cycles", async () => {
     const user = owner("owner");
     mocks.unreadCount.mockResolvedValue(0);
-    const { result } = renderHook(() => useDirectMessagesUnreadCount(user));
+    const { result } = renderHook(() => useDirectMessagesUnreadCount(user, user.uid));
     expect(result.current).toBeNull();
     await waitFor(() => expect(result.current).toBe(0));
     expect(mocks.unreadCount).toHaveBeenCalledWith({ idToken: "owner-token" });
@@ -61,7 +61,7 @@ describe("Messages action count", () => {
     const oldRequest = deferred<number>();
     const afterRead = deferred<number>();
     mocks.unreadCount.mockResolvedValueOnce(1).mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(afterRead.promise);
-    const { result } = renderHook(() => useDirectMessagesUnreadCount(user));
+    const { result } = renderHook(() => useDirectMessagesUnreadCount(user, user.uid));
     await waitFor(() => expect(result.current).toBe(1));
     act(() => dispatchFeedStateChanged("arrived"));
     await waitFor(() => expect(mocks.unreadCount).toHaveBeenCalledTimes(2));
@@ -83,7 +83,7 @@ describe("Messages action count", () => {
     const pendingB = deferred<number>();
     const newA = deferred<number>();
     mocks.unreadCount.mockReturnValueOnce(oldA.promise).mockReturnValueOnce(pendingB.promise).mockReturnValueOnce(newA.promise);
-    const { result, rerender } = renderHook(({ user }) => useDirectMessagesUnreadCount(user), { initialProps: { user: a } });
+    const { result, rerender } = renderHook(({ user }) => useDirectMessagesUnreadCount(user, user.uid), { initialProps: { user: a } });
     await waitFor(() => expect(mocks.unreadCount).toHaveBeenCalledTimes(1));
     rerender({ user: b });
     expect(result.current).toBeNull();
@@ -99,7 +99,7 @@ describe("Messages action count", () => {
   it("does not report failures as zero and recovers on focus, online and the shared clock", async () => {
     const user = owner("owner");
     mocks.unreadCount.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(2).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(0);
-    const { result } = renderHook(() => useDirectMessagesUnreadCount(user));
+    const { result } = renderHook(() => useDirectMessagesUnreadCount(user, user.uid));
     await waitFor(() => expect(mocks.unreadCount).toHaveBeenCalledTimes(1));
     expect(result.current).toBeNull();
     act(() => window.dispatchEvent(new Event("online")));
@@ -116,7 +116,7 @@ describe("Messages action count", () => {
   it("pauses in a native background before document visibility catches up and recounts on resume", async () => {
     const user = owner("owner");
     mocks.unreadCount.mockResolvedValueOnce(2).mockResolvedValueOnce(5);
-    const { result } = renderHook(() => useDirectMessagesUnreadCount(user));
+    const { result } = renderHook(() => useDirectMessagesUnreadCount(user, user.uid));
     await waitFor(() => expect(result.current).toBe(2));
     mocks.lifecycleState = "background";
     act(() => dispatchFeedStateChanged("arrived"));
@@ -130,7 +130,7 @@ describe("Messages action count", () => {
     const user = owner("owner");
     mocks.unreadCount.mockResolvedValue(2);
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
-    const { result, unmount } = renderHook(() => useDirectMessagesUnreadCount(user));
+    const { result, unmount } = renderHook(() => useDirectMessagesUnreadCount(user, user.uid));
     act(() => dispatchFeedStateChanged("arrived"));
     expect(mocks.unreadCount).not.toHaveBeenCalled();
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });

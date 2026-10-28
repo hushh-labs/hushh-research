@@ -617,7 +617,7 @@ export function VoiceSessionProvider({
   enabled: boolean;
   deps?: VoiceSessionDeps;
 }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
   const runtime = useAgentRuntimeStateOptional();
   const pathname = usePathname();
@@ -630,7 +630,7 @@ export function VoiceSessionProvider({
   // an effect, never during render (react-hooks/refs); the callbacks that
   // read them only run after commit.
   const depsRef = useRef(deps);
-  const latest = useRef({ user, isVaultUnlocked, vaultOwnerToken, enabled });
+  const latest = useRef({ userId, isVaultUnlocked, vaultOwnerToken, enabled });
   // The Firebase proof fetched for the current connect attempt (see ticket()).
   const firebaseProofRef = useRef<string | null>(null);
   const runtimeRef = useRef(runtime);
@@ -640,7 +640,7 @@ export function VoiceSessionProvider({
   const osPermissionRef = useRef(osPermission);
   useEffect(() => {
     depsRef.current = deps;
-    latest.current = { user, isVaultUnlocked, vaultOwnerToken, enabled };
+    latest.current = { userId, isVaultUnlocked, vaultOwnerToken, enabled };
     runtimeRef.current = runtime;
     pathnameRef.current = pathname;
     osPermissionRef.current = osPermission;
@@ -808,7 +808,7 @@ export function VoiceSessionProvider({
         latest.current.enabled &&
         latest.current.isVaultUnlocked &&
         Boolean(latest.current.vaultOwnerToken) &&
-        Boolean(latest.current.user?.uid) &&
+        Boolean(latest.current.userId) &&
         reconnectsRef.current < MAX_AUTO_RECONNECTS;
       const reconnect =
         (serverAsked || networkLost) &&
@@ -1337,7 +1337,7 @@ export function VoiceSessionProvider({
       }
       session.captureReady = true;
       const preference = depsRef.current?.halfDuplexPreference?.() ??
-        (readSpeakerphoneSafePreference(latest.current.user?.uid)
+        (readSpeakerphoneSafePreference(latest.current.userId)
           ? "speakerphone-safe" : "auto");
       const halfDuplex = decideHalfDuplex({
         echoCancellation: result.echoCancellation,
@@ -1644,13 +1644,13 @@ export function VoiceSessionProvider({
     const {
       isVaultUnlocked: unlocked,
       vaultOwnerToken: token,
-      user: current,
+      userId: current,
     } = latest.current;
     if (!unlocked || !token) {
       setUnlockOpen(true);
       return "unlock_required";
     }
-    if (!readVoicePreferences(current?.uid || null).voiceEnabled) {
+    if (!readVoicePreferences(current).voiceEnabled) {
       dispatch({
         type: "local_error",
         error: {
@@ -1742,7 +1742,7 @@ export function VoiceSessionProvider({
         !latest.current.enabled ||
         !latest.current.isVaultUnlocked ||
         !latest.current.vaultOwnerToken ||
-        !latest.current.user?.uid ||
+        !latest.current.userId ||
         navigator.onLine === false ||
         appInteractionCoordinator.getLifecycleSnapshot().state !== "active" ||
         reconnectsRef.current >= MAX_AUTO_RECONNECTS
@@ -1918,7 +1918,7 @@ export function VoiceSessionProvider({
     conversationIdRef.current = null;
     activeMailRef.current = null;
     stopRef.current("account_changed");
-  }, [user?.uid]);
+  }, [userId]);
   useEffect(() => () => stopRef.current("unmount"), []);
 
   // App context follows the route, the OS permission, and screen reports.

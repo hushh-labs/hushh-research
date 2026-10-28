@@ -78,7 +78,8 @@ client configuration, not a welcome-enrollment flag.
    Captured Contacts grants and address books remain in process memory. No
    People API request runs on the backend. One does not export or add a Contacts
    refresh-token store; the native Google SDK retains its existing sign-in
-   session independently.
+   session independently. Calendar guest photos are a separate, optional
+   Calendar OAuth permission and do not change signup contact matching.
 2. Matching starts only after verified phone identity. Existing on-device
    normalization, self exclusion, deduplication, hashes, batches, lookup budgets
    and partial/unknown classifications remain authoritative. Source permission

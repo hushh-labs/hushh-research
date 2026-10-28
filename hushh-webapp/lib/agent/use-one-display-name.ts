@@ -19,12 +19,12 @@ import { useChatOnboardingPickedName } from "@/lib/agent/chat-onboarding/chat-on
  * Never display another owner's snapshot or information from a locked vault.
  */
 export function useOneDisplayName(enabled = true): string {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const canRead = Boolean(enabled && user?.uid && isVaultUnlocked && vaultKey && vaultOwnerToken);
-  const revision = usePkmDomainChangeRevision(user?.uid, "identity");
+  const canRead = Boolean(enabled && userId && isVaultUnlocked && vaultKey && vaultOwnerToken);
+  const revision = usePkmDomainChangeRevision(userId, "identity");
   const identity = usePkmDomainResource({
-    userId: user?.uid ?? "",
+    userId: userId ?? "",
     domain: "identity",
     vaultKey,
     vaultOwnerToken,
@@ -35,7 +35,7 @@ export function useOneDisplayName(enabled = true): string {
     if (canRead && revision > 0) void refresh({ force: true });
   }, [canRead, revision, refresh]);
 
-  const ownerId = canRead ? (user?.uid ?? null) : null;
+  const ownerId = canRead ? userId : null;
   const pickedName = useChatOnboardingPickedName(ownerId);
   const savedName =
     ownerId && identity.data?.key.userId === ownerId

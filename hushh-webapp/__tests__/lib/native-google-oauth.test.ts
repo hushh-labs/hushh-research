@@ -30,6 +30,10 @@ beforeEach(async () => {
   mocks.open.mockResolvedValue(undefined); mocks.close.mockResolvedValue(undefined);
   mocks.complete.mockResolvedValue({ connected: true }); mocks.byoc.mockResolvedValue({});
   flow = await import("@/lib/google/native-google-oauth");
+  // Generation-0 principal: the validated application owner equals the Firebase UID.
+  (await import("@/lib/auth/session-owner")).publishValidatedAuthSessionPrincipal({
+    firebaseUid: "owner", ownerId: "owner", accountGeneration: 0,
+  });
   await flow.installNativeGoogleOAuthReturn(mocks.navigate);
   flow.updateNativeGoogleOAuthAuth(user(), false);
 });
@@ -44,6 +48,21 @@ describe("native Calendar OAuth authority and continuity", () => {
     expect(mocks.complete).toHaveBeenCalledTimes(1);
     expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({ userId: "owner", code: "synthetic-code" }));
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+  it("exchanges for the validated replacement owner, not the Firebase UID", async () => {
+    const replacementOwner = `acct_${"a".repeat(32)}`;
+    (await import("@/lib/auth/session-owner")).publishValidatedAuthSessionPrincipal({
+      firebaseUid: "owner", ownerId: replacementOwner, accountGeneration: 1,
+    });
+    const result = start(); await flush();
+    flow.receiveNativeGoogleOAuthReturn(returned()); await result;
+    expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({ userId: replacementOwner }));
+  });
+  it("refuses the exchange while the signed-in identity has no validated owner (negative control)", async () => {
+    (await import("@/lib/auth/session-owner")).publishPendingAuthSessionIdentity("owner");
+    const result = start(); const rejected = expect(result).rejects.toThrow("session changed"); await flush();
+    flow.receiveNativeGoogleOAuthReturn(returned()); await rejected;
+    expect(mocks.complete).not.toHaveBeenCalled();
   });
   it("rejects foreign origin, legacy path and wrong state before exchange", async () => {
     const result = start(); const rejected = expect(result).rejects.toThrow("session changed"); await flush();

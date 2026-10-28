@@ -62,12 +62,12 @@ function durationSeconds(hours: unknown): number {
 }
 
 export function GlobalConsentActionHandlers() {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   // The same deny and revoke the consent screens run. A second copy of a
   // ledger write is how two surfaces drift apart, and revoking VAULT_OWNER
   // has to lock the vault whichever surface asked for it.
-  const { handleDeny, handleRevoke } = useConsentActions({ userId: user?.uid });
+  const { handleDeny, handleRevoke } = useConsentActions({ userId });
 
   useLocalOnboardingActionHandler(
     "consent.request",
@@ -95,7 +95,7 @@ export function GlobalConsentActionHandlers() {
         };
       }
 
-      if (!user?.uid) {
+      if (!userId) {
         return { status: "failed" as const, summary: "Sign in first." };
       }
       // The vault key never leaves memory, so a locked vault cannot mint the
@@ -111,7 +111,7 @@ export function GlobalConsentActionHandlers() {
       let created: Awaited<ReturnType<typeof PersonProfileService.createInformationRequest>>;
       try {
         const connector = await OneKycClientZkService.ensureConnector({
-          userId: user.uid,
+          userId,
           vaultKey,
           vaultOwnerToken,
         });
@@ -129,7 +129,7 @@ export function GlobalConsentActionHandlers() {
           idempotencyKey,
           vaultOwnerToken,
         });
-        CacheSyncService.onConsentMutated(user.uid);
+        CacheSyncService.onConsentMutated(userId);
         dispatchConsentStateChanged({ action: "request", bundleId: created.bundleId, personRef });
       } catch (reason) {
         const message =
@@ -198,7 +198,7 @@ export function GlobalConsentActionHandlers() {
           summary: "Say which request to decline and I will do it.",
         };
       }
-      if (!user?.uid || !isVaultUnlocked) {
+      if (!userId || !isVaultUnlocked) {
         return { status: "failed" as const, summary: "Unlock your private agent first." };
       }
       try {
@@ -238,7 +238,7 @@ export function GlobalConsentActionHandlers() {
           summary: "I lost track of which one that was. Ask me what you're sharing and try again.",
         };
       }
-      if (!user?.uid || !isVaultUnlocked) {
+      if (!userId || !isVaultUnlocked) {
         return { status: "failed" as const, summary: "Unlock your private agent first." };
       }
       try {
@@ -273,10 +273,10 @@ export function GlobalConsentActionHandlers() {
           summary: "I could not tell which request that was. Ask me what you've sent.",
         };
       }
-      if (!user) {
+      if (!userId) {
         return { status: "failed" as const, summary: "Sign in first." };
       }
-      const viewerUid = user.uid;
+      const viewerUid = userId;
       if (!vaultOwnerToken) {
         return { status: "failed" as const, summary: "Unlock your private agent first." };
       }

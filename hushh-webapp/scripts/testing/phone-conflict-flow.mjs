@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { performance } from "node:perf_hooks";
 import { createServer } from "vite";
 import { chromium, webkit } from "playwright";
 
@@ -18,6 +19,48 @@ const diagnostics = { errors: [], api: [], transfer: {
   get_requests: 0, get_responses: 0, get_failures: 0, confirm_requests: 0, erase_requests: 0,
   click_started: false, click_completed: false,
 } };
+const transferDebug = diagnostics.transfer_debug = {};
+const elapsed = () => Math.round(performance.now());
+function clickFailure(error) {
+  const message = String(error?.message || "");
+  const reasons = [
+    ["not_enabled", /element is not enabled|element is disabled/i],
+    ["not_visible", /element is not visible/i],
+    ["not_stable", /element is not stable/i],
+    ["pointer_intercepted", /intercepts pointer events/i],
+    ["outside_viewport", /outside of the viewport/i],
+    ["target_closed", /page.*closed|context.*closed|target.*closed/i],
+  ].filter(([, pattern]) => pattern.test(message)).map(([reason]) => reason);
+  const kind = error?.name === "TimeoutError" ? "timeout" : error?.code === "ERR_ASSERTION" ? "assertion" : "other";
+  return { kind, reasons };
+}
+async function buttonState(button) {
+  const values = await Promise.allSettled([
+    button.count(), button.isVisible(), button.isEnabled({ timeout: 1000 }),
+    button.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      const tags = ["HTML", "BODY", "DIV", "BUTTON", "SPAN", "OL", "LI", "SECTION", "DIALOG", "IFRAME", "VITE-ERROR-OVERLAY"];
+      const roles = ["dialog", "alertdialog", "presentation", "none"];
+      const slots = ["dialog-overlay", "dialog-content", "alert-dialog-overlay", "alert-dialog-content", "sheet-overlay", "sheet-content", "toast", "toaster"];
+      const role = hit?.getAttribute("role");
+      const slot = hit?.getAttribute("data-slot");
+      // Only geometry, booleans and fixed enums; never DOM text, classes or URLs.
+      return {
+        target_receives_pointer: hit === element || element.contains(hit),
+        target_pointer_events: getComputedStyle(element).pointerEvents === "none" ? "none" : "other",
+        target_box: { x: box.x, y: box.y, width: box.width, height: box.height },
+        hit_tag: tags.includes(hit?.tagName) ? hit.tagName : "other",
+        hit_role: roles.includes(role) ? role : "other",
+        hit_slot: slots.includes(slot) ? slot : "other",
+        hit_is_toast: Boolean(hit?.closest("[data-sonner-toaster]")),
+        hit_is_dialog: Boolean(hit?.closest('[role="dialog"], [role="alertdialog"]')),
+      };
+    }, undefined, { timeout: 1000 }),
+  ]);
+  return Object.fromEntries(["count", "visible", "enabled", "hit_test"].map((key, index) =>
+    [key, values[index].status === "fulfilled" ? values[index].value : null]));
+}
 const isTransferReadback = pathname => /^\/api\/account\/phone\/transfer\/[a-f0-9-]{36}$/.test(pathname);
 function safeError(error) {
   return String(error?.message || "unclassified").replace(/fixture\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[fixture-token]")
@@ -113,7 +156,14 @@ try {
   });
   await server.listen();
   assert.ok(await server.transformRequest(fixture));
+  // The fixture uses the app stylesheet; compile it before timing browser actions.
+  assert.ok(await server.transformRequest("/app/globals.css"));
   await server.waitForRequestsIdle();
+  // Static-import idleness can precede dependency bundling on a cold runner.
+  // Complete fixture preparation before starting the unchanged browser deadline.
+  const optimizer = server.environments.client.depsOptimizer;
+  await optimizer?.scanProcessing;
+  await Promise.all(Object.values(optimizer?.metadata.discovered || {}).map(dep => dep.processing));
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await ({ chromium, webkit }[config.engine]).launch({ headless: true });
   for (const scenario of ["recover", "delete", "transfer", "devices"]) {
@@ -122,6 +172,7 @@ try {
     await fixtureRequest("reset", scenario);
     context = await browser.newContext({ viewport: { width: 393, height: 852 }, locale: "en-US", timezoneId: "America/Los_Angeles" });
     const page = await context.newPage(); page.setDefaultTimeout(15_000);
+    let transferClick;
     let erasures = 0, transfers = 0, revocations = 0;
     const pageErrors = [];
     page.on("pageerror", error => { pageErrors.push("page_error"); if (diagnostics.errors.length < 5) diagnostics.errors.push(safeError(error)); });
@@ -134,7 +185,10 @@ try {
     });
     page.on("request", request => {
       const endpoint = new URL(request.url()).pathname;
-      if (request.method() === "GET" && isTransferReadback(endpoint)) diagnostics.transfer.get_requests++;
+      if (request.method() === "GET" && isTransferReadback(endpoint)) {
+        diagnostics.transfer.get_requests++;
+        transferDebug.status_request_ms = elapsed();
+      }
       if (request.method() === "POST" && endpoint === "/api/account/delete-lost-vault") {
         erasures++; if (scenario === "transfer") diagnostics.transfer.erase_requests++;
       }
@@ -208,18 +262,26 @@ try {
           await page.route("**/api/account/phone/transfer/*", route => route.abort("failed"));
         }
         diagnostics.transfer.click_started = true;
+        transferDebug.before_click = await buttonState(checkProgress);
+        const readback = page.waitForResponse(response => response.request().method() === "GET" &&
+          isTransferReadback(new URL(response.url()).pathname))
+          .then(async response => ({ status: response.status(), body: await response.json() }));
+        transferDebug.click_invoked_ms = elapsed();
+        transferClick = checkProgress.click().then(async () => {
+          diagnostics.transfer.click_completed = true;
+          transferDebug.click_completed_ms = elapsed();
+          // Negative control only; the click and original deadline are unchanged.
+          if (config.transferReadbackFailure) await new Promise(resolve => setTimeout(resolve, 16_000));
+        }).catch(error => {
+          transferDebug.click_failed_ms = elapsed();
+          transferDebug.click_error = clickFailure(error);
+          throw error;
+        });
         // Observe both promises immediately so a timeout reaches the sanitized
         // outer diagnostic catch instead of terminating Node as unhandled.
         const [receipt] = await Promise.all([
-          page.waitForResponse(response => response.request().method() === "GET" &&
-            isTransferReadback(new URL(response.url()).pathname))
-            .then(async response => ({ status: response.status(), body: await response.json() })),
-          checkProgress.click().then(async () => {
-            diagnostics.transfer.click_completed = true;
-            // Negative control only: delay this test's acknowledgment beyond
-            // the unchanged 15s waiter. The actual click still happens once.
-            if (config.transferReadbackFailure) await new Promise(resolve => setTimeout(resolve, 16_000));
-          }),
+          readback,
+          transferClick,
         ]);
         assert.equal(receipt.status, 200); assert.equal(receipt.body.transfer_status, "completed");
         await page.getByTestId("phone-fixture-destination").filter({ hasText: "/one/setup" }).waitFor();
@@ -245,11 +307,26 @@ try {
       }
       assert.deepEqual(pageErrors, []);
       await fixtureRequest("assert", scenario);
-    } finally { await context.close(); context = null; }
+    } catch (error) {
+      if (stage === "transfer_readback") {
+        transferDebug.wait_failed_ms = elapsed();
+        transferDebug.wait_error = clickFailure(error);
+        transferDebug.after_failure = await buttonState(page.getByRole("button", { name: "Check transfer progress", exact: true }));
+      }
+      throw error;
+    } finally {
+      try { await context.close(); }
+      finally {
+        context = null;
+        // Settle the existing action even if close fails; only fixed codes escape.
+        if (transferClick) await transferClick.catch(() => {});
+      }
+    }
   }
   process.stdout.write(JSON.stringify({ feature: "phone_conflict", engine: config.engine, provider: config.provider, trace_loop: events }) + "\n");
 } catch (error) {
-  process.stderr.write(JSON.stringify({ code: "PHONE_BROWSER_LOOP_FAILED", scenario: activeScenario, stage, completedSteps: events.slice(-8), error: safeError(error), diagnostics }) + "\n");
+  const summary = stage === "transfer_readback" ? "PHONE_TRANSFER_READBACK_FAILED" : safeError(error);
+  process.stderr.write(JSON.stringify({ code: "PHONE_BROWSER_LOOP_FAILED", scenario: activeScenario, stage, completedSteps: events.slice(-8), error: summary, diagnostics }) + "\n");
   process.exitCode = 1;
 } finally {
   if (context) await context.close();

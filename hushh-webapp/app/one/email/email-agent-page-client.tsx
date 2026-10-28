@@ -25,17 +25,17 @@ import { ROUTES } from "@/lib/navigation/routes";
  */
 export function EmailAgentPageClient() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId, loading: authLoading } = useAuth();
   const idTokenProvider = useCallback(
     () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
     [user],
   );
   const gmail = useGmailConnectorStatus({
-    userId: user?.uid || null,
-    enabled: Boolean(user?.uid) && !authLoading,
+    userId: userId || null,
+    enabled: Boolean(userId) && !authLoading,
     idTokenProvider: user?.getIdToken ? idTokenProvider : null,
     routeHref: ROUTES.EMAIL_AGENT,
-    refreshKey: user?.uid || "",
+    refreshKey: userId || "",
   });
   const connected = gmail.presentation.isConnected;
   const dataState = authLoading || gmail.loadingStatus

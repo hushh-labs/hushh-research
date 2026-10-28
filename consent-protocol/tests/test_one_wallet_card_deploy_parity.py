@@ -142,14 +142,24 @@ def test_uat_enables_temporary_card_sharing_with_its_encryption_key() -> None:
     assert "_WALLET_CARD_ACCESS_ENABLED=true" not in production
 
 
+@pytest.mark.parametrize(
+    "substitution,variable",
+    [
+        ("_WALLET_CARD_ACCESS_ENABLED", "${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}"),
+        (
+            "_ACCOUNT_GENERATION_ADMISSION_ENABLED",
+            "${{ steps.generation-admission.outputs.enabled }}",
+        ),
+    ],
+)
 @pytest.mark.parametrize("supports_flag", [False, True])
 @pytest.mark.parametrize("flag_value", ["true", "false"])
-def test_uat_card_sharing_substitution_preserves_historical_deploys(
-    tmp_path: Path, supports_flag: bool, flag_value: str
+def test_uat_flag_substitutions_preserve_historical_deploys(
+    tmp_path: Path, substitution: str, variable: str, supports_flag: bool, flag_value: str
 ) -> None:
     workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat.yml")
     guard = re.search(
-        r"(?m)^          if grep -q [^\n]*_WALLET_CARD_ACCESS_ENABLED[^\n]*\n"
+        rf"(?m)^          if grep -q [^\n]*{substitution}[^\n]*\n"
         r"(?:^          .*\n)*?^          fi$",
         workflow,
     )
@@ -157,14 +167,12 @@ def test_uat_card_sharing_substitution_preserves_historical_deploys(
     deploy = tmp_path / "deploy"
     deploy.mkdir()
     (deploy / "backend.cloudbuild.yaml").write_text(
-        'substitutions:\n  _WALLET_CARD_ACCESS_ENABLED: "false"\n'
+        f'substitutions:\n  {substitution}: "false"\n'
         if supports_flag
         else 'substitutions:\n  _BACKEND_SERVICE: "consent-protocol"\n',
         encoding="utf-8",
     )
-    script = guard.group().replace(
-        "${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}", flag_value
-    )
+    script = guard.group().replace(variable, flag_value)
     result = subprocess.run(  # noqa: S603 - Checked-in workflow code and fixed test values.
         [
             "bash",
@@ -180,7 +188,7 @@ def test_uat_card_sharing_substitution_preserves_historical_deploys(
     )
     expected = "_BACKEND_SERVICE=consent-protocol"
     if supports_flag:
-        expected += f"##_WALLET_CARD_ACCESS_ENABLED={flag_value}"
+        expected += f"##{substitution}={flag_value}"
     assert result.stdout == expected
 
 

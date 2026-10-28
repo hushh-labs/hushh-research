@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("sonner", () => ({ toast: mocks.toast }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: OWNER } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: OWNER }, userId: OWNER }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultKey: "vault-key", getVaultOwnerToken: () => "owner-token" }),
 }));

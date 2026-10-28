@@ -38,31 +38,7 @@ SETTINGS = {
 }
 
 
-def revision(
-    name: str, *, max_instances: int = 5, overflow: int = 0, created: str = "2026-10-01"
-) -> dict:
-    return {
-        "metadata": {
-            "name": name,
-            "creationTimestamp": created,
-            "annotations": {
-                "autoscaling.knative.dev/maxScale": str(max_instances),
-                "run.googleapis.com/cloudsql-instances": CONNECTION,
-            },
-        },
-        "spec": {
-            "containers": [
-                {
-                    "name": "backend",
-                    "env": [
-                        {"name": "DB_POOL_MAX_SIZE", "value": "4"},
-                        {"name": "DB_SQLALCHEMY_POOL_SIZE", "value": "3"},
-                        {"name": "DB_SQLALCHEMY_MAX_OVERFLOW", "value": str(overflow)},
-                    ],
-                }
-            ]
-        },
-    }
+revision = fixtures.revision
 
 
 class RuntimeCapacityBudgetTest(unittest.TestCase):

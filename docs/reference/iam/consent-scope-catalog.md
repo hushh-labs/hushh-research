@@ -60,6 +60,27 @@ recipient can access the target. Publication and revocation complete only when
 the deterministic filesystem operation succeeds and the resulting artifact
 state is reconciled.
 
+### Finance connection object sharing
+
+Finance sharing uses a curated recipient-encrypted object and an opaque grant
+reference in Messages, separately from `attr.*` scopes. It does not reopen raw
+financial accounts, holdings, transactions, provider records or source artifacts.
+The owner confirms exact sections, selected stocks, dollar visibility, lifetime,
+and an independent default-off model-processing permission for each recipient.
+Snapshot contents are immutable. Ongoing publication replaces only the approved
+projection from the same account/source roster while the owner client is open
+and unlocked. A changed roster requires a new review; it never silently expands
+access. Every read and update rechecks the connection, blocks, recipient key,
+expiry and revocation. Stopping one grant does not stop another recipient.
+
+One accepts shared Finance only after an explicit recipient review action and
+a fresh owner-permission and exact-revision/digest check. Its existing shared
+context boundary prevents tools and memory writes from that turn. Later model
+context and history redact derived turns when access ends or the shared revision
+changes. Private pods read the same authority through nonce-bound signed metadata
+feeds; financial contents are supplied by the recipient only for the review.
+Already copied or previously displayed information cannot be recalled.
+
 ## Display Metadata Contract
 
 Request creation and approval resolve each exact scope through the same canonical

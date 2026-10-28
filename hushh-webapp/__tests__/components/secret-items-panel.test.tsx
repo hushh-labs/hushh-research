@@ -13,7 +13,7 @@ const revealFixture = vi.hoisted(() => ({ uid: "fixture-a", key: "fixture-key-a"
   reveal: vi.fn(), list: vi.fn(), remove: vi.fn(), mark: vi.fn(), file: vi.fn(),
   privacy: undefined as NativeSessionPrivacyState | undefined, listeners: new Set<() => void>() }));
 function fixtureToken() { return revealFixture.authorized ? "fixture-owner" : null; }
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: revealFixture.uid } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: revealFixture.uid }, userId: revealFixture.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: revealFixture.key, getVaultOwnerToken: fixtureToken }) }));
 vi.mock("@/lib/capacitor/session-privacy", () => ({
   nativePrivacyObservation: () => ({ state: revealFixture.privacy }),

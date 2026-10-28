@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
   dispatchFeedStateChanged: vi.fn(),
   dispatchConsentStateChanged: vi.fn(),
   setPayoutStreamState: vi.fn(),
-  auth: { sessionVerificationRequired: false },
+  // Generation-0 accounts: the application owner equals the Firebase UID.
+  auth: { sessionVerificationRequired: false, userId: "requester" as string | null },
 }));
 
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
@@ -62,6 +63,7 @@ describe("document Feed stream", () => {
     vi.clearAllMocks();
     vi.restoreAllMocks();
     mocks.auth.sessionVerificationRequired = false;
+    mocks.auth.userId = "requester";
     publishValidatedAuthSessionOwner(null);
   });
 
@@ -215,6 +217,7 @@ describe("document Feed stream", () => {
     mocks.open.mockResolvedValue(ok(new ReadableStream<Uint8Array>({
       start(controller) { push = (frames) => controller.enqueue(encoder.encode(frames)); },
     })));
+    mocks.auth.userId = "owner";
     const user = { uid: "owner", getIdToken: vi.fn().mockResolvedValue("token") };
     const view = renderHook(() => useDocumentFeedStream(user));
     await act(async () => { await vi.advanceTimersByTimeAsync(10); });

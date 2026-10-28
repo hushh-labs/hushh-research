@@ -12,7 +12,10 @@ import { DirectMessagesService } from "@/lib/services/direct-messages-service";
 type MessageCountUser = { uid: string; getIdToken: () => Promise<string> };
 
 /** Server unread messages, independent of setup status or inbox pagination. */
-export function useDirectMessagesUnreadCount(user: MessageCountUser | null): number | null {
+export function useDirectMessagesUnreadCount(
+  user: MessageCountUser | null,
+  ownerId: string | null,
+): number | null {
   // A new session also fences an A -> B -> A account cycle using the same user object.
   const session = useMemo(() => ({ user }), [user]);
   const [snapshot, setSnapshot] = useState<{ session: typeof session; count: number } | null>(null);
@@ -56,7 +59,7 @@ export function useDirectMessagesUnreadCount(user: MessageCountUser | null): num
     };
 
     const unsubscribe = subscribeToDirectMessagesUpdated((detail) => {
-      if (detail.userId === user.uid) refreshVisible();
+      if (ownerId && detail.userId === ownerId) refreshVisible();
     });
     // The global Feed stream already publishes message arrivals/deletions.
     // Recount after read-only changes too, without opening another SSE.
@@ -82,7 +85,7 @@ export function useDirectMessagesUnreadCount(user: MessageCountUser | null): num
       window.removeEventListener("online", refreshVisible);
       document.removeEventListener("visibilitychange", refreshVisible);
     };
-  }, [session, taskId, user]);
+  }, [ownerId, session, taskId, user]);
 
   return snapshot?.session === session ? snapshot.count : null;
 }
