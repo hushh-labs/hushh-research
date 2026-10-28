@@ -12,6 +12,7 @@ merely present is not one that holds.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import os
 import subprocess
@@ -272,3 +273,61 @@ def test_reused_publication_archive_follows_its_image_source_and_new_run(config,
         destination.read_text().strip()
         == f"gs://{PROJECT}_cloudbuild/pod-releases/{source_sha}/{run_id}/release.json"
     )
+
+
+def _publication_builder():
+    path = REPO_ROOT / "scripts/deploy/prepare-pod-publication.py"
+    spec = importlib.util.spec_from_file_location("publication_build_contract", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_preparation_uses_only_existing_pod_steps_and_requires_guarded_reuse(tmp_path):
+    builder = _publication_builder()
+    (tmp_path / "deploy").mkdir()
+    source = REPO_ROOT / "deploy/backend.cloudbuild.yaml"
+    (tmp_path / "deploy/backend.cloudbuild.yaml").write_bytes(source.read_bytes())
+    result = builder.build_config(tmp_path, sha="d" * 40, run_id="77", attempt="1")
+    original = yaml.safe_load(source.read_text())
+    assert [s["id"] for s in result["steps"]] == list(builder.STEP_IDS)
+    for step in result["steps"]:
+        authored = next(s for s in original["steps"] if s["id"] == step["id"])
+        assert {k: v for k, v in step.items() if k != "waitFor"} == {
+            k: v for k, v in authored.items() if k != "waitFor"
+        }
+    pin = tmp_path / "deploy/pod-release-reuse.json"
+    pin.write_text("{}")
+    with pytest.raises(ValueError, match="Main-owned"):
+        builder.build_config(tmp_path, sha="d" * 40, run_id="77", attempt="1")
+    builder.build_config(
+        tmp_path,
+        sha="d" * 40,
+        run_id="77",
+        attempt="1",
+        verified_reuse_sha=hashlib.sha256(pin.read_bytes()).hexdigest(),
+    )
+
+
+def test_workflow_publication_uses_real_protocol_project_before_cloud_authentication():
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    job = workflow["jobs"]["pod-publication"]
+    steps = job["steps"]
+    setup = next(step for step in steps if step.get("uses", "").endswith("setup-python-uv"))
+    project = REPO_ROOT / setup["with"]["protocol-dir"]
+    assert (project / "pyproject.toml").is_file() and (project / "uv.lock").is_file()
+    auth = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("uses", "").startswith("google-github-actions/auth@")
+    )
+    for required in (
+        "Admit Main-owned pod publication",
+        "Verify exact pod source CI and ref",
+        "Verify landed publication control source",
+        "Verify metadata reuse with Main-owned source guard",
+    ):
+        assert next(i for i, step in enumerate(steps) if step.get("name") == required) < auth
+    assert steps[0]["with"]["ref"] == "${{ github.sha }}"
+    assert "pod-publication" in workflow["jobs"]["deploy"]["if"]
+    assert "pod-publication" not in workflow["concurrency"]["group"]

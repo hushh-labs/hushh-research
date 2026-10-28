@@ -46,6 +46,75 @@ increase. Preserve the canonical DB ceiling before changing instance, worker or
 pool counts; roll back the serving revision if additional concurrency degrades
 admission or database latency.
 
+## Independent Dev pod publication
+
+Prepare and activate through the existing Main-owned `deploy-dev.yml`; this is
+Dev only. Keep `scope=auto` and the legacy `build_pod_image` input false for this
+target. Supply the exact CI-green pod/descriptor source and its existing branch:
+
+```bash
+gh workflow run deploy-dev.yml --ref main \
+  -f target=pod-publication -f pod_action=prepare -f scope=auto \
+  -f ref=<existing-pod-branch> -f sha=<exact-ci-green-source>
+```
+
+Preparation selects the existing pod build, digest/archive and distribution
+steps. It does not run shared deployment, migrations, secret sync, model probes
+or owner installation. A reviewed metadata reuse pin still requires the Main-owned
+`reuse-pod-release.py --check-source-only` check before cloud setup. The original
+image source is preserved even when the reviewed descriptor source differs.
+Preparation produces an archive and a sanitized serving-baseline artifact, not
+readiness or an installation offer.
+
+Qualify that exact digest with the existing deployment-platform probe, encrypted
+predecessor recovery fixture and actual shared/pod compatibility rehearsal. Keep
+native Memory Bank and inference acceptance separate from format/API evidence.
+Archive small sanitized evidence envelopes beside the existing release artifacts,
+under `pod-releases/<image-source>/<prepare-run>/qualification-<kind>.json`.
+Retain original authenticated native execution observations and reviewed probe
+code. Do not replace those observations with authored success booleans.
+
+A subsequent reviewed Main change may add an activation pin (`pod-publication.json` in the `deploy` directory). It has
+`schemaVersion=1`, `descriptorSourceRevision`, the existing four-field `release`
+pin (`image`, `sourceRevision`, `runId`, `archiveSha256`), `preparationBuildId`,
+`preparationManifestSha256`,
+the exact `baseline` and three kinds of `evidence`: `platform`, `recovery` and
+`compatibility`. Each evidence reference pins its archive object, immutable
+generation, SHA-256, original native execution names and probe SHA-256. The
+validator's `CHECKS` sets define the required observations. Compatibility binds
+the exact baseline; every advertised upgrade predecessor requires recovery.
+The native build's artifact manifest binds immutable generations of the descriptor,
+resolver provenance and executable image manifest. Validate those exact bytes and
+digest as well as the successful build; step names alone are insufficient.
+
+The baseline contains only service UID, serving revision, immutable application
+image/source and configuration/traffic fingerprints. Never commit or upload application
+environment dumps, credentials, owner details or ciphertext. Main review must
+verify the original native executions and probe provenance: matching hashes and
+`checks=true` alone do not establish qualification. No activation pin is installed
+by the workflow implementation itself.
+
+Coordinate catalog activation after those receipts are accepted:
+
+```bash
+gh workflow run deploy-dev.yml --ref main \
+  -f target=pod-publication -f pod_action=activate -f scope=auto \
+  -f ref=<existing-descriptor-branch> -f sha=<reviewed-descriptor-source>
+```
+
+Activation uses the existing Dev lock, capacity contract and native service etag.
+It preserves the serving application image, identity, secrets, networking,
+timeouts and application deployment provenance. Only the catalog and separate
+publication annotations change. Verify the zero-traffic revision before promotion
+and retain rollback traffic. If another release changes the pinned baseline,
+stop and arrange a new coordinated qualification; do not follow it automatically.
+An ambiguous API outcome retains its intent/operation and requires reconciliation.
+A repeated already-active catalog is read-only. Native health is not a substitute
+for compatibility or whole-pilot acceptance. Existing owner approval remains
+mandatory; this operation never installs a pod image.
+Browser qualification requires an already-enabled compatible application flag;
+this narrow operation refuses that flag transition instead of changing it.
+
 ## Maintaining an existing owner's software release
 
 This section governs upgrades; the dated first-light checks above and legacy
