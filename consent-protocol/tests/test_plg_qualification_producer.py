@@ -301,7 +301,11 @@ def test_retired_isolated_lane_leaves_standard_release_gates_intact(environment)
     assert "plg-isolated-qualification" not in trigger["target"]["options"]
     assert not {"plg_source_validation_run", "plg_schema_action", "plg_dev_run"} & trigger.keys()
     entry = document["jobs"]["deploy" if environment == "dev" else "select-target"]
-    assert "inputs.target" not in entry.get("if", "")
+    if environment == "dev":
+        assert entry["if"] == "inputs.target != 'pod-publication'"
+        assert "pod-publication" in trigger["target"]["options"]
+    else:
+        assert "inputs.target" not in entry.get("if", "")
     steps = document["jobs"]["deploy"]["steps"]
     names = {step.get("name") for step in steps}
     assert {
