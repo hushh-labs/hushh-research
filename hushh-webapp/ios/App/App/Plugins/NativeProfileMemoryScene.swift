@@ -56,7 +56,13 @@ typealias NativeMemoryEditorModel = NativeProfileEditorModel<NativeMemoryProject
     }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     static func dismantleUIView(_ view: UITextView, coordinator: Coordinator) {
-        coordinator.owner.model.capture(); view.delegate = nil; view.unmarkText(); view.resignFirstResponder(); view.text = ""; view.undoManager?.removeAllActions()
+        let model = coordinator.owner.model
+        model.capture()
+        model.scrubEditor(view) {
+            model.unregister(view, name: coordinator.owner.name)
+            view.unmarkText(); view.resignFirstResponder(); view.text = ""; view.undoManager?.removeAllActions()
+            if !model.detachEditor(view) { view.delegate = nil }
+        }
     }
     final class Coordinator: NSObject, UITextViewDelegate {
         var owner: NativeProfilePrivateText; init(_ owner: NativeProfilePrivateText) { self.owner = owner }
@@ -64,7 +70,9 @@ typealias NativeMemoryEditorModel = NativeProfileEditorModel<NativeMemoryProject
         func textViewDidEndEditing(_ textView: UITextView) { owner.model.capture() }
         func textView(_ textView: UITextView, willPresentEditMenuWith animator: any UIEditMenuInteractionAnimating) { owner.model.editMenuPresented(textView) }
         func textView(_ textView: UITextView, willDismissEditMenuWith animator: any UIEditMenuInteractionAnimating) {
-            let model = owner.model; animator.addCompletion { model.editMenuDismissed(textView) }
+            let model = owner.model
+            guard let token = model.beginEditorMenuDismissal(textView) else { return }
+            animator.addCompletion { model.editMenuDismissed(textView, token: token) }
         }
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             let current = textView.text ?? ""

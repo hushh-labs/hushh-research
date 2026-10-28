@@ -388,9 +388,13 @@ struct NativeWorkspaceAction: Equatable {
     }
     func textField(_ textField: UITextField, willPresentEditMenuWith animator: any UIEditMenuInteractionAnimating) { model?.searchMenus.presented(textField) }
     func textField(_ textField: UITextField, willDismissEditMenuWith animator: any UIEditMenuInteractionAnimating) {
-        guard let menus = model?.searchMenus else { return }; animator.addCompletion { menus.dismissed(textField) }
+        guard let menus = model?.searchMenus, let token = menus.beginDismissal(textField) else { return }
+        animator.addCompletion { menus.dismissed(textField, token: token) }
     }
-    func scrub() { field.unmarkText(); field.resignFirstResponder(); field.text = ""; field.undoManager?.removeAllActions(); field.delegate = nil }
+    func scrub() {
+        field.unmarkText(); field.resignFirstResponder(); field.text = ""; field.undoManager?.removeAllActions()
+        if model?.searchMenus.detach(field) != true { field.delegate = nil }
+    }
 }
 @MainActor final class NativeWorkspacePresentation {
     static let installationID = "route-workspace"

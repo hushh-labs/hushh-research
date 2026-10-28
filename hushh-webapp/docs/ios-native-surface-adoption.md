@@ -52,6 +52,14 @@ rows. A parent-route smoke is not evidence that each view or nested state passed
 The route-report verifier now rejects skipped, incomplete or duplicate results;
 that correction does not itself supply the missing view coverage.
 
+The shared native private editors now retain menu delegates until dismissal,
+fence overlapping menu completions and keep unfinished IME candidates inside
+the active UIKit field. Replacement and privacy retirement reconcile committed
+drafts only. Focused iPhone-simulator tests cover these model contracts; UIKit
+callback timing, real keyboards and device privacy transitions remain unqualified.
+The hard Vault gate still uses its complete React journey. Its creation form
+also guards both password fields and IME-confirming Enter against early submit.
+
 Source `519010d63b` shares UIKit text projection across native Profile name,
 password, pricing and runtime editors. A Release iPhone simulator run preserved
 selection, shortening, Unicode and marked text; a secure-field case and three

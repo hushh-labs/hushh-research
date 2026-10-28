@@ -14,7 +14,45 @@ private final class ZeroSafeAreaView: UIView {
     override func dismissMenu() { dismissals += 1 }
 }
 
+@MainActor private final class EditorDelegateLifetimeProbe: NSObject, UITextFieldDelegate {}
+
 final class NativeSupportTests: XCTestCase {
+    @MainActor
+    func testEditorMenuKeepsItsDelegateUntilDismissalCompletes() {
+        let lifetime = NativeEditorMenuLifetime(), field = UITextField()
+        var delegate: EditorDelegateLifetimeProbe? = EditorDelegateLifetimeProbe()
+        weak var releasedDelegate = delegate
+        field.delegate = delegate
+        lifetime.presented(field)
+        delegate = nil
+        XCTAssertNotNil(releasedDelegate, "A dismantled editor must still receive its menu dismissal callback")
+        if #available(iOS 16.0, *) {
+            let menu = EditorMenuDismissalProbe(delegate: nil)
+            field.addInteraction(menu)
+            XCTAssertTrue(lifetime.detach(field))
+            XCTAssertEqual(menu.dismissals, 1)
+            XCTAssertNotNil(field.delegate)
+        }
+        let first = lifetime.beginDismissal(field)!
+        lifetime.dismissed(field, token: first)
+        XCTAssertNil(field.delegate)
+        XCTAssertNil(releasedDelegate)
+
+        let overlapping = NativeEditorMenuLifetime(), other = UITextField()
+        overlapping.presented(other)
+        let old = overlapping.beginDismissal(other)!
+        overlapping.presented(other)
+        let new = overlapping.beginDismissal(other)!
+        var finished = false
+        overlapping.dismiss([other]) { finished = true }
+        overlapping.dismissed(other, token: old)
+        XCTAssertFalse(finished, "An older completion cannot retire a newer menu")
+        overlapping.dismissed(other, token: old)
+        XCTAssertFalse(finished)
+        overlapping.dismissed(other, token: new)
+        XCTAssertTrue(finished)
+    }
+
     @MainActor
     func testNativeTextFieldProjectionPreservesSelectionAndMarkedText() throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
@@ -51,8 +89,60 @@ final class NativeSupportTests: XCTestCase {
         let composing = field.text
         NativeTextFieldProjection.apply("replacement", to: field)
         XCTAssertEqual(field.text, composing)
-        field.unmarkText()
+        let projection = NativeRuntimeProjection(documentId: "synthetic-document", ownerEpoch: "synthetic-owner", ownerGeneration: 1, revision: 1,
+            family: "profile", scene: "runtime-provider", destinationId: "synthetic-visit", updateSequence: 1, privacyGeneration: 0,
+            acknowledgedEditRevision: 0, draftRevision: 0, draft: .empty, canSave: false, busy: false, checking: false,
+            primary: "validate", error: nil, appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111")
+        let editor = NativeRuntimeModel(projection)
+        editor.register(field, name: "credential"); editor.edit = { _, _, _ in true }
+        var finalEdit: String?
+        editor.finalEdit = { draft, _ in finalEdit = draft.credential }
+        editor.capture(); editor.clear()
+        XCTAssertEqual(finalEdit, "", "Retirement reconciles the committed draft, never the marked candidate")
+        XCTAssertTrue(field.becomeFirstResponder())
+        field.text = "committed"
+        let replacementEditor = NativeRuntimeModel(projection)
+        var edits: [(String, Bool)] = []
+        replacementEditor.edit = { draft, marked, _ in edits.append((draft.credential, marked)); return true }
+        replacementEditor.register(field, name: "credential"); replacementEditor.capture()
+        field.setMarkedText("candidate", selectedRange: NSRange(location: 9, length: 0))
+        XCTAssertNotNil(field.markedTextRange)
+        replacementEditor.capture()
+        XCTAssertEqual(edits.last?.0, "committed", "Unfinished candidates must not enter the React-owned draft")
+        XCTAssertEqual(edits.last?.1, true)
+        replacementEditor.choose = { _ in true }
+        replacementEditor.action("cancel")
+        let pendingCancellation = try XCTUnwrap(replacementEditor.pending)
+        let replacement = UITextField()
+        replacement.text = "replacement"
+        replacementEditor.register(replacement, name: "credential")
+        replacementEditor.scrubEditor(field) {
+            replacementEditor.unregister(field, name: "credential")
+            field.unmarkText(); field.resignFirstResponder(); field.text = ""
+        }
+        XCTAssertEqual(edits.last?.1, true, "A pending action keeps reconciliation fenced")
+        XCTAssertTrue(replacementEditor.settle(pendingCancellation))
+        XCTAssertEqual(edits.last?.0, "committed")
+        XCTAssertEqual(edits.last?.1, false)
+        replacementEditor.capture()
+        XCTAssertEqual(edits.last?.0, "replacement", "A retired field must not unregister or erase its replacement")
+        replacementEditor.clear()
+        XCTAssertTrue(field.becomeFirstResponder())
+        field.text = "committed"
+        let suspendedEditor = NativeRuntimeModel(projection)
+        var suspendedEdits: [(String, Bool)] = []
+        suspendedEditor.edit = { draft, marked, _ in suspendedEdits.append((draft.credential, marked)); return true }
+        suspendedEditor.register(field, name: "credential"); suspendedEditor.capture()
+        field.setMarkedText("candidate", selectedRange: NSRange(location: 9, length: 0))
+        XCTAssertNotNil(field.markedTextRange)
+        suspendedEditor.capture(); suspendedEditor.setPresentationEnabled(false)
+        XCTAssertEqual(field.text, "committed", "An overlay must discard unfinished text before resigning the editor")
+        suspendedEditor.setPresentationEnabled(true)
+        XCTAssertEqual(suspendedEdits.last?.0, "committed")
+        XCTAssertEqual(suspendedEdits.last?.1, false)
+        suspendedEditor.clear()
         field.isSecureTextEntry = true
+        XCTAssertTrue(field.becomeFirstResponder())
         field.text = "abcdefgh"
         let secureStart = try XCTUnwrap(field.position(from: field.beginningOfDocument, offset: 2))
         let secureEnd = try XCTUnwrap(field.position(from: field.beginningOfDocument, offset: 5))
@@ -712,6 +802,20 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(model.password, ""); XCTAssertEqual(model.confirmation, "")
         XCTAssertEqual(model.projection.password, ""); XCTAssertEqual(model.projection.confirmation, "")
         XCTAssertFalse(model.canEdit); XCTAssertNil(model.pending)
+        if #available(iOS 16.0, *) {
+            let scene = NativeProfilePasswordScene(initial), field = UITextField()
+            let menu = EditorMenuDismissalProbe(delegate: nil)
+            field.addInteraction(menu); field.text = "synthetic-private-text"
+            scene.model.passwordField = field; scene.model.editMenuPresented(field)
+            var finished = false
+            scene.retire { finished = true }
+            XCTAssertEqual(field.text, "", "Scrub the field before requesting menu dismissal")
+            XCTAssertEqual(menu.dismissals, 1)
+            XCTAssertFalse(finished, "Password scene retirement waits for the menu's completion")
+            let token = scene.model.beginEditorMenuDismissal(field)!
+            scene.model.editMenuDismissed(field, token: token)
+            XCTAssertTrue(finished)
+        }
         XCTAssertEqual(NativeProfilePricingDecimal.canonical("0,50", separator: ","), "0.50")
         XCTAssertEqual(NativeProfilePricingDecimal.canonical("1.23,45", separator: ","), "1.23,45",
             "A keyboard adapter must not reinterpret mixed/thousands notation as a valid price")
@@ -782,7 +886,8 @@ final class NativeSupportTests: XCTestCase {
             XCTAssertEqual(target.text, "", "Scrub before requesting popup retirement")
             XCTAssertEqual(menu.dismissals, 1, "Cleared registries must not lose the active menu target")
             XCTAssertFalse(finished, "A dismissal request is not its completion")
-            retiring.editMenuDismissed(target)
+            let token = retiring.beginEditorMenuDismissal(target)!
+            retiring.editMenuDismissed(target, token: token)
             XCTAssertTrue(finished)
         }
     }

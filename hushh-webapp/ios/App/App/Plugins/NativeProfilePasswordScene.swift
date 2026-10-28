@@ -57,8 +57,37 @@ struct NativePasswordProjection: Decodable {
     @Published private(set) var appearanceRevision = 0
     private var sequence = 0
     private var confirmed = 0
+    private let editMenus = NativeEditorMenuLifetime()
+    private var suppressCapture = 0
+    private var committedPassword: String
+    private var committedConfirmation: String
+    private var pendingCompositionReset = false
     weak var passwordField: UITextField?
     weak var confirmationField: UITextField?
+    func editMenuPresented(_ field: UITextField) { editMenus.presented(field) }
+    func detachEditor(_ field: UITextField) -> Bool { editMenus.detach(field) }
+    func beginEditorMenuDismissal(_ field: UITextField) -> UUID? { editMenus.beginDismissal(field) }
+    func editMenuDismissed(_ field: UITextField, token: UUID) { editMenus.dismissed(field, token: token) }
+    func scrubEditor(_ field: UITextField, _ scrub: () -> Void) {
+        let wasComposing = field.markedTextRange != nil
+        suppressCapture += 1
+        scrub()
+        suppressCapture -= 1
+        guard wasComposing, !retired else { return }
+        password = committedPassword; confirmation = committedConfirmation
+        pendingCompositionReset = true; flushCompositionReset()
+    }
+    private func flushCompositionReset() {
+        guard pendingCompositionReset, canEdit, passwordField?.markedTextRange == nil, confirmationField?.markedTextRange == nil else { return }
+        pendingCompositionReset = false; capture()
+    }
+    func unregister(_ field: UITextField, confirmation: Bool) {
+        if confirmation { if confirmationField === field { confirmationField = nil } }
+        else if passwordField === field { passwordField = nil }
+    }
+    func dismissEditorMenus(completion: @escaping () -> Void) {
+        editMenus.dismiss([passwordField, confirmationField].compactMap { $0 }, completion: completion)
+    }
     var edit: ((String, String, Bool, Int) -> Bool)?
     var choose: ((NativeProfileNameAction) -> Bool)?
     var canEdit: Bool { !retired && !projection.busy && pending == nil }
@@ -66,25 +95,38 @@ struct NativePasswordProjection: Decodable {
     var accent: UIColor { HushhNativeControlAppearance.color(projection.accentHex) ?? .label }
     init(_ projection: NativePasswordProjection) {
         self.projection = projection; password = projection.password; confirmation = projection.confirmation
+        committedPassword = projection.password; committedConfirmation = projection.confirmation
     }
     func update(_ next: NativePasswordProjection) -> Bool {
         guard !retired, next.valid, next.identity == projection.identity, next.destinationId == projection.destinationId,
               next.privacyGeneration == projection.privacyGeneration, next.updateSequence > projection.updateSequence,
               next.acknowledgedEditRevision >= projection.acknowledgedEditRevision, next.acknowledgedEditRevision <= editRevision else { return false }
         projection = next
-        if next.acknowledgedEditRevision == editRevision && !composing { password = next.password; confirmation = next.confirmation }
+        if next.acknowledgedEditRevision == editRevision && !composing {
+            password = next.password; confirmation = next.confirmation
+            committedPassword = next.password; committedConfirmation = next.confirmation
+        }
+        flushCompositionReset()
         appearanceRevision += 1
         return true
     }
     func capture() {
-        guard canEdit else { return }
+        guard canEdit, suppressCapture == 0 else { return }
         let first = passwordField?.text ?? password, second = confirmationField?.text ?? confirmation
         let marked = passwordField?.markedTextRange != nil || confirmationField?.markedTextRange != nil
+        if marked {
+            guard !composing, editRevision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return }
+            composing = true; editRevision += 1
+            if edit?(committedPassword, committedConfirmation, true, editRevision) != true { clear() }
+            return
+        }
         guard first != password || second != confirmation || marked != composing else { return }
         guard first.utf16.count <= 4096, second.utf16.count <= 4096,
               editRevision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return }
-        password = first; confirmation = second; composing = marked; editRevision += 1
-        if edit?(first, second, marked, editRevision) != true { clear() }
+        password = first; confirmation = second; composing = marked
+        committedPassword = first; committedConfirmation = second
+        editRevision += 1
+        if edit?(first, second, false, editRevision) != true { clear() }
     }
     func action(_ value: String) {
         // Capture any committed final field change before authorizing Save.
@@ -104,15 +146,16 @@ struct NativePasswordProjection: Decodable {
     }
     func settle(_ action: NativeProfileNameAction) -> Bool {
         guard !retired, pending == action else { return false }
-        pending = nil; return true
+        pending = nil; flushCompositionReset(); return true
     }
     func clear() {
         retired = true
         for field in [passwordField, confirmationField].compactMap({ $0 }) {
             field.unmarkText(); field.resignFirstResponder(); field.text = ""; field.undoManager?.removeAllActions()
+            if !editMenus.markDetached(field) { field.delegate = nil }
         }
-        password = ""; confirmation = ""; projection = projection.cleared
-        pending = nil; edit = nil; choose = nil
+        password = ""; confirmation = ""; committedPassword = ""; committedConfirmation = ""; projection = projection.cleared
+        pending = nil; pendingCompositionReset = false; edit = nil; choose = nil
     }
 }
 
@@ -145,8 +188,13 @@ struct NativePasswordProjection: Decodable {
     }
     func makeCoordinator() -> Coordinator { Coordinator(model, confirmation) }
     static func dismantleUIView(_ field: UITextField, coordinator: Coordinator) {
-        field.delegate = nil; field.removeTarget(coordinator, action: #selector(Coordinator.changed), for: .editingChanged)
-        field.resignFirstResponder(); field.text = ""; field.undoManager?.removeAllActions()
+        let model = coordinator.model
+        model.scrubEditor(field) {
+            model.unregister(field, confirmation: coordinator.confirmation)
+            field.removeTarget(coordinator, action: #selector(Coordinator.changed), for: .editingChanged)
+            field.unmarkText(); field.resignFirstResponder(); field.text = ""; field.undoManager?.removeAllActions()
+            if !model.detachEditor(field) { field.delegate = nil }
+        }
     }
     final class Coordinator: NSObject, UITextFieldDelegate {
         let model: NativePasswordModel
@@ -154,6 +202,12 @@ struct NativePasswordProjection: Decodable {
         init(_ model: NativePasswordModel, _ confirmation: Bool) { self.model = model; self.confirmation = confirmation }
         @objc func changed() { model.capture() }
         func textFieldDidChangeSelection(_ field: UITextField) { model.capture() }
+        func textField(_ field: UITextField, willPresentEditMenuWith animator: any UIEditMenuInteractionAnimating) { model.editMenuPresented(field) }
+        func textField(_ field: UITextField, willDismissEditMenuWith animator: any UIEditMenuInteractionAnimating) {
+            let model = model
+            guard let token = model.beginEditorMenuDismissal(field) else { return }
+            animator.addCompletion { model.editMenuDismissed(field, token: token) }
+        }
         func textField(_ field: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
             guard model.canEdit, let text = field.text as NSString?, range.location <= text.length, range.length <= text.length - range.location else { return false }
             return text.replacingCharacters(in: range, with: string).utf16.count <= 4096
@@ -204,7 +258,8 @@ struct NativePasswordProjection: Decodable {
         hasPending: { [weak model] in model?.pending != nil }, appearance: { [weak model] in
             guard let model else { return nil }
             return HushhNativeControlAppearance(appearance: model.projection.appearance, accentHex: model.projection.accentHex, foregroundHex: model.projection.foregroundHex)
-        }, cancel: { [weak model] in model?.action("cancel") }, clear: { [weak model] in model?.clear() })
+        }, cancel: { [weak model] in model?.action("cancel") }, clear: { [weak model] in model?.clear() },
+           dismissPopups: { [weak model] completion in if let model { model.dismissEditorMenus(completion: completion) } else { completion() } })
     }()
     var coverage: (() -> Void)? { didSet { sheet.coverage = coverage } }
     var coversPresentation: Bool { sheet.coversPresentation }
