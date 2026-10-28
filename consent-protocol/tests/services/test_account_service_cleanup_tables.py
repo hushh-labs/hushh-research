@@ -123,13 +123,10 @@ async def test_full_account_delete_forwards_only_authenticated_uid(monkeypatch):
         lambda _user_id: {"personas": ["investor"], "investor_marketplace_opt_in": False},
     )
 
-    async def _full_delete(
-        user_id,
-        *,
-        requested_target,
-    ):
+    async def _full_delete(user_id, *, requested_target, admission_check=None):
         captured["user_id"] = user_id
         captured["target"] = requested_target
+        assert admission_check is None  # owner deletion has no third-party check
         return {"success": True, "account_deleted": True}
 
     monkeypatch.setattr(service, "_delete_full_account", _full_delete)
