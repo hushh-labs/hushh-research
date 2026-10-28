@@ -1358,6 +1358,14 @@ was never crossed. This proves no provider mutation; it grants no cleanup or
 release-health authority. Unknown source, incomplete logs, cancellation and failed
 checkpoint uploads remain blocked. Every attempt is inspected, including earlier
 attempts of a currently running retry; never delete failed runs to clear admission.
+For the reviewed production worker-only workflow shape, an exact attempt with
+all three deployment jobs recorded as skipped and unstarted can prove that no
+cold phone-health lease was created. The worker's result is not a healthy-release
+receipt; unknown source or job shapes still stop reconciliation. Production
+release status is read from the current attempt's digest-verified artifact, not a
+local cache. The reader accepts the historical `tmp/prod-release-status.json`
+layout only as an unambiguous alternative to the root status file, and rechecks
+the run and artifact inventory without the maintenance-pass cache.
 A saved maintenance checkpoint may precede the README writer. Only the existing
 attempt/job/source-qualified saved-checkpoint path may restore that shape; legacy
 pending-drain archives still require the marker. Artifact ID, size, digest, bounded

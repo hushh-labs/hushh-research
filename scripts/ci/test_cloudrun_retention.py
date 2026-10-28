@@ -847,12 +847,6 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 elif defect == "uat":
                     run["path"] = ".github/workflows/deploy-uat.yml"
 
-                def download(_repo, _run, _name, directory):
-                    directory.mkdir(parents=True)
-                    (directory / "prod-release-status.json").write_text(
-                        json.dumps(release)
-                    )
-
                 with (
                     mock.patch.object(
                         MAINTENANCE,
@@ -861,10 +855,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                             jobs if "/jobs?" in endpoint else run
                         ),
                     ),
-                    mock.patch.object(
-                        MAINTENANCE, "artifact_exists", return_value=True
-                    ),
-                    mock.patch.object(MAINTENANCE, "download", side_effect=download),
+                    mock.patch.object(MAINTENANCE, "load_release", return_value=release),
                     mock.patch.object(
                         MAINTENANCE.retention,
                         "service_state",
@@ -2214,6 +2205,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                             )
 
     def test_source_is_authorized_before_any_cloud_access(self):
+        original_load = MAINTENANCE.load_release
         cases = (
             ("uat", "ankitkumarsingh1702", "", "deploy-uat.yml", "org/repo", True),
             ("uat", "unapproved-actor", "", "deploy-uat.yml", "org/repo", False),
@@ -2312,6 +2304,15 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                         ),
                         mock.patch.object(
                             MAINTENANCE, "download", side_effect=download
+                        ),
+                        mock.patch.object(
+                            MAINTENANCE,
+                            "load_release",
+                            side_effect=lambda repo, run_id, target, lane: (
+                                ({"status": "healthy", "final": {"backend_revision": revision(3)["metadata"]["name"], "frontend_revision": "hushh-webapp-00003-abc"}} if artifact_available else None)
+                                if lane == "production"
+                                else original_load(repo, run_id, target, lane)
+                            ),
                         ),
                         mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                         mock.patch.object(MAINTENANCE, "restore_state"),
@@ -2783,21 +2784,9 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
         ):
             with self.subTest(run=run), tempfile.TemporaryDirectory() as temporary:
 
-                def download(_repo, _run, name, directory):
-                    self.assertEqual(name, "prod-release-123")
-                    directory.mkdir(parents=True)
-                    (directory / "prod-release-status.json").write_text(
-                        json.dumps(healthy)
-                    )
-
                 with (
                     mock.patch.object(MAINTENANCE, "api", return_value=run),
-                    mock.patch.object(
-                        MAINTENANCE, "artifact_exists", return_value=True
-                    ),
-                    mock.patch.object(
-                        MAINTENANCE, "download", side_effect=download
-                    ) as fetch,
+                    mock.patch.object(MAINTENANCE, "load_release", return_value=healthy) as fetch,
                 ):
                     if run != good:
                         with self.assertRaises(MAINTENANCE.retention.UnsafeState):

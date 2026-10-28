@@ -143,6 +143,8 @@ class ReplayedReleaseFixture:
                     if defect == "wrong_lane"
                     else self.status_name
                 )
+                if defect in {"legacy", "both"}:
+                    status_name = "tmp/prod-release-status.json"
                 bundle.writestr(
                     status_name,
                     json.dumps(
@@ -154,6 +156,8 @@ class ReplayedReleaseFixture:
                         }
                     ),
                 )
+                if defect == "both":
+                    bundle.writestr(self.status_name, '{"status":"healthy"}')
             bundle.writestr("other-evidence.json", "must not be extracted")
             if defect == "traversal":
                 bundle.writestr("../escape", "invalid")
@@ -273,13 +277,17 @@ class ReplayedUatReleaseArtifactTest(ReplayedReleaseFixture, unittest.TestCase):
                 )
                 self.assertEqual(result["marker"], "attempt-two")
                 self.assertIn("/artifacts/100/zip", fetch.call_args.args[0][-1])
-                self.assertEqual(
-                    list((directory / "300-artifact-100").iterdir()),
-                    [directory / "300-artifact-100" / self.status_name],
-                )
+                if self.environment == "production":
+                    self.assertFalse((directory / "300-artifact-100").exists())
+                else:
+                    self.assertEqual(
+                        list((directory / "300-artifact-100").iterdir()),
+                        [directory / "300-artifact-100" / self.status_name],
+                    )
 
     def test_replayed_release_rejects_corrupt_or_unsafe_archives(self):
-        for defect in ("digest", "size", "symlink", "traversal", "wrong_lane"):
+        defects = ("digest", "size", "symlink", "traversal", "wrong_lane")
+        for defect in defects + (("both",) if self.environment == "production" else ()):
             with (
                 self.subTest(defect=defect),
                 tempfile.TemporaryDirectory() as temporary,
@@ -301,6 +309,107 @@ class ReplayedUatReleaseArtifactTest(ReplayedReleaseFixture, unittest.TestCase):
                             pathlib.Path(temporary) / "release",
                             self.environment,
                         )
+
+    def test_legacy_production_status_is_bound_to_current_upload_and_digest(self):
+        if self.environment != "production":
+            return
+        archive = self.archive("legacy")
+        self.inventory = {"total_count": 1, "artifacts": [self.artifact]}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            (directory / "300").mkdir()
+            (directory / "300" / self.status_name).write_text('{"status":"forged"}')
+            outside = directory / "outside"
+            outside.mkdir()
+            (outside / self.status_name).write_text('{"status":"forged"}')
+            (directory / "300-artifact-100").symlink_to(outside, target_is_directory=True)
+
+            with (
+                mock.patch.object(MAINTENANCE, "api", side_effect=self.api),
+                mock.patch.object(MAINTENANCE, "download", side_effect=AssertionError("filesystem cache is not authority")),
+                mock.patch.object(
+                    MAINTENANCE.retention,
+                    "run_command",
+                    return_value=subprocess.CompletedProcess([], 0, archive, b""),
+                ),
+            ):
+                result = MAINTENANCE.load_release(self.repo, 300, directory, self.environment)
+                self.assertEqual(result["marker"], "attempt-two")
+                self.assertEqual(result["status"], "healthy")
+                self.artifact["digest"] = "sha256:" + "0" * 64
+                with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                    MAINTENANCE.load_release(self.repo, 300, directory, self.environment)
+                self.artifact["digest"] = "sha256:" + hashlib.sha256(archive).hexdigest()
+                calls = 0
+
+                def rerun(repository, endpoint):
+                    nonlocal calls
+                    result = copy.deepcopy(self.api(repository, endpoint))
+                    if endpoint == "runs/300":
+                        calls += 1
+                        if calls == 2:
+                            result["run_attempt"] += 1
+                    return result
+
+                with mock.patch.object(MAINTENANCE, "api", side_effect=rerun):
+                    with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                        MAINTENANCE.load_release(self.repo, 300, directory, self.environment)
+
+    def test_production_release_refuses_a_changed_attempt_or_new_artifact(self):
+        if self.environment != "production":
+            return
+        for defect in (None, "run", "artifact"):
+            self.setUp()
+            self.inventory = {"total_count": 0, "artifacts": []}
+            calls = {"run": 0, "artifact": 0}
+
+            def changing_api(repository, endpoint):
+                result = copy.deepcopy(self.api(repository, endpoint))
+                key = "artifact" if "/artifacts?" in endpoint else "run"
+                calls[key] += 1
+                if calls[key] == 2 and defect == key:
+                    if key == "run":
+                        result["run_attempt"] += 1
+                    else:
+                        result = {"total_count": 1, "artifacts": [self.artifact]}
+                return result
+
+            with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temporary:
+                with mock.patch.object(MAINTENANCE, "api", side_effect=changing_api):
+                    if defect is None:
+                        self.assertIsNone(MAINTENANCE.load_release(self.repo, 300, pathlib.Path(temporary), self.environment))
+                    else:
+                        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                            MAINTENANCE.load_release(self.repo, 300, pathlib.Path(temporary), self.environment)
+
+    def test_snapshot_recheck_bypasses_the_real_maintenance_api_cache(self):
+        if self.environment != "production":
+            return
+        for defect in ("run", "artifact"):
+            self.setUp()
+            inventory = {"total_count": 0, "artifacts": []}
+            calls = {"run": 0, "artifact": 0}
+
+            def command(*args):
+                key = "artifact" if "/artifacts?" in args[-1] else "run"
+                calls[key] += 1
+                value = copy.deepcopy(inventory if key == "artifact" else self.run)
+                if calls[key] == 2 and key == defect:
+                    if key == "run":
+                        value["run_attempt"] += 1
+                    else:
+                        value = {"total_count": 1, "artifacts": [self.artifact]}
+                return json.dumps(value)
+
+            cache = MAINTENANCE._API_CACHE.set({})
+            try:
+                with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temporary:
+                    with mock.patch.object(MAINTENANCE, "command", side_effect=command):
+                        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                            MAINTENANCE.load_release(self.repo, 300, pathlib.Path(temporary), self.environment)
+                self.assertGreaterEqual(calls[defect], 2)
+            finally:
+                MAINTENANCE._API_CACHE.reset(cache)
 
 
 class ReplayedProductionReleaseArtifactTest(

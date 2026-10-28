@@ -366,13 +366,18 @@ class OperationalRetentionCases(WorkerRetentionCases, RetentionFixture):
         for key in ("_maintenance_pending_retirement", "_maintenance_backend_identity"):
             with self.subTest(key=key), tempfile.TemporaryDirectory() as temporary:
                 directory = pathlib.Path(temporary)
-                path = directory / "400" / "prod-release-status.json"
-                path.parent.mkdir()
-                path.write_text(json.dumps({**self.release, key: {"forged": True}}))
+                run = {"id": 400, "status": "completed", "conclusion": "success"}
+                inventory = {"total_count": 1, "artifacts": [{"name": "prod-release-400"}]}
+
+                def api(_repo, endpoint):
+                    return inventory if endpoint.endswith("/artifacts?per_page=100") else run
+
                 with (
-                    mock.patch.object(
-                        MAINTENANCE, "artifact_exists", return_value=True
-                    ),
+                    mock.patch.object(MAINTENANCE, "api", side_effect=api),
+                    mock.patch.object(MAINTENANCE, "governed_dispatch", return_value=True),
+                    mock.patch.object(MAINTENANCE.release_artifact_receipts, "current_attempt_artifact", return_value=({}, None)),
+                    mock.patch.object(MAINTENANCE.release_artifact_receipts, "immutable_archive", return_value=b"fixture"),
+                    mock.patch.object(MAINTENANCE.release_artifact_receipts, "_status_bytes", return_value=json.dumps({**self.release, key: {"forged": True}}).encode()),
                     self.assertRaisesRegex(
                         RETENTION.UnsafeState, "internal maintenance authority"
                     ),
