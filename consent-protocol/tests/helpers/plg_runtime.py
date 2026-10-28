@@ -126,6 +126,8 @@ class RuntimeConnection(Connection):
         self.extra, self.saved = [], None
         self.admin_select = set(runtime.TABLES) if installed else set()
         self.temporary_owners = True
+        self.schema_owner = "unrelated_owner" if defect == "schema-owner" else "pg_database_owner"
+        self.current_role = "synthetic_admin"
         if defect == "partial":
             first = self.objects[0].table_oid
             changed = "synthetic_admin" if installed else runtime.RUNTIME_ROLE
@@ -168,8 +170,15 @@ class RuntimeConnection(Connection):
             self.saved = (self.create, self.objects[:], self.extra[:], self.admin_select.copy())
         elif text == "ROLLBACK" and self.saved:
             self.create, self.objects, self.extra, self.admin_select = self.saved
+            self.current_role = "synthetic_admin"
+        elif text.startswith("SET LOCAL ROLE"):
+            role = re.search(r'"([^"]+)"', text)[1]
+            if not (self.defect == "role-reset" and role == "synthetic_admin"):
+                self.current_role = role
         elif text.startswith("GRANT USAGE,CREATE ON SCHEMA"):
-            self.create = True
+            # Cloud SQL's admin has CREATE without grant option. PostgreSQL
+            # warns and grants nothing unless the schema owner is selected.
+            self.create = self.current_role == self.schema_owner and self.defect != "grant-noop"
         elif text.startswith("ALTER TABLE public."):
             name = re.search(r'public\."([^"]+)"', text)[1]
             oid = next(o.oid for o in self.objects if o.kind == "table" and o.name == name)
@@ -194,6 +203,15 @@ class RuntimeConnection(Connection):
         raise AssertionError("unrecognized inert metadata query")
 
     def fetchone(self):
+        if self.query.startswith("SELECT pg_get_userbyid(nspowner)"):
+            return (self.schema_owner,)
+        if self.query == "SELECT current_user":
+            return (self.current_role,)
+        if (
+            self.query.startswith("SELECT has_schema_privilege")
+            and self.query != self.runtime.RIGHTS_SQL
+        ):
+            return (True, self.create)
         if "preserved_admin_select" in self.query:
             direct = self.admin_select == set(self.runtime.TABLES)
             effective = (not self.create or self.temporary_owners or direct) and (
