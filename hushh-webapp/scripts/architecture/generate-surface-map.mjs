@@ -629,6 +629,19 @@ function buildSurfaceMap() {
   const inventoryByRoute = new Map(
     (inventory.routes || []).map((route) => [route.route, route]),
   );
+  const topology = readJson(path.join(repoRoot, "config/runtime-topology-maintenance.json"));
+  const semanticViews = (topology.semantic_routes || []).filter((view) => view.lifecycle === "canonical").map((view) => {
+    if (typeof view.canonical_url !== "string" || !view.canonical_url.startsWith("/") || view.canonical_url.startsWith("//") ||
+        pathnameForRoute(view.canonical_url) !== view.pathname || !contractByRoute.has(view.pathname)) {
+      throw new Error(`Invalid canonical semantic route: ${view.id}`);
+    }
+    return { id: view.id, route: view.canonical_url, pathname: view.pathname, tab_set: view.tab_set || null,
+      page_file: routeToPageFile(view.pathname), native_classification: inventoryByRoute.get(view.pathname)?.classification || null };
+  });
+  if (new Set(semanticViews.map((view) => view.id)).size !== semanticViews.length ||
+      new Set(semanticViews.map((view) => view.route)).size !== semanticViews.length) {
+    throw new Error("Canonical semantic views must have unique identifiers and routes");
+  }
   const apiRoutes = walkFiles(
     path.join(appRoot, "app/api"),
     (filePath) => path.basename(filePath) === "route.ts",
@@ -648,11 +661,13 @@ function buildSurfaceMap() {
       route_layout_contract: "lib/navigation/app-route-layout.contract.json",
       physical_pages: "app/**/page.tsx",
       native_inventory: "native-route-inventory.json",
+      semantic_views: "../config/runtime-topology-maintenance.json",
       api_routes: "app/api/**/route.ts",
       route_docs: "../docs/reference/architecture/route-contracts.md",
       mobile_docs: "../docs/reference/mobile/capacitor-parity-audit.md",
     },
     nextjs_api_routes: apiRoutes,
+    semantic_views: semanticViews,
     routes: routes.map((route) => {
       const pageFile = routeToPageFile(route);
       const voiceContractFile = routeToVoiceContractFile(route);

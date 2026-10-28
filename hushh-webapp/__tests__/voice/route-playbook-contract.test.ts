@@ -4,8 +4,28 @@ import { PUBLIC_ROUTES, PUBLIC_ROUTE_SEMANTICS } from "@/lib/seo/site";
 import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 import { describe, expect, it } from "vitest";
 import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
+import { TOP_SHELL_TAB_REGISTRY } from "@/lib/navigation/top-shell-tabs";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 describe("One route voice playbooks", () => {
+  it("includes canonical query-backed views in the native surface map", () => {
+    const topology = JSON.parse(readFileSync(resolve(process.cwd(), "../config/runtime-topology-maintenance.json"), "utf8"));
+    const expected = topology.semantic_routes.filter((route: { lifecycle: string }) => route.lifecycle === "canonical")
+      .map((route: { id: string; canonical_url: string }) => [route.id, route.canonical_url]);
+    const views = (surfaceMap as unknown as { semantic_views?: { id: string; route: string }[] }).semantic_views ?? [];
+    expect(views.map(view => [view.id, view.route])).toEqual(expected);
+    expect(views.some(view => view.route === "/one/kai?tab=portfolio")).toBe(true);
+    const paths = new Set(views.map(view => view.route));
+    for (const definition of Object.values(TOP_SHELL_TAB_REGISTRY)) {
+      if (!definition.queryParam) continue;
+      for (const tab of definition.tabs) {
+        const url = new URL(tab.href, "https://example.invalid");
+        url.searchParams.set(definition.queryParam, tab.value);
+        expect(paths.has(`${url.pathname}${url.search}`), `${definition.id}:${tab.value}`).toBe(true);
+      }
+    }
+  });
   it.each([["", "Setup", "/one/setup"], ["from=%2Fone%2Fprofile%2Fhosting", "Hosting", "/one/profile/hosting"]])("preserves the cloud visit parent (%s)", (query, label, href) => {
     const breadcrumb = resolveTopShellBreadcrumb("/one/setup/cloud", new URLSearchParams(query));
     expect(breadcrumb?.items[1]).toEqual({ label, href });

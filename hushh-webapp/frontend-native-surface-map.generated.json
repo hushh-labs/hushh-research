@@ -6,6 +6,7 @@
     "route_layout_contract": "lib/navigation/app-route-layout.contract.json",
     "physical_pages": "app/**/page.tsx",
     "native_inventory": "native-route-inventory.json",
+    "semantic_views": "../config/runtime-topology-maintenance.json",
     "api_routes": "app/api/**/route.ts",
     "route_docs": "../docs/reference/architecture/route-contracts.md",
     "mobile_docs": "../docs/reference/mobile/capacitor-parity-audit.md"
@@ -370,6 +371,144 @@
     {
       "template": "/api/world-model/store-domain",
       "file": "app/api/world-model/store-domain/route.ts"
+    }
+  ],
+  "semantic_views": [
+    {
+      "id": "public.research",
+      "route": "/welcome?tab=research",
+      "pathname": "/welcome",
+      "tab_set": "public",
+      "page_file": "app/welcome/page.tsx",
+      "native_classification": "excluded-web-only"
+    },
+    {
+      "id": "public.blog",
+      "route": "/welcome?tab=blog",
+      "pathname": "/welcome",
+      "tab_set": "public",
+      "page_file": "app/welcome/page.tsx",
+      "native_classification": "excluded-web-only"
+    },
+    {
+      "id": "public.developers",
+      "route": "/welcome?tab=developers",
+      "pathname": "/welcome",
+      "tab_set": "public",
+      "page_file": "app/welcome/page.tsx",
+      "native_classification": "excluded-web-only"
+    },
+    {
+      "id": "finance.market",
+      "route": "/one/kai?tab=market",
+      "pathname": "/one/kai",
+      "tab_set": "finance",
+      "page_file": "app/one/kai/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "finance.portfolio",
+      "route": "/one/kai?tab=portfolio",
+      "pathname": "/one/kai",
+      "tab_set": "finance",
+      "page_file": "app/one/kai/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "finance.analysis",
+      "route": "/one/kai?tab=analysis",
+      "pathname": "/one/kai",
+      "tab_set": "finance",
+      "page_file": "app/one/kai/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "consent.requests",
+      "route": "/one/consent?tab=requests",
+      "pathname": "/one/consent",
+      "tab_set": "consent",
+      "page_file": "app/one/consent/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "consent.active",
+      "route": "/one/consent?tab=active",
+      "pathname": "/one/consent",
+      "tab_set": "consent",
+      "page_file": "app/one/consent/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "consent.history",
+      "route": "/one/consent?tab=history",
+      "pathname": "/one/consent",
+      "tab_set": "consent",
+      "page_file": "app/one/consent/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "consent.connections",
+      "route": "/one/consent?tab=connections",
+      "pathname": "/one/consent",
+      "tab_set": "consent",
+      "page_file": "app/one/consent/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "location.now",
+      "route": "/one/location?view=now",
+      "pathname": "/one/location",
+      "tab_set": "location",
+      "page_file": "app/one/location/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "location.people",
+      "route": "/one/location?view=people",
+      "pathname": "/one/location",
+      "tab_set": "location",
+      "page_file": "app/one/location/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "location.links",
+      "route": "/one/location?view=links",
+      "pathname": "/one/location",
+      "tab_set": "location",
+      "page_file": "app/one/location/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "connect.connections",
+      "route": "/one/connect?tab=all",
+      "pathname": "/one/connect",
+      "tab_set": "connect",
+      "page_file": "app/one/connect/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "connect.circles",
+      "route": "/one/connect?tab=circles",
+      "pathname": "/one/connect",
+      "tab_set": "connect",
+      "page_file": "app/one/connect/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "mail.kyc",
+      "route": "/one/gmail?workspace=kyc",
+      "pathname": "/one/gmail",
+      "tab_set": "gmail-workspace",
+      "page_file": "app/one/gmail/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "mail.receipts",
+      "route": "/one/gmail?workspace=receipts",
+      "pathname": "/one/gmail",
+      "tab_set": "gmail-workspace",
+      "page_file": "app/one/gmail/page.tsx",
+      "native_classification": "native-required-functional"
     }
   ],
   "routes": [
@@ -11000,5 +11139,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "25d819595d1a019beb7efbf3c0fc9282f8bc4fd19ed8c6234a76b8ededaaad36"
+  "content_sha256": "145feb7b48d8cb1f2c73220a3eccf940f1c84fa2ccdbb37132be5c61b697549d"
 }

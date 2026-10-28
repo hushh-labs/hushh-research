@@ -29,6 +29,9 @@ endpoint family, native transport, plugin dependency, and voice/action contract.
 ## Source
 
 - Generated contract: `hushh-webapp/frontend-native-surface-map.generated.json`
+- Canonical query-backed views: `semantic_views`, sourced from
+  `config/runtime-topology-maintenance.json`; entries inherit route classification
+  for discovery only and do not establish native or runtime acceptance.
 - Freshness proof: the generated contract carries a deterministic
   `content_sha256`; do not infer staleness from wall-clock generation dates.
 - Generator: `hushh-webapp/scripts/architecture/generate-surface-map.mjs`
