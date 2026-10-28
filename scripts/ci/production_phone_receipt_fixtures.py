@@ -12,6 +12,22 @@ import production_phone_receipt as phone
 import production_backend_successor as reference
 
 
+def historical_restoration_source(canonical):
+    # Exact job used by healthy restoration 40475676949/2, before two
+    # additive dispatch gates. Its digest freezes the reconstructed bytes.
+    block = lease.nonproducer._job_block(canonical.decode(), lease.RESTORATION_JOB)
+    historical = block.replace("${{ inputs.main_approval_sha }}", "").replace(
+        "\n      - name: Validate production incident boundary\n"
+        "        id: dispatch-authority\n"
+        "        run: python3 scripts/ci/production_emergency.py dispatch\n",
+        "",
+    )
+    assert hashlib.sha256(historical.encode()).hexdigest() == (
+        "94db30af3be1742efd4f2105f43aa2508d74fbceb58a2d3cc26c92795ea24d62"
+    ), "Historical restoration fixture changed"
+    return canonical.replace(block.encode(), historical.encode())
+
+
 def _qualified_phone():
     source, image = "b" * 40, "gcr.io/hushh-pda/consent-protocol@sha256:" + "c" * 64
     probe = {
