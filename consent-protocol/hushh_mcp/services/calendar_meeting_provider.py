@@ -9,7 +9,7 @@ import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
 from hushh_mcp.services.calendar_meeting_common import ArtifactUnavailable
-from hushh_mcp.services.google_drive_adapter import classify_google_forbidden_response
+from hushh_mcp.services.google_provider_errors import classify_google_forbidden_response
 
 
 async def meet_request(token, path, params=None):

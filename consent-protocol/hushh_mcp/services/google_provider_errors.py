@@ -10,7 +10,9 @@ ERROR_RESPONSE_LIMIT = 16 * 1024
 RETRYABLE_403_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
 
 
-async def classify_google_forbidden_response(response: httpx.Response) -> str:
+async def classify_google_forbidden_response(
+    response: httpx.Response, *, strict_drive_retry: bool = False
+) -> str:
     """Return a closed reason from a bounded 403 body; never expose its message."""
     if response.headers.get("Content-Encoding", "identity").lower() != "identity":
         return "resource_denied"
@@ -26,16 +28,37 @@ async def classify_google_forbidden_response(response: httpx.Response) -> str:
     error = result.get("error") if isinstance(result, dict) else None
     if not isinstance(error, dict) or type(error.get("code")) is not int or error["code"] != 403:
         return "resource_denied"
+    errors = error.get("errors")
+    # This is the existing Drive retry predicate, including its exact spelling
+    # and whole-list validation. Details have never changed that decision.
+    if strict_drive_retry and (
+        isinstance(errors, list)
+        and 1 <= len(errors) <= 16
+        and all(
+            isinstance(item, dict)
+            and isinstance(item.get("reason"), str)
+            and item["reason"] in RETRYABLE_403_REASONS
+            for item in errors
+        )
+    ):
+        return "rate_limited"
     reasons = set()
     for key in ("errors", "details"):
         values = error.get(key)
-        if isinstance(values, list):
-            for item in values[:16]:
-                if isinstance(item, dict) and isinstance(item.get("reason"), str):
-                    reasons.add(item["reason"].replace("_", "").replace("-", "").upper())
-    if reasons and reasons <= {
-        reason.replace("_", "").replace("-", "").upper() for reason in RETRYABLE_403_REASONS
-    }:
+        if values is None:
+            continue
+        if not isinstance(values, list) or len(values) > 16:
+            return "resource_denied"
+        for item in values:
+            if not isinstance(item, dict) or not isinstance(item.get("reason"), str):
+                return "resource_denied"
+            reasons.add(item["reason"].replace("_", "").replace("-", "").upper())
+    if (
+        not strict_drive_retry
+        and reasons
+        and reasons
+        <= {reason.replace("_", "").replace("-", "").upper() for reason in RETRYABLE_403_REASONS}
+    ):
         return "rate_limited"
     if reasons & {"SERVICEDISABLED", "APIDISABLED", "ACCESSNOTCONFIGURED"}:
         return "provider_configuration"

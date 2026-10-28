@@ -12,6 +12,7 @@ import httpx
 import pytest
 
 from hushh_mcp.services import google_connector_transition as transition
+from hushh_mcp.services.google_connection_scope_policy import selected_grant_scopes
 from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     GoogleConnectionService,
@@ -24,6 +25,25 @@ from hushh_mcp.services.google_connector_transition_store import (
 from hushh_mcp.services.pod_request_signing import VerifiedPod
 from tests.google_oauth_test_support import TransactionEngine
 from tests.helpers.google_connection_binding import _Db, _service, _store
+
+
+@pytest.mark.parametrize("service", ["gmail", "contacts", "drive"])
+def test_non_calendar_google_scope_fallback_is_unchanged(service):
+    scopes, granted, guest_photos = selected_grant_scopes(
+        "", ("synthetic.required", "synthetic.optional"), service
+    )
+    assert scopes == "synthetic.required synthetic.optional"
+    assert granted == set()
+    assert guest_photos is False
+
+
+def test_calendar_optional_scope_needs_provider_evidence():
+    scopes, granted, guest_photos = selected_grant_scopes(
+        "", ("synthetic.required", "synthetic.optional"), "calendar"
+    )
+    assert scopes == ""
+    assert granted == set()
+    assert guest_photos is False
 
 
 @pytest.mark.parametrize("domain", ["hushh.ai", "hussh.ai", "hussh.si"])

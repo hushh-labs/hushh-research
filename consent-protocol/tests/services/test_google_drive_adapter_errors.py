@@ -52,3 +52,28 @@ async def test_rest_403_rate_limits_are_retryable_without_marking_sources_unavai
     assert caught.value.retryable is retryable
     assert caught.value.provider_reason == provider_reason
     assert len(requests) == 1 and requests[0].method == "GET"
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        [{"reason": "rateLimitExceeded"}, {"unexpected": "malformed"}],
+        [{"reason": "rateLimitExceeded"}] * 16 + [{"reason": "insufficientFilePermissions"}],
+        [{"reason": "rateLimitExceeded"}, {"reason": "insufficientFilePermissions"}],
+    ],
+)
+async def test_mixed_or_oversized_drive_403_never_becomes_retryable(adapter, monkeypatch, entries):
+    original = httpx.AsyncClient
+
+    def handler(_request):
+        body = {"error": {"code": 403, "errors": entries}}
+        return httpx.Response(403, stream=httpx.ByteStream(json.dumps(body).encode()))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(handler))
+    )
+    with pytest.raises(drive.DriveReadError) as caught:
+        await adapter.get_file_facts(file_id="selected-file", access_token="synthetic-token")
+    assert str(caught.value) == "source_unavailable"
+    assert caught.value.status_code == 403
+    assert caught.value.retryable is False
