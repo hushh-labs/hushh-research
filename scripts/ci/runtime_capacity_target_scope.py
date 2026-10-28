@@ -390,12 +390,20 @@ def non_target_routing(
 
     def inspect(value: Any) -> None:
         for item in _walk(value):
-            if isinstance(item, str) and any(
-                endpoint in decoded(item) for endpoint in endpoints
-            ):
-                raise BudgetError(
-                    "non-target workload references isolated DEV instance"
-                )
+            candidates = (
+                [item]
+                if isinstance(item, str)
+                else list(item)
+                if isinstance(item, dict)
+                else []
+            )
+            for candidate in candidates:
+                if isinstance(candidate, str) and any(
+                    endpoint in decoded(candidate) for endpoint in endpoints
+                ):
+                    raise BudgetError(
+                        "non-target workload references isolated DEV instance"
+                    )
 
     def unique_pairs(pairs):
         result = {}

@@ -365,6 +365,7 @@ class IsolatedRouteBoundaryTest(unittest.TestCase):
             "not-json",
             "[]",
             '{"db":{"host":"192.0.2.10"}}',
+            '{"instances":{"192.0.2.\\u00310":{}}}',
             '{"db":"192.0.2.10","db":"safe"}',
             '{"db":"192%252e0%252e2%252e10"}',
             '{"db":"${DB_HOST}"}',
