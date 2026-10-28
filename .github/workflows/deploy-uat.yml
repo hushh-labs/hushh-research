@@ -3922,7 +3922,6 @@ jobs:
     env:
       PLG_ENV: uat
       PLG_UNSUPPORTED_LIVE_WORK: ${{ (inputs.build_pod_image || inputs.run_live_model_checks || inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok) && 'true' || 'false' }}
-      PLG_FOLDER: ${{ runner.temp }}/plg-isolated-qualification
       PROTOCOL_PYTHON: ${{ github.workspace }}/source/consent-protocol/.venv/bin/python
       GH_TOKEN: ${{ github.token }}
       PYTHON_DOTENV_DISABLED: "1"
@@ -3937,6 +3936,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+
+      - name: Select private qualification workspace
+        shell: bash
+        run: echo "PLG_FOLDER=${RUNNER_TEMP}/plg-isolated-qualification" >> "$GITHUB_ENV"
 
       - name: Require governed isolated PLG target
         env:

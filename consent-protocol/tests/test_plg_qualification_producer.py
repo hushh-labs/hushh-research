@@ -274,3 +274,48 @@ def test_isolated_jobs_execute_required_gates_without_routing_shared_jobs(module
     ]
     normal = document["jobs"]["deploy" if environment == "dev" else "select-target"]
     assert normal["if"] == "inputs.target != 'plg-isolated-qualification'"
+
+
+@pytest.mark.parametrize("environment", ["dev", "uat"])
+def test_isolated_workspace_is_selected_after_runner_assignment(environment, tmp_path):
+    import os
+    import shutil
+    import subprocess
+
+    import yaml
+
+    document = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
+    job = document["jobs"]["plg-isolated"]
+    # GitHub does not expose the runner context at jobs.<job_id>.env.
+    assert all("runner." not in str(value) for value in job.get("env", {}).values())
+    steps = job["steps"]
+    select = next(step for step in steps if "PLG_FOLDER=" in step.get("run", ""))
+    require = next(step for step in steps if "--phase require" in step.get("run", ""))
+    assert steps.index(select) < steps.index(require)
+    shell = shutil.which("bash")
+    if os.name == "nt" and (git := shutil.which("git")):
+        git_bash = Path(git).parents[1] / "bin/bash.exe"
+        if git_bash.is_file():
+            shell = str(git_bash)
+    if not shell:
+        pytest.skip("Bash runtime unavailable")
+    runner_temp = tmp_path / "runner temp"
+    runner_temp.mkdir()
+    exports = tmp_path / "runner.env"
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "RUNNER_TEMP": runner_temp.as_posix(),
+        "GITHUB_ENV": exports.as_posix(),
+    }
+    if "SYSTEMROOT" in os.environ:
+        env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
+    subprocess.run(  # noqa: S603 -- Reviewed workspace-selector step, isolated test environment.
+        [shell, "--noprofile", "--norc", "-c", select["run"]],
+        env=env,
+        check=True,
+        capture_output=True,
+        timeout=10,
+    )
+    assert exports.read_text().splitlines() == [
+        f"PLG_FOLDER={runner_temp.as_posix()}/plg-isolated-qualification"
+    ]
