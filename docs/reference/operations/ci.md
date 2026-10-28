@@ -1271,6 +1271,8 @@ Practical maintainer rule:
 
 ### Local core mirror
 
+For local PostgreSQL-backed checks, run `bash scripts/ci/run-with-isolated-postgres.sh bash scripts/ci/orchestrate.sh core` from the repository root. The wrapper owns a temporary PostgreSQL 17 server and checks that both database drivers reach it before tests start. If `pg_config` selects another version, set `HUSHH_CI_TEST_PG_BIN` to the PostgreSQL 17 binary directory. The wrapper leaves existing local servers running. Standalone pytest harnesses have their own database contracts; this wrapper does not attest them.
+
 `bash scripts/ci/orchestrate.sh core` is the local pre-push run: secret and governance, then protocol and web-core in parallel (separate Python and Node runtimes), then mcp-package and integration, which need the protocol stage's Python environment. A 26 September 2026 sample took 374 s; a 27 October sample with `CORE_SERIAL=1` took 1,967 s. These are historical observations, not runtime promises. The browser layout packs and full Vitest suite are not in the core mirror; GitHub Actions runs them and stays the authority. Set `CORE_SERIAL=1` to run protocol and web-core one after the other. `web-targeted` runs every matched pack and lists every failure instead of stopping at the first, so one broken pack no longer hides the next.
 
 When the broad Chromium/WebKit layout pack is selected, it owns the agent

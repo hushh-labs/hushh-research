@@ -19,6 +19,12 @@ if [ -z "$PYTHON_BIN" ]; then
   fi
 fi
 
+if [ -n "${ONE_COMMAND_TEST_DATABASE_URL:-}" ]; then
+  # All database fixture families must see the same disposable service before
+  # any test can create schemas, databases or migration objects.
+  PYTHONPATH=. "$PYTHON_BIN" -m tests.helpers.isolated_postgres
+fi
+
 if [ ! -f "$MANIFEST_PATH" ]; then
   echo "Missing backend CI test manifest: $MANIFEST_PATH" >&2
   exit 1

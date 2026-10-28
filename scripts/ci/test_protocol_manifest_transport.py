@@ -41,6 +41,8 @@ class ProtocolManifestTransportTest(unittest.TestCase):
             env.pop("PROTOCOL_TEST_PARTITION", None)
             env.pop("PROTOCOL_DATABASE_SHARD_COUNT", None)
             env.pop("PROTOCOL_DATABASE_SHARD_INDEX", None)
+            env.pop("ONE_COMMAND_TEST_DATABASE_URL", None)
+            env.pop("ONE_COMMAND_TEST_PG_MANIFEST", None)
             env.pop("OFFLINE_DB_PATH", None)
             if partition is not None:
                 env["PROTOCOL_TEST_PARTITION"] = partition
