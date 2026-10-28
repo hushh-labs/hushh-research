@@ -414,7 +414,7 @@ planner. No content/OCR/extraction/indexing or second model enters this path.
 Historical policy readers and V1 digests remain unchanged; existing paid/approved
 membership cannot be reinterpreted without a new request revision. The activity
 union is file-event eligibility, not content-period proof. See
-[the operational contract](drive-continuous-packets.md#activity-date-search-match-delivery-policy-v4)
+[the operational contract](./drive-continuous-packets.md#activity-date-search-match-delivery-policy-v4)
 for limits, evidence, diagnostics, adoption, recovery and rollback. Synthetic
 planner evaluation proves only its observed bounded cases, not Drive UI parity
 or production-corpus recall.
