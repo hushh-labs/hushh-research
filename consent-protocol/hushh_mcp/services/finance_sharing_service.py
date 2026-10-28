@@ -262,7 +262,7 @@ class FinanceSharingService:
                 self._SELECT
                 + f" WHERE {column}=:viewer AND (CAST(:cursor AS uuid) IS NULL OR g.id>CAST(:cursor AS uuid)) ORDER BY g.id LIMIT 51",
                 {"viewer": viewer, "cursor": cursor},
-            )  # nosec B608 - fixed column
+            )  # nosec B608 # fixed column
             return {
                 "items": [grant_projection(r, viewer) for r in found[:50]],
                 "nextCursor": str(found[49]["id"]) if len(found) > 50 else None,
