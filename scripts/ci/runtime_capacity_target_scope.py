@@ -1,6 +1,7 @@
 """Target routing and reviewed reservation scopes; no cloud or budget math."""
 
 import json
+import posixpath
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -337,6 +338,47 @@ def non_target_routing(
 ) -> set[str]:
     """Inspect declared routing, including opaque route-bearing config in memory."""
     versions: set[str] = set()
+    projected_by_env: dict[int, set[str]] = {}
+    for spec in _walk(workload):
+        if not isinstance(spec, dict) or not isinstance(spec.get("containers"), list):
+            continue
+        volumes = spec.get("volumes", [])
+        if not isinstance(volumes, list):
+            raise BudgetError("unresolved non-target volume routing")
+        by_name = {
+            volume.get("name"): volume for volume in volumes if isinstance(volume, dict)
+        }
+        if len(by_name) != len(volumes):
+            raise BudgetError("unresolved non-target volume routing")
+        for container in spec["containers"]:
+            if not isinstance(container, dict):
+                raise BudgetError("unresolved non-target volume routing")
+            paths = set()
+            for mount in container.get("volumeMounts", []):
+                if not isinstance(mount, dict) or set(mount) - {"name", "mountPath"}:
+                    continue
+                path = mount.get("mountPath")
+                volume = by_name.get(mount.get("name"), {})
+                secret = volume.get("secret", {})
+                if (
+                    not isinstance(path, str)
+                    or not path.startswith("/")
+                    or posixpath.normpath(path) != path
+                    or not isinstance(secret, dict)
+                    or not isinstance(secret.get("items"), list)
+                ):
+                    continue
+                for item in secret["items"]:
+                    if isinstance(item, dict) and isinstance(item.get("path"), str):
+                        relative = item["path"]
+                        if (
+                            not relative.startswith("/")
+                            and posixpath.normpath(relative) == relative
+                        ):
+                            paths.add(posixpath.join(path, relative))
+            for entry in container.get("env", []):
+                if isinstance(entry, dict):
+                    projected_by_env[id(entry)] = paths
 
     def decoded(value: str) -> str:
         for _ in range(4):
@@ -469,6 +511,12 @@ def non_target_routing(
             continue
         if "value" in node:
             value = node["value"]
+            if isinstance(value, str) and value in projected_by_env.get(
+                id(node), set()
+            ):
+                # The owning container points to this exact projected file;
+                # its secret version and JSON contents were checked above.
+                continue
         elif "valueFrom" in node:
             origin = node["valueFrom"]
             reference = origin.get("secretKeyRef") if isinstance(origin, dict) else None

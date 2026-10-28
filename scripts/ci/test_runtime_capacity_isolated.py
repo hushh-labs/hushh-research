@@ -281,6 +281,55 @@ class IsolatedDevCapacityCollectionTest(unittest.TestCase):
 
 
 class IsolatedRouteBoundaryTest(unittest.TestCase):
+    def test_literal_config_path_must_be_same_container_projected_secret(self):
+        scope = inventory._scope
+        version = "projects/123456789012/secrets/config/versions/1"
+
+        def resolve(*_args):
+            return inventory.ResolvedRouteSecret(version, '{"enabled":true}')
+
+        workload = {
+            "spec": {
+                "volumes": [
+                    {
+                        "name": "config",
+                        "secret": {
+                            "secretName": "config",
+                            "items": [{"key": "1", "path": "config.json"}],
+                        },
+                    }
+                ],
+                "containers": [
+                    {
+                        "volumeMounts": [{"name": "config", "mountPath": "/secrets"}],
+                        "env": [
+                            {"name": "APP_CONFIG", "value": "/secrets/config.json"}
+                        ],
+                    }
+                ],
+            }
+        }
+        aliases = {"hushh-pda-dev", "123456789012"}
+        assert scope.non_target_routing(
+            workload, {"192.0.2.10"}, aliases, resolve, []
+        ) == {version}
+        for defect in ("unmounted", "other-container", "traversal"):
+            broken = copy.deepcopy(workload)
+            if defect == "unmounted":
+                broken["spec"]["containers"][0]["env"][0]["value"] = (
+                    "/elsewhere/config.json"
+                )
+            elif defect == "other-container":
+                broken["spec"]["containers"].append(
+                    {"env": [{"name": "APP_CONFIG", "value": "/secrets/config.json"}]}
+                )
+            else:
+                broken["spec"]["volumes"][0]["secret"]["items"][0]["path"] = (
+                    "../config.json"
+                )
+            with self.subTest(defect=defect), self.assertRaises(budget.BudgetError):
+                scope.non_target_routing(broken, {"192.0.2.10"}, aliases, resolve, [])
+
     def test_secret_volume_json_is_bound_inspected_and_rechecked(self):
         scope = inventory._scope
         aliases = {"hushh-pda-dev", "123456789012"}
