@@ -5,110 +5,23 @@ Set GOOGLE_OAUTH_TEST_DATABASE_URL only for an agent-owned local instance under
 """
 
 import asyncio
-import base64
-import os
-import secrets
 import threading
-from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
-from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, text
-from sqlalchemy.engine import make_url
+from sqlalchemy import event, text
 
-from db.db_client import DatabaseClient
 from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
-    GoogleConnectionService,
 )
-from tests.google_oauth_postgres_support import install_calendar_schema
+from tests.google_oauth_postgres_support import (
+    OWNER,
+    finish,
+    seed_connected_with_sibling,
+    start,
+)
 
-OWNER = "synthetic-owner"
-
-
-@pytest.fixture
-def pg_service(monkeypatch):
-    url = os.getenv("GOOGLE_OAUTH_TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("requires disposable local PostgreSQL")
-    parsed = make_url(url)
-    assert not parsed.host and str(parsed.query.get("host", "")).startswith(
-        "/tmp/hushh-google-oauth-pg."  # noqa: S108 - explicitly supplied disposable socket
-    )
-    schema = "google_oauth_test_" + uuid4().hex
-    base = create_engine(url)
-    with base.begin() as connection:
-        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
-    try:
-        with engine.begin() as connection:
-            install_calendar_schema(connection, OWNER)
-        monkeypatch.setenv(
-            "GOOGLE_OAUTH_TOKEN_KEY", base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
-        )
-        service = GoogleConnectionService(db=DatabaseClient(engine=engine))
-        signing_key = secrets.token_bytes(32)
-        monkeypatch.setattr(service, "_signing_key", lambda: signing_key)
-        monkeypatch.setattr(service, "is_configured", lambda: True)
-        monkeypatch.setattr(service, "_client_id", lambda: "synthetic-client")
-        monkeypatch.setattr(service, "_client_secret", lambda: "synthetic-secret")
-        monkeypatch.setattr(
-            service,
-            "_userinfo",
-            AsyncMock(return_value={"sub": "synthetic-provider", "email": "owner@example.test"}),
-        )
-
-        async def token_exchange(_url, payload):
-            return {
-                "access_token": "synthetic-access-" + payload["code"],
-                "refresh_token": "synthetic-refresh-" + payload["code"],
-                # This transaction fixture models an accepted incremental
-                # Google grant; scope-denial behavior has separate unit tests.
-                "scope": "openid email profile "
-                "https://www.googleapis.com/auth/calendar.events.readonly "
-                "https://www.googleapis.com/auth/calendar.freebusy "
-                "https://www.googleapis.com/auth/calendar.calendarlist.readonly "
-                "https://www.googleapis.com/auth/contacts.readonly "
-                "https://www.googleapis.com/auth/drive.readonly",
-                "expires_in": 3600,
-            }
-
-        monkeypatch.setattr(service, "_post_form", AsyncMock(side_effect=token_exchange))
-        yield service, engine
-    finally:
-        engine.dispose()
-        with base.begin() as connection:
-            connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
-        base.dispose()
-
-
-async def start(service):
-    return await service.start_native(user_id=OWNER, service="calendar", access_level="read")
-
-
-async def finish(connection_service, attempt, code="fresh", **overrides):
-    params = {
-        "user_id": OWNER,
-        "service": "calendar",
-        "access_level": "read",
-        "server_auth_code": code,
-        "state": attempt["state"],
-    }
-    return await connection_service.complete_native(**(params | overrides))
-
-
-async def seed_connected_with_sibling(service, engine):
-    await finish(service, await start(service), "initial")
-    with engine.begin() as connection:
-        # Keep the provider connected on Calendar disconnect so the test also
-        # proves invalidation when the shared credential generation is unchanged.
-        connection.execute(
-            text(
-                "INSERT INTO google_service_grants(user_id, service, status) VALUES (:owner, 'gmail', 'connected')"
-            ),
-            {"owner": OWNER},
-        )
+pytest_plugins = ("tests.google_oauth_postgres_support",)
 
 
 @pytest.mark.asyncio

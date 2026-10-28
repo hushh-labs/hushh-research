@@ -30,6 +30,7 @@ function Fixture() {
         busy={false} getIdToken={async () => owner.token} onConnect={access => setAction(`connect:${access}`)}
         onAddAccount={board ? () => setAction("add-account") : undefined}
         onReconnectAccount={board ? accountId => setAction(`reconnect:${accountId}`) : undefined}
+        onAllowMeetingFiles={(accountId, context) => setAction(`meeting-consent:${accountId}:${context.day}:${context.filter}`)}
         onDisconnectAccount={board ? accountId => setAction(`disconnect:${accountId}`) : undefined}
         onChat={(prompt, slot, _invitation, attendance) => { if (attendance) { void attendance.outcome.then(outcome => setAction("result" in outcome ? `calendar-email:${outcome.result.email}` : `calendar-error:${outcome.error}`)); return; } setAction(slot ? `calendar-slot:${JSON.stringify(slot)}` : prompt ? `calendar-chat:${prompt}` : "calendar-chat"); }} onDisconnect={() => setAction("disconnect-calendar")} />}
     </div>

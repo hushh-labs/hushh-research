@@ -29,6 +29,15 @@ from hushh_mcp.services.drive_search_paging_config import (
 )
 from hushh_mcp.services.drive_telemetry import drive_logger
 from hushh_mcp.services.google_drive_file_facts import facts_projection
+from hushh_mcp.services.google_provider_errors import (
+    ERROR_RESPONSE_LIMIT as ERROR_RESPONSE_LIMIT,
+)
+from hushh_mcp.services.google_provider_errors import (
+    RETRYABLE_403_REASONS as RETRYABLE_403_REASONS,
+)
+from hushh_mcp.services.google_provider_errors import (
+    classify_google_forbidden_response,
+)
 
 logger = drive_logger(__name__)
 
@@ -39,8 +48,6 @@ OWNER_SEARCH_METADATA_LIMIT = OWNER_SEARCH_METADATA_BYTES_MAX
 MAX_FILE_LIST_PAGE_SIZE = FILE_LIST_PAGE_SIZE_MAX
 MAX_OWNER_SEARCH_PAGE_SIZE = OWNER_SEARCH_PAGE_SIZE_MAX
 RAW_PREFIX_LIMIT = 200 * 1024
-ERROR_RESPONSE_LIMIT = 16 * 1024
-RETRYABLE_403_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
 CONTENT_LIMIT = 4 * 1024 * 1024
 LIVE_COLLECTION_CONTENT_LIMIT = 32 * 1024 * 1024
 DEADLINE_SECONDS = 20
@@ -229,10 +236,18 @@ LIVE_EXTRACTABLE_ORIGINAL_TYPES = (
 class DriveReadError(RuntimeError):
     """Only authored safe codes cross the transport boundary."""
 
-    def __init__(self, code: str, *, retryable: bool = False, status_code: int | None = None):
+    def __init__(
+        self,
+        code: str,
+        *,
+        retryable: bool = False,
+        status_code: int | None = None,
+        provider_reason: str | None = None,
+    ):
         super().__init__(code)
         self.retryable = retryable
         self.status_code = status_code
+        self.provider_reason = provider_reason
 
 
 @dataclass(frozen=True)
@@ -272,32 +287,18 @@ def _file_path(file_id: str) -> str:
 
 
 async def retryable_403_response(response: httpx.Response) -> bool:
-    """Read bounded reason codes without releasing provider messages or content."""
-    if response.headers.get("Content-Encoding", "identity").lower() != "identity":
-        return False
-    data = bytearray()
-    async for chunk in response.aiter_raw():
-        if len(data) + len(chunk) > ERROR_RESPONSE_LIMIT:
-            return False
-        data.extend(chunk)
-    try:
-        result = json.loads(data)
-    except (ValueError, UnicodeError, RecursionError):
-        return False
-    error = result.get("error") if isinstance(result, dict) else None
-    if not isinstance(error, dict) or type(error.get("code")) is not int or error["code"] != 403:
-        return False
-    reasons = error.get("errors")
     return (
-        isinstance(reasons, list)
-        and 1 <= len(reasons) <= 16
-        and all(
-            isinstance(item, dict)
-            and isinstance(item.get("reason"), str)
-            and item["reason"] in RETRYABLE_403_REASONS
-            for item in reasons
-        )
+        await classify_google_forbidden_response(response, strict_drive_retry=True)
+        == "rate_limited"
     )
+
+
+async def _raise_forbidden_read(response: httpx.Response) -> None:
+    reason = await classify_google_forbidden_response(response, strict_drive_retry=True)
+    if reason == "rate_limited":
+        # A rate limit is not evidence that a file is unavailable.
+        raise DriveReadError("provider_unavailable", retryable=True)
+    raise DriveReadError("source_unavailable", status_code=403, provider_reason=reason)
 
 
 def _resource_keys(value: dict[str, str] | None) -> None:
@@ -630,10 +631,8 @@ class GoogleDriveAdapter:
                 headers_ms = (body_started - started) * 1000
                 if response.status_code == 401:
                     raise DriveReadError("reconnect_required")
-                if response.status_code == 403 and await retryable_403_response(response):
-                    # A rate-limited metadata read is not evidence that a
-                    # shortcut target is unavailable. Retry the same durable page.
-                    raise DriveReadError("provider_unavailable", retryable=True)
+                if response.status_code == 403:
+                    await _raise_forbidden_read(response)
                 if response.status_code in {403, 404, 410}:
                     raise DriveReadError("source_unavailable", status_code=response.status_code)
                 if response.status_code == 429 or response.status_code >= 500:
