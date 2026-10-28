@@ -18,10 +18,23 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated audit — 2026-10-28
 
-The integration includes main through `6b8ec6c63e`; the installed app below
-predates that merge. The other agent's root-worktree edits were preserved.
+The integration includes main through `6b8ec6c63e`. The other agent's
+root-worktree edits were preserved.
 
-The iPhone now has a Dev-backed qualification app built from `f9350c1940`.
+The iPhone now has the Dev-backed qualification app from `67e347a99e`.
+Its signed source app executable SHA-256 is
+`5d1144c3ae27835d45b7850429bf81135ddb39311df645713d66275d7399ce8e`, and its
+test executable SHA-256 is
+`4f3eda956479ef7fb6095d1fa79ade6160a116d9ba4072abc46fcb1fc2ef7f47`.
+All 1,804 exported web assets matched the signed bundle, the native backend and
+Firebase identity matched Dev, and the committed Swift package pins were unchanged.
+Installed bytes were not read back. The app and runner installed separately;
+attach-only XCTest entered the running app with the privacy cover retired and
+the passphrase gate available. It did not enter a credential or reach protected
+content. The Release qualification build uses `ENABLE_TESTABILITY=YES`, so it
+is not distribution-performance evidence.
+
+The previous Dev-backed qualification app was built from `f9350c1940`.
 Its signed source app executable SHA-256 is
 `103b65d420932e2cdaa4bb93f5f754760b38825efdcb0d400de91bdaacdd2571`, and its
 test executable SHA-256 is
@@ -55,7 +68,8 @@ checks live Vault authority before starting a managed AI change, and shared and
 cloud-default dispatches check the originating visit. Pre-vault onboarding
 retains its existing path. Managed AI is not shown as selected or enabled while
 existing settings are unread; a failed read offers a retry. These later
-corrections are not in the installed candidate. A proposed stable React handoff was removed after review found that
+corrections are in the installed candidate but have not been exercised behind
+the locked Vault. A proposed stable React handoff was removed after review found that
 it could release navigation guards during a multi-step provider removal. Provider
 discovery can still change renderer during a visit; current catalog coverage,
 operation locks and permission changes need coherent ownership before native
