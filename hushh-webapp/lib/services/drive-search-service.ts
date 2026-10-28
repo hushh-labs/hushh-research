@@ -30,11 +30,14 @@ export type DriveSearchCoverage = {
   dateBasis:
     | "title_date_then_created_or_modified"
     | "title_date_then_created_then_modified"
-    | "content_period_unverified";
+    | "content_period_unverified"
+    | "provider_query";
+  datePushdown?: "created" | "modified" | "not_expressed";
   timeIntent?: "file_activity" | "document_coverage";
   ownerReviewRequired?: boolean;
   contentPeriodVerified: false;
   providerRowsScanned: number;
+  providerFilePages?: number;
   excludedByDateCount: number;
   /** Files in matching folders omitted because their titles did not match the request. */
   excludedByTopicCount?: number;
@@ -158,14 +161,15 @@ function coverage(value: unknown): DriveSearchCoverage {
     item.corpora.some(corpus => corpus !== "user" && corpus !== "member_shared_drives") ||
     new Set(item.corpora).size !== item.corpora.length ||
     !["title_date_then_created_or_modified", "title_date_then_created_then_modified",
-      "content_period_unverified"].includes(item.dateBasis as string) ||
+      "content_period_unverified", "provider_query"].includes(item.dateBasis as string) ||
+    item.dateBasis === "provider_query" && !["created", "modified", "not_expressed"].includes(item.datePushdown as string) ||
     item.contentPeriodVerified !== false ||
     item.timeIntent !== undefined && item.timeIntent !== "file_activity" && item.timeIntent !== "document_coverage" ||
     item.ownerReviewRequired !== undefined && typeof item.ownerReviewRequired !== "boolean" ||
-    // Only the autoshare date selection lets document coverage skip owner review.
+    // Provider-query coverage reports native membership, never verified content periods.
     item.dateBasis === "title_date_then_created_then_modified" && item.ownerReviewRequired !== false ||
     item.timeIntent === "document_coverage" && item.ownerReviewRequired !== true &&
-      item.dateBasis !== "title_date_then_created_then_modified" ||
+      item.dateBasis !== "title_date_then_created_then_modified" && item.dateBasis !== "provider_query" ||
     item.dateBasis === "content_period_unverified" &&
       (item.timeIntent !== "document_coverage" || item.ownerReviewRequired !== true) ||
     typeof item.providerPagesExhausted !== "boolean" ||
@@ -182,9 +186,11 @@ function coverage(value: unknown): DriveSearchCoverage {
   return { ...selectionCoverage(item),
     corpora: item.corpora as DriveSearchCoverage["corpora"], fileKind: text(item.fileKind, 32), requestedPeriod,
     dateBasis: item.dateBasis as DriveSearchCoverage["dateBasis"], contentPeriodVerified: false,
+    ...(item.dateBasis === "provider_query" ? { datePushdown: item.datePushdown as DriveSearchCoverage["datePushdown"] } : {}),
     ...(item.timeIntent === undefined ? {} : { timeIntent: item.timeIntent as DriveSearchCoverage["timeIntent"] }),
     ...(item.ownerReviewRequired === undefined ? {} : { ownerReviewRequired: item.ownerReviewRequired as boolean }),
     providerRowsScanned: count(item.providerRowsScanned, Number.MAX_SAFE_INTEGER),
+    ...(item.providerFilePages === undefined ? {} : { providerFilePages: count(item.providerFilePages, Number.MAX_SAFE_INTEGER) }),
     excludedByDateCount: count(item.excludedByDateCount, Number.MAX_SAFE_INTEGER),
     ...(item.excludedByTopicCount === undefined ? {} : {
       excludedByTopicCount: count(item.excludedByTopicCount, Number.MAX_SAFE_INTEGER),

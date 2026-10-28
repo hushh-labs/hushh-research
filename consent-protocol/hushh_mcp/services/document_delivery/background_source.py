@@ -5,6 +5,10 @@ import re
 import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
+from hushh_mcp.services.document_delivery.background_diagnostics import (
+    IDENTITY_FIELDS,
+    CopySourceChanged,
+)
 from hushh_mcp.services.document_delivery.contracts import DeliveryError
 from hushh_mcp.services.google_drive_adapter import FILE_ID, GoogleDriveAdapter
 
@@ -38,7 +42,7 @@ def content_identity(item):
     return result
 
 
-def require_original(source, facts):
+def require_original(source, facts, *, stage="source_before"):
     if facts.get("mimeType", "").startswith("application/vnd.google-apps."):
         raise DeliveryError("native_export_unavailable")
     identity = source.get("sourceContentIdentity")
@@ -49,13 +53,40 @@ def require_original(source, facts):
     encryption = facts.get("clientEncryptionDetails")
     if encryption and encryption.get("encryptionState") != "unencrypted":
         raise DeliveryError("download_restricted")
-    if (
-        facts.get("id") != source.get("id")
-        or facts.get("title") != source.get("name")
-        or facts.get("mimeType") != source.get("mimeType")
-        or content_identity(facts) != identity
-    ):
-        raise DeliveryError("source_changed")
+    observed = content_identity(facts)
+    # Drive permission writes can advance modifiedTime without changing the
+    # binary. Retain the frozen shape for old jobs; only a matching SHA-256 or
+    # provider content revision may establish a metadata-only time change.
+    stable_content = bool(
+        observed
+        and (identity.get("sha256Checksum") or identity.get("headRevisionId"))
+        and {key: value for key, value in identity.items() if key != "modifiedTime"}
+        == {key: value for key, value in observed.items() if key != "modifiedTime"}
+    )
+    mismatches = [
+        field
+        for field, before, after in (
+            ("id", source.get("id"), facts.get("id")),
+            ("name", source.get("name"), facts.get("title")),
+            ("mime", source.get("mimeType"), facts.get("mimeType")),
+        )
+        if before != after
+    ]
+    if observed != identity and not stable_content:
+        mismatches.extend(
+            (
+                [
+                    IDENTITY_FIELDS[key]
+                    for key in IDENTITY_FIELDS
+                    if identity.get(key) != observed.get(key)
+                ]
+                or ["identity"]
+            )
+            if observed
+            else ["identity"]
+        )
+    if mismatches:
+        raise CopySourceChanged(stage, mismatches)
     return identity
 
 
@@ -82,7 +113,7 @@ class BackgroundOriginalReader:
             or offset < 0
             or size <= offset
         ):
-            raise DeliveryError("source_changed")
+            raise CopySourceChanged("read", ["range"])
         end = min(size, offset + CHUNK_BYTES) - 1
         headers = {
             "Authorization": f"Bearer {credential['accessToken']}",
@@ -113,14 +144,14 @@ class BackgroundOriginalReader:
                     ):
                         raise DeliveryError("original_range_unavailable")
                     if response.headers.get("Content-Encoding", "identity").lower() != "identity":
-                        raise DeliveryError("source_changed")
+                        raise CopySourceChanged("read", ["content_encoding"])
                     body = bytearray()
                     async for chunk in response.aiter_raw():
                         if len(body) + len(chunk) > end - offset + 1:
-                            raise DeliveryError("source_changed")
+                            raise CopySourceChanged("read", ["body_length"])
                         body.extend(chunk)
                     if len(body) != end - offset + 1:
-                        raise DeliveryError("source_changed")
+                        raise CopySourceChanged("read", ["body_length"])
                     return body
 
 

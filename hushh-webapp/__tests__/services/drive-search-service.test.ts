@@ -15,6 +15,18 @@ const page = { jobId, revision: 1, matched: 1, nextCursor: "opaque+/=",
     modifiedTime: null, openUrl: "https://docs.google.com/document/d/file-one/edit" }] };
 beforeEach(() => { vi.resetAllMocks(); });
 describe("owner Drive search API boundary", () => {
+  it("retains the deployed provider-query coverage and its real file-page count", async () => {
+    const coverage = { corpora: ["user", "member_shared_drives"], fileKind: "any",
+      requestedPeriod: { start: "2026-06-02", end: "2026-10-02", timezone: "Asia/Calcutta" },
+      dateBasis: "provider_query", datePushdown: "not_expressed", timeIntent: "file_activity",
+      ownerReviewRequired: false, contentPeriodVerified: false, providerRowsScanned: 25,
+      providerFilePages: 8, excludedByDateCount: 0, deduplicatedCount: 0,
+      unavailableShortcutCount: 0, providerPagesExhausted: true, shareabilityVerified: true };
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, status: "completed", matched: 25, unshareableCount: 13, coverage }));
+    expect((await DriveSearchService.get("owner", jobId, () => undefined)).coverage).toEqual(coverage);
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, coverage: { ...coverage, datePushdown: "private-unrecognized-value" } }));
+    await expect(DriveSearchService.get("owner", jobId, () => undefined)).rejects.toMatchObject({ code: "invalid_response" });
+  });
   it("retains unverified document periods for owner review and rejects automatic coverage claims", async () => {
     const coverage = { corpora: ["user"], fileKind: "document",
       requestedPeriod: { start: "2026-01-01", end: "2026-06-30", timezone: "Asia/Kolkata" },

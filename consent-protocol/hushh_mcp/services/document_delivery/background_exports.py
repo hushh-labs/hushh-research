@@ -8,6 +8,7 @@ import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 from sqlalchemy import text
 
+from hushh_mcp.services.document_delivery.background_diagnostics import CopySourceChanged
 from hushh_mcp.services.document_delivery.contracts import DeliveryError
 from hushh_mcp.services.google_drive_adapter import FILE_ID
 
@@ -42,7 +43,7 @@ def identity(item):
     }
 
 
-def require_export(source, facts):
+def require_export(source, facts, *, stage="export_before"):
     if facts.get("capabilities", {}).get("canDownload") is not True:
         raise DeliveryError("download_restricted")
     encryption = facts.get("clientEncryptionDetails")
@@ -51,14 +52,34 @@ def require_export(source, facts):
     frozen = source.get("sourceContentIdentity")
     if not frozen or frozen.get("native") is not True:
         raise DeliveryError("source_identity_unavailable")
-    if (
-        facts.get("id") != source["id"]
-        or facts.get("title") != source["name"]
-        or facts.get("mimeType") != source["mimeType"]
-        or identity(facts) is None
-    ):
-        raise DeliveryError("source_changed")
+    mismatches = [
+        field
+        for field, before, after in (
+            ("id", source["id"], facts.get("id")),
+            ("name", source["name"], facts.get("title")),
+            ("mime", source["mimeType"], facts.get("mimeType")),
+        )
+        if before != after
+    ]
+    if identity(facts) is None:
+        mismatches.append("identity")
+    if mismatches:
+        raise CopySourceChanged(stage, mismatches)
     return identity(facts)
+
+
+def require_revision(source, facts, revision, modified_time, *, stage):
+    observed = require_export(source, facts, stage=stage)
+    mismatches = [
+        field
+        for field, before, after in (
+            ("export_revision", revision, observed["version"]),
+            ("modified_time", modified_time, observed["modifiedTime"]),
+        )
+        if before != after
+    ]
+    if mismatches:
+        raise CopySourceChanged(stage, mismatches)
 
 
 async def download(source, credential):
@@ -99,8 +120,13 @@ async def snapshot(service, row, source, credential, facts):
     data = await service.reader.export(source, credential)
     try:
         await service.store.current(row)
-        if require_export(source, await service.reader.facts(source, credential)) != before:
-            raise DeliveryError("source_changed")
+        require_revision(
+            source,
+            await service.reader.facts(source, credential),
+            before["version"],
+            before["modifiedTime"],
+            stage="export_after",
+        )
         fmt, mime, suffix = FORMATS[source["mimeType"]]
         result = {
             "rendition": "google_export",

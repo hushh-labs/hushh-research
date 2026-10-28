@@ -28,6 +28,9 @@ const STATES = new Set([
 ]);
 const EVALUATION = new Set(["pending", "running", "ready", "no_match", "failed", "obsolete"]);
 const PAYMENT = new Set(["none", "awaiting_owner", "preparing", "payable", "link_expired", "request_expired", "paid", "refund_pending", "refunded", "partially_refunded", "closed"]);
+const COPY_REASONS = new Set(["source_changed", "source_identity_unavailable", "download_restricted", "native_export_unavailable", "export_limit_or_download_restricted", "export_size_limit", "export_representation_changed", "original_range_unavailable", "upload_outcome_unknown", "copy_integrity_mismatch", "provider_unavailable", "authority_ended", "copy_unavailable", "verification_budget_exhausted"]);
+const COPY_STAGES = new Set(["authority", "credential", "source_before", "export_before", "export_after", "copy", "source_after", "read", "verify", "publish"]);
+const COPY_FIELDS = new Set(["id", "name", "mime", "identity", "size", "modified_time", "md5", "sha256", "head_revision", "export_revision", "body_length", "content_encoding", "range"]);
 const seen = new Map<string, { fingerprint: string; at: number }>();
 const TTL_MS = 10 * 60_000;
 type Fields = Record<string, string | boolean | number>;
@@ -80,6 +83,40 @@ function projection(payload: unknown, terms: unknown, includeStates = false): Fi
   const code = detail.code ?? value.errorCode;
   if (typeof code === "string" && CODES.has(code)) fields.code = code;
   if (typeof detail.reason === "string" && REASONS.has(detail.reason)) fields.reason = detail.reason;
+  if (includeStates) {
+    const coverage = object(search.coverage ?? value.coverage);
+    const delivery = object(value.counts);
+    for (const [key, count] of [
+      ["retained_count", search.matched ?? value.matched],
+      ["unshareable_count", search.unshareableCount ?? value.unshareableCount],
+      ["provider_rows", coverage.providerRowsScanned], ["provider_file_pages", coverage.providerFilePages],
+      ["newly_shared_count", delivery.shared], ["already_shared_count", delivery.alreadyShared],
+      ["share_failed_count", delivery.failed], ["share_pending_count", delivery.pending],
+    ] as const) if (typeof count === "number" && Number.isInteger(count) && count >= 0 && count <= 10000) fields[key] = count;
+    if (coverage.dateBasis === "provider_query") {
+      fields.date_basis = "provider_query";
+      if (["created", "modified", "not_expressed"].includes(String(coverage.datePushdown))) fields.date_pushdown = String(coverage.datePushdown);
+    }
+    if (["owner", "recipient"].includes(String(value.actorRole)) && Array.isArray(value.files) && value.files.length <= 10000) {
+      const files = value.files.map(object);
+      if (files.every(file => ["preparing", "ready", "unavailable", "revoked"].includes(String(file.status)))) {
+        for (const state of ["preparing", "ready", "unavailable", "revoked"]) fields[`copy_${state}_count`] = files.filter(file => file.status === state).length;
+        fields.copy_metadata_time_changed_count = files.filter(file => file.sourceMetadataTimeChanged === true).length;
+        for (const file of files) {
+          if (typeof file.reason === "string" && COPY_REASONS.has(file.reason)) {
+            const key = `copy_reason_${file.reason}_count`; fields[key] = Number(fields[key] ?? 0) + 1;
+          }
+          if (file.status !== "unavailable") continue;
+          const diagnostic = object(file.copyDiagnostics);
+          if (typeof diagnostic.stage !== "string" || !COPY_STAGES.has(diagnostic.stage) || !Array.isArray(diagnostic.mismatches) || diagnostic.mismatches.length > COPY_FIELDS.size || diagnostic.mismatches.some(field => typeof field !== "string" || !COPY_FIELDS.has(field))) continue;
+          const key = `copy_failed_stage_${diagnostic.stage}_count`; fields[key] = Number(fields[key] ?? 0) + 1;
+          for (const field of new Set<string>(diagnostic.mismatches)) {
+            const key = `copy_mismatch_${field}_count`; fields[key] = Number(fields[key] ?? 0) + 1;
+          }
+        }
+      }
+    }
+  }
   return fields;
 }
 function emit(action: string, fields: Fields, dedupe: boolean) {
@@ -144,6 +181,7 @@ export async function traceDriveRequest<T>(
 
 /** Log only validated, current-session state; hashing cannot delay the caller. */
 export function observeDriveRequestState(path: string, payload: unknown, guard: () => void): void {
+  try {
   const target = route(path);
   if (!target) return;
   const state = projection(payload, null, true);
@@ -151,4 +189,5 @@ export function observeDriveRequestState(path: string, payload: unknown, guard: 
     guard();
     emit(target.action, { drive_op: operation, outcome: "observed", ...state }, true);
   }).catch(() => {});
+  } catch { /* Diagnostics cannot invalidate an otherwise valid response. */ }
 }

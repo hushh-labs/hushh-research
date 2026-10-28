@@ -79,4 +79,26 @@ describe("@feature_drive_request @trace_loop console diagnostics", () => {
       await expect(traceDriveRequest(`/api/connectors/google_drive/sharing/requests/${documentId}/allow`, "POST", async () => { throw failure; })).rejects.toBe(failure);
     } finally { vi.unstubAllGlobals(); }
   });
+
+  it("reports copy stage, mismatch and result counts without names or unknown reasons", async () => {
+    const { observeDriveRequestState } = await import("@/lib/consent/drive-request-diagnostics");
+    const logs = vi.spyOn(console, "info").mockImplementation(() => {});
+    const secret = "private-query-email-file-token";
+    try {
+      const path = `/api/connectors/google_drive/sharing/requests/${requestId}/one-copy`;
+      const failed = Array.from({ length: 12 }, () => ({ status: "unavailable", name: secret, reason: "source_changed", copyDiagnostics: { stage: "source_before", mismatches: ["modified_time"] } }));
+      observeDriveRequestState(path, { actorRole: "recipient", status: "unavailable", files: failed }, guard);
+      await vi.waitFor(() => expect(logs).toHaveBeenCalledWith("[DRIVE_REQUEST][ONE-COPY]", expect.objectContaining({
+        copy_unavailable_count: 12, copy_ready_count: 0, copy_reason_source_changed_count: 12,
+        copy_failed_stage_source_before_count: 12, copy_mismatch_modified_time_count: 12,
+      })));
+      observeDriveRequestState(path, { actorRole: "recipient", status: "ready", files: failed.map(file => ({ ...file, status: "ready", reason: secret, copyDiagnostics: { stage: secret, mismatches: [secret] }, sourceMetadataTimeChanged: true })) }, guard);
+      await vi.waitFor(() => expect(logs).toHaveBeenCalledWith("[DRIVE_REQUEST][ONE-COPY]", expect.objectContaining({ copy_ready_count: 12, copy_metadata_time_changed_count: 12 })));
+      expect(JSON.stringify(logs.mock.calls)).not.toContain(secret);
+      expect(JSON.stringify(logs.mock.calls)).not.toContain(requestId);
+      observeDriveRequestState(`/api/connectors/google_drive/searches/${documentId}`, { status: "completed", matched: 25, unshareableCount: 13, coverage: { providerRowsScanned: 25, providerFilePages: 8, dateBasis: "provider_query", datePushdown: "not_expressed", query: secret } }, guard);
+      await vi.waitFor(() => expect(logs).toHaveBeenCalledWith("[DRIVE_REQUEST][SEARCH_STATUS]", expect.objectContaining({ retained_count: 25, unshareable_count: 13, provider_rows: 25, provider_file_pages: 8, date_basis: "provider_query", date_pushdown: "not_expressed" })));
+      expect(JSON.stringify(logs.mock.calls)).not.toContain(secret);
+    } finally { logs.mockRestore(); }
+  });
 });
