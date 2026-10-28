@@ -2079,11 +2079,7 @@ class OneLocationAgentService:
             "canReceiveLocation": bool(row.get("key_id")),
             "connectedFromContacts": bool(row.get("connected_from_contacts")),
             "isRia": bool(row.get("is_ria")),
-            **(
-                {"isFinanceAdvisor": bool(row["finance_advisor_eligible"])}
-                if "finance_advisor_eligible" in row
-                else {}
-            ),
+            **finance_directory.recipient_annotation(row),
             "roleLabel": str(row.get("role_label") or "").strip() or None,
         }
 

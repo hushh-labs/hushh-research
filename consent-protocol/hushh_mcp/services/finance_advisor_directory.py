@@ -19,3 +19,11 @@ FINANCE_ADVISOR_ANNOTATION_SQL = """(EXISTS (
 
 def finance_advisor_statuses():
     return sorted(RIAIAMService._RIA_VERIFIED_STATUSES)
+
+
+def recipient_annotation(row):
+    return (
+        {"isFinanceAdvisor": bool(row["finance_advisor_eligible"])}
+        if "finance_advisor_eligible" in row
+        else {}
+    )

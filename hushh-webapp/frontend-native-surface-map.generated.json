@@ -4043,6 +4043,58 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/kai/portfolio/analysis",
+      "page_file": "app/one/kai/portfolio/analysis/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/kai/kai-portfolio-detail-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "KaiFlow"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.kai.portfolio.analysis",
+          "purpose": "Review source-backed portfolio analysis.",
+          "screen": "kai_portfolio_analysis",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The route displays available saved portfolio facts and labels missing information.",
+          "next_route": "/one/kai?tab=portfolio",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/kai/portfolio/holdings",
       "page_file": "app/one/kai/portfolio/holdings/page.tsx",
       "physical_page_exists": true,
@@ -11003,5 +11055,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "37670fd014f6a2399b3eb954f64bc8b809d15e6dc9c5f4fae74d023934b50166"
+  "content_sha256": "7d98ee0a5652a6e1676b819a5ab0adc0592bc84c4e985cf855f1f7dbf5f23ca6"
 }

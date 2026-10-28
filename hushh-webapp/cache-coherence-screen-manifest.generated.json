@@ -10,14 +10,14 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 161,
-    "physical_page_count": 160,
-    "route_contract_count": 161,
-    "surface_map_count": 161,
+    "total_screens": 162,
+    "physical_page_count": 161,
+    "route_contract_count": 162,
+    "surface_map_count": 162,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 48,
-      "vault-backed": 66,
+      "vault-backed": 67,
       "hidden flow": 22,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
@@ -2622,6 +2622,58 @@
         "native_beacon": false
       },
       "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/kai/portfolio/analysis",
+      "page_file": "app/one/kai/portfolio/analysis/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
+      ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/kai/portfolio/analysis",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
     },
@@ -7247,5 +7299,5 @@
       ]
     }
   ],
-  "content_sha256": "88ab2b4277c8e2fda3aafea7ed78112beb2d6780746e63957ae9a08fc9bcf619"
+  "content_sha256": "ec1bb12e47beebe6ebc0ecfea2a260fa76eda8a6981e7d509b5d89302d742ff5"
 }
