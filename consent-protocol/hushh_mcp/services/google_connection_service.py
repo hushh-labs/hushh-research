@@ -454,7 +454,7 @@ class GoogleConnectionService:
     async def _primary_completion_status(
         self, user_id: str, service: GoogleService, calendar_additional: bool
     ) -> dict[str, Any]:
-        if calendar_additional and service == "calendar":
+        if service == "calendar":
             return await self._calendar_completion_status(user_id, "default")
         return await self.status(user_id=user_id, service=service)
 
