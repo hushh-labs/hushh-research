@@ -1,5 +1,6 @@
 {
   "branch_flow": {
+    "intake_branch": "dev",
     "train_branch": "integration/pr-train",
     "promotion_branch": "main",
     "main_allowed_head_branches": [

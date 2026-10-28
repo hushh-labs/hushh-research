@@ -1,8 +1,8 @@
 name: Deploy to Dev
 
 # Dev Fast Lane: dev deploys are decoupled from main. main stays the
-# UAT -> production signoff lane; dev deploys the agentic intake branch
-# (integration/pr-train) by default, or any CI-green ref a governed
+# UAT -> production signoff lane; dev deploys the protected development branch
+# (dev) by default, or any CI-green ref a governed
 # maintainer chooses. Contract: docs/reference/operations/dev-fast-lane.md
 on:
   workflow_dispatch:
@@ -26,9 +26,9 @@ on:
           - backend
           - frontend
       ref:
-        description: "Branch/ref to deploy (default: integration/pr-train, the agentic intake lane)"
+        description: "Branch/ref to deploy (default: dev, the development intake lane)"
         required: false
-        default: "integration/pr-train"
+        default: "dev"
         type: string
       build_pod_image:
         description: "Build the dev-only pod image; does not approve owner installation"
@@ -130,7 +130,7 @@ jobs:
         run: |
           set -euo pipefail
           DEPLOY_REF="${{ github.event.inputs.ref }}"
-          DEPLOY_REF="${DEPLOY_REF:-integration/pr-train}"
+          DEPLOY_REF="${DEPLOY_REF:-dev}"
           git fetch --no-tags origin "$DEPLOY_REF"
           if [ -n "${{ github.event.inputs.sha }}" ]; then
             DEPLOY_SHA="${{ github.event.inputs.sha }}"
