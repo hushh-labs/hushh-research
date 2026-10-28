@@ -239,9 +239,17 @@ async def test_financial_tagger_settles_real_transport_oauth_failures_without_pr
 
     def deployed(record):
         # As the worker writes it: the runtime redactor masks identifier-like tokens.
-        record = logging.makeLogRecord(record.__dict__)
-        SensitiveLogFilter().filter(record)
-        return record.getMessage()
+        copy = logging.LogRecord(
+            record.name,
+            record.levelno,
+            record.pathname,
+            record.lineno,
+            record.msg,
+            record.args,
+            None,
+        )
+        SensitiveLogFilter().filter(copy)
+        return copy.getMessage()
 
     shown = "\n".join(deployed(record) for record in caplog.records)
     assert f"period_packet.tagging outcome=deferred code={code} settled=queued" in shown
