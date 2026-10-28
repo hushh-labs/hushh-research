@@ -63,14 +63,8 @@ export interface ConnectionSummaryEntry {
   /** Verified by the counterpart's HUSSH identity; absent is unverified. */
   emailVerified?: boolean;
   createdAt: string | null;
-  /**
-   * Whether this connection holds a verified RIA profile — the same
-   * server-annotated flag `DirectoryPerson` carries, from the same helper, so
-   * the two lists on the RIAs tab can never disagree about who is an advisor.
-   * Optional so a cached page written before the field existed still parses;
-   * absent reads as "not an advisor", which is the safe direction — it hides a
-   * row from the RIAs tab rather than claiming someone is verified.
-   */
+  /** Server-verified RIA flag shared with DirectoryPerson. Older cached rows
+   * omit it, which hides them from the RIA tab instead of claiming verification. */
   isRia?: boolean;
   /** Viewer-relative provenance; absent on pre-upgrade cached rows. */
   connectedFromContacts?: boolean;

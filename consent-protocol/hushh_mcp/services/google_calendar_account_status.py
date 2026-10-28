@@ -43,24 +43,18 @@ def _project_accounts(
 ) -> list[dict[str, Any]]:
     accounts: list[dict[str, Any]] = []
     if default["status"] != "disconnected":
+        primary_picture = (
+            pictures.get(("default", connection_generation(primary))) if primary else None
+        )
         accounts.append(
             {
                 "account_id": "default",
                 "google_email": default["google_email"],
                 "google_email_verified": _verified_account_email(
-                    pictures.get(("default", connection_generation(primary))) if primary else None,
-                    default.get("google_email"),
+                    primary_picture, default.get("google_email")
                 ),
-                "profile_photo_url": (
-                    pictures.get(("default", connection_generation(primary))) or {}
-                ).get("picture_url")
-                if primary
-                else None,
-                "hosted_domain": (
-                    pictures.get(("default", connection_generation(primary))) or {}
-                ).get("hosted_domain")
-                if primary
-                else None,
+                "profile_photo_url": (primary_picture or {}).get("picture_url"),
+                "hosted_domain": (primary_picture or {}).get("hosted_domain"),
                 "provider_subject_sha256": hashlib.sha256(
                     str(primary["provider_subject"]).encode()
                 ).hexdigest()
@@ -80,22 +74,18 @@ def _project_accounts(
     for row in rows:
         if row["status"] == "disconnected":
             continue
+        picture = pictures.get((row["account_id"], connection_generation(row)))
         accounts.append(
             {
                 "account_id": row["account_id"],
                 "google_email": row["provider_email"],
                 "google_email_verified": _verified_account_email(
-                    pictures.get((row["account_id"], connection_generation(row))),
-                    row.get("provider_email"),
+                    picture, row.get("provider_email")
                 ),
-                "profile_photo_url": (
-                    pictures.get((row["account_id"], connection_generation(row))) or {}
-                ).get("picture_url")
+                "profile_photo_url": (picture or {}).get("picture_url")
                 if row["status"] == "connected"
                 else None,
-                "hosted_domain": (
-                    pictures.get((row["account_id"], connection_generation(row))) or {}
-                ).get("hosted_domain")
+                "hosted_domain": (picture or {}).get("hosted_domain")
                 if row["status"] == "connected"
                 else None,
                 "provider_subject_sha256": hashlib.sha256(

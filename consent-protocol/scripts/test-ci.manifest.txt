@@ -270,6 +270,7 @@ tests/services/test_location_brain_semantic_retrieval.py
 tests/services/test_location_circle_direct_executor.py
 tests/services/test_location_circle_name_interaction.py
 tests/services/test_connections_service.py
+tests/services/test_connections_calendar_profile_email.py
 tests/services/test_connection_presence.py
 tests/services/test_push_notifications.py
 tests/services/test_system_push_delivery.py
