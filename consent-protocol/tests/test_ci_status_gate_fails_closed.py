@@ -264,9 +264,15 @@ def test_protocol_partitions_use_independent_database_jobs_without_omitting_a_ph
         assert selected[0]["env"]["PROTOCOL_TEST_PARTITION"] == phase
         assert "@127.0.0.1:5432/command_test" in selected[0]["env"]["ONE_COMMAND_TEST_DATABASE_URL"]
     assert jobs["protocol-check"]["services"] == jobs["protocol-database-check"]["services"]
+    assert jobs["protocol-database-check"]["strategy"] == {
+        "fail-fast": False,
+        "matrix": {"shard": [1, 2]},
+    }
     database = jobs["protocol-database-check"]["steps"][-1]
     assert database["working-directory"] == "consent-protocol"
     assert database["run"] == "bash scripts/run-test-ci.sh"
+    assert database["env"]["PROTOCOL_DATABASE_SHARD_COUNT"] == "2"
+    assert database["env"]["PROTOCOL_DATABASE_SHARD_INDEX"] == "${{ matrix.shard }}"
 
 
 def test_the_gate_always_runs_and_waits_for_every_lane() -> None:
