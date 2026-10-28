@@ -6096,3 +6096,18 @@ The candidate retains the system default before iOS 26.1. Verify light and
 dark appearance, intermediate transition frames, accessibility materials,
 and representative Profile and Wallet sheets before enabling native admission.
 Ordinary Release remains on its existing fallback.
+
+### Selector appearance and workspace retirement — 2026-10-27
+
+The shared native Select candidate resamples committed appearance after
+capability admission and incorporates changes observed while its listener is
+attaching before preparing the presentation. Focused tests reproduce both
+stale-initial-appearance races on the prior implementation. Changes after
+native preparation still use the existing ordered update contract; this is not
+physical first-frame or latency evidence.
+
+Workspace retirement now removes the detached workspace from the concealment
+registry and settles its receipt before publishing privacy retirement. This
+corrects a source-level ordering gap; the intermittent resume/touch failure
+has not been reproduced or attributed to this path. Device verification and
+the existing visual, accessibility and performance gates remain necessary.

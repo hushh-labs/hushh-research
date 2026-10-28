@@ -697,10 +697,14 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         let shield = HushhSessionPrivacyShield.shared
         let privacyRetirement = shield.beginPresentationRetirement()
         workspace.retire { [weak self] in
+            // Publish retirement only after the concealment query can observe
+            // the detached workspace's removal and its settled receipt.
+            if let self {
+                self.retiringWorkspaces.removeValue(forKey: identity)
+                if self.workspaceIdentity == identity { self.workspaceRetiredReceipt = state.receipt("retired", settled: true) }
+            }
             shield.completePresentationRetirement(privacyRetirement)
             guard let self else { return }
-            self.retiringWorkspaces.removeValue(forKey: identity)
-            if self.workspaceIdentity == identity { self.workspaceRetiredReceipt = state.receipt("retired", settled: true) }
             let callbacks = self.workspaceRetirementCallbacks.removeValue(forKey: identity) ?? []
             callbacks.forEach { $0() }
         }
