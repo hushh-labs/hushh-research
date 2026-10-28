@@ -9904,7 +9904,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}
             nativeReady={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}
             modelControl={modelPreference?.source === "owner_pod" && !isPuppySurface && !hasInlineModelPicker
-              ? <OneModelConnection connection={modelPreference} />
+              ? <OneModelConnection connection={modelPreference} fullWidth />
               : canPickOneModel && modelPreference && !isPuppySurface && !hasInlineModelPicker ? (
               <Select value={modelPreference.effective_model} disabled={modelPreferenceSaving} onValueChange={handleOneModelChange}>
                 <SelectTrigger aria-label="One's model" aria-busy={modelPreferenceSaving || undefined} className="h-11 w-full">
