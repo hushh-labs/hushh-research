@@ -120,6 +120,7 @@ function confirmDeletion() {
 describe("lost vault deletion", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.spyOn(window, "focus").mockImplementation(() => {});
     mocks.native = false;
     publishValidatedAuthSessionOwner(null);
     publishValidatedAuthSessionPrincipal({ firebaseUid: user.uid, ownerId: user.uid, accountGeneration: 0 });
@@ -380,6 +381,12 @@ describe("lost vault deletion", () => {
     expect(onBack).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText("Mobile number")).toBeNull();
     expect(mocks.validatePhone).not.toHaveBeenCalled();
+    expect(window.focus).not.toHaveBeenCalled();
+  });
+
+  it("requests focus on the original app after valid provider verification", async () => {
+    await openPhone();
+    expect(window.focus).toHaveBeenCalledTimes(1);
   });
 
   it("invalidates an outstanding SMS session on edit and prevents duplicate sends", async () => {

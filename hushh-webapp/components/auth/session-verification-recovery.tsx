@@ -24,6 +24,10 @@ export function SessionVerificationRecovery({
   current.current = { user, cleanup };
   const continuing = Boolean(cleanup && continuingId === cleanup.id);
   const continuationError = cleanup && continuationFailure?.operationId === cleanup.id ? continuationFailure.message : null;
+  const localErasureConfirmationRequired = cleanup?.local_erasure_confirmation_required === true;
+  const canContinueCleanup = localErasureConfirmationRequired || cleanup?.state === "action_required";
+  const continueLabel = localErasureConfirmationRequired ? "Remove Hussh’s copy" : "Retry cleanup";
+  const continuingLabel = localErasureConfirmationRequired ? "Confirming…" : "Retrying…";
   // Only work the backend owns keeps going without the person. "Delayed" is the
   // backend's stall signal, never a client guess from elapsed time.
   const runsWithoutYou = Boolean(cleanup && !cleanup.local_erasure_confirmation_required &&
@@ -61,6 +65,10 @@ export function SessionVerificationRecovery({
         ownsCleanup,
       );
       if (!ownsCleanup()) return;
+      if (response.status === 409) {
+        setContinuationFailure({ operationId: cleanup.id, message: "Cleanup could not continue under the current review. Refresh status; contact support if it stays paused." });
+        return;
+      }
       if (!response.ok) throw new Error("Cleanup needs review");
       onRetry();
     } catch {
@@ -100,16 +108,16 @@ export function SessionVerificationRecovery({
           This removes this environment’s encrypted copies. Shared provider access used by other environments and externally managed keys stay valid.
         </p>}
         {cleanup?.state === "action_required" && !cleanup.local_erasure_confirmation_required && <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          Provider access needs review before we can finish. Your account remains paused and your cleanup information is retained.
+          Provider access needs review before we can finish. Retry cleanup, or contact support if it stays paused.
         </p>}
         {continuationError && <p role="status" className="mt-3 text-sm text-destructive">{continuationError}</p>}
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-          {cleanup?.local_erasure_confirmation_required && <button
+          {canContinueCleanup && <button
             className="min-h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background disabled:opacity-50"
             disabled={continuing}
             onClick={() => void continueCleanup()}
             type="button"
-          >{continuing ? "Confirming…" : "Remove Hussh’s copy"}</button>}
+          >{continuing ? continuingLabel : continueLabel}</button>}
           <button
             className="min-h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background"
             onClick={onRetry}

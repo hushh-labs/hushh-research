@@ -288,9 +288,12 @@ export function useLostVaultDelete(
       const token = await AuthService.reauthenticateAccountDeletionIdentity(
         user.uid,
         provider,
-        current,
+        () => valid(attempt),
       );
       if (!valid(attempt)) return;
+      // The provider may leave Chrome on its tab after settling. Ask the
+      // browser to bring this original deletion panel forward before the next step.
+      window.focus();
       const freshOptions =
         await AccountService.getLostVaultDeleteOptions(token);
       if (!valid(attempt)) return;

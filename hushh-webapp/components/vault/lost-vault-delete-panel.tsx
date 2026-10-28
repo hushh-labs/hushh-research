@@ -100,8 +100,7 @@ function LostVaultDeleteJourney({
         </div>
         {flow.stage === "review" && (
           <p className="type-footnote text-[color:var(--app-secondary-label)]">
-            Permanently deletes this account’s files, vault and saved information.
-            Remove One’s bank access in bank settings. Required records may remain.
+            Deletes vault and files. Revoke bank access; required records may remain.
           </p>
         )}
         {flow.error && (

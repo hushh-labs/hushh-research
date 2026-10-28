@@ -173,6 +173,15 @@ for (const viewport of [
       );
       await page.goto(`https://lost-vault.test/one/connect?outcome=${outcome}&native=${viewport.native ? "1" : "0"}`);
       await awaitProductFont(page);
+      const warning = page.getByText(
+        "Deletes vault and files. Revoke bank access; required records may remain.",
+      );
+      await expect(warning).toBeVisible();
+      expect(await warning.evaluate((element) => {
+        const { height } = element.getBoundingClientRect();
+        const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
+        return Math.round(height / lineHeight);
+      })).toBeLessThanOrEqual(2);
       await page.getByRole("button", { name: "Continue with Google" }).click();
       const phone = page.getByLabel("Mobile number");
       await expect(phone).toHaveValue("");

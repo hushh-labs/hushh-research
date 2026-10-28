@@ -695,6 +695,13 @@ export class AuthService {
         // prove this existing user, never replace the session with sign-in.
         const grant = await requestGoogleSignupToken({ includeContacts: false });
         assertCurrent();
+        // Request the original tab as soon as Google's grant settles, while
+        // the initiating owner and verification attempt are still current.
+        try {
+          window.focus();
+        } catch {
+          // Browser focus cannot block identity proof.
+        }
         return reauthenticateWithCredential(
           currentUser,
           GoogleAuthProvider.credential(null, grant.accessToken),

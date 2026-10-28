@@ -937,6 +937,33 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
   });
 
+  it("retries only action-required cleanup through the existing guarded continuation", async () => {
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(deletionInProgressResponse());
+    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(cleanupStatusResponse("action_required"));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    const retry = await screen.findByRole("button", { name: "Retry cleanup" });
+    expect(screen.queryByRole("button", { name: "Remove Hussh’s copy" })).toBeNull();
+    fireEvent.click(retry);
+    await waitFor(() => expect(mocks.apiContinueAccountCleanup).toHaveBeenCalledWith(
+      "persisted-token",
+      expect.objectContaining({ inventory_sha256: "a".repeat(64), state: "action_required" }),
+      false,
+      expect.any(Function),
+    ));
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("keeps provider review blocked when the backend refuses a cleanup retry", async () => {
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(deletionInProgressResponse());
+    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(cleanupStatusResponse("action_required"));
+    mocks.apiContinueAccountCleanup.mockResolvedValueOnce(new Response(null, { status: 409 }));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry cleanup" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Refresh status; contact support if it stays paused.");
+    expect(screen.getByRole("button", { name: "Retry cleanup" })).toBeEnabled();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
   it("confirms a lost deletion response through real transport before the provider clears the session", async () => {
     const { ApiService } = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");
     const { AccountService } = await import("@/lib/services/account-service");
