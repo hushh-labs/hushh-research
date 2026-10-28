@@ -3,6 +3,31 @@ name: Deploy to UAT
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: "Shared UAT or fixed private PLG qualification namespace"
+        required: true
+        default: shared-uat
+        type: choice
+        options:
+          - shared-uat
+          - plg-isolated-qualification
+      plg_source_validation_run:
+        description: "Exact successful Main-owned fixed PLG source validation run (PLG target only)"
+        required: false
+        type: string
+      plg_dev_run:
+        description: "Exact accepted isolated Dev run; copies its executable image without rebuilding"
+        required: false
+        type: string
+      plg_schema_action:
+        description: "Owned PLG namespace only; initialize requires empty DB, reconciliation never replays initialization"
+        required: true
+        default: preflight
+        type: choice
+        options:
+          - preflight
+          - initialize
+          - reconcile-bootstrap
       scope:
         description: "Auto-detect deploy lane, or force backend/frontend/all"
         required: true
@@ -103,6 +128,7 @@ concurrency:
 jobs:
   select-target:
     name: Select UAT target
+    if: inputs.target != 'plg-isolated-qualification'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -328,6 +354,8 @@ jobs:
             "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"
           cp scripts/ci/runtime_capacity_inventory.py \
             "${RUNNER_TEMP}/release-tools/runtime_capacity_inventory.py"
+          cp scripts/ci/runtime_capacity_cli.py scripts/ci/runtime_capacity_target_scope.py \
+            "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloud-scheduler-attempt.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp deploy/drive/rollback_after_worker_failure.sh "${RUNNER_TEMP}/release-tools/"
@@ -402,6 +430,8 @@ jobs:
             scripts/ci/runtime-capacity-budget.py
           cp "${RUNNER_TEMP}/release-tools/runtime_capacity_inventory.py" \
             scripts/ci/runtime_capacity_inventory.py
+          cp "${RUNNER_TEMP}/release-tools/runtime_capacity_cli.py" \
+            "${RUNNER_TEMP}/release-tools/runtime_capacity_target_scope.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/verify-cloudrun-revision-provenance.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
@@ -429,6 +459,36 @@ jobs:
             printf '\n!deploy/email-auth/bind_secrets.sh\n' >> .gcloudignore
             printf '\n!deploy/plg/bind_secrets.sh\n!scripts/deploy/backend-capacity-settings.sh\n!scripts/deploy/backend-app-surface-settings.sh\n' >> .gcloudignore
           fi
+
+      - name: Decide account generation admission before the deletion fence
+        id: generation-admission
+        shell: bash
+        env:
+          ACCOUNT_GENERATION_ADMISSION_ENABLED: ${{ vars.ACCOUNT_GENERATION_ADMISSION_UAT_ENABLED || 'true' }}
+          HUSSH_TECH_CLIENT_ENABLED: ${{ vars.HUSSH_TECH_CLIENT_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          # Decide once, for every scope, before runtime secrets sync or the fence installs.
+          # Cloud Build accepts only true/false, and startup refuses generations beside the
+          # HushhTech client exchange, including on the revision already serving.
+          case "${ACCOUNT_GENERATION_ADMISSION_ENABLED}" in
+            true|false) ;;
+            *) echo "::error::ACCOUNT_GENERATION_ADMISSION_UAT_ENABLED must be true or false." >&2; exit 1 ;;
+          esac
+          # The exact normalization runtime_readiness applies at startup.
+          client="$(python3 -c 'import os; print(str(os.environ.get("HUSSH_TECH_CLIENT_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}).lower())')"
+          if [ "${ACCOUNT_GENERATION_ADMISSION_ENABLED}:${client}" = true:true ]; then
+            echo "::error::Account generation admission cannot run beside the HushhTech client exchange." >&2
+            exit 1
+          fi
+          echo "client_enabled=${client}" >> "$GITHUB_OUTPUT"
+          # Only targets whose web app keys data by the validated owner may admit replacements.
+          enabled=false
+          if [ "${ACCOUNT_GENERATION_ADMISSION_ENABLED}" = true ] \
+             && [ -f hushh-webapp/__tests__/lib/auth/application-owner-ratchet.contract.test.ts ]; then
+            enabled=true
+          fi
+          echo "enabled=${enabled}" >> "$GITHUB_OUTPUT"
 
       - name: Validate Google Cloud workload identity configuration
         shell: bash
@@ -523,6 +583,33 @@ jobs:
 
           echo "backend_sha=${backend_sha}" >> "$GITHUB_OUTPUT"
           echo "frontend_sha=${frontend_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse the HushhTech client beside a serving revision that admits generations
+        if: steps.generation-admission.outputs.client_enabled == 'true'
+        shell: bash
+        env:
+          SERVING_BACKEND_REVISION: ${{ steps.predeploy-state.outputs.backend_revision }}
+          SERVING_PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          SERVING_REGION: ${{ env.GCP_REGION }}
+        run: |
+          set -euo pipefail
+          # Secrets sync publishes the client flag to the canonical runtime config that the
+          # serving revision reads, and its new instances would then refuse startup, for
+          # every scope and for any rollback to it. Turn admission off in a backend release first.
+          # Anything this step cannot read (no serving revision, a secret binding) fails closed.
+          if [ -z "${SERVING_BACKEND_REVISION}" ]; then
+            echo "::error::The serving backend revision is unknown, so HUSSH_TECH_CLIENT_ENABLED cannot be checked against it." >&2
+            exit 1
+          fi
+          admission="$(gcloud run revisions describe "${SERVING_BACKEND_REVISION}" \
+            --project="${SERVING_PROJECT_ID}" \
+            --region="${SERVING_REGION}" \
+            --format=json \
+            | python3 -c 'import json, sys; found = [e for e in json.load(sys.stdin)["spec"]["containers"][0].get("env", []) if e.get("name") == "ACCOUNT_GENERATION_ADMISSION_ENABLED"]; print("unknown" if len(found) > 1 or any("valueFrom" in e for e in found) else str(found[0].get("value", "")).strip().lower() if found else "")')"
+          if [ "${admission}" = true ] || [ "${admission}" = unknown ]; then
+            echo "::error::Serving backend ${SERVING_BACKEND_REVISION} may admit account generations (${admission}). Deploy the backend with ACCOUNT_GENERATION_ADMISSION_UAT_ENABLED=false before enabling HUSSH_TECH_CLIENT_ENABLED." >&2
+            exit 1
+          fi
 
       - name: Resolve deployment scope
         id: scope
@@ -958,7 +1045,7 @@ jobs:
             --one-location-nearby-presence-mode "${{ vars.ONE_LOCATION_NEARBY_PRESENCE_MODE_UAT || '' }}" \
             --one-location-nearby-presence-cohort "${{ vars.ONE_LOCATION_NEARBY_PRESENCE_COHORT_UAT || '' }}" \
             --hushh-trusted-device-uat-allowlist "${{ vars.HUSSH_TRUSTED_DEVICE_UAT_ALLOWLIST || '' }}" \
-            --hushh-tech-client-enabled "${{ vars.HUSSH_TECH_CLIENT_ENABLED || 'false' }}" \
+            --hushh-tech-client-enabled "${{ steps.generation-admission.outputs.client_enabled }}" \
             --hushh-tech-developer-app-id "${{ vars.HUSSH_TECH_DEVELOPER_APP_ID || '' }}" \
             --hushh-tech-allowed-audience "hushh-tech-uat" \
             --hushh-tech-allowed-redirect-uris "https://uat.hushhtech.com/auth/hushh-research/callback" \
@@ -1544,6 +1631,10 @@ jobs:
           # Older deployment SHAs do not declare this substitution.
           if grep -q '^[[:space:]]*_WALLET_CARD_ACCESS_ENABLED:' deploy/backend.cloudbuild.yaml; then
             SUBSTITUTIONS="${SUBSTITUTIONS}##_WALLET_CARD_ACCESS_ENABLED=${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}"
+          fi
+          # Older deployment SHAs do not declare this substitution.
+          if grep -q '^[[:space:]]*_ACCOUNT_GENERATION_ADMISSION_ENABLED:' deploy/backend.cloudbuild.yaml; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_GENERATION_ADMISSION_ENABLED=${{ steps.generation-admission.outputs.enabled }}"
           fi
           # Older deployment SHAs do not declare these. The secrets are bound by
           # deploy/sso/bind_workos.sh only if they exist in the deploy project.
@@ -3812,3 +3903,157 @@ jobs:
             echo "UAT release finished with status: $STATUS"
             exit 1
           fi
+
+  plg-isolated:
+    name: PLG Isolated Uat Acceptance Gate
+    if: inputs.target == 'plg-isolated-qualification'
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    concurrency:
+      group: deploy-uat
+      cancel-in-progress: false
+      queue: max
+    environment: uat
+    env:
+      PLG_ENV: uat
+      PLG_UNSUPPORTED_LIVE_WORK: ${{ (inputs.build_pod_image || inputs.run_live_model_checks || inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok) && 'true' || 'false' }}
+      PROTOCOL_PYTHON: ${{ github.workspace }}/source/consent-protocol/.venv/bin/python
+      GH_TOKEN: ${{ github.token }}
+      PYTHON_DOTENV_DISABLED: "1"
+    steps:
+      - name: Checkout fixed Main qualification authority
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Select private qualification workspace
+        shell: bash
+        run: echo "PLG_FOLDER=${RUNNER_TEMP}/plg-isolated-qualification" >> "$GITHUB_ENV"
+
+      - name: Require governed isolated PLG target
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+          SOURCE_RUN: ${{ inputs.plg_source_validation_run }}
+          DEV_RUN: ${{ inputs.plg_dev_run }}
+          SCHEMA_ACTION: ${{ inputs.plg_schema_action }}
+        run: |
+          python3 deploy/plg/qualification_producer.py --phase require --environment "$PLG_ENV" \
+            --folder "$PLG_FOLDER" --sha "$REQUESTED_SHA" --scope "$REQUESTED_SCOPE" \
+            --source-validation-run "$SOURCE_RUN" --dev-run "$DEV_RUN" \
+            --schema-action "$SCHEMA_ACTION"
+
+      - name: Verify exact PLG source validation
+        run: python3 deploy/plg/qualification_producer.py --phase source --environment "$PLG_ENV" --folder "$PLG_FOLDER"
+
+      - name: Checkout admitted immutable backend source
+        uses: actions/checkout@v6
+        with:
+          ref: 5de6ee29abe3b00642bd6b745c608279091810b3
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install locked source runtime
+        uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./source/consent-protocol
+
+      - name: Authenticate normal governed environment
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install canonical Cloud SQL proxy
+        run: |
+          curl --fail --silent --show-error --location \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+            --output "${RUNNER_TEMP}/cloud-sql-proxy"
+          chmod +x "${RUNNER_TEMP}/cloud-sql-proxy"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Prepare owned isolated schema
+        timeout-minutes: 35
+        run: |
+          "$PROTOCOL_PYTHON" deploy/plg/qualification_producer.py --phase schema --environment "$PLG_ENV" \
+            --folder "$PLG_FOLDER" --source-root "$GITHUB_WORKSPACE/source"
+
+      - name: Verify isolated runtime IAM prerequisites
+        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase iam-pre --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
+
+      - name: Promote exact isolated Dev image
+        timeout-minutes: 25
+        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase image --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
+
+      - name: Admit isolated capacity before deployment
+        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase capacity --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
+
+      - name: Deploy isolated PLG candidate
+        id: candidate
+        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase deploy --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
+
+      - name: Verify isolated private IAM and capacity
+        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase iam --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
+
+      - name: Mint normal hosted canonical-audience ID token
+        id: private-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          token_format: id_token
+          id_token_audience: ${{ steps.candidate.outputs.audience }}
+          id_token_include_email: true
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Verify isolated private candidate provenance and health
+        env:
+          PLG_QUALIFICATION_ID_TOKEN: ${{ steps.private-auth.outputs.id_token }}
+        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase health --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
+
+      - name: Verify isolated schema and runtime permissions
+        run: |
+          "$PROTOCOL_PYTHON" deploy/plg/qualification_producer.py --phase schema-post --environment "$PLG_ENV" \
+            --folder "$PLG_FOLDER" --source-root "$GITHUB_WORKSPACE/source"
+
+      - name: Record isolated PLG acceptance
+        run: "$PROTOCOL_PYTHON deploy/plg/qualification_producer.py --phase record --environment \"$PLG_ENV\" --folder \"$PLG_FOLDER\""
+
+      - name: Upload isolated PLG acceptance
+        uses: actions/upload-artifact@v4
+        with:
+          name: plg-isolated-acceptance-uat-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PLG_FOLDER }}/acceptance.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Retain isolated qualification checkpoints
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plg-isolated-diagnostics-uat-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.PLG_FOLDER }}/*.json
+            ${{ env.PLG_FOLDER }}/post-schema/*.json
+          if-no-files-found: ignore
+          retention-days: 7

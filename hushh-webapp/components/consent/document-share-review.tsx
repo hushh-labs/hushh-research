@@ -439,17 +439,17 @@ export function DocumentShareReview({
    */
   surface?: "sheet" | "inline";
 }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   // Viewer access goes to the Google account linked to this One sign-in, so
   // the recipient opens each original as that account, not the browser default.
   const googleEmail =
     user?.providerData?.find((provider) => provider?.providerId === "google.com")?.email ?? null;
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
-  if (!user || !isVaultUnlocked)
+  if (!userId || !isVaultUnlocked)
     return <BodyText role="status">Unlock your vault to review.</BodyText>;
   return (
     <UnlockedDocumentReview
-      key={`${user.uid}:${requestId}:${snapshotVaultSessionEpoch()}`}
+      key={`${userId}:${requestId}:${snapshotVaultSessionEpoch()}`}
       requestId={requestId}
       getToken={getVaultOwnerToken}
       onChanged={onChanged}

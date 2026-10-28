@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   vault: { isVaultUnlocked: true, vaultOwnerToken: "synthetic-vault-token", tokenExpiresAt: 0 },
   metadata: vi.fn(), manifest: vi.fn(), scopes: vi.fn(), exposure: vi.fn(), editor: vi.fn(),
 }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, loading: false, sessionVerificationRequired: false }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user.uid, loading: false, sessionVerificationRequired: false }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ ...mocks.vault, getVaultOwnerToken: () => mocks.vault.vaultOwnerToken }) }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({ PersonalKnowledgeModelService: { getMetadata: mocks.metadata, getDomainManifest: mocks.manifest, getAvailableScopes: mocks.scopes, updateScopeExposure: mocks.exposure } }));
 vi.mock("@/components/consent/scope-tariff-editor", () => ({ ScopeTariffEditor: (props: { label: string }) => { mocks.editor(props); return <div role="dialog">{props.label}</div>; } }));

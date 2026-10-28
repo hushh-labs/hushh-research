@@ -12,6 +12,7 @@ const mockPush = vi.fn();
 let searchParams = new URLSearchParams();
 let authState: {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
+  userId: string | null;
   isAuthenticated: boolean;
   loading: boolean;
 };
@@ -70,6 +71,7 @@ function preview(
 function signedIn() {
   authState = {
     user: { uid: USER_ID, getIdToken: () => Promise.resolve("id-token") },
+    userId: USER_ID,
     isAuthenticated: true,
     loading: false,
   };
@@ -78,7 +80,7 @@ function signedIn() {
 beforeEach(() => {
   vi.clearAllMocks();
   searchParams = new URLSearchParams({ code: CODE });
-  authState = { user: null, isAuthenticated: false, loading: false };
+  authState = { user: null, userId: null, isAuthenticated: false, loading: false };
   // Resolved (setup already finished) unless a test says otherwise -- the
   // parking behaviour under test is the exception, not the default.
   mockPublicPreview.mockResolvedValue({ name: "Family Circle", ownerDisplayName: "Alex" });

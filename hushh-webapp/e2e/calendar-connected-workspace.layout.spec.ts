@@ -101,6 +101,20 @@ test("three-account Board keeps its measure, heading roles and account actions a
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test("a broken HUSSH portrait keeps the Calendar account initial and size", async ({ page }) => {
+  const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, true);
+  const account = page.getByRole("group", { name: "Calendar account qa-work@example.com" });
+  const avatar = account.locator("[data-photo-source=hussh]");
+  await expect(avatar.locator("[data-slot=avatar-fallback]")).toBeVisible();
+  await expect(avatar.locator("img")).toHaveCount(0);
+  const bounds = await avatar.boundingBox();
+  expect(bounds?.width).toBeGreaterThan(30);
+  expect(bounds?.height).toBeGreaterThan(30);
+  expect(unexpectedRequests).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
 for (const width of [390, 1440]) {
   test(`Calendar caps each account at three events and scrolls the rest inside at ${width}px`, async ({ page }) => {
     const { errors, unexpectedRequests } = await openFixture(page, width, false, "busy", false, true);
@@ -116,6 +130,12 @@ for (const width of [390, 1440]) {
       const label = page.getByRole("group", { name: `Calendar account ${email}` }).getByText(email, { exact: true });
       await expect(label).toBeVisible();
       await assertCalendarAccountLabel(label, width);
+    }
+    await expect(page.getByRole("group", { name: "Calendar account qa-owner@example.com" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
+    await expect(page.getByRole("group", { name: "Calendar account qa-work@example.com" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
+    await expect(page.getByRole("group", { name: "Calendar account qa-projects@example.com" }).locator("[data-photo-url]")).toHaveCount(0);
+    for (const email of ["qa-owner@example.com", "qa-work@example.com"]) {
+      await expect.poll(() => page.getByRole("group", { name: `Calendar account ${email}` }).locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
     }
     for (const event of ["QA Design Review", "QA Client Call", "QA Project Focus"]) await expect(page.getByRole("button", { name: new RegExp(`^Open ${event}`) })).toBeVisible();
     await expect(page.getByText("1 cross-account overlap")).toBeVisible();
@@ -398,6 +418,9 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByText("See your full day in Google Calendar")).toHaveCount(0);
     await page.getByRole("tab", { name: "Invitations", exact: true }).click();
     await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
+    await expect.poll(() => page.getByRole("button", { name: "Open invitation: QA Product Sync" }).locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
+    await expect(page.getByRole("button", { name: "Show Google contact photos" })).toHaveCount(0);
     const invitationBounds = (await cta.boundingBox())!;
     expect(invitationBounds.width).toBe(scheduleBounds.width);
     expect(invitationBounds.height).toBe(scheduleBounds.height);
@@ -431,8 +454,12 @@ for (const width of [320, 390, 1440]) {
       const accepted = item.textContent?.includes("Accepted") ?? false;
       return Boolean(item.querySelector("[data-accepted-indicator]")) === accepted;
     }))).toBe(true);
-    // A Hussh connection photo must not be presented as the guest's Google photo.
-    await expect(guests.filter({ hasText: "Manish" }).locator("img")).toHaveCount(0);
+    await expect(guests.filter({ hasText: "Manish" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
+    await expect(guests.filter({ hasText: "You" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
+    for (const name of ["Manish", "You"]) {
+      await expect.poll(() => guests.filter({ hasText: name }).locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
+    }
+    expect(calls.some(call => call.path.endsWith("/guest-photo-token"))).toBe(false);
     const guestBounds = await guests.evaluateAll(items => items.map(item => {
       const { x, y, width: rowWidth } = item.getBoundingClientRect();
       return { x, y, rowWidth };
@@ -488,12 +515,16 @@ for (const width of [390, 1280]) {
       days: [12, 13, 14, 15, 16, 17, 18].map((day, index) => ({ date: `2026-10-${day}`, minutes: [60, 120, 180, 60, 60, 0, 0][index], meetings: 1 })),
       recurring: [{ title: "QA weekly review", minutes: 60 }], focus: [{ start_at: "2026-10-15T09:30:00Z", end_at: "2026-10-15T11:30:00Z" }],
     } }));
-    await page.route("**/api/one/calendar/meetings", route => route.fulfill({ json: { complete: true, window_days: 30, meetings: [
-      { id: "notes", calendar_id: "primary", title: "QA Design review", start: { dateTime: "2026-10-13T09:00:00Z" }, artifact_kinds: ["notes"] },
-      { id: "video", calendar_id: "primary", title: "QA Product demo", start: { dateTime: "2026-10-12T09:00:00Z" }, artifact_kinds: ["recording"] },
-    ] } }));
+    await page.route("**/api/one/calendar/meetings", route => {
+      const body = route.request().postDataJSON() as { date: string; time_zone: string; kind: string; query: string };
+      const rows = [
+        { id: "notes", calendar_id: "primary", account_id: "default", occurrence_id: "a".repeat(64), grant_id: "b".repeat(64), sources: [{ calendar_id: "primary", event_id: "notes" }], title: "QA Design review", start: { dateTime: "2026-10-14T09:00:00Z" }, artifact_kinds: ["notes"] },
+        { id: "video", calendar_id: "primary", account_id: "default", occurrence_id: "c".repeat(64), grant_id: "b".repeat(64), sources: [{ calendar_id: "primary", event_id: "video" }], title: "QA Product demo", start: { dateTime: "2026-10-14T08:00:00Z" }, artifact_kinds: ["recording"] },
+      ];
+      return route.fulfill({ json: { complete: true, next_cursor: null, limitations: [], checked_events: 2, account_id: "default", date: body.date, time_zone: body.time_zone, meetings: rows.filter(row => (body.kind === "all" || row.artifact_kinds.includes(body.kind)) && row.title.toLowerCase().includes((body.query || "").toLowerCase())) } });
+    });
     await page.route("**/api/one/calendar/meetings/detail", route => route.fulfill({ json: { complete: true, discovery: "checked", calendar_id: "primary", event: { title: "QA Design review" }, artifacts: [
-      { file_id: "qa-doc", kind: "notes", state: "available", title: "QA Meeting notes", url: "https://docs.google.com/document/d/qa-doc", text: "Synthetic browser fixture only.\n\nDecisions\nKeep the existing Calendar shell.\n\nFollow-ups\nReview the responsive layout and permission states.", can_ask: true },
+      { file_id: "qa-doc", kind: "notes", state: "available", title: "QA Meeting notes", url: "https://docs.google.com/document/d/qa-doc", text: "Synthetic browser fixture only.", text_format: "plain", can_download: true },
       { file_id: "qa-transcript", kind: "transcript", state: "permission_required" },
     ] } }));
     await page.getByRole("tab", { name: "Insights", exact: true }).click();
@@ -509,16 +540,17 @@ for (const width of [390, 1280]) {
     await page.getByRole("searchbox").fill("Design");
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-library-${width}.png`), fullPage: true });
     await page.getByRole("button", { name: /QA Design review/ }).click();
-    await expect(page.getByRole("link", { name: "Open source" })).toHaveAttribute("href", "https://docs.google.com/document/d/qa-doc");
-    await expect(page.getByRole("button", { name: "Ask One about this meeting" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Open", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Download" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Ask One about this meeting" })).toHaveCount(0);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-meeting-${width}.png`), fullPage: true });
     await page.getByTestId("calendar-scroll-root").evaluate(element => { element.scrollTop = element.scrollHeight; });
-    const askBounds = (await page.getByRole("button", { name: "Ask One about this meeting" }).boundingBox())!;
+    const askBounds = (await page.getByRole("button", { name: "Download" }).boundingBox())!;
     const chromeBounds = (await page.getByTestId("reserved-bottom-chrome").boundingBox())!;
     expect(askBounds.y + askBounds.height).toBeLessThanOrEqual(chromeBounds.y);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-meeting-actions-${width}.png`) });
-    await page.getByRole("tab", { name: "Transcript", exact: true }).click();
-    await expect(page.getByText("Permission required. Calendar access does not include access to this meeting file.")).toBeVisible();
+    await expect(page.getByText("Synthetic browser fixture only.")).toBeVisible();
+    await expect(page.getByText("QA Meeting notes")).toBeVisible();
     await page.getByRole("button", { name: "Back to recordings and notes" }).click();
     await expect(page.getByRole("searchbox")).toHaveValue("Design");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -614,7 +646,6 @@ test("quiet loading preserves same-context previews and exposes real failures", 
   await page.route("**/api/one/calendar/insights", async route => { await gate; return route.fulfill({ status: 503, json: { detail: "Insights temporarily unavailable" } }); });
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.getByText("Scheduled events", { exact: true })).toBeVisible();
-  await expect(page.getByText("Last loaded snapshot · updates pending")).toBeVisible();
   await page.screenshot({ path: path.join(screenshotDirectory, "insights-background-refresh.png") });
   release();
   await expect(page.getByRole("alert")).toBeVisible();

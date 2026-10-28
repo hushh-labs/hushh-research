@@ -27,6 +27,7 @@ import {
   SurfaceInset,
 } from "@/components/app-ui/surfaces";
 import { PortfolioReportAction } from "@/components/kai/cards/portfolio-report-action";
+import { FinanceSharingHistoryAction } from "@/components/kai/sharing/finance-sharing-history-action";
 import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card";
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
 import { PortfolioOverview } from "@/components/kai/views/portfolio-overview";
@@ -1921,6 +1922,7 @@ export function DashboardMasterView({
           workspace="portfolio"
           title="Portfolio"
           description="Preparing your portfolio sources."
+          actions={<FinanceSharingHistoryAction />}
         />
         <AppPageContentRegion>
           <SurfaceCard className="w-full">
@@ -1941,6 +1943,7 @@ export function DashboardMasterView({
           workspace="portfolio"
           title="Portfolio"
           description="Choose how you want to begin."
+          actions={<FinanceSharingHistoryAction />}
         />
         <AppPageContentRegion className="space-y-3">
           <SettingsGroup
@@ -2003,7 +2006,7 @@ export function DashboardMasterView({
           <PortfolioOverview model={model} portfolio={displayedPortfolio} source={sourceDisplayLabel} onImport={onReupload}
             period={model.hero.statementPeriod || (freshness?.lastSyncedAt ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}` : "Current portfolio snapshot")}
             onOpenSection={section => router.push(buildKaiPortfolioSectionRoute(section))}
-            action={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"}
+            action={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"} sharingSource={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
               disabled={!hasShareablePortfolioData} busy={isSharingPortfolioPdf} onExport={() => void handleSharePortfolioPdf()} />} />
 
           {deletePortfolioDialog}
@@ -2034,7 +2037,7 @@ export function DashboardMasterView({
                 ? (model.quality.historyReady ? "Value and change from dated portfolio balances." : undefined)
                 : "Where your holdings come from."
         }
-        actions={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"}
+        actions={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"} sharingSource={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
           disabled={!hasShareablePortfolioData} busy={isSharingPortfolioPdf} onExport={() => void handleSharePortfolioPdf()} />}
         actionsInlineMobile
       />

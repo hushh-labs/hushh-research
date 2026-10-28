@@ -41,7 +41,7 @@ export function RequestCardsButton({
   showTrigger?: boolean;
   returnFocusRef?: RefObject<HTMLButtonElement | null>;
 }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultOwnerToken, vaultKey, isVaultUnlocked } = useVault();
   const epoch = useSyncExternalStore(
     subscribeVaultSessionEpoch,
@@ -56,6 +56,7 @@ export function RequestCardsButton({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const current = useRef({
     user,
+    userId,
     token: vaultOwnerToken,
     vaultKey,
     unlocked: isVaultUnlocked,
@@ -63,6 +64,7 @@ export function RequestCardsButton({
   });
   current.current = {
     user,
+    userId,
     token: vaultOwnerToken,
     vaultKey,
     unlocked: isVaultUnlocked,
@@ -100,7 +102,7 @@ export function RequestCardsButton({
     setOpen(false);
     setBusy(false);
     setError(null);
-  }, [user?.uid, personRef]);
+  }, [userId, personRef]);
   const review = () => {
     if (!user || sent) return false;
     if (!isVaultUnlocked || !vaultOwnerToken) {
@@ -130,7 +132,7 @@ export function RequestCardsButton({
       mounted.current &&
       visibilityRevision.current === visibility &&
       document.visibilityState !== "hidden" &&
-      current.current.user?.uid === owner.user?.uid &&
+      current.current.userId === owner.userId &&
       current.current.token === owner.token &&
       current.current.vaultKey === owner.vaultKey &&
       current.current.unlocked &&
@@ -140,6 +142,7 @@ export function RequestCardsButton({
       sending.current ||
       !eligibility.current ||
       !owner.user ||
+      !owner.userId ||
       !owner.token ||
       !owner.vaultKey ||
       !isCurrent()
@@ -150,7 +153,7 @@ export function RequestCardsButton({
     setError(null);
     try {
       const context = {
-        userId: owner.user.uid,
+        userId: owner.userId,
         vaultOwnerToken: owner.token,
         vaultKey: owner.vaultKey,
         getIdToken: () => owner.user!.getIdToken(),
@@ -168,7 +171,7 @@ export function RequestCardsButton({
         setError("Your connection needs to be confirmed before sending. Your review is kept.");
         return;
       }
-      if (key.userId !== owner.user.uid || !key.publicKeyJwk)
+      if (key.userId !== owner.userId || !key.publicKeyJwk)
         throw new Error("Recipient key unavailable.");
       await WalletCardAccessService.createRequest(
         context,

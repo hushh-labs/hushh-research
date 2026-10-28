@@ -33,7 +33,12 @@ vi.mock("@/lib/notifications/preview-keys", () => ({
 import { settleSignOutNotifications } from "@/lib/auth/sign-out-notifications";
 import type { User } from "firebase/auth";
 
-import { deleteFCMToken } from "@/lib/notifications/fcm-service";
+import { clearLocalChatNotificationState, deleteFCMToken, initializeFCM } from "@/lib/notifications/fcm-service";
+import {
+  publishPendingAuthSessionIdentity,
+  publishValidatedAuthSessionOwner,
+  publishValidatedAuthSessionPrincipal,
+} from "@/lib/auth/session-owner";
 
 describe("sign-out push cleanup", () => {
   beforeEach(() => {
@@ -73,6 +78,24 @@ describe("sign-out push cleanup", () => {
     await settleSignOutNotifications({ uid: "external-uid", getIdToken } as unknown as User, ownerId);
     expect(mocks.clearPreview).toHaveBeenCalledWith(ownerId);
     expect(mocks.unregister).toHaveBeenCalledWith(ownerId, "firebase-token", undefined, expect.any(AbortSignal), expect.any(String));
+  });
+
+  it("clears a withdrawn replacement owner's previews when sign-out names its Firebase UID", async () => {
+    // Re-verification can withdraw the owner mid-session; sign-out then only knows the UID.
+    const ownerId = "acct_" + "c".repeat(32);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "external-uid", ownerId, accountGeneration: 1 });
+    await initializeFCM(ownerId, "id-token").catch(() => undefined);
+    publishPendingAuthSessionIdentity("external-uid");
+    try {
+      const getIdToken = vi.fn().mockResolvedValue("firebase-token");
+      // Through the provider's caller: its preview clear ends the session record first.
+      await settleSignOutNotifications({ uid: "external-uid", getIdToken } as unknown as User, "external-uid");
+      expect(mocks.clearPreview).toHaveBeenCalledWith(ownerId);
+      expect(mocks.unregister).toHaveBeenCalledWith(ownerId, "firebase-token", undefined, expect.any(AbortSignal), expect.any(String));
+    } finally {
+      await clearLocalChatNotificationState();
+      publishValidatedAuthSessionOwner(null);
+    }
   });
 
   it("clears an existing subscription without registering a worker during logout", async () => {

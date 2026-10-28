@@ -2244,7 +2244,7 @@ export function OneLocationAgentPageContent({
   // Firebase's User object can remain phone-less even after AuthContext has
   // hydrated the verified number, so contact normalization must use both.
   const accountPhoneNumber = auth.phoneNumber ?? auth.user?.phoneNumber ?? null;
-  const contactSyncUserId = auth.userId ?? auth.user?.uid ?? null;
+  const contactSyncUserId = auth.userId ?? null;
   const contactSyncIdentityRef = useRef({
     userId: contactSyncUserId,
     accountPhoneNumber,

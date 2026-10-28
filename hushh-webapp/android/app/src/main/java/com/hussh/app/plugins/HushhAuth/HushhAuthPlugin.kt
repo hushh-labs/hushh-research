@@ -542,6 +542,10 @@ class HushhAuthPlugin : Plugin() {
         if (call.getBoolean("includeGuestPhotos", false) == true) {
             calendarScopes.add(Scope("https://www.googleapis.com/auth/contacts.readonly"))
         }
+        if (call.getBoolean("includeMeetingFiles", false) == true) {
+            calendarScopes.add(Scope("https://www.googleapis.com/auth/meetings.space.readonly"))
+            calendarScopes.add(Scope("https://www.googleapis.com/auth/drive.meet.readonly"))
+        }
         val calendarOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestServerAuthCode(serverClientId, true)
             .requestEmail()

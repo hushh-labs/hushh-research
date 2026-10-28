@@ -10,7 +10,17 @@ tests/services/test_plg_evidence.py
 tests/services/test_product_activity_postgres.py
 tests/test_plg_deploy_bindings.py
 tests/test_plg_release_source.py
+tests/test_plg_frontend_source.py
+tests/test_plg_frontend_validation.py
 tests/test_plg_source_validation_workflow.py
+tests/test_plg_qualification_bootstrap.py
+tests/test_plg_qualification_schema.py
+tests/test_plg_qualification_runtime.py
+tests/test_plg_qualification_acceptance.py
+tests/test_plg_qualification_image.py
+tests/test_plg_qualification_iam.py
+tests/test_plg_qualification_candidate.py
+tests/test_plg_qualification_producer.py
 
 # Store releases must retain the selected track, exact source and private binaries.
 tests/test_native_ship_artifact_workflows.py
@@ -86,6 +96,7 @@ tests/services/test_google_calendar_service.py
 tests/services/test_google_calendar_oauth_scopes.py
 tests/services/test_google_connection_account_binding.py
 tests/test_google_connection_routes.py
+tests/services/test_calendar_native_optional_scope.py
 tests/services/test_google_calendar_guest_photo_token.py
 tests/services/test_google_calendar_event_type.py
 tests/services/test_google_calendar_profile_photos.py
@@ -223,6 +234,9 @@ tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_financial_raw_records_not_shareable.py
+tests/test_finance_sharing_contract.py
+tests/test_finance_consent_lifecycle.py
+tests/test_finance_pod_owner_feed.py
 tests/test_partner_developer_apps.py
 tests/test_hushh_tech_client_migration.py
 tests/test_hushh_tech_synthetic_import.py
@@ -267,6 +281,7 @@ tests/services/test_location_brain_semantic_retrieval.py
 tests/services/test_location_circle_direct_executor.py
 tests/services/test_location_circle_name_interaction.py
 tests/services/test_connections_service.py
+tests/services/test_connections_calendar_profile_email.py
 tests/services/test_connection_presence.py
 tests/services/test_push_notifications.py
 tests/services/test_system_push_delivery.py
@@ -294,6 +309,7 @@ tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_cloudbuild_step_arg_limit.py
 tests/test_one_wallet_card_deploy_parity.py
+tests/test_account_generation_admission_deploy.py
 tests/test_gmail_information_request_release_contract.py
 tests/test_uat_deploy_no_traffic_contract.py
 tests/test_uat_text_recovery_controller.py
@@ -556,7 +572,6 @@ tests/test_reserved_branches.py
 # on both sides), spans without values, the per-item grant shape, and the
 # plaintext summary envelope that refuses a leaked label or value.
 tests/test_secrets_area.py
-tests/test_scope_catalog_self_corrects_stale_rows.py
 tests/services/test_structure_decision_is_the_models.py
 tests/services/test_intent_frame_is_the_models.py
 tests/test_agent_stage_skips_are_visible.py
@@ -1315,6 +1330,7 @@ tests/routes/test_wallet_artwork_route.py
 tests/test_wallet_card_validation.py
 tests/routes/test_wallet_card_access_route.py
 tests/test_wallet_card_access_postgres.py
+tests/test_finance_sharing_postgres.py
 tests/test_wallet_universal_sharing_postgres.py
 
 # Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local
@@ -1481,6 +1497,7 @@ tests/services/test_calendar_schedule_service.py
 tests/services/test_calendar_schedule_boundaries.py
 tests/services/test_calendar_attendance_service.py
 tests/services/test_calendar_invitations.py
+tests/services/test_calendar_meeting_artifacts.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.
@@ -1521,6 +1538,7 @@ tests/test_drive_packet_public_summary_routes.py
 tests/test_consumer_consent_replay_postgres.py
 
 tests/test_phone_transfer_postgres.py
+tests/test_phone_linked_deletion_postgres.py
 
 tests/test_phone_transfer_authority.py
 tests/test_phone_bootstrap.py

@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   saveMergedDomain: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: true, vaultKey: "k", vaultOwnerToken: "t" }) }));
 vi.mock("@/lib/morphy-ux/button", () => ({
   Button: ({ children, variant: _variant, size: _size, ...props }: { children: ReactNode; variant?: string; size?: string }) =>

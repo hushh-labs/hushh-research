@@ -46,13 +46,13 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647;
  * cached + shared via useStaleResource so this adds no polling.
  */
 export function useUnseenLocationShareCount(): number {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
   // Bumped on grant open/unwatch and on location notification events so the
   // active-grant list re-fetches and the unopened filter re-runs immediately.
   const [tick, setTick] = useState(0);
 
-  const uid = user?.uid ?? null;
+  const uid = userId;
   const enabled = Boolean(uid && isVaultUnlocked);
   const cacheKey = uid
     ? `one_location_received_active:${uid}`

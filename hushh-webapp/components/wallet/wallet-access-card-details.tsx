@@ -14,14 +14,14 @@ import presentationStyles from "./wallet-connect-presentation.module.css";
 
 /** Mounted only while the server-authorized grant is active. No decrypted persistence. */
 export function WalletAccessCardDetails({ grantId, data }: { grantId: string; data: CardAccessView }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultKey, getVaultOwnerToken } = useVault();
   const [unlock, setUnlock] = useState(false);
   const [failed, setFailed] = useState(false);
   const [opened, setOpened] = useState<{ scope: string; key: string; card: SharedPaymentCard } | null>(null);
   // Polling can return the same metadata in a different JSON property order.
   // Only changed values invalidate the in-memory reveal.
-  const scope = JSON.stringify([user?.uid, grantId, data.encryptedCard, data.senderUserId,
+  const scope = JSON.stringify([userId, grantId, data.encryptedCard, data.senderUserId,
     data.card?.brand, data.card?.last4, data.card?.expiryMonth, data.card?.expiryYear, data.card?.issuingRegion]);
   const current = useRef({ scope, vaultKey });
   current.current = { scope, vaultKey };
@@ -30,7 +30,7 @@ export function WalletAccessCardDetails({ grantId, data }: { grantId: string; da
   useEffect(() => {
     let cancelled = false;
     setOpened(null); setFailed(false);
-    if (!data.encryptedCard || !data.senderUserId || !user?.uid || !vaultKey) return;
+    if (!data.encryptedCard || !data.senderUserId || !userId || !vaultKey) return;
     const isCurrent = () => !cancelled && current.current.scope === scope && current.current.vaultKey === vaultKey && document.visibilityState !== "hidden";
     void (async () => {
       try {
@@ -38,7 +38,7 @@ export function WalletAccessCardDetails({ grantId, data }: { grantId: string; da
         if (!token) throw new Error("Wallet locked");
         const state = await OneLocationService.getState(token);
         if (!isCurrent()) return;
-        const card = await openWalletCardShare({ content: data.encryptedCard!, userId: user.uid,
+        const card = await openWalletCardShare({ content: data.encryptedCard!, userId,
           peerUserId: data.senderUserId!, senderIsViewer: false,
           recovery: state.myRecipientKey ? { vaultKey, remoteBackup: state.myRecipientKey } : undefined });
         if (!isCurrent()) return;
@@ -47,7 +47,7 @@ export function WalletAccessCardDetails({ grantId, data }: { grantId: string; da
       } catch { if (isCurrent()) setFailed(true); }
     })();
     return () => { cancelled = true; };
-  }, [scope, vaultKey, user?.uid, data.encryptedCard, data.senderUserId, data.card?.last4, data.card?.brand, data.card?.expiryMonth, data.card?.expiryYear]);
+  }, [scope, vaultKey, userId, data.encryptedCard, data.senderUserId, data.card?.last4, data.card?.brand, data.card?.expiryMonth, data.card?.expiryYear]);
   const shown = opened?.scope === scope && opened.key === vaultKey ? opened.card : null;
   if (!data.card) return null;
   return <div className={`${presentationStyles.walletSurface} space-y-2`}>

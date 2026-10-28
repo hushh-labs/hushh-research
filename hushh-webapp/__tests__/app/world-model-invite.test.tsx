@@ -19,6 +19,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mock.push }) }));
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: mock.user,
+    userId: mock.user?.uid ?? null,
     loading: false,
     sessionVerificationRequired: mock.verificationRequired,
   }),

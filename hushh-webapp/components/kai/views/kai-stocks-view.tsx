@@ -23,7 +23,7 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
   historyRequested?: boolean;
   onHistoryClose?: () => void;
 }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const searchParams = useSearchParams();
   const active = searchParams.get("tab") === "analysis";
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -37,13 +37,13 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
   const rows = useMemo(() => (payload?.renaissance_list ?? payload?.pick_rows ?? []).filter(row => Boolean(row?.symbol)), [payload]);
   const busy = loading || refreshing;
   const loadCompanyFacts = useCallback((symbols: string[]) => {
-    if (!user?.uid) return Promise.resolve({});
-    return ApiService.getKaiMarketCompanyFacts({ userId: user.uid, symbols });
-  }, [user]);
+    if (!userId) return Promise.resolve({});
+    return ApiService.getKaiMarketCompanyFacts({ userId, symbols });
+  }, [userId]);
   const loadHistory = useCallback((symbol: string, signal: AbortSignal) => {
-    if (!user?.uid) return Promise.reject(new Error("Sign in to read price history"));
-    return ApiService.getKaiStockPriceHistory(user.uid, symbol, signal);
-  }, [user]);
+    if (!userId) return Promise.reject(new Error("Sign in to read price history"));
+    return ApiService.getKaiStockPriceHistory(userId, symbol, signal);
+  }, [userId]);
   const historyButton = history ? <ShellActionSurface variant="pill" className="h-12 text-xs sm:text-xs" onClick={() => setHistoryOpen(true)}><History className="h-4 w-4" />History</ShellActionSurface> : null;
 
   return <section aria-label="Stocks" className={marketSurfaceVariablesClassName} data-testid="kai-stocks-browser">

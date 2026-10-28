@@ -1626,7 +1626,7 @@ function ScreeningEditor({
 export default function RiaPicksPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const {
     riaCapability,
@@ -1713,16 +1713,16 @@ export default function RiaPicksPage() {
       path?: string | null;
     };
   }>({
-    cacheKey: user?.uid ? `ria_picks_${user.uid}` : "ria_picks_guest",
+    cacheKey: userId ? `ria_picks_${userId}` : "ria_picks_guest",
     enabled: Boolean(
-      user?.uid && (riaCapability !== "setup" || personaRefreshing),
+      userId && (riaCapability !== "setup" || personaRefreshing),
     ),
     load: async () => {
-      if (!user?.uid) throw new Error("Sign in");
+      if (!user || !userId) throw new Error("Sign in");
       const idToken = await user.getIdToken();
       return RiaService.listPicks({
         idToken,
-        userId: user.uid,
+        userId,
         vaultKey,
         vaultOwnerToken,
       });
@@ -2367,11 +2367,11 @@ export default function RiaPicksPage() {
     payload: ReturnType<typeof draftToPayload>,
     nextLabel?: string,
   ) {
-    if (!user) return;
+    if (!user || !userId) return;
     const idToken = await user.getIdToken();
     await RiaService.savePickPackage({
       idToken,
-      userId: user.uid,
+      userId,
       vaultKey,
       vaultOwnerToken,
       label: nextLabel || "Active advisor package",
@@ -2431,7 +2431,7 @@ export default function RiaPicksPage() {
   }
 
   async function onUpload() {
-    if (!user || !fileContent.trim()) return;
+    if (!user || !userId || !fileContent.trim()) return;
     try {
       setSubmitting(true);
       if (!vaultKey || !vaultOwnerToken) {
@@ -2440,7 +2440,7 @@ export default function RiaPicksPage() {
       const idToken = await user.getIdToken();
       await RiaService.importPickCsv({
         idToken,
-        userId: user.uid,
+        userId,
         vaultKey,
         vaultOwnerToken,
         csv_content: fileContent,

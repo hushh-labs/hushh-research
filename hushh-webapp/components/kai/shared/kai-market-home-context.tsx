@@ -44,7 +44,7 @@ type KaiMarketLoadOptions = {
 };
 
 function useKaiMarketHomeController() {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const {
     vaultKey,
     tokenExpiresAt,
@@ -62,48 +62,48 @@ function useKaiMarketHomeController() {
   const serverSeededPickSourceUsersRef = useRef(new Set<string>());
   const backgroundRefreshKeyRef = useRef<string | null>(null);
   const { data: financialResource } = useKaiFinancialResource({
-    userId: user?.uid ?? "",
+    userId: userId ?? "",
     vaultOwnerToken,
     vaultKey,
     enabled: Boolean(
-      user?.uid && vaultKey && vaultOwnerToken && financialResourceEnabled,
+      userId && vaultKey && vaultOwnerToken && financialResourceEnabled,
     ),
     backgroundRefresh: false,
   });
 
   useEffect(() => {
-    if (!user?.uid) {
+    if (!userId) {
       setActivePickSource("default");
       setPickSourceReady(false);
       setFinancialResourceEnabled(false);
       setTrackedSymbolsSeed([]);
       return;
     }
-    serverSeededPickSourceUsersRef.current.delete(user.uid);
-    setActivePickSource(getKaiActivePickSource(user.uid));
+    serverSeededPickSourceUsersRef.current.delete(userId);
+    setActivePickSource(getKaiActivePickSource(userId));
     setPickSourceReady(true);
     setFinancialResourceEnabled(false);
     const seededFinancial = normalizeTrackedSymbols(
-      KaiFinancialResourceService.peek(user.uid)?.data?.holdings,
+      KaiFinancialResourceService.peek(userId)?.data?.holdings,
     );
     setTrackedSymbolsSeed(
       seededFinancial.length > 0
         ? seededFinancial
         : normalizeTrackedSymbols(
-            KaiMarketHomeResourceService.resolveTrackedSymbols(user.uid),
+            KaiMarketHomeResourceService.resolveTrackedSymbols(userId),
           ),
     );
-  }, [user?.uid]);
+  }, [userId]);
 
   const trackedSymbols = useMemo(() => {
-    if (!user?.uid) {
+    if (!userId) {
       return [];
     }
     return trackedSymbolsSeed;
-  }, [trackedSymbolsSeed, user?.uid]);
+  }, [trackedSymbolsSeed, userId]);
 
   useEffect(() => {
-    if (!user?.uid || trackedSymbolsSeed.length > 0) {
+    if (!userId || trackedSymbolsSeed.length > 0) {
       return;
     }
 
@@ -116,16 +116,16 @@ function useKaiMarketHomeController() {
     }
 
     const cacheDerived = normalizeTrackedSymbols(
-      KaiMarketHomeResourceService.resolveTrackedSymbols(user.uid),
+      KaiMarketHomeResourceService.resolveTrackedSymbols(userId),
     );
     if (cacheDerived.length > 0) {
       setTrackedSymbolsSeed(cacheDerived);
     }
-  }, [financialResource?.holdings, trackedSymbolsSeed.length, user?.uid]);
+  }, [financialResource?.holdings, trackedSymbolsSeed.length, userId]);
 
   const resolveToken = useCallback(
     async (forceRefresh = false): Promise<string> => {
-      if (!user?.uid) {
+      if (!userId) {
         throw new Error("Missing authenticated user");
       }
       const authGeneration = getAuthSessionGeneration();
@@ -139,7 +139,7 @@ function useKaiMarketHomeController() {
       };
       assertCurrent();
       const token = await ensureKaiVaultOwnerToken({
-        userId: user.uid,
+        userId,
         currentToken: getVaultOwnerToken ? getVaultOwnerToken() : vaultOwnerToken,
         currentExpiresAt: tokenExpiresAt,
         forceRefresh,
@@ -164,7 +164,7 @@ function useKaiMarketHomeController() {
       getVaultKey,
       tokenExpiresAt,
       unlockVault,
-      user?.uid,
+      userId,
       vaultKey,
       vaultOwnerToken,
     ],
@@ -172,31 +172,31 @@ function useKaiMarketHomeController() {
 
   const personalizedCacheKey = useMemo(
     () =>
-      user?.uid && pickSourceReady
+      userId && pickSourceReady
         ? CACHE_KEYS.KAI_MARKET_HOME(
-            user.uid,
+            userId,
             toSymbolsKey(trackedSymbols),
             7,
             activePickSource,
           )
         : "kai_market_home_guest",
-    [activePickSource, pickSourceReady, trackedSymbols, user?.uid],
+    [activePickSource, pickSourceReady, trackedSymbols, userId],
   );
-  const marketResourceReady = Boolean(user?.uid && pickSourceReady);
+  const marketResourceReady = Boolean(userId && pickSourceReady);
 
   const baselineResource = useStaleResource<KaiHomeInsightsV2 | null>({
-    cacheKey: user?.uid
-      ? CACHE_KEYS.KAI_MARKET_HOME_BASELINE(user.uid, 7)
+    cacheKey: userId
+      ? CACHE_KEYS.KAI_MARKET_HOME_BASELINE(userId, 7)
       : "kai_market_home_baseline_guest",
-    enabled: Boolean(user?.uid),
+    enabled: Boolean(userId),
     resourceLabel: "kai_market_home_baseline",
     getRequestVersion: () => usMarketRefreshSession() ?? "closed",
     load: async (options) => {
-      if (!user?.uid) {
+      if (!userId) {
         return null;
       }
       return await KaiMarketHomeResourceService.getBaselineStaleFirst({
-        userId: user.uid,
+        userId,
         daysBack: 7,
         forceRefresh: Boolean(options?.force),
         backgroundRefresh: !options?.force,
@@ -210,7 +210,7 @@ function useKaiMarketHomeController() {
     resourceLabel: "kai_market_home",
     getRequestVersion: () => usMarketRefreshSession() ?? "closed",
     load: async (options) => {
-      if (!user?.uid) {
+      if (!userId) {
         return null;
       }
       const currentToken = getVaultOwnerToken ? getVaultOwnerToken() : vaultOwnerToken ?? null;
@@ -222,7 +222,7 @@ function useKaiMarketHomeController() {
         const forcedToken =
           currentToken && !currentVaultKey ? currentToken : await resolveToken(false);
         return await KaiMarketHomeResourceService.getPersonalizedStaleFirst({
-          userId: user.uid,
+          userId,
           vaultOwnerToken: forcedToken,
           pickSource: activePickSource,
           symbols: trackedSymbols,
@@ -234,7 +234,7 @@ function useKaiMarketHomeController() {
 
       const cachedOrDevice =
         await KaiMarketHomeResourceService.getPersonalizedStaleFirst({
-          userId: user.uid,
+          userId,
           vaultOwnerToken: currentToken,
           pickSource: activePickSource,
           symbols: trackedSymbols,
@@ -247,7 +247,7 @@ function useKaiMarketHomeController() {
       }
       if (currentToken) {
         return await KaiMarketHomeResourceService.getPersonalizedStaleFirst({
-          userId: user.uid,
+          userId,
           vaultOwnerToken: currentToken,
           pickSource: activePickSource,
           symbols: trackedSymbols,
@@ -262,7 +262,7 @@ function useKaiMarketHomeController() {
       }
       const token = await resolveToken(false);
       return await KaiMarketHomeResourceService.getPersonalizedStaleFirst({
-        userId: user.uid,
+        userId,
         vaultOwnerToken: token,
         pickSource: activePickSource,
         symbols: trackedSymbols,
@@ -277,7 +277,7 @@ function useKaiMarketHomeController() {
   const payload = personalizedPayload ?? baselinePayload;
 
   useEffect(() => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+    if (!userId || !vaultKey || !vaultOwnerToken) {
       setFinancialResourceEnabled(false);
       backgroundRefreshKeyRef.current = null;
       return;
@@ -325,18 +325,18 @@ function useKaiMarketHomeController() {
     baselineResource.snapshot?.data,
     personalizedResource.data,
     personalizedResource.snapshot?.data,
-    user?.uid,
+    userId,
     vaultKey,
     vaultOwnerToken,
   ]);
 
   useEffect(() => {
-    if (!user?.uid || !vaultOwnerToken || !personalizedPayload) {
+    if (!userId || !vaultOwnerToken || !personalizedPayload) {
       return;
     }
 
     const refreshKey = [
-      user.uid,
+      userId,
       activePickSource,
       toSymbolsKey(trackedSymbols),
     ].join(":");
@@ -348,7 +348,7 @@ function useKaiMarketHomeController() {
 
     const timeoutId = globalThis.setTimeout(() => {
       void KaiMarketHomeResourceService.refreshPersonalized({
-        userId: user.uid,
+        userId,
         vaultOwnerToken,
         pickSource: activePickSource,
         symbols: trackedSymbols,
@@ -363,7 +363,7 @@ function useKaiMarketHomeController() {
     activePickSource,
     personalizedPayload,
     trackedSymbols,
-    user?.uid,
+    userId,
     vaultOwnerToken,
   ]);
 
@@ -371,7 +371,6 @@ function useKaiMarketHomeController() {
     const nextSource = String(
       personalizedPayload?.active_pick_source || "",
     ).trim();
-    const userId = user?.uid;
     if (
       !userId ||
       !nextSource ||
@@ -389,11 +388,11 @@ function useKaiMarketHomeController() {
     }
     serverSeededPickSourceUsersRef.current.add(userId);
     setActivePickSource(nextSource);
-  }, [activePickSource, personalizedPayload?.active_pick_source, user?.uid]);
+  }, [activePickSource, personalizedPayload?.active_pick_source, userId]);
 
   useEffect(() => {
-    setKaiActivePickSource(user?.uid, activePickSource);
-  }, [activePickSource, user?.uid]);
+    setKaiActivePickSource(userId, activePickSource);
+  }, [activePickSource, userId]);
 
   useMarketLiveRefresh(async (force) => {
     await Promise.all([
@@ -402,14 +401,14 @@ function useKaiMarketHomeController() {
         ? personalizedResource.refresh({ force })
         : Promise.resolve(),
     ]);
-  }, user?.uid ?? null);
+  }, userId ?? null);
 
   const loadInsights = useCallback(
     async ({
       forceTokenRefresh = false,
       manual = false,
     }: KaiMarketLoadOptions = {}) => {
-      if (!user?.uid) {
+      if (!userId) {
         return;
       }
       if (forceTokenRefresh && vaultKey) await resolveToken(true);
@@ -424,7 +423,7 @@ function useKaiMarketHomeController() {
       marketResourceReady,
       personalizedResource,
       resolveToken,
-      user?.uid,
+      userId,
       vaultKey,
       vaultOwnerToken,
     ],

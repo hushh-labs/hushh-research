@@ -120,6 +120,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/hooks/use-auth", () => ({
   useRequireAuth: () => ({
     user: mocks.user,
+    // Generation-0 accounts: the application owner equals the Firebase UID.
+    userId: mocks.user.uid,
     phoneNumber: mocks.authPhoneNumber,
     resolveVerifiedPhoneNumber: mocks.resolveVerifiedPhoneNumber,
   }),

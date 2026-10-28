@@ -2668,7 +2668,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Mandatory phone verification owns nested Back: transfer review returns to recovery choices, choices return to phone entry, and a dispatched transfer consumes Back until status settles. Behavioral proof: phone-verification-flow-interaction.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
+      "reason": "Mandatory phone verification owns nested Back: transfer review and linked-account deletion review return to recovery choices, choices return to phone entry, and a dispatched transfer or unconfirmed deletion consumes Back until status settles. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
     }
   },
   {
@@ -3004,10 +3004,18 @@
             "mode": "replace",
             "transitionMode": "contextual"
           }
+        },
+        {
+          "href": "/one/kai?tab=portfolio",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
       "kind": "parent",
-      "reason": "Saved analysis opens in the shared History sheet; overlay dismissal and the active Stocks Back layer close it before the authored route parent. Inactive Finance panes release the layer."
+      "reason": "Finance sheets dismiss before the authored route parent. Sharing review returns to its selection layer before leaving Portfolio; confirmations consume Back while dispatch settles. Saved analysis History and inactive pane cleanup retain their existing ownership."
     }
   },
   {

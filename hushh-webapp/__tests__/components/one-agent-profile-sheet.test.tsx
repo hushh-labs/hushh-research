@@ -49,7 +49,7 @@ vi.mock("@/components/app-ui/native-feature-page", () => ({
     open ? <section data-testid="native-one-pane" data-context={context}><button onClick={onBack}>Back to Chat</button><button onClick={onClose}>Close One profile</button>{children}</section> : null,
 }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: mocks.uid, getIdToken: mocks.getIdToken } }),
+  useAuth: () => ({ user: { uid: mocks.uid, getIdToken: mocks.getIdToken }, userId: mocks.uid }),
 }));
 vi.mock("@/lib/pkm/memory-refresh", () => ({
   peekLiveMirror: (uid: string) => mocks.peekLiveMirror(uid),

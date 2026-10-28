@@ -9,7 +9,7 @@ import os
 from collections.abc import Iterable
 from datetime import datetime, timezone
 from time import monotonic
-from typing import Any, Dict, Literal
+from typing import Any, Callable, Dict, Literal
 
 from sqlalchemy import text
 
@@ -17,6 +17,10 @@ from db.db_client import get_db, get_db_connection
 from hushh_mcp.consent.audit_logger import get_trace_id
 from hushh_mcp.services import account_choice_erasure as choices
 from hushh_mcp.services.account_answer_erasure import guard_answer_erasure
+from hushh_mcp.services.account_connection_sharing_erasure import (
+    CONNECTION_SHARING_ERASURE_TABLES,
+    connection_sharing_erasure_queries,
+)
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     _postgres_sqlstate,
@@ -86,6 +90,22 @@ _RECOVERY_ERASURE_BATCH_SIZE = 100
 
 def _is_release_fence_refusal(exc: BaseException) -> bool:
     return _postgres_sqlstate(exc) == "55000" and _RELEASE_FENCE_MESSAGE in str(exc)
+
+
+class AccountDeletionAdmissionRefused(RuntimeError):
+    """A caller's check refused inside the admission transaction; nothing committed."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+    def result(self) -> Dict[str, Any]:
+        return {
+            "success": False,
+            "account_deleted": False,
+            "error_code": self.code,
+            "error": self.code,
+        }
 
 
 TRANSACTIONAL_ACCOUNT_ERASURE_TABLES = frozenset(
@@ -368,27 +388,7 @@ class AccountService:
             "marketplace_recipient_keys": text(
                 "DELETE FROM marketplace_recipient_keys WHERE user_id = :user_id"
             ),
-            "wallet_card_access_audit": text(
-                "DELETE FROM wallet_card_access_audit WHERE actor_user_id = :user_id"
-            ),
-            "wallet_card_requests": text(
-                "DELETE FROM wallet_card_requests WHERE requester_user_id = :user_id OR target_user_id = :user_id"
-            ),
-            "wallet_card_access_grants": text(
-                "DELETE FROM wallet_card_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
-            ),
-            "wallet_profile_access_grants": text(
-                "DELETE FROM wallet_profile_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
-            ),
-            "wallet_profile_share_requests": text(
-                "DELETE FROM wallet_profile_share_requests WHERE owner_user_id = :user_id"
-            ),
-            "wallet_card_share_requests": text(
-                "DELETE FROM wallet_card_share_requests WHERE owner_user_id = :user_id"
-            ),
-            "wallet_card_registrations": text(
-                "DELETE FROM wallet_card_registrations WHERE owner_user_id = :user_id"
-            ),
+            **connection_sharing_erasure_queries(),
             "pkm_packets": text("DELETE FROM pkm_packets WHERE owner_user_id = :user_id"),
             # A paid, undelivered packet is money owed back to the buyer: move it
             # to refund_pending (the reconcile refunds it, then removes the row)
@@ -1414,8 +1414,14 @@ class AccountService:
         self,
         user_id: str,
         target: DeleteAccountTarget = "both",
+        *,
+        admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
-        """Delete either the whole account or one persona."""
+        """Delete either the whole account or one persona.
+
+        ``admission_check`` runs inside the full-account admission transaction,
+        under the owner's exclusive lifecycle locks, before anything commits.
+        """
         requested_target = self._normalized_target(target)
         actor_profile = await asyncio.to_thread(self._load_actor_profile, user_id)
         personas = (
@@ -1438,6 +1444,7 @@ class AccountService:
             return await self._delete_full_account(
                 user_id,
                 requested_target=requested_target,
+                admission_check=admission_check,
             )
 
         remaining_personas = [persona for persona in personas if persona != requested_target]
@@ -1577,13 +1584,7 @@ class AccountService:
                 "live_memory_hosted_pilot_grants",
                 "agent_chat_messages",
                 "agent_chat_conversations",
-                "wallet_card_access_audit",
-                "wallet_profile_access_grants",
-                "wallet_card_requests",
-                "wallet_card_access_grants",
-                "wallet_profile_share_requests",
-                "wallet_card_share_requests",
-                "wallet_card_registrations",
+                *CONNECTION_SHARING_ERASURE_TABLES,
                 "messages",
                 "conversations",
                 "direct_message_blocks",
@@ -1639,6 +1640,8 @@ class AccountService:
                 # The preference world model is private intelligence about the owner,
                 # keyed by user_id. It belongs in the pod, so a reset must not leave a
                 # copy behind on the control plane.
+                "finance_access_grants",
+                "finance_share_requests",
                 "wallet_card_access_audit",
                 "wallet_card_access_grants",
                 "wallet_card_share_requests",
@@ -1956,6 +1959,7 @@ class AccountService:
         *,
         requested_target: DeleteAccountTarget,
         backend_only: bool = False,
+        admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Prepare durable cleanup, or execute the attested UAT-only local reset."""
         if backend_only and (
@@ -1966,8 +1970,10 @@ class AccountService:
             raise ValueError("backend_only_erasure_requires_uat_database")
         if not backend_only:
             return await self._prepare_full_account_cleanup(
-                user_id, requested_target=requested_target
+                user_id, requested_target=requested_target, admission_check=admission_check
             )
+        if admission_check is not None:
+            raise ValueError("admission_check_requires_prepared_cleanup")
         cleanup = await self._erase_shared_files_if_present(user_id, backend_only=backend_only)
         if cleanup is not None:
             return cleanup
@@ -1976,7 +1982,11 @@ class AccountService:
         )
 
     async def _prepare_full_account_cleanup(
-        self, user_id: str, *, requested_target: DeleteAccountTarget
+        self,
+        user_id: str,
+        *,
+        requested_target: DeleteAccountTarget,
+        admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Persist approval and custody before returning; the existing worker continues."""
 
@@ -1997,18 +2007,23 @@ class AccountService:
                     )
 
                     identity = AccountGenerationService.identity_in_transaction(conn, user_id)
-                return AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
+                prepared = AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
                     conn,
                     user_id=user_id,
                     firebase_uid=identity,
                     table_exists=self._table_exists,
                     requested_target=requested_target,
                 )
+                if admission_check is not None:
+                    admission_check(conn)
+                return prepared
 
         from hushh_mcp.services.phone_transfer_service import PhoneTransferInProgressError
 
         try:
             prepared = await settle_cleanup_database_call(prepare)
+        except AccountDeletionAdmissionRefused as refused:
+            return refused.result()
         except PhoneTransferInProgressError:
             return {
                 "success": False,
@@ -2367,13 +2382,7 @@ class AccountService:
                         "live_memory_hosted_pilot_grants",
                         "agent_chat_messages",
                         "agent_chat_conversations",
-                        "wallet_card_access_audit",
-                        "wallet_profile_access_grants",
-                        "wallet_card_requests",
-                        "wallet_card_access_grants",
-                        "wallet_profile_share_requests",
-                        "wallet_card_share_requests",
-                        "wallet_card_registrations",
+                        *CONNECTION_SHARING_ERASURE_TABLES,
                         "messages",
                         "conversations",
                         "direct_message_blocks",
@@ -2595,6 +2604,8 @@ class AccountService:
                     "one_location_envelopes",
                     "one_location_share_grants",
                     "one_location_recipient_keys",
+                    "finance_access_grants",
+                    "finance_share_requests",
                     "wallet_card_access_audit",
                     "wallet_card_access_grants",
                     "wallet_card_share_requests",

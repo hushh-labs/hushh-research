@@ -84,8 +84,10 @@ class _Db:
         self.calls.append((sql, params))
         if "SELECT * FROM google_provider_connections" in sql:
             return SimpleNamespace(data=[self.existing] if self.existing else [])
-        if "SELECT scope_csv FROM google_service_grants" in sql:
-            return SimpleNamespace(data=[{"scope_csv": value} for value in self.grants])
+        if "SELECT service, scope_csv FROM google_service_grants" in sql:
+            return SimpleNamespace(
+                data=[{"service": "calendar", "scope_csv": value} for value in self.grants]
+            )
         if "SELECT 1 FROM google_calendar_additional_accounts" in sql:
             return SimpleNamespace(
                 data=[{"present": 1}] if params["subject"] in self.additional_subjects else []
@@ -808,6 +810,9 @@ async def test_concurrent_replacement_refuses_stale_callback(monkeypatch, bounda
 async def test_cached_bearer_is_admitted_against_one_provider_grant_snapshot(
     monkeypatch, admitted, shared_hub_owner
 ):
+    # The shared fixture supplies active lifecycle and placement admission before
+    # the token read reaches the provider-grant snapshot.
+
     class SnapshotDb:
         def __init__(self):
             self.calls = []

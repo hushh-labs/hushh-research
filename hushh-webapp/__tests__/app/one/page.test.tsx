@@ -13,6 +13,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: { uid: "one-dashboard-user", displayName: "One Person" },
+    userId: "one-dashboard-user",
     loading: false,
   }),
 }));

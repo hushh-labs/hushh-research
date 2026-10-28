@@ -60,10 +60,10 @@ export function useFeedBriefing({
   includeCalendar?: boolean;
   includeNudges?: boolean;
 } = {}): UseFeedBriefingResult {
-  const { user } = useAuth();
+  const { user, userId: ownerId } = useAuth();
   const { vaultOwnerToken: ownerToken } = useVault();
   const vaultOwnerToken = enabled ? ownerToken : null;
-  const userId = enabled ? (user?.uid ?? null) : null;
+  const userId = enabled ? ownerId : null;
   const epoch = snapshotVaultSessionEpoch();
   const scope = useMemo(
     () =>

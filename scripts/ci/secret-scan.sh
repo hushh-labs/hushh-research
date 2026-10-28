@@ -146,8 +146,15 @@ if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] || [ -n "${SECRET_SCAN_PR_NUMBE
 fi
 
 # This is required authority; a missing or non-executable reader must fail closed.
-"$REPO_ROOT/scripts/ci/github-security-alerts.sh" ||
-  { EXIT_CODE=$?; FAILED_CHECKS="${FAILED_CHECKS} github-security-alerts"; }
+SECURITY_READER="$REPO_ROOT/scripts/ci/github-security-alerts.sh"
+if [ ! -f "$SECURITY_READER" ] || [ ! -x "$SECURITY_READER" ]; then
+  echo "Required GitHub security reader is missing or not executable." >&2
+  EXIT_CODE=1
+  FAILED_CHECKS="${FAILED_CHECKS} github-security-alerts"
+else
+  "$SECURITY_READER" ||
+    { EXIT_CODE=$?; FAILED_CHECKS="${FAILED_CHECKS} github-security-alerts"; }
+fi
 
 if [ "$EXIT_CODE" -ne 0 ]; then
   echo "secret-scan FAILED. Failing check(s):${FAILED_CHECKS}"
