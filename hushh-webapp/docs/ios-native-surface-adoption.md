@@ -16,6 +16,17 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### iPhone stock-app reference — 2026-10-27
+
+On an iPhone 16e running iOS 27.2, a credential-free XCTest opened Settings,
+App Store, Files, Maps, Music, Messages and Photos and returned to One. It
+activated App Store Search; this establishes reachability, not motion or
+visual parity. Settings → General was subsequently observed in dark mode: a
+circular Back control leads to grouped rows with consistent icon, label,
+divider and trailing-chevron columns. Its navigation bar measured 390 × 54
+points. The study did not measure haptics, transitions or other states; it
+does not qualify any Hussh screen. Avoid copying stock-app content or branding.
+
 ### Wallet shared presentation — 2026-10-27 (qualification candidate)
 
 This supersedes the toolbar-only Add experiment below. Ordinary Release/TestFlight
