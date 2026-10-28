@@ -767,6 +767,17 @@ final class AppUITests: XCTestCase {
         }
         let unlock = web.buttons["Unlock"].firstMatch
         let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
+        // Fixed authored identities only; never inspect or print the field value.
+        let passwordElements = web.descendants(matching: .any).matching(authoredVaultPassphraseField)
+        print("VAULT_FIELD_AX count=\(min(passwordElements.count, 4)) secure=\(web.secureTextFields.matching(authoredVaultPassphraseField).count) text=\(web.textFields.matching(authoredVaultPassphraseField).count)")
+        for (index, element) in passwordElements.allElementsBoundByIndex.prefix(3).enumerated() {
+            print("VAULT_FIELD_AX_ELEMENT index=\(index) role=\(element.elementType.rawValue) hittable=\(element.isHittable)")
+        }
+        for (name, labels) in [("show", ["Show password", "Show passphrase"]), ("hide", ["Hide password", "Hide passphrase"]),
+                               ("password_method", ["Password", "Use password instead", "Passphrase", "Use passphrase instead", "Vault Key"])] {
+            let matches = web.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", labels))
+            print("VAULT_FIELD_ACTION name=\(name) count=\(min(matches.count, 4)) hittable=\(matches.allElementsBoundByIndex.contains { $0.isHittable })")
+        }
         let rejected = web.descendants(matching: .any).matching(NSPredicate(
             format: "label CONTAINS[c] %@", "That passphrase did not match"
         )).firstMatch
@@ -832,10 +843,10 @@ final class AppUITests: XCTestCase {
         else { throw XCTSkip("Requires the existing app session") }
         app.activate()
         returnToRehearsalChat(app)
-        let field = app.webViews.secureTextFields.matching(authoredVaultPassphraseField).firstMatch
+        let hosts = app.webViews.matching(identifier: "native-webview")
         let unlock = app.buttons.matching(NSPredicate(format: "label == %@", "Unlock"))
-        guard waitForAdmittedControl(field), unlock.count == 1,
-              !app.otherElements["session-privacy-shield"].exists else {
+        guard hosts.count == 1, unlock.count == 1, !app.otherElements["session-privacy-shield"].exists,
+              let field = maskedVaultField(in: hosts.firstMatch, app: app) else {
             XCTFail("SECURE_PUBLIC_PROBE_NOT_ADMITTED"); return
         }
         // Public synthetic input only; normal Unlock is never submitted. The
@@ -861,11 +872,29 @@ final class AppUITests: XCTestCase {
                 print("SECURE_PUBLIC_CLEANUP confirmed=\(cleanup)")
                 XCTFail("SECURE_PUBLIC_PROBE_INSERTION_INCOMPLETE"); return
             }
+            // Only these public fixtures may be revealed. Compare in memory so
+            // equal-length substitutions cannot pass as successful entry.
+            let show = hosts.firstMatch.descendants(matching: .any).matching(NSPredicate(
+                format: "label IN %@", ["Show password", "Show passphrase"]
+            ))
+            guard show.count == 1, show.firstMatch.isHittable else {
+                _ = prepareEmptySecureEntry(field, app: app, unlockControls: unlock)
+                XCTFail("SECURE_PUBLIC_PROBE_VISIBILITY_UNAVAILABLE"); return
+            }
+            show.firstMatch.tap()
+            let revealed = hosts.firstMatch.textFields.matching(authoredVaultPassphraseField).firstMatch
+            let revealReady = revealed.waitForExistence(timeout: 5)
+            let exact = revealReady && (revealed.value as? String) == fixture
+            guard let masked = maskedVaultField(in: hosts.firstMatch, app: app),
+                  prepareEmptySecureEntry(masked, app: app, unlockControls: unlock) else {
+                XCTFail("SECURE_PUBLIC_PROBE_RESTORE_FAILED"); return
+            }
+            guard exact else { XCTFail("SECURE_PUBLIC_PROBE_VALUE_MISMATCH"); return }
         }
         guard prepareEmptySecureEntry(field, app: app, unlockControls: unlock) else {
             XCTFail("SECURE_PUBLIC_PROBE_CLEANUP_FAILED"); return
         }
-        print("SECURE_PUBLIC_PROBE length_acknowledged=true samples=\(fixtures.count) cleared=true submitted=false")
+        print("SECURE_PUBLIC_PROBE exact_values=true samples=\(fixtures.count) masked=true cleared=true submitted=false")
     }
 
     func testLocalSessionVaultUnlockOnly() throws {
@@ -969,8 +998,9 @@ final class AppUITests: XCTestCase {
         app.activate()
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15), "VAULT_LAYOUT_HOST_UNAVAILABLE")
-        let entry = web.secureTextFields.matching(authoredVaultPassphraseField).firstMatch
-        XCTAssertTrue(entry.waitForExistence(timeout: 30) && entry.isHittable, "VAULT_LAYOUT_ENTRY_CLIPPED")
+        guard let entry = maskedVaultField(in: web, app: app) else {
+            XCTFail("VAULT_LAYOUT_ENTRY_CLIPPED"); return
+        }
         func assertFieldHitRegions() {
             XCTAssertGreaterThanOrEqual(entry.frame.height, 44, "VAULT_LAYOUT_ENTRY_TARGET_TOO_SMALL")
             // WebKit may expose an aria-pressed button as a toggle rather
@@ -6391,20 +6421,25 @@ final class AppUITests: XCTestCase {
         return labels
     }
 
+    private func firstReviewerPassphrase(_ candidates: [String?]) -> String? {
+        candidates.compactMap { $0 }.first { !$0.isEmpty }
+    }
+
     private func reviewerVaultPassphrase() -> String {
         let environment = ProcessInfo.processInfo.environment
         let candidates = [
             environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"],
             environment["REVIEWER_VAULT_PASSPHRASE"],
         ]
-        for candidate in candidates {
-            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !trimmed.isEmpty {
-                return trimmed
-            }
-        }
+        if let passphrase = firstReviewerPassphrase(candidates) { return passphrase }
         XCTFail("Missing reviewer vault passphrase in the UI test environment")
         return ""
+    }
+
+    func testReviewerPassphrasePreservesExactWhitespace() {
+        XCTAssertEqual(firstReviewerPassphrase([nil, "  public fixture  "]), "  public fixture  ")
+        XCTAssertEqual(firstReviewerPassphrase(["        "]), "        ")
+        XCTAssertNil(firstReviewerPassphrase([nil, ""]))
     }
 
     private func assertReviewerPassphraseAliasesMatch() {
@@ -6425,6 +6460,27 @@ final class AppUITests: XCTestCase {
         field.tap()
         field.typeKey("a", modifierFlags: .command)
         field.typeText(value)
+    }
+
+    /// Restore the authored visibility toggle before private entry. A plain
+    /// field is never read or typed into here, even when a previous journey
+    /// left password visibility enabled.
+    private func maskedVaultField(in web: XCUIElement, app: XCUIApplication) -> XCUIElement? {
+        guard !app.otherElements["session-privacy-shield"].exists else { return nil }
+        let secure = web.secureTextFields.matching(authoredVaultPassphraseField)
+        let plain = web.textFields.matching(authoredVaultPassphraseField)
+        if secure.count == 0 && plain.count == 1 {
+            let hide = web.descendants(matching: .any).matching(NSPredicate(
+                format: "label IN %@", ["Hide password", "Hide passphrase"]
+            ))
+            guard hide.count == 1, hide.firstMatch.isHittable else { return nil }
+            hide.firstMatch.tap()
+        }
+        let field = secure.firstMatch
+        guard waitForAdmittedControl(field), secure.count == 1, plain.count == 0,
+              field.elementType == .secureTextField,
+              !app.otherElements["session-privacy-shield"].exists else { return nil }
+        return field
     }
 
     /// A hittable WebKit field does not establish keyboard admission. On the
@@ -6467,6 +6523,19 @@ final class AppUITests: XCTestCase {
         // Normalize its public mode once, then insert the complete value.
         let letters = [app.keyboards.buttons["letters"], app.keyboards.keys["letters"], app.keyboards.buttons["ABC"], app.keyboards.keys["ABC"]]
         if let control = letters.first(where: { $0.exists && $0.isHittable }) { control.tap() }
+        // A visible keyboard can belong to an earlier responder. The optional
+        // qualification probe reports only focus, never the field's value.
+        let focusProbe = app.buttons["native-vault-layout"].firstMatch
+        if focusProbe.exists {
+            let focused = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard let raw = focusProbe.value as? String, let data = raw.data(using: .utf8),
+                      let values = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] else { return false }
+                return values["passphraseFocused"]?.boolValue == true
+            }, object: focusProbe)
+            guard XCTWaiter.wait(for: [focused], timeout: 5) == .completed else {
+                print("VAULT_ENTRY_ADMISSION stage=focus_unconfirmed"); return false
+            }
+        }
         return true
     }
 
@@ -6556,15 +6625,9 @@ final class AppUITests: XCTestCase {
         guard XCTWaiter.wait(for: [fieldExists], timeout: 5) == .completed else {
             print("VAULT_METHOD_ADMISSION stage=field_absent"); return false
         }
-        // Keep WebKit's text/secure-role compatibility, but distinguish a
-        // missing field from an existing field obstructed by presentation.
-        let fieldReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            fieldQueries.contains { query in
-                let field = query.matching(authoredField).firstMatch
-                return field.exists && field.isHittable
-            }
-        }, object: app)
-        guard XCTWaiter.wait(for: [fieldReady], timeout: 5) == .completed else {
+        // A previous interaction can leave the visibility toggle enabled.
+        // Restore masking and refuse private entry unless the field is secure.
+        guard let field = maskedVaultField(in: owningWebView, app: app) else {
             print("VAULT_METHOD_ADMISSION stage=field_obstructed")
             print("VAULT_ENTRY_ADMISSION stage=authored_field_unavailable")
             return false
@@ -6576,76 +6639,69 @@ final class AppUITests: XCTestCase {
             let account = owningWebView.staticTexts.matching(reviewerLabel).firstMatch
             print("VAULT_ENTRY_FENCE owner_present=\(account.exists) owner_hittable=\(account.exists && account.isHittable) single_host=\(hosts.count == 1) field_hittable=\(field.exists && field.isHittable) privacy_cover=\(privacyCover.exists)")
             return !reviewerEmail.isEmpty && hosts.count == 1 &&
-                field.exists && field.isHittable && !privacyCover.exists && account.exists && account.isHittable
+                field.exists && field.isHittable && field.elementType == .secureTextField &&
+                owningWebView.secureTextFields.matching(self.authoredVaultPassphraseField).count == 1 &&
+                !privacyCover.exists && account.exists && account.isHittable
         }
         let softwareKeyEntry = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_SOFTWARE_KEY_ENTRY"] == "true"
 
-        for query in fieldQueries {
-            // Resolve the authored field, not an index that can change as
-            // WebKit exposes keyboard and text-editing descendants. A lone,
-            // unrelated text field is never a credential target.
-            let field = query.matching(authoredField).firstMatch
-            guard field.exists, field.isHittable else { continue }
-            print("VAULT_ENTRY_ADMISSION stage=authored_field_ready")
-            guard prepareEmptySecureEntry(field, app: app, unlockControls: unlockControls) else {
-                XCTFail("Vault secure entry preparation was not acknowledged; unlock was not submitted")
-                return false
-            }
-            // iPad can retain a hardware keyboard. Only the explicit visible-
-            // key rehearsal also requires individual software keys there.
-            guard !softwareKeyEntry || app.keyboards.firstMatch.waitForExistence(timeout: 5) else {
-                print("VAULT_ENTRY_ADMISSION stage=keyboard_unavailable")
-                return false
-            }
-            let entryLength = { () -> Int? in
-                guard let value = field.value as? String else { return nil }
-                return value == field.placeholderValue ? 0 : value.utf16.count
-            }
-            // Whole-value entry is the default. An explicit physical run can
-            // use the publicly characterized software-key path instead; never
-            // switch modes after failure or replay a partial credential.
-            guard privateEntryAdmitted(field) else {
-                print("VAULT_ENTRY_ADMISSION stage=reviewer_unavailable"); return false
-            }
-            print("VAULT_ENTRY_MODE mode=\(softwareKeyEntry ? "software_keys" : "whole_value")")
-            if softwareKeyEntry {
-                guard enterSecureValueWithSoftwareKeyboard(passphrase, field: field, app: app) else {
-                    XCTFail("Vault software-key entry was not acknowledged; unlock was not submitted")
-                    return false
-                }
-            } else {
-                field.typeText(passphrase)
-            }
-            let inserted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                entryLength() == passphrase.utf16.count
-            }, object: field)
-            guard XCTWaiter.wait(for: [inserted], timeout: 3) == .completed else {
-                XCTFail("Vault secure entry insertion was not acknowledged; unlock was not submitted")
-                return false
-            }
-            // Submit once through the normal cryptographic unlock, then
-            // require protected content and absence of the gate in the caller.
-            // Never bootstrap or retry a rejected credential to pass a test.
-            print("VAULT_ENTRY_MASK length_matched=true")
-            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                unlockControls.count == 1 && unlockControls.firstMatch.isEnabled && unlockControls.firstMatch.isHittable
-            }, object: app)
-            guard XCTWaiter.wait(for: [ready], timeout: 5) == .completed,
-                  unlockControls.count == 1,
-                  unlockControls.firstMatch.isEnabled,
-                  unlockControls.firstMatch.isHittable, privateEntryAdmitted(field) else {
-                print("VAULT_SUBMISSION_RECEIPT stage=readiness_timeout_no_tap")
-                XCTFail("Vault Unlock readiness was not acknowledged; unlock was not submitted")
-                return false
-            }
-            print("VAULT_SUBMISSION_RECEIPT stage=ready")
-            vaultUnlockSubmitted = true
-            unlockControls.firstMatch.tap()
-            print("VAULT_SUBMISSION_RECEIPT stage=tap_dispatched")
-            return true
+        print("VAULT_ENTRY_ADMISSION stage=authored_field_ready")
+        guard prepareEmptySecureEntry(field, app: app, unlockControls: unlockControls) else {
+            XCTFail("Vault secure entry preparation was not acknowledged; unlock was not submitted")
+            return false
         }
-
-        return false
+        // iPad can retain a hardware keyboard. Only the explicit visible-
+        // key rehearsal also requires individual software keys there.
+        guard !softwareKeyEntry || app.keyboards.firstMatch.waitForExistence(timeout: 5) else {
+            print("VAULT_ENTRY_ADMISSION stage=keyboard_unavailable")
+            return false
+        }
+        let entryLength = { () -> Int? in
+            guard let value = field.value as? String else { return nil }
+            return value == field.placeholderValue ? 0 : value.utf16.count
+        }
+        // Whole-value entry is the default. An explicit physical run can
+        // use the publicly characterized software-key path instead; never
+        // switch modes after failure or replay a partial credential.
+        guard privateEntryAdmitted(field) else {
+            print("VAULT_ENTRY_ADMISSION stage=reviewer_unavailable"); return false
+        }
+        print("VAULT_ENTRY_MODE mode=\(softwareKeyEntry ? "software_keys" : "whole_value")")
+        if softwareKeyEntry {
+            guard enterSecureValueWithSoftwareKeyboard(passphrase, field: field, app: app) else {
+                XCTFail("Vault software-key entry was not acknowledged; unlock was not submitted")
+                return false
+            }
+        } else {
+            field.typeText(passphrase)
+        }
+        let inserted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            entryLength() == passphrase.utf16.count
+        }, object: field)
+        guard XCTWaiter.wait(for: [inserted], timeout: 3) == .completed else {
+            XCTFail("Vault secure entry insertion was not acknowledged; unlock was not submitted")
+            return false
+        }
+        // Submit once through the normal cryptographic unlock, then
+        // require protected content and absence of the gate in the caller.
+        // Never bootstrap or retry a rejected credential to pass a test.
+        print("VAULT_ENTRY_MASK length_matched=true")
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            unlockControls.count == 1 && unlockControls.firstMatch.isEnabled && unlockControls.firstMatch.isHittable
+        }, object: app)
+        guard XCTWaiter.wait(for: [ready], timeout: 5) == .completed,
+              unlockControls.count == 1,
+              unlockControls.firstMatch.isEnabled,
+              unlockControls.firstMatch.isHittable, privateEntryAdmitted(field) else {
+            print("VAULT_SUBMISSION_RECEIPT stage=readiness_timeout_no_tap")
+            XCTFail("Vault Unlock readiness was not acknowledged; unlock was not submitted")
+            return false
+        }
+        print("VAULT_SUBMISSION_RECEIPT stage=ready")
+        vaultUnlockSubmitted = true
+        unlockControls.firstMatch.tap()
+        print("VAULT_SUBMISSION_RECEIPT stage=tap_dispatched")
+        return true
     }
 
     private func launchUiInteractionAuditApp() -> XCUIApplication {
