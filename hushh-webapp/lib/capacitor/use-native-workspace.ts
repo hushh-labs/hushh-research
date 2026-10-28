@@ -1,5 +1,10 @@
 "use client";
 
+import { boundNativeWalletArtwork } from "./native-wallet-workspace";
+import { retainNativeFeedbackSink, dismissNativeSinkFeedback, type NativePresentationFeedback, type NativeFeedbackScope } from "./native-feedback-sink";
+import { refreshNativeFeedback } from "./native-feedback";
+import { validNativeWalletProfileDraft, type NativeWalletProfileDraft } from "./native-wallet-profile-editor";
+
 import { useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import type { PluginListenerHandle } from "@capacitor/core";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
@@ -8,20 +13,22 @@ import { nativeDrawers, nativeDrawerAcknowledged, subscribeNativeDrawerIsolation
 import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "./session-privacy";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "../vault/session-epoch";
 import { useNativeControlAppearance } from "./native-control-appearance";
-import { sameNativeWorkspace, validNativeWorkspace, validWorkspaceCircleDraft, workspaceAcknowledged, type NativeWorkspaceIdentity, type NativeWorkspaceFrame, type NativeWorkspaceProjection, type NativeWorkspaceChoice, type NativeWorkspacePort, type NativeWorkspaceCircleDraft, type NativeWorkspaceEdit, type NativeWorkspaceFinalEdit } from "./native-workspace";
+import { workspaceChoiceDomainAllowed, sameNativeWorkspace, validNativeWorkspace, validWorkspaceCircleDraft, workspaceAcknowledged, type NativeWorkspaceIdentity, type NativeWorkspaceFrame, type NativeWorkspaceProjection, type NativeWorkspaceChoice, type NativeWorkspacePort, type NativeWorkspaceCircleDraft, type NativeWorkspaceEdit, type NativeWorkspaceFinalEdit } from "./native-workspace";
 import type { PrivateProfileEditorModel } from "./native-profile-private-editor";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "./native-navigation";
 
-export type NativeWorkspaceContent = Pick<NativeWorkspaceProjection, "workspace" | "page" | "title" | "enabled" | "backEnabled" | "sections" | "tabs" | "search">;
-type CircleEditor = PrivateProfileEditorModel<NativeWorkspaceCircleDraft> & { destinationId: string; onSaved: () => void; onCancel: () => void };
+export type NativeWorkspaceContent = Pick<NativeWorkspaceProjection, "workspace" | "page" | "title" | "enabled" | "backEnabled" | "sections" | "tabs" | "search" | "wallet">;
+type WorkspaceDraft = NativeWorkspaceCircleDraft | NativeWalletProfileDraft;
+type WorkspaceEditor<D extends WorkspaceDraft> = PrivateProfileEditorModel<D> & { destinationId: string; onSaved: () => void; onCancel: () => void };
 let nextRevision = 0, nextLayout = 0;
 
 /** One route body admission. No feature readers, writers, router or per-frame
  * synchronization live here. Uncertain retirement never exposes a duplicate. */
-export function useNativeWorkspace({ owner, content, actions, back, current, editor, onRetirementOwner, contentFrame }: {
+export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCircleDraft>({ owner, content, actions, back, current, editor, onRetirementOwner, contentFrame, editorKind = "circle" }: {
   owner: string; content: NativeWorkspaceContent; actions: ReadonlyMap<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>;
   back: () => void; current: () => boolean;
-  editor?: CircleEditor;
+  editor?: WorkspaceEditor<D>;
+  editorKind?: "circle" | "wallet-profile";
   onRetirementOwner?: (revoke: () => Promise<boolean>) => void;
   contentFrame?: RefObject<HTMLElement | null>;
 }) {
@@ -50,7 +57,7 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
     let observer: ResizeObserver | undefined, frame: NativeWorkspaceFrame | undefined;
     let applied: NativeWorkspaceProjection | undefined, desired: NativeWorkspaceProjection | undefined, fingerprint = "";
     let port: NativeWorkspacePort | undefined;
-    const edits = new Map<string, { revision: number; modelRevision: number; composing: boolean; discarded: boolean; model: CircleEditor }>();
+    const edits = new Map<string, { revision: number; modelRevision: number; composing: boolean; discarded: boolean; model: WorkspaceEditor<D> }>();
     const issuedDrafts = new Map<number, { destinationId: string; revision: number }>();
     let acceptFinal = true;
     const releaseFinal = () => { if (!acceptFinal) return; acceptFinal = false; void finalHandle?.remove().catch(() => undefined); edits.clear(); stopEpoch(); stopPrivacy(); window.removeEventListener("pagehide", releaseFinal); };
@@ -60,6 +67,20 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
     window.addEventListener("pagehide", releaseFinal);
     const isCurrent = () => active && !withdrawing && !retired && live.current.owner === owner && live.current.current() && nativeDrawerOwnerIsCurrent(base) &&
       snapshotVaultSessionEpoch() === vaultEpoch && live.current.privacy?.generation === generation && live.current.privacy.appIsActive && !live.current.privacy.shielded;
+    let feedback: { key: string; message: NativePresentationFeedback } | null = null;
+    const feedbackKey = (scope: NativeFeedbackScope = "presentation") => {
+      if (!isCurrent() || !applied || nativeShellOverlayBlocked()) return null;
+      if (scope === "workspace") return JSON.stringify([identity, generation, "workspace"]);
+      if (!live.current.content.enabled || !live.current.content.wallet?.selectedId && nativeDrawerIsolation().isolated) return null;
+      return JSON.stringify([identity, generation, live.current.content.page, live.current.content.wallet?.detailVisitId]);
+    };
+    const feedbackCurrent = (key: string) => key === feedbackKey() || key === feedbackKey("workspace");
+    const feedbackVisible = (key: string) => feedbackCurrent(key) && (key !== feedbackKey("workspace") || !live.current.content.wallet?.selectedId && !nativeDrawerIsolation().isolated);
+    const releaseFeedback = retainNativeFeedbackSink({ capture: feedbackKey,
+      ready: key => feedbackVisible(key) && applied === desired,
+      show: (key, message) => { if (feedbackVisible(key)) { feedback = { key, message }; emit(); } },
+      hide: (key, id) => { if (feedback?.key === key && feedback.message.id === id) { feedback = null; emit(); } },
+    });
     const retireOnce = async () => {
       if (retired) return true;
       if (!started || !port) { retired = true; return true; }
@@ -96,7 +117,7 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
           const receipt = await nativeDrawerAcknowledged(port.applyWorkspace(state));
           if (!workspaceAcknowledged(receipt, state, "active")) throw new Error("NATIVE_WORKSPACE_UNCONFIRMED");
           applied = state;
-          if (isCurrent()) setPhase("native");
+          if (isCurrent()) { setPhase("native"); refreshNativeFeedback(); }
         }
       } catch { if (isCurrent()) await fail(); }
       finally { running = false; }
@@ -108,7 +129,7 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
       // request to hide/recreate individual controls. Withdraw this body and
       // confirm absence before admitting the established web presentation.
       if (nativeShellOverlayBlocked()) { void fail(); return; }
-      let circleEditor: NativeWorkspaceProjection["circleEditor"];
+      let circleEditor: (Omit<NonNullable<NativeWorkspaceProjection["circleEditor"]>, "draft"> & { draft: D }) | undefined;
       if (value.editor?.current()) {
         const editor = value.editor;
         let accepted = edits.get(editor.destinationId);
@@ -117,8 +138,8 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
         circleEditor = { destinationId: editor.destinationId, draft: { ...editor.draft }, draftRevision: editor.inputRevision(), acknowledgedEditRevision: accepted.revision,
           canSave: editor.canSave && !accepted.composing, busy: editor.busy, error: editor.error };
       }
-      const next = { ...identity, ...value.appearance, ...value.content, frame, privacyGeneration: generation, isolationGeneration: nativeDrawerIsolation().generation,
-        ...(circleEditor ? { circleEditor } : {}) };
+      const next = boundNativeWalletArtwork({ ...identity, ...value.appearance, ...value.content, ...(feedback && feedbackVisible(feedback.key) ? { feedback: feedback.message } : {}), frame, privacyGeneration: generation, isolationGeneration: nativeDrawerIsolation().generation,
+        ...(circleEditor ? editorKind === "circle" ? { circleEditor: circleEditor as NativeWorkspaceProjection["circleEditor"] } : { walletProfileEditor: circleEditor as NativeWorkspaceProjection["walletProfileEditor"] } : {}) });
       const key = JSON.stringify(next); // Private replica, never diagnostics.
       if (key === fingerprint) return;
       fingerprint = key; desired = { ...next, updateSequence: ++sequence };
@@ -133,7 +154,7 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
       if (!sameNativeWorkspace(event, identity) || event.privacyGeneration !== generation || !Number.isSafeInteger(event.editRevision) || event.editRevision < 0 ||
         Object.keys(event).some(key => !keys.includes(key)) ||
         !Number.isSafeInteger(event.updateSequence) || event.updateSequence <= 0 || event.updateSequence > sequence || typeof event.composing !== "boolean" ||
-        !validWorkspaceCircleDraft(event.draft) || !nativeDrawerOwnerIsCurrent(base) || snapshotVaultSessionEpoch() !== vaultEpoch) return;
+        !(editorKind === "circle" ? validWorkspaceCircleDraft(event.draft) : validNativeWalletProfileDraft(event.draft)) || !nativeDrawerOwnerIsCurrent(base) || snapshotVaultSessionEpoch() !== vaultEpoch) return;
       const accepted = edits.get(event.destinationId);
       if (!accepted || accepted.discarded || !accepted.model.current() || event.editRevision <= accepted.revision) return;
       if (!final && (!isCurrent() || live.current.editor?.destinationId !== event.destinationId)) return;
@@ -144,7 +165,7 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
       }
       if (final && (!("baseDraftRevision" in event) || event.composing || !Number.isSafeInteger(event.baseDraftRevision) ||
         revision !== event.baseDraftRevision && revision !== accepted.modelRevision)) return;
-      if (!accepted.model.changeDraft(event.draft, revision)) return;
+      if (!accepted.model.changeDraft(event.draft as D, revision)) return;
       accepted.revision = event.editRevision; accepted.modelRevision = accepted.model.inputRevision(); accepted.composing = event.composing;
       // Composition-only changes need an explicit acknowledgement too. Keep
       // the model's current draft in the replica until React's next commit.
@@ -159,12 +180,15 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
       const isolationGeneration = nativeDrawerIsolation().generation;
       try {
         const admission = await nativeDrawerAcknowledged(port.confirmWorkspaceChoice(choice));
-        if (admission.valid && isCurrent() && applied === state && desired === state && state.updateSequence === choice.updateSequence &&
-          nativeDrawerIsolation().generation === isolationGeneration && !nativeDrawerIsolation().isolated && !nativeShellOverlayBlocked()) {
-          if (choice.action === "circle-save" || choice.action === "circle-cancel") {
+        const terminalDismissal = choice.dismissed === true && choice.domain === "wallet-detail" && choice.rowId === state.wallet?.closeId &&
+          choice.detailVisitId === state.wallet?.detailVisitId && desired?.wallet?.detailVisitId === choice.detailVisitId && live.current.content.wallet?.detailVisitId === choice.detailVisitId;
+        if (admission.valid && isCurrent() && (terminalDismissal || applied === state && desired === state && state.updateSequence === choice.updateSequence) &&
+          nativeDrawerIsolation().generation === isolationGeneration && workspaceChoiceDomainAllowed(choice, state, nativeDrawerIsolation().isolated) && !nativeShellOverlayBlocked()) {
+          if (choice.action === "feedback-dismiss" && typeof choice.rowId === "string" && choice.rowId === state.feedback?.id) { dismissNativeSinkFeedback(choice.rowId); }
+          else if (choice.action === "circle-save" || choice.action === "circle-cancel" || choice.action === "wallet-save" || choice.action === "wallet-cancel") {
             const editor = live.current.editor, accepted = editor && edits.get(editor.destinationId);
             if (!editor?.current() || !accepted || accepted.composing || accepted.revision !== choice.editRevision || editor.mutationPending()) return;
-            if (choice.action === "circle-cancel") { accepted.discarded = true; editor.onCancel(); }
+            if (choice.action === "circle-cancel" || choice.action === "wallet-cancel") { accepted.discarded = true; editor.onCancel(); }
             else if (editor.canSave && await editor.save() && isCurrent() && live.current.editor?.destinationId === editor.destinationId) {
               accepted.discarded = true; live.current.editor.onSaved();
             }
@@ -208,13 +232,13 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
       } catch { if (isCurrent()) await fail(); }
     })().finally(() => { if (!active) { void handle?.remove(); void editHandle?.remove(); void isolationHandle?.remove(); observer?.disconnect(); void retire().then(retired => { if (retired || !finalOwnerCurrent()) releaseFinal(); }); } });
     const revoke = async () => {
-      active = false; publish.current = () => {}; desired = undefined; fingerprint = "";
+      active = false; releaseFeedback(); feedback = null; publish.current = () => {}; desired = undefined; fingerprint = "";
       observer?.disconnect(); void handle?.remove(); void editHandle?.remove(); void isolationHandle?.remove();
       const absent = await retire(); if (absent || !finalOwnerCurrent()) releaseFinal(); return absent;
     };
     live.current.onRetirementOwner?.(revoke);
     return () => { void revoke(); };
-  }, [owner, content.workspace, vaultEpoch, privacy?.generation, privacy?.appIsActive, privacy?.shielded, contentFrame]);
+  }, [owner, content.workspace, vaultEpoch, privacy?.generation, privacy?.appIsActive, privacy?.shielded, contentFrame, editorKind]);
   // The native isolation owner already disables this retained body locally.
   // A matching update readmits current actions after the drawer disappears.
   useLayoutEffect(() => { publish.current(); }, [isolation, webCovered]);

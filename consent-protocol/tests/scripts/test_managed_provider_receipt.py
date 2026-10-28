@@ -263,35 +263,33 @@ def recovery_history():
 @pytest.mark.parametrize("stage", ["federation", "primary_http", "response_validation"])
 def test_collector_keeps_azure_failure_stage_without_claiming_recovery(stage):
     helper = _managed_provider_gate()._capability_proof()
+    timing = {
+        "credential_setup": 2000,
+        "token_acquisition": 1000,
+        "primary_http": 27001,
+        "response_validation": 0,
+    }
+    metadata = {
+        "classification": "provider_unavailable",
+        "elapsed_ms": 30001,
+        "error_type": "TimeoutError",
+        "failure_stage": stage,
+        "phase_ms": timing,
+        "deadline_expired": True,
+    }
     result = helper.execution_diagnostics(
         "azure_openai",
         [
             {
+                **metadata,
                 "azure_pwm_runtime_probe_stage": "primary_http",
                 "result": "failed",
-                "elapsed_ms": 30001,
-                "classification": "provider_unavailable",
-                "error_type": "TimeoutError",
-                "failure_stage": stage,
                 "error": "PRIVATE_PROVIDER_BODY",
             }
         ],
     )
     assert result == {
-        "probe_history": [
-            {
-                "probe": "primary_http",
-                "attempts": [
-                    {
-                        "ok": False,
-                        "classification": "provider_unavailable",
-                        "elapsed_ms": 30001,
-                        "error_type": "TimeoutError",
-                        "failure_stage": stage,
-                    }
-                ],
-            }
-        ]
+        "probe_history": [{"probe": "primary_http", "attempts": [{"ok": False, **metadata}]}]
     }
 
 

@@ -2407,6 +2407,21 @@
       "plaintext_posture": "metadata_and_hashes_only",
       "expected_row_growth": "One immutable row per uniquely captured Directory Sync membership/profile; duplicate exchanges reuse the exact binding. No per-notification row growth.",
       "trust_boundary": "No passwords, emails, names, provider tokens, vault keys or content. Only verified exchange may capture attribution. Offboarding is monotonic; missing, conflicting or unavailable evidence refuses access. SSO-only generation-zero profiles do not establish Directory Sync coverage."
+    },
+    {
+      "id": "hosted_pod_pilot_admission",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "hosted_pod_pilot_policy"
+      ],
+      "primary_access_path": "Dev operator supplies exactly two fixed hashed-owner/project assignments. claim_hosted_pod_pilot_provision reserves a monotonic attempt reference and delegates lifecycle to claim_personal_agent_provision in the same transaction. No policy is seeded.",
+      "retention_policy": "Retain the non-renewable pilot allocation; expiry disables new admission, not custody or recovery. No automatic deletion or renewal.",
+      "deletion_behavior": "Ordinary policy deletion/update/truncation is refused. Losing a registry row never releases its retained attempt reference or budget allocation. Existing erasure stays unqualified for hosted pods; reconcile resources through their retained assignment before a future cleanup/archive implementation. Empty pre-activation schema rollback is supported.",
+      "trust_boundary": "Trusted hub and database administrator; runtime and migration credentials currently share a SQL role. Hash-only owner assignments and public cloud coordinates, no provider credentials. Allocation ceilings do not establish measured usage or enforce external provider spend. Billable activation remains disabled.",
+      "plaintext_posture": "control_plane_metadata_only",
+      "expected_row_growth": "at most one policy row, two distinct fixed owner/project assignments, total40000 cents work plus10000 cents cleanup, split equally and never replenished by a retry"
     }
   ]
 }

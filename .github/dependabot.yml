@@ -2,7 +2,7 @@ version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/hushh-webapp"
-    target-branch: "integration/pr-train"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -27,7 +27,7 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/packages/hushh-mcp"
-    target-branch: "integration/pr-train"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
       day: "tuesday"
@@ -52,7 +52,7 @@ updates:
 
   - package-ecosystem: "pip"
     directory: "/consent-protocol"
-    target-branch: "integration/pr-train"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
       day: "wednesday"
@@ -77,7 +77,7 @@ updates:
 
   - package-ecosystem: "github-actions"
     directory: "/"
-    target-branch: "integration/pr-train"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
       day: "thursday"

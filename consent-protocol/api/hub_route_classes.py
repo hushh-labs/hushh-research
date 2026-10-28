@@ -63,6 +63,8 @@ POST /api/one/todos/suggestions
 POST /api/one/calendar/board/day
 POST /api/one/calendar/conflicts/review
 POST /api/one/calendar/conflicts/confirm
+POST /api/one/calendar/conflicts/workspace/review
+POST /api/one/calendar/conflicts/workspace/confirm
 GET /api/connectors/google_drive/sharing/requests/{request_id}/shared-files
 POST /api/connectors/google_drive/sharing/requests/{request_id}/shared-files/remove
 POST /api/connectors/google_drive/sharing/requests/{request_id}/shared-files/restore
@@ -75,6 +77,10 @@ POST /api/one/calendar/schedule/today
 POST /api/one/calendar/schedule/availability
 POST /api/one/calendar/attendance/review
 POST /api/one/calendar/attendance/confirm
+POST /api/one/calendar/attendance/rsvp/review
+POST /api/one/calendar/attendance/rsvp/confirm
+POST /api/one/calendar/attendance/workspace/review
+POST /api/one/calendar/attendance/workspace/confirm
 POST /api/one/files/analyze
 DELETE,GET,POST /api/one/world-model/jobs
 POST /api/one/world-model/complete
@@ -225,6 +231,7 @@ POST /api/one/pod/mcp-approval/issue
 POST /api/one/pod/mcp-approval/rebind
 POST /api/one/u/{hushh_id}/chat-grants
 POST /api/one/u/{hushh_id}/memory/provider-consent
+POST /api/one/u/{hushh_id}/memory/provider-grant
 POST /api/one/u/{hushh_id}/memory/revoke
 POST /api/one/webauthn/authenticate/options
 POST /api/one/webauthn/authenticate/verify

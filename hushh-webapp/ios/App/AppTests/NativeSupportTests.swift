@@ -8,7 +8,193 @@ private final class ZeroSafeAreaView: UIView {
     override var safeAreaInsets: UIEdgeInsets { .zero }
 }
 
+@available(iOS 16.0, *)
+@MainActor private final class EditorMenuDismissalProbe: UIEditMenuInteraction {
+    private(set) var dismissals = 0
+    override func dismissMenu() { dismissals += 1 }
+}
+
 final class NativeSupportTests: XCTestCase {
+    @MainActor
+    func testOwnedChoiceReadbackCannotRetireAnAttachedSheet() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let parent = UIViewController(), window = UIWindow(windowScene: scene)
+        let shield = HushhSessionPrivacyShield()
+        let web = WKWebView(frame: scene.coordinateSpace.bounds)
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers, privacyShield: shield)
+        parent.view = container
+        window.rootViewController = parent; window.makeKeyAndVisible()
+        parent.view.layoutIfNeeded()
+        let navigation = UITabBar(frame: CGRect(x: 0, y: parent.view.bounds.height - 49, width: parent.view.bounds.width, height: 49))
+        navigation.items = [UITabBarItem(title: "Public tab", image: nil, tag: 0)]
+        let dock = UIButton(frame: CGRect(x: 20, y: navigation.frame.minY - 64, width: parent.view.bounds.width - 40, height: 44))
+        dock.setTitle("Public dock", for: .normal)
+        parent.view.addSubview(navigation); parent.view.addSubview(dock)
+        shield.attach(to: parent.view)
+        container.conceal()
+        let document = "public-owned-choice-\(UUID().uuidString)"
+        shield.observeDocument(document); shield.protectForAppInactive(); shield.markAppActive()
+        let released = expectation(description: "Isolated public fixture privacy release")
+        shield.completeSessionValidation(generation: shield.snapshot().generation, documentId: document, appIsActive: true) {
+            XCTAssertTrue($0); released.fulfill()
+        }
+        await fulfillment(of: [released], timeout: 3)
+        XCTAssertTrue(web.isUserInteractionEnabled)
+        XCTAssertFalse(web.accessibilityElementsHidden)
+        let choice = NativeOwnedChoiceCoordinator(privacyShield: shield)
+        choice.changed = { [weak choice] in container.isolateForOwnedDrawer(choice?.coversPresentation == true) }
+        choice.parent = { parent }; choice.available = { true }
+        choice.admitOwner = { _ in true }; choice.currentOwner = { _ in true }
+        var events = 0; choice.emit = { _ in events += 1 }
+        defer {
+            choice.retire(); window.isHidden = true; window.rootViewController = nil
+            previous?.makeKeyAndVisible()
+        }
+        let identity: [String: Any] = ["documentId": document, "ownerEpoch": "public-owner", "ownerGeneration": 1,
+            "revision": 1, "visitId": "public-visit"]
+        var projection = identity
+        projection.merge(["privacyGeneration": shield.snapshot().generation, "updateSequence": 1,
+            "appearance": "light", "accentHex": "#007AFF", "foregroundHex": "#111111", "title": "Public choices",
+            "options": [["handle": "public-handle", "label": "Public option", "selected": true, "disabled": false]]]) { _, next in next }
+        let active = expectation(description: "Actual choice presentation completion")
+        let prepare = try XCTUnwrap(CAPPluginCall(callbackId: "public-prepare", methodName: "prepareOwnedChoice", options: projection,
+            success: { result, _ in
+                guard case let .dictionary(value)? = result?.resultData else { XCTFail("CHOICE_RECEIPT_MISSING"); active.fulfill(); return }
+                XCTAssertEqual(value["phase"] as? String, "active"); active.fulfill()
+            }, error: { _ in XCTFail("CHOICE_PREPARE_REFUSED"); active.fulfill() }))
+        choice.prepare(prepare)
+        XCTAssertFalse(choice.coversPresentation, "Admission must not hide the WebView before the native sheet finishes presentation")
+        await fulfillment(of: [active], timeout: 3)
+        XCTAssertTrue(choice.coversPresentation)
+        let controller = try XCTUnwrap(parent.presentedViewController)
+        for chrome in [navigation as UIView, dock] {
+            let point = chrome.convert(CGPoint(x: chrome.bounds.midX, y: chrome.bounds.midY), to: window)
+            let hit = window.hitTest(point, with: nil)
+            XCTAssertFalse(hit === chrome || hit?.isDescendant(of: chrome) == true,
+                "Owned popup and scrim must cover both bottom navigation and Agent Dock")
+        }
+        var retirementCompleted = false, rejectedWhileAttached = false
+        let detached = expectation(description: "Actual choice disappearance")
+        let retire = try XCTUnwrap(CAPPluginCall(callbackId: "public-retire", methodName: "retireOwnedChoice", options: identity,
+            success: { _, _ in retirementCompleted = true; detached.fulfill() },
+            error: { _ in XCTFail("CHOICE_RETIRE_REFUSED"); detached.fulfill() }))
+        let read = try XCTUnwrap(CAPPluginCall(callbackId: "public-pending", methodName: "getOwnedChoiceState", options: identity,
+            success: { _, _ in XCTFail("Attached native sheet cannot report retirement") },
+            error: { _ in rejectedWhileAttached = true }))
+        choice.retire(retire)
+        // No actor yield: the UIKit dismissal completion has not run.
+        XCTAssertTrue(controller.presentingViewController === parent)
+        XCTAssertFalse(retirementCompleted); choice.readState(read); XCTAssertTrue(rejectedWhileAttached)
+        await fulfillment(of: [detached], timeout: 3)
+        XCTAssertNil(controller.presentingViewController); XCTAssertFalse(choice.coversPresentation)
+        XCTAssertTrue(web.isUserInteractionEnabled, "Popup retirement must preserve authorized WebView recovery even while native paint stays concealed")
+        XCTAssertFalse(web.accessibilityElementsHidden)
+        var confirmed = false
+        let absent = try XCTUnwrap(CAPPluginCall(callbackId: "public-absent", methodName: "getOwnedChoiceState", options: identity,
+            success: { result, _ in
+                if case let .dictionary(value)? = result?.resultData { confirmed = value["phase"] as? String == "retired" }
+            }, error: { _ in XCTFail("CHOICE_ABSENCE_REFUSED") }))
+        choice.readState(absent); XCTAssertTrue(confirmed); XCTAssertEqual(events, 0)
+        var larger = projection
+        larger["revision"] = 2; larger["visitId"] = "public-large-visit"
+        larger["options"] = (0..<251).map { ["handle": "public-option-\($0)", "label": "Public option \($0)", "selected": $0 == 0, "disabled": false] as [String: Any] }
+        let largeActive = expectation(description: "Large native list presents after adjacent retirement")
+        let prepareLarge = try XCTUnwrap(CAPPluginCall(callbackId: "public-large", methodName: "prepareOwnedChoice", options: larger,
+            success: { _, _ in largeActive.fulfill() }, error: { _ in XCTFail("CHOICE_LARGE_PREPARE_REFUSED"); largeActive.fulfill() }))
+        choice.prepare(prepareLarge)
+        await fulfillment(of: [largeActive], timeout: 5)
+        XCTAssertTrue(choice.coversPresentation)
+        var largeIdentity = identity
+        largeIdentity["revision"] = 2; largeIdentity["visitId"] = "public-large-visit"
+        let largeDetached = expectation(description: "Large native list actually disappears")
+        let retireLarge = try XCTUnwrap(CAPPluginCall(callbackId: "public-large-retire", methodName: "retireOwnedChoice", options: largeIdentity,
+            success: { _, _ in largeDetached.fulfill() }, error: { _ in XCTFail("CHOICE_LARGE_RETIRE_REFUSED"); largeDetached.fulfill() }))
+        choice.retire(retireLarge)
+        await fulfillment(of: [largeDetached], timeout: 5)
+        XCTAssertTrue(web.isUserInteractionEnabled); XCTAssertFalse(web.accessibilityElementsHidden)
+        shield.protectForAppInactive()
+        container.conceal()
+        container.isolateForOwnedDrawer(true)
+        container.isolateForOwnedDrawer(false)
+        XCTAssertFalse(web.isUserInteractionEnabled, "Popup retirement must never release an active privacy cover")
+        XCTAssertTrue(web.accessibilityElementsHidden)
+    }
+
+    @MainActor func testNativeFeedbackReplacementRetainsItsBoundedHostAndOutsideTouches() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let parent = UIViewController()
+        parent.view.backgroundColor = .systemBackground
+        window.rootViewController = parent
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        let underlying = UIButton(frame: CGRect(x: 24, y: 400, width: 120, height: 44))
+        parent.view.addSubview(underlying)
+        func state(_ sequence: Int, revision: Int = 1) -> NativeFeedbackProjection {
+            NativeFeedbackProjection(documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1,
+                revision: 1, family: "profile", privacyGeneration: 0, feedbackId: "public-notice-\(sequence)",
+                feedbackRevision: revision, feedbackSequence: sequence, destinationId: nil, supportDestinationId: nil,
+                formScene: nil, formRevision: nil, message: "Public result \(sequence)", tone: "success", duration: 3600, dismissible: true)
+        }
+        let feedback = NativeFeedbackPresentation()
+        XCTAssertTrue(feedback.apply(state(1), to: parent))
+        let host = try XCTUnwrap(parent.children.first)
+        XCTAssertTrue(feedback.apply(state(2), to: parent))
+        var endedRevisions = [Int]()
+        feedback.ended = { receipt in
+            if let revision = receipt["feedbackRevision"] as? Int { endedRevisions.append(revision) }
+        }
+        let latest = state(2, revision: 2)
+        XCTAssertTrue(feedback.apply(latest, to: parent))
+        feedback.dismiss(state(2)) // A closure retained from the loading revision.
+        XCTAssertTrue(parent.children.first === host, "NATIVE_FEEDBACK_STALE_DISMISS_REMOVED_NEW_RESULT")
+        XCTAssertTrue(endedRevisions.isEmpty, "NATIVE_FEEDBACK_STALE_DISMISS_EMITTED_END")
+        XCTAssertEqual(parent.children.count, 1)
+        XCTAssertTrue(parent.children.first === host)
+        XCTAssertTrue(host.view.superview === parent.view)
+        parent.view.layoutIfNeeded()
+        XCTAssertGreaterThan(host.view.bounds.height, 0)
+        XCTAssertLessThan(host.view.bounds.height, 150)
+        XCTAssertTrue(parent.view.hitTest(CGPoint(x: 40, y: 420), with: nil) === underlying)
+        XCTAssertFalse(parent.view.accessibilityViewIsModal)
+        var retirement = latest.receipt
+        retirement["feedbackRevision"] = 3
+        feedback.retire(id: latest.feedbackId, sequence: latest.feedbackSequence,
+            revision: 3, owner: latest.identity, context: retirement)
+        XCTAssertTrue(parent.children.isEmpty, "NATIVE_FEEDBACK_TARGETED_RETIREMENT_FAILED")
+        XCTAssertEqual(endedRevisions, [2])
+        XCTAssertTrue(feedback.apply(state(3), to: parent))
+        feedback.clear()
+        XCTAssertTrue(parent.children.isEmpty)
+        XCTAssertTrue(parent.view.hitTest(CGPoint(x: 40, y: 420), with: nil) === underlying)
+    }
+    func testNativeFeedbackRejectsReorderedUpdatesAndRetiredLoadingResults() throws {
+        func state(_ revision: Int, message: String = "Public result", sequence: Int = 1) throws -> NativeFeedbackProjection {
+            let json: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1,
+                "revision": 1, "family": "profile", "privacyGeneration": 0, "feedbackId": "public-notification-\(sequence)",
+                "feedbackRevision": revision, "feedbackSequence": sequence, "destinationId": "preferences-visit", "supportDestinationId": NSNull(), "formScene": NSNull(), "formRevision": NSNull(),
+                "message": message, "tone": "success", "duration": 3600, "dismissible": true]
+            return try JSONDecoder().decode(NativeFeedbackProjection.self, from: JSONSerialization.data(withJSONObject: json))
+        }
+        var fence = NativeFeedbackFence()
+        XCTAssertTrue(fence.apply(try state(1)))
+        XCTAssertTrue(fence.apply(try state(2)))
+        XCTAssertFalse(fence.apply(try state(1)))
+        XCTAssertFalse(fence.apply(try state(3, message: String(repeating: "x", count: 2049))))
+        XCTAssertFalse(fence.retire(id: "public-notification-1", sequence: 1, revision: 1, owner: try state(1).identity))
+        _ = fence.retire(id: "public-notification-1", sequence: 1, revision: 2, owner: try state(1).identity)
+        XCTAssertFalse(fence.apply(try state(3)))
+        var retiredBeforeAdmission = NativeFeedbackFence()
+        _ = retiredBeforeAdmission.retire(id: "public-notification-1", sequence: 1, revision: 1, owner: try state(1).identity)
+        XCTAssertFalse(retiredBeforeAdmission.apply(try state(1)), "NATIVE_FEEDBACK_RETIRED_BEFORE_ADMISSION_REPLAY")
+        var expired = NativeFeedbackFence()
+        XCTAssertTrue(expired.apply(try state(1)))
+        XCTAssertTrue(expired.retire(id: "public-notification-1", sequence: 1, revision: 1, owner: try state(1).identity, terminal: false))
+        XCTAssertTrue(expired.apply(try state(2)), "An old expiry must not reject an already requested newer result")
+        for sequence in 2...1030 { XCTAssertTrue(expired.apply(try state(1, sequence: sequence))) }
+    }
     func testDeletionProofFencesOwnerSessionExpiryAndCancelledExchange() {
         let fence = DeletionPhoneProofFence(userID: "owner", attemptID: "attempt", now: 100)
         XCTAssertFalse(fence.codeSent(userID: "other", sameSession: true, now: 101))
@@ -91,6 +277,58 @@ final class NativeSupportTests: XCTestCase {
         )
         XCTAssertEqual(audit.vaultPassphrase, "synthetic-passphrase")
         XCTAssertEqual(audit.expectedUserId, "synthetic-reviewer")
+    }
+
+    @MainActor
+    func testWalletCardReplacementRejectsCallbacksFromThePreviousVisit() throws {
+        func state(_ visit: String) throws -> NativeWorkspaceProjection {
+            let object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "wallet",
+                "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111",
+                "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+                "page": "overview", "title": "Wallet", "enabled": true, "backEnabled": false, "sections": [],
+                "wallet": ["cards": [["id": "public-card", "kind": "profile", "title": "Public fixture", "subtitle": "", "network": "", "last4": "", "holder": "", "expiry": ""]],
+                    "addId": "add", "addEnabled": true, "selectedId": "public-card", "detailVisitId": visit, "closeId": "close", "detailTitle": "Public fixture", "detailBusy": false]]
+            let decoded = try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertTrue(decoded.valid); return decoded
+        }
+        let first = try state("visit-a"), second = try state("visit-b")
+        let model = NativeWalletDetailModel(first, wallet: try XCTUnwrap(first.wallet), visit: "visit-a")
+        var events = 0; model.enabled = true; model.action = { _, _ in events += 1 }
+        let staleClose = { model.choose("close", from: "visit-a") }
+        model.update(second, wallet: try XCTUnwrap(second.wallet))
+        staleClose()
+        XCTAssertEqual(events, 0, "A retained button must not inherit its replacement visit")
+        model.choose("close", from: "visit-b")
+        XCTAssertEqual(events, 1)
+        model.clear(); model.choose("close", from: "visit-b")
+        XCTAssertEqual(events, 1)
+    }
+
+    @MainActor
+    func testRouteWorkspaceRetirementReleasesCoverageBeforeReceipt() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Native workspace requires iOS 26") }
+        let object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "referrals",
+            "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111",
+            "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+            "page": "overview", "title": "Public workspace", "enabled": true, "backEnabled": false, "sections": []]
+        let state = try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object))
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        let parent = UIViewController(); parent.view = container
+        let presentation = try XCTUnwrap(NativeWorkspacePresentation(state, parent: parent, container: container))
+        var released = false
+        presentation.coverage = {
+            released = !presentation.coversPresentation
+            XCTAssertTrue(parent.children.isEmpty, "Coverage cannot release before the presenter detaches")
+        }
+        let retired = expectation(description: "Actual workspace retirement")
+        presentation.retire {
+            XCTAssertTrue(released, "Retirement must reconcile modal isolation before acknowledging absence")
+            XCTAssertTrue(parent.children.isEmpty)
+            retired.fulfill()
+        }
+        wait(for: [retired], timeout: 3)
+        presentation.coverage = nil
     }
 
     @MainActor
@@ -485,6 +723,20 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(field.text, ""); XCTAssertEqual(model.draft, .empty); XCTAssertEqual(model.projection.draft, .empty)
         XCTAssertNil(model.projection.error); XCTAssertNil(model.pending); XCTAssertNil(model.edit); XCTAssertNil(model.choose); XCTAssertNil(model.finalEdit)
         XCTAssertFalse(model.update(state(3, 1)))
+        if #available(iOS 16.0, *) {
+            let retiring = NativeRuntimeModel(state(1, 0)), target = UITextField()
+            let menu = EditorMenuDismissalProbe(delegate: nil)
+            target.addInteraction(menu); target.text = "synthetic-private-text"
+            retiring.register(target, name: "credential"); retiring.editMenuPresented(target)
+            retiring.clear()
+            var finished = false
+            retiring.dismissEditorMenus { finished = true }
+            XCTAssertEqual(target.text, "", "Scrub before requesting popup retirement")
+            XCTAssertEqual(menu.dismissals, 1, "Cleared registries must not lose the active menu target")
+            XCTAssertFalse(finished, "A dismissal request is not its completion")
+            retiring.editMenuDismissed(target)
+            XCTAssertTrue(finished)
+        }
     }
 
     @MainActor
@@ -664,7 +916,8 @@ final class NativeSupportTests: XCTestCase {
             "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms", "sign-out",
             "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "vault-methods", "vault-password", "appearance", "accent", "voice",
             "payout-receipt", "payout-warning", "payout-progress", "payout-review",
-            "style-name", "style-tone", "style-length", "style-language", "style-punctuation"]
+            "style-name", "style-tone", "style-length", "style-language", "style-punctuation",
+            "action-join", "action-manage-connections"]
         for id in NativeProfileArtwork.ids {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
             let glyphSize: CGFloat = id == "gemini" ? 32 : 28
@@ -1258,7 +1511,13 @@ final class NativeSupportTests: XCTestCase {
     func testPendingNativeCloseSurvivesContentRefreshAndUncoversTheSameWebViewOnlyAfterAcknowledgement() async throws {
         let state = privateDrawerState(family: "history")
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        // The app's shared shield belongs to its live document, not this
+        // synthetic controller. Exercise Close against an explicitly active gate.
+        let shield = HushhSessionPrivacyShield()
+        shield.markAppActive()
+        XCTAssertTrue(shield.snapshot().appIsActive)
+        XCTAssertFalse(shield.snapshot().shielded)
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers, privacyShield: shield)
         let parent = UIViewController()
         parent.view = container
         let window = UIWindow(frame: web.frame)
@@ -1542,6 +1801,7 @@ final class NativeSupportTests: XCTestCase {
             await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 guard let frame = rowFrames[id] else { return false }
                 return !controller.model.navigationTransitioning &&
+                    controller.model.profileNavigationController?.hasCompletedProjectedDestination == true &&
                     controller.model.profileNavigationController?.viewControllers.count == controller.model.navigationPath.count + 1 &&
                     !frame.isEmpty && window.bounds.contains(frame)
             }, object: nil)], timeout: 3)
@@ -1606,10 +1866,25 @@ final class NativeSupportTests: XCTestCase {
         print("PUBLIC_PROFILE_TRANSITION back_writes=\(repeatedBackTitleWrites) title_writes=\(repeatedTitleWrites) bar_tint_writes=\(repeatedBarTintWrites) ancestor_tint_writes=\(repeatedTintWrites) style_writes=\(repeatedStyleWrites)")
         let accountController = try XCTUnwrap(envelopeNavigation.visibleViewController)
         let accountChildren = accountController.children
+        XCTAssertTrue(rootController.view.accessibilityElementsHidden,
+            "A retained covered Profile page cannot remain an accessibility owner")
+        XCTAssertFalse(rootController.view.isUserInteractionEnabled,
+            "Only the visible Profile destination may receive body interaction")
+        XCTAssertFalse(accountController.view.accessibilityElementsHidden)
+        XCTAssertTrue(accountController.view.isUserInteractionEnabled)
         XCTAssertEqual(accountController.navigationItem.backButtonDisplayMode, .minimal,
             "Nested pages must keep the same Back geometry for their own children")
         repeatedBackTitleWrites = 0; repeatedTitleWrites = 0; repeatedBarTintWrites = 0
         repeatedTintWrites = 0; repeatedStyleWrites = 0
+        var interactionWrites = 0, accessibilityWrites = 0
+        let barInteraction = envelopeNavigation.navigationBar.observe(\.isUserInteractionEnabled, options: [.new]) { _, _ in interactionWrites += 1 }
+        let pageInteraction = accountController.view.observe(\.isUserInteractionEnabled, options: [.new]) { _, _ in interactionWrites += 1 }
+        let barAccessibility = envelopeNavigation.navigationBar.observe(\.accessibilityElementsHidden, options: [.new]) { _, _ in accessibilityWrites += 1 }
+        let pageAccessibility = accountController.view.observe(\.accessibilityElementsHidden, options: [.new]) { _, _ in accessibilityWrites += 1 }
+        defer {
+            barInteraction.invalidate(); pageInteraction.invalidate()
+            barAccessibility.invalidate(); pageAccessibility.invalidate()
+        }
         for sequence in 4...6 {
             var content = privateDrawerState(update: sequence, backEnabled: true)
             content.surfaceOpen = true; content.profileStack = account.profileStack
@@ -1619,6 +1894,8 @@ final class NativeSupportTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(34))
             controller.view.layoutIfNeeded()
             capturePublicHeader("refresh-\(sequence)")
+            XCTAssertEqual(interactionWrites, 0, "Compatible refresh must not rewrite native interaction eligibility")
+            XCTAssertEqual(accessibilityWrites, 0, "Compatible refresh must not rewrite native accessibility eligibility")
             XCTAssertTrue(controller.model.profileNavigationController === envelopeNavigation)
             XCTAssertTrue(envelopeNavigation.viewControllers.first === rootController)
             XCTAssertTrue(envelopeNavigation.visibleViewController === accountController)
@@ -1630,6 +1907,20 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(repeatedBarTintWrites, 0, "Compatible refreshes must not reapply navigation tint")
         XCTAssertEqual(repeatedTintWrites, 0, "Compatible content refreshes must not reapply the ancestor material tint")
         XCTAssertEqual(repeatedStyleWrites, 0, "Compatible content refreshes must not reapply the ancestor appearance")
+        controller.model.interactionEnabled = false
+        envelopeNavigation.reconcile()
+        XCTAssertFalse(envelopeNavigation.navigationBar.isUserInteractionEnabled)
+        XCTAssertTrue(envelopeNavigation.navigationBar.accessibilityElementsHidden)
+        XCTAssertFalse(accountController.view.isUserInteractionEnabled)
+        XCTAssertTrue(accountController.view.accessibilityElementsHidden)
+        controller.model.interactionEnabled = true
+        envelopeNavigation.reconcile()
+        XCTAssertTrue(envelopeNavigation.navigationBar.isUserInteractionEnabled)
+        XCTAssertFalse(envelopeNavigation.navigationBar.accessibilityElementsHidden)
+        XCTAssertTrue(accountController.view.isUserInteractionEnabled)
+        XCTAssertFalse(accountController.view.accessibilityElementsHidden)
+        XCTAssertGreaterThanOrEqual(interactionWrites, 4, "Quarantine and readmission must still update both native owners")
+        XCTAssertGreaterThanOrEqual(accessibilityWrites, 4, "The observations must detect real accessibility isolation changes")
         let originalBackTitle = rootNavigationItem.backButtonTitle
         repeatedBackTitleWrites = 0
         rootNavigationItem.backButtonTitle = originalBackTitle
@@ -1673,6 +1964,12 @@ final class NativeSupportTests: XCTestCase {
         controller.update(returned)
         await requireClose("Returned Profile root")
         await requireRow("row-handle")
+        XCTAssertTrue(envelopeNavigation.visibleViewController === rootController)
+        XCTAssertFalse(rootController.view.accessibilityElementsHidden)
+        XCTAssertTrue(rootController.view.isUserInteractionEnabled)
+        XCTAssertTrue(accountController.view.accessibilityElementsHidden,
+            "A popped cached destination must relinquish accessibility")
+        XCTAssertFalse(accountController.view.isUserInteractionEnabled)
         XCTAssertTrue(controller.model.allowsPageInteraction)
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1)

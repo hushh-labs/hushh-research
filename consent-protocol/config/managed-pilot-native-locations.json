@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "sourceUrl": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations",
+  "sourceLastUpdated": "2026-10-26",
+  "retrievedAt": "2026-10-27T10:18:30.433011+00:00",
+  "qualificationExpiresAt": "2026-10-31T00:00:00Z",
+  "snapshot": {
+    "regions": [
+      "us-east1",
+      "us-east4",
+      "us-west1",
+      "us-central1",
+      "europe-west1",
+      "europe-west2",
+      "europe-west3",
+      "europe-west4",
+      "europe-west6",
+      "europe-west8",
+      "europe-southwest1",
+      "asia-east1",
+      "asia-east2\u2020",
+      "asia-northeast1",
+      "asia-northeast3\u2020",
+      "asia-south1",
+      "asia-southeast1",
+      "asia-southeast2*\u2020",
+      "australia-southeast2*",
+      "me-west1",
+      "northamerica-northeast1",
+      "northamerica-northeast2*",
+      "southamerica-east1"
+    ],
+    "multiRegions": [
+      "us",
+      "eu"
+    ],
+    "globalMemoryAndSessions": true,
+    "memoryUnsupportedRegions": [
+      "asia-southeast2",
+      "australia-southeast2",
+      "northamerica-northeast2"
+    ]
+  },
+  "snapshotSha256": "040fd2ca7235d6b70df2531b15c18753ec1c3f8fd0c7571290de2ff9aca7b193",
+  "scope": "Two newly created managed dev pilot projects only. Older, adopted and BYOC projects are excluded. ca is not an Engine namespace under this provider contract; no failed response is an empty listing."
+}

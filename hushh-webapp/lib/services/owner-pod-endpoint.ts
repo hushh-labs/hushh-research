@@ -12,7 +12,7 @@ import type { OwnerPodConnection, PinnedEndpoint, PodSessionRecord } from "./own
 export type { OwnerPodConnection, PinnedEndpoint, PodSessionRecord } from "./owner-pod-connection";
 
 import { serializeOwnerPodOperation } from "./owner-pod-session-lock";
-import { isOwnerCloudTarget } from "@/lib/one/owner-cloud";
+import { isPrivatePodBinding } from "@/lib/one/owner-cloud";
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
@@ -410,7 +410,7 @@ async function admitEndpoint(
     binding.role !== "app" ||
     binding.platform !== "web" ||
     binding.subject_public_key !== record.publicKeyB64 ||
-    !isOwnerCloudTarget(binding.deployment_target) ||
+    !isPrivatePodBinding(binding) ||
     !Array.isArray(binding.scopes) ||
     !binding.scopes.includes("pkm.read") ||
     !Number.isInteger(binding.version) ||

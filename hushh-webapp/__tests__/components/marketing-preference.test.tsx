@@ -110,6 +110,7 @@ describe("explicit email preference", () => {
   });
 
   it("dismisses a retired loading toast and suppresses its late replacement-session verdict", async () => {
+    mocks.toast.mockReturnValueOnce(Object.assign(55, { unwrap: async () => undefined }));
     const view = renderHook(() => useMarketingPreference("owner", "account"));
     await waitFor(() => expect(view.result.current.value).not.toBeNull());
     let release!: (value: Response) => void;

@@ -66,14 +66,14 @@ class PodTimedADKAgent(TimedADKAgent):
             custody_configurations,
             merge_turn_configurations,
         )
-        from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+        from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
         await self._pod_require_access()
-        custody = await custody_configurations() if owner_cloud_agent() else []
+        custody = await custody_configurations() if private_pod_runtime() else []
         await self._pod_require_access()
         admitted = (
             merge_turn_configurations(configurations or [], custody)
-            if owner_cloud_agent()
+            if private_pod_runtime()
             else configurations or []
         )
         self._pod_mcp_scope = McpTurnResources(

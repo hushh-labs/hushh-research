@@ -5,7 +5,7 @@
 
 The *behavior* of how code reaches `main` is enforced by
 `scripts/ci/verify-pr-base-policy.py` (governed maintainers may PR directly into
-`main` by actor identity; everyone else rides `integration/pr-train`). That gate
+`main` by actor identity; new development uses Dev intake). That gate
 has its own `--self-test`, so the behavior cannot silently drift.
 
 What CAN drift is the human-facing SOP prose. Historically the docs taught the
@@ -16,7 +16,7 @@ dependency trap.
 
 This guard fails closed when:
   1. a canonical SOP doc is MISSING a required phrase that states the
-     two-lane-by-author rule, or
+     Dev intake and governed Main authority, or
   2. any SOP doc CONTAINS a deprecated phrase that contradicts the gate.
 
 It is deterministic (pure substring checks over tracked files), carries a
@@ -52,19 +52,20 @@ REQUIRED_CONCEPTS: dict[Path, list[tuple[str, ...]]] = {
         ("directly into `main`", "direct-to-main", "directly into main"),
         ("branch from `origin/main`", "branched from main", "branch from origin/main"),
         ("integration/pr-train",),
+        ("dev intake",),
     ],
     PR_GOVERNANCE_SKILL: [
-        ("decided by author", "lane is decided by author"),
+        ("dev intake",),
         ("directly into `main`", "direct-to-main", "directly into main"),
         ("actor identity",),
     ],
     REPO_OPS_SKILL: [
-        ("decided by author", "lane is decided by author"),
+        ("dev intake",),
         ("directly into `main`", "direct-to-main", "directly into main"),
         ("actor identity",),
     ],
     REPO_OPS_BRANCH_RUNTIME: [
-        ("decided by author",),
+        ("dev intake",),
         ("directly into `main`", "direct-to-main", "directly into main"),
         ("origin/main",),
     ],
@@ -120,10 +121,10 @@ def self_test() -> int:
 
     # A doc that teaches the canonical rule and avoids forbidden phrases passes.
     good = (
-        "Lane is decided by AUTHOR. Governed maintainers open a PR directly into "
+        "Dev intake is the default. Governed maintainers open a PR directly into "
         "`main` from a branch from `origin/main`; the `PR Base Policy` gate "
         "(verify-pr-base-policy.py) authorizes by actor identity. Non-maintainers "
-        "ride integration/pr-train."
+        "use Dev; integration/pr-train remains retained legacy history."
     )
     if _check_text(BRANCH_GOVERNANCE_DOC, good):
         failures.append("self-test: canonical-good text unexpectedly flagged")
@@ -161,7 +162,7 @@ def main() -> int:
         print("ERROR: branch-governance SOP prose is inconsistent with the enforced gate.")
         print("The enforced rule (scripts/ci/verify-pr-base-policy.py): governed")
         print("maintainers PR directly into `main` by actor identity; everyone else")
-        print("rides integration/pr-train. Fix the prose to match:")
+        print("uses Dev intake. Fix the prose to match:")
         for error in errors:
             print(f"- {error}")
         return 1

@@ -70,12 +70,45 @@ try {
   browser = await ({ chromium, webkit }[config.engine]).launch({ headless: true });
   const context = await browser.newContext({ acceptDownloads: true, viewport: { width: 390, height: 820 } });
   page = await context.newPage();
+  await page.addInitScript(() => {
+    // Observe native failures without replacing crypto, retaining arguments or
+    // recording messages. Only bounded operation/algorithm labels leave the page.
+    const failures = [];
+    const algorithms = new Set(["X25519", "AES-GCM", "SHA-256", "PBKDF2", "HKDF"]);
+    const subtle = crypto.subtle;
+    for (const operation of ["importKey", "generateKey", "deriveBits", "deriveKey", "digest", "encrypt", "decrypt"]) {
+      const original = subtle[operation];
+      Object.defineProperty(subtle, operation, { value: async function (...args) {
+        try { return await Reflect.apply(original, subtle, args); }
+        catch (error) {
+          let algorithm = "unknown";
+          try {
+            const input = args[operation === "importKey" ? 2 : 0];
+            const name = typeof input === "string" ? input : input?.name;
+            if (algorithms.has(name)) algorithm = name;
+          } catch { /* Diagnostic inspection must not replace the native error. */ }
+          if (failures.length < 8) failures.push({ operation, algorithm });
+          throw error;
+        }
+      } });
+    }
+    Object.defineProperty(window, "__takeDocumentCryptoFailures", {
+      value: () => failures.splice(0),
+    });
+  });
   const switchActor = async actor => {
     await page.getByRole("button", { name: `Use ${actor} session`, exact: true }).click();
     await page.waitForFunction(expected => document.querySelector('[data-testid="document-fixture"]')?.getAttribute("data-actor") === expected, actor);
   };
   const control = id => page.locator(`[data-voice-control-id="${id}"]`);
   page.on("pageerror", error => errors.push(error.message));
+  page.on("requestfailed", request => {
+    const url = new URL(request.url());
+    if (url.protocol !== "http:" && url.protocol !== "https:") return;
+    const failure = request.failure()?.errorText ?? "";
+    failures.push({ path: url.pathname.replace(/[a-f0-9-]{36}/g, ":id").slice(0, 200),
+      transport: /abort|cancel/i.test(failure) ? "cancelled" : /timeout|timed out/i.test(failure) ? "timeout" : "failed" });
+  });
   page.on("response", async response => {
     if (response.status() < 400) return;
     const url = new URL(response.url());
@@ -130,6 +163,13 @@ try {
   const start = performance.now();
   await page.setViewportSize({ width: 900, height: 900 });
   await page.goto(`${origin}/one/documents/open`);
+  const diagnosticProbe = await page.evaluate(async () => {
+    let rejected = false;
+    try { await crypto.subtle.importKey("raw", new Uint8Array(1), "synthetic-private-algorithm", false, ["decrypt"]); }
+    catch { rejected = true; }
+    return { rejected, failures: window.__takeDocumentCryptoFailures() };
+  });
+  assert.deepEqual(diagnosticProbe, { rejected: true, failures: [{ operation: "importKey", algorithm: "unknown" }] });
   await page.getByRole("heading", { name: "Historical device-encrypted document flow", exact: true }).waitFor();
   // Create a historical v1 record through the real production client/API. The
   // retired delivery picker is intentionally absent from new request UI.
@@ -165,10 +205,11 @@ try {
   assert.equal(await copyPermission.isChecked(), false);
   assert.equal(await control("document-hosting-prepare").isEnabled(), false);
   await copyPermission.check();
-  const preparation = page.waitForResponse(response => response.request().method() === "POST" &&
-    new URL(response.url()).pathname.endsWith("/delivery/approve") && response.request().postDataJSON()?.phase === "prepare");
-  await control("document-hosting-prepare").click();
-  const prepared = await preparation;
+  const [prepared] = await Promise.all([
+    page.waitForResponse(response => response.request().method() === "POST" &&
+      new URL(response.url()).pathname.endsWith("/delivery/approve") && response.request().postDataJSON()?.phase === "prepare"),
+    control("document-hosting-prepare").click(),
+  ]);
   assert.equal(prepared.status(), 200);
   assert.equal(prepared.request().postDataJSON().copyAccepted, true);
   assert.equal(prepared.request().postDataJSON().accessExpiresAt, expectedDeadline);
@@ -191,31 +232,32 @@ try {
   await page.getByRole("region", { name: "Protected documents", exact: true }).waitFor({ timeout: 15000 });
   const reported = kind => page.waitForResponse(response => response.request().method() === "POST" &&
     new URL(response.url()).pathname.endsWith("/delivery/activity") && response.request().postDataJSON()?.kind === kind);
-  const renderedEvent = reported("preview_rendered");
-  await control("document-hosting-preview").click();
+  const [renderedEvent] = await Promise.all([
+    reported("preview_rendered"), control("document-hosting-preview").click(),
+  ]);
+  assert.equal(renderedEvent.status(), 200);
   const canvas = page.getByLabel("Document preview, page 1", { exact: true });
   await canvas.waitFor();
   await page.waitForFunction(() => { const node = document.querySelector('canvas[aria-label="Document preview, page 1"]'); return node && node.width > 0 && node.height > 0; });
   assert.ok(await canvas.evaluate(node => node.getContext("2d").getImageData(0, 0, node.width, node.height).data.some((value, index) => index % 4 !== 3 && value < 240)));
-  assert.equal((await renderedEvent).status(), 200);
   record("local_preview_rendered");
   await control("document-hosting-close-preview").click();
-  const originalPromise = page.waitForEvent("download");
-  const originalHandoff = reported("handoff_reported");
-  await control("document-hosting-download-original").click();
-  const original = await originalPromise;
+  const [original, originalHandoff] = await Promise.all([
+    page.waitForEvent("download"), reported("handoff_reported"),
+    control("document-hosting-download-original").click(),
+  ]);
   const originalBytes = await fs.readFile(await original.path());
   assert.equal(original.suggestedFilename(), "Private statement.pdf");
   assert.equal(crypto.createHash("sha256").update(originalBytes).digest("hex"), sourceHash);
-  assert.equal((await originalHandoff).status(), 200);
-  const markedPromise = page.waitForEvent("download");
-  const markedHandoff = reported("handoff_reported");
-  await control("document-hosting-download-copy").click();
-  const marked = await markedPromise;
+  assert.equal(originalHandoff.status(), 200);
+  const [marked, markedHandoff] = await Promise.all([
+    page.waitForEvent("download"), reported("handoff_reported"),
+    control("document-hosting-download-copy").click(),
+  ]);
   const markedBytes = await fs.readFile(await marked.path());
   assert.ok(markedBytes.subarray(0, 5).equals(Buffer.from("%PDF-")));
   assert.notEqual(crypto.createHash("sha256").update(markedBytes).digest("hex"), sourceHash);
-  assert.equal((await markedHandoff).status(), 200);
+  assert.equal(markedHandoff.status(), 200);
   const watermarkText = await page.evaluate(async bytes => {
     const { loadHostedPdf } = await import("/lib/consent/document-hosting-pdf.ts");
     const pdf = await loadHostedPdf(new Uint8Array(bytes), new AbortController().signal);
@@ -250,20 +292,24 @@ try {
   await page.getByText("Recovery requested. The owner must authorize repairing this copy. Nothing was charged.", { exact: true }).waitFor();
   await switchActor("owner");
   await control("document-hosting-repair").waitFor();
-  const amendment = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/delivery/recovery-amendment"));
-  await control("document-hosting-repair").click();
-  await page.getByRole("alertdialog", { name: "Repair recipient access?" }).getByRole("button", { name: "Repair access", exact: true }).click();
-  const repaired = await amendment;
+  const [repaired] = await Promise.all([
+    page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/delivery/recovery-amendment")),
+    (async () => {
+      await control("document-hosting-repair").click();
+      await page.getByRole("alertdialog", { name: "Repair recipient access?" }).getByRole("button", { name: "Repair access", exact: true }).click();
+    })(),
+  ]);
   assert.equal(repaired.status(), 200);
   await repaired.finished();
   assert.equal((await repaired.json()).recoveryRequested, false);
   await control("document-hosting-repair").waitFor({ state: "hidden" });
   await switchActor("recipient");
-  const recoveredDownload = page.waitForEvent("download");
-  const recoveredHandoff = reported("handoff_reported");
-  await control("document-hosting-download-original").click();
-  assert.equal(crypto.createHash("sha256").update(await fs.readFile(await (await recoveredDownload).path())).digest("hex"), sourceHash);
-  assert.equal((await recoveredHandoff).status(), 200);
+  const [recoveredDownload, recoveredHandoff] = await Promise.all([
+    page.waitForEvent("download"), reported("handoff_reported"),
+    control("document-hosting-download-original").click(),
+  ]);
+  assert.equal(crypto.createHash("sha256").update(await fs.readFile(await recoveredDownload.path())).digest("hex"), sourceHash);
+  assert.equal(recoveredHandoff.status(), 200);
   assert.equal(directGoogleReads, 3); assert.equal(oneUploads, 3);
   record("paid_key_recovery_verified");
   await switchActor("owner");
@@ -280,7 +326,9 @@ try {
   await context.close();
 } catch (error) {
   const alerts = await page?.getByRole("alert").allTextContents().catch(() => []);
-  console.error(JSON.stringify({ stage: events.at(-1)?.name ?? "starting", directGoogleReads, oneUploads, failures, alerts, errors, caught }));
+  const keySetups = await page?.evaluate(async () => (await import("/e2e/fixtures/hosted-document-boundaries.tsx")).getFixtureKeySetupCount()).catch(() => null);
+  const cryptoFailures = await page?.evaluate(() => window.__takeDocumentCryptoFailures?.() ?? []).catch(() => []);
+  console.error(JSON.stringify({ stage: events.at(-1)?.name ?? "starting", directGoogleReads, oneUploads, keySetups, cryptoFailures, failures, alerts, errors, caught }));
   throw error;
 } finally {
   await browser?.close();

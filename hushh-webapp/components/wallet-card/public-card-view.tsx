@@ -383,7 +383,7 @@ interface CardAction {
   external: boolean;
 }
 
-function buildActions(card: PublicWalletCard): CardAction[] {
+export function walletPublicCardActions(card: PublicWalletCard): CardAction[] {
   const actions: CardAction[] = [];
   if (card.email) {
     actions.push({
@@ -499,7 +499,7 @@ export function PublicWalletCardView({ card, embedded = false, profileUrl, visua
   /** Existing authorized share link; never derived from private account fields. */
   profileUrl?: string | null;
 }) {
-  const actions = useMemo(() => buildActions(card), [card]);
+  const actions = useMemo(() => walletPublicCardActions(card), [card]);
   const initials = useMemo(() => initialsFor(card.fullName), [card.fullName]);
   const hasDetails = Boolean(card.summary) || card.skills.length > 0;
   const hasMeta = Boolean(card.organisation) || Boolean(card.locationLabel);

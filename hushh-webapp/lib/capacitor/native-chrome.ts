@@ -1,5 +1,7 @@
 "use client";
 
+import { nativeChromeSizeAllowed, chromeControlId, type ChromeControlId, type ChromeFamily, type ChromeControl } from "./native-chrome-controls";
+
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { nativeDrawerIsolation } from "./native-drawers";
 import { nativeDocumentId } from "@/lib/capacitor/session-privacy";
@@ -11,18 +13,8 @@ import { nativePresentationAdmission, syncNativePresentationRegions, type Native
 
 // Presentation only. No route, UID, token, credential or content body crosses this bridge.
 export type ChromeFrame = { x: number; y: number; width: number; height: number };
-export type ChromeControlId = "top-shell-back" | "profile-back" | "chat-history-toggle" | "chat-history-close" | "chat-agent-surface" | "stationary-more" | "bounded-selection" | "bounded-date" | "profile-close" | "profile-appearance" | "profile-accent";
-export type ChromeFamily = "back" | "profile-back" | "history" | "history-close" | "agent-surface" | "more" | "selection" | "date" | "close" | "appearance" | "accent";
-export type ChromeAgentSurface = "one" | "puppy";
-export type ChromeOption = { value: string; label: string; disabled?: boolean };
-export type ChromeAccentPalette = { blue: string; gold: string };
-export type ChromeControl = { kind: "back" | "profile-back" | "close" } | { kind: "history" | "history-close"; expanded?: boolean } |
-  { kind: "agent-surface"; value: ChromeAgentSurface } |
-  { kind: "appearance"; value: "light" | "dark" | "system" } |
-  { kind: "accent"; value: "blue" | "gold"; fullTrigger?: boolean; palette?: ChromeAccentPalette } |
-  { kind: "more"; options: readonly ChromeOption[] } |
-  { kind: "selection"; value: string; options: readonly ChromeOption[] } |
-  { kind: "date"; value: string; minimum: string; maximum: string };
+export { chromeControlId } from "./native-chrome-controls";
+export type { ChromeControlId, ChromeFamily, ChromeAgentSurface, ChromeOption, ChromeAccentPalette, ChromeControl } from "./native-chrome-controls";
 export type ChromeIdentity = {
   documentId: string;
   ownerEpoch: string;
@@ -146,12 +138,7 @@ export function measureNativeChromeGeometry(slot: HTMLElement, kind: ChromeFamil
     width: bounds.width, height: bounds.height,
     left: bounds.left - (panel?.offset ?? 0), right: bounds.right - (panel?.offset ?? 0), top: bounds.top, bottom: bounds.bottom };
   const viewport = { width: window.innerWidth, height: window.innerHeight };
-  const minimumWidth = kind === "appearance" ? 132 : kind === "agent-surface" ? 88 : 44;
-  const widthAdmitted = kind === "accent"
-    ? frame.width === 44 || frame.width >= 132 && frame.width <= 320
-    : kind === "agent-surface" || kind === "appearance"
-      ? frame.width >= minimumWidth && frame.width <= 320 : frame.width === 44;
-  if (!widthAdmitted || frame.height !== 44 ||
+  if (!nativeChromeSizeAllowed(kind, frame.width, frame.height) ||
       ![frame.x, frame.y, viewport.width, viewport.height].every(Number.isFinite) ||
       frame.left < 0 || frame.top < 0 || frame.right > viewport.width || frame.bottom > viewport.height) return null;
   if (kind === "appearance" || kind === "accent") {
@@ -239,21 +226,9 @@ export async function canResumeNativeChrome(projection: ChromeControlProjection,
   await entry.ready;
   return suspended.get(id) === entry && outstanding.get(id)?.revision === entry.projection.revision;
 }
-export function chromeControlId(kind: ChromeFamily): ChromeControlId {
-  if (kind === "history-close") return "chat-history-close";
-  if (kind === "profile-back") return "profile-back";
-  if (kind === "history") return "chat-history-toggle";
-  if (kind === "agent-surface") return "chat-agent-surface";
-  if (kind === "appearance") return "profile-appearance";
-  if (kind === "accent") return "profile-accent";
-  if (kind === "more") return "stationary-more";
-  if (kind === "selection") return "bounded-selection";
-  if (kind === "date") return "bounded-date";
-  if (kind === "close") return "profile-close";
-  return "top-shell-back";
-}
 
-function admittedValue(projection: ChromeControlProjection, value: string | undefined): boolean {
+function admittedValue(projection: ChromeControlProjection, value: string | undefined, updating = false): boolean {
+  if (projection.kind === "map-check-in") return updating ? value === "idle" || value === "active" : value === undefined;
   if (projection.kind === "agent-surface") return value === "one" || value === "puppy";
   if (projection.kind === "appearance") return value === "light" || value === "dark" || value === "system";
   if (projection.kind === "accent") return value === "blue" || value === "gold";
@@ -475,7 +450,7 @@ export class NativeChromeLease {
    * A stale update failure cannot retire or overwrite a newer presentation. */
   async update(presentation: ChromeUpdate, refreshAdmission = false): Promise<boolean> {
     if (!this.current || !this.inPlaceUpdates) return false;
-    if (this.projection.kind !== "more" && !admittedValue(this.projection, presentation.value) ||
+    if (this.projection.kind !== "more" && !admittedValue(this.projection, presentation.value, true) ||
         this.projection.kind === "more" && presentation.value !== undefined) {
       throw new Error("NATIVE_CHROME_UPDATE_INVALID");
     }

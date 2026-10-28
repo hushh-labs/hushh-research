@@ -150,10 +150,19 @@ can never replace the original exception with a less informative one.
 
 ## Managed hosting: selected design, qualification required
 
-**Decision — 2026-10-13:** use project shards with multiple owner pods per project.
-New Hussh Pods provisioning remains disabled. The existing configuration flags do
-not qualify the renderer's development master-key derivation or shared identity.
-BYOC, existing pods and their selected settings are unchanged.
+**Decision — 2026-10-26:** use a Hussh-funded project per hosted owner, sharing
+the same immutable runtime image and GCP primitives with BYOC. This supersedes
+the October 13 multi-owner project-shard proposal. Shared remains a separate
+explicit choice. A hosted person need not connect a second cloud account.
+Hussh remains the infrastructure administrator; this is isolated managed hosting,
+not user-owned cloud or operator-inaccessible execution.
+
+New Hussh Pods provisioning remains disabled pending durable admission and live
+qualification. The common private renderer and explicit hosted model binding are
+source foundations, not a completed hosted lifecycle. Existing flags cannot
+qualify development master-key derivation or shared runtime identity. BYOC and
+existing pods retain their selected settings. See the
+[deployment contract](../../reference/architecture/deployment-standard.md#one-private-image-explicit-gcp-hosting-authority).
 
 Each managed owner needs a separate workload identity, storage boundary and
 pod-generated recovery key wrapped by a per-pod KMS key. Qualification must prove
@@ -191,8 +200,12 @@ the same remaining capacity. Pending and unknown provider outcomes retain their
 reservation through retries; billing retry resumes the same operation. Existing
 registry row counts are not a transactional shard reservation.
 
-Prepare another **approved** shard before the limiting constraint reaches its
-headroom. Failure leaves setup pending with an explanation, never silently Shared.
+For per-owner projects, reserve project-creation and billing-association capacity
+as well as the resources inside each assigned project. The worksheet's per-project
+resource bounds remain useful; they no longer admit multiple hosted owners into
+one project. Keep uncertain project operations reserved. A common billing account
+remains a shared failure domain regardless of project separation.
+Failure leaves setup pending with an explanation, never silently Shared.
 Preserve minimum zero, bounded instances, one worker, event-driven jobs and idle
 socket closure. Existing owners approve configuration changes separately.
 

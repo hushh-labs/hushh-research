@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { KaiProfileService, type KaiProfileV2 } from "@/lib/services/kai-profile-service";

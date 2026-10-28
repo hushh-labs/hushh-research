@@ -31,31 +31,17 @@ class _FakeResponse:
         self.data = data
 
 
-class _FakeTable:
-    """Records the update payload so a test can assert what would be written."""
-
-    def __init__(self, store: dict):
-        self._store = store
-
-    def update(self, data):
-        self._store["update"] = dict(data)
-        return self
-
-    def eq(self, column, value):
-        self._store.setdefault("filters", []).append((column, value))
-        return self
-
-    def execute(self):
-        return _FakeResponse([{"user_id": "u1"}] if self._store.get("rows", 1) else [])
-
-
 class _FakeDb:
     def __init__(self, store: dict):
         self._store = store
 
-    def table(self, name):
-        self._store["table"] = name
-        return _FakeTable(self._store)
+    def execute_raw(self, query, params):
+        self._store["query"] = query
+        self._store["params"] = params
+        return _FakeResponse([{"user_id": "u1"}] if self._store.get("rows", 1) else [])
+
+
+_OBSERVED = {"user_id": "u1", "hushh_id": "ha1_test", "status": "pending"}
 
 
 def _repo(store: dict):
@@ -73,11 +59,14 @@ def _repo(store: dict):
 
 async def test_the_hosted_choice_is_recorded():
     store: dict = {}
-    wrote = await _repo(store).set_hosted_cloud(user_id="u1", deployment_target="gcp")
+    wrote = await _repo(store).set_hosted_cloud(
+        user_id="u1", deployment_target="gcp", expected_row=_OBSERVED
+    )
 
     assert wrote is True
-    assert store["update"]["deployment_target"] == "gcp"
-    assert ("user_id", "u1") in store["filters"]
+    assert store["params"]["target"] == "gcp"
+    assert store["params"]["owner"] == "u1"
+    assert store["params"]["hushh_id"] == "ha1_test"
 
 
 async def test_the_hosted_choice_clears_the_user_cloud_coordinates():
@@ -88,36 +77,51 @@ async def test_the_hosted_choice_clears_the_user_cloud_coordinates():
     column was split out to prevent.
     """
     store: dict = {}
-    await _repo(store).set_hosted_cloud(user_id="u1", deployment_target="gcp")
+    await _repo(store).set_hosted_cloud(
+        user_id="u1", deployment_target="gcp", expected_row=_OBSERVED
+    )
 
-    written = store["update"]
+    query = store["query"]
     for column in (
         "user_cloud_project",
         "user_cloud_region",
         "user_cloud_bootstrap_sa",
         "user_cloud_authorized_at",
     ):
-        assert written[column] is None, f"{column} survived the switch to hosted"
+        assert f"{column}=NULL" in query, f"{column} survived the switch to hosted"
 
 
 async def test_the_credential_axis_is_left_alone():
     """Where the pod runs and which credential reaches a model are separate
     choices. The AI step owns the second one; this route must not answer it."""
     store: dict = {}
-    await _repo(store).set_hosted_cloud(user_id="u1", deployment_target="gcp")
+    await _repo(store).set_hosted_cloud(
+        user_id="u1", deployment_target="gcp", expected_row=_OBSERVED
+    )
 
-    assert "model_credential_mode" not in store["update"]
+    assert store["params"]["model"] is None
+    assert "COALESCE(:model,current.model_credential_mode)" in store["query"]
 
 
 async def test_no_row_means_no_write():
     store: dict = {"rows": 0}
-    assert await _repo(store).set_hosted_cloud(user_id="u1", deployment_target="gcp") is False
+    assert (
+        await _repo(store).set_hosted_cloud(
+            user_id="u1", deployment_target="gcp", expected_row=_OBSERVED
+        )
+        is False
+    )
 
 
 async def test_a_blank_user_id_is_refused_before_touching_the_database():
     store: dict = {}
-    assert await _repo(store).set_hosted_cloud(user_id="  ", deployment_target="gcp") is False
-    assert "update" not in store
+    assert (
+        await _repo(store).set_hosted_cloud(
+            user_id="  ", deployment_target="gcp", expected_row=_OBSERVED
+        )
+        is False
+    )
+    assert "query" not in store
 
 
 # --------------------------------------------------------------------------- #
@@ -170,7 +174,7 @@ async def test_the_hosted_door_writes_the_same_setup_marker(monkeypatch):
     from this one.
     """
     from api.routes.one import runtime as runtime_routes
-    from hushh_mcp.services import hosted_tier_guard
+    from tests.helpers.hosted_pilot_selection import selection_runtime
 
     marked: list[str] = []
 
@@ -181,11 +185,10 @@ async def test_the_hosted_door_writes_the_same_setup_marker(monkeypatch):
         return True
 
     monkeypatch.setattr(runtime_routes, "_write_cloud_setup_marker", _fake_marker)
-    monkeypatch.setattr(
-        hosted_tier_guard, "require_hosted_pod_creates_permitted", lambda *_args: None
-    )
+    database = selection_runtime(monkeypatch)
 
     class _Repo:
+        _db = staticmethod(lambda: database)
         set_hosted_cloud = staticmethod(_fake_set_hosted_cloud)
 
     monkeypatch.setattr(
@@ -203,25 +206,19 @@ async def test_the_hosted_door_writes_the_same_setup_marker(monkeypatch):
 
 
 async def test_the_hosted_door_makes_the_claim_the_tier_actually_earns(monkeypatch):
-    """ "hussh does not read this pod" is the honest sentence for the hosted tier.
-
-    "hussh CANNOT read this pod" is the one only the user-owned targets earn, and
-    the difference is the entire point of the migration button. The server returns
-    the assurance so the client renders what the server stands behind rather than
-    its own copy of it.
-    """
+    """Managed isolation does not claim infrastructure-operator blindness."""
     from api.routes.one import runtime as runtime_routes
-    from hushh_mcp.services import hosted_tier_guard
+    from tests.helpers.hosted_pilot_selection import selection_runtime
 
     async def _noop(user_id: str) -> None:
         return None
 
     monkeypatch.setattr(runtime_routes, "_write_cloud_setup_marker", _noop)
-    monkeypatch.setattr(
-        hosted_tier_guard, "require_hosted_pod_creates_permitted", lambda *_args: None
-    )
+    database = selection_runtime(monkeypatch)
 
     class _Repo:
+        _db = staticmethod(lambda: database)
+
         @staticmethod
         async def set_hosted_cloud(**kwargs):
             return True
@@ -236,7 +233,9 @@ async def test_the_hosted_door_makes_the_claim_the_tier_actually_earns(monkeypat
     )
 
     assurance = response.assurance.lower()
-    assert "does not read" in assurance
+    assert "isolated managed hosting" in assurance
+    assert "administers" in assurance
+    assert "does not read" not in assurance
     assert "cannot read" not in assurance
 
 
@@ -257,10 +256,10 @@ async def test_disabled_hosted_tier_refuses_direct_server_selection(monkeypatch)
         _Repo,
     )
 
-    def _refuse(*_args):
+    async def _refuse(*_args, **_kwargs):
         raise hosted_tier_guard.HostedTierNotPermittedError("disabled")
 
-    monkeypatch.setattr(hosted_tier_guard, "require_hosted_pod_creates_permitted", _refuse)
+    monkeypatch.setattr(hosted_tier_guard, "require_hosted_pilot_selection", _refuse)
 
     with pytest.raises(HTTPException) as failure:
         await runtime_routes.select_hosted_cloud.__wrapped__(  # type: ignore[attr-defined]
@@ -375,3 +374,88 @@ def test_the_hosted_flag_is_not_the_simulation_flag():
 
     assert hosted and simulation
     assert hosted.group(1) != simulation.group(1)
+
+
+@pytest.mark.parametrize("qualified", [True, False])
+async def test_missing_record_bootstraps_only_admitted_cohort_owner(monkeypatch, qualified):
+    from fastapi import HTTPException
+
+    from api.routes.one import runtime as routes
+    from tests.helpers.hosted_pilot_selection import selection_runtime
+
+    db = selection_runtime(monkeypatch)
+    db.row = None
+    calls = []
+
+    class Repo:
+        _db = staticmethod(lambda: db)
+
+        async def set_hosted_cloud(self, **kwargs):
+            calls.append("hosting")
+            assert db.row is not None
+            return True
+
+    async def reserve(owner):
+        calls.append("phone")
+        db.row = {"user_id": owner, "hushh_id": "ha1_test", "status": "pending"}
+        return True
+
+    async def marker(owner):
+        calls.append("marker")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo", Repo
+    )
+    monkeypatch.setattr(routes, "_reserve_pending_agent_record", reserve)
+    monkeypatch.setattr(routes, "_write_cloud_setup_marker", marker)
+    if qualified:
+        result = await routes.select_hosted_cloud.__wrapped__(request=None, firebase_uid="u1")
+        assert result.deploymentTarget == "gcp"
+        assert calls == ["phone", "hosting", "marker"]
+    else:
+        with pytest.raises(HTTPException) as error:
+            await routes.select_hosted_cloud.__wrapped__(request=None, firebase_uid="other")
+        assert error.value.status_code == 404
+        assert calls == []
+
+
+@pytest.mark.parametrize("drift", ["none", "byoc", "phase"])
+def test_hosted_choice_preserves_concurrent_assignment_and_provision(monkeypatch, drift):
+    from tests.helpers.hosted_pilot_selection import prove_selection_cas
+    from tests.pkm_conformance.postgres_harness import find_pg_bin
+
+    if find_pg_bin() is None:
+        pytest.skip("local PostgreSQL unavailable")
+    prove_selection_cas(monkeypatch, drift)
+
+
+async def test_existing_row_cas_drift_never_reserves_again_or_marks_setup(monkeypatch):
+    from fastapi import HTTPException
+
+    from api.routes.one import runtime as routes
+    from tests.helpers.hosted_pilot_selection import selection_runtime
+
+    db = selection_runtime(monkeypatch)
+    calls = []
+
+    class Repo:
+        _db = staticmethod(lambda: db)
+
+        async def set_hosted_cloud(self, **kwargs):
+            assert kwargs["expected_row"] == db.row
+            calls.append("cas")
+            return False
+
+    async def forbidden(*args):
+        raise AssertionError("CAS drift must not reserve or publish setup")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo", Repo
+    )
+    monkeypatch.setattr(routes, "_reserve_pending_agent_record", forbidden)
+    monkeypatch.setattr(routes, "_write_cloud_setup_marker", forbidden)
+    with pytest.raises(HTTPException) as error:
+        await routes.select_hosted_cloud.__wrapped__(request=None, firebase_uid="u1")
+    assert error.value.status_code == 409
+    assert error.value.detail["code"] == "HOSTING_SELECTION_CHANGED"
+    assert calls == ["cas"]

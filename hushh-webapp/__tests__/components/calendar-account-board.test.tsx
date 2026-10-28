@@ -2,8 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  boardDay: vi.fn(), reviewConflict: vi.fn(), confirmConflict: vi.fn(),
-  reviewAttendance: vi.fn(), confirmAttendance: vi.fn(),
+  boardDay: vi.fn(), reviewWorkspaceConflict: vi.fn(), confirmWorkspaceConflict: vi.fn(),
+  reviewWorkspaceAttendance: vi.fn(), confirmWorkspaceAttendance: vi.fn(),
   onChat: vi.fn(), onMailConnect: vi.fn(),
 }));
 
@@ -11,10 +11,10 @@ vi.mock("@/lib/services/google-calendar-service", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/services/google-calendar-service")>(),
   GoogleCalendarService: {
     boardDay: mocks.boardDay,
-    reviewConflict: mocks.reviewConflict,
-    confirmConflict: mocks.confirmConflict,
-    reviewAttendance: mocks.reviewAttendance,
-    confirmAttendance: mocks.confirmAttendance,
+    reviewWorkspaceConflict: mocks.reviewWorkspaceConflict,
+    confirmWorkspaceConflict: mocks.confirmWorkspaceConflict,
+    reviewWorkspaceAttendance: mocks.reviewWorkspaceAttendance,
+    confirmWorkspaceAttendance: mocks.confirmWorkspaceAttendance,
   },
 }));
 vi.mock("@/lib/perf/use-periodic-task", () => ({ usePeriodicTask: vi.fn(), useCoarseClock: () => Date.now() }));
@@ -61,16 +61,16 @@ describe("three-account Calendar board", () => {
     vi.setSystemTime(new Date(`${date}T08:00:00Z`));
     vi.clearAllMocks();
     mocks.boardDay.mockResolvedValue(board);
-    mocks.reviewConflict.mockImplementation(async ({ decline }: { decline: { message: string }[] }) => ({ review_id: "review-conflict", review_token: "sealed-review", expires_at: "2999-01-01T00:00:00Z", previews: [
+    mocks.reviewWorkspaceConflict.mockImplementation(async ({ decline }: { decline: { message: string }[] }) => ({ review_id: "review-conflict", review_token: "sealed-review", expires_at: "2999-01-01T00:00:00Z", previews: [
       { kind: "keep", ref: board.conflicts[0].right, title: meetingB.title, account_email: "second@example.com", start: meetingB.start, end: meetingB.end, action: "accept" },
       { kind: "decline", ref: board.conflicts[0].left, title: meetingA.title, account_email: "default@example.com", start: meetingA.start, end: meetingA.end, action: "decline and send note", sender_label: "Owner <mail@example.com>", recipient: "organizer-one@example.com", subject: "Unable to attend", message: decline[0].message },
     ] }));
-    mocks.confirmConflict.mockResolvedValue({ complete: true, results: [
+    mocks.confirmWorkspaceConflict.mockResolvedValue({ complete: true, results: [
       { kind: "keep", ref: board.conflicts[0].right, calendar: "accepted", email: "not_sent" },
       { kind: "decline", ref: board.conflicts[0].left, calendar: "declined", email: "sent" },
     ] });
-    mocks.reviewAttendance.mockImplementation(async ({ message }: { message: string }) => ({ review_id: "retry-review", review_token: "sealed-retry", expires_at: "2999-01-01T00:00:00Z", title: meetingA.title, start: meetingA.start, end: meetingA.end, recipient: "organizer-one@example.com", sender_label: "Owner <mail@example.com>", subject: "Unable to attend", message }));
-    mocks.confirmAttendance.mockResolvedValue({ calendar: "declined", email: "sent", calendar_error: null, email_error: null });
+    mocks.reviewWorkspaceAttendance.mockImplementation(async ({ message }: { message: string }) => ({ review_id: "retry-review", review_token: "sealed-retry", expires_at: "2999-01-01T00:00:00Z", title: meetingA.title, start: meetingA.start, end: meetingA.end, recipient: "organizer-one@example.com", sender_label: "Owner <mail@example.com>", subject: "Unable to attend", message }));
+    mocks.confirmWorkspaceAttendance.mockResolvedValue({ calendar: "declined", email: "sent", calendar_error: null, email_error: null });
   });
 
   afterEach(() => vi.useRealTimers());
@@ -89,13 +89,15 @@ describe("three-account Calendar board", () => {
     fireEvent.click(within(dialog).getByRole("checkbox"));
     fireEvent.change(within(dialog).getByPlaceholderText("Explain why you cannot attend"), { target: { value: "I need to join the client call." } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Review Calendar and Mail" }));
-    await waitFor(() => expect(mocks.reviewConflict).toHaveBeenCalledOnce());
-    expect(mocks.reviewConflict.mock.calls[0][0].decline[0].message).toContain("I need to join the client call.");
-    expect(mocks.reviewConflict.mock.calls[0][0].decline[0].message).toContain("Planning review");
-    expect(mocks.confirmConflict).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.reviewWorkspaceConflict).toHaveBeenCalledOnce());
+    expect(mocks.reviewWorkspaceConflict.mock.calls[0][0]).toEqual(expect.objectContaining({ firebaseIdToken: "firebase-token" }));
+    expect(mocks.reviewWorkspaceConflict.mock.calls[0][0]).not.toHaveProperty("vaultOwnerToken");
+    expect(mocks.reviewWorkspaceConflict.mock.calls[0][0].decline[0].message).toContain("I need to join the client call.");
+    expect(mocks.reviewWorkspaceConflict.mock.calls[0][0].decline[0].message).toContain("Planning review");
+    expect(mocks.confirmWorkspaceConflict).not.toHaveBeenCalled();
     expect(within(dialog).getByText("To: organizer-one@example.com")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm selected changes" }));
-    await waitFor(() => expect(mocks.confirmConflict).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.confirmWorkspaceConflict).toHaveBeenCalledOnce());
     expect(within(dialog).getByText("Calendar: declined · Mail: sent")).toBeTruthy();
     expect(mocks.onChat).not.toHaveBeenCalled();
   });
@@ -124,7 +126,7 @@ describe("three-account Calendar board", () => {
   });
 
   it("retries only a definitely failed organizer email once without changing attendance", async () => {
-    mocks.confirmConflict.mockResolvedValue({ complete: false, results: [
+    mocks.confirmWorkspaceConflict.mockResolvedValue({ complete: false, results: [
       { kind: "keep", ref: board.conflicts[0].right, calendar: "accepted", email: "not_sent" },
       { kind: "decline", ref: board.conflicts[0].left, calendar: "declined", email: "failed" },
     ] });
@@ -138,20 +140,21 @@ describe("three-account Calendar board", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Review Calendar and Mail" }));
     fireEvent.click(await within(dialog).findByRole("button", { name: "Confirm selected changes" }));
     fireEvent.click(await within(dialog).findByRole("button", { name: /Review email retry/ }));
-    await waitFor(() => expect(mocks.reviewAttendance).toHaveBeenCalledWith(expect.objectContaining({ mailOnlyRetry: true, sendMessage: true, accountId: "default" })));
-    expect(mocks.reviewAttendance.mock.calls[0][0].message).toBe(mocks.reviewConflict.mock.calls[0][0].decline[0].message);
+    await waitFor(() => expect(mocks.reviewWorkspaceAttendance).toHaveBeenCalledWith(expect.objectContaining({ mailOnlyRetry: true, sendMessage: true, accountId: "default", expectedAccountEmail: "default@example.com" })));
+    expect(mocks.reviewWorkspaceAttendance.mock.calls[0][0]).not.toHaveProperty("vaultOwnerToken");
+    expect(mocks.reviewWorkspaceAttendance.mock.calls[0][0].message).toBe(mocks.reviewWorkspaceConflict.mock.calls[0][0].decline[0].message);
     fireEvent.click(await within(dialog).findByRole("button", { name: "Send reviewed note" }));
-    await waitFor(() => expect(mocks.confirmAttendance).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.confirmWorkspaceAttendance).toHaveBeenCalledOnce());
     expect(within(dialog).queryByRole("button", { name: /Review email retry/ })).toBeNull();
     expect(within(dialog).getByText(/Email retry: sent/)).toBeTruthy();
   });
 
   it("refuses to retry an old note if the invitation changed after the first review", async () => {
-    mocks.confirmConflict.mockResolvedValue({ complete: false, results: [
+    mocks.confirmWorkspaceConflict.mockResolvedValue({ complete: false, results: [
       { kind: "keep", ref: board.conflicts[0].right, calendar: "accepted", email: "not_sent" },
       { kind: "decline", ref: board.conflicts[0].left, calendar: "declined", email: "failed" },
     ] });
-    mocks.reviewAttendance.mockImplementationOnce(async ({ message }: { message: string }) => ({ review_id: "retry-review", review_token: "sealed-retry", expires_at: "2999-01-01T00:00:00Z", title: meetingA.title, start: { dateTime: "2026-10-21T12:00:00Z" }, end: meetingA.end, recipient: "organizer-one@example.com", sender_label: "Owner <mail@example.com>", subject: "Unable to attend", message }));
+    mocks.reviewWorkspaceAttendance.mockImplementationOnce(async ({ message }: { message: string }) => ({ review_id: "retry-review", review_token: "sealed-retry", expires_at: "2999-01-01T00:00:00Z", title: meetingA.title, start: { dateTime: "2026-10-21T12:00:00Z" }, end: meetingA.end, recipient: "organizer-one@example.com", sender_label: "Owner <mail@example.com>", subject: "Unable to attend", message }));
     render(page());
     fireEvent.click(await screen.findByRole("button", { name: /Review 1 overlapping meeting for Planning review/ }));
     fireEvent.click(screen.getByRole("button", { name: "Resolve these overlaps" }));
@@ -163,15 +166,15 @@ describe("three-account Calendar board", () => {
     fireEvent.click(await within(dialog).findByRole("button", { name: "Confirm selected changes" }));
     fireEvent.click(await within(dialog).findByRole("button", { name: /Review email retry/ }));
     expect(await within(dialog).findByText(/This invitation changed since the earlier review/)).toBeInTheDocument();
-    expect(mocks.confirmAttendance).not.toHaveBeenCalled();
+    expect(mocks.confirmWorkspaceAttendance).not.toHaveBeenCalled();
   });
 
   it("keeps an uncertain email retry bound to its original review", async () => {
-    mocks.confirmConflict.mockResolvedValue({ complete: false, results: [
+    mocks.confirmWorkspaceConflict.mockResolvedValue({ complete: false, results: [
       { kind: "keep", ref: board.conflicts[0].right, calendar: "accepted", email: "not_sent" },
       { kind: "decline", ref: board.conflicts[0].left, calendar: "declined", email: "failed" },
     ] });
-    mocks.confirmAttendance.mockRejectedValueOnce(new Error("Network response was lost"));
+    mocks.confirmWorkspaceAttendance.mockRejectedValueOnce(new Error("Network response was lost"));
     render(page());
     fireEvent.click(await screen.findByRole("button", { name: /Review 1 overlapping meeting for Planning review/ }));
     fireEvent.click(screen.getByRole("button", { name: "Resolve these overlaps" }));
@@ -186,9 +189,9 @@ describe("three-account Calendar board", () => {
     expect(await within(dialog).findByText("Network response was lost")).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: /Review email retry for/ })).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Send reviewed note" }));
-    await waitFor(() => expect(mocks.confirmAttendance).toHaveBeenCalledTimes(2));
-    expect(mocks.reviewAttendance).toHaveBeenCalledOnce();
-    expect(mocks.confirmAttendance.mock.calls[1][0].reviewId).toBe(mocks.confirmAttendance.mock.calls[0][0].reviewId);
+    await waitFor(() => expect(mocks.confirmWorkspaceAttendance).toHaveBeenCalledTimes(2));
+    expect(mocks.reviewWorkspaceAttendance).toHaveBeenCalledOnce();
+    expect(mocks.confirmWorkspaceAttendance.mock.calls[1][0].reviewId).toBe(mocks.confirmWorkspaceAttendance.mock.calls[0][0].reviewId);
   });
 
   it("keeps the board focused on events and free time", async () => {

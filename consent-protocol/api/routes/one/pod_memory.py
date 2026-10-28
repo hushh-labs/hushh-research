@@ -171,9 +171,9 @@ def _require_local_session(consent_token: str, session: Optional[dict], *, scope
             },
         )
     if session is None:
-        from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+        from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
-        if owner_cloud_agent():
+        if private_pod_runtime():
             raise HTTPException(403, detail={"code": "POD_OWNER_SESSION_REQUIRED"})
         return
     if str(session.get("role") or "") != ROLE_APP:

@@ -204,9 +204,9 @@ def _held_custody() -> list[store.ConnectorCredential]:
 async def custody_configurations(tokens: Optional[CustodyMcpTokens] = None) -> list[dict]:
     """Turn configurations for every curated connector whose login this agent holds."""
     from hushh_mcp.one_adk.mcp_turn_scope import validate_mcp_turn_configurations  # noqa: PLC0415
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent  # noqa: PLC0415
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime  # noqa: PLC0415
 
-    if not owner_cloud_agent():
+    if not private_pod_runtime():
         return []
     minter = tokens or _shared_tokens()
     records: list[dict] = []

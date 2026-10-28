@@ -118,6 +118,12 @@ Back uses one hierarchy across shell, iOS edge gesture and Android system Back: 
 
 Every route declares `backVerification` in `hushh-webapp/lib/navigation/app-route-layout.contract.json`, including query parents or an explained entry/redirect/hidden boundary. Add behavior cases when changing query state or nested interactions. Before editing, read [the UI contract contributor scaffold](../docs/reference/architecture/ui-contract-contributor-guide.md) and run `cd hushh-webapp && npm run ui:doctor`. After reviewing behavior, run `npm run build:ui-contracts` (Back before Search), then `npm run verify:ui-contracts` and the owning behavioral tests. The mandatory UI Contracts job and aggregate gates reject failures and skipped checks. A source stamp proves freshness, not the meaning of a new interaction.
 
+Before adding or relocating a control, apply the existing
+[surface placement review](../docs/reference/quality/pr-impact-checklist.md#surface-placement-review):
+identify the person's job, owning screen, return destination and runtime availability.
+Keep technical settings out of primary task surfaces and verify locked, waiting,
+error and responsive states through the existing UI owners.
+
 ## Project-Wide Bacterial Software Architecture Gate
 
 Parent and child agents must apply [Bacterial Software Architecture](../docs/vision/bacterial-software-architecture.md) as a top-level engineering north star.
@@ -305,6 +311,19 @@ Subagents improve evidence quality; they do not replace repo skills, workflow ch
 2. Delegate only concrete, bounded sidecar tasks.
 3. Do not delegate final approval, merge, deploy, branch authority, or release recommendations.
 4. Require delegated handoffs to include claim inspected, classification, evidence checked, current repo truth, real gap, suggested boundary, blind-acceptance risk, scope, inspected surfaces, assumptions, validations, and unresolved risks.
+
+## Project-Wide Signed-in Browser Default
+
+Use the developer's existing signed-in Chrome session as the primary interactive
+surface for authorized engineering and cloud troubleshooting when available.
+Reuse established task authorization and session state; inspect available tools
+before asking for login or readiness confirmation. Verify the relevant origin,
+account, project/environment and serving revision. Ask only for a genuinely
+missing human action or new authority. A signed-in session grants no additional
+access or mutation authority. Preserve memory-only protected information,
+canonical reviewer preflight, parent-only credential/release authority and all
+required release checks. Browser access does not replace the application's
+runtime identity or prove that a deployment is healthy.
 
 ## Project-Wide BYOK Reviewer Browser Gate
 

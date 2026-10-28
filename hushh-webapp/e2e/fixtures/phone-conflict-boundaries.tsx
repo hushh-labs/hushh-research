@@ -102,6 +102,8 @@ export const inMemoryPersistence = {};
 export const setPersistence = async () => undefined;
 export const getAdditionalUserInfo = () => ({ isNewUser: false });
 const unavailable = async () => { throw new Error("Unreviewed Firebase operation in phone fixture"); };
+// This recorded fixture has no configured direct Google grant; fail closed if used.
+export const reauthenticateWithCredential = unavailable;
 export const linkWithCredential = unavailable;
 export const linkWithPopup = unavailable;
 export const updatePhoneNumber = unavailable;

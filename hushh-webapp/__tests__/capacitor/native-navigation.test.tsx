@@ -43,7 +43,7 @@ vi.mock("@capacitor/core", () => ({
 const options = { enabled: true, visible: true, selected: "chat" as const, feedAttention: false,
   column: { x: 16, width: 361, contentHeight: 64, viewportWidth: 393 },
   appearance: "light" as const, accentHex: "#112233", foregroundHex: "#223344" };
-function Overlay() { return <div ref={useNativeNavigationOverlayRef<HTMLDivElement>()} />; }
+function Overlay({ state }: { state?: "open" | "closed" }) { return <div data-state={state} ref={useNativeNavigationOverlayRef<HTMLDivElement>()} />; }
 function PersistentHistory({ open }: { open: boolean }) { useNativeNavigationBlocked(open); return <div />; }
 function lastState() { return bridge.setState.mock.calls.at(-1)![0]; }
 function select(state: ReturnType<typeof lastState>, tab = "dashboard") {
@@ -178,41 +178,43 @@ describe("native navigation presentation boundary", () => {
       expect(bridge.regions).not.toHaveBeenCalled();
       view.unmount();
     });
-  it("retains standard native navigation in recovery and isolates full-height React overlays", async () => {
+  it.each([false, true])("isolates retained overlays through exit/reopen; native drawers=%s", async (wholeNativeDrawers) => {
     vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, supported: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, supported: true, wholeNativeDrawers,
+      interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
     bridge.regions.mockResolvedValue(false);
     const action = vi.fn();
     const view = renderHook(() => useNativeNavigation({ ...options, onSelect: action }));
     await waitFor(() => expect(view.result.current.ready).toBe(true));
     expect(view.result.current.height).toBe(49);
     const before = lastState();
-    const overlay = render(<Overlay />);
-    await waitFor(() => expect(lastState()).toMatchObject({ visible: false, interactionEnabled: false }));
-    select(before);
-    expect(action).not.toHaveBeenCalled();
-    overlay.unmount();
+    const overlay = render(<Overlay state="closed" />);
+    await act(async () => { await Promise.resolve(); });
+    expect(lastState().interactionEnabled).toBe(true);
+    overlay.rerender(<Overlay state="open" />);
+    await waitFor(() => expect(lastState()).toMatchObject({ visible: wholeNativeDrawers, interactionEnabled: false }));
+    select(before); expect(action).not.toHaveBeenCalled();
+    const node = overlay.container.firstElementChild as HTMLDivElement;
+    await act(async () => { node.hidden = true; });
+    await waitFor(() => expect(lastState().interactionEnabled).toBe(true));
+    await act(async () => { node.hidden = false; });
+    await waitFor(() => expect(lastState().interactionEnabled).toBe(false));
+    let finishExit!: () => void;
+    const finished = new Promise<void>(resolve => { finishExit = resolve; });
+    node.getAnimations = () => [{ finished, playState: "running",
+      effect: { target: node, getComputedTiming: () => ({ iterations: 1 }) } } as unknown as Animation];
+    overlay.rerender(<Overlay state="closed" />);
+    await act(async () => { await Promise.resolve(); });
+    expect(lastState().interactionEnabled).toBe(false);
+    overlay.rerender(<Overlay state="open" />);
+    await act(async () => { finishExit(); await finished; });
+    expect(lastState().interactionEnabled).toBe(false);
+    node.getAnimations = () => [];
+    overlay.rerender(<Overlay state="closed" />);
     await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: true }));
     select(before); expect(action).not.toHaveBeenCalled();
     expect(bridge.regions).not.toHaveBeenCalled();
-    view.unmount();
-  });
-
-  it("keeps native tabs materially present beneath a whole native drawer without the legacy clipping protocol", async () => {
-    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, supported: true, wholeNativeDrawers: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
-    const action = vi.fn();
-    const view = renderHook(() => useNativeNavigation({ ...options, onSelect: action }));
-    await waitFor(() => expect(view.result.current.ready).toBe(true));
-    const before = lastState();
-    const overlay = render(<Overlay />);
-    await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: false }));
-    select(before);
-    expect(action).not.toHaveBeenCalled();
-    overlay.unmount();
-    await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: true }));
-    expect(bridge.regions).not.toHaveBeenCalled();
-    view.unmount();
+    overlay.unmount(); view.unmount();
   });
 
   it("rejects a pre-drawer tap even if native confirmation arrives after a complete isolation cycle", async () => {

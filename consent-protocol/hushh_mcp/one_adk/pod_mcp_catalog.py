@@ -53,9 +53,9 @@ async def discover_private_catalog(owner: Any, connector_id: str, configuration:
     await owner.require_access()
     records = validate_mcp_turn_configurations([configuration])
     from hushh_mcp.one_adk.pod_custody_mcp import merge_turn_configurations  # noqa: PLC0415
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent  # noqa: PLC0415
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime  # noqa: PLC0415
 
-    if owner_cloud_agent() and not merge_turn_configurations(list(records.values()), []):
+    if private_pod_runtime() and not merge_turn_configurations(list(records.values()), []):
         raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
     record = records.get(connector_id)
     if record is None or not record["enabled"]:

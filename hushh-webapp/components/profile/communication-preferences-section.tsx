@@ -9,7 +9,7 @@
  * in memory), and the owner commits with Save, through the Settings writer.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import { NativeWritingStyleEditor } from "@/components/profile/native-writing-style-editor";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";

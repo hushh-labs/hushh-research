@@ -49,7 +49,7 @@ Non-owned surfaces:
 1. Run the skill linter before changing the skill fleet so the current drift and coverage state are explicit.
 2. Decide whether the work needs a new owner, a new spoke, or a tighter existing skill.
 3. Scaffold with `init_skill.py` using explicit role, owner family, owned repo surfaces, task types, verification bundles, and optional workflow packs.
-4. Update the repo-context index, workflow packs, and agent-facing docs when an entrypoint or rename becomes canonical; regenerate host discovery from `.agents/` through the adapter generator before linting.
+4. Update the repo-context index, workflow packs, and agent-facing docs when an entrypoint or rename becomes canonical. Read canonical `.agents/` sources directly; verify actual host discovery separately. Do not generate per-host adapters or fleet copies.
 5. For new owner skills or workflow-pack changes, run a second lint/audit pass after the edits instead of trusting the first clean run.
 6. For licensing, onboarding, subtree, CI, or branch-governance skill changes, do a third check from the canonical repo entrypoint before calling the taxonomy stable.
 7. Keep blocking versus advisory skill drift explicit. Only owner/workflow drift that weakens runtime, deploy, release, or test authority should block the core loop; metadata-only drift should stay advisory.
