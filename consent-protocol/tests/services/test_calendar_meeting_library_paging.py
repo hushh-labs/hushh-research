@@ -80,6 +80,11 @@ def run(coroutine):
     return asyncio.run(coroutine)
 
 
+@pytest.fixture(autouse=True)
+def shared_placement(monkeypatch):
+    monkeypatch.setattr(calendar_workspace, "admit_hub_content", AsyncMock())
+
+
 def test_sparse_pages_continue_past_twelve_candidates(monkeypatch):
     insights, _, _ = setup()
     monkeypatch.setattr(
@@ -305,3 +310,44 @@ def test_full_original_provider_download_never_returns_preview_text(monkeypatch,
         expected_account_email=None,
         content=False,
     )
+
+
+def test_download_fails_if_owner_leaves_shared_placement_during_file_check(monkeypatch):
+    monkeypatch.setattr(
+        calendar_workspace,
+        "_artifacts",
+        lambda _account: SimpleNamespace(
+            detail=AsyncMock(
+                return_value={
+                    "artifacts": [
+                        {
+                            "file_id": "note-file-id",
+                            "kind": "notes",
+                            "state": "available",
+                            "can_download": True,
+                            "mime_type": "application/vnd.google-apps.document",
+                            "pdf_export_url": "https://docs.google.com/document/d/note/export?format=pdf",
+                        }
+                    ]
+                }
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        calendar_workspace,
+        "admit_hub_content",
+        AsyncMock(side_effect=HTTPException(409, "Private placement")),
+    )
+    payload = calendar_workspace.CalendarMeetingDownload(
+        account_id="default",
+        calendar_id="primary",
+        event_id="event",
+        file_id="note-file-id",
+        expected_grant="a" * 64,
+        occurrence_id="b" * 64,
+        date="2026-10-14",
+        time_zone="UTC",
+    )
+    with pytest.raises(HTTPException) as error:
+        run(calendar_workspace.meeting_download(payload, Response(), "owner"))
+    assert error.value.status_code == 409

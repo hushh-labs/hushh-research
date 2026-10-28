@@ -30,6 +30,7 @@ import { CalendarCompactAction } from "./calendar-compact-action";
 import { CalendarInvitations } from "./calendar-invitations";
 import { CalendarPersonAvatar } from "./calendar-person-avatar";
 import { CalendarInsights } from "./calendar-insights";
+import { consumeCalendarMeetingOAuthReturn, type CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
 import { calendarDate, eventTime, availabilityTimeRangeLabel, calendarResponse, CalendarMeetingIcon, meetingProvider } from "./calendar-schedule-presentation";
 import styles from "./calendar-account-board.module.css";
 
@@ -44,7 +45,7 @@ type Props = {
   getIdToken: () => Promise<string>;
   onAddAccount: () => void;
   onReconnectAccount: (accountId: string) => void;
-  onAllowMeetingFiles?: (accountId: string) => void;
+  onAllowMeetingFiles?: (accountId: string, context: CalendarMeetingReturnContext) => void;
   onDisconnectAccount: (accountId: string) => void;
   onConnect: (access: "read" | "manage", includeCalendarList?: boolean) => void;
   onMailConnect?: () => Promise<void>;
@@ -97,13 +98,20 @@ function JoinVideoIcon() {
 }
 
 export function CalendarAccountBoard({ userId, status, calendarPeople, busy, connectionRevision, connectionNotice, token, getIdToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onAllowMeetingFiles, onConnect, onMailConnect, onChat }: Props) {
-  const [zone, setZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+  const [restored, setRestored] = useState(() => {
+    const value = consumeCalendarMeetingOAuthReturn(userId);
+    return value && status.accounts?.some(account => account.account_id === value.accountId) ? value : null;
+  });
+  const [zone, setZone] = useState(() => restored?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const now = Math.max(Date.now(), useCoarseClock(60_000));
   const today = calendarDate(now, zone);
   const [date, setDate] = useState(today);
-  const [tab, setTab] = useState<"board" | "invitations" | "insights">("board");
+  const [tab, setTab] = useState<"board" | "invitations" | "insights">(restored ? "insights" : "board");
   const [invitationAccount, setInvitationAccount] = useState(status.accounts?.[0]?.account_id || "default");
-  const [insightsAccount, setInsightsAccount] = useState(status.accounts?.[0]?.account_id || "default");
+  const [insightsAccount, setInsightsAccount] = useState(restored?.accountId || status.accounts?.[0]?.account_id || "default");
+  useEffect(() => {
+    if (tab === "insights" && restored?.accountId === insightsAccount) setRestored(null);
+  }, [tab, restored, insightsAccount]);
   const [views, setViews] = useState<Record<string, "events" | "free">>({});
   const [revision, setRevision] = useState(0);
   const owner = snapshotValidatedAuthSessionOwner();
@@ -287,7 +295,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         {status.accounts?.find(account => account.account_id === invitationAccount)?.connected ? <CalendarInvitations key={invitationAccount} workspaceLayout calendarPeople={calendarPeople} userId={userId} accountId={invitationAccount} accountEmail={status.accounts.find(account => account.account_id === invitationAccount)?.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={invitationAccount === "default" ? onConnect : () => onReconnectAccount(invitationAccount)} onMailConnect={onMailConnect} onResult={() => { notifyCalendarChanged(userId); setRevision(value => value + 1); }} /> : <p role="alert">Reconnect this account to see its invitations.</p>}
       </section> : <section className={styles.secondary} aria-label="Calendar insights">
         <label className={styles.accountPicker}>Calendar account<span className={styles.accountPickerControl}><select value={insightsAccount} onChange={event => setInsightsAccount(event.target.value)}>{(status.accounts || []).map(account => <option key={account.account_id} value={account.account_id}>{accountLabel(account.google_email)}</option>)}</select><ChevronDown aria-hidden="true" className={styles.accountPickerChevron} /></span></label>
-        {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${status.accounts?.find(account => account.account_id === insightsAccount)?.grant_generation}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} getIdToken={getIdToken} onAllowMeetingFiles={onAllowMeetingFiles} /> : <p role="alert">Reconnect this account to see its insights.</p>}
+        {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} connectionRevision={connectionRevision} initialLibrary={restored?.accountId === insightsAccount ? restored : null} getIdToken={getIdToken} onAllowMeetingFiles={onAllowMeetingFiles} /> : <p role="alert">Reconnect this account to see its insights.</p>}
       </section>}
       <div className={styles.footer}><Button onClick={() => onChat()} disabled={busy}>Try Calendar Agent with One</Button></div>
       <Dialog modal open={Boolean(occasionAccount && occasionEvents.length)} onOpenChange={isOpen => { if (!isOpen) setOccasionAccountId(null); }}>

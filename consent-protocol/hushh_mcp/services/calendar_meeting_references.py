@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
 from hushh_mcp.services.calendar_meeting_common import ArtifactUnavailable
-from hushh_mcp.services.google_drive_adapter import FILE_ID
+from hushh_mcp.services.google_drive_adapter import FILE_ID, RESOURCE_KEY
 
 
 def _attachment_refs(event):
@@ -38,6 +39,58 @@ def _attachment_refs(event):
     return refs
 
 
+def _library_attachment_refs(event):
+    """Exact occurrence links, admitted only with a provider-style file label.
+
+    Calendar permits arbitrary attachments, so an ordinary Doc or video must
+    not be represented as a generated meeting artifact. These references keep
+    Calendar provenance; Meet resource references remain the stronger proof.
+    """
+    refs = []
+    for attachment in event.get("attachments") or []:
+        if not isinstance(attachment, dict):
+            continue
+        file_id = attachment.get("fileId")
+        if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
+            continue
+        title = str(attachment.get("title") or "").casefold()
+        mime = attachment.get("mimeType")
+        notes_label = "notes by gemini" in title or "meeting notes" in title
+        recording_label = "recording" in title
+        if mime == "application/vnd.google-apps.document" and notes_label:
+            kind = "notes"
+        elif isinstance(mime, str) and mime.startswith("video/") and recording_label:
+            kind = "recording"
+        elif mime == "application/vnd.google-apps.shortcut" and (notes_label or recording_label):
+            kind = "notes" if notes_label else "recording"
+        else:
+            continue
+        ref = {
+            "file_id": file_id,
+            "kind": kind,
+            "association": "calendar_attachment",
+            "provenance": "calendar_linked",
+        }
+        file_url = attachment.get("fileUrl")
+        if isinstance(file_url, str):
+            try:
+                parsed = urlparse(file_url)
+                key = parse_qs(parsed.query).get("resourcekey", [None])[0]
+                if (
+                    parsed.scheme == "https"
+                    and parsed.hostname in {"drive.google.com", "docs.google.com"}
+                    and isinstance(key, str)
+                    and RESOURCE_KEY.fullmatch(key)
+                ):
+                    ref["resource_key"] = key
+            except ValueError:
+                pass
+        refs.append(ref)
+    # Keep one sentinel so a provider response beyond the bounded file budget
+    # cannot be reported as a complete empty or complete partial result.
+    return refs[:26]
+
+
 def _conference_code(event):
     conference = event.get("conferenceData") or {}
     code = conference.get("conferenceId", "")
@@ -46,6 +99,22 @@ def _conference_code(event):
     ) != "hangoutsMeet" or not re.fullmatch(r"[a-z]{3}-[a-z]{4}-[a-z]{3}", code):
         return None
     return code
+
+
+def _has_meet_link(event):
+    conference = event.get("conferenceData")
+    solution = conference.get("conferenceSolution") if isinstance(conference, dict) else None
+    key = solution.get("key") if isinstance(solution, dict) else None
+    if isinstance(key, dict) and key.get("type") == "hangoutsMeet":
+        return True
+    link = event.get("hangoutLink")
+    if not isinstance(link, str):
+        return False
+    try:
+        parsed = urlparse(link)
+        return parsed.scheme == "https" and parsed.hostname == "meet.google.com"
+    except ValueError:
+        return False
 
 
 def _event_window(event):
@@ -200,11 +269,22 @@ async def _discover(
 async def meeting_references(
     service, user_id, grant, event, calendar_id, *, for_chat, inspect_token, meet_scopes
 ):
-    refs = _attachment_refs(event) if for_chat else []
+    refs = _attachment_refs(event) if for_chat else _library_attachment_refs(event)
+    attachment_truncated = not for_chat and len(refs) > 25
+    if attachment_truncated:
+        refs = refs[:25]
     states = {}
     code = _conference_code(event)
     if not code:
-        return refs, "unavailable", states
+        return (
+            refs,
+            "files_incomplete"
+            if attachment_truncated
+            else "unverified"
+            if _has_meet_link(event)
+            else "unavailable",
+            states,
+        )
     try:
         discovery = await _discover(
             service,
@@ -220,7 +300,9 @@ async def meeting_references(
         )
         return (
             list({(ref["file_id"], ref["kind"]): ref for ref in refs}.values()),
-            discovery,
+            "files_incomplete"
+            if attachment_truncated and discovery in {"checked", "unavailable"}
+            else discovery,
             states,
         )
     except ArtifactUnavailable as error:

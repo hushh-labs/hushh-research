@@ -16,7 +16,7 @@ PAYLOAD = {"user_id": "synthetic-owner", "code": "synthetic-code", "state": "syn
 
 
 @pytest.fixture
-def boundary(monkeypatch):
+def boundary(monkeypatch, active_account_lifecycle):
     from hushh_mcp.services import owner_placement_guard
 
     async def shared_fixture(_user_id):
