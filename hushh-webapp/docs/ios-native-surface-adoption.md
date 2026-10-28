@@ -18,16 +18,17 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated audit — 2026-10-28
 
-The iPhone now has a Dev-backed qualification app built from `9b2b238a6b`.
+The iPhone now has a Dev-backed qualification app built from `f9350c1940`.
 Its signed source app executable SHA-256 is
-`ab3b150e3bf49a2f7ff428ef73d878cb05e89a624645efaa6fb0dbbfd70da189`, and its
+`103b65d420932e2cdaa4bb93f5f754760b38825efdcb0d400de91bdaacdd2571`, and its
 test executable SHA-256 is
-`76322159f92cc3c54a78deb71eb95105db430ddc3c523853d0dcb3ec2b378547`.
+`4f3eda956479ef7fb6095d1fa79ade6160a116d9ba4072abc46fcb1fc2ef7f47`.
 All 1,804 exported web assets matched the signed bundle, the native plugin
 backend matches Dev and the committed Swift package pins were unchanged. Installed
-bytes were not read back. Attach-only XCTest entered the running app, observed
-the uncovered Vault gate, and passed the passphrase-configuration regression
-without entering a credential. This is not protected-session or visual acceptance.
+bytes were not read back. Attach-only XCTest entered the running app and observed
+the uncovered Vault gate without entering a credential. The preceding `9b2b238a6b`
+runner also passed the passphrase-configuration regression. Neither check is
+protected-session or visual acceptance.
 
 The previous Dev-backed qualification app was built from `6e362ad3aa`.
 Its signed source app executable SHA-256 was
