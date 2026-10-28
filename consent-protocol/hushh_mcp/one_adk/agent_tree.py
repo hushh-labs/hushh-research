@@ -2776,6 +2776,7 @@ def build_one_text_agent(
     allow_workspace_tools: bool = False,
     allow_private_mcp: bool = False,
     include_thought_summaries: bool = False,
+    include_client_receipt_tools: bool = True,
     execution_mode: Literal["chat", "task"] = "chat",
     output_schema: Any = None,
     consent_bundle_lookup: Callable[[str, str], Awaitable[Any]] | None = None,
@@ -2788,6 +2789,8 @@ def build_one_text_agent(
     instruction and roster - ONE decision-maker, two transport heads.
     A provider-specific composition may supply a separate Google Search model
     for its native tool; other specialists continue to inherit the text model.
+    Client receipt tools require the per-run AG-UI proxy. Raw ADK runners must
+    omit them because they have no frontend session to execute those tools.
     """
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
     if isinstance(text_model, ManagedPrimaryTextModel) and google_search_model is None:
@@ -2822,7 +2825,7 @@ def build_one_text_agent(
             google_search_model=google_search_model,
             allow_workspace_tools=allow_workspace_tools,
             allow_private_mcp=allow_private_mcp,
-            allow_receipt_tools=execution_mode == "chat",
+            allow_receipt_tools=execution_mode == "chat" and include_client_receipt_tools,
         ),
         # Consent is checked per turn and redacted per model call (C3).
         before_agent_callback=[timed_one_before_agent, track_current_consent],
@@ -2932,7 +2935,9 @@ def build_one_live_runner(
     return Runner(
         app=App(
             name=ONE_APP_NAME,
-            root_agent=build_one_root_agent(model=_build_one_live_model()),
+            root_agent=build_one_text_agent(
+                model=_build_one_live_model(), include_client_receipt_tools=False
+            ),
             plugins=plugins,
         ),
         session_service=InMemorySessionService(),

@@ -67,9 +67,12 @@ async def _run_stub_turn() -> int:
     runner = Runner(
         app=App(
             name=ONE_APP_NAME,
-            # Same construction as Agent Chat's authenticated head.
+            # Same chat head and non-client roster as the authenticated path.
             root_agent=build_one_text_agent(
-                model=model, allow_workspace_tools=True, include_thought_summaries=True
+                model=model,
+                allow_workspace_tools=True,
+                include_thought_summaries=True,
+                include_client_receipt_tools=False,
             ),
             resumability_config=ResumabilityConfig(is_resumable=True),
         ),
