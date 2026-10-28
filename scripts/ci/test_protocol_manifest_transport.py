@@ -39,6 +39,8 @@ class ProtocolManifestTransportTest(unittest.TestCase):
                 "TMPDIR": str(scratch),
             }
             env.pop("PROTOCOL_TEST_PARTITION", None)
+            env.pop("ONE_COMMAND_TEST_DATABASE_URL", None)
+            env.pop("ONE_COMMAND_TEST_PG_MANIFEST", None)
             env.pop("OFFLINE_DB_PATH", None)
             if partition is not None:
                 env["PROTOCOL_TEST_PARTITION"] = partition
