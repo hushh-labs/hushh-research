@@ -24,10 +24,15 @@ the iPhone. Its signed source executable SHA-256 is
 all 1,789 exported web assets matched the signed bundle, and the pinned package
 manifest and lockfile remained unchanged. Dev uses the repository's
 UAT-compatible runtime label while targeting the Dev backend. Installed bytes
-were not read back. The app reached the Vault gate. Whole-value reviewer input
+were not read back. The installed test runner includes the public mixed-input
+sample added with this record; its signed source executable SHA-256 is
+`7d5bdd0363b7aa54b4ce4d5589149aeb13eff820e61e7ed15884d042c25dd5f1`.
+The app reached the Vault gate. Whole-value reviewer input
 was not acknowledged and Unlock was not submitted, including after a public
 input probe passed with the matching Xcode toolchain. Re-focusing the field did
-not resolve the failure; that experimental test change was removed. The earlier
+not resolve the failure; that experimental test change was removed. Three public
+samples, including a mixed symbols-and-digits pattern, subsequently passed and
+were cleared; no further private entry was attempted. The earlier
 Mail test on `b3dff87177` did not reach Mail because its starting Chat composer
 was not admitted after the Finance setup journey. Neither result establishes
 an authentication rejection or a Mail product defect.

@@ -840,7 +840,8 @@ final class AppUITests: XCTestCase {
         }
         // Public synthetic input only; normal Unlock is never submitted. The
         // actual credential test reuses this same focus/clear acknowledgement.
-        for fixture in ["fixture7", "probe#42"] {
+        let fixtures = ["fixture7", "probe#42", "mnom#456"]
+        for fixture in fixtures {
             guard prepareEmptySecureEntry(field, app: app, unlockControls: unlock) else {
                 XCTFail("SECURE_PUBLIC_PROBE_CLEAR_FAILED"); return
             }
@@ -864,7 +865,7 @@ final class AppUITests: XCTestCase {
         guard prepareEmptySecureEntry(field, app: app, unlockControls: unlock) else {
             XCTFail("SECURE_PUBLIC_PROBE_CLEANUP_FAILED"); return
         }
-        print("SECURE_PUBLIC_PROBE length_acknowledged=true samples=2 cleared=true submitted=false")
+        print("SECURE_PUBLIC_PROBE length_acknowledged=true samples=\(fixtures.count) cleared=true submitted=false")
     }
 
     func testLocalSessionVaultUnlockOnly() throws {
