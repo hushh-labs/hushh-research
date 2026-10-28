@@ -119,7 +119,8 @@ def test_raw_chat_keeps_the_non_client_roster():
     ]
 
 
-def test_warmup_reaches_the_model_without_opening_any_connection(monkeypatch, caplog):
+@pytest.mark.parametrize("pod", [False, True])
+def test_warmup_reaches_the_model_without_opening_any_connection(monkeypatch, caplog, pod):
     """The warmup runs on every worker at startup: no database, provider or peer."""
     import socket
 
@@ -131,6 +132,16 @@ def test_warmup_reaches_the_model_without_opening_any_connection(monkeypatch, ca
 
     monkeypatch.setattr(socket.socket, "connect", no_connection)
     monkeypatch.setattr(socket.socket, "connect_ex", no_connection)
+    monkeypatch.setenv("HUSSH_POD_MODE", "1" if pod else "0")
+    monkeypatch.setenv("HUSSH_POD_MEMORY_ENABLED", "true")
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_memory_service.resolve_pod_memory_service",
+        lambda: pytest.fail("warmup opened owner memory or custody"),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.agent_tree._before_one_tool",
+        lambda *_args, **_kwargs: pytest.fail("warmup executed a tool"),
+    )
     marked: list[bool] = []
     monkeypatch.setattr(
         "hushh_mcp.one_adk.agui_turn_timing.mark_turn_path_warmed", lambda: marked.append(True)
@@ -149,35 +160,26 @@ def test_warmup_reaches_the_model_without_opening_any_connection(monkeypatch, ca
 
 @pytest.mark.asyncio
 async def test_root_qualification_keeps_the_real_non_client_tool_roster(monkeypatch, caplog):
-    from hushh_mcp import managed_ai_config
+    from hushh_mcp.managed_ai_config import load_managed_runtime_policy
     from hushh_mcp.one_adk import agent_tree
     from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
     from scripts.probe_one_text_root import _root_contract
 
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai")
+    descriptor = load_managed_runtime_policy()["azure"]["one_text_root"]
     model = ManagedPrimaryTextModel(
-        model="synthetic-deployment",
+        model=descriptor["deployment"],
         endpoint="https://synthetic.openai.azure.com/openai/v1/",
         token_supplier=lambda: pytest.fail("qualification must not obtain a token"),
         policy_generation="synthetic-generation",
         processing_scope="one_text_chat",
-        default_reasoning_effort="low",
-        text_verbosity="low",
+        default_reasoning_effort=descriptor["reasoning_effort"],
+        text_verbosity=descriptor["text_verbosity"],
         allow_fallback=False,
     )
     monkeypatch.setattr(agent_tree, "_resolve_text_model", lambda *args, **kwargs: model)
-    monkeypatch.setattr(
-        managed_ai_config,
-        "load_managed_runtime_policy",
-        lambda: {
-            "azure": {
-                "one_text_root": {
-                    "deployment": model.model,
-                    "reasoning_effort": model.default_reasoning_effort,
-                    "text_verbosity": model.text_verbosity,
-                }
-            }
-        },
-    )
     _, _, declarations = await _root_contract()
     assert "get_current_time" in {item.name for item in declarations}
     assert len(declarations) >= 60
@@ -197,3 +199,41 @@ async def test_failed_warmup_is_logged_and_never_raises(monkeypatch, caplog):
 
     assert "startup.one_turn_path_warm_failed reason=RuntimeError" in caplog.text
     assert "private detail" not in caplog.text
+
+
+@pytest.mark.parametrize("reached", [False, True])
+async def test_private_startup_requires_successful_provider_free_rehearsal(monkeypatch, reached):
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_session_authority.active_session_authority", lambda: None
+    )
+    monkeypatch.setattr(turn_warmup, "warm_one_turn_path", lambda: reached)
+    if reached:
+        await turn_warmup.warm_private_pod_turn_path()
+    else:
+        with pytest.raises(RuntimeError, match="PRIVATE_POD_TURN_WARMUP_FAILED"):
+            await turn_warmup.warm_private_pod_turn_path()
+
+
+@pytest.mark.parametrize("changed", [False, True])
+async def test_private_startup_refuses_a_fenced_or_replaced_authority(monkeypatch, changed):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    authority = SimpleNamespace(require_held=AsyncMock(side_effect=PermissionError("fenced")))
+    current = [authority]
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_session_authority.active_session_authority", lambda: current[0]
+    )
+
+    def warmed():
+        if changed:
+            current[0] = object()
+        return True
+
+    monkeypatch.setattr(turn_warmup, "warm_one_turn_path", warmed)
+    with pytest.raises(RuntimeError if changed else PermissionError):
+        await turn_warmup.warm_private_pod_turn_path()
+    if changed:
+        authority.require_held.assert_not_awaited()
+    else:
+        authority.require_held.assert_awaited_once()

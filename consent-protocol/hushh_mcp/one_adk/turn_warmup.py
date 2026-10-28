@@ -73,6 +73,7 @@ async def _run_stub_turn() -> int:
                 allow_workspace_tools=True,
                 include_thought_summaries=True,
                 include_client_receipt_tools=False,
+                memory_available=True,
             ),
             resumability_config=ResumabilityConfig(is_resumable=True),
         ),
@@ -124,4 +125,21 @@ async def warm_one_turn_path_in_background() -> None:
     )
 
 
-__all__ = ["warm_one_turn_path", "warm_one_turn_path_in_background"]
+async def warm_private_pod_turn_path() -> None:
+    """Complete the provider-free rehearsal before a private worker admits work."""
+    from hushh_mcp.services.pod_session_authority import active_session_authority
+
+    authority = active_session_authority()
+    started_at = time.perf_counter()
+    async with asyncio.timeout(WARMUP_TIMEOUT_SECONDS):
+        reached = await asyncio.to_thread(warm_one_turn_path)
+    if not reached:
+        raise RuntimeError("PRIVATE_POD_TURN_WARMUP_FAILED")
+    if active_session_authority() is not authority:
+        raise RuntimeError("PRIVATE_POD_STARTUP_AUTHORITY_CHANGED")
+    if authority is not None:
+        await authority.require_held()
+    logger.info("pod.turn_path_warmed duration_ms=%.0f", (time.perf_counter() - started_at) * 1000)
+
+
+__all__ = ["warm_one_turn_path", "warm_one_turn_path_in_background", "warm_private_pod_turn_path"]

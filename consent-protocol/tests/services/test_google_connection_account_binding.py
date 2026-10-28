@@ -834,15 +834,10 @@ async def test_concurrent_replacement_refuses_stale_callback(monkeypatch, bounda
 @pytest.mark.asyncio
 @pytest.mark.parametrize("admitted", [True, False])
 async def test_cached_bearer_is_admitted_against_one_provider_grant_snapshot(
-    monkeypatch, active_account_lifecycle, admitted
+    monkeypatch, admitted, shared_hub_owner
 ):
-    from hushh_mcp.services import owner_placement_guard
-
-    # This case isolates the grant snapshot; the owner must already be eligible
-    # for the hub before the token read reaches that snapshot.
-    monkeypatch.setattr(
-        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
-    )
+    # The shared fixture supplies active lifecycle and placement admission before
+    # the token read reaches the provider-grant snapshot.
 
     class SnapshotDb:
         def __init__(self):
