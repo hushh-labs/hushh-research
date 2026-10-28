@@ -24,6 +24,24 @@ function baseInput(actionId: string) {
 }
 
 describe("executeAgentGatewayAction connected systems", () => {
+  it("refuses a parked previous-account deletion directive at the current executor", async () => {
+    const { parseParkedAppActionDirective } = await import("@/lib/services/agent-chat-client");
+    const directive = parseParkedAppActionDirective({
+      status: "ready_to_run",
+      directive: { action_id: "phone_mandate.delete_previous", slot_values: {} },
+    });
+    expect(directive?.actionId).toBe("phone_mandate.delete_previous");
+    const input = {
+      ...baseInput(directive!.actionId),
+      slots: directive!.slots,
+      allowedActionIds: [directive!.actionId],
+    };
+    const result = await executeAgentGatewayAction(input);
+
+    expect(result).toMatchObject({ status: "blocked", reason: "manual_only" });
+    expect(input.router.push).not.toHaveBeenCalled();
+  });
+
   it("opens Connected Systems for CRM update proposals", async () => {
     const input = baseInput("connected_system.crm.update.propose");
 

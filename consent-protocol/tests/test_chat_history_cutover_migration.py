@@ -54,9 +54,13 @@ def test_dev_cutover_preserves_canonical_release_and_recovery_boundaries() -> No
     assert MIGRATION.name not in manifest["rollback_migrations"]
     assert ROLLBACK.exists() and "DELETE FROM" not in ROLLBACK.read_text().upper()
     release_head = int(manifest["ordered_migrations"][-1].split("_", 1)[0])
-    for contract in ("prod_core_schema", "uat_integrated_schema", "dev_minimum_schema"):
+    # UAT's exact head includes its overlays, as verify_release_migration_contract.py requires.
+    uat_overlay = [int(name.split("_", 1)[0]) for name in manifest["environment_overlays"]["uat"]]
+    heads = {"prod_core_schema": release_head, "dev_minimum_schema": release_head}
+    heads["uat_integrated_schema"] = max([release_head, *uat_overlay])
+    for contract, head in heads.items():
         data = json.loads((ROOT / f"db/contracts/{contract}.json").read_text())
-        assert data["expected_migration_version"] == release_head
+        assert data["expected_migration_version"] == head
 
 
 def test_every_delete_targets_only_unmarked_chat_rows() -> None:

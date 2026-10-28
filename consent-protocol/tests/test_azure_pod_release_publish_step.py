@@ -12,6 +12,7 @@ merely present is not one that holds.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import os
 import subprocess
@@ -272,3 +273,179 @@ def test_reused_publication_archive_follows_its_image_source_and_new_run(config,
         destination.read_text().strip()
         == f"gs://{PROJECT}_cloudbuild/pod-releases/{source_sha}/{run_id}/release.json"
     )
+
+
+def _publication_builder():
+    path = REPO_ROOT / "scripts/deploy/prepare-pod-publication.py"
+    spec = importlib.util.spec_from_file_location("publication_build_contract", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_preparation_uses_only_existing_pod_steps_and_requires_guarded_reuse(tmp_path):
+    builder = _publication_builder()
+    (tmp_path / "deploy").mkdir()
+    source = REPO_ROOT / "deploy/backend.cloudbuild.yaml"
+    (tmp_path / "deploy/backend.cloudbuild.yaml").write_bytes(source.read_bytes())
+    result = builder.build_config(tmp_path, sha="d" * 40, run_id="77", attempt="1")
+    original = yaml.safe_load(source.read_text())
+    assert [s["id"] for s in result["steps"]] == list(builder.STEP_IDS)
+    for step in result["steps"]:
+        authored = next(s for s in original["steps"] if s["id"] == step["id"])
+        assert {k: v for k, v in step.items() if k != "waitFor"} == {
+            k: v for k, v in authored.items() if k != "waitFor"
+        }
+    pin = tmp_path / "deploy/pod-release-reuse.json"
+    pin.write_text("{}")
+    with pytest.raises(ValueError, match="Main-owned"):
+        builder.build_config(tmp_path, sha="d" * 40, run_id="77", attempt="1")
+    builder.build_config(
+        tmp_path,
+        sha="d" * 40,
+        run_id="77",
+        attempt="1",
+        verified_reuse_sha=hashlib.sha256(pin.read_bytes()).hexdigest(),
+    )
+
+
+def test_workflow_publication_uses_real_protocol_project_before_cloud_authentication():
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    job = workflow["jobs"]["pod-publication"]
+    steps = job["steps"]
+    setup = next(step for step in steps if step.get("uses", "").endswith("setup-python-uv"))
+    project = REPO_ROOT / setup["with"]["protocol-dir"]
+    assert (project / "pyproject.toml").is_file() and (project / "uv.lock").is_file()
+    auth = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("uses", "").startswith("google-github-actions/auth@")
+    )
+    for required in (
+        "Admit Main-owned pod publication",
+        "Verify exact pod source CI and ref",
+        "Verify landed publication control source",
+        "Verify metadata reuse with Main-owned source guard",
+    ):
+        assert next(i for i, step in enumerate(steps) if step.get("name") == required) < auth
+    assert steps[0]["with"]["ref"] == "${{ github.sha }}"
+    assert "pod-publication" in workflow["jobs"]["deploy"]["if"]
+    assert "pod-publication" not in workflow["concurrency"]["group"]
+
+
+def _preparation_records():
+    run = {"id": 77, "run_attempt": 2, "head_sha": "a" * 40}
+    pin = {"preparationAttempt": 2, "preparationArtifactId": 12, "preparationBuildId": "build"}
+    names = [
+        "Prepare common pod artifact without deploying the application",
+        "Retain bounded publication evidence",
+    ]
+    job = {
+        "name": "Pod Release Publication",
+        "conclusion": "success",
+        "status": "completed",
+        "run_id": 77,
+        "run_attempt": 2,
+        "steps": [{"name": n, "conclusion": "success"} for n in names],
+    }
+    files = {
+        "build-id.txt": b"build\n",
+        "outcome.txt": b"artifact_prepared_not_qualified_or_activated\n",
+        "release.json": b"release",
+    }
+    artifact = {
+        "name": "pod-publication-dev-77-2",
+        "id": 12,
+        "expired": False,
+        "workflow_run": {"id": 77, "head_sha": "a" * 40},
+    }
+    return run, pin, job, files, artifact
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        None,
+        "attempt",
+        "failed_job",
+        "skipped_prepare",
+        "failed_upload",
+        "job_attempt",
+        "incomplete_jobs",
+        "expired",
+        "ambiguous",
+        "artifact_id",
+        "artifact_origin",
+        "artifact_digest",
+        "corrupt_zip",
+        "copied_build_tags",
+        "activated",
+        "release_bytes",
+        "unsafe_path",
+    ],
+)
+def test_preparation_attempt_cannot_borrow_native_build_tags(monkeypatch, fault):
+    import io
+    import json
+    import zipfile
+
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/deploy"))
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/ci"))
+    import pod_publication_evidence as evidence
+    import process_group
+
+    run, pin, job, files, artifact = _preparation_records()
+    if fault == "attempt":
+        run["run_attempt"] = 3
+    if fault == "failed_job":
+        job["conclusion"] = "failure"
+    if fault == "job_attempt":
+        job["run_attempt"] = 1
+    if fault == "skipped_prepare":
+        job["steps"][0]["conclusion"] = "skipped"
+    if fault == "failed_upload":
+        job["steps"][1]["conclusion"] = "failure"
+    if fault == "expired":
+        artifact["expired"] = True
+    if fault == "artifact_id":
+        artifact["id"] = 13
+    if fault == "artifact_origin":
+        artifact["workflow_run"]["head_sha"] = "b" * 40
+    if fault == "copied_build_tags":
+        files["build-id.txt"] = b"unrelated-successful-build\n"
+    if fault == "activated":
+        files["outcome.txt"] = b"activated\n"
+    if fault == "release_bytes":
+        files["release.json"] = b"another-release"
+    if fault == "unsafe_path":
+        files["../outside"] = b"unsafe"
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as bundle:
+        for name, content in files.items():
+            bundle.writestr(name, content)
+    packed = stream.getvalue()
+    pin["preparationArtifactSha256"] = hashlib.sha256(packed).hexdigest()
+    artifact.update(size_in_bytes=len(packed), digest="sha256:" + pin["preparationArtifactSha256"])
+    if fault == "artifact_digest":
+        artifact["digest"] = "sha256:" + "0" * 64
+    jobs = {"total_count": 2 if fault == "incomplete_jobs" else 1, "jobs": [job]}
+    artifacts = [artifact, artifact] if fault == "ambiguous" else [artifact]
+
+    def command(*args):
+        value = (
+            jobs
+            if "/jobs?" in args[-1]
+            else {"total_count": len(artifacts), "artifacts": artifacts}
+        )
+        return json.dumps(value).encode()
+
+    monkeypatch.setattr(
+        process_group,
+        "bounded_stdout",
+        lambda *a, **k: b"corrupt" if fault == "corrupt_zip" else packed,
+    )
+    if fault is None:
+        evidence.verify_preparation_attempt(command, run, pin, b"release")
+    else:
+        with pytest.raises((ValueError, RuntimeError)):
+            evidence.verify_preparation_attempt(command, run, pin, b"release")

@@ -65,6 +65,34 @@ promotion. Retention follows acceptance and preserves the captured rollback revi
 An explicit `build_pod_image` input defaults to false; publishing a dev artifact
 does not authorize installation or production stable-channel promotion.
 
+### Independent private-pod publication
+
+Use the existing workflow's `target=pod-publication` for private-image work.
+`pod_action=prepare` builds/distributes the common image through the existing pod
+steps and archives its descriptor. It does **not** deploy the shared application,
+run migrations, synchronize secrets, call a model or install an owner image.
+The exact source CI and the Main-owned control SHA's landed smoke must pass.
+Metadata-only preparation retains the unchanged image-context check; image source
+and descriptor source remain distinct.
+
+`pod_action=activate` is a separately coordinated release. Main must contain the
+reviewed activation pin (`pod-publication.json` in the `deploy` directory) described in the
+[pod runbook](./dev-pod-first-light-runbook.md#independent-dev-pod-publication).
+Absent or incomplete evidence refuses activation; preparation alone is not
+qualification. The pin binds the shared service incarnation, revision,
+application image/source and configuration fingerprint to the qualified pod
+digest. Another shared release invalidates that pairing. Wait for coordination
+and requalification; never automatically follow the newer application.
+
+Both phases retain the existing shared-Dev concurrency group. Activation checks
+capacity for one backend candidate, clones the serving configuration and immutable
+application image into a zero-traffic revision, changes only the pod catalog and
+publication annotations, verifies it, and conditionally promotes traffic using the
+native service etag. The application's deployment SHA/run remain unchanged;
+publication provenance is separate. Failure or uncertain mutation requires native
+readback. Rollback cannot overwrite a concurrent release. No automatic cleanup,
+deployment retry or owner upgrade is introduced.
+
 The current migration, release, capacity and owner/device acceptance
 disposition is recorded in the [integration audit](../quality/adk-orchestration-docs-audit.md).
 

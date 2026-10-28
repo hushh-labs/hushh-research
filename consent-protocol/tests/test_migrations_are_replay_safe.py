@@ -568,6 +568,8 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
                 "419_account_generations",
                 "420_private_agent_lifecycle_foundation",
                 "421_cloud_removal_recovery",
+                "437_account_legacy_generation_settlement",
+                "438_uat_legacy_generation_settlement",
             ):
                 with pytest.raises(
                     psycopg2.errors.ObjectNotInPrerequisiteState, match="forward recovery"

@@ -164,7 +164,8 @@ rollback, cold fallback, reader probe and restoration gates still require it
 absent or `false`, so enabling it there needs those gates changed first. A deleted
 account whose generation-0 row is retired with confirmed cleanup and settled
 Firebase writes is offered the existing start-fresh review on its next sign-in;
-any other history stays **Action required**. Federated and purpose-bound email
+any other history stays **Action required**, except legacy erasures accepted
+under [Legacy generation settlement (437, 438)](#legacy-generation-settlement-437-438). Federated and purpose-bound email
 recovery had no deployed acceptance before this enablement; the UAT owner story
 is the first.
 
@@ -259,7 +260,7 @@ Proof consumption and exact generation activation commit together under identity
 lock 199; token minting follows outside that transaction. A final owner/policy/
 expiry check controls token release. Lost enrollment responses recover through a
 new ordinary code, without replaying activation. Historical unknown cleanup stays
-Action required. Codes and enrollment tickets remain memory-only; the existing
+Action required unless the legacy settlement accepts it. Codes and enrollment tickets remain memory-only; the existing
 challenge store holds encrypted destinations and keyed proof digests.
 
 The local federated recovery path accepts independently fresh Google, Apple or
@@ -268,7 +269,7 @@ a retired account to private information. The owner confirms the exact prior
 generation, cleanup operation and enrollment receipt. SQL stores the authentication
 time and review digest, refusing changed proof on replay, expired proof and missing
 receipt fields. Historical cleanup without qualified evidence stays **Action
-required**. Unknown submission responses require status reconciliation, never an
+required**, apart from the reviewed legacy settlement (437, 438). Unknown submission responses require status reconciliation, never an
 automatic second enrollment. Normal session admission follows a confirmed result.
 The frontend withdraws an old application principal before showing this recovery.
 
@@ -1129,3 +1130,41 @@ receipt, activated identity and phone rollback. The current frontend receipt and
 healthy tag remain authoritative. Pending origins, chained frontend origins and
 missing or changed identity proofs refuse cleanup; no historical scan substitutes
 an older apparently healthy release.
+
+## Legacy generation settlement (437, 438)
+
+Erasures that committed before provider cleanup receipts existed carry migration
+418's `legacy_unconfirmed` marker, and migration 419 kept their generation zero
+unconfirmed, so a returning owner met a permanent **Action required**. Migration
+`437_account_legacy_generation_settlement.sql` adds one reviewed exception and
+settles nothing by itself. `settle_legacy_account_generation(identity_hash)`
+confirms a retired generation zero only when its owner is its identity; its
+tombstone carries exactly the legacy marker with no provider cleanup id,
+inventory, claim or retry; the legacy identity cleanup kept the identity
+(`firebase_shared_identity_retained`, or the maintainer
+`uat_backend_only_erasure`); its Firebase writes are settled; and no row remains
+for the owner in any of the five provider custody tables. The history guard
+admits exactly that transition from that function, and the row is immutable again
+afterwards; every other write meets the unchanged 419 rules. A settled legacy
+generation means the erasure is **accepted for re-enrollment**. Provider-side
+revocation was never verified for these erasures.
+
+The UAT overlay `438_uat_legacy_generation_settlement.sql` settles qualifying rows
+on each replayed release (25 owners on 2026-10-28: 10 shared-identity erasures
+from 23-25 October and 15 maintainer backend-only erasures). Shared Dev, which has
+no overlay lane, is settled by a reviewed operator run of the same statement.
+Production receives only the dormant capability; before admission is enabled
+there, record read-only production aggregates of these shapes and decide the
+legacy rule and any Google-grant notice.
+
+Deleted or absent identities (`deleted`, `firebase_user_not_found`) stay
+unconfirmed because their UIDs cannot sign in again. Remaining custody, an owner
+that is not the identity, unsettled identity writes, a non-terminal cleanup and
+any other outcome also stay **Action required**. A settled owner follows the
+unchanged path: the cutoff, fresh Google, Apple or Microsoft verification, the
+start-fresh review and enrollment. Phone-only sign-ins still cannot complete that
+review. An email code requested before settlement is refused once; a new code
+works. Operators identify legacy settlements as rows whose `cleanup_operation`
+equals `account_legacy_cleanup_reference(identity_hash, generation)`. Both
+rollbacks refuse (forward recovery). A replay of 419 restores its stricter guard
+until 437 runs again and leaves settled rows unchanged.

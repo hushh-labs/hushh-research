@@ -1039,6 +1039,8 @@ async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
     workos_migration = (ROOT / "db/migrations/427_workos_generation_memberships.sql").read_text()
     await conn.execute(workos_migration)
     await conn.execute(workos_migration)
+    legacy = (ROOT / "db/migrations/437_account_legacy_generation_settlement.sql").read_text()
+    await conn.execute(legacy)  # Current erase/enroll cycles run under the 437 guard.
     for client_role in ("anon", "authenticated"):
         assert (
             await conn.fetchval(
@@ -2223,3 +2225,22 @@ async def test_shared_provider_sql_requires_exact_local_approval_and_no_dispatch
             {"items": {ref: {**receipt["items"][ref], "authorityScope": "exclusive"}}},
         ]:
             assert not await qualified({**receipt, **change})
+
+
+def test_legacy_erasure_acceptance_settles_only_kept_identities(database_url):
+    """437 is dormant; the UAT overlay accepts only legacy erasures that kept the identity."""
+    from tests.helpers import legacy_generation_rehearsal as legacy
+
+    legacy.assert_custody_sources_match_418()
+    with legacy.legacy_database(database_url) as conn:
+        legacy.seed_legacy_history(conn)
+        legacy.assert_current_main_refuses(conn)
+        history = legacy.tombstones(conn)
+        legacy.apply(conn, legacy.CANONICAL, legacy.CANONICAL)
+        legacy.assert_unsettled(conn, *legacy.KEPT, *legacy.REFUSED)
+        legacy.apply(conn, legacy.UAT_OVERLAY, legacy.UAT_OVERLAY)
+        legacy.assert_settlement_refused(conn)
+        legacy.assert_kept_identities_start_fresh(conn, history)
+        legacy.assert_guard_bypass_controls(conn)
+        legacy.assert_replay_and_late_settlement(conn)
+        legacy.assert_privileges(conn)

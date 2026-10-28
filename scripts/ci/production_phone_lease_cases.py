@@ -6,7 +6,10 @@ import tempfile
 from unittest import mock
 
 import production_phone_lease as lease
-from production_phone_receipt_fixtures import LeaseFixture
+from production_phone_receipt_fixtures import (
+    LeaseFixture,
+    historical_restoration_source,
+)
 
 
 class ProductionPhoneLeaseCases:
@@ -249,19 +252,24 @@ class ProductionPhoneSkippedLeaseCases:
 
     def test_restoration_nonproducer_keeps_current_metadata_and_every_older_lease(self):
         self.setUp()
-        for conclusion, admission in (
-            ("success", "success"),
-            ("failure", "failure"),
-            ("cancelled", "cancelled"),
-            ("cancelled", "skipped"),
-            (None, "success"),
+        for conclusion, admission, historical in (
+            ("success", "success", False),
+            ("failure", "failure", False),
+            ("cancelled", "cancelled", False),
+            ("cancelled", "skipped", False),
+            (None, "success", False),
+            ("success", "success", True),
         ):
             case, environment = self.restoration_lease(
                 conclusion, active=conclusion is None
             )
+            if historical:
+                case.sources[case.runs[0]["head_sha"]] = historical_restoration_source(
+                    case.sources["e" * 40]
+                )
             case.jobs[(300, 2)]["jobs"][0]["steps"][0]["conclusion"] = admission
             with (
-                self.subTest(conclusion=conclusion),
+                self.subTest(conclusion=conclusion, historical=historical),
                 mock.patch.dict("os.environ", environment),
             ):
                 # Preserved release tools may run over a historical application checkout.
@@ -275,9 +283,7 @@ class ProductionPhoneSkippedLeaseCases:
                 with self.assertRaises(lease.retention.UnsafeState):
                     self.lease_check(case)
 
-    def test_restoration_nonproducer_refuses_changed_source_or_any_producer_ambiguity(
-        self,
-    ):
+    def test_restoration_refuses_source_changes_or_ambiguous_producers(self):
         self.setUp()
         for defect in (
             "source",
@@ -291,18 +297,30 @@ class ProductionPhoneSkippedLeaseCases:
             "guard",
             "empty_steps",
             "cold_source",
+            "historical_source",
+            "historical_exclusion",
+            "historical_producer",
         ):
             case, environment = self.restoration_lease(
                 active=defect in {"job", "ordinary_job", "sha", "guard", "admission"}
             )
             job = case.jobs[(300, 2)]["jobs"][0]
+            source = case.sources["e" * 40]
+            if defect.startswith("historical_"):
+                source = historical_restoration_source(source)
+                defect = defect.removeprefix("historical_")
             if defect == "source":
-                case.sources[case.runs[0]["head_sha"]] = case.sources["e" * 40].replace(
+                case.sources[case.runs[0]["head_sha"]] = source.replace(
                     b"--fence-required false", b"--fence-required true"
                 )
             elif defect == "exclusion":
-                case.sources[case.runs[0]["head_sha"]] = case.sources["e" * 40].replace(
+                case.sources[case.runs[0]["head_sha"]] = source.replace(
                     b" && inputs.restoration_activation_run_id == ''", b"", 1
+                )
+            elif defect == "producer":
+                case.sources[case.runs[0]["head_sha"]] = source.replace(
+                    b"Admit manual restoration verification only",
+                    b"Admit manual restoration verification only\n        # gcloud run deploy",
                 )
             elif defect == "marker":
                 job["steps"].append(
