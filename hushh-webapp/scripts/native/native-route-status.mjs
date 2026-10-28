@@ -54,11 +54,23 @@ export function nativeRouteAuditProgressKey(status) {
   return ROUTE_AUDIT_PROGRESS_KEYS.map((key) => status[key]).join("|");
 }
 
+export function hasNativeRouteAuditContract(route) {
+  const auth = route?.allowedAuthStates === undefined
+    ? [route?.expectedAuth]
+    : route.allowedAuthStates;
+  const populatedStrings = (values) =>
+    Array.isArray(values) &&
+    values.length > 0 &&
+    values.every((value) => typeof value === "string" && value.trim().length > 0);
+  return populatedStrings(auth) && populatedStrings(route?.allowedDataStates);
+}
+
 /**
  * Once the authenticated, unlocked document is complete, a wrong route or
  * marker is a contract failure—not an app bootstrap state worth waiting on.
  */
 export function isSettledNativeRouteAuditSurface(status, route) {
+  if (!hasNativeRouteAuditContract(route)) return false;
   const allowedAuthStates = route.allowedAuthStates || [route.expectedAuth];
   return (
     allowedAuthStates.includes(status.auth) &&

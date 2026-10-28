@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { hasNativeRouteAuditContract } from "./native-route-status.mjs";
 
 const repoRoot = process.cwd();
 const inventoryPath = path.join(repoRoot, "native-route-inventory.json");
@@ -107,6 +108,10 @@ function validateReport({ platform, reportPath, requiredRoutes }) {
   }
 
   for (const route of requiredRoutes) {
+    if (!hasNativeRouteAuditContract(route)) {
+      fail(failures, platform, `${route.route} has an incomplete auth/data contract`);
+      continue;
+    }
     const result = resultsByRoute.get(route.route);
     if (!result) {
       fail(failures, platform, `missing route result for ${route.route}`);

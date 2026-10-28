@@ -1603,6 +1603,10 @@
       "expectedMarker": "native-route-one-welcome",
       "expectedRoute": "/one/welcome",
       "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ],
       "rationale": "Initial signed-in contact welcome uses Google Contacts for Google signup and phone contacts for native Apple signup."
     },
     {

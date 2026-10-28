@@ -39,6 +39,39 @@ describe("native cold-audit and continuity contract", () => {
     }
   });
 
+  it("rejects incomplete route authentication or data contracts without crashing", () => {
+    const directory = mkdtempSync(join(tmpdir(), "hushh-native-route-contract-"));
+    try {
+      const route = {
+        route: "/one/welcome",
+        classification: "native-required-functional",
+        expectedMarker: "welcome",
+        expectedRoute: "/one/welcome",
+        expectedAuth: "authenticated",
+        allowedDataStates: ["loaded"],
+      };
+      const result = {
+        route: route.route,
+        ok: true,
+        observed: { ready: "1", found: "1", marker: "welcome", route: route.route, auth: "authenticated", data: "loaded" },
+      };
+      writeFileSync(join(directory, "native-ios-parity-report.json"), JSON.stringify({
+        audited_routes: 1, completed_routes: 1, audit_complete: true,
+        failed_routes: 0, passed_routes: 1, results: [result],
+      }));
+      for (const invalid of [{ ...route, expectedAuth: undefined }, { ...route, allowedDataStates: undefined }]) {
+        writeFileSync(join(directory, "native-route-inventory.json"), JSON.stringify({ routes: [invalid] }));
+        const check = spawnSync(process.execPath, [join(root, "scripts/native/verify-native-parity-reports.mjs"), "--platform=ios"], { cwd: directory, encoding: "utf8" });
+        expect(check.status).not.toBe(0);
+        expect(check.stderr).toContain("incomplete auth/data contract");
+        expect(check.stderr).not.toContain("TypeError");
+        expect(isSettledNativeRouteAuditSurface({ ...result.observed, doc: "complete", bootstrap: "vault_unlocked" }, invalid)).toBe(false);
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("does not pass reviewer passphrase strings to XCTest diagnostic operands", () => {
     const uiTests = source("ios/App/AppUITests/AppUITests.swift");
     const start = uiTests.indexOf("private func assertReviewerPassphraseAliasesMatch()");

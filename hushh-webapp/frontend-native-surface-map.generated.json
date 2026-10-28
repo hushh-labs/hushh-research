@@ -9526,6 +9526,10 @@
         "expectedMarker": "native-route-one-welcome",
         "expectedRoute": "/one/welcome",
         "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ],
         "rationale": "Initial signed-in contact welcome uses Google Contacts for Google signup and phone contacts for native Apple signup."
       },
       "shell": {
@@ -11248,5 +11252,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "474a6391041004cb080d6c0fb4daee0b5bfdae9f1f8bbbb3afdb6fee37297268"
+  "content_sha256": "09c881124f1d4e036721e3ddd7394d66d1181c769f477664f349c8c09c3d6273"
 }

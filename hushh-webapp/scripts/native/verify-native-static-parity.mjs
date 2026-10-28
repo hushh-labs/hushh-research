@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { hasNativeRouteAuditContract } from "./native-route-status.mjs";
 
 const repoRoot = process.cwd();
 const iosInfoPlistPath = path.join(repoRoot, "ios/App/App/Info.plist");
@@ -247,6 +248,14 @@ const markerlessRequiredRoutes = inventoryRoutes
   .map((route) => route.route);
 if (markerlessRequiredRoutes.length > 0) {
   fail(`native-required routes need expectedMarker: ${markerlessRequiredRoutes.join(", ")}`);
+}
+
+const incompleteAuditContracts = inventoryRoutes
+  .filter((route) => String(route.classification || "").startsWith("native-required"))
+  .filter((route) => !hasNativeRouteAuditContract(route))
+  .map((route) => route.route);
+if (incompleteAuditContracts.length > 0) {
+  fail(`native-required routes need a complete auth/data contract: ${incompleteAuditContracts.join(", ")}`);
 }
 
 // An `excluded-*` classification drops a route out of every parity check above.
