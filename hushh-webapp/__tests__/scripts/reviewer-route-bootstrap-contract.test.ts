@@ -13,7 +13,9 @@ const scripts = [
 describe("reviewer route bootstrap contract", () => {
   it("does not report skipped or unobserved routes as covered", async () => {
     let visits = 0;
-    const skipped = await verifyReviewerRoute({ requiresColdEntry: true }, async () => { visits++; });
+    // Route spec construction can omit override-only metadata: the authored
+    // requirement must still prevent a same-session result from being passed.
+    const skipped = await verifyReviewerRoute({}, async () => { visits++; }, { requiresColdEntry: true });
     const passed = await verifyReviewerRoute({}, async () => { visits++; });
     expect(visits).toBe(1);
     const summary = summarizeReviewerRoutes(["phone", "tablet"], { sameSession: ["/one"], directEntry: ["/legacy"] }, [

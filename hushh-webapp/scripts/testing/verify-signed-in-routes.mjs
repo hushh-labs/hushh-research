@@ -2056,7 +2056,7 @@ async function runViewportSweep(viewport, contract, observations) {
       process.stdout.write(
         `→ [${viewport.name}] ${route.route} (same-session shell)\n`,
       );
-      const result = await verifyReviewerRoute(spec, () => verifyRoute(page, viewport.name, spec));
+      const result = await verifyReviewerRoute(spec, () => verifyRoute(page, viewport.name, spec), ROUTE_OVERRIDES[route.route]);
       observations.push({ viewport: viewport.name, lane: "sameSession", route: route.route, ...result });
       process.stdout.write(`${result.status === "passed" ? "✓" : "↷"} [${viewport.name}] ${route.route}${result.status === "skipped" ? " (requires cold-entry verification)" : ""}\n`);
     }
@@ -2076,7 +2076,7 @@ async function runViewportSweep(viewport, contract, observations) {
       process.stdout.write(
         `→ [${viewport.name}] ${route.route} (direct entry in reviewer session)\n`,
       );
-      const result = await verifyReviewerRoute(spec, () => verifyRoute(page, viewport.name, spec));
+      const result = await verifyReviewerRoute(spec, () => verifyRoute(page, viewport.name, spec), ROUTE_OVERRIDES[route.route]);
       observations.push({ viewport: viewport.name, lane: "directEntry", route: route.route, ...result });
       process.stdout.write(`${result.status === "passed" ? "✓" : "↷"} [${viewport.name}] ${route.route}${result.status === "skipped" ? " (requires cold-entry verification)" : ""}\n`);
     }

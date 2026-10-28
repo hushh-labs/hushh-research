@@ -1,6 +1,6 @@
 /** A cold-entry-only route is not proven by an existing signed-in session. */
-export async function verifyReviewerRoute(spec, verify) {
-  if (spec.requiresColdEntry) return { status: "skipped", reason: "requires-cold-entry" };
+export async function verifyReviewerRoute(spec, verify, override) {
+  if (spec.requiresColdEntry || override?.requiresColdEntry) return { status: "skipped", reason: "requires-cold-entry" };
   await verify();
   return { status: "passed" };
 }
