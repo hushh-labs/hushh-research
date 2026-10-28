@@ -211,6 +211,24 @@ describe("toMoverGroups", () => {
     expect(container.querySelectorAll("[data-market-mover-pair]")).toHaveLength(3);
   });
 
+  it("renders three real stocks on each side from complete directional observations", () => {
+    const groups = groupsFor(
+      [mover("UP1", 4), mover("UP2", 3), mover("UP3", 2), mover("UP1", 4), mover("WRONG", -1)],
+      [mover("DOWN1", -4), mover("DOWN2", -3), mover("DOWN3", -2), mover("WRONG", 1)],
+    );
+    const { container } = render(createElement(OneMarketMovers, { groups }));
+    expect(container.querySelectorAll("button")).toHaveLength(6);
+    expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(0);
+    const pairs = [...container.querySelectorAll("[data-market-mover-pair]")];
+    expect(pairs).toHaveLength(3);
+    pairs.forEach((pair, index) => {
+      const cells = pair.querySelectorAll("button");
+      expect(cells).toHaveLength(2);
+      expect(cells[0]).toHaveTextContent(`UP${index + 1}`);
+      expect(cells[1]).toHaveTextContent(`DOWN${index + 1}`);
+    });
+  });
+
   it("retains differing local times and unavailable observations without cache labels", () => {
     const later = "2026-10-21T15:00:00Z";
     const { container, rerender } = render(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1)], [mover("B", -1, false, later)]) }));
@@ -219,9 +237,13 @@ describe("toMoverGroups", () => {
       [time, later].map(value => formatLocalDateTime(value, { hour: "numeric", minute: "2-digit" })),
     );
     rerender(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1)], [mover("B", -1, true, null)]) }));
-    expect(screen.getByText("Time unavailable", { exact: true })).toBeVisible();
-    expect(container.querySelectorAll("button > time")).toHaveLength(2);
+    expect(screen.queryByText(/Time unavailable/i)).not.toBeInTheDocument();
+    expect(container.querySelectorAll("button > time")).toHaveLength(1);
     expect(container.textContent).not.toMatch(/cached/i);
+    rerender(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1, true, null)], [mover("B", -1, true, null)]) }));
+    expect(container.querySelector("[data-market-mover-freshness]")).toBeNull();
+    expect(container.querySelector("time")).toBeNull();
+    expect(container.textContent).not.toMatch(/time unavailable/i);
     rerender(createElement(OneMarketMovers, { groups: groupsFor([], []) }));
     expect(container.querySelectorAll("[data-market-mover-pair]")).toHaveLength(3);
     expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(6);

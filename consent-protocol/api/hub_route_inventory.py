@@ -221,6 +221,7 @@ POST /api/one/commands/location/circle-name/{run_id}/submit
 GET /api/one/connections
 POST /api/one/connections/contact-sync
 GET /api/one/connections/directory
+GET,PUT /api/one/connections/directory-presence
 POST /api/one/connections/link-circle-invite
 GET,POST /api/one/connections/requests
 POST /api/one/connections/requests/{request_id}/accept
