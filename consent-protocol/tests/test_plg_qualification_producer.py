@@ -318,3 +318,34 @@ def test_retired_isolated_lane_leaves_standard_release_gates_intact(environment)
         for job in document["jobs"].values()
         for step in job.get("steps", [])
     )
+
+
+@pytest.mark.parametrize("target,expected", [("shared-uat", 0), ("plg-isolated-qualification", 1)])
+def test_retired_uat_target_cannot_fall_through_to_a_shared_release(target, expected):
+    import os
+    import shutil
+    import subprocess
+
+    import yaml
+
+    document = yaml.safe_load((ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    guard = document["jobs"]["select-target"]["steps"][0]
+    assert guard["name"] == "Assert manual dispatch originates from main"
+    environment = {
+        "PATH": os.environ.get("PATH", ""),
+        "GITHUB_REF_NAME": "main",
+        "REQUESTED_TARGET": target,
+    }
+    if "SYSTEMROOT" in os.environ:
+        environment["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
+    result = subprocess.run(  # noqa: S603 - actual pre-credential guard with fixed synthetic targets.
+        [shutil.which("bash"), "--noprofile", "--norc", "-c", guard["run"]],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == expected, result.stderr
+    assert guard.get("env", {}).get("REQUESTED_TARGET") == "${{ inputs.target || 'shared-uat' }}"
