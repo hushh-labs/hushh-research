@@ -157,7 +157,8 @@ export function SessionVerificationRecovery({
         </p>}
         {steps && <AccountDeletionProgress steps={steps} />}
         {continuationError && <p role="status" className="mt-3 text-sm text-destructive">{continuationError}</p>}
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
+        {/* Pending labels must not re-announce the whole alert. */}
+        <div aria-live="off" className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
           {canContinueCleanup && <button
             className="min-h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background disabled:opacity-50"
             disabled={continuing || acceptedOperationId === cleanup?.id || (localErasureConfirmationRequired && !acknowledged)}

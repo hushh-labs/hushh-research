@@ -787,16 +787,18 @@ on, the next sign-in reaches start-fresh through `registration-status` instead.
 Each registration screen offers only a step that can change its answer:
 
 - Fresh proof comes from a Google, Apple or Microsoft sign-in (`registration_review`)
-  or an email code (its purpose-bound enrollment). A phone or password session can't
-  supply it, so that screen says starting fresh with this sign-in isn't available yet
-  and leads with Sign out. The native app verifies Google and Apple only; a Microsoft
-  sign-in is sent to the web instead of a button that always fails.
-- `historical_cleanup_unconfirmed` needs support (`support@hushh.ai`) and offers no
-  refresh. `identity_write_unconfirmed` settles on the server, so the web re-checks it
-  on its own at 15 s, 30 s, 1, 2, then every 5 minutes.
+  or a new email code (its purpose-bound enrollment). Any other session (phone,
+  password, custom token) can't supply it, during the identity wait or after it, so
+  that screen asks the person to sign out and choose a sign-in option, with Sign out
+  first; the title names a phone sign-in only when the session's own token says so.
+  The native app verifies Google and Apple only; a Microsoft sign-in is sent to the
+  web instead of a button that always fails.
+- `historical_cleanup_unconfirmed` and `identity_write_unconfirmed` are support-led
+  (`support@hushh.ai`). Neither expires or replays on its own (see migration 419
+  above), so the screen offers Email support and Sign out, with no refresh or polling.
 - Refresh appears only on the review, where its answer can change, and reads
-  "Checking…" while pending. Forced validations coalesce: at most one runs and one
-  waits. Sign out is never disabled.
+  "Checking…" while pending at every recovery mount. Forced validations coalesce: at
+  most one runs and one waits. Sign out is never disabled.
 
 ## Maintainer UAT backend-only erasure
 

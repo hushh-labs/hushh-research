@@ -98,7 +98,7 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
     mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "fresh_identity_required" }));
     act(() => requestExplicitSessionVerification());
-    await screen.findByRole("heading", { name: "Starting fresh with this sign-in isn’t available yet" });
+    await screen.findByRole("heading", { name: "Sign in again to start fresh" });
     expect(snapshotValidatedAuthSessionOwner()).toBeNull();
     expect(screen.queryByText("Vault content for account-owner")).toBeNull();
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
@@ -115,7 +115,7 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     mocks.apiGetAccountCleanupStatus.mockResolvedValue(cleanupStatusResponse("complete"));
     mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "fresh_identity_required" }));
     act(() => requestExplicitSessionVerification());
-    await screen.findByRole("heading", { name: "Starting fresh with this sign-in isn’t available yet" });
+    await screen.findByRole("heading", { name: "Sign in again to start fresh" });
     // Registration replaces the terminal sign-out, so its erased-account purge runs here, keyed by the owner.
     expect(mocks.clearDeviceSecretsForDeletedAccount).toHaveBeenCalledWith(ownerId);
     expect(CacheSyncService.onAccountDeleted).toHaveBeenCalledWith(ownerId);
@@ -157,69 +157,66 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     expect(mocks.clearForUser).not.toHaveBeenCalledWith(ownerId, { deleteDurableReceipts: true });
   });
 
-  it("keeps unknown historical cleanup on review without offering account activation", async () => {
-    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
-    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "action_required", reason: "historical_cleanup_unconfirmed" }));
+  it.each(["historical_cleanup_unconfirmed", "identity_write_unconfirmed"])("leads %s to support without refresh or polling", async reason => {
     render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
-    await screen.findByRole("heading", { name: "Your previous cleanup needs attention" });
-    expect(screen.queryByRole("button", { name: "Create new account" })).toBeNull();
-    // Only support can settle it; a refresh never could, so none is offered.
-    expect(screen.queryByRole("button", { name: "Refresh status" })).toBeNull();
+    await screen.findByText("Vault content for account-owner");
+    vi.useFakeTimers();
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
+    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "action_required", reason }));
+    act(() => requestExplicitSessionVerification());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("heading", { name: "Your previous cleanup needs attention" })).toBeInTheDocument();
+    // Neither reason expires or replays on its own (migration 419): only support can settle it,
+    // so no refresh is offered and nothing re-checks behind the person.
+    expect(screen.getAllByRole("button").map(button => button.textContent)).toEqual(["Sign out"]);
     expect(screen.getByRole("link", { name: "Email support@hushh.ai" })).toHaveAttribute("href", "mailto:support@hushh.ai");
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
+    const reads = mocks.apiGetAccountRegistrationStatus.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
+    expect(mocks.apiGetAccountRegistrationStatus).toHaveBeenCalledTimes(reads);
     expect(mocks.apiStartFreshAccount).not.toHaveBeenCalled();
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
     expect(snapshotValidatedAuthSessionOwner()).toBeNull();
   });
 
   it.each([
-    ["phone", [{ providerId: "phone" }], "Starting fresh with a phone sign-in isn’t available yet", ["Sign out"]],
-    ["Google", [{ providerId: "google.com" }, { providerId: "phone" }], "Verify it’s you", ["Verify with Google", "Sign out"]],
-  ])("offers a %s sign-in only controls that can change its fresh-proof outcome", async (_case, providerData, heading, buttons) => {
-    mocks.firebaseUser = { ...makeUser(), providerData } as unknown as User;
+    ["a phone session", { state: "fresh_identity_required" }, [{ providerId: "phone" }], "phone", "Starting fresh with a phone sign-in isn’t available yet", ["Sign out"]],
+    // The phone mandate links a phone to most accounts; only the session's own method names it.
+    ["an email-code session with a linked phone", { state: "fresh_identity_required" }, [{ providerId: "phone" }], "custom", "Sign in again to start fresh", ["Sign out"]],
+    ["a Google session", { state: "fresh_identity_required" }, [{ providerId: "google.com" }, { providerId: "phone" }], "google.com", "Verify it’s you", ["Verify with Google", "Sign out"]],
+    ["a waiting phone session", { state: "waiting_for_identity", retry_at: Math.floor(Date.now() / 1000) + 45 }, [{ providerId: "phone" }], "phone", "Starting fresh with a phone sign-in isn’t available yet", ["Sign out"]],
+  ])("offers %s only controls that can change its fresh-proof outcome", async (_case, recovery, providerData, signInProvider, heading, buttons) => {
+    mocks.firebaseUser = { ...makeUser(), providerData, getIdTokenResult: async () => ({ signInProvider }) } as unknown as User;
     mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
-    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "fresh_identity_required" }));
+    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json(recovery));
     render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
     await screen.findByRole("heading", { name: heading });
-    // Refreshing the same session can never supply fresh proof, so no refresh is offered.
+    // Refreshing or waiting can never give this session fresh proof, so neither is offered or promised.
     expect(screen.getAllByRole("button").map(button => button.textContent)).toEqual(buttons);
+    expect(screen.queryByText("A fresh sign-in opens shortly.")).toBeNull();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
   });
 
-  it("re-checks an unsettled identity write on its own, slowly, with no refresh control", async () => {
-    const review = { previous_generation: 0, cleanup_operation: "b99efb85-c1f2-4714-8a63-614d774a25a3",
-      enrollment_operation: "86f55df8-4527-49e4-81f7-62d9ac3dde7a", expires_at: Math.floor(Date.now() / 1000) + 300, terms_version: 1, digest: "a".repeat(64) };
-    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
-    await screen.findByText("Vault content for account-owner");
-    vi.useFakeTimers();
-    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
-    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "action_required", reason: "identity_write_unconfirmed" }));
-    act(() => requestExplicitSessionVerification());
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
-    expect(screen.getByRole("heading", { name: "Confirming your previous cleanup" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Refresh status" })).toBeNull();
-    const reads = mocks.apiGetAccountRegistrationStatus.mock.calls.length;
-    await act(async () => { await vi.advanceTimersByTimeAsync(14_000); });
-    expect(mocks.apiGetAccountRegistrationStatus).toHaveBeenCalledTimes(reads);
-    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "ready", review }));
-    await act(async () => { await vi.advanceTimersByTimeAsync(1_001); });
-    expect(screen.getByRole("heading", { name: "Start fresh?" })).toBeInTheDocument();
-  });
-
-  it("starts at most two validations for five rapid refreshes", async () => {
-    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
+  it("starts at most two validations for five rapid refreshes and frees the waiting slot once it starts", async () => {
+    const notFound = () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 });
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => notFound());
     mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "fresh_identity_required" }));
     renderProvider();
     const retry = await screen.findByRole("button", { name: "Retry verification" });
     const running = deferred<Response>();
-    mocks.apiGetAccountSessionStatus.mockReturnValueOnce(running.promise);
+    const waiting = deferred<Response>();
+    mocks.apiGetAccountSessionStatus.mockReturnValueOnce(running.promise).mockReturnValueOnce(waiting.promise);
+    const reads = () => mocks.apiGetAccountSessionStatus.mock.calls.length - before;
     const before = mocks.apiGetAccountSessionStatus.mock.calls.length;
     for (let tap = 0; tap < 5; tap += 1) fireEvent.click(retry);
-    await act(async () => { running.resolve(Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 })); await running.promise; });
-    await waitFor(() => expect(mocks.apiGetAccountSessionStatus.mock.calls.length - before).toBe(2));
+    await act(async () => { running.resolve(notFound()); await running.promise; });
     // One ran and one waited; the other three joined the waiting one instead of stacking.
+    await waitFor(() => expect(reads()).toBe(2));
+    // The waiting one has now read the session, so a later tap must queue a fresh validation.
+    fireEvent.click(retry);
+    await act(async () => { waiting.resolve(notFound()); await waiting.promise; });
+    await waitFor(() => expect(reads()).toBe(3));
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
-    expect(mocks.apiGetAccountSessionStatus.mock.calls.length - before).toBe(2);
+    expect(reads()).toBe(3);
   });
 
   it("shows Checking… while a review refresh is pending and never disables Sign out", async () => {
@@ -236,6 +233,14 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
     await act(async () => { pending.resolve(Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 })); await pending.promise; });
     expect(await screen.findByRole("button", { name: "Refresh status" })).toBeEnabled();
+    // Creating the account keeps Sign out available too.
+    const created = deferred<Response>();
+    mocks.apiStartFreshAccount.mockReturnValueOnce(created.promise);
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Create new account" }));
+    expect(await screen.findByRole("button", { name: "Creating your account…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
+    await act(async () => { created.resolve(Response.json({}, { status: 409 })); await created.promise; });
   });
 
   it("warns that validation is unavailable only without cleanup or registration evidence", async () => {

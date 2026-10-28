@@ -31,14 +31,12 @@ describe("account deletion progress", () => {
 });
 
 describe("account recovery cadence", () => {
-  it("@feature_account_deletion @trace_loop never polls a state that waits for the person's consent, verification or support", () => {
+  it("never polls a state that waits for the person's consent or verification", () => {
     expect(registrationAdvancesAlone(waiting)).toBe(true);
     expect(registrationAdvancesAlone({ state: "cleanup_pending", reason: "cleanup_in_progress" })).toBe(true);
-    // An unsettled identity write settles on the server, so it re-checks without the person.
-    expect(registrationAdvancesAlone({ state: "action_required", reason: "identity_write_unconfirmed" })).toBe(true);
     for (const recovery of [
       { state: "fresh_identity_required" },
-      { state: "action_required", reason: "historical_cleanup_unconfirmed" },
+      { state: "action_required", reason: "identity_write_unconfirmed" },
       { state: "ready", review: { previous_generation: 0, cleanup_operation: "x", enrollment_operation: "y", expires_at: 1, terms_version: 1, digest: "d" } },
     ] as AccountRegistrationRecovery[]) expect(registrationAdvancesAlone(recovery)).toBe(false);
   });
@@ -57,14 +55,5 @@ describe("account recovery cadence", () => {
     // Generic availability failures keep the unchanged 2/5/10/30 s ladder.
     expect([0, 1, 2, 3, 9].map((attempt) => nextRecoveryCheckDelay(attempt, null, null, NOW)))
       .toEqual([2_000, 5_000, 10_000, 30_000, 30_000]);
-  });
-
-  it("@feature_account_deletion @trace_loop re-checks an unsettled identity write slowly, never more than every 5 minutes", () => {
-    const settling: AccountRegistrationRecovery = { state: "action_required", reason: "identity_write_unconfirmed" };
-    expect([0, 1, 2, 3, 4, 500].map((attempt) => nextRecoveryCheckDelay(attempt, null, settling, NOW)))
-      .toEqual([15_000, 30_000, 60_000, 120_000, 300_000, 300_000]);
-    // A reason change restarts the poller, so a historical row stops being polled.
-    expect(recoveryPollPhase(settling))
-      .not.toBe(recoveryPollPhase({ state: "action_required", reason: "historical_cleanup_unconfirmed" }));
   });
 });
