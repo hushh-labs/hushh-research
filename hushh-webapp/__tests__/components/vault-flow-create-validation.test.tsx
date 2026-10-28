@@ -1021,11 +1021,13 @@ describe("VaultFlow create validation", () => {
     const onSuccess = vi.fn();
     render(<VaultFlow user={{ uid: "face-id-switch" } as typeof user} onSuccess={onSuccess} onSignOut={vi.fn()} />);
     await screen.findByRole("button", { name: /Unlocking with Face ID/ });
+    expect(screen.getByText("Confirm with your device.")).toBeVisible();
     const fallback = screen.getByRole("button", { name: "Password" });
     expect(fallback).toBeEnabled();
     expect(screen.getByTestId("vault-use-recovery-key-escape")).toBeEnabled();
     fireEvent.click(fallback);
     expect(await screen.findByLabelText("Vault password")).toBeVisible();
+    expect(screen.getByText("Enter your password.")).toBeVisible();
     expect(cancelAuthenticationMock).toHaveBeenCalledWith(expect.any(String));
     await act(async () => { resolveBiometric("old-key"); });
     expect(getOrIssueVaultOwnerTokenMock).not.toHaveBeenCalled();

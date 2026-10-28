@@ -2000,12 +2000,12 @@ function OwnerVaultFlow({
             <div className="space-y-2.5">
               <VaultFlowHeader
                 user={user}
-                icon={isGeneratedVaultMode ? Fingerprint : Lock}
+                icon={shouldShowPassphraseUnlock ? Lock : vaultMode === "generated_default_native_biometric" ? Fingerprint : Key}
                 title="Unlock One"
                 description={
-                  isGeneratedVaultMode
-                    ? "Confirm with your device."
-                    : "Enter your password."
+                  shouldShowPassphraseUnlock
+                    ? "Enter your password."
+                    : "Confirm with your device."
                 }
               />
               {error ? (
