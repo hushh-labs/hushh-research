@@ -21,8 +21,8 @@ evidence, not admission or release claims for the latest implementation.
 The local integrated source `95dc95d6da` includes main and the shared branch.
 Its generated map contains 161 routes and 17 separately enumerated query-driven
 views; enumeration is discovery, not acceptance. The iPhone now has the
-Dev-backed qualification build from `95dc95d6da` installed (executable SHA-256
-`4aa679b336b6c97666e185a2a5e0043f2cedf33da2409009eb7450058443cbf0`). Its
+Dev-backed qualification build from `85d175b750` installed (executable SHA-256
+`d7247bd87f7852d58605cc92a7bb3e7f6aee23d5856884e7a7e9611b7a449c7f`). Its
 bundled web assets match the source build. Functional evidence in the table is
 from the earlier `773bd90a6f` app and does not transfer to the installed build.
 Ordinary builds retain the established renderer and the qualification switch.
@@ -34,6 +34,14 @@ Ordinary builds retain the established renderer and the qualification switch.
 | Privacy and interruption | Existing native privacy and presentation owners | Ten warm Profile background/resume cycles and Control Center recovery passed on `773bd90a6f`; other interruption and overlay combinations remain unqualified. |
 | Other routes and nested states | Existing feature owners and renderer-specific fallbacks | The generated inventory covers route discovery, not every interaction state. Native completion, visual and accessibility review, mutation fixtures and physical performance acceptance remain open. |
 
+The combined surface map includes four standard dynamic routes without native
+inventory rows: `/one/connected-systems/[systemId]` and the RIA client,
+account and request detail routes under `/ria/clients/[userId]`. The current
+Dev static export contains one generated connected-system path and one fixture
+path for each RIA detail family. Arbitrary identifiers and their native
+navigation have not been verified; the generated map must not count these
+unclassified routes as native acceptance.
+
 At integrated source `95dc95d6da`, the existing Profile feature-page geometry
 regression passed in Chromium and WebKit, including its 390 × 844, 1024 × 1366
 and 1440 × 900 pane checks. This is browser layout evidence, not iPad device or
@@ -42,12 +50,13 @@ testability enabled but did not enter a test case before it was stopped; it
 provides no native acceptance evidence.
 
 Rollback remains the existing qualification switch. No Dev deployment or
-physical acceptance is implied for the integrated source. After installation,
-the app reached its passphrase gate; a public eight-character XCUI input probe
-delivered six characters and was cleared without submitting. The newer build's
-warm scroll check therefore stopped at Chat admission, before scrolling. A
-public-only refocus experiment delivered five of eight characters and was also
-cleared; it was not adopted and does not establish the input-loss cause.
+physical acceptance is implied for the installed source. On the earlier
+`95dc95d6da` candidate, the app reached its passphrase gate; a public
+eight-character XCUI input probe delivered six characters and was cleared
+without submitting. A public-only refocus experiment delivered five and was
+also cleared; it was not adopted and does not establish the input-loss cause.
+The `85d175b750` build installed and launched, but its first XCTest attempt
+timed out before the test body while enabling automation.
 
 ### iPhone stock-app reference — 2026-10-27
 
