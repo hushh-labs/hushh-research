@@ -46,6 +46,80 @@ increase. Preserve the canonical DB ceiling before changing instance, worker or
 pool counts; roll back the serving revision if additional concurrency degrades
 admission or database latency.
 
+## Independent Dev pod publication
+
+Prepare and activate through the existing Main-owned `deploy-dev.yml`; this is
+Dev only. Keep `scope=auto` and the legacy `build_pod_image` input false for this
+target. Supply the exact CI-green pod/descriptor source and its existing branch:
+
+```bash
+gh workflow run deploy-dev.yml --ref main \
+  -f target=pod-publication -f pod_action=prepare -f scope=auto \
+  -f ref=<existing-pod-branch> -f sha=<exact-ci-green-source>
+```
+
+Preparation selects the existing pod build, digest/archive and distribution
+steps. It does not run shared deployment, migrations, secret sync, model probes
+or owner installation. A reviewed metadata reuse pin still requires the Main-owned
+`reuse-pod-release.py --check-source-only` check before cloud setup. The original
+image source is preserved even when the reviewed descriptor source differs.
+Preparation produces an archive and a sanitized serving-baseline artifact, not
+readiness or an installation offer.
+
+Qualify that exact digest with the existing deployment-platform probe, encrypted
+predecessor recovery fixture and actual shared/pod compatibility rehearsal. Keep
+native Memory Bank and inference acceptance separate from format/API evidence.
+Archive small sanitized evidence envelopes beside the existing release artifacts,
+under `pod-releases/<image-source>/<prepare-run>/qualification-<kind>.json`.
+Retain original authenticated native execution observations and reviewed probe
+code. Do not replace those observations with authored success booleans.
+
+A subsequent reviewed Main change may add an activation pin (`pod-publication.json` in the `deploy` directory). It has
+`schemaVersion=1`, `descriptorSourceRevision`, the existing four-field `release`
+pin (`image`, `sourceRevision`, `runId`, `archiveSha256`), `preparationBuildId`,
+`preparationManifestSha256`, `preparationAttempt`, `preparationArtifactId` and
+`preparationArtifactSha256`,
+the exact `baseline` and three kinds of `evidence`: `platform`, `recovery` and
+`compatibility`. Each evidence reference pins its archive object, immutable
+generation, SHA-256, original native execution names and probe SHA-256. The
+validator's `CHECKS` sets define the required observations. Compatibility binds
+the exact baseline; every advertised upgrade predecessor requires recovery.
+The native build's artifact manifest binds immutable generations of the descriptor,
+resolver provenance and executable image manifest. Validate those exact bytes and
+digest as well as the successful build; step names alone are insufficient.
+The exact attempt's successful preparation job and upload must produce the pinned
+Actions artifact. Its immutable digest, build ID, prepared outcome and release
+bytes must agree with the native build and archive. An ordinary deployment,
+activation-only run or unrelated build with copied run tags cannot qualify.
+
+The baseline contains only service UID, serving revision, immutable application
+image/source and configuration/traffic fingerprints. Never commit or upload application
+environment dumps, credentials, owner details or ciphertext. Main review must
+verify the original native executions and probe provenance: matching hashes and
+`checks=true` alone do not establish qualification. No activation pin is installed
+by the workflow implementation itself.
+
+Coordinate catalog activation after those receipts are accepted:
+
+```bash
+gh workflow run deploy-dev.yml --ref main \
+  -f target=pod-publication -f pod_action=activate -f scope=auto \
+  -f ref=<existing-descriptor-branch> -f sha=<reviewed-descriptor-source>
+```
+
+Activation uses the existing Dev lock, capacity contract and native service etag.
+It preserves the serving application image, identity, secrets, networking,
+timeouts and application deployment provenance. Only the catalog and separate
+publication annotations change. Verify the zero-traffic revision before promotion
+and retain rollback traffic. If another release changes the pinned baseline,
+stop and arrange a new coordinated qualification; do not follow it automatically.
+An ambiguous API outcome retains its intent/operation and requires reconciliation.
+A repeated already-active catalog is read-only. Native health is not a substitute
+for compatibility or whole-pilot acceptance. Existing owner approval remains
+mandatory; this operation never installs a pod image.
+Browser qualification requires an already-enabled compatible application flag;
+this narrow operation refuses that flag transition instead of changing it.
+
 ## Maintaining an existing owner's software release
 
 This section governs upgrades; the dated first-light checks above and legacy
@@ -664,6 +738,228 @@ owner response separately. Describe this as approved dev bridge processing, not
 native owner-project Vertex. The local implementation and synthetic checks do not
 establish installed owner acceptance.
 
+### Hosted private-pod pilot
+
+A verified phone establishes the owner's identity. If pending reservation is
+deferred until AI selection, the qualified hosted selector reserves it after
+fixed-cohort admission. Automatic continuation requires an already authorized
+BYOC placement; unselected, Shared, managed and unreadable placements remain pending. A managed pilot owner selects
+hosting, then invokes the existing owner-authorized provision route. Keep the
+existing automation flag; do not use it to bypass fixed-cohort admission.
+
+The October 26 pilot keeps two synthetic hosted owners in separate Hussh-funded
+projects. Shared and BYOC remain separate choices. Use the existing image build,
+release catalog and upgrade approval contracts. Copy the same immutable digest
+into each project; do not rebuild per owner or claim an older digest contains new
+runtime changes.
+
+`PrivateGcpDeployment` is the common rendering/readback contract. The hosted
+adapter preserves pure planning for unbound specifications. An internal spec with
+a typed controller binding delegates to the existing private GCP lifecycle;
+it is not a public hosted activation switch. Dev migration 973 adds two fixed
+project assignments and retained cost-reservation references around the existing
+provision journal, without seeding a policy. Each owner holds US$200 for work and
+US$50 for cleanup. A lost journal or retry cannot replenish that allocation.
+Project IDs can be reserved before creation; capture Resource Manager's actual
+project number in the provision evidence before accepting numeric readback.
+The candidate `retain_hosted_pod_project_observation` port records an ACTIVE
+Resource Manager readback on the same reserved attempt. Repeated matching reads
+are idempotent; changed numbers, owners or attempts refuse. It preserves the
+original assignment and spend slot. A fresh admission check compares that exact
+record before worker-side provider operations, without holding SQL connections
+across cloud work. The operator preparation adapter connects this port to native project creation;
+October 27 readback retained both synthetic projects and their actual numbers.
+The optional hosted `bootstrapContract` retains the full authored plan and exact
+executor order on the original assignment. Its checkpoint uses the existing
+`provisionAttempt`: one generation CAS admits intent, then retains sanitized
+observations. A duplicate intent grants no second mutation. Missing acknowledgment
+or a failed step requires reconciliation; it never terminates a concurrent winner.
+Only successful observed prefixes can resume. A fully observed plan needs a fresh
+SQL acknowledgment to settle, with no cloud token mint or provider mutation.
+The admitted bootstrap plan must name the qualified distribution image as its
+source and the assigned project repository as its destination, with equal digests.
+Record direct ingress before freezing the plan; changing it afterward invalidates
+the checkpoint contract. The existing spec resolver binds this exact plan and
+continuation to the existing substrate executor. The same reserved attempt can
+resume only while its intent, allocation and observed row still match.
+
+Existing hosted access uses its retained owner, project, runtime principal and
+service UID rather than new-work admission expiry. The shared fleet identity
+cannot assert a dedicated hosted owner. Direct endpoint publication still needs
+the pod wall, app preflight and live Google IAM/incarnation checks, then compares
+the full observed metadata under the registry write. An appended authority field
+invalidates that comparison. These changes do not widen BYOC-only Puppy admission.
+Managed app admission additionally requires the signed `hosting_mode=hussh_hosted`
+marker with exact `gcp` / `dev` placement. The hub derives it from retained
+placement and rechecks authority under the binding-publication lock; the pod
+requires the matching validated runtime configuration. Existing BYOC bindings
+omit the marker. Hosted chat uses direct admission, never a Shared fallback or
+pre-unlock hub processing.
+
+The initial deployment marker may omit Google's not-yet-assigned UID; later
+readback accepts that exact initial marker only for the independently recorded UID.
+
+Managed cleanup credential acquisition requires a cleanup-scoped fresh guard,
+including the inherited bucket/key/account/grant paths and operator mail cleanup.
+Provisioning authority cannot mint deletion credentials. Candidate migration 974
+refines the existing erasure validators through frozen managed coordinates and
+the actual retained bootstrap authorization. It is registered in the dev migration
+manifest; migrations 973 and 974 were applied and read back in Dev on October 27.
+Managed model-grant cleanup uses the exact retained bridge policy/member and
+preserves pre-existing grants. Project retirement uses the retained operator;
+it disables billing only after independently proved resource erasure and bootstrap
+release. `DELETE_REQUESTED` means retirement pending provider purge, never proof
+that key material was destroyed. Both helpers recheck SQL authority before each
+mutation and reconcile an uncertain write through native readback. The serving
+hub receives no operator ADC credential. The erasure coordinator requires a
+separately bound operator stage, or already verified retained receipts.
+
+The committed runtime writer uses the existing sealed log and head CAS. An expired
+lease permits a competing CAS; it does not prove that the old process died or
+provide exactly-once external effects. Every append checks ownership. Approved
+handoff fences generic expiry takeover; an upgraded revision must carry that exact
+writer operation. Read-only recovery uses frozen retained model bindings so retiring
+a model profile cannot strand inspection; new mutations still require current policy.
+
+Complete partial-provision cleanup, operator adapter, archive and reconciliation
+acceptance remains required before either pilot owner is provisioned.
+Pre-host abort uses the same frozen erasure reservation, without inventing a
+running service UID or successful Memory deletion. `HostedPrefixAbortOperator`
+retains native inventory before disabling the runtime writer, removes retained
+IAM grants before their targets, and releases bootstrap authority last. Its
+default `NativePrefixInventory` reads exact resource incarnations and independent
+project-wide compute, storage, key, secret and Memory inventories. Unknown
+resources, denied reads and unsupported endpoints remain unverified. Regional
+Vertex reads must use their matching endpoint; `us` and `eu` use Google's
+Regional Endpoint Proxy. Native location discovery alone does not prove that an
+Engine namespace was read successfully.
+The generic Vertex catalogue also contains `ca`, outside the Engine capability
+domain in Google's pinned October 26 agent-location contract. Only these new
+managed dev projects may retain a separate `not_applicable` observation: exact
+native creation time and attempt labels, the reviewed contract hash and expiry,
+and an independently observed unavailable endpoint are required. The catalogue
+entry remains visible. A successful listing takes precedence; older/BYOC
+projects, denied reads, unknown locations and expired qualification still refuse.
+The pinned qualification expires October 31; refreshing it requires reviewing
+the provider contract and its owning SQL validator together.
+
+`cleanup_managed_preparation` covers the earlier project/billing preparation
+boundary. A terminal failed billing or authorization step retains its failure;
+independent bootstrap absence, IAM, billing and resource observations are needed
+before retirement. Partial authorization effects remain pending reconciliation.
+Both operators require explicitly supplied, verified short-lived operator
+authority; neither discovers credentials inside the hub. A bounded pass exits
+with unfinished work retained. KMS destruction resumes from the existing journal
+after its provider deadline; it never keeps a runner sleeping. Source regression
+and migration replay checks are not live erasure acceptance.
+Hosted notification work requires both general and notification-specific intent
+acknowledgments; its specialized observation must persist before general progress
+can be reused. Existing notification SQL remains BYOC-only, so this composition
+alone does not enable hosted Gmail or establish live connector acceptance.
+The hosted pilot renderer explicitly declares Gmail notifications unqualified and
+omits their topics, subscriptions, watch job and solely-mail IAM before freezing
+the bootstrap contract. It preserves core custody and optional Files resources;
+BYOC rendering is unchanged. An empty mail inventory alone never permits key
+destruction: SQL requires the exact admitted managed plan, a valid matching
+inventory, and no declared mail resource, including legacy resources. Any
+declared mail resource still requires its own deletion evidence.
+
+Cleanup receipt payload checks are separate from dependency ordering: validate
+inventory and IAM dependencies once per completion pass, then each exact pair.
+The mutation wrapper still enforces IAM before resources, other resources before
+KMS, then bootstrap and project retirement. Repeated checks cannot authorize
+new deletion or replace native observations.
+
+Synthetic hosted pilot keys explicitly use a 24-hour destruction delay at creation;
+existing BYOC keys retain their existing policy. Native readback must confirm the
+admitted setting, and an organization-policy refusal remains blocking. Scheduled
+destruction is pending erasure until Google reports `DESTROYED`; neither revocation
+nor project retirement substitutes for that observation.
+These ceilings are not usage metering or provider spending enforcement.
+Completing live operations still needs exact image/model admission, bounded cost
+checks, retained project creation outcomes, per-owner custody and verified cleanup. A deployment marker,
+an environment flag or a successful model request supplies none of that authority.
+
+The current shared UAT text runtime explicitly selects Azure OpenAI. Its keyless
+bridge trusts the shared Google workload subject; a new pod needs its own Entra
+federation rather than copying or impersonating that identity. Cached operator
+Azure sessions did not cover that bridge tenant at the October 26 inspection.
+The owner authorized the existing Gemini bridge as the dev-pilot fallback when
+the Azure connection cannot be reused with separate pod identities. This is an
+explicit pilot processing choice, not a claim that shared One currently uses Vertex.
+
+Keep verification calls serial. The managed readiness sequence stops on its first
+429, preserves earlier results and marks unstarted targets unsuccessful and
+undispatched. Dev readiness refuses multiple configured text locations before
+dispatch so regional failover cannot make another request after that refusal.
+
+For this authorized dev fallback, pin `inferenceProject` to the dev Vertex profile.
+Runtime mode `hosted_pod_adc` uses the hosted pod's own attached
+service account and verifies the metadata principal before releasing a token to
+Vertex. Grant that exact account only the reviewed inference permissions in the
+selected model project; do not copy hub credentials. Compute, storage, KMS and
+Memory Bank keep their assigned owner-project coordinates. BYOC retains its native
+project and separately approved exact-owner dev bridge. Neither policy is an
+automatic fallback for the other. Live, Files and connector acceptance remain
+independent of text inference. Version 2 deployment markers also bind the exact
+model and profile hash: both ADK and recorded-command transports reject another
+model before constructing a client, and resolve fleet aliases before admission.
+Hosted private chat and memory require verified owner sessions; this does not
+reclassify managed hosting as BYOC or enable the BYOC-only Contacts capability.
+
+Read-only administrative checks on October 26 verified ADC for `kushal@hushh.ai`,
+an active consent-platform folder, project-create authority and one visible open
+billing account with association authority. A synthetic dev-project Vertex request
+returned HTTP 403 with a billing-related refusal. After the owner authorized use
+of the existing shared AI route, one synthetic request to the dev profile's
+`hushh-gemini-bridge`, model `gemini-3.7-flash`, returned HTTP 200 and a nonempty
+reply. Its reported usage was 4 prompt tokens, 1 output token and 58 thinking
+tokens. This was an operator request, not a pod-identity proof or settled charge.
+It qualifies endpoint availability only. No hosted project was created by these
+checks.
+
+Reserve US$100 for cleanup and uncertainty; permit at most US$400 of conservatively
+projected implementation/verification work under the US$500 total ceiling. Count
+models, memory services, compute, storage, KMS, builds, logs and networking. Budget
+notifications do not enforce this ceiling. Require current tariffs, retained
+reservations and conservative accrued usage before each billable operation.
+
+Before enabling the cohort, prove sibling invoke/read/decrypt/memory refusal,
+exact pod model identity, restart and interrupted-create recovery, single-writer
+fencing, owner-approved update/rollback and complete erasure. Record source SHA,
+image digest, serving incarnation, configuration, usage and cleanup receipts.
+Until then, keep enrollment disabled and report each unmet acceptance separately.
+
+### Reconciling a failed hosted bucket create
+
+Keep the original provision attempt, assignment, source image and cost slot.
+A failed provider response is not proof of absence. Dev migration 975 adds one
+operator reconciliation port for a last-step `cmek_bucket` HTTP 503. It does not
+reconcile arbitrary failed steps or authorize deletion.
+
+Use `reconcile_failed_bucket_absence` with the verified operator named by the
+retained preparation contract. It checks current bootstrap admission, reads the
+exact project identity and deterministic bucket name outside SQL, then requires
+a fresh native HTTP 404. Existing, inaccessible or uncertain buckets remain
+blocked. SQL compares the complete failed checkpoint under the existing owner
+locks, retains it in `hostedCheckpointReconciliations`, and advances its generation
+while restoring only the successful prefix. The existing executor may then issue
+one new intent for that same bucket name. A competing or stale recovery loses the
+CAS; completed effects and spend reservations are not repeated or replenished.
+The existing 409 path must still verify project and CMEK identity. No raw journal
+edits, fabricated successful create receipts or unchecked retries are permitted.
+Rollback removes the new function while retaining recovery history and resources.
+Activation requires the verified migration receipt; local SQL tests alone do not
+prove a live recovery.
+
+The October 27 backend-only activation also exposed an ADK readiness probe with
+no answer after exhausting its 64-token cap. Both synthetic text probes now allow
+512 output tokens, including minimal thinking, while retaining the same timeout,
+first-quota-stop rule and requirement for an actual nonempty, non-truncated reply.
+This is a probe budget correction, not a claim that private model or memory
+acceptance has passed.
+
+
 ### One-time legacy bootstrap exception
 
 An installed release may predate the handoff protocol. Check with the configured
@@ -697,3 +993,15 @@ Do not add a permanent bypass flag or silently bootstrap other owners.
 
 Record bootstrap results separately from the subsequent owner-approved update
 acceptance. Do not repeat a bootstrap merely because later authentication fails.
+
+
+### Dev hosted pilot: memory consent transport
+
+After each fixed synthetic owner has a verified direct app connection, grant
+provider processing through the metadata-only `memory/provider-grant` endpoint,
+then send that grant to the pod with the owner's app session. The legacy hub
+`memory/provider-consent` relay is refused by private pods because it carries no
+owner-local session. Do not remove that protection or substitute `pkm.read` for
+processing consent. Read consent status directly; withdrawal requires no new hub
+grant. Complete both owner-isolation and native Memory Bank checks before treating
+learning as verified. This pilot authorizes no UAT or production checks or changes.

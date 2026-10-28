@@ -14,14 +14,14 @@ const profileSource = readFileSync(
 const setupSource = readFileSync(join(process.cwd(), "app/one/setup/email/email-onboarding-setup-client.tsx"), "utf8");
 
 function expectOwnerScopedKycIntake(pageSource: string, emailSetupSource: string) {
-  expect(pageSource).toContain("verificationIntake?.ownerId === user?.uid");
+  expect(pageSource).toContain("verificationIntake?.ownerId === userId");
   expect(pageSource).toContain("verificationIntake?.vaultKey === vaultKey");
   expect(pageSource).toContain('const verificationDraft = verificationIntakeCurrent ? verificationIntake?.draft ?? "" : "";');
   expect(pageSource).toContain("const verificationDeferred = verificationIntakeCurrent ? verificationIntake?.deferred ?? false : false;");
-  expect(emailSetupSource).toContain("identityStatus?.ownerId === user?.uid && identityStatus?.vaultKey === vaultKey");
+  expect(emailSetupSource).toContain("identityStatus?.ownerId === userId && identityStatus?.vaultKey === vaultKey");
   expect(emailSetupSource).toContain("const identityPrefaceComplete = identityStatusCurrent && identityStatus?.complete;");
   expect(emailSetupSource).toContain("setResult(completed, false)");
-  expect(emailSetupSource).toContain("key={user.uid}");
+  expect(emailSetupSource).toContain("key={userId}");
 }
 
 function expectOwnerScopedReceiptProjection(pageSource: string) {
@@ -71,7 +71,7 @@ describe("Gmail workspace background loading contract", () => {
 
   it("hides previous owner/account rows, detail entry, and counts before the clearing effect runs", () => {
     expect(source).toContain(
-      '`${user.uid}\\u0000${String(receiptAccountKey || "")}`',
+      '`${userId}\\u0000${String(receiptAccountKey || "")}`',
     );
     expectOwnerScopedReceiptProjection(source);
     expect(source).toContain("receiptCompletion?.scope === receiptDisplayScope ? receiptCompletion?.count ?? 0 : 0");

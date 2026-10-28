@@ -12,6 +12,31 @@ class CalendarDay(BaseModel):
     time_zone: str = Field(min_length=1, max_length=128)
 
 
+class CalendarInsightsDay(CalendarDay):
+    account_id: str = Field(default="default", min_length=1, max_length=128)
+
+
+class CalendarMeetingPage(CalendarInsightsDay):
+    cursor: str | None = Field(default=None, min_length=40, max_length=40000)
+    query: str = Field(default="", max_length=120)
+    kind: str = Field(default="all", pattern="^(all|recording|notes)$")
+
+
+class CalendarMeetingSelection(BaseModel):
+    account_id: str = Field(default="default", min_length=1, max_length=128)
+    expected_account_email: str | None = Field(default=None, min_length=1, max_length=512)
+    expected_grant: str | None = Field(default=None, min_length=64, max_length=64)
+    occurrence_id: str | None = Field(default=None, min_length=64, max_length=64)
+    calendar_id: str = Field(min_length=1, max_length=1024)
+    event_id: str = Field(min_length=1, max_length=2048)
+    date: str | None = Field(default=None, min_length=10, max_length=10)
+    time_zone: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class CalendarMeetingDownload(CalendarMeetingSelection):
+    file_id: str = Field(min_length=10, max_length=255)
+
+
 class CalendarOpeningWindow(CalendarDay):
     start_time: str = Field(default="09:00", max_length=5)
     end_time: str = Field(default="17:00", max_length=5)

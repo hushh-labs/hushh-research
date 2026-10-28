@@ -17,14 +17,14 @@ import {
  * by the RIA workspace rather than duplicated under the general Profile hub.
  */
 export default function RiaProfilePage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId, loading: authLoading } = useAuth();
   const [status, setStatus] = useState<RiaOnboardingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
   const refreshStatus = useCallback(
     async (force = false) => {
-      if (!user) {
+      if (!user || !userId) {
         setStatus(null);
         setLoading(false);
         return null;
@@ -34,7 +34,7 @@ export default function RiaProfilePage() {
       try {
         const idToken = await user.getIdToken();
         const nextStatus = await RiaService.getOnboardingStatus(idToken, {
-          userId: user.uid,
+          userId,
           force,
         });
         setStatus(nextStatus);
@@ -49,7 +49,7 @@ export default function RiaProfilePage() {
         setLoading(false);
       }
     },
-    [user],
+    [user, userId],
   );
 
   useEffect(() => {

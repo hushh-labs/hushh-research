@@ -182,7 +182,8 @@ describe("One Location — People actions stay reachable and single-flight", () 
   it("refuses a second tap rather than queueing it, in both presentations", () => {
     // Single-flight is the point: the sheet returns early and the menu
     // preventDefaults, so a disabled row can never fire its action.
-    expect(ACTION_MENU_SOURCE).toContain("if (item.disabled) return;");
+    expect(ACTION_MENU_SOURCE).toContain("if (item.disabled || item.busy) return;");
+    expect(ACTION_MENU_SOURCE).toContain("if (item.disabled || item.busy) {");
     expect(ACTION_MENU_SOURCE).toContain("event.preventDefault();");
     // The pointer lane keeps the content mounted, as it always did.
     expect(ACTION_MENU_SOURCE).toContain("forceMount");

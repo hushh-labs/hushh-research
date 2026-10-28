@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+document_mode="${1:-all}"
+if [ "$#" -gt 1 ]; then echo 'Unexpected integration gate arguments.' >&2; exit 64; fi
+case "$document_mode" in
+  all) ;;
+  --ci-linux-document)
+    [ "${CI:-}:${RUNNER_OS:-}" = 'true:Linux' ] || exit 64 ;;
+  *) echo 'Unknown integration gate mode.' >&2; exit 64 ;;
+esac
+
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 WEB_DIR="$REPO_ROOT/hushh-webapp"
 
@@ -25,7 +34,7 @@ bash "$REPO_ROOT/scripts/ci/account-deletion-check.sh"
 # A new hosted path cannot pass on mocked component success or direct SQL-paid
 # assignment. These loops use production clients, routes and PostgreSQL: protected
 # document delivery plus phone recovery, erasure and device-action admission.
-bash "$REPO_ROOT/scripts/ci/document-delivery-check.sh"
+bash "$REPO_ROOT/scripts/ci/document-delivery-check.sh" "$document_mode"
 
 # Expensive zero-loss rehearsal belongs only to PKM upgrade compatibility
 # changes. GitHub workflows resolve this through the canonical changed-SHA

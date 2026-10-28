@@ -80,6 +80,7 @@ import {
 } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { WorldModelProvider } from "@/components/profile/world-model-provider";
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
+import { FinanceSharePublisher } from "@/components/kai/sharing/finance-share-publisher";
 import { WalletProfileBootstrap } from "@/components/wallet-card/wallet-profile-bootstrap";
 import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
@@ -111,6 +112,7 @@ import {
 import { NativeTestRouter } from "@/components/app-ui/native-test-router";
 import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
+import { NativeFeedbackToaster } from "@/components/app-ui/native-feedback-toaster";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
 import { AgentAppNotifiers } from "@/components/agent/agent-app-notifiers";
@@ -680,6 +682,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                 app. Keeping it outside the route Suspense boundary prevents
                 fallback/resolved remounts from launching the same sync twice. */}
                     <PostAuthOnboardingSyncBridge />
+                    <FinanceSharePublisher />
                     <InitialContactsBridge />
                     <WalletProfileBootstrap />
                     <LocationBusAccountBridge />
@@ -883,6 +886,7 @@ export function Providers({ children }: ProvidersProps) {
             </RenderPerfProfiler>
           </Suspense>
         </AuthProvider>
+        <NativeFeedbackToaster />
         <Toaster
           position="top-center"
           closeButton

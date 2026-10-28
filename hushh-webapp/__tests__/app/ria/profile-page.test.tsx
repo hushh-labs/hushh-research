@@ -238,6 +238,7 @@ describe("RiaProfileSection manage actions", () => {
     vi.clearAllMocks();
     mocks.useAuth.mockReturnValue({
       user: { uid: "u1", getIdToken: vi.fn().mockResolvedValue("tok") },
+      userId: "u1",
     });
     mocks.usePersonaState.mockReturnValue({
       riaOnboardingStatus: VERIFIED_STATUS,

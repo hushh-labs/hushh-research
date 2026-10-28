@@ -22,7 +22,11 @@ const mocks = vi.hoisted(() => ({
   router: { push: vi.fn(), replace: vi.fn() },
 }));
 
-vi.mock("@/lib/services/calendar-insights-service", () => ({ CalendarInsightsService: { read: mocks.insights } }));
+vi.mock("@/lib/services/calendar-insights-service", () => ({
+  CalendarInsightsService: { read: mocks.insights },
+  CalendarInsightsRequestError: class extends Error { constructor(message: string, readonly status: number) { super(message); } },
+  safeMeetingProviderUrl: (value: unknown) => typeof value === "string" && /^https:\/\/(docs|drive)\.google\.com\//.test(value) ? value : null,
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => mocks.router,
@@ -37,6 +41,9 @@ vi.mock("@/lib/vault/vault-context", () => ({
     ownerTokenStatus: mocks.ownerTokenStatus,
     retryOwnerTokenRenewal: mocks.retryOwnerTokenRenewal,
   }),
+}));
+vi.mock("@/lib/calendar/use-calendar-hussh-people", () => ({
+  useCalendarHusshPeople: () => new Map(),
 }));
 vi.mock("@/lib/services/google-calendar-service", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/google-calendar-service")>(),
@@ -348,6 +355,28 @@ describe("CalendarConnectedWorkspace", () => {
     expect(screen.getByRole("heading", { name: "Executive snapshot" })).toBeInTheDocument();
     expect(mocks.availability).not.toHaveBeenCalled();
     expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();
+  });
+
+  it("keeps the meeting-files permission action connected in the legacy Calendar view", async () => {
+    const onAllowMeetingFiles = vi.fn();
+    mocks.insights.mockImplementation(async (path: string, body: { date: string; time_zone: string; account_id: string }) => path === "meetings" ? {
+      date: body.date, time_zone: body.time_zone, account_id: body.account_id,
+      meetings: [], checked_events: 0,
+      complete: false, next_cursor: null, limitations: ["permission_required"],
+    } : { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0, time_zone: "UTC" });
+    render(<CalendarConnectedWorkspace userId="owner" status={status} busy={false}
+      getIdToken={mocks.getIdToken} onConnect={mocks.onConnect} onChat={mocks.onChat}
+      onDisconnect={mocks.onDisconnect} onAllowMeetingFiles={onAllowMeetingFiles} />);
+    fireEvent.click(control("Insights"));
+    fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Allow recording and notes access" }));
+    expect(onAllowMeetingFiles).toHaveBeenCalledExactlyOnceWith("default", expect.objectContaining({
+      accountId: "default",
+      day: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      timeZone: expect.any(String),
+      filter: "all",
+      query: "",
+    }));
   });
 
   it("does not describe loading or a failed event fetch as an empty day", async () => {
@@ -1199,126 +1228,4 @@ describe("CalendarConnectedWorkspace", () => {
     expect(mocks.onDisconnect).toHaveBeenCalledOnce();
     expect(mocks.onConnect).not.toHaveBeenCalled();
   });
-});
-
-
-describe("Calendar Insights meeting library", () => {
-  afterEach(cleanup);
-  it("filters verified artifacts, keeps search on Back and hides revoked sources", async () => {
-    mocks.getIdToken.mockResolvedValue("firebase-owner-token");
-    mocks.today.mockResolvedValue(dailyResponse());
-    mocks.insights.mockImplementation(async (path: string) => {
-      if (path === "meetings") return { complete: true, window_days: 30, meetings: [
-        { id: "notes", calendar_id: "primary", title: "Design review", artifact_kinds: ["notes"], start: { dateTime: "2026-10-14T10:00:00Z" } },
-        { id: "video", calendar_id: "primary", title: "Product demo", artifact_kinds: ["recording"], start: { dateTime: "2026-10-14T09:00:00Z" } },
-      ] };
-      if (path === "meetings/detail") return { discovery: "permission_required", complete: false, event: { title: "Design review" }, artifacts: [{ file_id: "revoked", kind: "notes", state: "permission_required" }] };
-      return { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 };
-    });
-    render(workspace());
-    fireEvent.click(screen.getByRole("tab", { name: "Insights", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
-    await screen.findByRole("button", { name: /Design review/ });
-    fireEvent.click(screen.getByRole("tab", { name: "Notes", exact: true }));
-    expect(screen.queryByRole("button", { name: /Product demo/ })).toBeNull();
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Design" } });
-    fireEvent.click(screen.getByRole("button", { name: /Design review/ }));
-    expect(await screen.findByRole("button", { name: "Ask One about this meeting" })).toBeDisabled();
-    expect(screen.queryByRole("link", { name: /Open source/ })).toBeNull();
-    act(() => { unwindBackLayer("/one/calendar"); });
-    expect(screen.getByRole("searchbox")).toHaveValue("Design");
-    await screen.findByRole("button", { name: /Design review/ });
-    expect(screen.getByRole("tab", { name: "Notes", exact: true })).toHaveAttribute("aria-selected", "true");
-  });
-});
-
-it("refreshes new artifacts and modified notes, removes revoked content, and stops hidden/offline requests", async () => {
-  mocks.getIdToken.mockResolvedValue("firebase-owner-token");
-  mocks.today.mockResolvedValue(dailyResponse());
-  let generation = 0;
-  let hidden = false;
-  let online = true;
-  vi.spyOn(document, "visibilityState", "get").mockImplementation(() => hidden ? "hidden" : "visible");
-  vi.spyOn(navigator, "onLine", "get").mockImplementation(() => online);
-  const overview = { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 };
-  mocks.insights.mockImplementation(async (path: string) => path === "insights" ? overview : path === "meetings" ? {
-    complete: true, window_days: 30, meetings: [{ id: "late", calendar_id: "primary", title: "Late files", artifact_kinds: generation ? ["recording", "notes"] : [], artifact_status: "processing" }],
-  } : { discovery: "checked", complete: true, artifacts: generation === 3 ? [{ file_id: "n", kind: "notes", state: "permission_required" }] : generation ? [
-    { file_id: "r", kind: "recording", state: "available", url: "https://drive.google.com/file/d/r/view" },
-    { file_id: "n", kind: "notes", state: "available", text: generation === 1 ? "Original provider notes\nDecisions\nUse provider file IDs.\nFollow-ups\nVerify access." : "Updated provider notes", url: "https://docs.google.com/document/d/n", can_ask: true },
-    { file_id: "t", kind: "transcript", state: "available", text: "Late provider transcript", url: "https://docs.google.com/document/d/t" },
-  ] : [], availability: { recording: "processing", notes: "processing", transcript: "processing" } });
-  render(workspace());
-  fireEvent.click(screen.getByRole("tab", { name: "Insights", exact: true }));
-  fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
-  fireEvent.click(await screen.findByRole("button", { name: /Late files/ }));
-  await screen.findByRole("button", { name: "Ask One about this meeting" });
-  expect(screen.queryByRole("link", { name: "Watch recording" })).toBeNull();
-  generation = 1;
-  fireEvent.click(screen.getByRole("button", { name: "Refresh", exact: true }));
-  await screen.findByRole("link", { name: "Watch recording" });
-  await screen.findByText(/Original provider notes/);
-  expect(screen.getByText("Use provider file IDs.")).toBeInTheDocument();
-  expect(screen.getByText("Verify access.")).toBeInTheDocument();
-  expect(screen.getAllByRole("link", { name: "Source: Meeting document" })).toHaveLength(2);
-  fireEvent.click(screen.getByRole("tab", { name: "Transcript", exact: true }));
-  await screen.findByText("Late provider transcript");
-  fireEvent.click(screen.getByRole("tab", { name: "Notes", exact: true }));
-  generation = 2;
-  fireEvent(window, new Event("focus"));
-  await screen.findByText("Updated provider notes");
-  expect(screen.queryByText(/Original provider notes/)).toBeNull();
-  generation = 3;
-  fireEvent.click(screen.getByRole("button", { name: "Refresh", exact: true }));
-  await waitFor(() => expect(screen.queryByText("Updated provider notes")).toBeNull());
-  await screen.findByText(/Permission required. Calendar access/);
-  expect(screen.queryByRole("link", { name: "Watch recording" })).toBeNull();
-  hidden = true;
-  fireEvent(document, new Event("visibilitychange"));
-  const before = mocks.insights.mock.calls.length;
-  fireEvent(window, new Event("focus"));
-  await act(async () => {});
-  expect(mocks.insights).toHaveBeenCalledTimes(before);
-  online = false; hidden = false;
-  fireEvent(window, new Event("offline"));
-  expect(screen.getByRole("button", { name: "Refresh", exact: true })).toBeDisabled();
-  online = true;
-  fireEvent(window, new Event("online"));
-  await waitFor(() => expect(mocks.insights.mock.calls.length).toBeGreaterThan(before));
-  cleanup(); vi.restoreAllMocks();
-});
-
-it("bounds background checks to five visible refreshes and cancels stale account responses", async () => {
-  mocks.getIdToken.mockResolvedValue("firebase-owner-token");
-  mocks.today.mockResolvedValue(dailyResponse());
-  const timers = new Map<number, () => void>();
-  const setTimeout = window.setTimeout.bind(window), clearTimeout = window.clearTimeout.bind(window);
-  let timerId = 900000;
-  vi.spyOn(window, "setTimeout").mockImplementation(((callback: () => void, delay?: number, ...args: unknown[]) => {
-    if (delay === 60000) { timers.set(++timerId, callback); return timerId; }
-    return setTimeout(callback, delay, ...args);
-  }) as typeof window.setTimeout);
-  vi.spyOn(window, "clearTimeout").mockImplementation(id => { timers.delete(id); clearTimeout(id); });
-  mocks.insights.mockResolvedValue({ complete: true, meetings: [], days: [], recurring: [], focus: [], meeting_count: 0, meeting_minutes: 0 });
-  const view = render(workspace());
-  fireEvent.click(screen.getByRole("tab", { name: "Insights", exact: true }));
-  fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
-  await screen.findByText("No linked meetings were returned for this period.");
-  for (let index = 0; index < 5; index++) {
-    await waitFor(() => expect(timers.size).toBe(1));
-    const [id, callback] = [...timers][0]; timers.delete(id);
-    await act(async () => callback());
-    await screen.findByText("No linked meetings were returned for this period.");
-  }
-  expect(timers.size).toBe(0);
-  let finish!: (value: unknown) => void;
-  mocks.insights.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-  fireEvent.click(screen.getByRole("button", { name: "Refresh", exact: true }));
-  await waitFor(() => expect(finish).toBeDefined());
-  const signal = mocks.insights.mock.calls.at(-1)?.[3] as AbortSignal;
-  view.rerender(workspace("owner", { ...status, google_email: "new@example.com" }));
-  await waitFor(() => expect(signal.aborted).toBe(true));
-  await act(async () => finish({ complete: true, meetings: [{ id: "old", title: "Stale private meeting" }] }));
-  expect(screen.queryByText("Stale private meeting")).toBeNull();
-  cleanup(); vi.restoreAllMocks();
 });

@@ -18,10 +18,10 @@ const CARD = "rounded-[24px] border border-border/45 bg-card/88 p-5 shadow-[var(
 const FIELD = "mt-1 w-full rounded-xl border bg-background px-3 py-2 text-sm";
 
 export default function CareerPage() {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
-  const ready = Boolean(user?.uid && isVaultUnlocked && vaultKey && vaultOwnerToken);
-  const write = ready ? { userId: user!.uid, vaultKey: vaultKey!, vaultOwnerToken: vaultOwnerToken! } : null;
+  const ready = Boolean(userId && isVaultUnlocked && vaultKey && vaultOwnerToken);
+  const write = ready ? { userId: userId!, vaultKey: vaultKey!, vaultOwnerToken: vaultOwnerToken! } : null;
 
   const [saved, setSaved] = useState<Resume | null>(null);
   const [draft, setDraft] = useState<Resume | null>(null);

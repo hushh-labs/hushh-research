@@ -15,18 +15,21 @@ import { TodoAgentSuggestions } from "@/components/todos/todo-agent-suggestions"
 
 export function OneTodoPreview({
   user,
+  ownerId,
   vaultKey,
   vaultOwnerToken,
   isVaultUnlocked,
 }: {
   user: User;
+  /** Validated application owner (useAuth().userId); `user` supplies only the Firebase ID token. */
+  ownerId: string;
   vaultKey: string | null;
   vaultOwnerToken: string | null;
   isVaultUnlocked: boolean;
 }) {
-  const ready = Boolean(user.uid && isVaultUnlocked && vaultKey && vaultOwnerToken);
+  const ready = Boolean(ownerId && isVaultUnlocked && vaultKey && vaultOwnerToken);
   const epoch = snapshotVaultSessionEpoch();
-  const identity = useMemo(() => Symbol(`todo-${Boolean(user.uid)}-${Boolean(vaultKey)}-${Boolean(vaultOwnerToken)}-${ready}-${epoch}`), [user.uid, vaultKey, vaultOwnerToken, ready, epoch]);
+  const identity = useMemo(() => Symbol(`todo-${Boolean(ownerId)}-${Boolean(vaultKey)}-${Boolean(vaultOwnerToken)}-${ready}-${epoch}`), [ownerId, vaultKey, vaultOwnerToken, ready, epoch]);
   const identityRef = useRef(identity);
   identityRef.current = identity;
   const requestRef = useRef(0);
@@ -43,12 +46,12 @@ export function OneTodoPreview({
     const isCurrent = () => identityRef.current === identity && requestRef.current === request && snapshotVaultSessionEpoch() === epoch;
     setSnapshot(previous => ({ identity, tasks: previous.identity === identity ? previous.tasks : [], loading: true, error: false, savingTaskId: null }));
     try {
-      const state = await TodoListPkmService.load({ userId: user.uid, vaultKey, vaultOwnerToken });
+      const state = await TodoListPkmService.load({ userId: ownerId, vaultKey, vaultOwnerToken });
       if (isCurrent()) setSnapshot({ identity, tasks: state.tasks, loading: false, error: false, savingTaskId: null });
     } catch {
       if (isCurrent()) setSnapshot(previous => ({ ...previous, loading: false, error: true }));
     }
-  }, [ready, user.uid, vaultKey, vaultOwnerToken, identity, epoch]);
+  }, [ready, ownerId, vaultKey, vaultOwnerToken, identity, epoch]);
 
   useEffect(() => {
     void loadTasks();
@@ -60,22 +63,22 @@ export function OneTodoPreview({
     [user],
   );
   const gmail = useGmailConnectorStatus({
-    userId: ready ? user.uid : null,
+    userId: ready ? ownerId : null,
     idTokenProvider: ready ? idTokenProvider : null,
   });
   const receiptAccountKey =
     gmail.status?.google_sub || gmail.status?.google_email || null;
   const cachedReceipts = useMemo(() => {
     if (!ready || !receiptAccountKey) return null;
-    return getCachedGmailReceipts(user.uid, receiptAccountKey);
-  }, [ready, receiptAccountKey, user.uid]);
+    return getCachedGmailReceipts(ownerId, receiptAccountKey);
+  }, [ready, receiptAccountKey, ownerId]);
 
   const dueReceipts = useMemo(() => {
     if (!cachedReceipts) return [];
     return extractDueReceipts(cachedGmailReceiptDisplayItems(cachedReceipts));
   }, [cachedReceipts]);
 
-  const live = useTodoLiveTasks({ userId: user.uid, vaultOwnerToken, idTokenProvider, enabled: ready, tasks });
+  const live = useTodoLiveTasks({ userId: ownerId, vaultOwnerToken, idTokenProvider, enabled: ready, tasks });
   const openTasks = live.pending;
   const sourceLoading = live.agentLoading || live.calendarReadLoading || live.sourceLoading;
   const sourceError = Boolean(live.agentLoadError || live.calendarReadError || live.sourceError);
@@ -104,7 +107,7 @@ export function OneTodoPreview({
     const updated = { ...task, status };
     setSnapshot(previous => ({ ...previous, savingTaskId: task.id, tasks: [...previous.tasks.filter(item => item.id !== task.id), updated] }));
     try {
-      const params = { userId: user.uid, vaultKey, vaultOwnerToken, task };
+      const params = { userId: ownerId, vaultKey, vaultOwnerToken, task };
       const result = status === "deleted"
         ? await TodoListPkmService.remove(params)
         : await TodoListPkmService.setStatus({ ...params, status });
@@ -126,7 +129,7 @@ export function OneTodoPreview({
       </div>
 
       {ready && vaultKey && vaultOwnerToken ? <TodoAgentSuggestions
-        userId={user.uid} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
+        userId={ownerId} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
         evidence={live.evidence} coverage={live.coverage} loading={Boolean(sourceLoading || loading)}
         onRefresh={retry} onSaved={() => void loadTasks()}
       /> : null}

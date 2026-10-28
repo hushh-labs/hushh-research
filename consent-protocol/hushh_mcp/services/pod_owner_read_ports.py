@@ -102,9 +102,9 @@ def owner_read_ports(
     owner_read_authority: Any = None,
 ) -> OwnerReadPorts:
     """Local placement selects custody; absent feed keys never widen it."""
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
-    local = owner_cloud_agent()
+    local = private_pod_runtime()
     if feed is None:
         from hushh_mcp.services.pod_owner_feed_client import owner_feed_client  # noqa: PLC0415
 

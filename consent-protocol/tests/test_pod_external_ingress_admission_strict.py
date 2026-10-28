@@ -184,3 +184,27 @@ async def test_an_azure_pod_needs_no_google_iam_read(promoted):
     run = _Run(members=())
     assert await _admit(_pod(), run, _row("user_azure"))
     assert run.reads == [] and len(promoted) == 1
+
+
+@pytest.mark.parametrize("iam_holds", [True, False])
+async def test_hosted_placement_requires_google_iam_readback(promoted, iam_holds):
+    from tests.hosted_pod_support import hosted_registry_row
+
+    row = hosted_registry_row()
+    row.update(pod_key_id="pod_key_1", pod_pubkey="cHVibGlj")
+    row["backend_metadata"].update(ingress="external", url=URL)
+    reads = []
+
+    async def check(candidate, **fields):
+        reads.append((candidate, fields))
+        return None if iam_holds else "iam_no_public_invoker"
+
+    async with _pod() as client:
+        result = await admission.admit_external_ingress_if_due(
+            row, client=client, db=object(), origin=ORIGIN, cloud_check=check
+        )
+    assert result is iam_holds
+    assert len(reads) == 1
+    assert bool(promoted) is iam_holds
+    if promoted:
+        assert promoted[0]["observed_row"] == row

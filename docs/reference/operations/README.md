@@ -54,6 +54,8 @@ One-time rollout notes belong in PRs, issues, or git history, not in the active 
 For the fixed PLG successor's read-only hosted checks, see
 [PLG source qualification](./plg-only-source-validation.md). Source validation
 does not replace environment acceptance or grant deployment authority.
+For the retired private lane and reconciliation of its retained resources,
+see [PLG qualification retirement](./plg-isolated-qualification.md).
 
 Within the seven-layer architecture, operations is the primary Layer 1 governance surface and the cross-layer enforcement surface for documentation, release, and compatibility rules.
 

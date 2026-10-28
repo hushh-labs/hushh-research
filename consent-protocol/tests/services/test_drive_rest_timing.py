@@ -173,9 +173,21 @@ async def test_financial_candidate_metadata_uses_the_real_fenced_group_transport
     adapter.get_file_facts.assert_not_awaited()
 
 
+def _as_deployed(record):
+    """A captured log line as the worker writes it, after the runtime redactor."""
+    from mcp_modules.log_redaction import SensitiveLogFilter
+
+    # Built directly: makeLogRecord would run the installed redacting record factory.
+    copy = logging.LogRecord(
+        record.name, record.levelno, record.pathname, record.lineno, record.msg, record.args, None
+    )
+    SensitiveLogFilter().filter(copy)
+    return copy.getMessage()
+
+
 @pytest.mark.feature_drive_packets
 @pytest.mark.trace_loop
-@pytest.mark.parametrize("failure", ["missing_operation", "unknown_oauth_code"])
+@pytest.mark.parametrize("failure", ["missing_operation", "unknown_oauth_code", "storage_timeout"])
 async def test_financial_tagger_settles_real_transport_oauth_failures_without_private_logs(
     monkeypatch, caplog, failure
 ):
@@ -184,6 +196,8 @@ async def test_financial_tagger_settles_real_transport_oauth_failures_without_pr
     from hushh_mcp.services import drive_financial_packet_tag_store as tags
     from hushh_mcp.services import drive_financial_packet_tagging as tagging
     from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+    from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
+    from mcp_modules.log_redaction import redact_log_value
     from tests.services.test_google_drive_rest_transport import FILE_ID, transport
 
     monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "true")
@@ -193,6 +207,11 @@ async def test_financial_tagger_settles_real_transport_oauth_failures_without_pr
     if failure == "missing_operation":
         # Negative control: reproduce the production omission on the real operation table.
         monkeypatch.delitem(rest._GROUP_INDEX_OPERATIONS, "get_file_metadata")
+    elif failure == "storage_timeout":
+        # The connector store's 2 s lock or 5 s statement timeout (UAT: 14 escaped batches).
+        drive._oauth.current_credential.side_effect = ConnectorLifecycleError(
+            "connector_storage_unavailable"
+        )
     else:
         drive._oauth.current_credential.side_effect = DriveOAuthError(
             "synthetic-private-provider-message"
@@ -220,13 +239,18 @@ async def test_financial_tagger_settles_real_transport_oauth_failures_without_pr
         store=object(), transport=drive, embedder=SimpleNamespace(embed=AsyncMock())
     )
     assert await worker.run_one() == "deferred"
-    commit.assert_awaited_once_with(worker.store, job, error=True)
+    code = {
+        "missing_operation": "connector_unavailable",
+        "storage_timeout": "storage_unavailable",
+    }.get(failure, "oauth_unavailable")
+    commit.assert_awaited_once_with(worker.store, job, error=code)
     adapter.get_file_facts.assert_not_awaited()
     if failure == "missing_operation":
         drive._oauth.current_credential.assert_not_awaited()
     worker.embedder.embed.assert_not_awaited()
-    code = "connector_unavailable" if failure == "missing_operation" else "oauth_unavailable"
-    assert f"period_packet.tagging outcome=deferred code={code}" in caplog.text
+    shown = "\n".join(_as_deployed(record) for record in caplog.records)
+    assert f"period_packet.tagging outcome=deferred code={code} settled=queued" in shown
+    assert all(redact_log_value(saved) == saved for saved in tags.FAILURE_CODES)
     for private in (
         FILE_ID,
         source["name"],
@@ -236,3 +260,71 @@ async def test_financial_tagger_settles_real_transport_oauth_failures_without_pr
         "synthetic-live-grant",
     ):
         assert private not in caplog.text
+
+
+@pytest.mark.feature_drive_packets
+@pytest.mark.trace_loop
+@pytest.mark.parametrize(
+    ("fresh_calls", "refresh_seconds"),
+    [
+        (0, 2.0),  # due when the batch starts, as after any long wait; a slow refresh
+        (1, 0.2),  # comes due mid-batch; an ordinary refresh
+    ],
+)
+async def test_concurrent_candidate_reads_wait_out_one_token_refresh(
+    monkeypatch, fresh_calls, refresh_seconds
+):
+    """Regression (UAT 2026-10-27): two concurrent head reads met one due token refresh.
+
+    The read without the refresh lease failed with refresh_in_progress, the indexer's
+    task group then cancelled the refresh in flight, and every retry met the same race
+    until organizing stopped. The losing read must wait and the refresh must finish.
+    """
+    import asyncio
+
+    from hushh_mcp.services.drive_financial_packet_tagging import CandidateReads
+    from hushh_mcp.services.drive_groups.adapters import TransportHeadSource
+    from hushh_mcp.services.drive_groups.indexer import _read_heads
+    from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+    from tests.services.test_google_drive_rest_transport import FILE_ID, GRANT, row, transport
+
+    adapter = SimpleNamespace(
+        get_file_facts=AsyncMock(return_value={"version": "1", "trashed": False}),
+        get_metadata=AsyncMock(return_value=SimpleNamespace(mime_type="text/plain")),
+        read_live_prefix=AsyncMock(return_value=("text/plain", b"Synthetic statement text")),
+    )
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    drive._raw_prefix = True  # as FinancialPacketTagger builds its transport
+    refreshed, lease, interrupted, calls = asyncio.Event(), [], [], []
+
+    async def current_credential(*, user_id, required_profile):
+        calls.append(user_id)
+        if len(calls) > fresh_calls and not refreshed.is_set():
+            if lease:
+                raise DriveOAuthError("refresh_in_progress", status_code=409)
+            lease.append(user_id)
+            try:
+                await asyncio.sleep(refresh_seconds)  # the holder's token request in flight
+            except asyncio.CancelledError:
+                interrupted.append(user_id)
+                raise
+            refreshed.set()
+        return row(), {"accessToken": GRANT}
+
+    drive._oauth.current_credential = current_credential
+    sources = [
+        {"id": file_id, "sourceVersion": "1", "mimeType": "text/plain", "name": "Synthetic"}
+        for file_id in (FILE_ID, f"{FILE_ID[:-1]}6")
+    ]
+    job = {
+        "user_id": "synthetic-owner",
+        "connection_generation": 7,
+        "items": [{"source": source} for source in sources],
+    }
+    reads = CandidateReads(SimpleNamespace(current=AsyncMock(), transport=drive), job)
+
+    heads = await _read_heads(sources, TransportHeadSource(reads, job["user_id"]), 2)
+
+    assert heads == ["Synthetic statement text", "Synthetic statement text"]
+    assert refreshed.is_set() and interrupted == []
+    assert adapter.read_live_prefix.await_count == 2

@@ -150,9 +150,12 @@ POST /api/one/agent-chat/proposals/typed
 POST /api/one/agent-chat/runs/{conversation_id}/queue
 POST /api/one/calendar/availability
 POST /api/one/calendar/events
+POST /api/one/calendar/guest-photo-token
 POST /api/one/calendar/insights
 POST /api/one/calendar/meetings
 POST /api/one/calendar/meetings/detail
+POST /api/one/calendar/meetings/download
+POST /api/one/calendar/meetings/open
 POST /api/one/calendar/meetings/context
 POST /api/one/calendar/proposals
 POST /api/one/calendar/proposals/execute
@@ -231,6 +234,7 @@ POST /api/one/pod/mcp-approval/issue
 POST /api/one/pod/mcp-approval/rebind
 POST /api/one/u/{hushh_id}/chat-grants
 POST /api/one/u/{hushh_id}/memory/provider-consent
+POST /api/one/u/{hushh_id}/memory/provider-grant
 POST /api/one/u/{hushh_id}/memory/revoke
 POST /api/one/webauthn/authenticate/options
 POST /api/one/webauthn/authenticate/verify
@@ -245,6 +249,8 @@ POST /api/one/world-model/invitation-preview
 POST /api/one/calendar/rescheduling/options
 GET /api/one/source-snapshots/document-request-payments
 [CIPHERTEXT]
+GET,POST /api/one/finance/shares
+DELETE,GET,PUT /api/one/finance/shares/{grant_id}
 POST /api/one/pod/browser-approval/export
 GET,PUT /api/one/hosted-memory/pilot/envelope
 GET /api/one/files/storage

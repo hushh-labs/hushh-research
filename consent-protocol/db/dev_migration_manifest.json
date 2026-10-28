@@ -87,7 +87,10 @@
     "969_gcp_browser_update_admission.sql",
     "970_azure_browser_update_admission.sql",
     "971_private_action_channel_continuity.sql",
-    "972_personal_agent_cloud_removal.sql"
+    "972_personal_agent_cloud_removal.sql",
+    "973_hosted_pod_pilot_admission.sql",
+    "974_hosted_pod_custody.sql",
+    "975_hosted_bucket_reconciliation.sql"
   ],
   "deferred_release_migrations": [
     {

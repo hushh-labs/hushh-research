@@ -84,8 +84,10 @@ class _Db:
         self.calls.append((sql, params))
         if "SELECT * FROM google_provider_connections" in sql:
             return SimpleNamespace(data=[self.existing] if self.existing else [])
-        if "SELECT scope_csv FROM google_service_grants" in sql:
-            return SimpleNamespace(data=[{"scope_csv": value} for value in self.grants])
+        if "SELECT service, scope_csv FROM google_service_grants" in sql:
+            return SimpleNamespace(
+                data=[{"service": "calendar", "scope_csv": value} for value in self.grants]
+            )
         if "SELECT 1 FROM google_calendar_additional_accounts" in sql:
             return SimpleNamespace(
                 data=[{"present": 1}] if params["subject"] in self.additional_subjects else []
@@ -107,6 +109,20 @@ def _service(monkeypatch, db, *, subject="google-a"):
         service, "_encrypt", Mock(return_value={"ciphertext": "new", "iv": "iv", "tag": "tag"})
     )
     monkeypatch.setattr(service, "status", AsyncMock(return_value={"connected": True}))
+    # These cases exercise publication against a synthetic connection store;
+    # account presentation is covered separately with its own complete rows.
+    monkeypatch.setattr(
+        service,
+        "calendar_accounts_status",
+        AsyncMock(
+            return_value={
+                "connected": True,
+                "status": "connected",
+                "accounts": [{"account_id": "default", "connected": True}],
+                "account_limit": 3,
+            }
+        ),
+    )
     return service
 
 
@@ -197,7 +213,13 @@ async def test_disconnected_account_requires_fresh_refresh_token(monkeypatch, su
 async def test_explicitly_disconnected_account_can_connect_a_new_subject(monkeypatch):
     db = _Db({"status": "disconnected", "provider_subject": "google-a"})
     service = _service(monkeypatch, db, subject="google-b")
-    assert await _store(service) == {"connected": True}
+    assert await _store(service) == {
+        "connected": True,
+        "status": "connected",
+        "accounts": [{"account_id": "default", "connected": True}],
+        "account_limit": 3,
+        "completed_account_id": "default",
+    }
     service._decrypt.assert_not_called()
     writes = [(sql, params) for sql, params in db.calls if "INSERT" in sql]
     assert all(params["subject"] == "google-b" for _, params in writes)
@@ -263,7 +285,13 @@ async def test_active_legacy_row_without_subject_requires_reconnection(monkeypat
 @pytest.mark.parametrize("level", ["read", "manage"])
 async def test_complete_read_and_manage_permissions_remain_supported(monkeypatch, level):
     service = _service(monkeypatch, _Db())
-    assert await _store(service, level=level) == {"connected": True}
+    assert await _store(service, level=level) == {
+        "connected": True,
+        "status": "connected",
+        "accounts": [{"account_id": "default", "connected": True}],
+        "account_limit": 3,
+        "completed_account_id": "default",
+    }
 
 
 class _TransitionDb:
@@ -805,7 +833,17 @@ async def test_concurrent_replacement_refuses_stale_callback(monkeypatch, bounda
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("admitted", [True, False])
-async def test_cached_bearer_is_admitted_against_one_provider_grant_snapshot(monkeypatch, admitted):
+async def test_cached_bearer_is_admitted_against_one_provider_grant_snapshot(
+    monkeypatch, active_account_lifecycle, admitted
+):
+    from hushh_mcp.services import owner_placement_guard
+
+    # This case isolates the grant snapshot; the owner must already be eligible
+    # for the hub before the token read reaches that snapshot.
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
+
     class SnapshotDb:
         def __init__(self):
             self.calls = []

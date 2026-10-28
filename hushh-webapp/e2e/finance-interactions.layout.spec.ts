@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
-import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks, registerHoldingEntryChecks, registerStockQuoteRecoveryChecks, expectMarketLocalTimes } from "./fixtures/finance-screen-checks";
+import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks, registerFinanceChartChecks, registerHoldingEntryChecks, registerStockQuoteRecoveryChecks, expectMarketLocalTimes } from "./fixtures/finance-screen-checks";
 import os from "node:os";
+import { registerFinanceSharingChecks } from "./fixtures/finance-sharing-checks";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
@@ -47,12 +48,10 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
+        ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
         { find: /^@\/lib\/kai\/ticker-universe-cache$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         { find: /^@\/lib\/kai\/kai-market-home-resource$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
-        {
-          find: /^next\/navigation$/,
-          replacement: path.join(root, "e2e/fixtures/agent-markdown-boundaries.ts"),
-        },
+        { find: /^next\/navigation$/, replacement: path.join(root, "e2e/fixtures/agent-markdown-boundaries.ts") },
         { find: "@", replacement: root },
       ],
     },
@@ -96,6 +95,7 @@ test.beforeAll(async () => {
           "@/lib/kai/kai-market-news-resource", "@/lib/services/api-service",
           "@/lib/services/kai-token-guard", "@/lib/kai/actions/voice-surface-metadata",
         ].map(find => ({ find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), replacement: boundary })),
+        ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
         { find: "@", replacement: root },
       ],
     },
@@ -189,6 +189,8 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       expect(measurements.railOverflow).toBe(false);
       const movers = page.getByRole("region", { name: "Market movers", exact: true });
       await movers.scrollIntoViewIfNeeded();
+      await expect(movers.getByRole("button")).toHaveCount(6);
+      await expect(movers.locator("[data-market-mover-empty]")).toHaveCount(0);
       if (width >= 1024) {
         const sectorCard = page.getByRole("region", { name: "Sector rotation", exact: true }).locator(":scope > [data-surface-tone]");
         const moverCard = movers.locator(":scope > [data-surface-tone]");
@@ -440,57 +442,10 @@ for (const width of [320, 393, 768]) {
 }
 
 
-for (const width of [360, 393, 430, 768, 1024, 1440]) {
-  for (const theme of ["light", "dark"]) {
-    test(`Finance chart review ${width}px ${theme}`, async ({ page }) => {
-      await mount(page, width);
-      await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
-      const portfolio = page.getByTestId("portfolio-chart-fixture");
-      await portfolio.scrollIntoViewIfNeeded();
-      await expect(portfolio.locator("path.recharts-area-curve")).toHaveAttribute("d", /^M/);
-      expect(await portfolio.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-      const bounds = await portfolio.boundingBox();
-      expect(bounds!.width).toBeLessThanOrEqual(728);
-      await page.screenshot({ path: test.info().outputPath(`portfolio-${width}-${theme}.png`) });
-      const stocks = page.getByTestId("market-iphone-fixture");
-      const search = stocks.getByRole("searchbox", { name: "Search stocks" });
-      await search.fill("Berkshire");
-      await expect(stocks.getByTestId("market-pick-row")).toHaveCount(1);
-      const row = stocks.getByTestId("market-pick-row").first();
-      const typography = await row.locator("[data-stock-name]").evaluate(el => ({ family: getComputedStyle(el).fontFamily, size: getComputedStyle(el).fontSize, weight: getComputedStyle(el).fontWeight }));
-      expect(typography.family).toContain("Plus Jakarta Sans");
-      expect(typography.size).toBe("14px");
-      expect(typography.weight).toBe("550");
-      await row.click();
-      const detail = page.getByRole("dialog", { name: "Berkshire Hathaway Inc. Class B", exact: true });
-      await expect(detail.getByText("$456.78", { exact: true })).toBeVisible();
-      const chart = detail.getByRole("region", { name: "Price history", exact: true });
-      await expect(chart.locator("path.recharts-area-curve")).toHaveAttribute("d", /^M/);
-      const range = chart.getByRole("button", { name: "1W", exact: true });
-      await expect.poll(async () => (await range.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-      await range.click();
-      await expect(range).toHaveAttribute("aria-pressed", "true");
-      await expect(chart.getByRole("button", { name: "1D", exact: true })).toHaveCount(0);
-      expect(await detail.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      const ids = await page.locator("linearGradient[id^='price-']").evaluateAll(nodes => nodes.map(node => node.id));
-      expect(new Set(ids).size).toBe(ids.length);
-      const profile = detail.locator("details").filter({ hasText: "Full company profile" });
-      await profile.locator("summary").scrollIntoViewIfNeeded();
-      await expect(detail.getByRole("listitem")).toHaveCount(2);
-      await expect(profile).not.toHaveAttribute("open");
-      expect((await profile.locator("summary").boundingBox())!.height).toBeGreaterThanOrEqual(44);
-      await profile.locator("summary").click();
-      await expect(profile.getByText(/Additional details remain available/)).toBeVisible();
-      await profile.locator("summary").click();
-      await page.screenshot({ path: test.info().outputPath(`stock-detail-${width}-${theme}.png`) });
-      await detail.getByRole("button", { name: /^Close(?: detail panel)?$/, exact: true }).click();
-      await expect(detail).toHaveCount(0);
-      await expect(search).toHaveValue("Berkshire");
-    });
-  }
-}
+registerFinanceChartChecks(mount);
 
+
+registerFinanceSharingChecks(mount);
 
 registerHoldingEntryChecks(mount);
 registerStockQuoteRecoveryChecks(mount);

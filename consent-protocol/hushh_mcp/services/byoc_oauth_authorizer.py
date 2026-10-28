@@ -644,87 +644,16 @@ def ensure_project(
     return {"projectId": project_id, "created": True}
 
 
-def ensure_billing(*, project_id: str, token: str, session: Any = None) -> dict[str, Any]:
-    """The project has billing, linking the person's own account if needed.
+def ensure_billing(
+    *,
+    project_id: str,
+    token: str,
+    session: Any = None,
+    expected_account: str | None = None,
+) -> dict[str, Any]:
+    """Preserve BYOC selection; managed callers supply their exact admitted account."""
+    from hushh_mcp.services.gcp_project_billing import ensure_project_billing
 
-    Google refuses almost every API on an unbilled project, so this is not
-    optional polish — without it the authorize step fails three calls later with
-    an error naming none of this. When the person has exactly one open billing
-    account the link is automatic; zero or several is THEIR decision, returned
-    as a typed refusal the UI can explain rather than guessed at.
-    """
-    if session is None:
-        import requests as session  # noqa: PLC0415
-
-    headers = {"Authorization": f"Bearer {token}"}
-
-    info = _check(
-        session.get(
-            f"{_BILLING_URL}/projects/{project_id}/billingInfo", headers=headers, timeout=30
-        ),
-        "read the project's billing state",
+    return ensure_project_billing(
+        project_id=project_id, token=token, session=session, expected_account=expected_account
     )
-    if info.get("billingEnabled"):
-        return {"billingLinked": False, "billingAccount": str(info.get("billingAccountName") or "")}
-
-    accounts = _check(
-        session.get(f"{_BILLING_URL}/billingAccounts", headers=headers, timeout=30),
-        "list your billing accounts",
-    )
-    open_accounts = [a for a in (accounts.get("billingAccounts") or []) if a.get("open")]
-    if len(open_accounts) != 1:
-        raise ByocAuthorizeError(
-            (
-                "Your Google account has no open billing account. Create one at "
-                "console.cloud.google.com/billing, then press Continue again."
-                if not open_accounts
-                else f"Your Google account has {len(open_accounts)} open billing accounts; "
-                "link the one you want to this project in the Google console, then "
-                "press Continue again."
-            ),
-            status_code=409,
-            code="NEEDS_BILLING",
-        )
-
-    account_name = str(open_accounts[0].get("name") or "")
-    link = session.put(
-        f"{_BILLING_URL}/projects/{project_id}/billingInfo",
-        headers={**headers, "Content-Type": "application/json"},
-        json={"billingAccountName": account_name},
-        timeout=30,
-    )
-    if link.status_code != 200:
-        detail = _google_error_detail(link)
-        logger.warning(
-            "byoc_oauth.billing_link_refused project=%s account=%s http=%s detail=%r",
-            project_id,
-            account_name,
-            link.status_code,
-            detail,
-        )
-        if "quota" in detail.lower():
-            # Consumer billing accounts back a small fixed number of projects
-            # (five, typically). Google reports the refusal as a bare
-            # FAILED_PRECONDITION, which shipped to a person as "HTTP 400"
-            # naming nothing (founder-hit, 2026-08-21, hussh-one-df5jxz as the
-            # sixth project on a five-project account). This is the person's
-            # decision to make, so it is a typed NEEDS_BILLING refusal that
-            # names both moves, not a server error.
-            account_id = account_name.removeprefix("billingAccounts/")
-            raise ByocAuthorizeError(
-                f"Your billing account ({account_id}) already backs its maximum "
-                f"number of Google Cloud projects, so Google refused to add "
-                f"{project_id}. Unlink a project you no longer use at "
-                "console.cloud.google.com/billing, or change the name above to a "
-                "project of yours that already has billing and press Continue.",
-                status_code=409,
-                code="NEEDS_BILLING",
-            )
-        raise ByocAuthorizeError(
-            f"Google refused while trying to link your billing account "
-            f"(HTTP {link.status_code})" + (f". Google said: {detail}" if detail else ""),
-            status_code=502,
-            code="AUTHORIZE_FAILED",
-        )
-    logger.info("byoc_oauth.billing_linked project=%s", project_id)
-    return {"billingLinked": True, "billingAccount": account_name}

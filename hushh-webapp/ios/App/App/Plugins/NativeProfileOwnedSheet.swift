@@ -5,6 +5,7 @@ import UIKit
 @MainActor protocol NativeProfileOwnedForm: AnyObject {
     var coversPresentation: Bool { get }
     var presentationSettled: Bool { get }
+    var feedbackPresenter: UIViewController? { get }
     func refreshPrivacy()
     var identity: NativeDrawerIdentity { get }
     var sceneName: String { get }
@@ -41,6 +42,7 @@ final class NativeProfileOwnedSheet: NSObject, UIAdaptivePresentationControllerD
               !host.isBeingPresented, !host.isBeingDismissed else { return false }
         return true
     }
+    var feedbackPresenter: UIViewController? { presentationSettled ? host : nil }
     var coversPresentation: Bool {
         host?.presentingViewController != nil || presenting || retiring || hasPending()
     }
@@ -59,7 +61,15 @@ final class NativeProfileOwnedSheet: NSObject, UIAdaptivePresentationControllerD
               canPresent(), let controller = makeHost() else { return false }
         applyAppearance(controller)
         controller.modalPresentationStyle = .pageSheet
-        controller.sheetPresentationController?.detents = [.medium(), .large()]
+        let medium = UISheetPresentationController.Detent.medium()
+        let large = UISheetPresentationController.Detent.large()
+        if #available(iOS 26.1, *) {
+            // Keep the system material consistent while changing sheet detents.
+            let material = UIBlurEffect(style: .systemMaterial)
+            medium.backgroundEffect = material
+            large.backgroundEffect = material
+        }
+        controller.sheetPresentationController?.detents = [medium, large]
         controller.sheetPresentationController?.prefersGrabberVisible = true
         controller.sheetPresentationController?.prefersScrollingExpandsWhenScrolledToEdge = true
         controller.presentationController?.delegate = self

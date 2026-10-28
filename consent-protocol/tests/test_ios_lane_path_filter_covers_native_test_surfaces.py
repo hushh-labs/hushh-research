@@ -20,7 +20,7 @@ pass-through that reuses the PR Validation result and runs no lane, so it has
 no base ref to resolve; that is pinned here too, so a lane re-added there
 cannot silently skip the graph check.
 
-The macOS editor latency lane (`web-editor-performance-check`) gets the same
+The macOS editor latency steps get the same
 guard from its own `editor:` filter, which replaced scheduling it on every
 frontend change. Its inputs are derived from the job itself: the npm script it
 runs, the specs that script names, their transitive imports, and the fixture,
@@ -79,8 +79,8 @@ CI_RUN_XCUITEST_RENDERS = (
     "hushh-webapp/components/one-location/onboarding/location-picker-map.tsx",
 )
 
-# The macOS editor latency lane (`web-editor-performance-check`) is scheduled
-# by the `editor:` filter alone. Its inputs are derived, not listed: the npm
+# The macOS editor latency steps are scheduled by the `editor:` filter alone.
+# The shared job also owns native document crypto. Editor inputs derive from npm
 # scripts the job runs (and those they run), the specs they name, those specs'
 # transitive imports (CSS `@import` included), and every webapp file the code
 # reads through `path.join(<dir>, "<literal>"...)`, such as the fixture the
@@ -612,8 +612,6 @@ def test_negative_control_the_editor_check_names_a_dropped_input() -> None:
 
 
 def test_editor_nightly_runs_the_pr_lane_steps_on_main() -> None:
-    # Path-scoping the PR lane is safe only while the nightly backstop runs the
-    # same lane on main, so the two must not drift apart.
     ci = _load_workflow(MONO_WORKFLOW_PATH)
     nightly = _load_workflow(NIGHTLY_WORKFLOW_PATH)
     triggers = nightly.get("on") or nightly.get(True)  # PyYAML reads `on:` as True
@@ -626,6 +624,8 @@ def test_editor_nightly_runs_the_pr_lane_steps_on_main() -> None:
     def comparable(steps: list[dict], *, pinned_ref: str | None) -> list[tuple]:
         result = []
         for step in steps:
+            if step.get("id") in {"document-python", "document-postgres", "document-webkit"}:
+                continue
             if step.get("id") == "tested" and pinned_ref:
                 continue  # the nightly records the commit for its issue
             settings = dict(step.get("with") or {})

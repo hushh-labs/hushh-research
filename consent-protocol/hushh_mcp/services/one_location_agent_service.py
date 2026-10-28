@@ -38,6 +38,7 @@ from hushh_mcp.operons.location.policy import (
     normalize_source_platform,
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services import finance_advisor_directory as finance_directory
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
 from hushh_mcp.services.directory_identity_service import (
     DirectoryIdentityUnavailableError,
@@ -2039,8 +2040,7 @@ class OneLocationAgentService:
         part is a name to the first group and an identifier about the second,
         so only the relationship-scoped caller opts in.
 
-        Off, the behaviour is exactly what it was: the masked phone, then
-        "Verified user".
+        Off, the behaviour is exactly what it was: the masked phone, then "Verified user".
         """
 
         if not row:
@@ -2079,6 +2079,8 @@ class OneLocationAgentService:
             "canReceiveLocation": bool(row.get("key_id")),
             "connectedFromContacts": bool(row.get("connected_from_contacts")),
             "isRia": bool(row.get("is_ria")),
+            **finance_directory.recipient_annotation(row),
+            "roleLabel": str(row.get("role_label") or "").strip() or None,
         }
 
     @staticmethod
@@ -4521,12 +4523,8 @@ class OneLocationAgentService:
                 identity.user_id, identity.display_name, identity.email,
                 identity.phone_number, identity.phone_verified,
                 COALESCE(identity.custom_photo_url, identity.photo_url) AS photo_url,
-                EXISTS (
-                  SELECT 1
-                  FROM ria_profiles ria_annotation
-                  WHERE ria_annotation.user_id = identity.user_id
-                    AND {RIA_VERIFIED_STATUS_SQL}
-                ) AS is_ria,
+                {finance_directory.LOCATION_RIA_ANNOTATION_SQL} AS is_ria,
+                {finance_directory.FINANCE_ADVISOR_ANNOTATION_SQL} AS finance_advisor_eligible,
                 LOWER(CASE
                   WHEN BTRIM(COALESCE(identity.display_name, '')) <> ''
                    AND BTRIM(identity.display_name) <> identity.user_id
@@ -4618,7 +4616,7 @@ class OneLocationAgentService:
             )
             SELECT page_rows.user_id, page_rows.display_name, page_rows.email,
                    page_rows.phone_number, page_rows.phone_verified,
-                   page_rows.photo_url, page_rows.is_ria, profile.public_person_ref,
+                   page_rows.photo_url, page_rows.is_ria, page_rows.finance_advisor_eligible, profile.public_person_ref,
                    recipient_key.key_id, recipient_key.public_key_jwk,
                    recipient_key.algorithm,
                    recipient_key.created_at AS key_created_at,
@@ -4645,10 +4643,11 @@ class OneLocationAgentService:
             ) recipient_key ON TRUE
             ORDER BY page_rows.match_rank, page_rows.normalized_name,
                      page_rows.user_id
-            """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
+            """,  # nosec B608 - directory SQL fragments are static; values are bound.
             {
                 "owner_user_id": owner_user_id,
                 "query": normalized_query,
+                "finance_verified_statuses": finance_directory.finance_advisor_statuses(),
                 **people_query_match_params(normalized_query),
                 "offset": offset,
                 "limit": normalized_limit,
@@ -4881,11 +4880,11 @@ class OneLocationAgentService:
         directory_sql = f"""
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
-              a.public_person_ref, a.photo_url,
+              a.public_person_ref, a.photo_url, a.role_label,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
             FROM (
               SELECT
-                profile.user_id, profile.public_person_ref,
+                profile.user_id, profile.public_person_ref, profile.role_label,
                 COALESCE(
                   {usable_name("identity.display_name")},
                   {usable_name("marketplace.display_name")},
@@ -4948,12 +4947,12 @@ class OneLocationAgentService:
               WHERE profile.user_id <> :owner_user_id
                 AND profile.public_profile_status = 'active'
                 AND (
-                  EXISTS (
-                    SELECT 1
-                    FROM vault_keys vault
+                  profile.directory_listed = TRUE
+                  OR (profile.directory_listed IS NULL AND EXISTS (
+                    SELECT 1 FROM vault_keys vault
                     WHERE vault.user_id = profile.user_id
                       AND vault.vault_status = 'active' AND vault.environment_enrolled_at IS NOT NULL
-                  )
+                  ))
                   OR EXISTS (
                     SELECT 1
                     FROM connections related

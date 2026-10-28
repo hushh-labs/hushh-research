@@ -369,8 +369,20 @@ Live head keeps an explicit pin.
   mailbox credential is never stored in the repo or Secret Manager; sending rides
   the delegated service identity. Forwarding from `one@hushh.ai` to a person is a
   Google Workspace admin setting, not a repo concern.
-- Automatic account mail is limited to the first-account welcome and confirmed
-  passkey-add, passkey-remove, and existing-vault passphrase-change notices.
+- Automatic account mail is limited to the first-account welcome, confirmed
+  passkey-add, passkey-remove, existing-vault passphrase-change and phone-link
+  change notices, and the `account_deleted` notice. The deletion notice is sent
+  by the deletion worker at most once, only after a full-account erasure
+  commits, to the retained sign-in's verified email. Hussh reads the address into
+  memory and never stores it (the One mailbox keeps its Sent copy, as for every
+  account notice), so a lost or uncertain send is logged
+  (`account_deletion.notice_failed`, or `account_security_email.failed`) and
+  never replayed or backfilled. Outside production it sends only when test mode
+  redirects it to `SUPPORT_EMAIL_TEST_TO` (UAT), because non-production shares
+  sign-ins with production and must never tell a real person their account is
+  gone. Otherwise it logs `account_deletion.notice_skipped` with
+  `reason=sender_unconfigured` or `reason=live_outside_prod` (shared Dev,
+  which mounts the Firebase admin identity but no test-mode secrets).
   Routine welcome-back, sign-out, phone-conflict, and client-inferred connector
   emails are retired. The separate `hushh-mail-api` frontend binding remains
   only for user-requested Save my Soul email; it must not send account notices.
@@ -706,6 +718,7 @@ example file or local Secret Manager read does not establish deployed parity.
 | `SUPPORT_EMAIL_TEST_TO` | Optional | No | Local/UAT env | Non-production verification recipient. |
 | `SUPPORT_EMAIL_MODE` | Optional | No | Local/UAT env | `live` or `test`. |
 | `HUSHH_UAT_PHONE_TEST_NUMBERS` | UAT test only | Yes | UAT Secret Manager | Comma-separated E.164 allowlist for fixed-code phone verification; only honored when `ENVIRONMENT=uat`. |
+| `HUSHH_PHONE_LINKED_DELETION_ENABLED` | Production opt-in | No | Deploy environment | Phone-proven deletion of the account holding a verified number. Unset: on outside production, off in production. Fixture codes never authorize it in any production runtime. |
 | `HUSHH_UAT_PHONE_TEST_CODE` | UAT test only | Yes | UAT Secret Manager | Fixed OTP for the UAT phone allowlist. Never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET` | Optional | Yes | UAT Secret Manager | Optional HMAC key for stateless UAT phone challenge IDs; falls back to `APP_SIGNING_KEY`. |
 | `HUSHH_PROD_PHONE_TEST_ENABLED` | Production test only | No | Prod Cloud Run env | Must be exactly enabled before production fixed-code phone verification is honored. |

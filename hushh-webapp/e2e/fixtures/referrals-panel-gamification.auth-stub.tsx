@@ -16,5 +16,5 @@ const FIXTURE_USER = {
 };
 
 export function useAuth() {
-  return { user: FIXTURE_USER };
+  return { user: FIXTURE_USER, userId: FIXTURE_USER.uid };
 }

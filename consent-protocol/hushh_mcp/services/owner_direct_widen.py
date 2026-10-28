@@ -108,7 +108,26 @@ def widen_due(row: Optional[dict]) -> Optional[dict[str, str]]:
 
 def bootstrap_run_client(row: dict) -> Any:
     """A Cloud Run client in the owner's project on the bootstrap token, or None in plan mode."""
+    from hushh_mcp.services.hosted_gcp_placement import (
+        has_hosted_evidence,
+        retained_hosted_placement,
+    )
     from hushh_mcp.services.user_gcp_backend import UserGcpBackend  # noqa: PLC0415
+
+    if has_hosted_evidence(row):
+        placement = retained_hosted_placement(row)
+        if placement is None or not placement.bootstrap_sa:
+            return None
+        from hushh_mcp.services.gcp_run_client import GcpRunClient
+        from hushh_mcp.services.user_gcp_backend import _StaticToken
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+        # Used only for readback by google_public_ingress_failure, never widening.
+        return GcpRunClient(
+            project=placement.project,
+            region=placement.region,
+            credentials=_StaticToken(mint_bootstrap_token(bootstrap_sa=placement.bootstrap_sa)),
+        )
 
     backend = UserGcpBackend(
         user_project=_clean(row.get("user_cloud_project")) or None,

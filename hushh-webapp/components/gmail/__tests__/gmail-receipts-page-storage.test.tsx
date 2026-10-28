@@ -17,7 +17,7 @@ const fixture = vi.hoisted(() => ({
     presentation: { isConnected: true, state: "connected", badgeLabel: "Connected" } },
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/one/gmail", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: fixture.user, loading: false }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: fixture.user, userId: fixture.user.uid, loading: false }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "12".repeat(32), vaultOwnerToken: "synthetic-owner-token", isVaultUnlocked: true }) }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => fixture.gmail }));
 vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ usePublishVoiceSurfaceMetadata: () => undefined, useVoiceSurfaceControlTracking: () => ({ activeControlId: null, lastInteractedControlId: null }) }));

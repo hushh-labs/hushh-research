@@ -5,7 +5,7 @@ const state = vi.hoisted(() => ({
   uid: "reviewer-a", unlocked: true,
   connector: vi.fn(), create: vi.fn(), consentMutation: vi.fn(),
 }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid }, userId: state.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({
   isVaultUnlocked: state.unlocked, vaultKey: state.unlocked ? "test-key" : null, vaultOwnerToken: "test-token",
 }) }));

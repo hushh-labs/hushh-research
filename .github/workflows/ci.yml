@@ -275,7 +275,6 @@ jobs:
               - '.github/workflows/editor-performance-nightly.yml'
               - 'scripts/ci/**'
               - '!scripts/ci/web-check.sh'
-              - '!scripts/ci/web-core-check.sh'
               - '!scripts/ci/web-full-check.sh'
               - '!scripts/ci/web-full-suite-check.sh'
               - '!scripts/ci/web-targeted-check.sh'
@@ -316,7 +315,7 @@ jobs:
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
               - '.github/workflows/ci.yml'
-            # The macOS editor and drawer latency lane (web-editor-performance-check):
+            # The macOS editor and drawer latency steps (web-editor-performance-check):
             # npm run test:layout-editor-performance: the editor and History specs whose
             # beforeAll hooks bundle their fixtures with Vite and compile
             # app/globals.css with Tailwind. These are their transitive imports, the files they read from disk, and
@@ -334,6 +333,13 @@ jobs:
             # and .github/workflows/editor-performance-nightly.yml runs the lane
             # on main every night.
             editor:
+
+              - 'hushh-webapp/components/app-ui/shell-action-surface-base.tsx'
+              - 'hushh-webapp/lib/capacitor/native-chrome-controls.ts'
+              - 'hushh-webapp/lib/capacitor/native-feedback-sink.ts'
+              - 'hushh-webapp/lib/capacitor/native-wallet-profile-editor.ts'
+              - 'hushh-webapp/lib/capacitor/native-wallet-workspace.ts'
+              - 'hushh-webapp/lib/wallet/wallet-card-draft.ts'
 
               - 'hushh-webapp/components/agent/agent-connections-drawer.tsx'
               - 'hushh-webapp/components/agent/agent-history-sidebar.tsx'
@@ -357,8 +363,14 @@ jobs:
               - 'hushh-webapp/lib/auth/use-session-chrome-suppression.ts'
               - 'hushh-webapp/lib/capacitor/app-haptics.ts'
               - 'hushh-webapp/lib/capacitor/native-base-apertures.ts'
+              - 'hushh-webapp/lib/capacitor/native-chrome-controls.ts'
               - 'hushh-webapp/lib/capacitor/native-chrome.ts'
               - 'hushh-webapp/lib/capacitor/native-drawers.ts'
+              - 'hushh-webapp/lib/capacitor/native-feedback.ts'
+              - 'hushh-webapp/lib/capacitor/native-profile-scene-capabilities.ts'
+              - 'hushh-webapp/lib/capacitor/native-profile-paths.ts'
+              - 'hushh-webapp/lib/capacitor/settings.ts'
+              - 'hushh-webapp/lib/capacitor/plugins/settings-web.ts'
               - 'hushh-webapp/lib/capacitor/native-panel-presentation.ts'
               - 'hushh-webapp/lib/capacitor/native-presentation-policy.ts'
               - 'hushh-webapp/lib/capacitor/native-presentation-regions.ts'
@@ -775,17 +787,19 @@ jobs:
   # so absolute key-to-paint latency is verified on macOS, the closer Safari
   # environment. Keep the 50 ms p95 / 120 ms max contract and both engines.
   #
-  # Scheduled by the `editor` path filter, not by every frontend change. It
-  # took one of the org's five macOS slots on every frontend run while the
-  # files it builds changed in about one frontend PR in five. When the filter
-  # matches, CI Status Gate requires this lane to succeed, and
-  # editor-performance-nightly.yml runs it on main every night.
+  # Editor work remains editor-path scoped. The same bounded job also owns
+  # the real-SQL document WebKit flow for every integration-selected change:
+  # pinned GTK WebKit loses valid X25519 bytes (WebKit/WebKit#72772), whereas
+  # macOS uses native crypto. No cryptography or acceptance is substituted.
+  # Return that flow to Linux only after the pinned browser passes the native
+  # leading-zero regression vectors. The editor nightly remains unchanged.
   web-editor-performance-check:
     name: "Web Editor Performance (macOS)"
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
-      (needs['preflight-gate'].outputs.editor == 'true')
+      (needs['preflight-gate'].outputs.editor == 'true' ||
+      needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true')
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -804,8 +818,31 @@ jobs:
           npx playwright install chromium webkit
 
       - name: Verify editor and History motion latency on macOS
+        if: needs['preflight-gate'].outputs.editor == 'true'
         working-directory: hushh-webapp
         run: npm run test:layout-editor-performance
+
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        id: document-python
+        if: needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: ./consent-protocol
+
+      - name: Prepare isolated document PostgreSQL binaries
+        id: document-postgres
+        if: needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'
+        run: |
+          brew list --versions postgresql@16 >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install postgresql@16
+          pg_bin="$(brew --prefix postgresql@16)/bin"
+          test -x "$pg_bin/initdb"
+          echo "$pg_bin" >> "$GITHUB_PATH"
+          echo "HUSHH_TEST_PG_BIN=$pg_bin" >> "$GITHUB_ENV"
+
+      - name: Verify native WebKit protected documents through real SQL
+        id: document-webkit
+        if: needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'
+        run: bash scripts/ci/document-delivery-check.sh --ci-macos-webkit
 
   # The whole Vitest suite (~9,600 tests) plus the contract verifiers that used
   # to run only in Queue Validation. It gates every PR that touches the
@@ -1264,13 +1301,17 @@ jobs:
           HUSHH_DEVELOPER_TOKEN: "test_hushh_developer_token_for_ci"
 
   protocol-database-check:
-    name: "Protocol Database"
+    name: "Protocol Database (${{ matrix.shard }}/2)"
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     permissions:
       contents: read
     services:
@@ -1307,12 +1348,14 @@ jobs:
           test -f /usr/share/postgresql/16/extension/vector.control
           echo 'HUSHH_TEST_PG_BIN=/usr/lib/postgresql/16/bin' >> "$GITHUB_ENV"
       - name: Run serial database contracts
-        # Same manifest classifier; no xdist or duplicated lint/type/import pass.
+        # Each matrix job has its own database; files remain serial per shard.
         working-directory: consent-protocol
         timeout-minutes: 32
         run: bash scripts/run-test-ci.sh
         env:
           PROTOCOL_TEST_PARTITION: database
+          PROTOCOL_DATABASE_SHARD_COUNT: "2"
+          PROTOCOL_DATABASE_SHARD_INDEX: "${{ matrix.shard }}"
           CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
@@ -1391,7 +1434,7 @@ jobs:
             --json-output "$RUNNER_TEMP/ci-verification-plan.json"
 
       - name: Run integration check script (single source of truth)
-        run: bash scripts/ci/orchestrate.sh integration
+        run: bash scripts/ci/integration-check.sh --ci-linux-document
         env:
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           CI_DOCS_PARITY_REQUIRED: ${{ env.CI_DOCS_PARITY_REQUIRED }}
@@ -1407,22 +1450,6 @@ jobs:
           name: ci-verification-plan
           path: ${{ runner.temp }}/ci-verification-plan.json
           if-no-files-found: error
-
-  # ============================================================================
-  # Upstream Sync Check (one-directional: warns if upstream has unpulled commits)
-  # ============================================================================
-  subtree-sync-check:
-    name: "Upstream Sync"
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Check if upstream consent-protocol has unpulled commits
-        continue-on-error: true
-        run: bash scripts/ci/subtree-sync-check.sh
 
   main-freshness-gate:
     name: "Base Freshness Gate"
@@ -1640,6 +1667,10 @@ jobs:
           fi
           if [ "${{ needs.paths.outputs.editor }}" = "true" ] && [ "$WEB_EDITOR_PERF" != "success" ]; then
             echo "Changed editor sources require a successful macOS editor performance run."
+            fail=1
+          fi
+          if { [ "${{ needs.paths.outputs.frontend }}" = "true" ] || [ "${{ needs.paths.outputs.backend }}" = "true" ]; } && [ "$WEB_EDITOR_PERF" != "success" ]; then
+            echo "Changed frontend or backend sources require the native macOS WebKit document flow."
             fail=1
           fi
           if [ "${{ needs.paths.outputs.ios }}" = "true" ] && [ "$IOS_NATIVE" != "success" ]; then

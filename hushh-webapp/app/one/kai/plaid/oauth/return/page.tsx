@@ -74,7 +74,7 @@ async function settleOnboardingPlaidAttempt(params: {
 export default function KaiPlaidOauthReturnPage() {
   const router = useRouter();
   const startedRef = useRef(false);
-  const { user, loading } = useAuth();
+  const { user, userId: ownerId, loading } = useAuth();
   // This route sits behind the vault unlock screen (OneAuthGate), so by the
   // time it renders the person has unlocked again after the bank's page.
   const { vaultKey, vaultOwnerToken } = useVault();
@@ -92,7 +92,7 @@ export default function KaiPlaidOauthReturnPage() {
       router.replace(`/login?redirect=${encodeURIComponent(redirectTarget)}`);
       return;
     }
-    if (!vaultKey || !vaultOwnerToken) return;
+    if (!ownerId || !vaultKey || !vaultOwnerToken) return;
 
     const session = loadPlaidOAuthResumeSession();
     if (!session) {
@@ -103,7 +103,7 @@ export default function KaiPlaidOauthReturnPage() {
     setReturnPath(session.returnPath || ROUTES.KAI_DASHBOARD);
 
     startedRef.current = true;
-    const userId = user.uid;
+    const userId = ownerId;
     void (async () => {
       try {
         setStage("resuming");
@@ -141,7 +141,7 @@ export default function KaiPlaidOauthReturnPage() {
         setError(formatErrorMessage(resumeError));
       }
     })();
-  }, [loading, router, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [loading, router, user?.uid, ownerId, vaultKey, vaultOwnerToken]);
 
   if (stage !== "error") {
     return (

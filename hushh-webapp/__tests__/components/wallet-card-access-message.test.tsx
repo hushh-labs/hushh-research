@@ -5,7 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ view: vi.fn(), verify: vi.fn(), reauthenticate: vi.fn(), token: vi.fn(), openCard: vi.fn(), vaultKey: null as string | null, native: false }));
 const user = { uid: "recipient", getIdToken: mocks.token, providerData: [{ providerId: "google.com" }] };
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user, userId: user.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks.vaultKey, getVaultOwnerToken: () => "consent" }) }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: () => null }));
 vi.mock("@/lib/one-location/service", () => ({ OneLocationService: { getState: async () => ({}) } }));

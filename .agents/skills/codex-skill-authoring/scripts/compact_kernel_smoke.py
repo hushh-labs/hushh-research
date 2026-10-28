@@ -100,8 +100,8 @@ def main() -> int:
 
     pr_skill = lint.SKILLS_ROOT / "pr-governance-review" / "SKILL.md"
     pr_text = pr_skill.read_text(encoding="utf-8")
-    if "Default PR-Train Mode" not in pr_text:
-        failures.append("PR governance skill should keep async train defaults visible")
+    if "Dev intake" not in pr_text or "Retained train campaigns" not in pr_text:
+        failures.append("PR governance skill should keep Dev intake and retained train work visible")
 
     if failures:
         print("Compact-kernel smoke failed:")

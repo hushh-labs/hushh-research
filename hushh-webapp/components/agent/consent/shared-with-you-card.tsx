@@ -127,7 +127,7 @@ export function useSharedWithYouCardModel({ person, items: rawItems, active = tr
   items: SharedWithMeCardItem[];
   active?: boolean;
 }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [results, setResults] = useState<Record<string, { identity: string; result: SharedItemOpenResult }>>({});
   const [timedOut, setTimedOut] = useState<ReadonlySet<string>>(() => new Set());
@@ -154,7 +154,7 @@ export function useSharedWithYouCardModel({ person, items: rawItems, active = tr
     [items, baseItems, ended],
   );
 
-  const viewerUid = user?.uid ?? null;
+  const viewerUid = userId;
   const session = presentationAllowed && isVaultUnlocked && viewerUid && vaultKey && vaultOwnerToken
     ? `${viewerUid}|${vaultOwnerToken}|${person.personRef}|${epoch}|${privacy?.generation ?? 0}|${visibilityGeneration}` : null;
   /** What an opened value is bound to; a result for another identity is never shown. */

@@ -5,6 +5,7 @@ import {
   isAzureSignInAvailable,
   openSignInPopup,
   startAzureSignIn,
+  captureSignInPopupOwner,
 } from "@/lib/one/azure-sign-in";
 import { ownerCloudProvider } from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
@@ -49,8 +50,10 @@ export function isApprovedNotStarted(update: AgentUpdateStatus): boolean {
   );
 }
 
-async function hasApprovalFor(releaseId: string): Promise<boolean> {
+async function hasApprovalFor(releaseId: string, current: () => boolean): Promise<boolean> {
+  assertCurrent(current);
   const update = readUpdateStatus(await ApiService.getPersonalAgentStatus().catch(() => null));
+  assertCurrent(current);
   return update.releaseId === releaseId && isApprovedNotStarted(update);
 }
 
@@ -60,14 +63,21 @@ async function hasApprovalFor(releaseId: string): Promise<boolean> {
  * another device's or an older client's key), the approval stands and only the
  * sign-in is missing, so the person continues to it.
  */
-async function recordAzureApproval(releaseId: string): Promise<void> {
+function assertCurrent(current: () => boolean) {
+  if (!current()) throw new DOMException("Session changed", "AbortError");
+}
+
+async function recordAzureApproval(releaseId: string, current: () => boolean): Promise<void> {
   try {
+    assertCurrent(current);
     await ApiService.approvePersonalAgentUpdate({
       releaseId,
       idempotencyKey: azureUpdateIdempotencyKey(releaseId),
     });
+    assertCurrent(current);
   } catch (cause) {
-    if (await hasApprovalFor(releaseId)) return;
+    assertCurrent(current);
+    if (await hasApprovalFor(releaseId, current)) return;
     throw cause;
   }
 }
@@ -75,16 +85,18 @@ async function recordAzureApproval(releaseId: string): Promise<void> {
 async function approveAzureUpdate(
   releaseId: string,
   popup: Window | null,
+  current: () => boolean,
+  ownsPopup: () => boolean,
 ): Promise<AgentUpdateApproval> {
   try {
     // Never record an approval this device cannot carry on to Microsoft.
     if (!isAzureSignInAvailable()) throw new AzureSignInUnavailableError();
-    await recordAzureApproval(releaseId);
-    const where = await startAzureSignIn("upgrade", undefined, popup);
+    await recordAzureApproval(releaseId, current);
+    const where = await startAzureSignIn("upgrade", undefined, popup, undefined, current);
     return where === "popup" ? "signing_in_popup" : "signing_in";
   } catch (cause) {
     // A refused approval or sign-in must not leave an empty window behind.
-    popup?.close();
+    if (ownsPopup()) popup?.close();
     throw cause;
   }
 }
@@ -116,16 +128,21 @@ export async function approveAgentUpdate(input: {
   releaseId: string;
   idempotencyKey: string;
   popup?: Window | null;
+  isCurrent?: () => boolean;
 }): Promise<AgentUpdateApproval> {
   const popup = input.popup ?? null;
+  const ownsPopup = captureSignInPopupOwner(popup, true);
+  const current = () => (input.isCurrent?.() ?? true) && ownsPopup();
+  assertCurrent(current);
   if (ownerCloudProvider(input.deploymentTarget) === "azure") {
-    return approveAzureUpdate(input.releaseId, popup);
+    return approveAzureUpdate(input.releaseId, popup, current, ownsPopup);
   }
   popup?.close();
   await ApiService.approvePersonalAgentUpdate({
     releaseId: input.releaseId,
     idempotencyKey: input.idempotencyKey,
   });
+  assertCurrent(current);
   return "scheduled";
 }
 

@@ -5,12 +5,51 @@ The canonical state-changing operator procedure is the
 This page defines branch policy and governed cohorts; it does not redefine the
 exact-head Admin PR landing or environment dispatch sequence.
 
+## Visual Map
+
+The UAT branch and its default selector remain staged until their historical
+baseline is reconciled and the transition is separately authorized.
+
+```mermaid
+flowchart LR
+  feature["Feature branches"] --> dev["Protected Dev"]
+  dev -->|"Selected changes and dependencies"| uat["Protected UAT"]
+  uat -->|"Exact application acceptance"| main["Main approval"]
+  main -->|"Explicit production approval"| prod["Production"]
+  operations["Governed operations / hotfix"] --> main
+  legacy["Retained legacy train"] -.->|"Reviewed reconciliation"| dev
+```
+
 ## Dev / UAT branch preparation
 
-The selective release transition is staged. **Current Main remains the baseline;
-no source rollback or history rewrite is part of this change.** The existing
-train/main intake and manual deployment selectors below remain active until the
-promotion and acceptance gates are migrated together.
+The protected Dev branch is the configured development intake and the default
+source for governed Dev deployment. Preserve its history and qualify the exact
+candidate; an active branch does not prove that its tip is serving. The UAT-tip
+default remains staged until its historical baseline and predecessor gates are
+qualified together. Main remains the release-control source; this transition
+does not rewind application source or database history.
+
+The approved direction for UAT-focused work is direct admission after CI on the
+exact selected application, without requiring a preceding Dev deployment. That
+path is not yet implemented: the current UAT workflow still requires a Dev
+receipt. It must gain a qualified exact-source CI proof and a distinct receipt
+before that requirement can change. Production continues to require acceptance
+of the same application and services in UAT.
+
+The future direct receipt must identify the protected UAT application commit and
+tree, the trusted Main-owned validation workflow and its current run attempt,
+the exact security evidence, and the selected services. A PR merge-tree result or
+an older successful attempt alone is not proof of the selected application.
+Historical Dev-backed receipts must remain verifiable. If no qualified Dev image
+exists, UAT builds the selected source with its own environment configuration.
+
+The capability graph's committed comparison metadata currently depends on the
+target base: the Dev sync has already produced different metadata from Main for
+the same authored change. Before making selective promotion automatic, make the
+committed history deterministic and separately validate each actual target-base
+transition. Runtime workflow compatibility and exact mirror checks remain
+required. Exact-tree promotion also needs the tested UAT candidate to incorporate
+the reviewed Main baseline; a later Main change may require a new UAT candidate.
 
 `branch_flow.prepared_branches` in `config/ci-governance.json` declares protection
 policy references for `dev` and `uat`. These are branch policies, separate from
@@ -47,7 +86,11 @@ selective-promotion authority remain separate from this protection checkpoint.
 Explicit UAT candidates can use a CI-qualified commit in the protected `uat`
 history, with exact-SHA Dev acceptance still required before deployment. Main
 candidates retain mandatory Main smoke. Automatic selection retains its current
-Main baseline until the remaining intake/selector transition is qualified.
+Main baseline until the UAT selector and historical baseline are qualified. The
+prepared UAT-tip selector refuses unknown, concurrent or non-forward baselines.
+Its selection-time snapshot rechecks the remote UAT tip after reading receipts.
+Before activation, the deployment admission must recheck that same tip under
+the mutation lock; selection alone cannot fence a later branch update.
 
 For production, `sha` remains the UAT-accepted application. When approval landed
 as a different Main merge, `main_approval_sha` requires that merge's Main smoke,
@@ -56,12 +99,13 @@ retains this mapping and still requires UAT acceptance for the application SHA.
 No ignored paths, new content or predecessor bypass are allowed. This optional
 manual mode cannot be mixed with cadence, restoration or phone transitions.
 
-The following batches must complete before activation:
+The following work remains before the UAT selection transition:
 
-1. Move ordinary intake to Dev without discarding train or active branch work.
+1. Maintain Dev intake without discarding train or active branch work.
 2. Select dependency-complete changes into UAT; stabilize there and carry fixes
-   back to Dev. Keep both deployments manual. Qualify the final assembled SHA in
-   Dev before UAT; an original cherry-picked commit's receipt cannot qualify it.
+   back to Dev. Keep both deployments manual. Until the direct-CI path is
+   qualified, the final assembled SHA still needs Dev acceptance; an original
+   cherry-picked commit's receipt cannot qualify it.
 3. Promote the exact UAT-qualified application SHA through a reviewed Main
    promotion. Record the Main approval merge separately, prove no new content was
    introduced, and preserve service-specific acceptance and rollback.
@@ -95,76 +139,60 @@ phone transitions, image promotion or capability activation. Record its separate
 acceptance, forward-port the patch by behavior into Main, Dev and the selected
 UAT history. A Main merge does not itself authorize another application rollout.
 
-## Lane decision: WHO authored the code (the one rule that prevents drift)
+## Development intake and release approval
 
-The deciding question for how code reaches `main` is **who wrote it**, never the
-branch name. There are exactly two lanes:
+**Dev intake** is the default for new feature, fix, dependency and contributor
+work. `branch_flow.intake_branch` selects `dev`; `train_branch` continues to own
+the retained `integration/pr-train` protection. Do not rename that authority or
+reset either branch. Existing train PRs keep their reviewed dependency context
+until explicitly reconciled.
 
-| Lane | For | Where you branch FROM | How it reaches `main` |
-|---|---|---|---|
-| **Maintainer Direct-to-Main** | code authored by a governed maintainer (anyone in `main.review_bypass_users` ∪ `main.merge_queue_bypass_users`) | **`origin/main`** | open a PR **directly into `main`**, green CI, merge. No train, no cherry-pick, no promote-branch whitelist. |
-| **Async PR-Train** | community / contributor / agent PRs | `integration/pr-train` | normal train intake → periodic train→`main` promotion PR |
+Dependabot version updates target Dev after activation. [GitHub security updates](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch)
+continue to target the default branch; a governed maintainer must review their
+actual routing and move or incorporate an eligible fix through the authorized
+lane. The target-branch setting does not grant a bot Main merge authority.
 
-This is enforced — not just documented — by `scripts/ci/verify-pr-base-policy.py`,
-which authorizes a direct `→main` PR by **actor identity**: if the PR author is a
-governed maintainer, a direct PR to `main` from ANY branch passes the
-`PR Base Policy` gate. The `CI Status Gate`, merge queue, and
-`Main Post-Merge Smoke Gate` still run, so direct-to-main removes the train
-detour, not the safety gates. Non-maintainer PRs must still target the train.
-The repository-level `allow_auto_merge` setting is part of this contract because
-GitHub CLI relies on it to place eligible PRs into the merge queue; disabling it
-can turn otherwise eligible queue placement into a manual admin-bypass path.
+| Lane | Source and authority |
+|---|---|
+| Dev | Feature PRs target protected `dev`; governed operators deploy an exact CI-green SHA through Main-owned tooling. Explicit feature refs remain supported. |
+| UAT | Existing Main-based default and Dev acceptance remain active. The approved direction selects dependency-complete changes into protected `uat` and qualifies the exact assembled SHA in CI before UAT once the admission path is ready. |
+| Main | Review accepted UAT content for release. When its approval merge differs from the tested application SHA, require identical complete Git trees and preserve both identities. |
+| Main operations/hotfix | A governed maintainer may branch from `origin/main` and open a PR directly into `main` by actor identity. CI, conversations, queue/Admin SOP and landed smoke remain mandatory. Merging does not deploy. |
+| Production | Explicit UAT-accepted application plus Main approval, or the separately approved manual emergency route. Automatic publication remains disabled. |
+| Legacy train | Preserve `integration/pr-train` history, protections and existing promotion PRs; do not use it as the default for new intake or silently promote all Dev work. |
 
-The single rule that keeps this clean: **a maintainer who intends to ship to
-`main` branches from `origin/main` at the START**, so the branch carries only its
-own commits and merges with zero missing dependencies. A branch cut from the
-train cannot be cherry-picked onto `main` (the train runs far ahead of `main`, so
-it references code `main` does not have yet) — if you started on the train, either
-rebase onto `origin/main` (small change) or let the train promotion carry it
-(large change). Cherry-picking a train-dependent commit onto `main` is deprecated.
+`scripts/ci/verify-pr-base-policy.py` retains governed maintainer Main authority
+and the currently declared promotion heads. This authorizes PR routing only;
+it does not establish Dev/UAT acceptance or authorize a deployment. Keep
+`allow_auto_merge` enabled so eligible PRs can enter the ordinary queue.
 
-## Visual Map
+### Carry stable fixes back to development
 
-```mermaid
-flowchart LR
-  feature["feature / fix / dev branches"]
-  train["integration/pr-train"]
-  main["main"]
-  green["Green main SHA"]
-  uat["UAT deploy<br/>manual exact SHA"]
-  prod["Production deploy<br/>manual chosen SHA"]
-  feature --> train --> main --> green
-  feature -->|maintainer-authored, branched from main| main
-  green --> uat
-  green --> prod
-```
-
-This repo runs on a dedicated PR-train branch, a protected promotion branch, and SHA-based environment deployment:
-
-| Lane | Purpose | Default policy |
-|---|---|---|
-| `integration/pr-train` | Community / contributor / agent PR intake and async train landing | Effective landing base for every non-maintainer feature/fix/docs PR |
-| `main` | Promotion branch for deployable history | Governed maintainers open PRs **directly into `main`** from a branch cut off `origin/main`; the train also opens normal promotion PRs. CI gate + merge queue + post-merge smoke always required. |
-| Dev | Agentic proving ground (fast lane) | Manual governed dispatch of a **CI-green SHA from `integration/pr-train` (default) or any ref** — never gated on `main`. See [dev-fast-lane.md](./dev-fast-lane.md). |
-| UAT | Hosted signoff environment | Main baseline or explicit CI-qualified curated UAT application, with matching Dev acceptance |
-| Production | Live user traffic | UAT-accepted application and Main approval; distinct SHAs require exact tree equivalence. Governed manual dispatch or certified release cadence |
+A reviewed UAT or production hotfix creates a follow-up for Dev containing the
+source change, required dependencies and a link to the destination PR. Reconcile
+that fix by behavior against the current Dev base, verify its destination CI and
+record the merged Dev commit before closing the follow-up. A selective cherry-pick
+or equivalent reviewed change is appropriate; do not merge all of UAT into Dev or
+all of Dev into UAT. This is currently an operator procedure, not an automated
+back-sync guarantee. An automated reminder must preserve those same review and
+freshness boundaries before it is enabled.
 
 ## Working Rules
 
-1. **If you are a maintainer shipping your own code to `main`, branch from `origin/main`** and open your PR directly into `main` — do not route maintainer milestones through `integration/pr-train` (that couples them to train-only commits and makes a clean landing on `main` impossible). Branch from `integration/pr-train` only when your work is genuinely train-lane work (e.g. coordinating a contributor train).
-2. Contributor PRs may still be opened to `main` for a familiar GitHub intake experience; maintainers or automation retarget normal intake to `integration/pr-train` before review, approval, queue, merge, maintainer patch, or harvest.
-3. Merge non-maintainer contributor and agent feature/fix/docs work into `integration/pr-train`; governed maintainer-authored branches cut from `origin/main` may open directly to `main`.
-4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean; direct maintainer PRs use the same CI, queue, and post-merge gates.
-5. Non-maintainer feature, contributor, or agent PRs must not target `main`; CI blocks them unless the head branch is `integration/pr-train` (or a registered promote branch). Governed maintainers (anyone in `main.review_bypass_users` / `main.merge_queue_bypass_users`) may open a direct PR into `main` from any branch; the `CI Status Gate`, merge queue, and `Main Post-Merge Smoke Gate` still apply, so this removes only the train detour, not the safety gates.
+1. New development starts from the intended protected Dev baseline and targets Dev. Preserve the active branch and dependency context.
+2. After the UAT transition is authorized, curate UAT explicitly. A merge or cherry-pick produces a new assembled SHA; individual source receipts cannot qualify it.
+3. Until direct-CI admission is qualified, accept that assembled SHA on Dev and then UAT through Main-owned workflows and exact service receipts.
+4. Promote accepted UAT content to Main without adding untested content; preserve the application/approval mapping. Concurrent Main changes require reconciliation and affected verification.
+5. Governed maintainer operations/hotfix PRs can target Main directly. Retain legacy train promotions without treating that branch as new intake or deploying automatically.
 6. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
 7. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
-8. After an isolated hotfix lands, return local work to the normal development branch or `integration/pr-train` and delete the temporary branch after rollout validation.
+8. After an isolated hotfix lands, return local work to the preserved development branch and delete the temporary branch after rollout validation.
 9. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
 10. UAT uses an exact CI-qualified application with Dev acceptance. Main candidates require Main smoke; UAT-only candidates require canonical PR, queue or full branch validation.
-11. Production deploys only from a manually chosen or certified-cadence SHA that is reachable from `origin/main` and already green in CI.
+11. Production deploys only the explicitly approved application through its Main approval or separately governed emergency admission. Cadence remains disabled until it understands the same mapping.
 12. Prepared-branch baseline and curated-selection PRs preserve history. Their merge does not deploy an environment; release tooling remains Main-owned.
 
-## Codex Branch Preservation Gate
+## Engineering Branch Preservation Gate
 
 Coding agents must run this gate before CI, deploy, PR, hotfix, or validation work:
 
@@ -174,7 +202,7 @@ Coding agents must run this gate before CI, deploy, PR, hotfix, or validation wo
 4. Use a temporary branch only when branch isolation is explicitly requested, an isolated `main` hotfix is required, or unrelated in-flight work makes the preserved branch unsafe for the fix.
 5. If a temporary branch is used, delete it locally AND remotely after the work is safely preserved on the kept branches, then switch back to the preserved developer branch. Before deleting, verify every unique commit/file is represented on a kept branch, and close any throwaway PR opened from the temp branch.
 6. If a normal fix lands on `integration/pr-train`, merge or rebase the landed train commits into the preserved developer branch before handoff.
-7. If an emergency hotfix lands on `main`, merge or rebase the landed `origin/main` commits into `integration/pr-train` and the preserved developer branch before handoff.
+7. If an emergency hotfix lands on `main`, reconcile it into `dev` and affected active branches without overwriting their unique work. Reconcile the legacy train when its active work requires it.
 8. Do not end a task detached, on `main`, or on a temporary branch unless the user explicitly requested that final state or a concrete conflict blocks restoration. If branch switching happened mid-task (including from a parallel terminal), switch back to the developer's starting branch before handoff and state that you did.
 9. HARD RULE — leave the tree clean at handoff: developer on their branch, no stray local temp branches, no stray remote temp branches, no dangling throwaway PRs. Auto-creating branches, abandoning the developer on a stray branch, or leaving temp branches behind is a defect to correct immediately, not an acceptable shortcut.
 
@@ -183,16 +211,17 @@ Coding agents must run this gate before CI, deploy, PR, hotfix, or validation wo
 | Branch type | Naming pattern | Retention |
 |---|---|---|
 | Developer branch | `feature/*`, `feat/*`, `agent_*`, developer-owned names | Keep while active |
-| PR train branch | `integration/pr-train` | Durable protected intake branch |
-| Hotfix branch | `fix/*` | Delete after merge to `main`, sync back to `integration/pr-train`, and successful UAT validation |
-| Deployment artifact | exact green `main` SHA | Keep in Git history and deployment logs |
+| Development intake | `dev` | Durable protected branch for new development |
+| Legacy train branch | `integration/pr-train` | Preserve its protected history and active work |
+| Hotfix branch | `fix/*` | Delete after merge, required validation and safe back-sync |
+| Deployment artifact | exact qualified application SHA and release provenance | Keep in Git history and deployment logs |
 | Local backup branch | `backup/*`, `publishable/*` | Audit unique commits, salvage if needed, then delete |
 
 Before deleting a local backup branch, classify its unique commits as:
 
 1. already represented in `main`
 2. obsolete and safe to drop
-3. still valuable and worth promoting onto a fresh salvage branch from current `integration/pr-train`
+3. still valuable and worth promoting onto a reviewed branch from the appropriate current baseline
 
 ## Deployment Lanes
 
@@ -200,10 +229,10 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. Dev deploys through `Deploy to Dev` (manual dispatch from `main`, governed actor
    cohort identical to UAT).
-2. The deployed content is `integration/pr-train` by default, or any requested ref;
+2. The deployed content is `dev` by default, or any requested ref;
    the exact SHA must be reachable from that ref and carry a green `CI Status Gate`.
 3. Dev never requires `main` ancestry or `Main Post-Merge Smoke` — `main` stays the
-   UAT → production signoff lane, and dev proves the train BEFORE promotion.
+   UAT → production signoff lane, and Dev proves selected changes before promotion.
 4. Dev has no promotion authority: nothing deploys to UAT or production from dev.
 5. Full contract: [dev-fast-lane.md](./dev-fast-lane.md).
 
@@ -474,10 +503,10 @@ at workflow runtime.
 1. Preserve the active developer branch before switching away.
 2. Create the hotfix branch from the latest `main` only when an isolated hotfix is materially required.
 3. Merge the hotfix into `main`.
-4. Immediately sync the landed hotfix back into `integration/pr-train` so the train branch does not drift behind the promotion branch.
-5. If hosted validation is required, manually deploy that same green `main` SHA to UAT.
-6. Delete the hotfix branch locally and remotely after merge and rollout validation when safe.
-7. Switch back to the preserved developer branch and merge or rebase the landed train/main commits into it.
+4. Reconcile the landed hotfix into `dev` and affected active branches through their governed paths; preserve unique work and legacy train history.
+5. Deploy only to an explicitly authorized environment, using its qualified source and release workflow.
+6. Delete the hotfix branch locally and remotely after the required validation when safe.
+7. Return to the preserved developer branch and incorporate the relevant landed changes without overwriting peer work.
 8. If another blocker appears after that rollout, create a new hotfix branch from the updated `main` only when the same isolation criteria still applies.
 9. Do not reuse an already-merged hotfix branch for a second fix.
 

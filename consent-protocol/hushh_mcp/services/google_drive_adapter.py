@@ -101,8 +101,9 @@ SHARE_METADATA_FIELDS = (
 # Metadata-only live read for a file with no readable text (a video, an image,
 # an archive, a folder): what it is and where to open it, never its bytes.
 FACT_FIELDS = (
-    "id,name,mimeType,version,modifiedTime,createdTime,driveId,resourceKey,size,webViewLink,trashed,md5Checksum,sha256Checksum,headRevisionId,"
-    "capabilities(canShare,canDownload,canAccessViaGenAi),clientEncryptionDetails(encryptionState)"
+    "id,name,mimeType,version,modifiedTime,createdTime,driveId,resourceKey,size,webViewLink,webContentLink,exportLinks,trashed,md5Checksum,sha256Checksum,headRevisionId,"
+    "capabilities(canShare,canDownload,canAccessViaGenAi),clientEncryptionDetails(encryptionState),"
+    "shortcutDetails(targetId,targetMimeType,targetResourceKey)"
 )
 # Live search: one bounded files.list shape, never a caller-chosen field set.
 LIST_FIELDS = (
@@ -843,9 +844,24 @@ class GoogleDriveAdapter:
         ):
             raise DriveReadError("provider_response_invalid")
         encryption = result.get("clientEncryptionDetails")
+        shortcut = result.get("shortcutDetails")
         if encryption is not None and (
             not isinstance(encryption, dict)
             or not isinstance(encryption.get("encryptionState"), str)
+        ):
+            raise DriveReadError("provider_response_invalid")
+        if shortcut is not None and (
+            not isinstance(shortcut, dict)
+            or not isinstance(shortcut.get("targetId"), str)
+            or not FILE_ID.fullmatch(shortcut["targetId"])
+            or not isinstance(shortcut.get("targetMimeType"), str)
+            or (
+                shortcut.get("targetResourceKey") is not None
+                and (
+                    not isinstance(shortcut["targetResourceKey"], str)
+                    or not RESOURCE_KEY.fullmatch(shortcut["targetResourceKey"])
+                )
+            )
         ):
             raise DriveReadError("provider_response_invalid")
         return facts_projection(file_id, result)

@@ -1,45 +1,6 @@
 import Capacitor
 import UIKit
 
-enum NativeDrawerQualificationPolicy {
-    // One build-time switch for the complete custom presentation: bootstrap,
-    // dock, chrome and drawers. Never swap renderers in a live document.
-    // The independently owned standard bottom navigation is unaffected.
-    static let customPresentationAllowed = true
-    static func admits(_ idiom: UIUserInterfaceIdiom, enabled: Bool, coherentShell: Bool) -> Bool {
-        switch idiom {
-        case .phone: return enabled
-        case .pad: return coherentShell
-        default: return false
-        }
-    }
-    static var deviceEligible: Bool {
-        guard customPresentationAllowed else { return false }
-        guard #available(iOS 26.0, *) else { return false }
-        return admits(UIDevice.current.userInterfaceIdiom, enabled: enabled, coherentShell: coherentShell)
-    }
-    static var coherentShell: Bool {
-        guard customPresentationAllowed else { return false }
-        #if HUSHH_NATIVE_SHELL_QUALIFICATION
-        // Explicit qualification binaries keep the selected renderer across
-        // manual launches. This does not enable ordinary Debug/Release builds.
-        return true
-        #elseif DEBUG
-        return ProcessInfo.processInfo.arguments.contains("--hushh-native-shell-qualification")
-        #else
-        return false
-        #endif
-    }
-    static var enabled: Bool {
-        guard customPresentationAllowed else { return false }
-        #if DEBUG
-        return coherentShell || ProcessInfo.processInfo.arguments.contains("--hushh-native-product-drawers-qualification")
-        #else
-        return coherentShell
-        #endif
-    }
-}
-
 /// Volatile private projections and confirmed choices only. This plugin never
 /// performs navigation, persistence, cryptography or provider/network operations.
 @objc(HushhNativeDrawersPlugin)
@@ -48,6 +9,22 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     let jsName = "HushhNativeDrawers"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyWalletCardScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmWalletCardAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleWalletCardAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireWalletCardScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getWalletCardState", returnType: CAPPluginReturnPromise),
+
+        CAPPluginMethod(name: "prepareOwnedChoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "updateOwnedChoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireOwnedChoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getOwnedChoiceState", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyFeedback", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireFeedback", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyProfilePaymentsScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmProfilePaymentsAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleProfilePaymentsAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireProfilePaymentsScene", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "apply", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPresentationState", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmChoice", returnType: CAPPluginReturnPromise),
@@ -104,6 +81,51 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var controllers = [String: NativeDrawerPresentationController]()
     private var retiringControllers = [ObjectIdentifier: NativeDrawerPresentationController]()
     private var form: NativeProfileOwnedForm?
+    @MainActor private func admitRoutePresentationOwner(_ identity: NativeOwnedChoiceIdentity) -> Bool {
+        guard supported, UIDevice.current.userInterfaceIdiom == .phone else { return false }
+        var session = sessionFence
+        guard session.admitOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) else { return false }
+        if !sessionFence.containsOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) {
+            retireAll(); leases.removeAll(); sessionFence = session
+        }
+        return true
+    }
+    @MainActor private lazy var walletCard: NativeWalletCardCoordinator = {
+        let value = NativeWalletCardCoordinator()
+        value.parent = { [weak self] in self?.bridge?.viewController }
+        value.available = { [weak self] in
+            guard let self else { return false }
+            return self.supported && self.ownedChoices.concealed && self.form == nil && self.retiringForms.isEmpty &&
+                self.retiringControllers.isEmpty && (self.workspace == nil || self.workspace?.permitsWalletForm == true) && self.retiringWorkspaces.isEmpty &&
+                !self.controllers.values.contains { $0.coversUnderlyingPresentation }
+        }
+        value.admitOwner = { [weak self] in self?.admitRoutePresentationOwner($0) == true }
+        value.currentOwner = { [weak self] identity in self?.sessionFence.containsOwner(documentId: identity.documentId,
+            ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) == true }
+        value.changed = { [weak self] in self?.reconcileIsolation() }
+        value.emit = { [weak self] name, event in self?.notifyListeners(name, data: event, retainUntilConsumed: false) }
+        return value
+    }()
+    @MainActor private lazy var ownedChoices: NativeOwnedChoiceCoordinator = {
+        let choice = NativeOwnedChoiceCoordinator()
+        choice.parent = { [weak self] in self?.bridge?.viewController }
+        choice.available = { [weak self] in
+            guard let self else { return false }
+            return self.supported && UIDevice.current.userInterfaceIdiom == .phone && self.walletCard.concealed && self.form == nil &&
+                self.retiringForms.isEmpty && self.retiringControllers.isEmpty && self.workspace == nil &&
+                self.retiringWorkspaces.isEmpty && !self.controllers.values.contains { $0.coversUnderlyingPresentation }
+        }
+        choice.admitOwner = { [weak self] in self?.admitRoutePresentationOwner($0) == true }
+        choice.currentOwner = { [weak self] identity in self?.sessionFence.containsOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) == true }
+        choice.changed = { [weak self] in self?.reconcileIsolation() }
+        choice.emit = { [weak self] event in self?.notifyListeners("ownedChoice", data: event, retainUntilConsumed: false) }
+        return choice
+    }()
+    @MainActor private lazy var feedback: NativeFeedbackPresentation = {
+        let presenter = NativeFeedbackPresentation()
+        presenter.ended = { [weak self] event in self?.notifyListeners("feedbackEnded", data: event, retainUntilConsumed: false) }
+        return presenter
+    }()
     private var nameScene: NativeProfileNameScene? {
         get { form as? NativeProfileNameScene }
         set { form = newValue }
@@ -116,6 +138,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var runtimeScene: NativeProfileRuntimeScene? { form as? NativeProfileRuntimeScene }
     private var connectorScene: NativeProfileConnectorScene? { form as? NativeProfileConnectorScene }
     private var memoryScene: NativeProfileMemoryScene? { form as? NativeProfileMemoryScene }
+    private var paymentsScene: NativeProfilePaymentsScene? { form as? NativeProfilePaymentsScene }
     private var pricingScene: NativeProfilePricingScene? {
         get { form as? NativeProfilePricingScene }
         set { form = newValue }
@@ -145,7 +168,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             HushhSessionPrivacyShield.shared.profilePresentationsConcealed = { [weak self] in
                 guard let self else { return false }
-                return self.form == nil && self.retiringForms.isEmpty && self.retiringControllers.isEmpty &&
+                return self.walletCard.concealed && self.ownedChoices.concealed && self.form == nil && self.retiringForms.isEmpty && self.retiringControllers.isEmpty &&
                     self.workspace == nil && self.retiringWorkspaces.isEmpty &&
                     !self.controllers.values.contains { $0.coversUnderlyingPresentation }
             }
@@ -189,9 +212,22 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         if let privacyObserver { NotificationCenter.default.removeObserver(privacyObserver) }
         if let isolationObserver { NotificationCenter.default.removeObserver(isolationObserver) }
     }
+    @objc func applyWalletCardScene(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.walletCard.apply(call) } }
+    @objc func confirmWalletCardAction(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.walletCard.action(call, settlement: false) } }
+    @objc func settleWalletCardAction(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.walletCard.action(call, settlement: true) } }
+    @objc func retireWalletCardScene(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.walletCard.retire(call) } }
+    @objc func getWalletCardState(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.walletCard.read(call) } }
+    @objc func prepareOwnedChoice(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.prepare(call) } }
+    @objc func updateOwnedChoice(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.update(call) } }
+    @objc func retireOwnedChoice(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.retire(call) } }
+    @objc func getOwnedChoiceState(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.readState(call) } }
+
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             call.resolve(["contractVersion": 1, "supported": self?.supported == true, "wholePresentation": self?.supported == true,
+                "walletCardForms": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "ownedChoices": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "privateFeedback": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "historyActions": self?.supported == true,
                 "profileMenuRows": self?.supported == true,
                 "profilePortrait": self?.supported == true,
@@ -224,8 +260,12 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 // Qualification-only candidate. Ordinary builds keep the
                 // established renderer through the single shell policy.
                 "profileConnectorPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profileHostingPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profilePaymentsPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profilePaymentsScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profileSoftwareUpdatePages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileFinancePreferences": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
-                "routeWorkspaces": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? ["referrals"] : [],
+                "routeWorkspaces": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? ["referrals", "wallet"] : [],
                 "agentProfileMenu": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
                 "closeSettlements": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
@@ -250,6 +290,57 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 privacy: receipt["privacyGeneration"] as? Int ?? -1)
         }
         return form == nil
+    }
+    @objc func applyFeedback(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.supported, NativeDrawerQualificationPolicy.coherentShell,
+                  UIDevice.current.userInterfaceIdiom == .phone,
+                  let options = call.options as? [String: Any], Set(options.keys) == NativeFeedbackProjection.keys,
+                  JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
+                  bytes.count <= 12000, let state = try? JSONDecoder().decode(NativeFeedbackProjection.self, from: bytes), state.valid else {
+                call.reject("NATIVE_FEEDBACK_INVALID"); return
+            }
+            let shield = HushhSessionPrivacyShield.shared
+            let privacy = shield.snapshot()
+            guard privacy.appIsActive, !privacy.shielded, privacy.generation == state.privacyGeneration,
+                  shield.acceptsDocument(state.documentId), self.sessionFence.contains(state.identity),
+                  self.leases[state.family]?.identity == state.identity,
+                  let controller = self.controllers[state.family], state.belongs(to: controller.model.projection),
+                  self.retiringControllers.isEmpty, self.retiringForms.isEmpty else {
+                call.resolve(["applied": false]); return
+            }
+            let parent: UIViewController?
+            if let form = self.form {
+                parent = form.identity.documentId == state.documentId && form.identity.ownerEpoch == state.ownerEpoch &&
+                    form.identity.ownerGeneration == state.ownerGeneration && form.identity.family == state.family && form.identity.revision == state.formRevision &&
+                    form.sceneName == state.formScene ? form.feedbackPresenter : nil
+            } else {
+                parent = state.formScene == nil && controller.presentationLayoutSettled &&
+                    controller.model.interactionEnabled ? controller.host : nil
+            }
+            guard let parent, parent.view.window === self.bridge?.viewController?.view.window,
+                  parent.presentedViewController == nil else { call.resolve(["applied": false]); return }
+            call.resolve(["applied": self.feedback.apply(state, to: parent)])
+        }
+    }
+    @objc func retireFeedback(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let options = call.options as? [String: Any],
+                  Set(options.keys) == NativeFeedbackProjection.keys.subtracting(["message", "tone", "duration", "dismissible"]),
+                  JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
+                  bytes.count <= 12000,
+                  let identity = try? JSONDecoder().decode(NativeDrawerIdentity.self, from: bytes), identity.valid,
+                  let id = options["feedbackId"] as? String, NativeDrawerIdentity.identifier(id) else {
+                call.reject("NATIVE_FEEDBACK_INVALID"); return
+            }
+            // IDs are opaque and owner-bound. Cleanup never authorizes an action.
+            guard self.sessionFence.contains(identity) else { call.resolve(["retired": false]); return }
+            guard let sequence = options["feedbackSequence"] as? Int, let revision = options["feedbackRevision"] as? Int,
+                  sequence > 0, revision >= 0, sequence <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
+                  revision <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { call.reject("NATIVE_FEEDBACK_INVALID"); return }
+            self.feedback.retire(id: id, sequence: sequence, revision: revision, owner: identity, context: options)
+            call.resolve(["retired": true])
+        }
     }
     @objc func apply(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
@@ -304,6 +395,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             self.leases[next.family] = lease
             if let previous = self.controllers[next.family] {
+                self.feedback.retainOnly(next)
                 if next.family == "profile", (previous.model.projection.profileDestinationId != next.profileDestinationId ||
                     previous.model.projection.profileSupportDestinationId != next.profileSupportDestinationId),
                    self.form != nil { self.retireProfileForm() }
@@ -544,6 +636,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
          "privacyGeneration": max(0, lease.privacyGeneration), "phase": "retired"]
     }
     @MainActor private func detach(_ family: String, completion: @escaping () -> Void = {}) {
+        feedback.retireFamily(family)
         guard let controller = controllers.removeValue(forKey: family) else {
             afterOwnedFormRetirement(family, completion: completion); return
         }
@@ -569,6 +662,9 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         else { completion() }
     }
     @MainActor private func retireAll() {
+        walletCard.retire()
+        ownedChoices.retire()
+        feedback.clear()
         retireWorkspacePresentation()
         retireProfileForm()
         for family in Array(controllers.keys) {
@@ -578,12 +674,14 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @MainActor private func reconcileIsolation() {
-        let formCovered = form?.coversPresentation == true || !retiringForms.isEmpty
+        let formCovered = walletCard.coversPresentation || ownedChoices.coversPresentation || form?.coversPresentation == true || !retiringForms.isEmpty
         for controller in controllers.values { controller.setFormCoverage(formCovered) }
-        let covered = controllers.values.contains { $0.coversUnderlyingPresentation } ||
+        let covered = walletCard.coversPresentation || ownedChoices.coversPresentation || controllers.values.contains { $0.coversUnderlyingPresentation } ||
             retiringControllers.values.contains { $0.coversUnderlyingPresentation } ||
             form?.coversPresentation == true || retiringForms.values.contains { $0.coversPresentation }
-        container?.isolateForOwnedDrawer(covered)
+        workspace?.setExternalCoverage(covered)
+        let workspaceCovered = workspace?.coversPresentation == true || retiringWorkspaces.values.contains { $0.coversPresentation }
+        container?.isolateForOwnedDrawer(covered || workspaceCovered)
         workspace?.refresh()
         HushhSessionPrivacyShield.shared.profilePreparationDidChange()
     }
@@ -607,17 +705,27 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             callbacks.forEach { $0() }
         }
     }
+    // Public admission stages contain no scene fields or owner identifiers.
+    @MainActor static var workspaceAdmissionStage = 0
     @objc func applyWorkspace(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
+            Self.workspaceAdmissionStage = 1
             guard let self, self.supported, NativeDrawerQualificationPolicy.coherentShell, UIDevice.current.userInterfaceIdiom == .phone,
-                  let parent = self.bridge?.viewController, let container = self.container,
-                  let options = call.options as? [String: Any], NativeWorkspaceProjection.closed(options), JSONSerialization.isValidJSONObject(options),
-                  let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 1_000_000,
-                  let next = try? JSONDecoder().decode(NativeWorkspaceProjection.self, from: bytes), next.valid else { call.reject("NATIVE_WORKSPACE_INVALID"); return }
+                  let parent = self.bridge?.viewController, let container = self.container else { call.reject("NATIVE_WORKSPACE_INVALID"); return }
+            Self.workspaceAdmissionStage = 2
+            guard let options = call.options as? [String: Any], NativeWorkspaceProjection.closed(options) else { call.reject("NATIVE_WORKSPACE_INVALID"); return }
+            Self.workspaceAdmissionStage = 21
+            guard JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options) else { call.reject("NATIVE_WORKSPACE_INVALID"); return }
+            Self.workspaceAdmissionStage = 22
+            guard bytes.count <= 1_000_000 else { call.reject("NATIVE_WORKSPACE_INVALID"); return }
+            Self.workspaceAdmissionStage = 3
+            guard let next = try? JSONDecoder().decode(NativeWorkspaceProjection.self, from: bytes), next.valid else { call.reject("NATIVE_WORKSPACE_INVALID"); return }
+            Self.workspaceAdmissionStage = 4
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             guard privacy.appIsActive, !privacy.shielded, privacy.generation == next.privacyGeneration,
                   HushhSessionPrivacyShield.shared.acceptsDocument(next.documentId),
                   abs(container.bounds.width - next.frame.viewportWidth) <= 1, abs(container.bounds.height - next.frame.viewportHeight) <= 1 else { call.reject("NATIVE_WORKSPACE_UNAVAILABLE"); return }
+            Self.workspaceAdmissionStage = 5
             var session = self.sessionFence
             guard session.admitOwner(documentId: next.documentId, ownerEpoch: next.ownerEpoch, ownerGeneration: next.ownerGeneration),
                   !self.workspaceRetirementFence.retired(next.identity) else { call.reject("NATIVE_WORKSPACE_STALE_OWNER"); return }
@@ -637,14 +745,17 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             } else {
                 guard self.workspaceIdentity != next.identity, let presentation = NativeWorkspacePresentation(next, parent: parent, container: container) else { call.reject("NATIVE_WORKSPACE_RETIRED"); return }
                 self.workspaceIdentity = next.identity; self.workspaceRetiredReceipt = nil; self.workspace = presentation
+                presentation.coverage = { [weak self] in self?.reconcileIsolation() }
                 presentation.model.emit = { [weak self] event in self?.notifyListeners("workspaceChoice", data: event, retainUntilConsumed: false) }
                 presentation.model.emitEdit = { [weak self] name, event in self?.notifyListeners(name, data: event, retainUntilConsumed: false) }
             }
+            Self.workspaceAdmissionStage = 6
             // Decoding isn't completed presentation. Transfer body coverage
             // only after retained containment and the native layout pass.
-            DispatchQueue.main.async { [weak self] in
-                guard let current = self?.workspace, current.model.state.identity == next.identity,
+            self.workspace?.prepare { [weak self] settled in
+                guard settled, let current = self?.workspace, current.model.state.identity == next.identity,
                       current.model.state.updateSequence == next.updateSequence, current.ready else { call.reject("NATIVE_WORKSPACE_NOT_READY"); return }
+                Self.workspaceAdmissionStage = 7
                 call.resolve(next.receipt("active", settled: true))
             }
         }
@@ -684,12 +795,14 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func settleWorkspaceChoice(_ call: CAPPluginCall) { resolveWorkspaceChoice(call, confirm: false) }
     private func resolveWorkspaceChoice(_ call: CAPPluginCall, confirm: Bool) {
         DispatchQueue.main.async { [weak self] in
-            guard Set(call.options.keys).isSubset(of: ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "privacyGeneration", "updateSequence", "sequence", "action", "rowId", "text", "editRevision"]),
+            guard Set(call.options.keys).isSubset(of: ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "privacyGeneration", "updateSequence", "sequence", "action", "rowId", "text", "editRevision", "domain", "detailVisitId", "dismissed"]),
                   let self, let presentation = self.workspace, let identity = self.decodeWorkspaceIdentity(call), identity == presentation.model.state.identity,
                   call.getInt("privacyGeneration") == presentation.model.state.privacyGeneration,
                   let sequence = call.getInt("sequence"), let update = call.getInt("updateSequence"), let action = call.getString("action"), sequence > 0 else { call.resolve(["valid": false]); return }
-            let choice = NativeWorkspaceAction(sequence: sequence, updateSequence: update, action: action, row: call.getString("rowId"), text: call.getString("text"), editRevision: call.getInt("editRevision"))
-            call.resolve(["valid": confirm ? presentation.model.confirm(choice) : presentation.model.settle(choice)])
+            let choice = NativeWorkspaceAction(sequence: sequence, updateSequence: update, action: action, row: call.getString("rowId"), text: call.getString("text"), editRevision: call.getInt("editRevision"), domain: call.getString("domain"), detailVisitId: call.getString("detailVisitId"), dismissed: call.getBool("dismissed"))
+            let valid = confirm ? presentation.model.confirm(choice) : presentation.model.settle(choice)
+            if !confirm { self.reconcileIsolation() }
+            call.resolve(["valid": valid])
         }
     }
     @MainActor private var profileParentPresentationIsReady: Bool {
@@ -726,11 +839,13 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         let connectorDestinations = ["connector-custom-server": "connector-custom", "connector-profile-link": "connector-detail", "connector-packet-price": "connector-packet"]
         let nativeMemory = scene == "memory-financial-context" && profile.open && profile.profileStack?.last?.id == "memory-domain" &&
             destinationId != nil && destinationId == profile.profileDestinationId
+        let nativePayments = ["payment-funding": "commerce-funding", "payment-country": "commerce-payouts"][scene] == profile.profileStack?.last?.id &&
+            ["payment-funding", "payment-country"].contains(scene) && profile.open && destinationId != nil && destinationId == profile.profileDestinationId
         let nativeConnector = connectorDestinations[scene] == profile.profileStack?.last?.id && connectorDestinations[scene] != nil && profile.open &&
             destinationId != nil && destinationId == profile.profileDestinationId
         return profile.documentId == identity.documentId && profile.ownerEpoch == identity.ownerEpoch &&
             profile.ownerGeneration == identity.ownerGeneration && profile.surfaceOpen == true &&
-            (!profile.open && destinationId == nil && scene == "account-name" || nativeAccount || nativeReferral || nativePreferences || nativeSupport || nativeVault || nativePricing || nativeWorldModel || nativeRuntime || nativeConnector || nativeMemory) && profile.enabled
+            (!profile.open && destinationId == nil && scene == "account-name" || nativeAccount || nativeReferral || nativePreferences || nativeSupport || nativeVault || nativePricing || nativeWorldModel || nativeRuntime || nativeConnector || nativeMemory || nativePayments) && profile.enabled
     }
     @objc func applyProfileRuntimeScene(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
@@ -984,6 +1099,93 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.retireProfileForm { call.resolve(scene.receipt("retired")) }; return
             }
             guard self.sessionFence.contains(identity) else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_RETIREMENT"); return }
+            // Main-actor admission creates the form before presentation starts.
+            // With neither an active nor retiring instance there is nothing to
+            // withdraw; an unadmitted revision cannot poison other form leases.
+            var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease()); receipt["scene"] = sceneName; receipt["destinationId"] = destination
+            call.resolve(receipt)
+        }
+    }
+    @objc func applyProfilePaymentsScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let parent = self.bridge?.viewController,
+                  let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativePaymentsProjection.keys),
+                  let sceneName = call.getString("scene"), ["payment-funding", "payment-country"].contains(sceneName),
+                  let draft = options["draft"] as? [String: Any], Set(draft.keys) == Set(["value"]),
+                  JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 8192,
+                  let next = try? JSONDecoder().decode(NativePaymentsProjection.self, from: bytes), next.valid,
+                  self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
+                  self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_PAYMENTS_UNAVAILABLE"); return }
+            if let scene = self.paymentsScene {
+                guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_PAYMENTS_STALE_STATE"); return }
+                call.resolve(next.receipt("active")); return
+            }
+            guard self.form == nil, self.profileParentPresentationIsReady else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            let owner = self.profileFormOwnerKey(next.identity)
+            if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
+            guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_PAYMENTS_RETIRED"); return }
+            let scene = NativeProfilePaymentsScene(next); self.form = scene; self.formRevision = next.revision
+            scene.coverage = { [weak self] in self?.reconcileIsolation() }
+            scene.model.finalEdit = { [weak self, weak scene] draft, revision in
+                guard let self, let scene, self.sessionFence.contains(scene.identity),
+                      self.paymentsScene === scene || self.retiringForms[ObjectIdentifier(scene)] === scene else { return }
+                let state = scene.model.projection
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["draft"] = draft.event; event["composing"] = false; event["editRevision"] = revision
+                event["baseDraftRevision"] = state.draftRevision; event["acknowledgedEditRevision"] = state.acknowledgedEditRevision
+                self.notifyListeners("profilePaymentsFinalEdit", data: event, retainUntilConsumed: false)
+            }
+            scene.model.edit = { [weak self, weak scene] draft, composing, revision in
+                guard let self, let scene, self.paymentsScene === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: state.scene, destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["draft"] = draft.event; event["composing"] = composing; event["editRevision"] = revision
+                self.notifyListeners("profilePaymentsEdit", data: event, retainUntilConsumed: false); return true
+            }
+            scene.model.choose = { [weak self, weak scene] action in
+                guard let self, let scene, self.paymentsScene === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: state.scene, destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["sequence"] = action.sequence; event["action"] = action.action; event["editRevision"] = action.editRevision
+                self.notifyListeners("profilePaymentsAction", data: event, retainUntilConsumed: false); return true
+            }
+            guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
+                guard let self, let scene else { call.reject("NATIVE_PROFILE_PAYMENTS_RETIRED"); return }
+                guard presented, self.paymentsScene === scene,
+                      self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
+                    if self.paymentsScene === scene { self.retireProfileForm() }; call.reject("NATIVE_PROFILE_PAYMENTS_RETIRED"); return
+                }
+                call.resolve(next.receipt("active"))
+            }) else { self.retireProfileForm(); call.reject("NATIVE_PROFILE_PAYMENTS_PRESENTATION_REFUSED"); return }
+        }
+    }
+    @objc func confirmProfilePaymentsAction(_ call: CAPPluginCall) { paymentsAction(call, settlement: false) }
+    @objc func settleProfilePaymentsAction(_ call: CAPPluginCall) { paymentsAction(call, settlement: true) }
+    private func paymentsAction(_ call: CAPPluginCall, settlement: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
+                  let sceneName = call.getString("scene"), ["payment-funding", "payment-country"].contains(sceneName),
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: sceneName, destinationId: call.getString("destinationId")),
+                  let scene = self.paymentsScene, scene.identity == identity, scene.sceneName == sceneName, scene.model.projection.destinationId == call.getString("destinationId"),
+                  let action = self.nameAction(call, scene: sceneName) else { call.resolve(["valid": false]); return }
+            call.resolve(["valid": settlement ? scene.settle(action) : scene.model.confirm(action)])
+        }
+    }
+    @objc func retireProfilePaymentsScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, Set(call.options.keys).isSubset(of: ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene", "destinationId"]),
+                  let identity = self.identity(call), identity.family == "profile", let sceneName = call.getString("scene"), ["payment-funding", "payment-country"].contains(sceneName),
+                  let destination = call.getString("destinationId"), NativeDrawerIdentity.identifier(destination) else { call.reject("NATIVE_PROFILE_PAYMENTS_STALE_RETIREMENT"); return }
+            if let scene = self.retiringForms.values.first(where: { $0.identity == identity && $0.sceneName == sceneName && $0.receipt("retired")["destinationId"] as? String == destination }) {
+                scene.retire { call.resolve(scene.receipt("retired")) }; return
+            }
+            if let scene = self.paymentsScene {
+                guard scene.identity == identity, scene.sceneName == sceneName, scene.model.projection.destinationId == destination else { call.reject("NATIVE_PROFILE_PAYMENTS_STALE_RETIREMENT"); return }
+                self.retireProfileForm { call.resolve(scene.receipt("retired")) }; return
+            }
+            guard self.sessionFence.contains(identity) else { call.reject("NATIVE_PROFILE_PAYMENTS_STALE_RETIREMENT"); return }
             // Main-actor admission creates the form before presentation starts.
             // With neither an active nor retiring instance there is nothing to
             // withdraw; an unadmitted revision cannot poison other form leases.
@@ -1468,6 +1670,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     @MainActor private func retireProfileForm(completion: @escaping () -> Void = {}) {
+        feedback.retireFamily("profile")
         guard let scene = form else {
             let retiring = Array(retiringForms.values)
             guard !retiring.isEmpty else { completion(); return }

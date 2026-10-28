@@ -5,9 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ProfilePanePrivacyIcon, ProfilePaneSecurityIcon, ProfilePaneWalletIcon } from "@/components/profile/profile-pane-icons";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
 import presentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
-import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { NativeTestBeacon, type NativeTestDataState } from "@/components/app-ui/native-test-beacon";
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
 import { WalletCardImageShareButton } from "@/components/wallet/wallet-card-image-share-button";
@@ -98,22 +98,21 @@ function WalletProfileShell({ embedded, title, description, children, preview }:
   </section> : <PkmSettingsShell title={title} description={description} innerClassName={`${presentationStyles.walletSurface} mx-auto max-w-[580px]`}>{children}</PkmSettingsShell>}</SettingsPresentationProvider>;
 }
 
-type WalletCardWorkspaceProps = { embedded?: boolean; passVariant?: WalletPassVariant; active?: boolean };
+type WalletCardWorkspaceProps = { embedded?: boolean; passVariant?: WalletPassVariant; active?: boolean; nativeRender?: (model: WalletProfileOwner) => ReactNode };
 
 export function WalletCardWorkspace(props: WalletCardWorkspaceProps = {}) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
   // Owner changes and vault locks discard all card, draft, and visitor state
   // during render. Late requests can only update the unmounted owner's tree.
-  const ownerScope = `${user?.uid ?? "anonymous"}:${isVaultUnlocked && vaultOwnerToken ? "ready" : "locked"}`;
+  const ownerScope = `${userId ?? "anonymous"}:${isVaultUnlocked && vaultOwnerToken ? "ready" : "locked"}`;
   return <WalletCardOwnerWorkspace key={ownerScope} {...props} />;
 }
 
-function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", active = true }: WalletCardWorkspaceProps) {
-  const { user, loading: authLoading, phoneNumber } = useAuth();
+export function useWalletProfileOwner({ embedded = false, passVariant = "profile", active = true, nativeRender }: WalletCardWorkspaceProps) {
+  const { user, userId, loading: authLoading, phoneNumber } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
   const avatarUrl = useEffectiveAvatarUrl();
-  const userId = user?.uid ?? null;
   const loadGeneration = useRef(0);
 
   const [stage, setStage] = useState<WalletCardStage>("loading");
@@ -134,7 +133,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
 
   // Every stage swaps in place on one pathname, so the shell's pathname-keyed
   // reset never fires and the previous stage's scroll offset carries over.
-  useScrollReset(stage, { enabled: true, behavior: "auto" });
+  useScrollReset(stage, { enabled: !nativeRender, behavior: "auto" });
   const [confirm, setConfirm] = useState<ConfirmKind | null>(null);
   const [applePassSupported, setApplePassSupported] = useState(false);
   const imageShareProfile = useMemo<WalletDemoProfile>(() => ({
@@ -161,7 +160,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
   }, [localStageOpen, saving, busyAction, card]);
   useBackLayer(
     embedded ? ROUTES.ONE_WALLET : ROUTES.ONE_WALLET_CARD,
-    active && localStageOpen && isVaultUnlocked && vaultOwnerToken && userId ? 2 : 0,
+    !nativeRender && active && localStageOpen && isVaultUnlocked && vaultOwnerToken && userId ? 2 : 0,
     closeLocalStage,
   );
 
@@ -378,12 +377,12 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
     [draft.preferredContact],
   );
 
-  const submitDraft = useCallback(async () => {
-    if (!vaultOwnerToken || !userId) return;
-    const validation = validateDraft(draft);
+  const submitDraft = useCallback(async (snapshot = draft) => {
+    if (!vaultOwnerToken || !userId) return false;
+    const validation = validateDraft(snapshot);
     if (hasValidationErrors(validation)) {
       setErrors(validation);
-      return;
+      return false;
     }
     setErrors({});
     setSaving(true);
@@ -392,7 +391,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
       const result = await WalletCardService.saveCard({
         vaultOwnerToken,
         userId,
-        payload: draftToPayload(draft),
+        payload: draftToPayload(snapshot),
       });
       // The plaintext token only comes back on create; persist it before the
       // response is discarded or the QR can never be rendered again.
@@ -410,14 +409,16 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
       if (!isFirstSetup) toast.success(WALLET_CARD_OWNER_COPY.saved);
       setStage("preview");
       void loadVisitorPreview();
+      return true;
     } catch (error) {
       if (error instanceof WalletCardPayloadError) {
         toast.error(
           "Some of this information can't be shared. Check the fields above.",
         );
-        return;
+        return false;
       }
       toast.error(WALLET_CARD_OWNER_COPY.saveFailed);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -577,7 +578,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
       : WALLET_CARD_COPY.entryBeforeSetup;
   }, [card, stage]);
 
-  const dataState =
+  const dataState: NativeTestDataState =
     stage === "loading"
       ? "loading"
       : stage === "error"
@@ -588,6 +589,15 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
             ? "loaded"
             : "empty-valid";
 
+  return { user, authLoading, userId, stage, card, shareLink, draft, errors, visitorPreview, previewOrigin, saving, busyAction, confirm, setConfirm, applePassSupported, imageShareProfile, imageShareAction, closeLocalStage, loadCard, startSetup, startEdit, onDraftChange, submitDraft, loadVisitorPreview, addToWallet, onManageAction, runConfirmedAction, header, dataState, avatarUrl, replaceDraft: (next: WalletCardDraft) => { setDraft(next); setErrors({}); } };
+}
+export type WalletProfileOwner = ReturnType<typeof useWalletProfileOwner>;
+
+function WalletCardOwnerWorkspace(props: WalletCardWorkspaceProps) {
+  const { embedded = false, nativeRender, passVariant = "profile" } = props;
+  const model = useWalletProfileOwner(props);
+  const { user, authLoading, stage, card, shareLink, draft, errors, visitorPreview, previewOrigin, saving, busyAction, confirm, setConfirm, applePassSupported, imageShareProfile, imageShareAction, closeLocalStage, loadCard, startSetup, startEdit, onDraftChange, submitDraft, loadVisitorPreview, addToWallet, onManageAction, runConfirmedAction, header, dataState, avatarUrl } = model;
+  if (nativeRender) return nativeRender(model);
   return (
     <WalletProfileShell
       embedded={embedded}

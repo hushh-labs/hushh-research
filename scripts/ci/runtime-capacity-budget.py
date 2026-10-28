@@ -2,7 +2,8 @@
 """Fail-closed Cloud Run to Cloud SQL connection admission check.
 
 This command is read only. The default pre-deploy phase reserves one new
-revision of each configured database-using service during deployment overlap.
+revision of each ordinary database-using service during deployment overlap.
+Isolated qualification candidates require an explicit candidate-service request.
 Scoped releases may name only the services that will create a new revision.
 Use --phase post-release to check retained capacity without another hypothetical
 candidate. Both phases include retained revisions, jobs and administrative reserve.
@@ -590,8 +591,7 @@ def candidate_reservations(
     maintenance: dict[str, Any] | None,
 ) -> tuple[frozenset[str], list[dict[str, Any]]]:
     """Resolve the candidate set before reserving any additional revision."""
-    if candidates is None:
-        candidates = frozenset(config["services"])
+    candidates = _inventory._scope.candidate_selection(config, environment, candidates)
     if candidates - config["services"].keys():
         raise BudgetError("candidate service is not in the capacity profile")
     if inherited - candidates:
@@ -627,26 +627,13 @@ def evaluate(
         raise BudgetError(f"unsupported capacity phase: {phase}")
     policy = connection_policy(profile, environment)
     config = profile["environments"][environment]
-    maintenance = None
-    if maintenance_profile is not None:
-        bootstrap_recovery = maintenance_profile in {"serving_backend_clone_v2", "serving_backend_clone_v3"}
-        expected = {"service": "consent-protocol", "candidate": {
-            "max_instances": 1, "workers_per_instance": 1 if bootstrap_recovery else 2, "asyncpg_pool_max": 4 if bootstrap_recovery else 2,
-            "sqlalchemy_pool_size": 2, "sqlalchemy_max_overflow": 0}}
-        if (environment != "production" or phase != "pre-deploy"
-                or maintenance_profile not in {"serving_backend_clone_v1", "serving_backend_clone_v2", "serving_backend_clone_v3"}
-                or inherited_candidate_services
-                or config.get("maintenance_candidates", {}).get(maintenance_profile) != expected):
-            raise BudgetError("unreviewed maintenance capacity profile")
-        maintenance = expected
-        # Reserve all ordinary worker candidates and jobs too. This is not a
-        # caller-controlled reduction of the global budget or ordinary release.
-        if candidate_services is not None:
-            raise BudgetError("maintenance profile cannot narrow candidate services")
-        if bootstrap_recovery:
-            # This operation creates only its backend clone. Retained workers
-            # and all jobs still count; ordinary releases reserve new workers.
-            candidate_services = frozenset({"consent-protocol"})
+    non_target_services, non_target_jobs = _inventory.non_target_rows(
+        inventory.get("non_target_workloads"), config, environment, profile["region"]
+    )
+    maintenance, candidate_services = _inventory._scope.maintenance_reservation(
+        config, environment, phase, maintenance_profile,
+        candidate_services, inherited_candidate_services,
+    )
     candidate_services, extra_rows = candidate_reservations(
         config, environment, phase, additional_candidate_services,
         candidate_services, inherited_candidate_services, maintenance,
@@ -662,50 +649,16 @@ def evaluate(
     connection_name = (
         f"{config['project']}:{profile['region']}:{config['database_instance']}"
     )
-    service_rows: list[dict[str, Any]] = []
-    expected_services = set(config["services"])
-    optional_services = {
-        name
-        for name, settings in config["services"].items()
-        if settings.get("optional_existing")
-    }
-    if (
-        not expected_services - optional_services <= set(inventory["services"])
-        or set(inventory["services"]) - expected_services
-    ):
-        raise BudgetError("service inventory differs from capacity profile")
-    for name, settings in config["services"].items():
-        if name in inventory["services"]:
-            service = inventory["services"][name]
-            service_rows.extend(
-                service_budget(
-                    name,
-                    settings,
-                    service["service"],
-                    service["revisions"],
-                    connection_name,
-                )
-            )
-        if phase == "pre-deploy" and name in candidate_services:
-            if name in inherited_candidate_services:
-                if name not in inventory["services"]:
-                    raise BudgetError(f"{name}: inherited candidate has no live service")
-                service = inventory["services"][name]
-                service_rows.append(
-                    inherited_candidate_connections(
-                        name,
-                        settings,
-                        service["service"],
-                        service["revisions"],
-                        connection_name,
-                    )
-                )
-            else:
-                effective = {**settings, "candidate": maintenance["candidate"]} if maintenance and name == maintenance["service"] else settings
-                service_rows.append(candidate_connections(name, effective))
-    if set(inventory["jobs"]) != set(config["jobs"]):
-        extra = set(inventory["jobs"]) - set(config["jobs"])
-        missing = set(config["jobs"]) - set(inventory["jobs"])
+    service_rows = _inventory._scope.service_reservations(
+        config, inventory["services"], phase, candidate_services,
+        inherited_candidate_services, maintenance, connection_name, non_target_services,
+        retained_budget=service_budget, candidate_budget=candidate_connections,
+        inherited_budget=inherited_candidate_connections,
+    )
+    expected_jobs = set(config["jobs"]) | {row["name"] for row in non_target_jobs}
+    if set(inventory["jobs"]) != expected_jobs:
+        extra = set(inventory["jobs"]) - expected_jobs
+        missing = expected_jobs - set(inventory["jobs"])
         raise BudgetError(
             f"job inventory drift: unprofiled={sorted(extra)}, missing={sorted(missing)}"
         )
@@ -713,6 +666,8 @@ def evaluate(
         job_budget(inventory["jobs"][name], settings, connection_name)
         for name, settings in config["jobs"].items()
     ]
+    service_rows.extend(non_target_services)
+    job_rows.extend(non_target_jobs)
     service_rows.extend(extra_rows)
     projected = reserve + sum(row["connections"] for row in service_rows + job_rows)
     return {
@@ -731,12 +686,16 @@ def evaluate(
     }
 
 
-def collect(profile: dict[str, Any], environment: str) -> dict[str, Any]:
+def collect(
+    profile: dict[str, Any], environment: str, *, resolve_secret=None
+) -> dict[str, Any]:
     return _inventory.collect_inventory(
         profile["environments"][environment],
         profile["region"],
         gcloud_json,
         parallel=environment == "uat",
+        environment=environment,
+        resolve_secret=resolve_secret,
     )
 
 
@@ -764,10 +723,12 @@ def main() -> int:
                 if args.inherit_candidate_service is not None
                 else None
             )
+            reader = _cli.dev_route_secret_reader(profile, args.environment, _inventory)
+            reader_options = {"resolve_secret": reader} if reader is not None else {}
             report = evaluate(
                 profile,
                 args.environment,
-                collect(profile, args.environment),
+                collect(profile, args.environment, **reader_options),
                 phase=args.phase,
                 candidate_services=candidate_services,
                 inherited_candidate_services=frozenset(args.inherit_candidate_service or ()),

@@ -82,9 +82,8 @@ function CategoryIcon({ category }: { category: SavedLocationCategory }) {
 }
 
 export function SavedLocationsSection() {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
-  const userId = user?.uid ?? null;
   const pkmChangeRevision = usePkmDomainChangeRevision(
     userId,
     LOCATION_PKM_DOMAIN,

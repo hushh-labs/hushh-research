@@ -204,17 +204,17 @@ function formatEvidenceForms(forms?: Array<{ form?: string | null; last_filed_at
 
 export default function MarketplacePage() {
   const router = useRouter();
-  const { user, phoneNumber, resolveVerifiedPhoneNumber } = useAuth();
+  const { user, userId: ownerId, phoneNumber, resolveVerifiedPhoneNumber } = useAuth();
   const contactSyncIdentityRef = useRef({
-    userId: user?.uid ?? null,
+    userId: ownerId,
     accountPhoneNumber: phoneNumber ?? user?.phoneNumber ?? null,
   });
   useLayoutEffect(() => {
     contactSyncIdentityRef.current = {
-      userId: user?.uid ?? null,
+      userId: ownerId,
       accountPhoneNumber: phoneNumber ?? user?.phoneNumber ?? null,
     };
-  }, [phoneNumber, user]);
+  }, [ownerId, phoneNumber, user]);
   const { personaState } = usePersonaState();
   const environment = resolveAppEnvironment();
   const allowTestProfiles = environment !== "production";
@@ -251,15 +251,15 @@ export default function MarketplacePage() {
   const [contactMatchLoading, setContactMatchLoading] = useState(false);
   const [contactMatchError, setContactMatchError] = useState<string | null>(null);
   const [contactScanSummary, setContactScanSummary] = useState<string | null>(null);
-  const contactResultOwnerUserIdRef = useRef(user?.uid ?? null);
+  const contactResultOwnerUserIdRef = useRef(ownerId);
   useLayoutEffect(() => {
-    const nextUserId = user?.uid ?? null;
+    const nextUserId = ownerId;
     if (contactResultOwnerUserIdRef.current === nextUserId) return;
     contactResultOwnerUserIdRef.current = nextUserId;
     setContactMatches([]);
     setContactMatchError(null);
     setContactScanSummary(null);
-  }, [user?.uid]);
+  }, [ownerId]);
   const [deckRefreshNonce, setDeckRefreshNonce] = useState(0);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -356,12 +356,12 @@ export default function MarketplacePage() {
   }, [allowKaiTestInvestor, directoryKind, investors, kaiTestUserId]);
 
   useEffect(() => {
-    if (!user || typeof window === "undefined") {
+    if (!ownerId || typeof window === "undefined") {
       setShortlistedInvestorIds([]);
       return;
     }
 
-    const prefix = `marketplace:ria:${user.uid}`;
+    const prefix = `marketplace:ria:${ownerId}`;
     const readIds = (key: string) => {
       try {
         const parsed = JSON.parse(window.localStorage.getItem(key) || "[]");
@@ -375,7 +375,7 @@ export default function MarketplacePage() {
 
     setPassedInvestorIds(readIds(`${prefix}:passed-investors`));
     setShortlistedInvestorIds(readIds(`${prefix}:shortlisted-investors`));
-  }, [user]);
+  }, [ownerId]);
 
   const persistInvestorAction = useCallback(
     async (
@@ -401,8 +401,9 @@ export default function MarketplacePage() {
     [currentPersona, user],
   );
 
+  // Keyed by ownerId too so it re-merges after the owner-keyed local read above replaces the lists.
   useEffect(() => {
-    if (!user || directoryKind !== "investors") return;
+    if (!user || !ownerId || directoryKind !== "investors") return;
     let cancelled = false;
     const activeUser = user;
 
@@ -440,14 +441,14 @@ export default function MarketplacePage() {
     return () => {
       cancelled = true;
     };
-  }, [directoryKind, user]);
+  }, [directoryKind, ownerId, user]);
 
   const rememberInvestorDeckDecision = useCallback(
     (kind: "passed" | "shortlisted", investorId: string) => {
-      if (!user || typeof window === "undefined") return;
+      if (!ownerId || typeof window === "undefined") return;
       const normalizedId = investorId.trim();
       if (!normalizedId) return;
-      const key = `marketplace:ria:${user.uid}:${
+      const key = `marketplace:ria:${ownerId}:${
         kind === "passed" ? "passed-investors" : "shortlisted-investors"
       }`;
       try {
@@ -462,15 +463,15 @@ export default function MarketplacePage() {
         window.localStorage.setItem(key, JSON.stringify([normalizedId]));
       }
     },
-    [user]
+    [ownerId]
   );
 
   const forgetInvestorDeckDecision = useCallback(
     (kind: "shortlisted", investorId: string) => {
-      if (!user || typeof window === "undefined") return;
+      if (!ownerId || typeof window === "undefined") return;
       const normalizedId = investorId.trim();
       if (!normalizedId) return;
-      const key = `marketplace:ria:${user.uid}:${
+      const key = `marketplace:ria:${ownerId}:${
         kind === "shortlisted" ? "shortlisted-investors" : "passed-investors"
       }`;
       try {
@@ -486,18 +487,18 @@ export default function MarketplacePage() {
         window.localStorage.setItem(key, "[]");
       }
     },
-    [user],
+    [ownerId],
   );
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadRelationshipContext() {
-      if (!user) return;
+      if (!user || !ownerId) return;
       try {
         const idToken = await user.getIdToken();
         const nextClients = await RiaService.listClients(idToken, {
-          userId: user.uid,
+          userId: ownerId,
         }).catch(() => ({
           items: [] as RiaClientAccess[],
           total: 0,
@@ -519,19 +520,19 @@ export default function MarketplacePage() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [ownerId, user]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadInvestorConnections() {
-      if (!user) return;
+      if (!user || !ownerId) return;
       try {
         const idToken = await user.getIdToken();
         const [pending, active, previous] = await Promise.all([
           ConsentCenterService.listEntries({
             idToken,
-            userId: user.uid,
+            userId: ownerId,
             actor: "investor",
             mode: "connections",
             surface: "pending",
@@ -539,7 +540,7 @@ export default function MarketplacePage() {
           }),
           ConsentCenterService.listEntries({
             idToken,
-            userId: user.uid,
+            userId: ownerId,
             actor: "investor",
             mode: "connections",
             surface: "active",
@@ -547,7 +548,7 @@ export default function MarketplacePage() {
           }),
           ConsentCenterService.listEntries({
             idToken,
-            userId: user.uid,
+            userId: ownerId,
             actor: "investor",
             mode: "connections",
             surface: "previous",
@@ -572,7 +573,7 @@ export default function MarketplacePage() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [ownerId, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -886,11 +887,11 @@ export default function MarketplacePage() {
   const connectionsRoute = buildMarketplaceConnectionsRoute({ tab: "active" });
 
   const matchContacts = useCallback(async () => {
-    if (!user) {
+    if (!user || !ownerId) {
       toast.error("Sign in required. Connect needs your signed-in account before matching contacts.");
       return;
     }
-    const initiatingUserId = user.uid;
+    const initiatingUserId = ownerId;
     const resolveLatestAccountPhoneNumber =
       createContactSyncAccountPhoneResolver({
         initiatingUserId,
@@ -932,7 +933,7 @@ export default function MarketplacePage() {
     } finally {
       setContactMatchLoading(false);
     }
-  }, [resolveVerifiedPhoneNumber, user]);
+  }, [ownerId, resolveVerifiedPhoneNumber, user]);
 
   const openTestInvestorWorkspace = useCallback(
     (userId: string) => {

@@ -8,6 +8,12 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 describe("native plugin contract verifier", () => {
+  it("requests Contacts only when the Calendar server attempt asks for guest photos", () => {
+    const ios = readFileSync(path.join(process.cwd(), "ios/App/App/Plugins/HushhAuthPlugin.swift"), "utf8");
+    const android = readFileSync(path.join(process.cwd(), "android/app/src/main/java/com/hussh/app/plugins/HushhAuth/HushhAuthPlugin.kt"), "utf8");
+    expect(ios).toMatch(/if call\.getBool\("includeGuestPhotos"\) == true \{\s*calendarScopes\.append\("https:\/\/www\.googleapis\.com\/auth\/contacts\.readonly"\)/u);
+    expect(android).toMatch(/if \(call\.getBoolean\("includeGuestPhotos", false\) == true\) \{\s*calendarScopes\.add\(Scope\("https:\/\/www\.googleapis\.com\/auth\/contacts\.readonly"\)\)/u);
+  });
   it("keeps the actual passive vault probe outside private input and action authority", () => {
     const source = readFileSync(path.join(process.cwd(), "ios/App/App/NativeTestSupport.swift"), "utf8");
     const script = source.slice(source.indexOf("final class NativeVaultLayoutProbe"))
@@ -73,10 +79,16 @@ describe("native plugin contract verifier", () => {
       diagnostic: "extra native method(s) not declared in TypeScript: getWorkspaceState",
     },
     {
-      file: "native-drawers.ts",
+      file: "native-drawers-plugin.ts",
       before: '  applyProfileMemoryScene?: NativeMemoryScenePort["applyProfileMemoryScene"];',
       after: "",
       diagnostic: "extra native method(s) not declared in TypeScript: applyProfileMemoryScene",
+    },
+    {
+      file: "native-owned-choice.ts",
+      before: "  getOwnedChoiceState(identity: OwnedChoiceIdentity): Promise<OwnedChoiceReceipt & { choice?: OwnedChoiceEvent }>;",
+      after: "",
+      diagnostic: "extra native method(s) not declared in TypeScript: getOwnedChoiceState",
     },
     {
       file: "native-workspace.ts",

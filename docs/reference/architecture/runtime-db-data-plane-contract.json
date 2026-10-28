@@ -1910,6 +1910,19 @@
       "trust_boundary": "Verified recipient, active connection/current Circle membership, block/mute/read/deletion checks, installation owner/key lifecycle fences. No plaintext message or avatar persists in these tables."
     },
     {
+      "id": "finance_connection_sharing",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "release_schema_qualification",
+      "exact_tables": ["finance_share_requests", "finance_access_grants"],
+      "primary_access_path": "Owner-confirmed recipient-encrypted curated Finance objects, delivered by reference through transactional Messages. Snapshot is immutable; ongoing revisions use owner-unlocked saved information and compare-and-swap. History never grants read authority.",
+      "retention_policy": "Expiry and stop deny reads immediately. Ciphertext is cleared on the participants' next access/history reconciliation. Dormant expired ciphertext and minimal idempotency/policy metadata remain until reconciliation or account erasure; no scheduled purge is claimed. Indefinite ongoing access is explicit and stops only on revocation, disconnection, key loss or account erasure.",
+      "deletion_behavior": "Explicit ordered account cleanup erases grants for either participant and owner request/config rows. Message deletion cascades its grant. Account-generation tombstone write guards prevent recreation. Raw PKM sources and generic financial scopes remain private.",
+      "trust_boundary": "No server plaintext Finance or owner key. Current active connection, blocks, exact recipient key, membership, expiry and revocation checked per read/update. Selection, mode, amount permission, model permission, participants and revision are authenticated in recipient encryption context. Private-agent review additionally requires explicit recipient intent, current owner permission and exact projection digest; signed pod feeds carry metadata only. Derived model turns reuse consent redaction and cannot run tools.",
+      "plaintext_posture": "opaque_relationship_policy_revision_and_content_hash_metadata_only",
+      "expected_row_growth": "one request per confirmation and one grant per selected recipient; ongoing revisions replace ciphertext rather than append financial history"
+    },
+    {
       "id": "wallet_temporary_card_access",
       "owner": "iam-consent-governance",
       "data_class": "personal_encrypted",
@@ -2282,7 +2295,7 @@
       ],
       "primary_access_path": "AccountGenerationService and purpose-bound enrollment under identity namespace199; normal admission resolves independently verified Firebase identity to one immutable application owner.",
       "retention_policy": "Active bindings retain external UID and application owner for that generation. Retirement scrubs those raw bindings, preserving hashes, generation, cleanup references and immutable enrollment evidence to prevent resurrection.",
-      "deletion_behavior": "Retire only after committed, qualified erasure. Re-registration explicitly creates the next opaque owner after fresh proof; old callbacks, sessions and jobs never acquire a replacement owner by looking up the latest generation.",
+      "deletion_behavior": "Retire only after committed, qualified erasure; a legacy erasure counts only when migration 437's reviewed rule accepts it for re-enrollment (UAT overlay 438, reviewed operator runs). Re-registration explicitly creates the next opaque owner after fresh proof; old callbacks, sessions and jobs never acquire a replacement owner by looking up the latest generation.",
       "trust_boundary": "Environment-local identity/ownership metadata; no passwords, provider tokens, vault/library keys or private content. No global Firebase generation claims and no email-based owner relinking.",
       "plaintext_posture": "metadata_and_hashes_only",
       "expected_row_growth": "one immutable row per explicitly admitted account generation"
@@ -2350,6 +2363,21 @@
       "trust_boundary": "No OTP, phone number, bearer or previous-account private projection. Explicit confirmation, fresh manual SMS and binding revisions gate consumption."
     },
     {
+      "id": "account_phone_linked_deletion_workflow",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "account_phone_linked_deletions"
+      ],
+      "primary_access_path": "Opaque prepare, single-use phone-proof confirm and status read for deleting the account that holds a verified number; the existing full-account erasure performs the deletion.",
+      "retention_policy": "Prepared operations expire after five minutes and prune one hour later; admitted and refused receipts prune after ninety days or with either account. Consumed proof digests stay with their receipt to prevent replay.",
+      "deletion_behavior": "Erasure of the requester or the deleted holder removes its receipts (ON DELETE CASCADE); no account projection survives either erasure.",
+      "trust_boundary": "No phone number, OTP, bearer token, Firebase identity or email. Requester and holder are account ids plus keyed hashes; proofs are single-use digests.",
+      "plaintext_posture": "metadata_and_hashes_only",
+      "expected_row_growth": "At most five operations per requester per five minutes plus unsettled dispatches; opportunistic cleanup removes at most one hundred expired rows per prepare."
+    },
+    {
       "id": "account_phone_auth_fences",
       "owner": "iam-consent-governance",
       "data_class": "audit_regulated",
@@ -2394,6 +2422,21 @@
       "plaintext_posture": "metadata_and_hashes_only",
       "expected_row_growth": "One immutable row per uniquely captured Directory Sync membership/profile; duplicate exchanges reuse the exact binding. No per-notification row growth.",
       "trust_boundary": "No passwords, emails, names, provider tokens, vault keys or content. Only verified exchange may capture attribution. Offboarding is monotonic; missing, conflicting or unavailable evidence refuses access. SSO-only generation-zero profiles do not establish Directory Sync coverage."
+    },
+    {
+      "id": "hosted_pod_pilot_admission",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "hosted_pod_pilot_policy"
+      ],
+      "primary_access_path": "Dev operator supplies exactly two fixed hashed-owner/project assignments. claim_hosted_pod_pilot_provision reserves a monotonic attempt reference and delegates lifecycle to claim_personal_agent_provision in the same transaction. No policy is seeded.",
+      "retention_policy": "Retain the non-renewable pilot allocation; expiry disables new admission, not custody or recovery. No automatic deletion or renewal.",
+      "deletion_behavior": "Ordinary policy deletion/update/truncation is refused. Losing a registry row never releases its retained attempt reference or budget allocation. Existing erasure stays unqualified for hosted pods; reconcile resources through their retained assignment before a future cleanup/archive implementation. Empty pre-activation schema rollback is supported.",
+      "trust_boundary": "Trusted hub and database administrator; runtime and migration credentials currently share a SQL role. Hash-only owner assignments and public cloud coordinates, no provider credentials. Allocation ceilings do not establish measured usage or enforce external provider spend. Billable activation remains disabled.",
+      "plaintext_posture": "control_plane_metadata_only",
+      "expected_row_growth": "at most one policy row, two distinct fixed owner/project assignments, total40000 cents work plus10000 cents cleanup, split equally and never replenished by a retry"
     }
   ]
 }

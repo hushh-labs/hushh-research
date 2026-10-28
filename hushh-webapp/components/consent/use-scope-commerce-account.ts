@@ -42,7 +42,7 @@ function useOnboardingRefresh({ user, capture, refresh }: ReturnType<typeof useC
   return Boolean([queryRefresh, returnedRefresh].some(hint => hint && hint.user === user && hint.current()));
 }
 
-export function useScopeCommerceAccount() {
+export function useScopeCommerceAccount({ active = true }: { active?: boolean } = {}) {
   const load = useCallback(async (token: string) => {
     const account = await ScopeCommerceService.account(token);
     const [readiness, sandboxVerified] = await Promise.all([
@@ -54,8 +54,10 @@ export function useScopeCommerceAccount() {
   const resource = useCommerceRead("account", load, (value: CommerceAccount) => Boolean(
     value.balance?.reserved_cents || value.balance?.frozen_cents || value.earnings?.pending_cents || value.earnings?.withdrawing_cents ||
     value.recent_withdrawals?.some(item => ["queued", "pending", "processing", "transferred", "unknown"].includes(item.status)),
-  ));
+  ), active);
   const { user, data: account, refresh } = resource;
+  const capture = resource.capture;
+  const current = useCallback(() => capture()(), [capture]);
   const actions = useCommerceAction(resource, "account");
   const { busy, message, setMessage, run } = actions;
   const managePayoutAccount = useCommerceManagement(resource, actions, ScopeCommerceService.managePayoutAccount);
@@ -63,9 +65,13 @@ export function useScopeCommerceAccount() {
   const [country, setCountry] = useState("US");
   const [review, setReview] = useState<TransferReview | null>(null);
   const fundingKey = useRef<string | null>(null);
+  const fundingValue = useRef(amount);
   const onboardingRefresh = useOnboardingRefresh(resource);
   useEffect(() => { setReview(null); fundingKey.current = null; }, [user]);
-  const changeAmount = (value: string) => { setAmount(value); fundingKey.current = null; };
+  const changeAmount = (value: string) => {
+    if (fundingValue.current === value) return;
+    fundingValue.current = value; setAmount(value); fundingKey.current = null;
+  };
   const hosted = useCommerceHostedFlow(resource, actions, async (token, purpose) => {
     if (purpose === "checkout") {
       const cents = parseCommerceDollarInput(amount, 50);
@@ -95,7 +101,8 @@ export function useScopeCommerceAccount() {
     setReview(null); await refresh();
     if (current()) setMessage("Request received. Settlement remains unconfirmed until payment status updates.");
   });
-  return { user, account, refresh, busy, message: message || resource.error, amount, country, changeAmount,
+  return { user, userId: resource.userId, account, refresh, busy, message: message || resource.error, amount, country, changeAmount,
     changeCountry: setCountry, review, closeReview: () => { if (!busy) setReview(null); }, onboardingRefresh,
-    checkout, onboarding, managePayoutAccount, hostedPending: hosted.hostedPending, cancelHosted: hosted.cancelHosted, withdrawal, refund, confirmTransfer };
+    checkout, onboarding, managePayoutAccount, hostedPending: hosted.hostedPending, cancelHosted: hosted.cancelHosted, withdrawal, refund, confirmTransfer,
+    current, loading: resource.loading };
 }

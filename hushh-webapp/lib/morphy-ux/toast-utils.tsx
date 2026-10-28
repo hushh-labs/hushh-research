@@ -1,6 +1,6 @@
 "use client";
 
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { type ColorVariant, type FeedbackTone } from "./types";
 import {
   CheckCircleIcon,
@@ -342,7 +342,7 @@ export const useMorphyToast = () => {
     info,
     custom,
     dismiss: toast.dismiss,
-    promise: toast.promise,
+    promise: morphyToast.promise,
     // Persistent versions
     persistentSuccess,
     persistentError,

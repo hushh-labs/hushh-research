@@ -27,7 +27,7 @@ export function useFixtureSession() {
 }
 export function useAuth() {
   const { session } = useFixtureSession();
-  return { user: { uid: session.uid }, loading: false };
+  return { user: { uid: session.uid }, userId: session.uid, loading: false };
 }
 export function useVault() {
   const { session } = useFixtureSession();

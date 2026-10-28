@@ -25,7 +25,7 @@ export default function KaiLayout({
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const onOnboardingRoute = pathname.startsWith("/kai/onboarding");
   const onImportRoute = pathname.startsWith("/kai/import");
@@ -48,7 +48,7 @@ export default function KaiLayout({
   useEffect(() => {
     if (localKaiPreview) return;
     if (onOnboardingRoute || onImportRoute) return;
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
+    if (!userId || !vaultKey || !vaultOwnerToken) return;
 
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -57,7 +57,7 @@ export default function KaiLayout({
     const runWarm = () => {
       if (cancelled) return;
       void UnlockWarmOrchestrator.run({
-        userId: user.uid,
+        userId,
         vaultKey,
         vaultOwnerToken,
         routePath: pathname,
@@ -93,7 +93,7 @@ export default function KaiLayout({
         globalThis.clearTimeout(timeoutId);
       }
     };
-  }, [localKaiPreview, onImportRoute, onOnboardingRoute, pathname, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [localKaiPreview, onImportRoute, onOnboardingRoute, pathname, userId, vaultKey, vaultOwnerToken]);
 
   const shell = (
     <RouteErrorBoundary fallbackRoute="/kai">

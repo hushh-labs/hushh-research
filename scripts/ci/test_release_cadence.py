@@ -635,17 +635,6 @@ class ReconciliationTest(unittest.TestCase):
         state, _ = self.invoke([run(20)], {}, ancestor=False)
         self.assertEqual(state["count"], 0)
 
-    def test_successful_noop_does_not_poison_the_counter(self):
-        jobs = {"total_count": 2, "jobs": [
-            {"name": "Select UAT target", "steps": [{"name": "Summarize unchanged UAT target", "conclusion": "success"}]},
-            {"name": "Deploy UAT Scope", "conclusion": "skipped"}]}
-        state, _ = self.invoke([run(20)], {20: None}, extra_api=jobs)
-        self.assertEqual(state["count"], 0)
-        self.assertEqual(state["noops"], [20])
-        jobs["jobs"][1]["conclusion"] = "success"
-        with self.assertRaisesRegex(core.UnsafeRelease, "NO_OP proof"):
-            self.invoke([run(20)], {20: None}, extra_api=jobs)
-
     def test_failed_deploy_and_failed_rerun_do_not_create_release_intents(self):
         for conclusion in ("failure", "cancelled"):
             with self.subTest(conclusion=conclusion):

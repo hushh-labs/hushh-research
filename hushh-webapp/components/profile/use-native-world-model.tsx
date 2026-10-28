@@ -1,8 +1,10 @@
 "use client";
 
+import { morphyToast } from "@/lib/morphy-ux/morphy";
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
-import { toast } from "sonner";
+
 import { nativeDrawers } from "@/lib/capacitor/native-drawers";
 import type { NativeDrawerChoice, NativeDrawerRow, NativeProfilePage, NativeWorldModelPageId } from "@/lib/capacitor/native-drawers";
 import type { WorldModelForm } from "@/lib/capacitor/native-profile-world-model-scene";
@@ -65,7 +67,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
   const change = useCallback((update: (value: Local) => Local) => {
     if (visit.current()) setStored(previous => visit.current() ? { visit, local: update(previous?.visit === visit ? previous.local : initial()) } : previous);
   }, [visit]);
-  const session = { ownerId: model.user?.uid ?? "", vaultKey: model.vaultKey ?? "", vaultOwnerToken: model.vaultOwnerToken ?? "" };
+  const session = { ownerId: model.userId ?? "", vaultKey: model.vaultKey ?? "", vaultOwnerToken: model.vaultOwnerToken ?? "" };
   const source = useWorldModelSources({ ...session, name: model.user?.displayName ?? "", present: active && model.ready && local.panel === "sources" });
   const invitations = useWorldModelInvitations({ ...session, enabled: active && model.ready && local.panel === "invitations" });
   const claim = useWorldModelClaimInvitation({ ...session, enabled: active && model.ready,
@@ -125,7 +127,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
     if (!visit.current() || visit.pending) return;
     visit.pending = true;
     try { await operation(); }
-    catch { if (visit.current()) toast.error("Couldn’t finish. Please try again."); }
+    catch { if (visit.current()) morphyToast.error("Couldn’t finish. Please try again."); }
     finally { visit.pending = false; }
   };
   const openForm = (value: WorldModelForm, original = "", review?: ReviewTarget) => change(local => ({ ...local,
@@ -334,7 +336,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
       },
       close: () => change(value => ({ ...value, form: null })),
       completed: () => { if (d.scene === "world-model-public-profiles") choosePanel(null); if (form.fact && !form.review) model.closeDetail(); change(value => ({ ...value, form: null })); },
-      fallback: () => { change(value => ({ ...value, form: null })); toast.error("This editor couldn’t open. Please try again."); },
+      fallback: () => { change(value => ({ ...value, form: null })); morphyToast.error("This editor couldn’t open. Please try again."); },
     };
     return <NativeWorldModelForm key={form.id} model={scene} destinationId={destinationId} />;
   };

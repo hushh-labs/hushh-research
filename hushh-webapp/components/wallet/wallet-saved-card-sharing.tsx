@@ -26,8 +26,8 @@ import presentationStyles from "./wallet-connect-presentation.module.css";
 // Present the existing API limit before the owner submits their selection.
 const MAX_CARD_SHARE_RECIPIENTS = 20;
 
-export function WalletSavedCardSharing({ card, getContext, disabled, showHistory = true, compact = false }: {
-  card: Pick<WalletCardSummary, "cardId"> & Partial<WalletCardSummary>; getContext: (cardId: string) => CardShareContext | null; disabled: boolean; showHistory?: boolean; compact?: boolean;
+export function useWalletSavedCardSharing({ card, getContext, compact = false, native = false }: {
+  card: Pick<WalletCardSummary, "cardId"> & Partial<WalletCardSummary>; getContext: (cardId: string) => CardShareContext | null; disabled: boolean; showHistory?: boolean; compact?: boolean; native?: boolean;
 }) {
   const isProfile = card.cardId.startsWith("profile_");
   const [manageOpen, setManageOpen] = useState(false);
@@ -62,11 +62,11 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
     generation.current += 1;
     setOpen(false); setQuery(""); setSelected({}); setRecipients([]); setBusy(false);
   }, []);
-  useBackLayer(ROUTES.ONE_WALLET, open ? 3 : 0, () => { close(); return true; });
-  useBackLayer(ROUTES.ONE_WALLET, compact && manageOpen ? 2 : 0, () => { if (!busy) setManageOpen(false); return true; });
-  useBackLayer(ROUTES.ONE_WALLET, compact && revokeTarget ? 4 : 0, () => { if (!busy) setRevokeTarget(null); return true; });
+  useBackLayer(ROUTES.ONE_WALLET, !native && open ? 3 : 0, () => { close(); return true; });
+  useBackLayer(ROUTES.ONE_WALLET, !native && compact && manageOpen ? 2 : 0, () => { if (!busy) setManageOpen(false); return true; });
+  useBackLayer(ROUTES.ONE_WALLET, !native && compact && revokeTarget ? 4 : 0, () => { if (!busy) setRevokeTarget(null); return true; });
   const currentCopies = copies?.cardId === card.cardId && copies.current() ? copies.receipts : [];
-  useBackLayer(ROUTES.ONE_WALLET, copiesOpen && currentCopies.length ? compact ? 3 : 2 : 0, () => { setCopiesOpen(false); return true; });
+  useBackLayer(ROUTES.ONE_WALLET, !native && copiesOpen && currentCopies.length ? compact ? 3 : 2 : 0, () => { setCopiesOpen(false); return true; });
   useEffect(() => { close(); setManageOpen(false); setRevokeTarget(null); setState(null); attempt.current = null; }, [card.cardId, getContext, close]);
   useEffect(() => {
     let cancelled = false;
@@ -199,6 +199,12 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
     } catch { if (context.isCurrent()) morphyToast.error("Could not revoke access. Try again."); }
     finally { if (context.isCurrent()) setBusy(false); }
   };
+  return { isProfile, manageOpen, setManageOpen, revokeTarget, setRevokeTarget, manageTrigger, open, setOpen, query, setQuery, recipients, selected, setSelected, selectedCount, duration, setDuration, hasMore, loading, failed, state, stateFailed, unavailable, busy, setRevision, setRecipientRevision, loadingMore, moreFailed, copiesOpen, setCopiesOpen, historyEnd, close, currentCopies, loadMore, send, revoke };
+}
+
+export function WalletSavedCardSharing(props: Parameters<typeof useWalletSavedCardSharing>[0]) {
+  const { card, disabled, showHistory = true, compact = false } = props;
+  const { isProfile, manageOpen, setManageOpen, revokeTarget, setRevokeTarget, manageTrigger, open, setOpen, query, setQuery, recipients, selected, setSelected, selectedCount, duration, setDuration, hasMore, loading, failed, state, stateFailed, unavailable, busy, setRevision, setRecipientRevision, loadingMore, moreFailed, copiesOpen, setCopiesOpen, historyEnd, close, currentCopies, loadMore, send, revoke } = useWalletSavedCardSharing(props);
   const sharingHistory = <>
       {showHistory ? <SettingsGroup title="Shared with">
         {state?.grants.length ? state.grants.map(grant => <SettingsRow key={grant.id} icon={ProfilePaneAccountIcon} iconTone="transparent"

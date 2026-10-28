@@ -55,18 +55,15 @@ Non-owned surfaces:
 
 ## Workflow
 
-Default PR-Train Mode: Use the async PR-train method as the default for
-multi-PR work, now formalized as the PR governance subagent train method.
-Lane is decided by AUTHOR, not branch name. Community/contributor/agent PRs:
-intake against `main` is retargeted to `integration/pr-train` before review,
-approval, maintainer patching, harvest, queue, or merge. Governed maintainers
-(in `main.review_bypass_users` / `main.merge_queue_bypass_users`) shipping their
-OWN code branch from `origin/main` and open a PR DIRECTLY into `main` — no train
-detour, no cherry-pick, no promote-branch whitelist (the `PR Base Policy` gate
-passes them by actor identity; CI gate + merge queue + post-merge smoke still
-apply). `main` therefore receives both train-promotion PRs and maintainer
-direct-to-main PRs; the train carries everything non-maintainer.
-
+**Dev intake** is the default for new development. Review feature and dependency
+PRs against protected Dev; preserve existing train PRs and their dependencies.
+After the separately authorized UAT transition, select content explicitly and
+accept its assembled SHA on Dev before UAT. The existing UAT default remains in
+effect until then. Main approval must preserve the accepted application's complete tree. For
+operations/hotfixes, governed maintainers may open a PR directly into `main`
+from `origin/main` by actor identity; CI, conversations, queue/Admin SOP and
+landed smoke still apply. Retained train campaigns keep their explicit legacy
+purpose; never globally retarget their scripts or promote all Dev content.
 1. Lock the current PR head SHA, current `CI Status Gate`, mergeability, draft state, and review state before judging.
 2. Run the delegation router at intake; use real read-only subagent evidence lanes for non-trivial, high-risk, or multi-PR work.
 3. Run the PR checklist or hybrid live report and treat `contract_set`, `duplicate_group`, `public_comment_policy`, `lane`, and `live_report_action` as decision records.

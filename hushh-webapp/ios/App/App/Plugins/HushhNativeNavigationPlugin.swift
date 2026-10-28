@@ -167,7 +167,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     private var retiredRestartGeneration = -1
     private lazy var navigationItems = HushhNativeNavigationArtwork.items()
     private var compositor: NativePresentationContainer? { bridge?.viewController?.view as? NativePresentationContainer }
-    #if DEBUG
+    #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
     private var presentationProbe: NativeTestStatusLabel?
     #endif
 
@@ -383,7 +383,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             host.addSubview(bar)
         }
         tabBar = bar
-        #if DEBUG
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics") {
             let probe = NativeTestStatusLabel(frame: CGRect(x: 0, y: host.safeAreaInsets.top, width: 1, height: 1), showOverlay: false)
             probe.accessibilityIdentifier = "native-navigation-presentation"
@@ -454,7 +454,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     }
 
     private func publishPresentationProbe() {
-        #if DEBUG
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         guard let bar = tabBar, let probe = presentationProbe else { return }
         // Public presentation only; never routes, owners, drafts or credentials.
         var fields: [String: Any] = ["visible": !bar.isHidden, "interactive": bar.isUserInteractionEnabled,

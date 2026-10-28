@@ -124,7 +124,12 @@ purpose-bound Firebase-verified status read survives refresh and terminal raw-ID
 scrubbing; it grants no account or vault access. The privacy gate shows durable
 progress without sign-out. Unsupported external-key revocation requires explicit
 confirmation bound to the inventory digest, and cannot excuse uncertain OAuth
-revocation. The UAT-only local reset now requires database attestation and empty
+revocation. Locked-vault deletion collects that confirmation in the existing
+final step, writes it into the initial cleanup receipt, and returns the person
+to login with a pending notice once the durable operation is acknowledged.
+Historical operations without recorded approval use the purpose-bound cleanup
+confirmation, then sign out to login when that approval is recorded.
+The UAT-only local reset now requires database attestation and empty
 provider custody before following the same staged SQL path.
 
 The latest focused checks passed **260 backend** and **167 frontend** cases,
@@ -151,18 +156,96 @@ roles cannot call enrollment or read its ledger; future identity-table DDL inher
 the guard through migration 201's existing discovery.
 
 The verifier and session-status response distinguish verified Firebase identity,
-application owner and generation. `ACCOUNT_GENERATION_ADMISSION_ENABLED` defaults
-off. Do not enable it or publish registration until remaining application callers
-qualify. Federated and purpose-bound email recovery are implemented locally;
-neither has been accepted on a deployed environment.
-Conditional WorkOS and HushhTech custom-auth integrations remain incompatible
-with generation-enabled admission. Their entrypoints now return explicit
-unavailable outcomes before provider mutation or exchange; they never bind an
-old callback to the latest owner. Do not enable generations beside active WorkOS
-sign-in or offboarding until that integration's captured-generation mutation
-authority qualifies. Startup refuses the conflicting configuration, preserving
-the prior running service rather than silently withdrawing offboarding. The
-existing generation-off behavior remains supported.
+application owner and generation. Generation admission is **on** for shared Dev
+and UAT: `ACCOUNT_GENERATION_ADMISSION_ENABLED` comes from
+`vars.ACCOUNT_GENERATION_ADMISSION_DEV_ENABLED` / `_UAT_ENABLED`, default `true`.
+The isolated commerce sandbox and production keep it off. Production's phone
+rollback, cold fallback, reader probe and restoration gates still require it
+absent or `false`, so enabling it there needs those gates changed first. A deleted
+account whose generation-0 row is retired with confirmed cleanup and settled
+Firebase writes is offered the existing start-fresh review on its next sign-in;
+any other history stays **Action required**, except legacy erasures accepted
+under [Legacy generation settlement (437, 438)](#legacy-generation-settlement-437-438). Federated and purpose-bound email
+recovery had no deployed acceptance before this enablement; the UAT owner story
+is the first.
+
+Startup refuses generations only beside a truthy `HUSSH_TECH_CLIENT_ENABLED`
+(`hushh_mcp/runtime_readiness.py`). Each deploy workflow decides the flag once in
+"Decide account generation admission before the deletion fence", before any fence
+installs. UAT runs that step for every scope, before runtime secrets sync, and
+refuses that pairing there, normalizing the client flag exactly as startup does.
+Secrets sync also publishes the client flag to the runtime config that the serving
+revision reads, so UAT refuses a truthy client flag while the serving backend still
+admits generations. To turn on the HushhTech exchange, first deploy the backend with
+`ACCOUNT_GENERATION_ADMISSION_UAT_ENABLED=false`, then set the client flag. A
+configuration error therefore fails before it can strand deletions behind a failed
+release, or restart the serving revision into a refused startup. The workflow runs
+from main but deploys any target SHA, so the step turns admission on only when the
+target contains the web owner split. The marker is the owner ratchet test; older
+targets deploy with it off.
+WorkOS generation-0 memberships are supported (427). Replacement SSO enrollment
+and the HushhTech custom-auth exchange return explicit unavailable outcomes before
+provider mutation or exchange; they never bind an old callback to the latest owner.
+
+Web surfaces read the validated application owner (`useAuth().userId`), not the
+Firebase UID; it equals the UID for generation 0 and is `acct_…` for a
+replacement. Turning the flag off afterwards is forward-only for anyone who
+already started fresh: their replacement owner becomes unreachable
+(`AUTH_ACCOUNT_NOT_FOUND`) until it is turned back on, and the 419 rollback script
+refuses after any enrollment. Treat `false` as an incident stop, not a rollback.
+
+Known limits while the remaining consumers qualify:
+
+- A replacement inherits the shared Firebase record's verified phone, display name
+  and photo. Drive grants addressed to the Google subject or email stay visible to
+  the same person.
+- Developer and MCP lookup by email or phone still resolves to the Firebase UID, so
+  consent requests to a replacement account fail closed. The review-mode mint has
+  no owner binding: never delete the environment-wired reviewer.
+- UAT display-name and welcome-marker writes reach the shared production identity.
+  An unsettled receipt blocks that identity's enrollment until it settles exactly;
+  never settle one by hand.
+- Approving a new device from a replacement account, and the native Siri request and
+  entity bindings, still bind the Firebase UID on both sides of a proof, so they
+  fail closed for that account until both sides carry the owner together. A ratchet
+  test (`__tests__/lib/auth/application-owner-ratchet.contract.test.ts`) refuses new
+  Firebase-UID owner arguments and UID-to-owner comparisons elsewhere in the web app.
+- Departure cleanup knows a replacement owner only while this page has admitted it.
+  Re-verification that withdraws the owner keeps it as the departing owner, and push
+  cleanup accepts the session's Firebase UID as the same session. When admission
+  offers start fresh in place of the terminal sign-out, the web first runs that
+  sign-out's device purge for the departing owner. A backend without admission
+  cannot prove a replacement owner erased, so it signs that owner out
+  (`session_invalid`) and keeps its device state. Three cases still fall back to
+  the Firebase UID:
+  - a cold start that signs out while session validation is unavailable;
+  - a terminal deletion seen first on a second device after a cold start;
+  - start fresh offered after a reload or cold start.
+
+  A deleted replacement owner is never admitted again, so its previews, push
+  registration and durable copies then stay on that device until app data is
+  cleared. Closing these cases needs a device-persisted, hash-only
+  identity-to-owner binding, plus the Firebase identity in the web, iOS and
+  Android preview-key records.
+- The private Drive and V1 workers run without the flag. They still resolve `acct_`
+  owners, but skip the generation-0 retirement recheck for queued work.
+- With the flag on, owner-to-Firebase mapping reads the database and takes the
+  owner's lifecycle locks shared on its own connection. Code that holds the owner
+  graph lock must resolve the external identity first (`fresh_owner_record`); PWM
+  invitations and research-ready email do. Profile research, Magic admission,
+  business suggestions, developer access and passkey session mints still run that
+  read on the event loop, so contention on one owner's lock can stall a worker for
+  up to three seconds. Research-ready email still matches the Firebase UID, so a
+  replacement owner does not receive it yet.
+- The first release that turns admission on rolls back to a revision without it. A
+  replacement account created in that window gets `AUTH_ACCOUNT_NOT_FOUND` until a
+  later healthy release turns it on again. The two services roll back separately:
+  a frontend-only rollback restores the pre-split web app beside the admission
+  backend, which can start a replacement whose owner-keyed requests that web app
+  then sends under the Firebase UID.
+- Email sign-in codes issued by a revision without admission are consumed and then
+  refused (`enrollment_expired`) by the first revision with it, for their five-minute
+  lifetime. The person requests a new code.
 
 An owner-to-Firebase mapping is suitable for reads; it cannot authorize a deferred
 Firebase mutation across retirement. Device and passkey mints now map the exact
@@ -177,7 +260,7 @@ Proof consumption and exact generation activation commit together under identity
 lock 199; token minting follows outside that transaction. A final owner/policy/
 expiry check controls token release. Lost enrollment responses recover through a
 new ordinary code, without replaying activation. Historical unknown cleanup stays
-Action required. Codes and enrollment tickets remain memory-only; the existing
+Action required unless the legacy settlement accepts it. Codes and enrollment tickets remain memory-only; the existing
 challenge store holds encrypted destinations and keyed proof digests.
 
 The local federated recovery path accepts independently fresh Google, Apple or
@@ -186,7 +269,7 @@ a retired account to private information. The owner confirms the exact prior
 generation, cleanup operation and enrollment receipt. SQL stores the authentication
 time and review digest, refusing changed proof on replay, expired proof and missing
 receipt fields. Historical cleanup without qualified evidence stays **Action
-required**. Unknown submission responses require status reconciliation, never an
+required**, apart from the reviewed legacy settlement (437, 438). Unknown submission responses require status reconciliation, never an
 automatic second enrollment. Normal session admission follows a confirmed result.
 The frontend withdraws an old application principal before showing this recovery.
 
@@ -214,7 +297,7 @@ never change its shared session per call to work around that behavior.
 
 The retirement cutoff includes a 60-second issuer-clock lead margin, then requires
 independently fresh sign-in; refresh-token `iat` never supplies that proof.
-Migrations 418–421 are registered locally with matching contracts but remain unapplied. On 24 October, the latest
+Migrations 418–421 are registered with matching contracts and are now applied on shared Dev and UAT. On 24 October, the latest
 focused recovery checks passed 248 backend and 379 frontend cases, plus 41 native
 privacy cases. The real PostgreSQL rehearsal passed two erase/enroll cycles in
 127.87 seconds, including changed-proof replay, direct-INSERT refusal and a pending
@@ -680,12 +763,13 @@ does not establish provider cleanup or authorize re-enrollment.
 
 For repeat onboarding before terminal erasure, use the authorized account-reset
 flow. A genuinely new Firebase UID is independent of the previous tombstone.
-Same-UID re-registration requires an environment-scoped account-generation
-contract across authentication, consent, devices, pod admission, background jobs
-and database writes. Existing owners remain unchanged; retired authority must
-never reach a replacement generation. Separate Firebase projects are an alternative,
-not a prerequisite. Never clear a tombstone, reconnect by email or mutate a
-production identity as an incident workaround.
+Same-UID re-registration uses the environment-scoped account-generation contract.
+It is on in shared Dev and UAT (see the generation status above): signing in again
+offers the start-fresh review, and a confirmed review admits a new opaque owner.
+Existing owners remain unchanged; retired authority must never reach a replacement
+generation. Separate Firebase projects are an alternative, not a prerequisite.
+Never clear a tombstone, reconnect by email or mutate a production identity as an
+incident workaround.
 
 Full-account cleanup now records `identity_retained` when validated nonproduction
 authority deliberately preserves the shared identity. The hashed tombstone stays;
@@ -693,9 +777,10 @@ its raw cleanup UID and next-attempt timestamp are cleared, and the existing
 `quarantined` bookkeeping state stops automatic retries. This does not mean that
 Firebase was disabled, deleted or remotely logged out. Exact claim matching and
 the non-null-UID guard refuse late settlements. Genuine provider/configuration
-failures and provisional phone-orphan cleanup remain retryable. The response
-continues to report `ready_to_start_fresh: false` until safe re-enrollment is
-implemented or identity removal is independently confirmed.
+failures and provisional phone-orphan cleanup remain retryable. The deletion
+response reports `ready_to_start_fresh` only when Firebase removal is confirmed,
+so it stays `false` while the shared identity is retained. Where generations are
+on, the next sign-in reaches start-fresh through `registration-status` instead.
 
 ## Maintainer UAT backend-only erasure
 
@@ -715,6 +800,37 @@ Verify remaining owner/email-linked rows independently. Catalog discovery is
 not authority for broad follow-on deletes or removal of append-only evidence.
 Shared backups and any separately retained evidence remain subject to their
 existing retention review; this operation is not a claim of legal clearance.
+
+## Deletion completion: early drain and owner notice
+
+A committed full-account admission (self, lost-vault or phone-linked deletion)
+wakes the serving instance's in-process cleanup loop, so erasure starts at once
+instead of at the next 60 s tick. The wake only shortens the wait: the same
+release admission, `SKIP LOCKED` lease and single erasure transaction run, and
+the `*/2` scheduler drain stays the authority. Done means the committed
+`erasure_phase='erased'` transition. Every full-account erasure then settles as
+`quarantined` with `firebase_shared_identity_retained`, in every environment,
+because the sign-in identity is retained; that is the designed success state,
+not a failure.
+
+After that commit, and outside release admission, the worker sends the
+`account_deleted` notice from `one@hushh.ai` to the retained sign-in's verified
+email. Delivery is at most once: the erased transition commits once and is never
+claimed again, Hussh never stores the address (the One mailbox keeps its Sent
+copy, as for every account notice), and an uncertain or failed send is logged
+rather than replayed. An erasure that commits after the worker's 90 s claim
+budget sends no notice; that loss is accepted. There is no backfill. Outside production the notice
+goes only to the test-mode `SUPPORT_EMAIL_TEST_TO` inbox (UAT); shared Dev runs
+in live mode and skips it. Look for `account_security_email.accepted
+kind=account_deleted`, `account_deletion.notice_skipped reason=...` or
+`account_deletion.notice_failed`. None of these lines carries a recipient or
+identifier.
+
+The web follows the cleanup status's `retry_after_seconds` (3 s) while erasure
+runs, then re-checks registration once just after `retry_at`. The 60 s identity
+wait after erasure is a security gate and is not shortened. Registration review,
+verification and attention states are never polled automatically; cleanup
+attention and confirmation states keep the read-only 2/5/10/30 s status ladder.
 
 ## Required monitoring
 
@@ -893,9 +1009,35 @@ Migration `431_phone_recovery_actions.sql` adds bounded, non-authorizing recover
 continuations and own-device action receipts. Producers use the existing
 `AUTH_PHONE_RECOVERY_ENABLED` flag. Turning it off retains status/readback and
 completed cleanup; it does not erase pending work. Shared codes never grant
-cross-owner transfer, deletion or device authority. Account erasure cascades the
+cross-owner transfer or device authority; the only cross-owner deletion is the
+separately gated phone-linked deletion (436) below. Account erasure cascades the
 new metadata. Unknown device dispatches retain their consumed proof event and
 cannot be automatically submitted again.
+
+## Phone-linked account deletion (436)
+
+Migration `436_phone_linked_account_deletions.sql` adds hash-only admission
+receipts for deleting the account that holds a verified number after the
+requester proves that number. `HUSHH_PHONE_LINKED_DELETION_ENABLED` is unset by
+default: on outside production, off in any production runtime until enabled
+explicitly; `AUTH_PHONE_RECOVERY_ENABLED` still gates producers. Real numbers
+need a fresh transfer-grade SMS proof whose authentication event is single-use.
+The configured fixture code counts only for configured UAT fixture numbers in
+UAT or the isolated fixture runtime, never in a production runtime and never
+through the Dev reviewer transport; five wrong codes cancel the operation.
+Reviewer fixtures are refused with `PHONE_LINKED_ACCOUNT_PROTECTED`.
+
+Preparation is opaque: it never reveals whether a number has an account.
+Confirmation rechecks the holder's binding, records admission before dispatch,
+and runs the existing full-account erasure, whose admission transaction rechecks
+the binding again under the holder's exclusive lifecycle locks. A refusal returned
+by the erasure (release fence, private-agent cleanup, phone transfer, stale
+binding) commits nothing and is final for that operation; a raised outcome is
+settled only from the committed full-account tombstone and is never dispatched
+again. An explicit OTP claim no longer treats a holder with a committed
+full-account deletion as an owner; background hydration and provisional
+phone-orphan intents never release a binding. Erasure of either account cascades
+its receipts. Rollback refuses to drop retained receipts.
 
 Production rollback qualification now requires both migrations 425 and 431 in
 its immutable source. A 425-only image exposes the former unguarded device DELETE
@@ -988,3 +1130,41 @@ receipt, activated identity and phone rollback. The current frontend receipt and
 healthy tag remain authoritative. Pending origins, chained frontend origins and
 missing or changed identity proofs refuse cleanup; no historical scan substitutes
 an older apparently healthy release.
+
+## Legacy generation settlement (437, 438)
+
+Erasures that committed before provider cleanup receipts existed carry migration
+418's `legacy_unconfirmed` marker, and migration 419 kept their generation zero
+unconfirmed, so a returning owner met a permanent **Action required**. Migration
+`437_account_legacy_generation_settlement.sql` adds one reviewed exception and
+settles nothing by itself. `settle_legacy_account_generation(identity_hash)`
+confirms a retired generation zero only when its owner is its identity; its
+tombstone carries exactly the legacy marker with no provider cleanup id,
+inventory, claim or retry; the legacy identity cleanup kept the identity
+(`firebase_shared_identity_retained`, or the maintainer
+`uat_backend_only_erasure`); its Firebase writes are settled; and no row remains
+for the owner in any of the five provider custody tables. The history guard
+admits exactly that transition from that function, and the row is immutable again
+afterwards; every other write meets the unchanged 419 rules. A settled legacy
+generation means the erasure is **accepted for re-enrollment**. Provider-side
+revocation was never verified for these erasures.
+
+The UAT overlay `438_uat_legacy_generation_settlement.sql` settles qualifying rows
+on each replayed release (25 owners on 2026-10-28: 10 shared-identity erasures
+from 23-25 October and 15 maintainer backend-only erasures). Shared Dev, which has
+no overlay lane, is settled by a reviewed operator run of the same statement.
+Production receives only the dormant capability; before admission is enabled
+there, record read-only production aggregates of these shapes and decide the
+legacy rule and any Google-grant notice.
+
+Deleted or absent identities (`deleted`, `firebase_user_not_found`) stay
+unconfirmed because their UIDs cannot sign in again. Remaining custody, an owner
+that is not the identity, unsettled identity writes, a non-terminal cleanup and
+any other outcome also stay **Action required**. A settled owner follows the
+unchanged path: the cutoff, fresh Google, Apple or Microsoft verification, the
+start-fresh review and enrollment. Phone-only sign-ins still cannot complete that
+review. An email code requested before settlement is refused once; a new code
+works. Operators identify legacy settlements as rows whose `cleanup_operation`
+equals `account_legacy_cleanup_reference(identity_hash, generation)`. Both
+rollbacks refuse (forward recovery). A replay of 419 restores its stricter guard
+until 437 runs again and leaves settled rows unchanged.

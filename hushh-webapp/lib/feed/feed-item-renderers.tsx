@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { walletMessagePreview } from "@/lib/wallet/wallet-card-share";
+import { connectionMessagePreview as walletMessagePreview } from "@/lib/finance-sharing/message-preview";
 import { isCardRequestId, walletCardRequestHref } from "@/lib/wallet/card-request";
 import {
   AlertTriangle,

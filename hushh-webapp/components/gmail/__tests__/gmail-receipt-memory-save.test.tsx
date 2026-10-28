@@ -13,7 +13,8 @@ vi.mock("sonner", () => ({ toast: (...args: unknown[]) => toast(...args) }));
 const vault = { vaultKey: "vault-key", vaultOwnerToken: "owner-token", isVaultUnlocked: true };
 const auth = { user: { uid: "user-1" } };
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => vault }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => auth }));
+// Generation-0 accounts: the application owner equals the Firebase UID.
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ ...auth, userId: auth.user.uid }) }));
 
 import {
   GmailReceiptMemorySave,

@@ -1,20 +1,29 @@
 name: Deploy to Dev
 
 # Dev Fast Lane: dev deploys are decoupled from main. main stays the
-# UAT -> production signoff lane; dev deploys the agentic intake branch
-# (integration/pr-train) by default, or any CI-green ref a governed
+# UAT -> production signoff lane; dev deploys the protected development branch
+# (dev) by default, or any CI-green ref a governed
 # maintainer chooses. Contract: docs/reference/operations/dev-fast-lane.md
 on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Existing shared dev, or the preprovisioned isolated commerce sandbox"
+        description: "Shared Dev, commerce sandbox, or coordinated pod publication"
         required: true
         default: "shared-dev"
         type: choice
         options:
           - shared-dev
           - scope-commerce-sandbox
+          - pod-publication
+      pod_action:
+        description: "Pod publication only: prepare an artifact, or activate a Main-reviewed coordinated pin"
+        required: true
+        default: prepare
+        type: choice
+        options:
+          - prepare
+          - activate
       scope:
         description: "Auto-detect deploy lane, or force backend/frontend/all"
         required: true
@@ -26,9 +35,9 @@ on:
           - backend
           - frontend
       ref:
-        description: "Branch/ref to deploy (default: integration/pr-train, the agentic intake lane)"
+        description: "Branch/ref to deploy (default: dev, the development intake lane)"
         required: false
-        default: "integration/pr-train"
+        default: "dev"
         type: string
       build_pod_image:
         description: "Build the dev-only pod image; does not approve owner installation"
@@ -76,6 +85,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy Dev Scope
+    if: inputs.target != 'pod-publication'
     runs-on: ubuntu-24.04
     environment: dev
 
@@ -130,7 +140,7 @@ jobs:
         run: |
           set -euo pipefail
           DEPLOY_REF="${{ github.event.inputs.ref }}"
-          DEPLOY_REF="${DEPLOY_REF:-integration/pr-train}"
+          DEPLOY_REF="${DEPLOY_REF:-dev}"
           git fetch --no-tags origin "$DEPLOY_REF"
           if [ -n "${{ github.event.inputs.sha }}" ]; then
             DEPLOY_SHA="${{ github.event.inputs.sha }}"
@@ -159,6 +169,7 @@ jobs:
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"
@@ -594,6 +605,27 @@ jobs:
             sudo apt-get install -y -qq postgresql-client
           fi
 
+      - name: Decide account generation admission before the deletion fence
+        id: generation-admission
+        if: steps.scope.outputs.deploy_backend == 'true' && env.DEV_TARGET != 'scope-commerce-sandbox'
+        shell: bash
+        env:
+          ACCOUNT_GENERATION_ADMISSION_ENABLED: ${{ vars.ACCOUNT_GENERATION_ADMISSION_DEV_ENABLED || 'true' }}
+        run: |
+          set -euo pipefail
+          # Cloud Build accepts only true/false; a bad value would fail after the fence.
+          case "${ACCOUNT_GENERATION_ADMISSION_ENABLED}" in
+            true|false) ;;
+            *) echo "::error::ACCOUNT_GENERATION_ADMISSION_DEV_ENABLED must be true or false." >&2; exit 1 ;;
+          esac
+          # Only targets whose web app keys data by the validated owner may admit replacements.
+          enabled=false
+          if [ "${ACCOUNT_GENERATION_ADMISSION_ENABLED}" = true ] \
+             && [ -f hushh-webapp/__tests__/lib/auth/application-owner-ratchet.contract.test.ts ]; then
+            enabled=true
+          fi
+          echo "enabled=${enabled}" >> "$GITHUB_OUTPUT"
+
       - name: Apply dev DB migrations and predeploy schema gate
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
@@ -729,6 +761,10 @@ jobs:
           esac
           SUBSTITUTIONS="${SUBSTITUTIONS}##_PKM_ANSWER_REQUESTS_ENABLED=${{ vars.PKM_ANSWER_REQUESTS_DEV_ENABLED || 'true' }}##_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_DEV_ENABLED || 'false' }}##_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_DEV_ENABLED || 'false' }}##_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_DEV_REVIEWED || 'false' }}##_PKM_ANSWER_STRIPE_MODE=${ANSWER_STRIPE_MODE}##_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=${ANSWER_KEY_SECRET}##_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=${ANSWER_WEBHOOK_SECRET}##_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_DEV_SECRET || '' }}##_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_DEV_ENABLED || 'false' }}##_ANSWER_WORK_DRAIN_AUDIENCE="
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_DEV_ENABLED || 'false' }}##_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY##_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET##_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET"
+          # The isolated commerce sandbox keeps its own database baseline; enable on shared Dev only.
+          if [[ "${DEV_TARGET:-shared-dev}" != "scope-commerce-sandbox" ]]; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_GENERATION_ADMISSION_ENABLED=${{ steps.generation-admission.outputs.enabled || 'false' }}"
+          fi
           # Skew guard (same class as #4399/#4401/#4402): the workflow file
           # (from main) may pass substitutions the train SHA's cloudbuild
           # template doesn't declare — gcloud rejects unmatched keys. Filter
@@ -1834,3 +1870,119 @@ jobs:
         if: steps.scope.outputs.deploy_frontend == 'true'
         continue-on-error: true
         run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_REVISION_RETENTION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
+
+  pod-publication:
+    name: Pod Release Publication
+    if: inputs.target == 'pod-publication'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: dev
+    env:
+      GH_TOKEN: ${{ github.token }}
+      POD_ACTION: ${{ inputs.pod_action }}
+      POD_SOURCE: ${{ inputs.sha }}
+      POD_REF: ${{ inputs.ref }}
+      POD_FOLDER: /tmp/pod-publication
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Admit Main-owned pod publication
+        shell: bash
+        env:
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+          LEGACY_BUILD_FLAG: ${{ inputs.build_pod_image && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$POD_ACTION" == prepare || "$POD_ACTION" == activate ]]
+          [[ "$REQUESTED_SCOPE" == auto && "$LEGACY_BUILD_FLAG" == false ]]
+          [[ "$POD_SOURCE" =~ ^[a-f0-9]{40}$ ]]
+          python3 scripts/ci/assert-governed-actor.py --surface dev --actor "$GITHUB_ACTOR"
+          git fetch --no-tags -- origin "$POD_REF"
+          mkdir -p "$POD_FOLDER"
+      - name: Verify exact pod source CI and ref
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRED_BRANCH: ${{ inputs.ref }}
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate,Branch Validation Gate"
+        run: bash scripts/ci/require-deploy-sha-on-main.sh "$POD_SOURCE"
+      - name: Verify landed publication control source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRED_BRANCH: main
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
+        run: bash scripts/ci/require-deploy-sha-on-main.sh "$GITHUB_SHA"
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
+      - name: Verify metadata reuse with Main-owned source guard
+        if: inputs.pod_action == 'prepare'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_source="$POD_SOURCE"
+          reuse_sha=""
+          if git cat-file -e "$POD_SOURCE:deploy/pod-release-reuse.json" 2>/dev/null; then
+            git show "$POD_SOURCE:deploy/pod-release-reuse.json" > "$RUNNER_TEMP/pod-reuse-pin.json"
+            "$PROTOCOL_PYTHON" scripts/deploy/reuse-pod-release.py \
+              --config "$RUNNER_TEMP/pod-reuse-pin.json" --project hushh-pda-dev \
+              --descriptor-sha "$POD_SOURCE" --check-source-only
+            image_source="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sourceRevision"])' "$RUNNER_TEMP/pod-reuse-pin.json")"
+            reuse_sha="$(sha256sum "$RUNNER_TEMP/pod-reuse-pin.json" | cut -d' ' -f1)"
+          fi
+          echo "POD_IMAGE_SOURCE=$image_source" >> "$GITHUB_ENV"
+          echo "POD_REUSE_PIN_SHA=$reuse_sha" >> "$GITHUB_ENV"
+      - name: Verify Dev workload identity settings
+        shell: bash
+        env:
+          PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          [[ -n "$PROVIDER" && -n "$ACCOUNT" ]]
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-dev
+          create_credentials_file: true
+          export_environment_variables: true
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Capture coordinated application baseline
+        if: inputs.pod_action == 'prepare'
+        run: >-
+          "$PROTOCOL_PYTHON" scripts/deploy/publish-pod-catalog.py --inspect
+          --source "$POD_SOURCE" --output "$POD_FOLDER/baseline.json"
+      - name: Prepare common pod artifact without deploying the application
+        if: inputs.pod_action == 'prepare'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/deploy/prepare-pod-publication.py "$RUNNER_TEMP/prepare-pod-publication.py"
+          git checkout --detach "$POD_SOURCE"
+          "$PROTOCOL_PYTHON" "$RUNNER_TEMP/prepare-pod-publication.py"             --root "$GITHUB_WORKSPACE" --sha "$POD_SOURCE" --run-id "$GITHUB_RUN_ID"             --attempt "$GITHUB_RUN_ATTEMPT" --verified-reuse-sha "$POD_REUSE_PIN_SHA" --output "$RUNNER_TEMP/pod-build.yaml"
+          build_id="$(gcloud builds submit --async --project=hushh-pda-dev             --config="$RUNNER_TEMP/pod-build.yaml" --format='value(id)')"
+          [[ "$build_id" =~ ^[a-f0-9-]{36}$ ]]
+          printf '%s\n' "$build_id" > "$POD_FOLDER/build-id.txt"
+          gcloud builds log "$build_id" --stream --project=hushh-pda-dev
+          gcloud builds describe "$build_id" --project=hushh-pda-dev             --format='value(status)' | grep -qx SUCCESS
+          gcloud storage cp             "gs://hushh-pda-dev_cloudbuild/pod-releases/$POD_IMAGE_SOURCE/$GITHUB_RUN_ID/release.json"             "$POD_FOLDER/release.json"
+          # Prepared bytes are neither qualified nor advertised by this phase.
+          printf 'artifact_prepared_not_qualified_or_activated\n' > "$POD_FOLDER/outcome.txt"
+      - name: Activate reviewed pod catalog during coordinated release
+        if: inputs.pod_action == 'activate'
+        run: >-
+          "$PROTOCOL_PYTHON" scripts/deploy/publish-pod-catalog.py
+          --source "$POD_SOURCE" --output "$POD_FOLDER/activation.json"
+      - name: Retain bounded publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pod-publication-dev-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.POD_FOLDER }}
+          if-no-files-found: warn

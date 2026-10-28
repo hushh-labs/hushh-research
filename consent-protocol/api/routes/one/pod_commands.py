@@ -42,7 +42,7 @@ _slots = asyncio.Semaphore(2)
 # and audio input, which neither transport carries, and a mode outside both sets must
 # never reach a builder.
 _KEY_MODES = frozenset({"byok", "puppy_relay"})
-_AMBIENT_MODES = frozenset({"user_adc", "hushh_managed_vertex"})
+_AMBIENT_MODES = frozenset({"user_adc", "hosted_pod_adc", "hushh_managed_vertex"})
 
 
 class CommandModel(CommandValue):
@@ -144,7 +144,7 @@ async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> L
                 )
             return (
                 build_owner_gemini_adk_model(name)
-                if mode == "user_adc"
+                if mode in {"user_adc", "hosted_pod_adc"}
                 else build_managed_gemini_adk_model(name)
             )
         return ProviderAdkModel(
@@ -166,7 +166,7 @@ async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> L
         )
         if mode in _KEY_MODES
         else build_owner_gemini_client()
-        if mode == "user_adc"
+        if mode in {"user_adc", "hosted_pod_adc"}
         else build_managed_runtime_client(provider)  # an _AMBIENT_MODES member, checked above
     )
     return LocationCommandBrain(

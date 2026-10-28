@@ -3363,10 +3363,9 @@ class ConnectionsService:
                 return "pending_incoming"
             return "none"
 
-        # Annotated on the row, not inferred from which tab asked. The row has
-        # to be able to say what it is even when the audience is "all" -- voice
-        # name-resolution searches across everyone, and a row that only knew its
-        # kind from its tab would go back to being unlabelled there.
+        # Annotated on the row, not inferred from which tab asked: voice name
+        # resolution searches everyone, and a row that only knew its kind from
+        # its tab would go back to being unlabelled there. Same for roleLabel.
         ria_user_ids = self._verified_ria_user_ids([str(p.get("userId") or "") for p in people])
         public_person_refs = self._public_person_refs([str(p.get("userId") or "") for p in people])
 
@@ -3424,6 +3423,7 @@ class ConnectionsService:
                     "relationship": relationship(str(p.get("userId") or "")),
                     **mutual_payload(str(p.get("userId") or "")),
                     "isRia": str(p.get("userId") or "") in ria_user_ids,
+                    **({"roleLabel": p.get("roleLabel")} if "roleLabel" in p else {}),
                 }
                 for p in people
             ],
@@ -3543,7 +3543,7 @@ class ConnectionsService:
             """
             SELECT c.id AS connection_id,
                    CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id,
-                   a.display_name, COALESCE(NULLIF(BTRIM(a.custom_photo_url), ''), NULLIF(BTRIM(a.photo_url), '')) AS photo_url, a.email, c.created_at,
+                   a.display_name, COALESCE(NULLIF(BTRIM(a.custom_photo_url), ''), NULLIF(BTRIM(a.photo_url), '')) AS photo_url, a.email, a.email_verified, c.created_at,
                    EXISTS (
                      SELECT 1
                      FROM connection_origins contact_origin
@@ -3561,13 +3561,8 @@ class ConnectionsService:
             """,
             {"user_id": user_id},
         )
-        # The same annotation `search_directory` puts on every row, for the same
-        # reason. The RIAs tab lists your existing connections above its search
-        # results, and without this flag it had nothing to filter them by -- so
-        # it listed every connection you have, advisor or not, and someone who
-        # never finished RIA onboarding showed up under "RIAs". One statement
-        # for the whole list, not one lookup per row; no statement at all when
-        # you have no connections.
+        # Match search_directory's RIA annotation with one batched lookup for
+        # existing connections; an empty list does not need a lookup.
         ria_user_ids = self._verified_ria_user_ids([str(r.get("user_id") or "") for r in rows])
         public_person_refs = self._public_person_refs([str(r.get("user_id") or "") for r in rows])
         return [
@@ -3578,6 +3573,7 @@ class ConnectionsService:
                 "displayName": r.get("display_name"),
                 "photoUrl": r.get("photo_url"),
                 "email": r.get("email"),
+                "emailVerified": r.get("email_verified") is True,
                 "createdAt": _iso(r.get("created_at")),
                 "isRia": str(r.get("user_id") or "") in ria_user_ids,
                 "connectedFromContacts": bool(r.get("connected_from_contacts")),

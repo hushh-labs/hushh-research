@@ -182,7 +182,11 @@ class _ReservedRegistry:
         return {"deployment_target": "user_gcp", "backend": "user_gcp"}
 
     async def reserve_erasure(self, *, user_id: str) -> dict:
-        return {"ownerId": user_id, "attemptId": "attempt-1"}
+        return {
+            "ownerId": user_id,
+            "attemptId": "attempt-1",
+            "registrySnapshot": await self.get(user_id),
+        }
 
 
 def test_deprovision_logs_the_transport_code_never_the_message(monkeypatch, caplog):
