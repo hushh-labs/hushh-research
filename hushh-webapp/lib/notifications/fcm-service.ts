@@ -1543,10 +1543,21 @@ export async function clearDeliveredConsentNotifications(options: {
  * Removes the token from Firebase and also calls the backend to unregister
  * so no further pushes are attempted for this device.
  */
+/**
+ * The current session's owner when the caller names it by its owner or, once that
+ * owner was withdrawn, by its Firebase UID; null when it names another session.
+ */
+function departingSessionOwner(userId?: string): string | undefined | null {
+  if (!userId || !lastKnownSession) return userId ?? lastKnownSession?.userId;
+  return lastKnownSession.userId === userId || lastKnownSession.firebaseUid === userId
+    ? lastKnownSession.userId
+    : null;
+}
+
 /** Local preview privacy is independent of Firebase/network token cleanup. */
 export async function clearLocalChatNotificationState(userId?: string): Promise<void> {
-  const departingOwner = userId ?? lastKnownSession?.userId;
-  if (userId && lastKnownSession && lastKnownSession.userId !== userId) return;
+  const departingOwner = departingSessionOwner(userId);
+  if (departingOwner === null) return;
   lastKnownSession = null;
   notificationSessionGeneration++;
   pendingChatTaps = [];
@@ -1558,7 +1569,9 @@ export async function deleteFCMToken(
   idToken?: string,
   options?: { signal?: AbortSignal },
 ): Promise<void> {
-  if (userId && lastKnownSession && lastKnownSession.userId !== userId) return;
+  // The backend keyed the push token by the owner, so unregister under it.
+  const departingOwner = departingSessionOwner(userId);
+  if (departingOwner === null) return;
   const controller = new AbortController();
   const outerSignal = options?.signal;
   const abort = () => controller.abort();
@@ -1577,8 +1590,8 @@ export async function deleteFCMToken(
   if (signal?.aborted) return;
   const deviceId = await notificationDeviceId();
   if (signal.aborted) return;
-  const unregister = userId && idToken
-    ? ApiService.unregisterPushToken(userId, idToken, undefined, signal, deviceId)
+  const unregister = userId && departingOwner && idToken
+    ? ApiService.unregisterPushToken(departingOwner, idToken, undefined, signal, deviceId)
     : Promise.resolve();
   const clearLocalPushState = async () => {
     if (signal?.aborted) return;

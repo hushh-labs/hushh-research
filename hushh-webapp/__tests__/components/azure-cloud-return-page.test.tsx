@@ -25,7 +25,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: mocks.user.value, loading: false }),
+  useAuth: () => ({ user: mocks.user.value, userId: mocks.user.value?.uid ?? null, loading: false }),
 }));
 vi.mock("@/lib/utils/browser-navigation", () => ({ assignWindowLocation: mocks.assign }));
 vi.mock("@/lib/services/api-service", () => ({

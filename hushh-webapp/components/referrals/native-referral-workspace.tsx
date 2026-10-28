@@ -34,7 +34,7 @@ export function NativeReferralWorkspace({ model, fallback }: { model: ReferralDa
   const [admitted, setAdmitted] = useState<boolean | null>(null);
   const [lifetime, setLifetime] = useState<RetirementOwner | null>(null);
   const [withdrawal, setWithdrawal] = useState<RetirementOwner | null>(null);
-  const owner = model.user?.uid;
+  const owner = model.userId;
   const unlocked = !!token;
   const invalidated = !!lifetime && (!unlocked || owner !== lifetime.owner);
   useLayoutEffect(() => { if (invalidated && lifetime && !withdrawal) setWithdrawal(lifetime); }, [invalidated, lifetime, withdrawal]);
@@ -58,14 +58,14 @@ export function NativeReferralWorkspace({ model, fallback }: { model: ReferralDa
     return () => { current = false; };
   }, []);
   if (invalidated || withdrawal) return <div aria-busy="true" />;
-  if (admitted === false || !token || !model.user) return fallback;
+  if (admitted === false || !token || !model.user || !model.userId) return fallback;
   if (admitted === null) return <div aria-busy="true" />;
-  return <NativeReferralBody key={`${model.user.uid}:unlocked`} model={model} token={token} onFallback={() => { setLifetime(null); setAdmitted(false); }}
+  return <NativeReferralBody key={`${model.userId}:unlocked`} model={model} token={token} onFallback={() => { setLifetime(null); setAdmitted(false); }}
     onRetirementOwner={registerRetirement} />;
 }
 
 function NativeReferralBody({ model, token, onFallback, onRetirementOwner }: { model: ReferralDashboardModel; token: string; onFallback: () => void; onRetirementOwner: (revoke: () => Promise<boolean>) => void }) {
-  const owner = model.user!.uid;
+  const owner = model.userId!;
   const contentFrame = useRef<HTMLDivElement>(null);
   const [visit] = useState(() => new ReferralVisit(owner));
   useLayoutEffect(() => { visit.activate(); return () => visit.retire(); }, [visit]);

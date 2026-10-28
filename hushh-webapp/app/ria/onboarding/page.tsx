@@ -210,7 +210,7 @@ export default function RiaOnboardingPage({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user, phoneNumber } = useAuth();
+  const { user, userId, phoneNumber } = useAuth();
   const {
     refresh: refreshPersonaState,
     riaCapability,
@@ -336,7 +336,7 @@ export default function RiaOnboardingPage({
     let cancelled = false;
 
     async function loadState() {
-      if (!user) {
+      if (!user || !userId) {
         if (!cancelled) {
           setLoading(false);
           setDraftReady(true);
@@ -350,9 +350,9 @@ export default function RiaOnboardingPage({
 
       try {
         const idToken = await user.getIdToken();
-        const localDraft = await RiaOnboardingDraftLocalService.load(user.uid);
+        const localDraft = await RiaOnboardingDraftLocalService.load(userId);
         const nextStatus = await RiaService.getOnboardingStatus(idToken, {
-          userId: user.uid,
+          userId,
         });
 
         if (cancelled) return;
@@ -460,7 +460,7 @@ export default function RiaOnboardingPage({
     return () => {
       cancelled = true;
     };
-  }, [onSetupReadinessChange, phoneNumber, setupMode, user]);
+  }, [onSetupReadinessChange, phoneNumber, setupMode, user, userId]);
 
   // Already-established advisors (riaCapability "switch" = RIA persona provisioned
   // / profile built) don't belong in the onboarding wizard — route them to their
@@ -492,9 +492,9 @@ export default function RiaOnboardingPage({
     // so an established advisor is redirected without waiting for the network.
     // Only a positive "exists" acts (never forces the wizard); if the hint is
     // cross-device stale the profile page's own guard self-corrects.
-    if (user?.uid) {
+    if (userId) {
       let active = true;
-      void RiaOnboardingStatusLocalService.load(user.uid).then((hint) => {
+      void RiaOnboardingStatusLocalService.load(userId).then((hint) => {
         if (active && hint?.exists === true) {
           setEntryMode("established");
         }
@@ -513,7 +513,7 @@ export default function RiaOnboardingPage({
     personaRiaOnboardingStatus,
     personaLoading,
     personaRefreshing,
-    user,
+    userId,
   ]);
 
   // Established advisors don't belong in the wizard — send them to their RIA
@@ -561,9 +561,9 @@ export default function RiaOnboardingPage({
   }, [currentRoute, entryMode, user, phoneNumber, router]);
 
   useEffect(() => {
-    if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;
-    void RiaOnboardingDraftLocalService.save(user.uid, draft);
-  }, [draft, draftReady, iamUnavailable, shouldPersistDraft, user]);
+    if (!userId || !draftReady || iamUnavailable || !shouldPersistDraft) return;
+    void RiaOnboardingDraftLocalService.save(userId, draft);
+  }, [draft, draftReady, iamUnavailable, shouldPersistDraft, userId]);
 
   useEffect(
     () => () => {
@@ -696,10 +696,11 @@ export default function RiaOnboardingPage({
   );
 
   useEffect(() => {
-    if (!user || !draftReady || iamUnavailable || loading) return;
+    if (!user || !userId || !draftReady || iamUnavailable || loading) return;
     if (!shouldRepairVerifiedPrefill(draft)) return;
 
     const currentUser = user;
+    const currentOwnerId = userId;
     const licenseNumber = draft.licenseNumber.trim();
     const regulator = draft.regulator.trim();
     const repairKey = buildVerifiedPrefillKey(draft);
@@ -733,7 +734,7 @@ export default function RiaOnboardingPage({
           },
           // Cache-aware (force omitted → false): a fresh cached "found" returns
           // instantly, so a reopen no longer re-scrapes the regulator.
-          { signal: controller.signal, userId: currentUser.uid },
+          { signal: controller.signal, userId: currentOwnerId },
         );
 
         if (cancelled || controller.signal.aborted) return;
@@ -770,10 +771,11 @@ export default function RiaOnboardingPage({
     loading,
     startScrapePolling,
     user,
+    userId,
   ]);
 
   async function handleVerifyLicense() {
-    if (!user || !draft.licenseNumber.trim()) return;
+    if (!user || !userId || !draft.licenseNumber.trim()) return;
 
     verificationAbortRef.current?.abort();
     const controller = new AbortController();
@@ -801,7 +803,7 @@ export default function RiaOnboardingPage({
           },
           // Explicit user tap → force:true bypasses the client verify cache and
           // writes the fresh result through for later reopens.
-          { signal: controller.signal, userId: user.uid, force: true },
+          { signal: controller.signal, userId, force: true },
         );
 
       clearTimeout(timeoutId);
@@ -886,7 +888,7 @@ export default function RiaOnboardingPage({
   }
 
   async function handleSubmit() {
-    if (!user) return;
+    if (!user || !userId) return;
     if (submitInFlightRef.current) return;
     // A verified advisor normally can't re-submit — but on a re-initiate they
     // MUST, so the idempotent submitOnboarding re-runs and updates the profile.
@@ -984,7 +986,7 @@ export default function RiaOnboardingPage({
       if (!setupMode) {
         try {
           const current = await PreVaultUserStateService.bootstrapState(
-            user.uid,
+            userId,
           );
           if (!current.setupCapabilityIds.includes("ria")) {
             const next = Array.from(
@@ -992,7 +994,7 @@ export default function RiaOnboardingPage({
             ).sort();
             // syncSetupCapabilities REPLACES the stored set, so pass the union.
             await PreVaultUserStateService.syncSetupCapabilities(
-              user.uid,
+              userId,
               next,
             );
           }
@@ -1002,7 +1004,7 @@ export default function RiaOnboardingPage({
       }
 
       if (advisoryOutcome === "verified" || advisoryOutcome === "active") {
-        await RiaOnboardingDraftLocalService.clear(user.uid);
+        await RiaOnboardingDraftLocalService.clear(userId);
         setShouldPersistDraft(false);
         toast.success("Credentials verified. Your advisor profile is now live in the advisor directory.");
       } else if (advisoryOutcome === "rejected") {
@@ -1011,7 +1013,7 @@ export default function RiaOnboardingPage({
       } else {
         // Onboarding is complete; the verified badge is a separate layer that
         // unlocks after live/manual verification succeeds. Do not block here.
-        await RiaOnboardingDraftLocalService.clear(user.uid);
+        await RiaOnboardingDraftLocalService.clear(userId);
         setShouldPersistDraft(false);
         toast.success("Profile created");
       }

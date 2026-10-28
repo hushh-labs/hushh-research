@@ -84,7 +84,9 @@ describe("native Gmail observability", () => {
       includeGrantedScopes: false,
     });
     await vi.waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledTimes(1));
+    // An owner change replaces both the Firebase identity and the validated owner.
     mocks.currentUserId = "other-owner";
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "other-owner", ownerId: "other-owner", accountGeneration: 0 });
     resolveResponse(
       response({
         configured: true,

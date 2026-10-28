@@ -30,7 +30,7 @@ describe("useUnseenLocationShareCount request deadlines", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
-    mockUseAuth.mockReturnValue({ user: { uid: "owner" } });
+    mockUseAuth.mockReturnValue({ user: { uid: "owner" }, userId: "owner" });
     mockUseVault.mockReturnValue({
       isVaultUnlocked: true,
       getVaultOwnerToken: () => "vault-token",

@@ -42,6 +42,7 @@ vi.mock("@/hooks/use-auth", () => ({
       uid: "receiver-user",
       getIdToken: async () => "test-id-token",
     },
+    userId: "receiver-user",
   }),
 }));
 

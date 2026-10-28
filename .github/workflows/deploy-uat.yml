@@ -430,6 +430,35 @@ jobs:
             printf '\n!deploy/plg/bind_secrets.sh\n!scripts/deploy/backend-capacity-settings.sh\n!scripts/deploy/backend-app-surface-settings.sh\n' >> .gcloudignore
           fi
 
+      - name: Decide account generation admission before the deletion fence
+        id: generation-admission
+        shell: bash
+        env:
+          ACCOUNT_GENERATION_ADMISSION_ENABLED: ${{ vars.ACCOUNT_GENERATION_ADMISSION_UAT_ENABLED || 'true' }}
+          HUSSH_TECH_CLIENT_ENABLED: ${{ vars.HUSSH_TECH_CLIENT_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          # Decide once, for every scope, before runtime secrets sync or the fence installs.
+          # Cloud Build accepts only true/false, and startup refuses generations beside the
+          # HushhTech client exchange, including on the revision already serving.
+          case "${ACCOUNT_GENERATION_ADMISSION_ENABLED}" in
+            true|false) ;;
+            *) echo "::error::ACCOUNT_GENERATION_ADMISSION_UAT_ENABLED must be true or false." >&2; exit 1 ;;
+          esac
+          client="$(printf '%s' "${HUSSH_TECH_CLIENT_ENABLED}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+          case "${ACCOUNT_GENERATION_ADMISSION_ENABLED}:${client}" in
+            true:1|true:true|true:yes|true:on)
+              echo "::error::Account generation admission cannot run beside the HushhTech client exchange." >&2
+              exit 1 ;;
+          esac
+          # Only targets whose web app keys data by the validated owner may admit replacements.
+          enabled=false
+          if [ "${ACCOUNT_GENERATION_ADMISSION_ENABLED}" = true ] \
+             && [ -f hushh-webapp/__tests__/lib/auth/application-owner-ratchet.contract.test.ts ]; then
+            enabled=true
+          fi
+          echo "enabled=${enabled}" >> "$GITHUB_OUTPUT"
+
       - name: Validate Google Cloud workload identity configuration
         shell: bash
         env:
@@ -1544,6 +1573,10 @@ jobs:
           # Older deployment SHAs do not declare this substitution.
           if grep -q '^[[:space:]]*_WALLET_CARD_ACCESS_ENABLED:' deploy/backend.cloudbuild.yaml; then
             SUBSTITUTIONS="${SUBSTITUTIONS}##_WALLET_CARD_ACCESS_ENABLED=${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}"
+          fi
+          # Older deployment SHAs do not declare this substitution.
+          if grep -q '^[[:space:]]*_ACCOUNT_GENERATION_ADMISSION_ENABLED:' deploy/backend.cloudbuild.yaml; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_GENERATION_ADMISSION_ENABLED=${{ steps.generation-admission.outputs.enabled }}"
           fi
           # Older deployment SHAs do not declare these. The secrets are bound by
           # deploy/sso/bind_workos.sh only if they exist in the deploy project.

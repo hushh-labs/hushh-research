@@ -81,6 +81,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     user: { uid: mocks.userId, getIdToken: async () => "id-token" },
+    userId: mocks.userId,
   }),
 }));
 

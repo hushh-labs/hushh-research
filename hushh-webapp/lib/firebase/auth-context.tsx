@@ -85,6 +85,7 @@ import {
   snapshotValidatedAuthSessionOwner,
   isValidatedAuthSessionOwnerCurrent,
   getAuthSessionGeneration,
+  lastAdmittedOwnerFor,
   type AuthSessionVerificationRequiredDetail,
   type AuthSessionOwnerSnapshot,
 } from "@/lib/auth/session-owner";
@@ -1040,8 +1041,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // A terminal native cold-restore event is dispatched before the restored
         // user is published. Retain that exact UID in the invalidation latch so
         // its local vault/cache state is still destroyed during sign-out.
+        // A withdrawn start-fresh owner is still this identity's departing owner.
         const currentUid =
-          initiatingPrincipal?.ownerId ?? currentUser?.uid ??
+          initiatingPrincipal?.ownerId ?? lastAdmittedOwnerFor(currentUser?.uid) ?? currentUser?.uid ??
           terminalInvalidationLatchRef.current?.invalidatedUserId ??
           null;
         const redirectTo = options?.redirectTo || ROUTES.HOME;
@@ -1068,7 +1070,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           ownsExpectedSession = stillOwnsExpectedSession();
           if (!ownsExpectedSession) return;
 
-          const cleanupTasks: Promise<unknown>[] = [AuthService.signOut(expectedFirebaseUid)];
+          // signOut keys local notification cleanup by the application owner.
+          const cleanupTasks: Promise<unknown>[] = [AuthService.signOut(currentUid ?? expectedFirebaseUid)];
           // The httpOnly session cookie exists only on the web/Next.js origin.
           // Native static builds authenticate directly against the backend, where
           // `/api/auth/session` is intentionally not a route.

@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({
   vaultOwnerToken: "vault-A" as string | null,
   calendarRefresh: vi.fn(), gmailRefresh: vi.fn(), statusRefresh: vi.fn(), list: vi.fn(),
 }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user, userId: state.user.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.vaultOwnerToken }) }));
 vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => ({ connected: true }) }));
 vi.mock("@/lib/calendar/use-calendar-upcoming-events", () => ({ useCalendarUpcomingEvents: () => ({ events: [], refresh: state.calendarRefresh }) }));

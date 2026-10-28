@@ -66,7 +66,7 @@ vi.mock("@/components/consent/document-payout-account", () => ({
   DocumentPayoutAccountCard: () => <div data-testid="document-payout-account-card" />,
 }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: state.uid, providerData: state.providers } }),
+  useAuth: () => ({ user: { uid: state.uid, providerData: state.providers }, userId: state.uid }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({

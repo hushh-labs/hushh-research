@@ -22,8 +22,9 @@ export function useCommerceAccountBackLayer(depth: number, back: () => boolean) 
 
 /** A read or action may settle only in the account, view and vault session that began it. */
 export function useCommerceSession(scope: string, active = true) {
-  const { user: authenticatedUser } = useAuth();
+  const { user: authenticatedUser, userId: authenticatedUserId } = useAuth();
   const user = active ? authenticatedUser : null;
+  const userId = active ? authenticatedUserId : null;
   const identity = useRef({ user, scope, active, generation: 0 });
   const mounted = useRef(true);
   useLayoutEffect(() => {
@@ -40,12 +41,12 @@ export function useCommerceSession(scope: string, active = true) {
       (!authGeneration || isValidatedAuthSessionOwnerCurrent(authGeneration)) &&
       (!includeVault || isVaultSessionEpochCurrent(epoch));
   }, []);
-  return { user, capture };
+  return { user, userId, capture };
 }
 
 /** Financial reads stay memory-only; newest response wins and visible pending work polls at 15s. */
 export function useCommerceRead<T>(scope: string, load: (token: string) => Promise<T>, shouldPoll: (value: T) => boolean, active = true) {
-  const { user, capture } = useCommerceSession(scope, active);
+  const { user, userId, capture } = useCommerceSession(scope, active);
   const [result, setResult] = useState<{ value: T; user: typeof user; scope: string } | null>(null);
   const data = result && result.user === user && result.scope === scope ? result.value : null;
   const [loading, setLoading] = useState(false);
@@ -83,10 +84,10 @@ export function useCommerceRead<T>(scope: string, load: (token: string) => Promi
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refresh, scope]);
-  usePeriodicTask(`commerce:${scope}:${user?.uid || "signed-out"}`, 15_000, () => refresh(), {
+  usePeriodicTask(`commerce:${scope}:${userId || "signed-out"}`, 15_000, () => refresh(), {
     // A session change can retire the initial read without a result or error.
     // Retry with fresh authority rather than leaving that review permanently blank.
     enabled: Boolean(user && !loading && (data ? shouldPoll(data) : !error)),
   });
-  return { user, data, refresh, loading, error, capture };
+  return { user, userId, data, refresh, loading, error, capture };
 }

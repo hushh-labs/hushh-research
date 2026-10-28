@@ -103,7 +103,7 @@ describe("the badge hooks accept an enabled gate", () => {
       fs.readFileSync("lib/feed/use-feed-unread-count.ts", "utf8"),
     );
     expect(src).toContain("options?: { enabled?: boolean }");
-    expect(src).toContain("!user?.uid || !enabled");
+    expect(src).toContain("!userId || !enabled");
   });
 
   it("the Navbar switches both off while the shell is still deciding", async () => {

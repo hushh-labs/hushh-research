@@ -7,7 +7,7 @@ import { parseLastMessagesSelection, readLastMessagesSelection, writeLastMessage
 
 const mocks = vi.hoisted(() => ({ listCircles: vi.fn(), startChat: vi.fn(), stopChat: vi.fn() }));
 
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "viewer" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "viewer" }, userId: "viewer" }) }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),

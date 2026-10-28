@@ -74,6 +74,7 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: { ...user },
+    userId: user.uid,
     loading: false,
     phoneNumber: null,
     startPhoneVerification: vi.fn(),

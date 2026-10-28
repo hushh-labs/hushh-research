@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.user, loading: false }),
+  useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null, loading: false }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({

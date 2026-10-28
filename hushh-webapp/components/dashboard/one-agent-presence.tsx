@@ -92,8 +92,8 @@ function toAgentState(value: unknown): AgentState | null {
 }
 
 export function OneAgentPresence({ compact = false }: { compact?: boolean }) {
-  const { user } = useAuth();
-  return user ? <OwnerAgentPresence key={user.uid} userId={user.uid} compact={compact} /> : null;
+  const { userId } = useAuth();
+  return userId ? <OwnerAgentPresence key={userId} userId={userId} compact={compact} /> : null;
 }
 
 function OwnerAgentPresence({ userId, compact }: { userId: string; compact: boolean }) {

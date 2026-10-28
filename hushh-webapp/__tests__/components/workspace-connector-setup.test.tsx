@@ -6,7 +6,7 @@ import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-rece
 import { VaultContext } from "@/lib/vault/vault-context";
 
 const gmailState = vi.hoisted(() => ({ connected: false, disconnect: vi.fn(async () => ({ connected: false })) }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "synthetic-owner", getIdToken: async () => "synthetic-id-token" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "synthetic-owner", getIdToken: async () => "synthetic-id-token" }, userId: "synthetic-owner" }) }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => ({
   status: gmailState.connected ? { connected: true, needs_reauth: false } : null,
   loadingStatus: false, refreshStatus: async () => null, disconnectGmail: gmailState.disconnect,

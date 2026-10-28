@@ -594,6 +594,27 @@ jobs:
             sudo apt-get install -y -qq postgresql-client
           fi
 
+      - name: Decide account generation admission before the deletion fence
+        id: generation-admission
+        if: steps.scope.outputs.deploy_backend == 'true' && env.DEV_TARGET != 'scope-commerce-sandbox'
+        shell: bash
+        env:
+          ACCOUNT_GENERATION_ADMISSION_ENABLED: ${{ vars.ACCOUNT_GENERATION_ADMISSION_DEV_ENABLED || 'true' }}
+        run: |
+          set -euo pipefail
+          # Cloud Build accepts only true/false; a bad value would fail after the fence.
+          case "${ACCOUNT_GENERATION_ADMISSION_ENABLED}" in
+            true|false) ;;
+            *) echo "::error::ACCOUNT_GENERATION_ADMISSION_DEV_ENABLED must be true or false." >&2; exit 1 ;;
+          esac
+          # Only targets whose web app keys data by the validated owner may admit replacements.
+          enabled=false
+          if [ "${ACCOUNT_GENERATION_ADMISSION_ENABLED}" = true ] \
+             && [ -f hushh-webapp/__tests__/lib/auth/application-owner-ratchet.contract.test.ts ]; then
+            enabled=true
+          fi
+          echo "enabled=${enabled}" >> "$GITHUB_OUTPUT"
+
       - name: Apply dev DB migrations and predeploy schema gate
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
@@ -729,6 +750,10 @@ jobs:
           esac
           SUBSTITUTIONS="${SUBSTITUTIONS}##_PKM_ANSWER_REQUESTS_ENABLED=${{ vars.PKM_ANSWER_REQUESTS_DEV_ENABLED || 'true' }}##_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_DEV_ENABLED || 'false' }}##_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_DEV_ENABLED || 'false' }}##_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_DEV_REVIEWED || 'false' }}##_PKM_ANSWER_STRIPE_MODE=${ANSWER_STRIPE_MODE}##_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=${ANSWER_KEY_SECRET}##_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=${ANSWER_WEBHOOK_SECRET}##_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_DEV_SECRET || '' }}##_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_DEV_ENABLED || 'false' }}##_ANSWER_WORK_DRAIN_AUDIENCE="
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_DEV_ENABLED || 'false' }}##_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY##_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET##_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET"
+          # The isolated commerce sandbox keeps its own database baseline; enable on shared Dev only.
+          if [[ "${DEV_TARGET:-shared-dev}" != "scope-commerce-sandbox" ]]; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_GENERATION_ADMISSION_ENABLED=${{ steps.generation-admission.outputs.enabled || 'false' }}"
+          fi
           # Skew guard (same class as #4399/#4401/#4402): the workflow file
           # (from main) may pass substitutions the train SHA's cloudbuild
           # template doesn't declare — gcloud rejects unmatched keys. Filter

@@ -102,7 +102,9 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
     mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
     act(() => requestExplicitSessionVerification());
-    await waitFor(() => expect(mocks.authServiceSignOut).toHaveBeenCalledWith("account-owner"));
+    // Sign-out cleanup is keyed by the application owner, not the Firebase UID.
+    await waitFor(() => expect(mocks.authServiceSignOut).toHaveBeenCalledWith(ownerId));
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalledWith("account-owner");
     expect(mocks.clearForUser).toHaveBeenCalledWith(ownerId);
     await waitFor(() => expect(snapshotValidatedAuthSessionOwner()).toBeNull());
     act(() => mocks.authStateListener?.(mocks.firebaseUser));
