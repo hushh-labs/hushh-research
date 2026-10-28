@@ -177,7 +177,7 @@ def test_native_attempt_cannot_change_service_or_access_at_completion(
     assert caught.value.status_code == 400
 
 
-def test_optional_requested_scope_requires_explicit_google_grant_before_storage(
+def test_new_calendar_connection_preserves_base_when_optional_list_scope_is_declined(
     monkeypatch,
 ) -> None:
     service = GoogleConnectionService(db=_Db())
@@ -187,33 +187,41 @@ def test_optional_requested_scope_requires_explicit_google_grant_before_storage(
         lambda *_, **__: asyncio.sleep(0, result={"sub": "synthetic-provider"}),
     )
     monkeypatch.setattr(service, "_connection", lambda *_, **__: asyncio.sleep(0, result=None))
-
-    with pytest.raises(GoogleConnectionError) as caught:
-        asyncio.run(
-            service._store_authorized_connection(
-                user_id="owner",
-                service="calendar",
-                token={
-                    "access_token": "synthetic-access",
-                    "refresh_token": "synthetic-refresh",
-                    "expires_in": 3600,
-                    "scope": " ".join(service.scopes("calendar", "read")),
-                },
-                requested_scopes=(*service.scopes("calendar", "read"), CALENDAR_LIST_READ_SCOPE),
-                oauth_started_at=datetime.now(UTC),
-                attempt_id="attempt-id",
-                expected_generation=connection_generation(None),
-            )
+    monkeypatch.setattr(
+        service,
+        "_encrypt",
+        lambda *_, **__: {"ciphertext": "sealed", "iv": "iv", "tag": "aad-gcm-v1"},
+    )
+    published: dict = {}
+    monkeypatch.setattr(
+        service, "_publish_authorization", lambda **kwargs: published.update(kwargs)
+    )
+    monkeypatch.setattr(
+        service,
+        "_primary_completion_status",
+        lambda *_: asyncio.sleep(0, result={"connected": True}),
+    )
+    result = asyncio.run(
+        service._store_authorized_connection(
+            user_id="owner",
+            service="calendar",
+            token={
+                "access_token": "synthetic-access",
+                "refresh_token": "synthetic-refresh",
+                "expires_in": 3600,
+                "scope": " ".join(service.scopes("calendar", "read")),
+            },
+            requested_scopes=(*service.scopes("calendar", "read"), CALENDAR_LIST_READ_SCOPE),
+            oauth_started_at=datetime.now(UTC),
+            attempt_id="attempt-id",
+            expected_generation=connection_generation(None),
         )
+    )
+    assert result["connected"] is True
+    assert CALENDAR_LIST_READ_SCOPE not in published["grant_params"]["scope_csv"]
 
-    assert caught.value.status_code == 403
-    assert caught.value.reason_code == "calendar_list_permission_required"
 
-
-@pytest.mark.parametrize("returned_scope", [None, "base_only"])
-def test_meeting_permission_requires_both_scopes_in_google_response(
-    monkeypatch, returned_scope: str | None
-) -> None:
+def test_missing_provider_scope_claim_cannot_publish_meeting_permission(monkeypatch) -> None:
     service = GoogleConnectionService(db=_Db())
     monkeypatch.setattr(
         service,
@@ -231,9 +239,6 @@ def test_meeting_permission_requires_both_scopes_in_google_response(
         "refresh_token": "synthetic-refresh",
         "expires_in": 3600,
     }
-    if returned_scope == "base_only":
-        token["scope"] = " ".join(service.scopes("calendar", "read"))
-
     with pytest.raises(GoogleConnectionError) as caught:
         asyncio.run(
             service._store_authorized_connection(
@@ -248,4 +253,4 @@ def test_meeting_permission_requires_both_scopes_in_google_response(
         )
 
     assert caught.value.status_code == 403
-    assert caught.value.reason_code == "calendar_meeting_files_permission_required"
+    assert caught.value.reason_code == "google_permission_required"
