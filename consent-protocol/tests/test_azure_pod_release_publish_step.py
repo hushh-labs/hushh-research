@@ -331,3 +331,121 @@ def test_workflow_publication_uses_real_protocol_project_before_cloud_authentica
     assert steps[0]["with"]["ref"] == "${{ github.sha }}"
     assert "pod-publication" in workflow["jobs"]["deploy"]["if"]
     assert "pod-publication" not in workflow["concurrency"]["group"]
+
+
+def _preparation_records():
+    run = {"id": 77, "run_attempt": 2, "head_sha": "a" * 40}
+    pin = {"preparationAttempt": 2, "preparationArtifactId": 12, "preparationBuildId": "build"}
+    names = [
+        "Prepare common pod artifact without deploying the application",
+        "Retain bounded publication evidence",
+    ]
+    job = {
+        "name": "Pod Release Publication",
+        "conclusion": "success",
+        "status": "completed",
+        "run_id": 77,
+        "run_attempt": 2,
+        "steps": [{"name": n, "conclusion": "success"} for n in names],
+    }
+    files = {
+        "build-id.txt": b"build\n",
+        "outcome.txt": b"artifact_prepared_not_qualified_or_activated\n",
+        "release.json": b"release",
+    }
+    artifact = {
+        "name": "pod-publication-dev-77-2",
+        "id": 12,
+        "expired": False,
+        "workflow_run": {"id": 77, "head_sha": "a" * 40},
+    }
+    return run, pin, job, files, artifact
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        None,
+        "attempt",
+        "failed_job",
+        "skipped_prepare",
+        "failed_upload",
+        "job_attempt",
+        "incomplete_jobs",
+        "expired",
+        "ambiguous",
+        "artifact_id",
+        "artifact_origin",
+        "artifact_digest",
+        "corrupt_zip",
+        "copied_build_tags",
+        "activated",
+        "release_bytes",
+        "unsafe_path",
+    ],
+)
+def test_preparation_attempt_cannot_borrow_native_build_tags(monkeypatch, fault):
+    import io
+    import json
+    import zipfile
+
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/deploy"))
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/ci"))
+    import pod_publication_evidence as evidence
+    import process_group
+
+    run, pin, job, files, artifact = _preparation_records()
+    if fault == "attempt":
+        run["run_attempt"] = 3
+    if fault == "failed_job":
+        job["conclusion"] = "failure"
+    if fault == "job_attempt":
+        job["run_attempt"] = 1
+    if fault == "skipped_prepare":
+        job["steps"][0]["conclusion"] = "skipped"
+    if fault == "failed_upload":
+        job["steps"][1]["conclusion"] = "failure"
+    if fault == "expired":
+        artifact["expired"] = True
+    if fault == "artifact_id":
+        artifact["id"] = 13
+    if fault == "artifact_origin":
+        artifact["workflow_run"]["head_sha"] = "b" * 40
+    if fault == "copied_build_tags":
+        files["build-id.txt"] = b"unrelated-successful-build\n"
+    if fault == "activated":
+        files["outcome.txt"] = b"activated\n"
+    if fault == "release_bytes":
+        files["release.json"] = b"another-release"
+    if fault == "unsafe_path":
+        files["../outside"] = b"unsafe"
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as bundle:
+        for name, content in files.items():
+            bundle.writestr(name, content)
+    packed = stream.getvalue()
+    pin["preparationArtifactSha256"] = hashlib.sha256(packed).hexdigest()
+    artifact.update(size_in_bytes=len(packed), digest="sha256:" + pin["preparationArtifactSha256"])
+    if fault == "artifact_digest":
+        artifact["digest"] = "sha256:" + "0" * 64
+    jobs = {"total_count": 2 if fault == "incomplete_jobs" else 1, "jobs": [job]}
+    artifacts = [artifact, artifact] if fault == "ambiguous" else [artifact]
+
+    def command(*args):
+        value = (
+            jobs
+            if "/jobs?" in args[-1]
+            else {"total_count": len(artifacts), "artifacts": artifacts}
+        )
+        return json.dumps(value).encode()
+
+    monkeypatch.setattr(
+        process_group,
+        "bounded_stdout",
+        lambda *a, **k: b"corrupt" if fault == "corrupt_zip" else packed,
+    )
+    if fault is None:
+        evidence.verify_preparation_attempt(command, run, pin, b"release")
+    else:
+        with pytest.raises((ValueError, RuntimeError)):
+            evidence.verify_preparation_attempt(command, run, pin, b"release")

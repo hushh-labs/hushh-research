@@ -5,8 +5,12 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import re
+import sys
+from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import quote
 
 CHECKS = {
@@ -59,17 +63,15 @@ def validate_pin(value: object) -> dict:
             "baseline",
             "preparationBuildId",
             "preparationManifestSha256",
+            "preparationAttempt",
+            "preparationArtifactId",
+            "preparationArtifactSha256",
             "evidence",
         }
         or value["schemaVersion"] != 1
     ):
         raise ValueError("Activation needs a Main-reviewed publication pin")
-    if not digest(value["preparationManifestSha256"]):
-        raise ValueError("Native build artifact manifest must be pinned")
-    if not isinstance(value["descriptorSourceRevision"], str) or not re.fullmatch(
-        r"[a-f0-9]{40}", value["descriptorSourceRevision"]
-    ):
-        raise ValueError("Reviewed descriptor source is required")
+    _validate_preparation_pin(value)
     base = value["baseline"]
     if (
         not isinstance(base, dict)
@@ -86,10 +88,6 @@ def validate_pin(value: object) -> dict:
         or not digest(base["trafficSha256"])
     ):
         raise ValueError("Coordinated application baseline is incomplete")
-    if not isinstance(value["preparationBuildId"], str) or not re.fullmatch(
-        r"[a-f0-9-]{36}", value["preparationBuildId"]
-    ):
-        raise ValueError("Native preparation build is required")
     refs = value["evidence"]
     if (
         not isinstance(refs, list)
@@ -128,6 +126,26 @@ def validate_pin(value: object) -> dict:
         ):
             raise ValueError("Qualification native execution identity is invalid")
     return value
+
+
+def _validate_preparation_pin(value: dict) -> None:
+    if any(
+        type(value[k]) is not int or value[k] < 1
+        for k in ("preparationAttempt", "preparationArtifactId")
+    ):
+        raise ValueError("Exact preparation attempt and artifact identity are required")
+    if not digest(value["preparationArtifactSha256"]):
+        raise ValueError("Preparation artifact digest is required")
+    if not digest(value["preparationManifestSha256"]):
+        raise ValueError("Native build artifact manifest must be pinned")
+    if not isinstance(value["descriptorSourceRevision"], str) or not re.fullmatch(
+        r"[a-f0-9]{40}", value["descriptorSourceRevision"]
+    ):
+        raise ValueError("Reviewed descriptor source is required")
+    if not isinstance(value["preparationBuildId"], str) or not re.fullmatch(
+        r"[a-f0-9-]{36}", value["preparationBuildId"]
+    ):
+        raise ValueError("Native preparation build is required")
 
 
 def read_object(
@@ -278,3 +296,99 @@ def verify_build_artifacts(
     )
     if not separator or repository + "@" + resolved["digest"] != release["image"]:
         raise ValueError("Native executable manifest differs from the offered image")
+
+
+def verify_preparation_attempt(command, run: dict, pin: dict, archive: bytes) -> None:
+    """Bind native build outputs to the successful Main-owned prepare step."""
+    attempt = pin["preparationAttempt"]
+    if run.get("run_attempt") != attempt:
+        raise ValueError("Preparation attempt differs from the reviewed pin")
+    prefix = "repos/hushh-labs/hushh-research/actions/"
+    jobs = json.loads(
+        command(
+            "gh",
+            "api",
+            prefix + f"runs/{run['id']}/attempts/{attempt}/jobs?per_page=100",
+        )
+    )
+    rows = jobs.get("jobs", [])
+    if (
+        not isinstance(rows, list)
+        or len(rows) > 100
+        or jobs.get("total_count") != len(rows)
+    ):
+        raise ValueError("Preparation job inventory is incomplete")
+    selected = [j for j in rows if j.get("name") == "Pod Release Publication"]
+    if (
+        len(selected) != 1
+        or selected[0].get("conclusion") != "success"
+        or selected[0].get("status") != "completed"
+        or selected[0].get("run_id") != run["id"]
+        or selected[0].get("run_attempt") != attempt
+    ):
+        raise ValueError("Preparation job did not succeed")
+    required = {
+        "Prepare common pod artifact without deploying the application",
+        "Retain bounded publication evidence",
+    }
+    steps = selected[0].get("steps", [])
+    if any(
+        sum(s.get("name") == name and s.get("conclusion") == "success" for s in steps)
+        != 1
+        for name in required
+    ):
+        raise ValueError("Preparation or evidence upload did not succeed")
+    inventory = json.loads(
+        command("gh", "api", prefix + f"runs/{run['id']}/artifacts?per_page=100")
+    )
+    artifacts = inventory.get("artifacts", [])
+    if (
+        not isinstance(artifacts, list)
+        or len(artifacts) > 100
+        or inventory.get("total_count") != len(artifacts)
+    ):
+        raise ValueError("Preparation artifact inventory is incomplete")
+    matches = [
+        a
+        for a in artifacts
+        if a.get("name") == f"pod-publication-dev-{run['id']}-{attempt}"
+    ]
+    if len(matches) != 1:
+        raise ValueError("Preparation artifact is missing or ambiguous")
+    artifact = matches[0]
+    if (
+        artifact.get("id") != pin["preparationArtifactId"]
+        or artifact.get("expired") is not False
+        or artifact.get("digest") != "sha256:" + pin["preparationArtifactSha256"]
+        or artifact.get("workflow_run", {}).get("id") != run["id"]
+        or artifact.get("workflow_run", {}).get("head_sha") != run["head_sha"]
+    ):
+        raise ValueError("Preparation artifact provenance differs")
+    _verify_preparation_archive(artifact, pin, archive)
+
+
+def _verify_preparation_archive(artifact: dict, pin: dict, archive: bytes) -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts/ci"))
+    receipts = importlib.import_module("release_artifact_receipts")
+    process = importlib.import_module("process_group")
+
+    def bounded(args, *, timeout, text):
+        return SimpleNamespace(
+            stdout=process.bounded_stdout(
+                args, max_bytes=10 * 1024 * 1024, timeout=timeout
+            )
+        )
+
+    packed = receipts.immutable_archive(
+        "hushh-labs/hushh-research", artifact, run_command=bounded, timeout=30
+    )
+    expected = {
+        "build-id.txt": (pin["preparationBuildId"] + "\n").encode(),
+        "outcome.txt": b"artifact_prepared_not_qualified_or_activated\n",
+        "release.json": archive,
+    }
+    for name, content in expected.items():
+        if receipts._status_bytes(packed, name) != content:
+            raise ValueError(
+                "Preparation artifact bytes do not match the selected build/release"
+            )

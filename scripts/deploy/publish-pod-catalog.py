@@ -37,6 +37,7 @@ from pod_publication_evidence import (
     validate_pin,
     verify_build_artifacts,
     verify_evidence,
+    verify_preparation_attempt,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -165,6 +166,7 @@ def reviewed_release(session, pin: dict, *, source: str) -> tuple[dict, list]:
     ):
         raise ValueError("Preparation workflow is not a successful Main-owned release")
     command("git", "merge-base", "--is-ancestor", run["head_sha"], "HEAD")
+    verify_preparation_attempt(command, run, pin, raw)
     return release, verify_evidence(session, pin, release)
 
 

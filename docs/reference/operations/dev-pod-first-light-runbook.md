@@ -77,7 +77,8 @@ code. Do not replace those observations with authored success booleans.
 A subsequent reviewed Main change may add an activation pin (`pod-publication.json` in the `deploy` directory). It has
 `schemaVersion=1`, `descriptorSourceRevision`, the existing four-field `release`
 pin (`image`, `sourceRevision`, `runId`, `archiveSha256`), `preparationBuildId`,
-`preparationManifestSha256`,
+`preparationManifestSha256`, `preparationAttempt`, `preparationArtifactId` and
+`preparationArtifactSha256`,
 the exact `baseline` and three kinds of `evidence`: `platform`, `recovery` and
 `compatibility`. Each evidence reference pins its archive object, immutable
 generation, SHA-256, original native execution names and probe SHA-256. The
@@ -86,6 +87,10 @@ the exact baseline; every advertised upgrade predecessor requires recovery.
 The native build's artifact manifest binds immutable generations of the descriptor,
 resolver provenance and executable image manifest. Validate those exact bytes and
 digest as well as the successful build; step names alone are insufficient.
+The exact attempt's successful preparation job and upload must produce the pinned
+Actions artifact. Its immutable digest, build ID, prepared outcome and release
+bytes must agree with the native build and archive. An ordinary deployment,
+activation-only run or unrelated build with copied run tags cannot qualify.
 
 The baseline contains only service UID, serving revision, immutable application
 image/source and configuration/traffic fingerprints. Never commit or upload application

@@ -298,6 +298,9 @@ def test_evidence_is_exact_source_pinned_and_pairing_cannot_follow_new_app(
         "baseline": base,
         "preparationBuildId": "a" * 8 + "-" + "b" * 27,
         "preparationManifestSha256": "a" * 64,
+        "preparationAttempt": 1,
+        "preparationArtifactId": 2,
+        "preparationArtifactSha256": "a" * 64,
         "evidence": [],
     }
     values = {}
