@@ -78,6 +78,7 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "scripts/ci/runtime_capacity_inventory.py",
         "scripts/ci/runtime_capacity_cli.py",
         "scripts/ci/runtime_capacity_target_scope.py",
+        "scripts/ci/runtime_capacity_volume.py",
         "scripts/ci/verify-cloudrun-revision-provenance.py",
         "scripts/ci/account-deletion-fence-decision.py",
         "scripts/ci/verify-cloud-scheduler-attempt.py",
