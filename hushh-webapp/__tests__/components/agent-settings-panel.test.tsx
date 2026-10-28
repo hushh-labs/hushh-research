@@ -459,9 +459,12 @@ describe("owner hosting and software settings", () => {
     expect(screen.getByText("Hosting unavailable")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Check hosting" }));
     await waitFor(() => expect(mocks.promiseToast).toHaveBeenCalledOnce());
-    expect(mocks.promiseToast.mock.calls[0][1].error).toBe(
+    expect(mocks.promiseToast.mock.calls[0][1].error()).toBe(
       "Couldn’t verify hosting. Try again.",
     );
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("owner");
+    expect(mocks.promiseToast.mock.calls[0][1].error()).toBeNull();
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
   it("prioritizes an unresolved update over its retained lease and reports attention", async () => {

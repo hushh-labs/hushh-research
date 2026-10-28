@@ -65,6 +65,40 @@ describe("lost-vault deletion submission and terminal outcomes", () => {
     expect(mocks.publish).toHaveBeenCalledWith("user_123");
   });
 
+  it("hands off accepted cleanup without a terminal deletion signal or durable purge", async () => {
+    mocks.deletion.mockResolvedValue({
+      success: true, account_deleted: false, cleanup_pending: true,
+      cleanup_operation: {
+        id: "11111111-1111-1111-1111-111111111111", owner_id: "user_123",
+        local_erasure_confirmation_required: false,
+      },
+    });
+    const result = await executeLostVaultAccountDeletion({
+      userId: "user_123", sessionUser: makeSessionUser(), firebaseIdToken: "fresh-provider",
+      reviewedInventorySha256: "a".repeat(64), acceptLocalErasure: true,
+    });
+    expect(result.cleanup_pending).toBe(true);
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+    expect(mocks.clear).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it("keeps an older unaccepted cleanup behind the recovery gate", async () => {
+    mocks.deletion.mockResolvedValue({
+      success: true, account_deleted: false, cleanup_pending: true,
+      cleanup_operation: {
+        id: "22222222-2222-2222-2222-222222222222", owner_id: "user_123",
+        local_erasure_confirmation_required: true,
+      },
+    });
+    await expect(executeLostVaultAccountDeletion({
+      userId: "user_123", sessionUser: makeSessionUser(), firebaseIdToken: "fresh-provider",
+      reviewedInventorySha256: "a".repeat(64), acceptLocalErasure: true,
+    })).rejects.toHaveProperty("code", "ACCOUNT_DELETION_PENDING");
+    expect(mocks.clear).not.toHaveBeenCalled();
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
+
   it("keeps a stale recovery rejection before erasure recoverable without sign-out or retry", async () => {
     const failure = new ApiError("Recovery ended", 403, {detail: {code: "PHONE_RECOVERY_PREVIOUS_SIGN_IN_REQUIRED"}});
     mocks.deletion.mockRejectedValueOnce(failure);

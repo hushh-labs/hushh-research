@@ -223,7 +223,7 @@ describe("private browser control", () => {
     api.ownerPodRequest.mockResolvedValue(Response.json({ available: true, code: null, authorization_limit_at: 1000000, templates: [row.capability], tasks: [row] }));
     const client = new PodScheduledTasksClient("owner");
     expect(JSON.stringify(await client.status())).not.toContain("must-not-enter-view");
-    api.ownerPodRequest.mockImplementation(async () => { api.owner = "other"; return Response.json(row); });
+    api.ownerPodRequest.mockImplementation(async () => { api.owner = "other"; publishValidatedAuthSessionOwner("other"); return Response.json(row); });
     await expect(client.organizeFile({ id: "b".repeat(32), name: "test" }, 2000, "request-id")).rejects.toThrow("SCHEDULE_RESPONSE_REFUSED");
   });
 

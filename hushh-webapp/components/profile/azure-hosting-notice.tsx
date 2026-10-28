@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/lib/morphy-ux/morphy";
 import { useAzureSetupStartedSignal, useAzureSignIn } from "@/lib/one/azure-sign-in";
@@ -36,18 +36,20 @@ function actionLabel(hosting: AzureHosting): string {
   return hosting.state === "hosting_reclaimed" ? "Rebuild it" : "Check and rebuild";
 }
 
-export function AzureHostingNotice({ onRebuilt }: { onRebuilt?: () => void }) {
+export function useAzureHostingNoticeModel({ onRebuilt, enabled = true, ownerKey }: { onRebuilt?: () => void; enabled?: boolean; ownerKey?: string | null }) {
   const [hosting, setHosting] = useState<AzureHosting | null>(null);
   const [handedOff, setHandedOff] = useState(false);
   const wasRunning = useRef(false);
   const mounted = useRef(true);
   const signIn = useAzureSignIn();
+  const visit = useMemo(() => ({ enabled, ownerKey }), [enabled, ownerKey]);
+  const active = useRef<typeof visit | null>(null);
 
   const read = useCallback(
     async (signal?: AbortSignal) => {
       try {
         const next = await ApiService.getAzureHosting({ signal });
-        if (!mounted.current) return;
+        if (!mounted.current || !enabled || active.current !== visit || signal?.aborted) return;
         setHosting(next);
         setHandedOff(false);
         // Only the rebuild's own terminal status ends the follow: mid-job the hosting
@@ -61,32 +63,52 @@ export function AzureHostingNotice({ onRebuilt }: { onRebuilt?: () => void }) {
         // An unreadable hosting state says nothing; the card above already shows hosting.
       }
     },
-    [onRebuilt],
+    [onRebuilt, enabled, visit],
   );
 
   useEffect(() => {
     mounted.current = true;
+    active.current = visit;
+    setHosting(null); setHandedOff(false); wasRunning.current = false;
     const controller = new AbortController();
-    void read(controller.signal);
+    if (enabled) void read(controller.signal);
     return () => {
       mounted.current = false;
+      if (active.current === visit) active.current = null;
       controller.abort();
     };
-  }, [read]);
+  }, [read, enabled, visit]);
 
   // The Microsoft popup hands back as a setup; acknowledge it and follow the rebuild.
   const onStarted = useCallback(() => {
+    if (!enabled || active.current !== visit) return;
     setHandedOff(true);
     void read();
-  }, [read]);
-  useAzureSetupStartedSignal(onStarted, "setup");
+  }, [read, enabled, visit]);
+  useAzureSetupStartedSignal(onStarted, "setup", () => enabled && active.current === visit);
 
-  const running = handedOff || hosting?.rebuild?.status === "running";
+  const running = enabled && (handedOff || hosting?.rebuild?.status === "running");
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => void read(), POLL_MS);
     return () => clearInterval(timer);
   }, [running, read]);
+
+  return { hosting: enabled ? hosting : null, running, signIn };
+}
+
+export type AzureHostingNoticeModel = ReturnType<typeof useAzureHostingNoticeModel>;
+
+export function AzureHostingNotice({ onRebuilt, model }: { onRebuilt?: () => void; model?: AzureHostingNoticeModel }) {
+  return model ? <AzureHostingNoticeView model={model} /> : <OwnedAzureHostingNotice onRebuilt={onRebuilt} />;
+}
+
+function OwnedAzureHostingNotice({ onRebuilt }: { onRebuilt?: () => void }) {
+  return <AzureHostingNoticeView model={useAzureHostingNoticeModel({ onRebuilt })} />;
+}
+
+function AzureHostingNoticeView({ model }: { model: AzureHostingNoticeModel }) {
+  const { hosting, running, signIn } = model;
 
   if (running) {
     return (

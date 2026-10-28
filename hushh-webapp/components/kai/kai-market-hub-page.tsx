@@ -35,7 +35,7 @@ type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
 
 /** Canonical query-tabbed Finance workspace. */
 export function KaiMarketHubPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const { registerSteps, completeStep, reset } = useStepProgress();
   const router = useRouter();
@@ -91,18 +91,18 @@ export function KaiMarketHubPage() {
   }, [completeStep, flowState, initialized]);
 
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!userId) return;
     return scheduleFinanceWorkspaceWarmup({
-      userId: user.uid,
+      userId,
       vaultKey,
       vaultOwnerToken,
       // The warmup primes every Finance panel. Do not cancel it merely because
       // a swipe changed the query selection before the browser became idle.
       activeTab: "market",
     });
-  }, [user?.uid, vaultKey, vaultOwnerToken]);
+  }, [userId, vaultKey, vaultOwnerToken]);
 
-  if (authLoading || !user) return null;
+  if (authLoading || !user || !userId) return null;
 
   // Finance is a One workspace, not a dashboard canvas. Match Location's
   // agent column and let the shared shell own the only outer gutter.
@@ -154,7 +154,7 @@ export function KaiMarketHubPage() {
         <div className={`mx-auto w-full ${financeStyles.workspace}`}>
           <AppPageContentRegion>
             <KaiFlow
-              userId={user.uid}
+              userId={userId}
               mode="dashboard"
               vaultOwnerToken={vaultOwnerToken ?? ""}
               onStateChange={setFlowState}

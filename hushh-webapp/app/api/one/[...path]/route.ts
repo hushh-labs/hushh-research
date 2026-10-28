@@ -259,6 +259,8 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
               ? readCircleChatBody(request, DIRECT_MESSAGE_MAX_REQUEST_BYTES)
               : path.startsWith("wallet/card-access")
                 ? readCircleChatBody(request, 16384)
+                : path.startsWith("finance/shares")
+                  ? readCircleChatBody(request, 4_000_000)
                 : /^files\/objects\/[a-f0-9]{64}\/[a-f0-9]{64}$/.test(path)
                   ? readCircleChatBody(request, 5_770_000)
                   : path === "files/analyze"

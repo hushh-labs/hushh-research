@@ -16,11 +16,10 @@ const RETRY_DELAYS = [1_000, 5_000, 20_000] as const;
  * an existing profile's fields, pause, or removal. No route visit is required.
  */
 export function WalletProfileBootstrap() {
-  const { user, loading, phoneNumber } = useAuth();
+  const { user, userId, loading, phoneNumber } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
   const foregroundChatActive = useForegroundChatActive();
   const completedOwner = useRef<string | null>(null);
-  const userId = user?.uid ?? null;
   const displayName = user?.displayName ?? null;
   const email = user?.email ?? null;
   const phone = phoneNumber ?? user?.phoneNumber ?? null;

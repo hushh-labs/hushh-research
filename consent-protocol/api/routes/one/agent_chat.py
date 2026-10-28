@@ -578,7 +578,7 @@ async def _admit_consent_continuation(
     forwarded: dict[str, Any], *, input_data: RunAgentInput, owner_id: str
 ) -> dict[str, Any]:
     """Admit the follow-up turn that reports an owner's answer, or nothing."""
-    if forwarded.get("consentContinuation") is None:
+    if forwarded.get("consentContinuation") is None and forwarded.get("financeShare") is None:
         return {}
 
     def person_name(person_ref: str) -> str:
@@ -589,6 +589,7 @@ async def _admit_consent_continuation(
 
     try:
         from hushh_mcp.one_adk.consent_chat_admission import admit_session_continuation
+        from hushh_mcp.services.finance_sharing_service import finance_review_authority
 
         return await admit_session_continuation(
             forwarded,
@@ -598,6 +599,7 @@ async def _admit_consent_continuation(
             app_name=ONE_APP_NAME,
             get_bundle=InformationRequestService().get,
             person_name=person_name,
+            finance_lookup=finance_review_authority,
         )
     except ConsentContinuationError as exc:
         logger.info("one.consent_continuation_refused status=%s", exc.status_code)
@@ -825,6 +827,11 @@ async def _consent_access_for_history(
     service = InformationRequestService()
 
     async def lookup(owner_id, bundle_id):
+        if bundle_id.startswith("finance:"):
+            from hushh_mcp.one_adk.finance_share_context import finance_lifecycle
+            from hushh_mcp.services.finance_sharing_service import finance_review_authority
+
+            return finance_lifecycle(await finance_review_authority(owner_id, bundle_id))
         return await service.get(requester_user_id=owner_id, bundle_id=bundle_id)
 
     return await consent_history_access(owner, state, lookup=lookup)

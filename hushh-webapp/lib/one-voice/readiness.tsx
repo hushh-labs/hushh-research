@@ -106,8 +106,8 @@ export function OneVoiceReadinessProvider({
 }: {
   children: ReactNode;
 }) {
-  const { user } = useAuth();
-  const uid = user?.uid || null;
+  const { userId } = useAuth();
+  const uid = userId || null;
   const owner = snapshotValidatedAuthSessionOwner();
   const generation = owner?.generation;
   const [observation, setObservation] = useState<{

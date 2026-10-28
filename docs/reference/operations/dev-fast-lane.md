@@ -1,15 +1,14 @@
 # Dev Fast Lane — the safe rule for agentic shipping
 
-> **Staged branch preparation:** CI now recognizes `dev` and `uat` for strict
-> destination freshness and merge-queue validation. Existing branch routing and
-> manual deploy source rules remain active. Current Main is preserved; there is
-> no production-baseline rollback. See [branch preparation](./branch-governance.md#dev--uat-branch-preparation)
-> for the activation boundary and remaining promotion work.
+> **Dev intake:** Main owns workflow authority and release approval. Protected
+> `dev` is the default application source after its baseline qualification.
+> UAT remains on its current selector until separately authorized;
+> its proposed branch path requires exact assembled-SHA Dev acceptance. Preserve
+> legacy train history. See
+> [branch governance](./branch-governance.md#dev--uat-branch-preparation).
 
-
-> `main` is the signoff lane (UAT → production). The dev environment is the agentic
-> proving ground and never routes through `main`. This page is the canonical contract
-> for how those two lanes stay fast AND correct at the same time.
+> Dev is the first proving ground for an application revision. Main owns the
+> release workflows, and higher-environment promotion remains a separate cadence.
 
 Dev is a governed dispatch-only proving lane, never a promotion lane. Any decision
 that lands a PR, promotes `main`, or deploys UAT/production follows the canonical
@@ -81,31 +80,24 @@ than the service template, which may still describe the failed candidate.
 
 ## The rule in one screen
 
+The Dev lane is active after its baseline transition. The UAT selection path
+below is the staged next transition; its existing Main-based default remains
+in effect until separately qualified and authorized.
+
 ```mermaid
 flowchart LR
-  feature["agent / feature branches"]
-  train["integration/pr-train"]
-  dev["DEV environment<br/>fast lane"]
-  main["main"]
-  uat["UAT<br/>signoff sandbox"]
-  prod["Production"]
-  feature -->|"CI Status Gate green"| train
-  train -->|"default dev deploy"| dev
-  feature -.->|"governed dispatch, CI-green SHA"| dev
-  train -->|promotion PR| main
-  main -->|"green SHA, manual dispatch"| uat
-  main -->|"signed-off green SHA"| prod
+  feature["Feature branches"] --> dev["Protected Dev"]
+  dev -->|"Selected content"| uat["Protected UAT"]
+  uat -->|"Exact application acceptance"| main["Main approval"]
+  main -->|"Explicit production approval"| prod["Production"]
+  feature -.->|"Exact CI-green source"| dev
 ```
 
-1. **`main` owns release control.** Default UAT selection still uses Main.
-   Explicit curated UAT candidates require canonical CI and matching Dev
-   acceptance. Production additionally requires Main approval; distinct
-   application/approval SHAs must have identical complete trees. See the
-   [selective-promotion boundary](./branch-governance.md#dev--uat-branch-preparation).
-2. **Dev deploys the train, not `main`.** The default dev deploy target is
-   `integration/pr-train` — the branch agent and contributor work already lands on.
-   Dev is where the train is proven against real infrastructure *before* promotion to
-   `main`, which is the whole point of having a dev environment.
+1. **Main owns release control.** Workflows run from Main; application identity
+   remains the exact selected SHA. UAT requires that assembled SHA's Dev receipt;
+   production requires UAT acceptance and Main approval with identical content.
+2. **Dev deploys protected Dev by default.** `integration/pr-train` retains its
+   existing history, protection and active work; it is no longer new intake.
 3. **Escape hatch for speed:** a governed maintainer may dispatch a dev deploy from
    ANY ref, provided the exact SHA carries an accepted full-CI gate. This lets a team
    validate a feature branch on real infrastructure without waiting for train intake.
@@ -128,13 +120,13 @@ flowchart LR
 | Migrations + `dev_minimum_schema.json` (policy: minimum, floor = UAT schema) | every backend deploy | dev may run AHEAD of UAT's schema (train migrations) but never behind it |
 | Provenance labels + parity + semantic verification + classified rollback | every deploy | release failures block acceptance; classified service failures restore the captured revision. A verifier setup failure can block without rollback, so read back serving traffic and the terminal receipt. |
 | Account-deletion admission and activation | shared-Dev backend deployment | fence installation before migration; exact SHA/run, installed authority guards, fresh Scheduler HTTP completion and retirement of incompatible consumers before reopening deletion or issuing healthy acceptance |
-| Dev environment isolation (own project, DB, secrets) | always | nothing dev does can touch UAT or production data |
+| Dev resource and identity boundaries | always | Dev has its own project and database; Firebase identity and the One Email watch have documented cross-environment dependencies. Check those shared authorities before changing identities, watches or grants. |
 
 ## What we deliberately did NOT add (overkill avoidance)
 
-- **Preserve existing history.** The legacy train remains intact while protected
-  Dev/UAT branches are prepared. Intake and automatic selectors change only at
-  the coordinated promotion transition; branch creation does not deploy.
+- **Preserve existing history.** The legacy train remains intact while Dev is
+  the configured intake. The UAT default selector changes only at the qualified
+  promotion transition; branch creation does not deploy.
 - **No new review or approval step.** Landing on the train already requires review +
   merge queue + `CI Status Gate`. Dev deploy adds zero human steps to that.
 - **No dev-specific CI workflow.** Existing PR Validation owns both event-specific
@@ -271,9 +263,9 @@ records release evidence and the acceptance work still required.
 ## Operating it
 
 ```bash
-# Default: deploy the current train head to dev
+# Default: deploy the protected dev branch head to Dev
 # GitHub → Actions → Deploy to Dev → Run workflow (branch: main)
-#   ref: integration/pr-train (default)   scope: auto
+#   ref: dev (default)   scope: auto
 
 # Escape hatch: deploy a CI-green feature branch SHA
 #   ref: feat/my-branch   sha: <exact green sha>   scope: auto

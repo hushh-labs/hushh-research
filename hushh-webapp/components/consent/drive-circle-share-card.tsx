@@ -87,14 +87,14 @@ export function DriveCircleShareCard({
   clientRequestId: string;
   filesRequest: string;
 }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
-  if (!user || !isVaultUnlocked)
+  if (!userId || !isVaultUnlocked)
     return <BodyText role="status">Unlock your vault to share Drive files.</BodyText>;
   return (
     <UnlockedDriveCircleShareCard
-      key={`${user.uid}:${clientRequestId}:${snapshotVaultSessionEpoch()}`}
-      userId={user.uid}
+      key={`${userId}:${clientRequestId}:${snapshotVaultSessionEpoch()}`}
+      userId={userId}
       clientRequestId={clientRequestId}
       filesRequest={filesRequest}
       getToken={getVaultOwnerToken}

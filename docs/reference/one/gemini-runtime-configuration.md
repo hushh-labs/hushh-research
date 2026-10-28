@@ -4,7 +4,13 @@
 
 Managed chat, PWM, Live, and embeddings now resolve the checked-in
 [managed AI profile](../../../consent-protocol/config/managed-ai-runtime.json).
-UAT selects `hushh-vertex-personal54`, the same managed project as production, since 2026-10-15, when the Hussh billing account's dunning deny suspended `hussh-511311`; per-surface chat/voice project overrides are retired.
+The checked-in Dev, UAT and production managed profiles select
+`hushh-gemini-bridge`. The separate `hushh-vertex-personal54` exception is an
+identity-bound BYOC dev bridge, not the shared managed default. The explicit hosted
+dev `hosted_pod_adc` binding may use the dev profile's model project with the pod's
+own workload identity; it does not enable hosted provisioning or move custody.
+Per-surface chat/voice project overrides are retired. Historical personal-project
+and dunning observations below do not establish current serving configuration.
 Hosted revisions use this packaged profile; local development may use explicit
 overrides. The deploy compiler and candidate readiness compare its normalized
 hash. See [PWM KT](./personal-world-model.md) for paths and endpoint behavior.

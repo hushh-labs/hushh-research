@@ -36,7 +36,10 @@ _BACKEND = Path(__file__).resolve().parents[1]
 # One entry per hop the journey crosses. If a hop cannot be tied back to a person,
 # a failure there is undiagnosable no matter how loudly it is logged.
 _TRACEABLE_HOPS: list[tuple[str, str]] = [
-    ("the signup hook that starts everything", "hushh_mcp/services/actor_identity_service.py"),
+    (
+        "the verified-phone activation that starts provisioning",
+        "hushh_mcp/services/personal_agent_phone_activation.py",
+    ),
     ("the provisioning orchestrator", "hushh_mcp/services/personal_agent_provisioning_service.py"),
     ("the retry / reap sweep", "hushh_mcp/services/personal_agent_reconcile_worker.py"),
     ("the pod's own startup", "pod_server.py"),

@@ -18,9 +18,11 @@ import base64
 import hashlib
 import logging
 import re
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from hushh_mcp.services.byoc_key_custody import byoc_key_env
+if TYPE_CHECKING:
+    from hushh_mcp.services.private_gcp_deployment import PrivateGcpDeployment
+
 from hushh_mcp.services.compute_backend import (
     BACKEND_USER_GCP,
     BackendHandle,
@@ -47,7 +49,6 @@ from hushh_mcp.services.owner_direct_ingress import (
     update_ingress_record,
 )
 from hushh_mcp.services.pod_gmail_push_config import gmail_notification_resources
-from hushh_mcp.services.pod_inference_bridge import render_inference_bridge
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +285,8 @@ class UserGcpBackend:
         live: Optional[bool] = None,
         bootstrap_sa: Optional[str] = None,
         hushh_id: Optional[str] = None,
+        private_deployment: PrivateGcpDeployment | None = None,
+        require_private_admission: Callable[[], None] | None = None,
     ) -> None:
         self._user_project = (
             user_project if user_project is not None else _env("HUSSH_USER_GCP_PROJECT")
@@ -311,6 +314,23 @@ class UserGcpBackend:
             bootstrap_sa if bootstrap_sa is not None else _env("HUSSH_USER_GCP_BOOTSTRAP_SA")
         )
         self._owner_hushh_id = hushh_id
+        self._private_deployment = private_deployment
+        self._require_private_admission = require_private_admission
+        self._tenancy = "user-owned"
+        if private_deployment is not None:
+            private_deployment.validate()
+            if (
+                private_deployment.hosting_mode != "hussh_hosted"
+                or private_deployment.environment != "dev"
+                or private_deployment.project != self._user_project
+                or private_deployment.region != self._user_region
+                or private_deployment.hub_principal != self._hushh_invoker_sa
+                or private_deployment.owner != hushh_id
+                or (self._live and require_private_admission is None)
+            ):
+                raise ValueError("Managed private lifecycle requires its admitted dev assignment")
+            self._tenancy = private_deployment.tenancy
+            self.backend_id = "gcp"
         # Reuse the GCP renderer, pinned to the USER's project/region (never live here;
         # the inner backend only renders — this class owns provisioning semantics).
         self._inner = GcpBackend(
@@ -333,146 +353,41 @@ class UserGcpBackend:
         """
         return bool(self._live)
 
+    def _validate_private_spec(self, spec: PodSpec) -> None:
+        deployment = self._private_deployment
+        if deployment is None:
+            return
+        deployment.require_hosted_spec(spec)
+        if getattr(self._require_private_admission, "operation", None) in {"cleanup", "inspect"}:
+            deployment.validate(frozen=True)
+            return
+        self.render_deploy_config(spec, image_digest=deployment.image.rsplit("@", 1)[1])
+
     def render_deploy_config(
         self, spec: PodSpec, *, image_digest: Optional[str] = None
     ) -> dict[str, Any]:
-        """Render owner-cloud custody and identity over the shared service shape.
-
-        Strip managed storage, plaintext key derivations and model coordinates.
-        Use the owner's bucket, KMS wrapping and least-privilege runtime account.
-        Only an explicit, identity-bound dev policy permits bridge inference;
-        recovery, Memory Bank and storage retain the owner's project.
-        """
-        cfg: dict[str, Any] = self._inner.render_deploy_config(spec)
-        if (
-            cfg["spec"]["template"]["metadata"]["annotations"].get(
-                "autoscaling.knative.dev/maxScale"
-            )
-            != "1"
-        ):
-            raise ValueError("An owner pod requires one instance; review its hosting configuration")
-        # Mark tenancy so the artifact is unambiguously user-owned.
-        cfg["metadata"]["labels"]["hussh-tenancy"] = "user-owned"
-
-        slug = _slug(spec.hushh_id)
-        project = self._user_project or "<user-project>"
-        region = spec.region or self._user_region
-        container = cfg["spec"]["template"]["spec"]["containers"][0]
-
-        # The pod runs the person's OWN copy of the image, pulled from their own Artifact
-        # Registry and pinned by digest -- never hushh's cross-project image. The inner
-        # renderer emits hushh's source ref; this is the single seam that rewrites it, so
-        # create AND replace (both consume this config) get the user image in one place.
-        container["image"] = self._user_pod_image_ref(spec, image_digest)
-        from hushh_mcp.services.pod_release import browser_qualification_environment
-
-        browser_environment = browser_qualification_environment(
-            spec.browser_qualification, target_image=container["image"], host_kind="gcp_cloud_run"
+        """Render the common private runtime with this adapter's resource authority."""
+        from hushh_mcp.services.private_gcp_deployment import (
+            PrivateGcpDeployment,
+            render_private_gcp_service,
         )
 
-        # The pod runs as its own least-privilege identity, the one the bootstrap
-        # created and bound to this person's key and bucket.
-        service_account = (
-            f"{pod_service_account_id(spec.hushh_id)}@{project}.iam.gserviceaccount.com"
+        deployment = self._private_deployment or PrivateGcpDeployment(
+            owner=spec.hushh_id,
+            hosting_mode="user_gcp",
+            environment=_deploy_env_label(),
+            project=self._user_project or "<user-project>",
+            region=spec.region or self._user_region,
+            image=self._user_pod_image_ref(spec, image_digest),
+            hub_principal=self._hushh_invoker_sa,
+            service_uid=spec.expected_service_uid,
         )
-        cfg["spec"]["template"]["spec"]["serviceAccountName"] = service_account
-
-        kept = [e for e in container.get("env", []) if e["name"] not in _MANAGED_ONLY_ENV]
-        kept.extend({"name": name, "value": value} for name, value in browser_environment.items())
-        kept.extend(render_inference_bridge(service_account=service_account))
-        kept.extend(
-            [
-                {"name": "POD_STORAGE_BACKEND", "value": "commit_log"},
-                # Owner-local encrypted recovery also owns the stable pod identity.
-                {"name": "POD_DURABLE_IDENTITY_ENABLED", "value": "true"},
-                # The user's own CMEK bucket, created by their own bootstrap.
-                {"name": "POD_STORAGE_GCS_BUCKET", "value": f"one-pod-{slug}-blobs"},
-                {"name": "POD_STORAGE_GCS_PREFIX", "value": f"pods/{spec.hushh_id}"},
-                {"name": "POD_AGENT_MEMORY_ENABLED", "value": "true"},
-                # Memory Bank on the person's own Vertex (founder decision 2026-09-03).
-                # The pod creates its engine itself, under its own identity, at its
-                # own region: Agent Engine is regional, unlike the model location
-                # below. See pod_memory_bank.py for why the pod and not the bootstrap.
-                {"name": "POD_MEMORY_BACKEND", "value": "memory_bank"},
-                {"name": "POD_MEMORY_BANK_LOCATION", "value": region},
-                # Vertex resolves against the USER's project, always. This pod runs as
-                # the user's own service account in the user's own project, so its
-                # native ADC is theirs -- which is precisely why a BYO GCP person does
-                # not need to hand hushh a separate model key. Re-added here rather
-                # than inherited so the hub's Vertex address can never reach a pod it
-                # does not own.
-                {"name": "GOOGLE_CLOUD_PROJECT", "value": project},
-                # A Vertex location is a property of the MODEL, not of where the pod
-                # happens to run. This used to render `region`, the pod's Cloud Run
-                # region, so every BYOC pod addressed Vertex at us-central1 while the
-                # default model is declared `global`-only -- a 404 on the first turn,
-                # surfacing as the same opaque error every other turn failure produces.
-                # The hub gets this right for itself (`GOOGLE_CLOUD_LOCATION=global`);
-                # nothing carried that fact into a pod.
-                {"name": "GOOGLE_CLOUD_LOCATION", "value": _pod_vertex_location(region)},
-                # The NAME for what the two lines above already make true. Without it
-                # `_resolve_runtime_mode` has no branch for "serve on my own ADC" and a
-                # credential-less turn 400s -- so a BYOC pod, whose model access is
-                # complete, refused every turn for want of a vocabulary entry.
-                #
-                # Rendered ONLY here, never by `GcpBackend`, and never propagated from
-                # the hub's own environment the way `HUSSH_POD_TURN_ENABLED` is. This is
-                # a fact about ONE person's pod: it is true because this renderer is
-                # building into that person's project, and it would be false anywhere
-                # hushh owns the ambient identity.
-                {"name": "HUSSH_POD_USER_ADC_ENABLED", "value": "true"},
-                # WHO may present a hub proof to this pod, stated here rather than
-                # inherited. The managed renderer derives it from
-                # `HUSSH_POD_INVOKER_MEMBER` and BYOC binds `run.invoker` from
-                # `HUSSH_CONSENT_PLANE_SA`; those happen to be the same account
-                # today, and inheriting would make this pod's in-app lock depend
-                # on that coincidence. Deriving it from the principal THIS
-                # renderer actually binds keeps the two locks naming one identity
-                # even if the two variables ever diverge.
-                {"name": "HUSSH_POD_HUB_CALLER_EMAILS", "value": self._hushh_invoker_sa},
-            ]
+        return render_private_gcp_service(
+            self._inner.render_deploy_config(spec),
+            spec=spec,
+            deployment=deployment,
+            immutable=bool(image_digest),
         )
-        # Two addresses in place of two secrets. The pod mints and wraps its own key on
-        # first boot; the memory key is derived from it inside the pod.
-        kept.extend(
-            byoc_key_env(
-                kms_key=(
-                    f"projects/{project}/locations/{region}"
-                    f"/keyRings/hushh-one/cryptoKeys/one-pod-{slug}-key"
-                )
-            )
-        )
-        # The pod's own signing key, from the person's own Secret Manager, created by
-        # their own bootstrap. Mounted by reference: the value never enters the artifact.
-        kept.append(
-            {
-                "name": "APP_SIGNING_KEY",
-                "valueFrom": {
-                    # Named from `pod_service_account_id`, NOT the raw slug. The bootstrap
-                    # creates, seeds and IAM-binds `{pod_service_account_id(hushh_id)}
-                    # -signing-key`, which truncates and hashes to fit Google's 30-char
-                    # service-account limit. The raw slug agrees with that only for SHORT
-                    # ids -- exactly the synthetic ids every BYOC test uses -- so for every
-                    # real 36-character HusshID this mounted a secret nothing ever creates.
-                    # The revision then crash-loops on `APP_SIGNING_KEY must be set`, and
-                    # Cloud Run reports an unresolvable secretKeyRef as a PERMISSION error
-                    # naming the pod account, which sends an operator to a secretAccessor
-                    # binding that is present and correct on the other name.
-                    "secretKeyRef": {
-                        "name": f"{pod_service_account_id(spec.hushh_id)}-signing-key",
-                        "key": "latest",
-                    }
-                },
-            }
-        )
-        if spec.files_library_enabled:
-            from hushh_mcp.services.pod_files.provisioning import configure_new_service
-
-            configure_new_service(
-                cfg, owner=spec.hushh_id, project=project, region=region, env=kept
-            )
-        container["env"] = kept
-        return cfg
 
     def _user_pod_image_ref(self, spec: PodSpec, image_digest: Optional[str]) -> str:
         """The pod's image, IN THE USER'S OWN Artifact Registry, pinned by digest.
@@ -514,6 +429,13 @@ class UserGcpBackend:
         never a fresh resolution of the mutable source tag -- so a heal can never silently
         roll the pod's image forward. Only a FIRST provision resolves the tag.
         """
+        if self._private_deployment is not None:
+            self._validate_private_spec(spec)
+            if self._require_private_admission is None:
+                raise RuntimeError("Managed private lifecycle admission is unavailable")
+            self._require_private_admission()
+        if getattr(self._require_private_admission, "operation", None) == "inspect":
+            raise RuntimeError("Update recovery cannot copy or publish an image")
         from hushh_mcp.services import pod_image_copy  # noqa: PLC0415
 
         source = self._image
@@ -534,6 +456,11 @@ class UserGcpBackend:
         project = self._user_project or "<user-project>"
         dest_base = f"{region}-docker.pkg.dev/{project}/one-pod/consent-protocol-pod"
         digest = recorded_digest or pod_image_copy.resolve_source_digest(source, token)
+        if (
+            self._private_deployment is not None
+            and digest != self._private_deployment.image.rsplit("@", 1)[1]
+        ):
+            raise RuntimeError("Managed private image differs from its admitted digest")
         dest_ref = f"{dest_base}@{digest}"
         if not pod_image_copy.image_exists(dest_ref, token):
             pod_image_copy.copy_image(source, dest_ref, token)
@@ -548,7 +475,7 @@ class UserGcpBackend:
         The impersonation grant remains until the owner revokes it.
         """
         slug = _slug(spec.hushh_id)
-        name = _service_name(spec.hushh_id)
+        name = self._private_service_name(spec)
         project = self._user_project or "<user-project>"
         from hushh_mcp.services.gcp_runtime_grants import runtime_grant_plan
 
@@ -576,7 +503,7 @@ class UserGcpBackend:
         mail_dead_letter = f"{mail_topic}-dead-letter"
         mail_dead_letter_sub = f"{mail_topic}-dead-letter-sub"
         plan = {
-            "tenancy": "user-owned",
+            "tenancy": self._tenancy,
             "target": {"project": project, "region": self._user_region},
             "resources": [
                 {
@@ -854,7 +781,26 @@ class UserGcpBackend:
                 service=name,
                 bucket=bucket,
             )
+        return self._private_bootstrap_plan(plan, spec)
+
+    def _private_bootstrap_plan(self, plan: dict[str, Any], spec: PodSpec) -> dict[str, Any]:
+        self._validate_private_spec(spec)
+        if self._private_deployment is not None:
+            plan["authorization"] = (
+                "Hussh-managed dev project, admitted per owner through the retained pilot reservation. "
+                "Hussh retains infrastructure administration; no user-owned cloud claim is made."
+            )
+            for binding in plan["iam"]:
+                if binding.get("role") == "roles/aiplatform.user":
+                    binding["note"] = (
+                        "Assigned-project Vertex authority on Hussh-funded quota; "
+                        "does not authorize the separately bound inference bridge."
+                    )
         return plan
+
+    def _private_service_name(self, spec: PodSpec) -> str:
+        self._validate_private_spec(spec)
+        return _service_name(spec.hushh_id)
 
     def provision_target_for(self, spec: PodSpec) -> dict[str, Any]:
         return {
@@ -872,16 +818,17 @@ class UserGcpBackend:
         from ``UserGcpBootstrap``, and a pod created without them would boot into a
         project with nowhere to write and no key to write with.
         """
+        self._validate_private_spec(spec)
         if self._live:
             return await self._execute_live(spec)
-        name = _service_name(spec.hushh_id)
+        name = self._private_service_name(spec)
         return BackendHandle(
             external_agent_id=name,
             a2a_route=f"{A2A_ADDRESS_BASE}/{spec.hushh_id}",
             status="planned",
             backend=self.backend_id,
             backend_metadata={
-                "tenancy": "user-owned",
+                "tenancy": self._tenancy,
                 "project": self._user_project,
                 "region": spec.region or self._user_region,
                 "service": name,
@@ -907,7 +854,11 @@ class UserGcpBackend:
         different project and a different credential. Two clients would drift, and the
         whole value of the managed tier is that behaviour observed there transfers.
         """
-        from hushh_mcp.services.gcp_run_client import GcpRunClient  # noqa: PLC0415
+        if self._private_deployment is not None:
+            if self._require_private_admission is None:
+                raise RuntimeError("Managed private lifecycle admission is unavailable")
+            self._require_private_admission()
+
         from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token  # noqa: PLC0415
 
         project = self._user_project
@@ -919,8 +870,13 @@ class UserGcpBackend:
                 "user authorized hushh to impersonate. It is never inferred."
             )
         token = mint_bootstrap_token(bootstrap_sa=self._bootstrap_sa)
-        return GcpRunClient(
-            project=project, region=self._user_region, credentials=_StaticToken(token)
+        from hushh_mcp.services.hosted_run_client import private_run_client
+
+        return private_run_client(
+            project,
+            self._user_region,
+            _StaticToken(token),
+            self._require_private_admission if self._private_deployment is not None else None,
         )
 
     def _gmail_notification_inventory(self, spec: PodSpec, url: str) -> dict[str, Any]:
@@ -1126,66 +1082,9 @@ class UserGcpBackend:
         import asyncio  # noqa: PLC0415
 
         from hushh_mcp.services.gcp_run_client import GcpRunClient
+        from hushh_mcp.services.hosted_provision_recovery import prepare_live_host
 
-        name = _service_name(spec.hushh_id)
-        client = await asyncio.to_thread(self._client)
-
-        # Fetch the existing service FIRST: it is both the create-vs-replace signal and,
-        # if present, the record of the digest already deployed. A heal converges to that
-        # digest; only a first provision (no service yet) resolves the source tag. Then
-        # copy the image into the user's OWN registry and render the pod to pull THAT
-        # digest -- create and replace both consume this one rendered config.
-        existing = await asyncio.to_thread(client.get_service, name)
-        if spec.provision_attempt_id and existing is not None:
-            raise RuntimeError("provision requires reconciliation of existing service")
-        image_digest = await asyncio.to_thread(
-            self._ensure_pod_image, spec, _digest_from_service(existing)
-        )
-        config = self.render_deploy_config(spec, image_digest=image_digest)
-        if existing is not None:
-            from hushh_mcp.services.pod_files.provisioning import preserve_existing_configuration
-
-            preserve_existing_configuration(existing, config)
-        if existing is None:
-            admitted = await _create_once_iam_settles(
-                lambda: (
-                    asyncio.to_thread(client.create_service, config, adopt_existing=False)
-                    if spec.provision_attempt_id
-                    else asyncio.to_thread(client.create_service, config)
-                )
-            )
-            service_uid = GcpRunClient.service_uid(admitted)
-            if spec.provision_attempt_id:
-                if (
-                    not service_uid
-                    or (admitted.get("metadata") or {}).get("name") != name
-                    or spec.on_provision_ack is None
-                ):
-                    raise RuntimeError("provision acknowledgement unavailable")
-                await asyncio.to_thread(
-                    spec.on_provision_ack,
-                    {
-                        "service": name,
-                        "serviceUid": service_uid,
-                        "backend": self.backend_id,
-                        "project": self._user_project,
-                        "region": self._user_region,
-                        **GcpRunClient.creation_runtime_evidence(
-                            admitted,
-                            requested_image=config["spec"]["template"]["spec"]["containers"][0][
-                                "image"
-                            ],
-                        ),
-                    },
-                )
-        else:
-            service_uid = GcpRunClient.service_uid(existing)
-            await asyncio.to_thread(
-                client.replace_service,
-                name,
-                client.merge_for_replace(existing, config),
-                expected_uid=service_uid,
-            )
+        client, config, name, service_uid, image_digest = await prepare_live_host(self, spec)
         # Same narrative stages as the managed tier, same names -- the vocabulary is
         # shared with trace_pod_journey so the operator diagnostic and the person's
         # progress bar tell one story. This path is async (no _run closure), so the
@@ -1215,6 +1114,8 @@ class UserGcpBackend:
                 raise PodBootFailedError(
                     f"pod {name} failed to start: {' '.join(boot_failure.split())[:200]}"
                 )
+        if ready and self._private_deployment is not None:
+            self._private_deployment.verify_observation(svc)
         # The hushh gateway is invited onto this ONE service. Without it the pod exists
         # and is reachable by nobody, which reads as a provisioning success and behaves
         # as a dead agent -- the same failure the managed tier hit and logged for.
@@ -1253,7 +1154,7 @@ class UserGcpBackend:
             status="live" if ready else "deploying",
             backend=self.backend_id,
             backend_metadata={
-                "tenancy": "user-owned",
+                "tenancy": self._tenancy,
                 "project": self._user_project,
                 "region": spec.region or self._user_region,
                 "service": name,
@@ -1297,7 +1198,7 @@ class UserGcpBackend:
 
         from hushh_mcp.services.gcp_run_client import GcpRunClient
 
-        name = _service_name(spec.hushh_id)
+        name = self._private_service_name(spec)
         client = await asyncio.to_thread(self._client)
         service = await asyncio.to_thread(client.get_service, name)
         return GcpRunClient.erasure_fence_target(
@@ -1309,10 +1210,11 @@ class UserGcpBackend:
             raise RuntimeError("erasure compute authority unavailable")
         import asyncio
 
+        name = self._private_service_name(spec)
         client = await asyncio.to_thread(self._client)
         return await asyncio.to_thread(
             client.observe_erasure_runtime,
-            name=_service_name(spec.hushh_id),
+            name=name,
             expected_uid=spec.expected_service_uid,
         )
 
@@ -1327,12 +1229,11 @@ class UserGcpBackend:
         import asyncio
 
         from hushh_mcp.services.byoc_substrate_teardown import revoke_runtime_writer
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         if not self._live or not self._user_project or not self._bootstrap_sa:
             raise RuntimeError("runtime writer authority unavailable")
         bootstrap = self._bootstrap_sa.removeprefix("serviceAccount:")
-        token = await asyncio.to_thread(mint_bootstrap_token, bootstrap_sa=bootstrap)
+        token = await asyncio.to_thread(self._mint_erasure_token, bootstrap_sa=bootstrap)
         return await asyncio.to_thread(
             revoke_runtime_writer,
             token=token,
@@ -1354,12 +1255,12 @@ class UserGcpBackend:
         import asyncio
 
         from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         if not self._live or not self._user_project or not self._bootstrap_sa:
             raise RuntimeError("bucket erasure authority unavailable")
         token = await asyncio.to_thread(
-            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+            self._mint_erasure_token,
+            bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:"),
         )
         deleter = build_gcp_deleter(
             token=token,
@@ -1381,12 +1282,12 @@ class UserGcpBackend:
         import asyncio
 
         from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         if not self._live or not self._user_project or not self._bootstrap_sa:
             raise RuntimeError("KMS erasure authority unavailable")
         token = await asyncio.to_thread(
-            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+            self._mint_erasure_token,
+            bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:"),
         )
         deleter = build_gcp_deleter(
             token=token,
@@ -1408,12 +1309,12 @@ class UserGcpBackend:
         import asyncio
 
         from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         if not self._live or not self._user_project or not self._bootstrap_sa:
             raise RuntimeError("secret erasure authority unavailable")
         token = await asyncio.to_thread(
-            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+            self._mint_erasure_token,
+            bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:"),
         )
         deleter = build_gcp_deleter(
             token=token,
@@ -1435,12 +1336,12 @@ class UserGcpBackend:
         import asyncio
 
         from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         if not self._live or not self._user_project or not self._bootstrap_sa:
             raise RuntimeError("runtime account erasure authority unavailable")
         token = await asyncio.to_thread(
-            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+            self._mint_erasure_token,
+            bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:"),
         )
         deleter = build_gcp_deleter(
             token=token,
@@ -1462,13 +1363,13 @@ class UserGcpBackend:
         import asyncio
 
         from hushh_mcp.services.byoc_substrate_teardown import reconcile_mail_resource
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         if not self._live or not self._user_project or not self._bootstrap_sa:
             raise RuntimeError("mail cleanup authority unavailable")
         if str(observation.get("id") or "").startswith("projects/"):
             import requests
 
+            await asyncio.to_thread(self._admit_erasure)
             from hushh_mcp.services.gcp_attached_operator import attached_operator_headers
             from hushh_mcp.services.gcp_operator_mail import (
                 bound_operator_topic,
@@ -1504,7 +1405,8 @@ class UserGcpBackend:
             )
             return
         token = await asyncio.to_thread(
-            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+            self._mint_erasure_token,
+            bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:"),
         )
         await asyncio.to_thread(
             reconcile_mail_resource,
@@ -1526,12 +1428,12 @@ class UserGcpBackend:
         import asyncio
 
         from hushh_mcp.services.pod_files.teardown import reconcile_resource
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         if not self._live or not self._user_project or not self._bootstrap_sa:
             raise RuntimeError("Files cleanup authority unavailable")
         token = await asyncio.to_thread(
-            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+            self._mint_erasure_token,
+            bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:"),
         )
         await asyncio.to_thread(
             reconcile_resource,
@@ -1554,13 +1456,13 @@ class UserGcpBackend:
         import asyncio
 
         from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         if not self._live or not self._user_project or not self._bootstrap_sa:
             raise RuntimeError("runtime grant erasure authority unavailable")
         identity = evidence["runtimeIdentity"]
         token = await asyncio.to_thread(
-            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+            self._mint_erasure_token,
+            bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:"),
         )
         deleter = build_gcp_deleter(
             token=token,
@@ -1590,13 +1492,13 @@ class UserGcpBackend:
         import asyncio
 
         from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         if not self._live or not self._user_project or not self._bootstrap_sa:
             raise RuntimeError("runtime grant erasure authority unavailable")
         binding = evidence["bindingObservation"]
         token = await asyncio.to_thread(
-            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+            self._mint_erasure_token,
+            bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:"),
         )
         deleter = build_gcp_deleter(
             token=token,
@@ -1617,24 +1519,12 @@ class UserGcpBackend:
         )
 
     def bootstrap_release_member(self) -> str:
-        """Bind recovery ordering to the credential used for impersonation."""
-        from google.auth.transport.requests import Request
+        from hushh_mcp.services.byoc_erasure_credentials import release_member
 
-        from hushh_mcp.services.gcp_run_client import load_operator_credentials
-
-        credentials = getattr(self, "_bootstrap_release_credentials", None)
-        if credentials is None:
-            credentials = load_operator_credentials()
-        # Attached credentials resolve their actual service account on refresh.
-        credentials.refresh(Request())
-        email = getattr(credentials, "service_account_email", None)
-        configured = (self._hushh_invoker_sa or "").removeprefix("serviceAccount:")
-        if not email or email == "default" or email != configured or not credentials.token:
-            raise RuntimeError("bootstrap recovery credential identity unverified")
-        self._bootstrap_release_credentials = credentials
-        return f"serviceAccount:{email}"
+        return release_member(self)
 
     def _bootstrap_release_source_token(self) -> str:
+        self._admit_erasure()
         self.bootstrap_release_member()
         return str(self._bootstrap_release_credentials.token)
 
@@ -1653,7 +1543,6 @@ class UserGcpBackend:
         import asyncio
 
         from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         if not self._live or not self._user_project or not self._bootstrap_sa:
             raise RuntimeError("bootstrap grant erasure authority unavailable")
@@ -1666,7 +1555,7 @@ class UserGcpBackend:
         if state.get("deletion"):
             raise RuntimeError("bootstrap grant completion requires registry reconciliation")
         token = await asyncio.to_thread(
-            mint_bootstrap_token,
+            self._mint_erasure_token,
             bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:"),
             source_token=await asyncio.to_thread(self._bootstrap_release_source_token),
         )
@@ -1695,13 +1584,12 @@ class UserGcpBackend:
         import requests
 
         from hushh_mcp.services.pod_image_copy import observe_repository_images
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         if not self._live or not self._user_project or not self._bootstrap_sa:
             raise RuntimeError("repository inventory authority unavailable")
 
         def observe() -> dict[str, Any]:
-            token = mint_bootstrap_token(
+            token = self._mint_erasure_token(
                 bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
             )
             with requests.Session() as session:
@@ -1723,10 +1611,12 @@ class UserGcpBackend:
             raise RuntimeError("erasure compute authority unavailable")
         import asyncio
 
+        name = self._private_service_name(spec)
+        await asyncio.to_thread(self._admit_erasure)
         client = await asyncio.to_thread(self._client)
         await asyncio.to_thread(
             client.delete_service,
-            _service_name(spec.hushh_id),
+            name,
             expected_uid=spec.expected_service_uid,
             operation_name=operation_name,
             before_submit=before_submit,
@@ -1812,7 +1702,7 @@ class UserGcpBackend:
         A pod already on the current digest is a no-op that reports ``upgraded``
         False. No service at all is a refusal: an upgrade is not a create.
         """
-        name = _service_name(spec.hushh_id)
+        name = self._private_service_name(spec)
         route = f"{A2A_ADDRESS_BASE}/{spec.hushh_id}"
         if not self._live:
             return BackendHandle(
@@ -1821,7 +1711,7 @@ class UserGcpBackend:
                 status="planned",
                 backend=self.backend_id,
                 backend_metadata={
-                    "tenancy": "user-owned",
+                    "tenancy": self._tenancy,
                     "service": name,
                     "source_image": self._image,
                     "upgraded": False,
@@ -1866,12 +1756,9 @@ class UserGcpBackend:
             from hushh_mcp.services.pod_browser.delivery import require_gcp_delivery
 
             await asyncio.to_thread(require_gcp_delivery, client, browser_capability)
-        observed_runtime = (
-            existing.get("spec", {}).get("template", {}).get("spec", {}).get("serviceAccountName")
-        )
-        if observed_runtime != self._pod_service_account(spec):
-            # Never copy an image, drain work or restore identity on a changed runtime authority.
-            raise ValueError("pod runtime identity changed; reconcile before updating")
+        from hushh_mcp.services.hosted_update_configuration import require_update_observation
+
+        require_update_observation(existing, spec, runtime=self._pod_service_account(spec))
         previous_digest = _digest_from_service(existing)
         handoff = None
         handoff_incarnation = None
@@ -2081,7 +1968,7 @@ class UserGcpBackend:
         )
         from hushh_mcp.services.gcp_upgrade_observation import verified_capabilities
 
-        capability_metadata = verified_capabilities(spec, svc)
+        capability_metadata = verified_capabilities(spec, svc, replacement=replacement_submitted)
         require_gcp_connector_configuration(svc, connector_environment)
         logger.info(
             "user_gcp_backend.upgraded service=%s changed=%s from=%s to=%s",
@@ -2096,7 +1983,7 @@ class UserGcpBackend:
             status="live",
             backend=self.backend_id,
             backend_metadata={
-                "tenancy": "user-owned",
+                "tenancy": self._tenancy,
                 "project": self._user_project,
                 "region": spec.region or self._user_region,
                 "service": name,
@@ -2178,7 +2065,7 @@ class UserGcpBackend:
         if svc is None:
             return None
         labels = ((svc.get("metadata") or {}).get("labels")) or {}
-        if labels.get("hussh-tenancy") != "user-owned":
+        if labels.get("hussh-tenancy") != self._tenancy:
             # A name collision on something we did not create. Not adoptable.
             logger.warning(
                 "user_gcp_backend.discover_foreign service=%s tenancy=%s",
@@ -2198,7 +2085,7 @@ class UserGcpBackend:
             status="live" if ready else "deploying",
             backend=self.backend_id,
             backend_metadata={
-                "tenancy": "user-owned",
+                "tenancy": self._tenancy,
                 "project": self._user_project,
                 "region": self._user_region,
                 "service": name,
@@ -2303,6 +2190,22 @@ class UserGcpBackend:
 
     async def health(self) -> bool:
         return True
+
+    def _admit_erasure(self) -> None:
+        from hushh_mcp.services.byoc_erasure_credentials import admit_cleanup
+
+        admit_cleanup(self._private_deployment, self._require_private_admission)
+
+    def _mint_erasure_token(self, *, bootstrap_sa: str, source_token: str | None = None) -> str:
+        from hushh_mcp.services.byoc_erasure_credentials import cleanup_token
+
+        return cleanup_token(
+            deployment=self._private_deployment,
+            guard=self._require_private_admission,
+            expected_bootstrap=self._bootstrap_sa or "",
+            bootstrap_sa=bootstrap_sa,
+            source_token=source_token,
+        )
 
 
 __all__ = ["UserGcpBackend"]

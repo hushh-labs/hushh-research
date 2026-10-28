@@ -403,7 +403,7 @@ export interface AppTopShellProps {
 export function AppTopShell({ className, model }: AppTopShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, userId } = useAuth();
   const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
@@ -459,9 +459,9 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     // surface must never retrace into the setup funnel. Re-read on every
     // navigation (pathname change) so a freshly-resolved user is honored.
     const setupDismissed = Boolean(
-      user?.uid &&
-      (OneSetupCompletionHintService.isResolved(user.uid) ||
-        PreVaultUserStateService.getCachedBootstrapState(user.uid)
+      userId &&
+      (OneSetupCompletionHintService.isResolved(userId) ||
+        PreVaultUserStateService.getCachedBootstrapState(userId)
           ?.setupCompleted === true),
     );
     return (
@@ -475,7 +475,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     lastAgentSectionId,
     normalizedPathname,
     searchParams,
-    user?.uid,
+    userId,
   ]);
   const chromeState = useMemo(
     () => getKaiChromeState(normalizedPathname),
@@ -796,7 +796,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     let cancelled = false;
 
     async function loadVaultAvailability() {
-      if (!isAuthenticated || !user?.uid) {
+      if (!isAuthenticated || !userId) {
         setHasVault(null);
         return;
       }
@@ -809,14 +809,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       // The top app bar mounts on nearly every page, so read the shared
       // vault-presence cache synchronously first to avoid a per-route refetch
       // while locked. Only hit the network on a cold cache.
-      const cachedPresence = VaultService.peekVaultPresence(user.uid);
+      const cachedPresence = VaultService.peekVaultPresence(userId);
       if (cachedPresence !== null) {
         setHasVault(cachedPresence);
         return;
       }
 
       try {
-        const exists = await VaultService.checkVault(user.uid);
+        const exists = await VaultService.checkVault(userId);
         if (!cancelled) {
           setHasVault(exists);
         }
@@ -836,7 +836,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, isVaultUnlocked, user?.uid]);
+  }, [isAuthenticated, isVaultUnlocked, userId]);
 
   // A nested route's trail is never replaced by the scroll-collapsed chip; the
   // chip only fills a bar with no trail. See resolveTopShellTitleSlot.
@@ -1062,7 +1062,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     <NativeShellBack
                       label={topShellBreadcrumb.backLabel ?? "Go back"}
                       onBack={handleTopShellBack}
-                      owner={user?.uid ?? null}
+                      owner={userId}
                       context={`${normalizedPathname}?${searchParams.toString()}`}
                       eligible={isAuthenticated && isVaultUnlocked && !showVaultUnlockAction}
                     />
@@ -1233,7 +1233,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     )}
                   >
                     {!isAuthenticated ? null : showOnboardingActions ? (
-                      <OnboardingRouteActions key={user?.uid ?? "signed-out"} />
+                      <OnboardingRouteActions key={userId ?? "signed-out"} />
                     ) : (
                       <>
                         {showVaultUnlockAction ? (

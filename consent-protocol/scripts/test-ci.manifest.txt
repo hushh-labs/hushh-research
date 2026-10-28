@@ -10,7 +10,17 @@ tests/services/test_plg_evidence.py
 tests/services/test_product_activity_postgres.py
 tests/test_plg_deploy_bindings.py
 tests/test_plg_release_source.py
+tests/test_plg_frontend_source.py
+tests/test_plg_frontend_validation.py
 tests/test_plg_source_validation_workflow.py
+tests/test_plg_qualification_bootstrap.py
+tests/test_plg_qualification_schema.py
+tests/test_plg_qualification_runtime.py
+tests/test_plg_qualification_acceptance.py
+tests/test_plg_qualification_image.py
+tests/test_plg_qualification_iam.py
+tests/test_plg_qualification_candidate.py
+tests/test_plg_qualification_producer.py
 
 # Store releases must retain the selected track, exact source and private binaries.
 tests/test_native_ship_artifact_workflows.py
@@ -68,6 +78,7 @@ tests/services/test_drive_sharing_contract.py
 tests/test_runtime_settings_maps.py
 tests/test_runtime_config_retention.py
 tests/test_drive_sharing_routes.py
+tests/test_drive_sharing_diagnostics.py
 tests/test_drive_packet_preview_routes.py
 tests/test_drive_groups_routes.py
 tests/test_drive_searches_routes.py
@@ -83,6 +94,10 @@ tests/services/test_drive_live_formats.py
 # Calendar writes: a reschedule patches only what the owner reviewed (never a
 # full-replacement PUT), and the review counts the event's real guests.
 tests/services/test_google_calendar_service.py
+tests/services/test_google_calendar_oauth_scopes.py
+tests/services/test_google_connection_account_binding.py
+tests/services/test_calendar_native_optional_scope.py
+tests/services/test_google_calendar_guest_photo_token.py
 tests/services/test_google_calendar_event_type.py
 tests/services/test_google_calendar_profile_photos.py
 tests/services/test_google_calendar_completion.py
@@ -219,6 +234,9 @@ tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_financial_raw_records_not_shareable.py
+tests/test_finance_sharing_contract.py
+tests/test_finance_consent_lifecycle.py
+tests/test_finance_pod_owner_feed.py
 tests/test_partner_developer_apps.py
 tests/test_hushh_tech_client_migration.py
 tests/test_hushh_tech_synthetic_import.py
@@ -256,17 +274,21 @@ tests/test_onboarding_contract.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py
 tests/services/test_connect_directory_postgres.py
+tests/services/test_connect_directory_presence_postgres.py
 tests/test_environment_enrollment.py
 tests/test_one_capability_runtime_router_mount.py
 tests/services/test_location_brain_semantic_retrieval.py
 tests/services/test_location_circle_direct_executor.py
 tests/services/test_location_circle_name_interaction.py
 tests/services/test_connections_service.py
+tests/services/test_connections_calendar_profile_email.py
+tests/services/test_connection_presence.py
 tests/services/test_push_notifications.py
 tests/services/test_system_push_delivery.py
 tests/test_fcm_messages.py
 tests/test_fcm_sms_messages.py
 tests/routes/test_connections_route.py
+tests/routes/test_connection_presence_route.py
 tests/test_adk_a2a_compliance_script.py
 tests/test_agent_manifests.py
 tests/test_pass_assets_reach_the_deployed_image.py
@@ -287,6 +309,7 @@ tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_cloudbuild_step_arg_limit.py
 tests/test_one_wallet_card_deploy_parity.py
+tests/test_account_generation_admission_deploy.py
 tests/test_gmail_information_request_release_contract.py
 tests/test_uat_deploy_no_traffic_contract.py
 tests/test_uat_text_recovery_controller.py
@@ -326,6 +349,7 @@ tests/test_contacts_never_reach_the_server.py
 tests/test_dependency_health_classifier.py
 tests/test_capability_health.py
 tests/test_managed_vertex_readiness_script.py
+tests/test_managed_probe_pacing.py
 tests/test_verify_uat_release.py
 
 # Contact matching correctness.
@@ -455,6 +479,7 @@ tests/test_frontend_prebuilt_image_contract.py
 tests/test_production_image_promotion_contract.py
 tests/test_uat_backend_image_promotion.py
 tests/test_predecessor_acceptance_contract.py
+tests/test_uat_application_selection.py
 tests/test_production_emergency.py
 
 # First-party document renewal: expiry is not revocation, but revoked lineage
@@ -741,6 +766,7 @@ tests/test_pod_browser_adk_continuation.py
 tests/test_pod_browser_sessions.py
 tests/test_pod_binding_transactions.py
 tests/test_pod_consent_authority.py
+tests/test_pod_consent_wire_scope.py
 tests/test_pod_ingress_axis.py
 tests/test_pod_session_authority.py
 tests/test_pod_turn_route.py
@@ -955,6 +981,7 @@ tests/test_health_ready.py
 tests/test_health_ready_pod_fleet.py
 tests/test_hosted_cloud_choice.py
 tests/test_hosted_tier_guard.py
+tests/test_hosted_gcp_backend.py
 tests/test_journey_is_traceable.py
 tests/test_journey_parity.py
 tests/test_kms_key_resolver.py
@@ -1093,6 +1120,7 @@ tests/test_email_chat_service.py
 
 # Restored after updating to the deliberate product changes they predated (2026-10-02).
 tests/test_pod_memory_routes.py
+tests/test_pod_memory_provider_grant.py
 tests/test_pod_turn_relay.py
 tests/test_one_grounding_honesty.py
 tests/test_pod_data_door_specialist.py
@@ -1301,6 +1329,7 @@ tests/routes/test_wallet_artwork_route.py
 tests/test_wallet_card_validation.py
 tests/routes/test_wallet_card_access_route.py
 tests/test_wallet_card_access_postgres.py
+tests/test_finance_sharing_postgres.py
 tests/test_wallet_universal_sharing_postgres.py
 
 # Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local
@@ -1430,6 +1459,9 @@ tests/services/test_drive_empty_sale_finalization_postgres.py
 tests/services/test_drive_financial_packet_rollout_postgres.py
 tests/services/test_drive_financial_missing_source_postgres.py
 tests/services/test_drive_period_packet_loop_postgres.py
+# Organizing joins its own token refresh, records fixed failure codes and retries within bounds.
+tests/services/test_drive_financial_packet_tagging_postgres.py
+tests/services/test_drive_rest_timing.py
 tests/services/test_drive_period_packet_titles_postgres.py
 
 tests/services/test_drive_packet_catalog_postgres.py
@@ -1464,6 +1496,9 @@ tests/services/test_calendar_schedule_service.py
 tests/services/test_calendar_schedule_boundaries.py
 tests/services/test_calendar_attendance_service.py
 tests/services/test_calendar_invitations.py
+tests/services/test_calendar_meeting_artifacts.py
+tests/services/test_calendar_native_optional_scope.py
+tests/services/test_google_connection_account_binding.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.
@@ -1504,6 +1539,7 @@ tests/test_drive_packet_public_summary_routes.py
 tests/test_consumer_consent_replay_postgres.py
 
 tests/test_phone_transfer_postgres.py
+tests/test_phone_linked_deletion_postgres.py
 
 tests/test_phone_transfer_authority.py
 tests/test_phone_bootstrap.py
@@ -1527,6 +1563,16 @@ tests/test_phone_production_receipt.py
 tests/routes/test_area_discovery.py
 tests/services/test_area_discovery_postgres.py
 
+tests/test_hosted_pilot_admission_postgres.py
+tests/test_hosted_pod_bootstrap_postgres.py
+tests/test_hosted_bootstrap_reconciliation_postgres.py
+tests/test_hosted_pod_direct_postgres.py
+tests/test_hosted_pod_preparation_postgres.py
+
+tests/test_hosted_private_runtime.py
+tests/test_pod_runtime_writer.py
 # Additive server-readable copies preserve legacy sale authority.
 tests/services/test_document_delivery_background.py
 tests/services/test_document_delivery_background_exports.py
+# The owner's review decides whether the production Allow route accepts a One copy.
+tests/services/test_document_delivery_owner_allow.py

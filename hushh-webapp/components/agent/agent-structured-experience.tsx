@@ -208,8 +208,8 @@ export function AgentStructuredExperienceView({
  * the owner saves there.
  */
 function StyleSettingsOfferView({ experience }: { experience: StyleSettingsOfferExperience }) {
-  const { user } = useAuth();
-  const ownerId = user?.uid ?? null;
+  const { userId } = useAuth();
+  const ownerId = userId;
   return (
     <ExperienceShell experienceType={experience.type} label="Writing style" title="Change how One writes to you"
       summary="Review it in Settings. Nothing changes until you save." icon={<EditRowIcon size={24} aria-hidden="true" />}>
@@ -349,7 +349,7 @@ function ScopeDiscoveryView({
   experience: ScopeDiscoveryExperience;
   onInformationRequestSubmitted?: (receipt: InformationRequestSubmissionReceipt) => Promise<void>;
 }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { isVaultUnlocked } = useVault();
   const revealInTranscript = useContext(AgentTranscriptRevealContext);
   const personRef = experience.person.personRef;
@@ -370,10 +370,10 @@ function ScopeDiscoveryView({
   const [loading, setLoading] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [retry, setRetry] = useState(0);
-  const profile = personRef && isVaultUnlocked && current && current.owner === user?.uid && current.profile.personRef === personRef
+  const profile = personRef && isVaultUnlocked && current && current.owner === userId && current.profile.personRef === personRef
     ? current.profile : null;
 
-  useEffect(() => { setSubmitted(null); }, [personRef, user?.uid]);
+  useEffect(() => { setSubmitted(null); }, [personRef, userId]);
 
   useEffect(() => {
     const run = ++generation.current;
@@ -385,12 +385,12 @@ function ScopeDiscoveryView({
     setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
     setSent(false);
     setUnavailable(false);
-    setLoading(Boolean(user && isVaultUnlocked && personRef));
-    if (user && isVaultUnlocked && personRef) {
+    setLoading(Boolean(user && userId && isVaultUnlocked && personRef));
+    if (user && userId && isVaultUnlocked && personRef) {
       void user.getIdToken().then(token => PersonProfileService.getViewer(personRef, token, {
         domain: experience.domainFilter || "",
       })).then(value => {
-        if (run === generation.current) setCurrent({ owner: user.uid, profile: value });
+        if (run === generation.current) setCurrent({ owner: userId, profile: value });
       }).catch(() => {
         if (run === generation.current) setUnavailable(true);
       }).finally(() => {
@@ -398,10 +398,10 @@ function ScopeDiscoveryView({
       });
     }
     return () => { generation.current += 1; };
-  }, [user, isVaultUnlocked, personRef, experience.domainFilter, retry]);
+  }, [user, userId, isVaultUnlocked, personRef, experience.domainFilter, retry]);
 
   async function loadMore() {
-    if (!personRef || !user || !profile?.scopeCatalog?.nextPage || inFlight.current) return;
+    if (!personRef || !user || !userId || !profile?.scopeCatalog?.nextPage || inFlight.current) return;
     const run = generation.current;
     inFlight.current = true;
     setLoading(true);
@@ -418,7 +418,7 @@ function ScopeDiscoveryView({
         setSelectedIds(new Set());
         setReviewing(false);
       }
-      setCurrent({ owner: user.uid, profile: mergePersonScopePage(profile, next) });
+      setCurrent({ owner: userId, profile: mergePersonScopePage(profile, next) });
     } catch {
       if (run === generation.current) setUnavailable(true);
     } finally {
@@ -458,14 +458,14 @@ function ScopeDiscoveryView({
     const { scopes, purpose: draftPurpose, durationHours: draftHours } = draft;
     if (!profile) return;
     void request.submitWithReceipt({ scopeRefs: scopes.map(scope => scope.scopeRef), purpose: draftPurpose, durationHours: draftHours }).then(receipt => {
-      if (!receipt || !user || !personRef) return;
+      if (!receipt || !userId || !personRef) return;
       const { bundle, idempotencyKey } = receipt;
       const review = submittedReviewFromBundle({
         bundle, subjectRef: personRef, personName: profile.displayName,
         purpose: draftPurpose, durationHours: draftHours, scopes,
       });
       if (review) {
-        setSubmitted({ ownerUid: user.uid, subjectRef: personRef, review });
+        setSubmitted({ ownerUid: userId, subjectRef: personRef, review });
         void onInformationRequestSubmitted?.({ bundleId: bundle.bundleId, subjectRef: personRef, idempotencyKey, review });
       }
       else setSent(true);
@@ -473,7 +473,7 @@ function ScopeDiscoveryView({
     });
   }
 
-  const activeSubmitted = isVaultUnlocked && submitted && submitted.ownerUid === user?.uid
+  const activeSubmitted = isVaultUnlocked && submitted && submitted.ownerUid === userId
     && submitted.subjectRef === personRef ? submitted.review : null;
   if (activeSubmitted) return <InformationRequestReviewView experience={activeSubmitted} />;
 
@@ -592,7 +592,7 @@ function informationRequestStatusLabel(
 }
 
 function InformationRequestReviewView({ experience }: { experience: InformationRequestReviewExperience }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [latest, setCurrent] = useState<{
     /** The request this reading is for; a different card never shows it. */
@@ -731,23 +731,23 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
   // watches it; once it is answered, this chat continues exactly once.
   const isOutgoingSubmitted = experience.direction === "outgoing" && experience.phase === "submitted";
   useEffect(() => {
-    if (!isOutgoingSubmitted || !user?.uid || !experience.bundleId || !continuation) return;
-    return mountInformationRequestCard(user.uid, experience.bundleId);
-  }, [continuation, experience.bundleId, isOutgoingSubmitted, user?.uid]);
+    if (!isOutgoingSubmitted || !userId || !experience.bundleId || !continuation) return;
+    return mountInformationRequestCard(userId, experience.bundleId);
+  }, [continuation, experience.bundleId, isOutgoingSubmitted, userId]);
 
   useEffect(() => {
     // A restored card registers only once the ledger confirms it is still
     // waiting; a card sent in this tab is registered at Send by the workspace.
-    if (!isOutgoingSubmitted || !user?.uid || !experience.bundleId || !experience.subjectRef
+    if (!isOutgoingSubmitted || !userId || !experience.bundleId || !experience.subjectRef
       || !continuation?.conversationId || refreshState !== "loaded" || current?.status !== "pending") return;
     watchSentInformationRequest({
-      ownerId: user.uid,
+      ownerId: userId,
       bundleId: experience.bundleId,
       conversationId: continuation.conversationId,
       subjectRef: experience.subjectRef,
       personName: experience.personName,
     });
-  }, [isOutgoingSubmitted, user?.uid, experience.bundleId, experience.subjectRef, experience.personName,
+  }, [isOutgoingSubmitted, userId, experience.bundleId, experience.subjectRef, experience.personName,
     continuation?.conversationId, refreshState, current?.status]);
 
   // One attempt at a time, and a re-render never cancels it. Measured
@@ -759,7 +759,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
   const fieldsRef = useRef(current?.fields);
   fieldsRef.current = current?.fields;
   useEffect(() => {
-    const ownerId = user?.uid;
+    const ownerId = userId;
     const bundleId = experience.bundleId;
     const subjectRef = experience.subjectRef;
     const conversationId = continuation?.conversationId;
@@ -789,7 +789,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       }
     })();
   }, [answer, continuation, experience.bundleId, experience.fields, experience.subjectRef,
-    isOutgoingSubmitted, isVaultUnlocked, refreshRevision, refreshState, user?.uid, vaultKey, vaultOwnerToken]);
+    isOutgoingSubmitted, isVaultUnlocked, refreshRevision, refreshState, userId, vaultKey, vaultOwnerToken]);
 
   const displayFields = current?.fields || experience.fields;
   const displayStatus = current?.status || experience.status;

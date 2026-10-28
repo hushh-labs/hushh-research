@@ -18,6 +18,9 @@ vi.mock("@/lib/services/google-calendar-service", async importOriginal => ({
   },
 }));
 vi.mock("@/lib/perf/use-periodic-task", () => ({ usePeriodicTask: vi.fn(), useCoarseClock: () => Date.now() }));
+vi.mock("@/components/calendar/calendar-insights", () => ({
+  CalendarInsights: ({ account }: { account: { account_id: string } }) => <div data-testid="insights-account">{account.account_id}</div>,
+}));
 
 import { CalendarAccountBoard } from "@/components/calendar/calendar-account-board";
 import type { CalendarBoardDay, GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
@@ -43,11 +46,11 @@ const board = {
 } satisfies CalendarBoardDay;
 const status = {
   configured: true, connected: true, status: "connected", access_level: "manage", google_email: "default@example.com", scope_csv: "", calendar_list_access: true,
-  accounts: board.accounts.map(account => ({ account_id: account.account_id, google_email: account.google_email, status: "connected" as const, connected: true, access_level: "manage" as const, calendar_list_access: true })),
+  accounts: board.accounts.map(account => ({ account_id: account.account_id, google_email: account.google_email, google_email_verified: account.account_id === "default", status: "connected" as const, connected: true, access_level: "manage" as const, calendar_list_access: true })),
 } satisfies GoogleCalendarStatus;
 
-function page(currentStatus: GoogleCalendarStatus = status) {
-  return <CalendarAccountBoard userId="owner" status={currentStatus} busy={false} token="owner-token"
+function page(currentStatus: GoogleCalendarStatus = status, calendarPeople = new Map()) {
+  return <CalendarAccountBoard userId="owner" status={currentStatus} calendarPeople={calendarPeople} busy={false} token="owner-token"
     getIdToken={async () => "firebase-token"} onAddAccount={vi.fn()} onReconnectAccount={vi.fn()}
     onDisconnectAccount={vi.fn()} onConnect={vi.fn()} onMailConnect={mocks.onMailConnect}
     onChat={mocks.onChat} />;
@@ -100,6 +103,19 @@ describe("three-account Calendar board", () => {
     await waitFor(() => expect(mocks.confirmWorkspaceConflict).toHaveBeenCalledOnce());
     expect(within(dialog).getByText("Calendar: declined · Mail: sent")).toBeTruthy();
     expect(mocks.onChat).not.toHaveBeenCalled();
+  });
+
+  it("selects each of the three accounts in Insights without the Board summary", () => {
+    render(page());
+    fireEvent.click(screen.getByRole("tab", { name: "Insights" }));
+    const insights = screen.getByRole("region", { name: "Calendar insights" });
+    const selector = within(insights).getByRole("combobox", { name: "Calendar account" });
+    expect(within(insights).getByTestId("insights-account")).toHaveTextContent("default");
+    fireEvent.change(selector, { target: { value: "second" } });
+    expect(within(insights).getByTestId("insights-account")).toHaveTextContent("second");
+    fireEvent.change(selector, { target: { value: "third" } });
+    expect(within(insights).getByTestId("insights-account")).toHaveTextContent("third");
+    expect(within(insights).queryByText("Across your connected accounts today")).toBeNull();
   });
 
   it("hands a single-account opening to One with its exact bounds", async () => {
@@ -221,9 +237,10 @@ describe("three-account Calendar board", () => {
     const holiday = { ...event("default", "holiday", "Festival", "2026-10-21T00:00:00Z", "2026-10-22T00:00:00Z"), source_calendar_id: "en.indian#holiday@group.v.calendar.google.com" };
     const extra = [2, 3, 4].map(number => event("default", `meeting-${number}`, `Meeting ${number}`, `2026-10-21T${number + 10}:00:00Z`, `2026-10-21T${number + 10}:30:00Z`));
     mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], events: [birthday, holiday, { ...meetingA, conference_url: "https://meet.google.com/abc-defg-hij" }, ...extra] }], conflicts: [] });
-    const photo = "https://lh3.googleusercontent.com/a/default=s96-c";
-    const currentStatus = { ...status, accounts: [{ ...status.accounts[0], profile_photo_url: photo }] };
-    render(page(currentStatus));
+    const googlePhoto = "https://lh3.googleusercontent.com/a/default=s96-c";
+    const husshPhoto = "data:image/png;base64,aGVsbG8=";
+    const currentStatus = { ...status, accounts: [{ ...status.accounts[0], profile_photo_url: googlePhoto }] };
+    render(page(currentStatus, new Map([["default@example.com", { userId: "owner", displayName: null, photoUrl: husshPhoto }]])));
 
     const card = await screen.findByRole("group", { name: "Calendar account default@example.com" });
     expect(within(card).getByRole("tab", { name: "Events (6)" })).toBeInTheDocument();
@@ -235,13 +252,24 @@ describe("three-account Calendar board", () => {
     expect(meetingList).not.toHaveAttribute("tabindex");
     expect(within(card).getByRole("region", { name: "Calendar events for default@example.com" })).toHaveAttribute("data-scrollable", "true");
     expect(within(meetingList).getAllByRole("listitem")).toHaveLength(4);
-    expect(card.querySelector("[data-photo-url]")).toHaveAttribute("data-photo-url", photo);
+    expect(card.querySelector("[data-photo-url]")).toHaveAttribute("data-photo-url", husshPhoto);
+    expect(card.querySelector("[data-photo-source]")).toHaveAttribute("data-photo-source", "hussh");
+    expect(card.querySelector("[data-photo-url='https://lh3.googleusercontent.com/a/default=s96-c']")).toBeNull();
     expect(within(card).getByRole("link", { name: "Join meeting: Planning review" })).toBeInTheDocument();
     fireEvent.click(within(card).getByRole("button", { name: "View 2 occasions for default@example.com" }));
     const occasions = screen.getByRole("dialog", { name: "Occasions" });
     expect(within(occasions).getByText("Birthday")).toBeInTheDocument();
     expect(within(occasions).getByText("Festival")).toBeInTheDocument();
     expect(occasions.querySelectorAll("[data-kind]")).toHaveLength(2);
+  });
+
+  it("keeps initials when Google has not verified the account email", async () => {
+    const husshPhoto = "data:image/png;base64,aGVsbG8=";
+    const peer = new Map([["second@example.com", { userId: "peer", displayName: null, photoUrl: husshPhoto }]]);
+    render(page(status, peer));
+    const card = await screen.findByRole("group", { name: "Calendar account second@example.com" });
+    expect(card.querySelector("[data-photo-url]")).toBeNull();
+    expect(card.querySelector("[data-photo-source]")).toBeNull();
   });
 
   it("marks an elapsed event as ended and removes Join from its card and details", async () => {

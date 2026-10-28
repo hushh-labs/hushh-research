@@ -2,7 +2,9 @@ import { act, renderHook } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { useRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { useProfilePanePresentation } from "@/lib/navigation/use-profile-pane-presentation";
-import { openProfilePane, pushProfilePaneLocation, profilePanelParentForPresentation } from "@/lib/navigation/profile-pane";
+import { openProfilePane, pushProfilePaneLocation, profilePanelParentForPresentation,
+  getProfilePaneHistoryDepth, popProfilePaneLocation, resolveProfilePaneUrlState } from "@/lib/navigation/profile-pane";
+import { changeProfilePaneConnector } from "@/lib/navigation/profile-pane-back";
 
 const navigation = vi.hoisted(() => ({
   pathname: "/one",
@@ -14,6 +16,28 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(navigation.query),
   useRouter: () => navigation.router,
 }));
+
+it("unwinds repeated retained connector visits before returning to Profile", async () => {
+  window.history.replaceState(null, "", "/one");
+  openProfilePane("/one", window.location.search);
+  pushProfilePaneLocation("/one", window.location.search, { panel: "connectors", detail: null });
+  const query = () => new URLSearchParams(window.location.search);
+  const waitForBack = () => new Promise<void>(resolve => window.addEventListener("popstate", () => resolve(), { once: true }));
+  for (const id of ["gmail", "instagram", "google_drive"]) {
+    changeProfilePaneConnector("/one", query(), id);
+    expect(resolveProfilePaneUrlState(query()).location.detail).toBe(`connector:${id}`);
+    const returned = waitForBack();
+    changeProfilePaneConnector("/one", query(), null);
+    await returned;
+    expect(resolveProfilePaneUrlState(query()).location).toEqual({ panel: "connectors", detail: null });
+    expect(getProfilePaneHistoryDepth()).toBe(2);
+  }
+  const returned = waitForBack();
+  popProfilePaneLocation("/one", query());
+  await returned;
+  expect(resolveProfilePaneUrlState(query()).location).toEqual({ panel: null, detail: null });
+  expect(getProfilePaneHistoryDepth()).toBe(1);
+});
 
 it("never combines a pending Next child route with the popped entry's native ancestry", () => {
   window.history.replaceState(null, "", "/one");

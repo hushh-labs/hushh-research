@@ -84,8 +84,10 @@ class _Db:
         self.calls.append((sql, params))
         if "SELECT * FROM google_provider_connections" in sql:
             return SimpleNamespace(data=[self.existing] if self.existing else [])
-        if "SELECT scope_csv FROM google_service_grants" in sql:
-            return SimpleNamespace(data=[{"scope_csv": value} for value in self.grants])
+        if "SELECT service, scope_csv FROM google_service_grants" in sql:
+            return SimpleNamespace(
+                data=[{"service": "calendar", "scope_csv": value} for value in self.grants]
+            )
         if "SELECT 1 FROM google_calendar_additional_accounts" in sql:
             return SimpleNamespace(
                 data=[{"present": 1}] if params["subject"] in self.additional_subjects else []
@@ -805,7 +807,17 @@ async def test_concurrent_replacement_refuses_stale_callback(monkeypatch, bounda
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("admitted", [True, False])
-async def test_cached_bearer_is_admitted_against_one_provider_grant_snapshot(monkeypatch, admitted):
+async def test_cached_bearer_is_admitted_against_one_provider_grant_snapshot(
+    monkeypatch, active_account_lifecycle, admitted
+):
+    from hushh_mcp.services import owner_placement_guard
+
+    # This case isolates the grant snapshot; the owner must already be eligible
+    # for the hub before the token read reaches that snapshot.
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
+
     class SnapshotDb:
         def __init__(self):
             self.calls = []

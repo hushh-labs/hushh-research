@@ -20,33 +20,27 @@ import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { WalletCardConfirmDialog } from "@/components/wallet-card/wallet-card-confirm-dialog";
 
 /** Uses the same referral authority and live summary as the wallet card face. */
-export function WalletReferralCardDetails({
-  summary,
-  shareToken,
-  profile,
-  failed = false,
-  onRetry,
-  onRevoke,
-}: {
+export type WalletReferralDetailsProps = {
   summary: ReferralSummary | null;
   shareToken: string | null;
   profile?: WalletDemoProfile | null;
   failed?: boolean;
   onRetry?: () => void;
   onRevoke?: (slug: string) => Promise<void>;
-}) {
+};
+
+export function useWalletReferralOwner({
+  summary,
+  shareToken,
+  profile,
+  onRevoke,
+}: WalletReferralDetailsProps) {
   const [busy, setBusy] = useState<"wallet" | "revoke" | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const visit = useMemo(() => ({ ownerId: profile?.ownerId, onRevoke }), [profile?.ownerId, onRevoke]);
   const visitRef = useRef<object | null>(visit);
   visitRef.current = visit;
   useEffect(() => { visitRef.current = visit; setBusy(null); setConfirmRevoke(false); return () => { if (visitRef.current === visit) visitRef.current = null; }; }, [visit]);
-  if (!summary) {
-    return <div className="space-y-3 py-6">
-      <p role={failed ? "alert" : "status"} className="text-[13px] leading-[18px] font-semibold text-muted-foreground">{failed ? "Your referral card could not be loaded." : "Your referral card is loading."}</p>
-      {failed && onRetry ? <Button type="button" variant="none" effect="fade" size="compact" className={presentationStyles.quietAction} onClick={onRetry}>Try again</Button> : null}
-    </div>;
-  }
 
   const addToWallet = async () => {
     if (!shareToken) return;
@@ -62,7 +56,7 @@ export function WalletReferralCardDetails({
   };
 
   const revokeAccess = async () => {
-    if (!onRevoke || busy) return;
+    if (!summary || !onRevoke || busy) return;
     setBusy("revoke");
     try {
       await onRevoke(summary.slug);
@@ -76,6 +70,24 @@ export function WalletReferralCardDetails({
     }
   };
 
+  const copyLink = async () => {
+    if (!summary) return;
+    const copied = await copyWalletCardLink(summary.link);
+    if (visitRef.current === visit) copied ? morphyToast.success("Link copied") : morphyToast.error("Could not copy");
+  };
+  return { busy, confirmRevoke, setConfirmRevoke, addToWallet, revokeAccess, copyLink };
+}
+
+export function WalletReferralCardDetails(props: WalletReferralDetailsProps) {
+  const { summary, shareToken, profile, failed = false, onRetry, onRevoke } = props;
+  const { busy, confirmRevoke, setConfirmRevoke, addToWallet, revokeAccess, copyLink } = useWalletReferralOwner(props);
+  if (!summary) {
+    return <div className="space-y-3 py-6">
+      <p role={failed ? "alert" : "status"} className="text-[13px] leading-[18px] font-semibold text-muted-foreground">{failed ? "Your referral card could not be loaded." : "Your referral card is loading."}</p>
+      {failed && onRetry ? <Button type="button" variant="none" effect="fade" size="compact" className={presentationStyles.quietAction} onClick={onRetry}>Try again</Button> : null}
+    </div>;
+  }
+
   return (
     <SettingsPresentationProvider separatorInset density="compact">
     <section aria-label="Referral card details" className={`${profileStyles.walletContent} ${presentationStyles.walletSurface} space-y-4`}>
@@ -85,7 +97,7 @@ export function WalletReferralCardDetails({
               <AppleWalletIcon />Add to Apple Wallet
             </Button>
             <WalletCardImageShareButton cardId="agent-one-referral" profile={{ ...profile, displayName: profile?.displayName ?? null, shareUrl: profile?.shareUrl ?? null, referralUrl: summary.link }} disabled={!profile || Boolean(busy)} />
-            <Button type="button" size="compact" className={presentationStyles.quietAction} variant="none" effect="fade" onClick={() => void copyWalletCardLink(summary.link).then((copied) => { if (visitRef.current === visit) copied ? morphyToast.success("Link copied") : morphyToast.error("Could not copy"); })}>
+            <Button type="button" size="compact" className={presentationStyles.quietAction} variant="none" effect="fade" onClick={() => void copyLink()}>
               <ProfilePaneCopyIcon className="mr-2 h-4 w-4" aria-hidden />Copy link
             </Button>
             <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="destructive" effect="fade" disabled={!onRevoke || Boolean(busy)} onClick={() => setConfirmRevoke(true)}>Revoke access</Button>

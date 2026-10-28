@@ -772,6 +772,16 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "account_phone_linked_deletions"
+      ],
+      "id": "account_phone_linked_deletion_workflow",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Opaque prepare, single-use phone-proof confirm and status read for deleting the account that holds a verified number; the existing full-account erasure performs the deletion."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "account_phone_transfers",
         "account_phone_recovery_continuations",
         "account_device_actions"
@@ -1239,6 +1249,17 @@
       "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache. Closed agent outcomes also project canonical provider proposal/connection/job and Circle relationship transitions (migration269). Migration313 emits a committed owner-only feed_changed hint after every changed Feed row, including read state and deletion; the shared backend listener fans out to authenticated owner streams. Hints contain no row contents and have no replay authority: connect, listener recovery and overflow reset require a snapshot. A future broker may replace NOTIFY behind this same invalidation contract."
     },
     {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "finance_share_requests",
+        "finance_access_grants"
+      ],
+      "id": "finance_connection_sharing",
+      "lifecycle_status": "release_schema_qualification",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Owner-confirmed recipient-encrypted curated Finance objects, delivered by reference through transactional Messages. Snapshot is immutable; ongoing revisions use owner-unlocked saved information and compare-and-swap. History never grants read authority."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "gmail_owner_send_actions",
@@ -1288,6 +1309,16 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Profile Payouts reads owner-scoped live and sandbox wallets. Verified document settlement appends one immutable net-cent credit per request; each live earning also seeds an isolated test demonstration balance. Test redemption reserves coins under a wallet row lock, then reconciles an idempotent Stripe test transfer before appending a debit. Postgres is authoritative; future Redis may cache projections only and never authorize spending."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "hosted_pod_pilot_policy"
+      ],
+      "id": "hosted_pod_pilot_admission",
+      "lifecycle_status": "dev_only",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Dev operator supplies exactly two fixed hashed-owner/project assignments. claim_hosted_pod_pilot_provision reserves a monotonic attempt reference and delegates lifecycle to claim_personal_agent_provision in the same transaction. No policy is seeded."
     },
     {
       "data_class": "personal_metadata",
@@ -4151,6 +4182,32 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.portfolio.allocation"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-portfolio-analysis",
+      "page_file": "app/one/kai/portfolio/analysis/page.tsx",
+      "pathname": "/one/kai/portfolio/analysis",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.kai_portfolio_analysis"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.portfolio.analysis"
       }
     },
     {
@@ -7159,28 +7216,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "00ac4947aa27ed716ee138f157743066fa0f59af3dc52b225e441ddfa48bd79e",
+    "action_gateway": "eca5b20202df56cb08e43928cf214de8c5745549a78a1cf2f4869270440efeeb",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
-    "cache_manifest": "ba5ccda8ef76d67e41ad8922705b3fe4cb5ef3eda0a4fbc95c57bbb160822200",
-    "data_plane": "412ceeec089c6e8ef81a0d500b015972e9cb2c181cd5d087a9286a82b126168d",
+    "cache_manifest": "a53e42359c26801361b197fefc688eaea9b0cd9c693aabc6532c9f4cd84fdd32",
+    "data_plane": "3ab441159fb51530f912d3fac317a98c62a3e609f8b5e50ce99bee0bd583babd",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "9f36cb5a752042829d3497d7ed9dcbc97d6f8481dce542b45842871a3d7a7158",
-    "route_layout": "f7645e902d3ab0d1ab9b8a872f083f72c66c3fd0ea68db9e8834fca770c6219d",
-    "surface_map": "d42ffc7635d692d7ba6ed6ba7dbdf6d0a02fbcacb063ee8899cbaeff926eb767",
+    "route_index": "bb4ecedeab47142295673f4f99e63263ec3fc5fa02ac7fbf10a00b03b755ccae",
+    "route_layout": "c04acbc498f1b367593fb2539b90163ab149882caa90f3cd3c68c86b74fa93c9",
+    "surface_map": "428401da75cbc2cf5f8d1316339da59189550776a63b8b36cae223560c16ef5e",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 310,
+    "actions": 314,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 161,
+    "physical_routes": 162,
     "semantic_routes": 17,
-    "table_families": 138
+    "table_families": 141
   }
 }

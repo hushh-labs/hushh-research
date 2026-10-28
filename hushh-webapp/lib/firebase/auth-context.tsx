@@ -15,6 +15,7 @@
 "use client";
 
 import { resolveAccountLifecycleRecovery } from "@/lib/auth/account-lifecycle-recovery";
+import { rememberPendingAccountDeviceDeparture, purgeConfirmedAccountDeviceDeparture, purgeDepartedAccountDevice } from "@/lib/auth/account-departure-device";
 
 import { requireUsablePhoneTestStart } from "@/lib/auth/phone-test-eligibility";
 
@@ -37,6 +38,7 @@ import { AuthService } from "@/lib/services/auth-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { createPhoneVerificationRecovery } from "@/lib/auth/phone-verification-recovery";
+import { confirmLinkedDeletion, type LinkedDeletionInput } from "@/lib/auth/phone-linked-deletion";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -85,6 +87,7 @@ import {
   snapshotValidatedAuthSessionOwner,
   isValidatedAuthSessionOwnerCurrent,
   getAuthSessionGeneration,
+  lastAdmittedOwnerFor,
   type AuthSessionVerificationRequiredDetail,
   type AuthSessionOwnerSnapshot,
 } from "@/lib/auth/session-owner";
@@ -109,7 +112,7 @@ const NATIVE_SESSION_PRIVACY_READ_BUDGET_MS = 2_000;
 
 type AccountSessionValidationResult =
   | { outcome: "active"; principal: AccountPrincipalBinding }
-  | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery }
+  | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery; departure?: AuthSessionInvalidationCode; confirmedCleanup?: AccountCleanupOperation }
   | { outcome: "terminal"; code: AuthSessionInvalidationCode };
 
 function authInvalidationUserIdFromError(error: unknown): string | null {
@@ -186,7 +189,7 @@ interface AuthContextType {
     options?: { resendCode?: boolean; transport?: "sms" },
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmPhoneVerification: (otp: string) => Promise<User>;
-  confirmPhoneTransfer: () => Promise<User>;
+  confirmPhoneTransfer: () => Promise<User>; confirmPhoneLinkedDeletion: (input: LinkedDeletionInput) => Promise<User>;
   startPhoneReplacement: (
     phoneNumber: string,
     options?: { resendCode?: boolean; transport?: "sms" },
@@ -715,8 +718,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return { outcome: "active", principal };
       };
 
-      const resolveRegistrationRecovery = (idToken: string, terminal: AccountSessionValidationResult): Promise<AccountSessionValidationResult> =>
-        terminal.outcome === "terminal" ? resolveAccountLifecycleRecovery(idToken, deadlineMs, terminal) : Promise.resolve(terminal);
+      const resolveRegistrationRecovery = async (idToken: string, terminal: AccountSessionValidationResult, confirmedCleanup?: AccountCleanupOperation): Promise<AccountSessionValidationResult> => {
+        if (terminal.outcome !== "terminal") return terminal;
+        // Captured with the terminal evidence, before a later start fresh can
+        // admit this identity's next owner.
+        const departingOwner = lastAdmittedOwnerFor(candidateUser.uid) ?? candidateUser.uid;
+        const recovery = await resolveAccountLifecycleRecovery(idToken, deadlineMs, terminal, departingOwner);
+        // Registration replaces the terminal sign-out that would have purged
+        // the departed owner's device state, so purge it here instead.
+        if (recovery.outcome === "unavailable" && recovery.registration && recovery.departure) {
+          const complete = confirmedCleanup ?? recovery.confirmedCleanup;
+          if (complete) {
+            try { await purgeConfirmedAccountDeviceDeparture(candidateUser.uid, complete); }
+            catch { return { outcome: "unavailable" }; }
+          }
+          const admittedOwner = lastAdmittedOwnerFor(candidateUser.uid);
+          if (admittedOwner) purgeDepartedAccountDevice(admittedOwner, recovery.departure);
+          else if (!complete) purgeDepartedAccountDevice(departingOwner, recovery.departure);
+        }
+        return recovery;
+      };
 
       const resolveDeletionInProgress = async (
         idToken: string,
@@ -736,8 +757,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
             const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
             const operation = parseAccountCleanupOperation(body?.operation);
             if (operation?.state === "complete") {
-              return resolveRegistrationRecovery(idToken, { outcome: "terminal", code: "account_deletion_identity_retained" });
+              return resolveRegistrationRecovery(idToken, { outcome: "terminal", code: "account_deletion_identity_retained" }, operation);
             }
+            if (operation?.owner_id) rememberPendingAccountDeviceDeparture(candidateUser.uid, operation.owner_id, operation.id);
             if (operation) return { outcome: "unavailable", cleanup: operation };
           }
         } catch {
@@ -1040,8 +1062,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // A terminal native cold-restore event is dispatched before the restored
         // user is published. Retain that exact UID in the invalidation latch so
         // its local vault/cache state is still destroyed during sign-out.
+        // A withdrawn start-fresh owner is still this identity's departing owner.
         const currentUid =
-          initiatingPrincipal?.ownerId ?? currentUser?.uid ??
+          initiatingPrincipal?.ownerId ?? lastAdmittedOwnerFor(currentUser?.uid) ?? currentUser?.uid ??
           terminalInvalidationLatchRef.current?.invalidatedUserId ??
           null;
         const redirectTo = options?.redirectTo || ROUTES.HOME;
@@ -1068,7 +1091,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           ownsExpectedSession = stillOwnsExpectedSession();
           if (!ownsExpectedSession) return;
 
-          const cleanupTasks: Promise<unknown>[] = [AuthService.signOut(expectedFirebaseUid)];
+          // signOut keys local notification cleanup by the application owner.
+          const cleanupTasks: Promise<unknown>[] = [AuthService.signOut(currentUid ?? expectedFirebaseUid)];
           // The httpOnly session cookie exists only on the web/Next.js origin.
           // Native static builds authenticate directly against the backend, where
           // `/api/auth/session` is intentionally not a route.
@@ -1385,30 +1409,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         : "session_invalid";
       console.warn("🔒 [AuthProvider] Auth session invalidated:", code);
       const invalidatedUserId = eventUserId || currentUserId;
-      if (
-        invalidatedUserId &&
-        (code === "account_not_found" || code === "account_deleted" || code === "account_deleted_ready_to_start_fresh" || code === "account_deletion_finishing" || code === "account_deletion_identity_retained")
-      ) {
-        // The backend or Firebase confirmed this account is gone (never an
-        // uncertain outcome or a disabled account), so the device key material
-        // it owned goes too -- also on sibling tabs and other devices. This
-        // runs before the duplicate-signal latch so a later deletion signal is
-        // not lost behind an earlier session_invalid teardown.
-        void UserLocalStateService.clearDeviceSecretsForDeletedAccount(
-          invalidatedUserId,
-        );
-        // Durable device copies follow only a backend-confirmed erasure, never
-        // the broader Firebase account_not_found. Deletion settles after a 202
-        // handoff, so delete-account.ts's own terminal purge never runs.
-        if (code !== "account_not_found") {
-          CacheSyncService.onAccountDeleted(invalidatedUserId);
-          void UserLocalStateService.clearForUser(invalidatedUserId, {
-            deleteDurableReceipts: true,
-          }).catch((error: unknown) => {
-            console.warn("[AuthProvider] Deleted-account device cleanup incomplete:", error);
-          });
-        }
-      }
+      // Also on sibling tabs and other devices. This runs before the
+      // duplicate-signal latch so a later deletion signal is not lost behind an
+      // earlier session_invalid teardown. Deletion settles after a 202 handoff,
+      // so delete-account.ts's own terminal purge never runs.
+      if (invalidatedUserId) purgeDepartedAccountDevice(invalidatedUserId, code);
       if (
         terminalInvalidationLatchRef.current ||
         authRecoveryInFlightRef.current
@@ -2168,6 +2173,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     phoneVerificationOwnerRef.current = null;
     return currentUser;
   }, [requirePhoneVerificationOwner]);
+  const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput) => {
+    const principal = principalRef.current;
+    return confirmLinkedDeletion(input, { user: () => userRef.current, retained: () => phoneTransferProofRef.current,
+      requireOwner: requirePhoneVerificationOwner, finalize: (verified) => {
+        phoneTransferProofRef.current = null; setConfirmationResult(null); setNativeVerificationId(null); setPhoneVerificationPhoneNumber(null);
+        if (!Capacitor.isNativePlatform()) resetRecaptcha(); applyAuthUser(verified, principal); phoneVerificationOwnerRef.current = null; } });
+  }, [applyAuthUser, requirePhoneVerificationOwner]);
 
   // Replacement and first verification share the same isolated possession proof.
   const confirmPhoneReplacement = confirmPhoneVerification;
@@ -2259,7 +2271,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Methods
       startPhoneVerification,
       confirmPhoneVerification,
-      confirmPhoneTransfer,
+      confirmPhoneTransfer, confirmPhoneLinkedDeletion,
       startPhoneReplacement,
       confirmPhoneReplacement,
       signOut,
@@ -2284,7 +2296,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       accountPrincipal,
       startPhoneVerification,
       confirmPhoneVerification,
-      confirmPhoneTransfer,
+      confirmPhoneTransfer, confirmPhoneLinkedDeletion,
       startPhoneReplacement,
       confirmPhoneReplacement,
       signOut,

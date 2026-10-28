@@ -32,6 +32,21 @@ describe("owner pod endpoint", () => {
     await ownerPod.forgetOwnerPodState(USER);
   });
 
+  it.each([undefined, "hussh_hosted"])("requires signed managed placement for gcp: %s", async marker => {
+    world.deploymentTarget = "gcp";
+    world.hostingMode = marker;
+    const session = ownerPod.refreshEndpointFromHub(USER, world.transport());
+    if (marker) {
+      expect((await session).url).toBe(POD_URL);
+      expect(world.admitted).toHaveLength(1);
+      expect((await ownerPod.loadPinnedEndpoint(USER))?.url).toBe(POD_URL);
+    } else {
+      await expect(session).rejects.toThrow("BINDING_OWNER_OR_ENDPOINT_MISMATCH");
+      expect(world.calls.filter(call => call.target === "direct")).toHaveLength(0);
+      expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
+    }
+  });
+
   it("does not enroll a fresh browser during bounded reviewer reads, while normal enrollment remains available", async () => {
     const previous = window.__HUSHH_NATIVE_TEST__;
     try {

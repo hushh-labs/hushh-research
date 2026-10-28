@@ -103,7 +103,7 @@ never "hussh cannot read that pod."
 |---|---|---|
 | **A. User-owned GCP** | the person's own GCP project | their own Vertex ADC |
 | **B. Owner-cloud Azure** | the person's own Azure subscription, subject to admission gates | sealed owner AI selection with verified provider authority |
-| **C. Hussh-hosted (provisioning disabled)** | proposed dedicated instance per person in a Hussh GCP project | turn-bounded credential, or their own key |
+| **C. Hussh-hosted (provisioning disabled)** | dedicated pod per person in a Hussh-funded per-owner GCP project | pod workload identity; explicit dev shared-inference exception, or owner-selected key |
 
 > **Superseded (founder directive, 2026-08-25).** This section previously read "**the
 > production paths — exactly two, both user-owned**" and closed with "**No hussh-hosted
@@ -128,6 +128,15 @@ dev migrations 955/958. UAT/production lack the branch's cloud marker; 955 alone
 does not preserve their cohort. Production reader/schema graduation remains
 separate. Shared is a managed runtime, not a dedicated private pod; source checks
 do not prove that migration or placement behavior is deployed.
+
+The October 26 hosted pilot decision uses the same immutable runtime image as BYOC,
+with explicit hosting adapters and project-local custody. It supersedes the earlier
+multi-owner shard proposal. Two synthetic dev owners are the qualification cohort;
+the incremental ceiling is US$500, including a US$100 cleanup/uncertainty reserve.
+The common renderer and managed inference binding do not establish transactional
+admission, deployed isolation, memory readiness or erasure acceptance. The
+[deployment standard](./deployment-standard.md#one-private-image-explicit-gcp-hosting-authority)
+and existing provisioning plan retain those boundaries.
 
 BYOC uses keyless, short-lived service-account impersonation on GCP, and on Azure the
 person's own one-time sign-in plus a federated, secretless Hussh identity that can

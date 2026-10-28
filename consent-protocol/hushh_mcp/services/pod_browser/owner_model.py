@@ -43,7 +43,7 @@ def resolve_owner_browser_model(
         request = PodTurnRequest(message="Browser model configuration")
         provider, name = _resolve_model()
         request, (provider, name, mode) = _resolve_owner_target(request, provider, name)
-        if mode not in {"byok", "user_adc", "user_azure_mi"}:
+        if mode not in {"byok", "user_adc", "hosted_pod_adc", "user_azure_mi"}:
             raise BrowserRefused("BROWSER_OWNER_MODEL_REQUIRED")
 
         async def current() -> None:
@@ -72,7 +72,7 @@ def resolve_owner_browser_model(
                 token_supplier=supplier,
                 require_current=current,
             )
-        elif provider == "gemini" and mode in {"byok", "user_adc"}:
+        elif provider == "gemini" and mode in {"byok", "user_adc", "hosted_pod_adc"}:
             model = _runtime_model(
                 runtime_model=name,
                 runtime_provider=provider,

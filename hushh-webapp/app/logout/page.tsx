@@ -21,6 +21,7 @@ import {
   clearSessionStorage,
 } from "@/lib/utils/session-storage";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
+import { lastAdmittedOwnerFor, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
@@ -28,6 +29,13 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
+
+// Device cleanup is keyed by the application owner, which differs from the
+// Firebase UID once an account has started fresh.
+function departingOwner(): string | null {
+  const firebaseUid = auth.currentUser?.uid ?? null;
+  return snapshotValidatedAuthSessionOwner()?.userId ?? lastAdmittedOwnerFor(firebaseUid) ?? firebaseUid;
+}
 
 export default function LogoutPage() {
   const router = useRouter();
@@ -85,9 +93,9 @@ export default function LogoutPage() {
         setOnboardingFlowActiveCookie(false);
 
         // Sign out from Firebase
-        const currentUid = auth.currentUser?.uid ?? null;
-        await AuthService.signOut(currentUid);
-        CacheSyncService.onAuthSignedOut(currentUid);
+        const owner = departingOwner();
+        await AuthService.signOut(owner);
+        CacheSyncService.onAuthSignedOut(owner);
 
         // Step 1: Logout complete
         completeStep();
@@ -107,7 +115,7 @@ export default function LogoutPage() {
         // Still clear storage and redirect even if Firebase logout fails
         clearLocalStorage();
         clearSessionStorage();
-        CacheSyncService.onAuthSignedOut(auth.currentUser?.uid ?? null);
+        CacheSyncService.onAuthSignedOut(departingOwner());
         replaceWithHome();
       }
     };

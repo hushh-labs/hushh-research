@@ -33,19 +33,19 @@ from typing import Any, Optional
 
 from hushh_mcp.consent.token_signing import sign_payload
 from hushh_mcp.constants import ConsentScope
-from hushh_mcp.services.compute_backend import is_owner_cloud_target
+from hushh_mcp.services.compute_backend import is_owner_cloud_target, is_private_pod_row
 from hushh_mcp.services.personal_agent_grant_service import PersonalAgentDisabledError
 from hushh_mcp.services.pod_access_audit import (
     PERSONAL_AGENT_ID,
     PodAccessAuditService,
     PodAccessDenied,
 )
+from hushh_mcp.services.pod_binding_contract import make_pod_binding
 from hushh_mcp.services.pod_session_authority import (
     APP_SCOPES,
     DEVICE_INFERENCE_SCOPES,
     DEVICE_SCOPES,
     ROLE_DEVICE,
-    PodBindingV1,
     canonical_json,
     role_for_platform,
     verify_subject_proof,
@@ -252,7 +252,7 @@ class PodBindingService:
     ) -> dict[str, Any]:
         """Issue the next binding version for one subject. Signed, recorded, audited."""
         row = await self._owner_row(user_id, request_id=f"pod-binding:{device_id}")
-        pod_key_id, pod_public_key, url = self._deployment(row)
+        pod_key_id, _pod_public_key, _url = self._deployment(row)
         deployment_target = _clean(row.get("deployment_target")) or None
         if puppy_inference and not is_owner_cloud_target(deployment_target):
             raise PodBindingError(
@@ -291,23 +291,17 @@ class PodBindingService:
         previous = bindings.get(device_id) or {}
         version = int(previous.get("version") or 0) + 1
         now_ms = int(self._clock() * 1000)
-        binding = PodBindingV1(
-            hushh_id=_clean(row.get("hushh_id")),
+        binding = make_pod_binding(
+            row=row,
             user_id=user_id,
-            environment=hub_environment(),
-            pod_key_id=pod_key_id,
-            pod_public_key=pod_public_key,
-            url=url,
-            subject_id=device_id,
-            subject_kind=role,
-            subject_public_key=_clean(device.get("device_public_key")),
-            platform=platform,
+            device_id=device_id,
+            device=device,
             role=role,
             scopes=tuple(scopes),
             version=version,
-            issued_at_ms=now_ms,
-            expires_at_ms=now_ms + BINDING_TTL_MS,
-            deployment_target=deployment_target,
+            environment=hub_environment(),
+            now_ms=now_ms,
+            ttl_ms=BINDING_TTL_MS,
         )
         envelope = {"binding": binding.to_dict(), "signature": _sign(binding.canonical())}
         recorded = await self._registry.record_binding(
@@ -387,7 +381,7 @@ class PodBindingService:
         )
         readiness = metadata.get("directReadiness")
         if (
-            not is_owner_cloud_target(row.get("deployment_target"))
+            not is_private_pod_row(row)
             or _clean(row.get("status")) != "provisioned"
             or _clean(metadata.get("ingress")) != "direct"
             or not isinstance(readiness, dict)

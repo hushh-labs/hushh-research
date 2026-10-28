@@ -113,9 +113,8 @@ export function PlacesVisitedFlow() {
   // Sourced from the hooks rather than threaded through the hub's view model,
   // the same way `SavedLocationsSection` does it -- the vault context belongs
   // to whoever is reading, not to the screen that opened them.
-  const { user } = useAuth();
+  const { userId: ownerId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
-  const ownerId = user?.uid ?? null;
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [ratings, setRatings] = useState<OneLocationPlaceRating[]>([]);

@@ -110,12 +110,18 @@ final class HushhNativeChromePresenter: NSObject, UIAdaptivePresentationControll
     private var draft: HushhChromeDraft?
     private var menuActions = [(UIAlertAction, Bool)]()
     var didRetire: (() -> Void)?
+    var didPresent: (() -> Void)?
+    private let animatedDismissal: Bool
+    private let privacyShield: HushhSessionPrivacyShield
 
-    init(parent: UIViewController, controller: UIViewController, updateSequence: Int, onChoice: @escaping (String, Int) -> Void) {
+    init(parent: UIViewController, controller: UIViewController, updateSequence: Int, animatedDismissal: Bool = false,
+         privacyShield: HushhSessionPrivacyShield = .shared, onChoice: @escaping (String, Int) -> Void) {
         self.parent = parent
         self.controller = controller
         self.onChoice = onChoice
         self.updateSequence = updateSequence
+        self.animatedDismissal = animatedDismissal
+        self.privacyShield = privacyShield
     }
     func update(theme: HushhNativeControlAppearance, value: String?, enabled: Bool, sequence: Int) {
         guard !closing, !retired, sequence > updateSequence else { return }
@@ -133,8 +139,9 @@ final class HushhNativeChromePresenter: NSObject, UIAdaptivePresentationControll
     func present() {
         parent?.present(controller, animated: true) { [self] in
             opening = false
-            HushhSessionPrivacyShield.shared.reassertCover()
+            privacyShield.reassertCover()
             if closing { dismissOwned() }
+            else { controller.view.layoutIfNeeded(); didPresent?() }
         }
         // UIAlertController owns its presentation delegate. Replacing it
         // triggers a UIKit assertion when History opens Delete confirmation.
@@ -156,13 +163,13 @@ final class HushhNativeChromePresenter: NSObject, UIAdaptivePresentationControll
         completions.append(completion)
         if closing { return }
         closing = true
-        retirementToken = HushhSessionPrivacyShield.shared.beginPresentationRetirement()
+        retirementToken = privacyShield.beginPresentationRetirement()
         if !opening { dismissOwned() }
     }
 
     private func dismissOwned() {
         guard controller.presentingViewController != nil else { finish(); return }
-        controller.dismiss(animated: false) { [self] in finish() }
+        controller.dismiss(animated: animatedDismissal && UIApplication.shared.applicationState == .active) { [self] in finish() }
     }
 
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
@@ -174,7 +181,7 @@ final class HushhNativeChromePresenter: NSObject, UIAdaptivePresentationControll
         guard !retired, controller.presentingViewController == nil else { return }
         retired = true
         didRetire?()
-        if let retirementToken { HushhSessionPrivacyShield.shared.completePresentationRetirement(retirementToken) }
+        if let retirementToken { privacyShield.completePresentationRetirement(retirementToken) }
         let callbacks = completions
         completions.removeAll()
         // Invalidating the owning slot before dismissal makes this a no-op.

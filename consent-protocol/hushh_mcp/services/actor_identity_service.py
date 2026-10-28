@@ -17,11 +17,11 @@ import asyncpg
 from api.utils.firebase_admin import get_firebase_auth_app
 from db.connection import get_pool
 from hushh_mcp.runtime_settings import (
-    personal_agent_autoprovision_enabled,
     personal_agent_enabled,
 )
 from hushh_mcp.services import account_firebase_mutations
 from hushh_mcp.services.account_generation_service import AccountGenerationService
+from hushh_mcp.services.phone_holder_release import deleted_full_account_holders
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +194,7 @@ class ActorIdentityService:
         user_id: str,
         phone_number: str,
         allow_owner_transfer: bool = True,
+        release_deleted_holders: bool = True,
     ) -> bool:
         """Serialize one verified-phone owner transfer inside its transaction.
 
@@ -223,11 +224,18 @@ class ActorIdentityService:
                 user_id,
                 phone_number,
             )
-            if any(
-                binding["user_id"] != user_id
+            # An explicit OTP claim is not blocked by a holder whose full-account
+            # deletion is admitted; the UPDATE below detaches that dead binding.
+            holders = {
+                binding["user_id"]
+                for binding in bindings
+                if binding["user_id"] != user_id
                 and binding["phone_number"] == phone_number
                 and binding["phone_verified"] is True
-                for binding in bindings
+            }
+            if holders and (
+                not release_deleted_holders
+                or holders - await deleted_full_account_holders(conn, holders)
             ):
                 return False
         await conn.execute(
@@ -439,43 +447,17 @@ class ActorIdentityService:
         # backend silently yields NullBackend, so this path would have reported
         # success while creating no host at all -- and it is the path that will run
         # for every signup, where nobody is watching a response body.
+        registry = PersonalAgentRegistryRepo()
         service = PersonalAgentProvisioningService(
-            registry=PersonalAgentRegistryRepo(), backend=resolve_compute_backend()
+            registry=registry, backend=resolve_compute_backend()
         )
         await service.register_pending(user_id=user_id, phone_e164=phone_number)
 
-        if not personal_agent_autoprovision_enabled():
-            return
+        from hushh_mcp.services.personal_agent_phone_activation import continue_verified_phone
 
-        # Continue straight through to a real host. Deferred pod key: at phone-verify
-        # there is no pod yet, so there is no pod public key yet either -- the pod
-        # generates its own and registers it, and provision() stops at 'connecting'
-        # until it does.
-        #
-        # Failures are logged and swallowed. This runs fire-and-forget off phone
-        # verification, so raising would be an invisible, unretried break AND could
-        # surface on a path whose only job is to confirm a phone number. The user
-        # keeps their reservation, the row records the failure, and the feed carries
-        # a personal_agent_failed row.
-        try:
-            await service.provision(user_id=user_id, phone_e164=phone_number)
-        except Exception:
-            # The HusshID is derived, not carried, so it is re-derived here purely to
-            # label the failure. Without it this traceback is unattributable: it is the
-            # first thing that runs for a new person, it runs fire-and-forget where
-            # nobody is reading a response, and on a shared dev lane several signups
-            # produce identical, unjoinable stack traces.
-            try:
-                from hushh_mcp.services.personal_agent_identity_service import mint_hushh_id
-
-                failed_hushh_id = mint_hushh_id(phone_number)
-            except Exception:  # labelling must never mask the real failure
-                failed_hushh_id = "<underivable>"
-            logger.exception(
-                "personal_agent.autoprovision_failed hushh_id=%s service=one-pod-%s",
-                failed_hushh_id,
-                failed_hushh_id.lower().replace("_", "-"),
-            )
+        await continue_verified_phone(
+            service=service, registry=registry, user_id=user_id, phone_number=phone_number
+        )
 
     async def _known_actor_ids(self, user_ids: Iterable[str]) -> set[str]:
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]
@@ -899,9 +881,9 @@ class ActorIdentityService:
                             conn,
                             user_id=normalized_user_id,
                             phone_number=normalized_phone_number,
-                            # Metadata hydration never carries new OTP possession
-                            # authority, regardless of its descriptive source.
+                            # Hydration never carries OTP possession authority.
                             allow_owner_transfer=False,
+                            release_deleted_holders=False,
                         )
                         if not phone_write_allowed:
                             normalized_phone_number = None
@@ -1166,7 +1148,9 @@ class ActorIdentityService:
                 """,
                 phone_number,
             )
-        return owner is None or owner == user_id
+            if owner not in (None, user_id):
+                return owner in await deleted_full_account_holders(conn, (owner,))
+        return True
 
     async def claim_verified_phone(
         self,

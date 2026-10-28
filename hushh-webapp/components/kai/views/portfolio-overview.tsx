@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { ChartNoAxesCombined, Database, Layers3, WalletCards } from "@/components/icons";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 import type { DashboardViewModel } from "./dashboard-data-mapper";
@@ -12,9 +13,9 @@ import type { KaiPortfolioSection } from "@/lib/navigation/routes";
 
 import { overviewFacts } from "./portfolio-display-facts";
 
-export function PortfolioOverview({ model, portfolio, source, period, action, onOpenSection }: {
+export function PortfolioOverview({ model, portfolio, source, period, action, onImport, onOpenSection }: {
   model: DashboardViewModel; portfolio?: PortfolioData | null; source: string;
-  period: string; action?: ReactNode; onOpenSection: (section: KaiPortfolioSection) => void;
+  period: string; action?: ReactNode; onImport?: () => void; onOpenSection: (section: KaiPortfolioSection) => void;
 }) {
   const facts = overviewFacts(model, portfolio);
   const primary = model.allocation[0];
@@ -33,5 +34,9 @@ export function PortfolioOverview({ model, portfolio, source, period, action, on
         trailing={<span className="max-w-32 text-right text-xs leading-[18px] tabular-nums text-muted-foreground">{row.value}</span>}
         onClick={() => onOpenSection(row.section)} chevron testId={`portfolio-open-${row.section}`} />)}
     </SettingsGroup>
+    <div className="col-span-full flex items-center justify-between gap-3" aria-label="Portfolio actions">
+      {onImport ? <ShellActionSurface variant="pill" className="min-h-11" data-voice-control-id="import_portfolio" onClick={onImport}>Import portfolio</ShellActionSurface> : <span />}
+      <ShellActionSurface variant="pill" className="min-h-11" data-voice-control-id="manage_portfolio" onClick={() => onOpenSection("sources")}>Manage portfolio</ShellActionSurface>
+    </div>
   </div>;
 }

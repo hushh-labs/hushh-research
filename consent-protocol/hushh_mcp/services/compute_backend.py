@@ -20,6 +20,7 @@ from hushh_mcp.services.pod_adoption import adoption_expectations as adoption_ex
 
 if TYPE_CHECKING:
     from hushh_mcp.services.azure_vm_host_binding import AzureVmHostBinding
+    from hushh_mcp.services.private_gcp_deployment import PrivateGcpDeployment
 
 # Tiers a pod can run at: a logical stamp against a shared runtime (mass tier, no
 # per-user deploy), or a dedicated/attested instance (premium/regulated tier).
@@ -209,6 +210,12 @@ class PodSpec:
     user_cloud_resource_group: Optional[str] = None
     # Frozen owner setup selection; a fleet flag cannot grant this capability.
     files_library_enabled: bool = False
+    # Reviewed managed-project assignment. This is internal deployment input,
+    # never an owner-supplied authorization or a replacement for admission.
+    private_gcp_deployment: PrivateGcpDeployment | None = dataclass_field(default=None, repr=False)
+    hosted_admission_guard: Callable[[], None] | None = dataclass_field(
+        default=None, repr=False, compare=False
+    )
 
     # -- the third axis: how warm THIS person's pod is kept -----------------------
     #
@@ -323,6 +330,13 @@ class ComputeBackend(Protocol):
 
 
 @runtime_checkable
+class ProvisionReadinessBackend(Protocol):
+    """An adapter can defer host creation after a durable substrate checkpoint."""
+
+    def require_host_ready(self, spec: PodSpec, *, substrate_applied: bool) -> None: ...
+
+
+@runtime_checkable
 class RestartableBackend(Protocol):
     """Heal in place with standing authority; never a re-provision."""
 
@@ -389,113 +403,26 @@ class NullBackend:
 
 
 def resolve_compute_backend(backend_id: Optional[str] = None) -> ComputeBackend:
-    """Resolve configured GCP hosting; empty/null remains safely unconfigured."""
-    from hushh_mcp.runtime_settings import personal_agent_backend
+    """Compatibility facade for the deployment-wide provider resolver."""
+    from hushh_mcp.services.compute_backend_resolution import resolve_deployment_backend
 
-    chosen = (backend_id if backend_id is not None else personal_agent_backend()).strip().lower()
-    if chosen in ("", BACKEND_NULL, "none"):
-        return NullBackend()
-    if chosen == BACKEND_GCP:
-        from hushh_mcp.services.gcp_backend import GcpBackend
-
-        # Defaults to inert plan/dry-run mode: it renders deploy artifacts + handles
-        # but makes NO live GCP call until explicitly enabled with credentials.
-        gcp: ComputeBackend = GcpBackend()
-        return gcp
-    if chosen == BACKEND_USER_GCP:
-        from hushh_mcp.services.user_gcp_backend import UserGcpBackend
-
-        # BYOC: renders the pod + a keyless impersonation bootstrap plan for the USER's project.
-        # Plan-mode by default; live raises until the owner bootstrap exists.
-        user_gcp: ComputeBackend = UserGcpBackend()
-        return user_gcp
-    # `user_azure` is deliberately absent: it has no deployment-wide destination, so it
-    # resolves only per person, through `resolve_compute_backend_for_spec`.
-    raise NotImplementedError(
-        f"compute backend '{chosen}' is not recognized (expected: null | gcp | user_gcp)"
-    )
+    return resolve_deployment_backend(backend_id)
 
 
 def resolve_compute_backend_for_spec(spec: PodSpec) -> ComputeBackend:
-    """Pick the backend for ONE person, from their own spec.
+    """Resolve the explicit placement for one owner, retaining the existing public port."""
+    from hushh_mcp.services.compute_backend_resolution import resolve_owner_backend
 
-    `resolve_compute_backend()` answers "what does this deployment run?" — a
-    process-wide question, and the only one that could be asked while both axes lived
-    in environment variables. This answers "where does THIS person's pod run?", which
-    is the question BYOC actually poses: their pod runs in their project whatever the
-    hub happens to be configured for.
-
-    Falls back to the deployment default when the spec names no target, so this is a
-    superset of the existing behaviour rather than a second, competing resolver. An
-    unrecognised target still raises through `resolve_compute_backend` — a person
-    whose stored target is a typo must fail loudly, not silently land on the hub's
-    default, which for a BYOC user would mean provisioning into hushh's project
-    instead of their own. That is the one failure mode worth being noisy about.
-    """
-    target = (spec.deployment_target or "").strip() or None
-    if spec.azure_vm_host is not None and target != BACKEND_USER_AZURE:
-        raise ValueError("Azure VM host cannot be used with another deployment target")
-    if target == BACKEND_USER_AZURE:
-        return _owner_azure_backend(spec)
-    if target != BACKEND_USER_GCP:
-        return resolve_compute_backend(target)
-
-    # The tenant-bearing branch. `resolve_compute_backend` constructs its backends with
-    # no arguments, which is right for every target whose destination is a property of
-    # the deployment -- and exactly wrong for the one whose destination is a property of
-    # the PERSON. Routing this branch through the generic resolver is what put two
-    # people's pods in one project.
-    if not (spec.user_cloud_project or "").strip():
-        raise ValueError(
-            "a user_gcp pod needs the person's own project on its spec, and it is never "
-            "inferred. Falling back to HUSSH_USER_GCP_PROJECT here would build this "
-            "person's pod inside whichever project that variable happens to name -- "
-            "which, with more than one BYOC person, is somebody else's cloud."
-        )
-
-    from hushh_mcp.services.user_gcp_backend import UserGcpBackend
-
-    tenant: ComputeBackend = UserGcpBackend(
-        user_project=spec.user_cloud_project,
-        user_region=spec.user_cloud_region or None,
-        bootstrap_sa=spec.user_cloud_bootstrap_sa or None,
-        hushh_id=spec.hushh_id,
-    )
-    return tenant
+    return resolve_owner_backend(spec)
 
 
 def _owner_azure_backend(spec: PodSpec) -> ComputeBackend:
-    """Resolve recorded owner coordinates and host binding, without a fleet default.
+    from hushh_mcp.services.compute_backend_resolution import owner_azure_backend
 
-    Missing coordinates refuse; a destination is never inferred from the hub.
-    """
-    coordinates = {
-        "tenant_id": spec.user_cloud_tenant_id,
-        "subscription_id": spec.user_cloud_subscription_id,
-        "resource_group": spec.user_cloud_resource_group,
-        "region": spec.user_cloud_region,
-    }
-    if not owner_cloud_coordinates_complete(BACKEND_USER_AZURE, coordinates):
-        missing = sorted(name for name, value in coordinates.items() if not (value or "").strip())
-        raise ValueError(
-            "a user_azure pod needs the person's own tenant, subscription, resource group "
-            f"and location on its spec, and none is ever inferred (missing: {missing})."
-        )
+    return owner_azure_backend(spec)
 
-    if spec.azure_vm_host is not None:
-        from hushh_mcp.services.user_azure_vm_backend import UserAzureVmBackend
 
-        return UserAzureVmBackend(spec)
+def is_private_pod_row(row: Any) -> bool:
+    from hushh_mcp.services.compute_backend_resolution import private_pod_row
 
-    from hushh_mcp.services.user_azure_backend import UserAzureBackend
-
-    azure: ComputeBackend = UserAzureBackend(
-        tenant_id=str(spec.user_cloud_tenant_id).strip(),
-        subscription_id=str(spec.user_cloud_subscription_id).strip(),
-        resource_group=str(spec.user_cloud_resource_group).strip(),
-        location=str(spec.user_cloud_region).strip(),
-        recorded_principal=spec.expected_runtime_principal or "",
-        recorded_digest=spec.expected_image_digest or "",
-        files_library_enabled=spec.files_library_enabled,
-    )
-    return azure
+    return private_pod_row(row)

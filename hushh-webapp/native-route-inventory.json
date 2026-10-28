@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-10-25",
-  "total_routes": 142,
-  "native_required_routes": 115,
+  "total_routes": 143,
+  "native_required_routes": 116,
   "excluded_routes": 27,
   "routes": [
     {
@@ -547,6 +547,18 @@
       "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fallocation",
       "expectedMarker": "native-route-kai-portfolio-allocation",
       "expectedRoute": "/one/kai/portfolio/allocation",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/kai/portfolio/analysis",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fanalysis",
+      "expectedMarker": "native-route-kai-portfolio-analysis",
+      "expectedRoute": "/one/kai/portfolio/analysis",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

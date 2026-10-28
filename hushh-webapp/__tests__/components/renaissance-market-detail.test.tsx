@@ -68,7 +68,8 @@ describe("RiaPicksList detail", () => {
     await waitFor(() => expect(second.getByText("$260.00")).toBeTruthy());
     await act(async () => { finishFirst({ symbol: "NVDA", price: 999, changePct: 1, quotedAt: null, source: "Fixture", stale: false, delayed: false }); });
     expect(second.queryByText("$999.00")).toBeNull();
-    expect(second.getByText(/Quote time unavailable/)).toBeTruthy();
+    expect(second.queryByText(/Quote time unavailable/)).toBeNull();
+    expect(within(second.getByRole("region", { name: "Stock quote" })).getByText("USD", { exact: true })).toBeTruthy();
     expect(second.getByText("+0.00%")).toBeTruthy();
   });
 

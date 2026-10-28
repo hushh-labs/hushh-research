@@ -12,7 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 class ConsentReadOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    bundle_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    bundle_id: str = Field(
+        pattern=r"^(?:[0-9a-f-]{36}|finance:[0-9a-f-]{36}:[1-9][0-9]{0,8})$", max_length=90
+    )
     read_nonce: str = Field(pattern=r"^[0-9a-f]{32}$")
     submission_key: str | None = Field(default=None, min_length=16, max_length=256)
 
@@ -47,6 +49,17 @@ class ConsentFeedProjection(BaseModel):
 
 def project_consent_feed(raw: Any) -> dict:
     """Reject undeclared fields at both signing and opening; never carry values."""
+    if isinstance(raw, dict) and "finance" in raw:
+        from hushh_mcp.one_adk.finance_share_context import FinanceReviewAuthority
+
+        if set(raw) != {"readNonce", "finance"} or not __import__("re").fullmatch(
+            r"[0-9a-f]{32}", str(raw["readNonce"])
+        ):
+            raise ValueError("invalid_finance_authority")
+        return {
+            "readNonce": raw["readNonce"],
+            "finance": FinanceReviewAuthority.model_validate(raw["finance"]).model_dump(),
+        }
     result = ConsentFeedProjection.model_validate(raw).model_dump()
     if any(
         item["modelProcessingAllowed"] and (item["status"] != "granted" or not item["accessReady"])
@@ -70,6 +83,17 @@ def project_consent_feed(raw: Any) -> dict:
 
 
 async def read_consent_feed(owner: str, options: ConsentReadOptions) -> dict:
+    if options.bundle_id.startswith("finance:"):
+        from hushh_mcp.services.finance_sharing_service import finance_review_authority
+
+        if options.submission_key:
+            raise ValueError("finance_has_no_bundle_submission")
+        return project_consent_feed(
+            {
+                "readNonce": options.read_nonce,
+                "finance": await finance_review_authority(owner, options.bundle_id),
+            }
+        )
     from hushh_mcp.services.information_request_service import InformationRequestService
 
     service = InformationRequestService()
@@ -100,7 +124,7 @@ class PodConsentReadPort:
             raise PermissionError("consent_requester_mismatch")
         await self.owner.require_access()
         options = ConsentReadOptions(
-            bundle_id=str(UUID(bundle_id)),
+            bundle_id=bundle_id if bundle_id.startswith("finance:") else str(UUID(bundle_id)),
             read_nonce=secrets.token_hex(16),
             submission_key=idempotency_key,
         )
@@ -116,6 +140,15 @@ class PodConsentReadPort:
         )
         await self.owner.require_access()
         checked = project_consent_feed(projection)
+        if options.bundle_id.startswith("finance:"):
+            finance = checked.get("finance", {})
+            if (
+                checked["readNonce"] != options.read_nonce
+                or finance.get("sourceRef") != options.bundle_id
+                or finance.get("recipientUserId") != requester_user_id
+            ):
+                raise PermissionError("finance_read_binding_changed")
+            return finance
         if (
             checked["readNonce"] != options.read_nonce
             or checked["bundle"]["bundleId"] != options.bundle_id
@@ -124,4 +157,9 @@ class PodConsentReadPort:
         return checked["bundle"]
 
     async def lookup(self, owner_id: str, bundle_id: str) -> dict:
-        return await self.get(requester_user_id=owner_id, bundle_id=bundle_id)
+        result = await self.get(requester_user_id=owner_id, bundle_id=bundle_id)
+        if bundle_id.startswith("finance:"):
+            from hushh_mcp.one_adk.finance_share_context import finance_lifecycle
+
+            return finance_lifecycle(result)
+        return result

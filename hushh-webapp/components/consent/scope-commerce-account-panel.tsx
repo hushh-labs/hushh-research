@@ -14,15 +14,17 @@ import { useScopeCommerceAccount } from "@/components/consent/use-scope-commerce
 import { COMMERCE_SANDBOX_COPY } from "@/lib/services/scope-commerce-sandbox";
 
 /** Account-level funds and earning controls; every movement requires a human gesture. */
-export function ScopeCommerceAccountPanel() {
-  const state = useScopeCommerceAccount();
-  const { user, account, busy, message, review } = state;
-  const userId = user?.uid;
-  const [expanded, setExpanded] = useState({ owner: user?.uid, value: state.onboardingRefresh ? "payouts" : "" });
+export function ScopeCommerceAccountPanel({ model }: { model?: ReturnType<typeof useScopeCommerceAccount> } = {}) {
+  return model ? <ScopeCommerceAccountView state={model} /> : <OwnedScopeCommerceAccountPanel />;
+}
+function OwnedScopeCommerceAccountPanel() { return <ScopeCommerceAccountView state={useScopeCommerceAccount()} />; }
+function ScopeCommerceAccountView({ state }: { state: ReturnType<typeof useScopeCommerceAccount> }) {
+  const { user, userId, account, busy, message, review } = state;
+  const [expanded, setExpanded] = useState({ owner: userId, value: state.onboardingRefresh ? "payouts" : "" });
   useEffect(() => { if (state.onboardingRefresh && userId) setExpanded({ owner: userId, value: "payouts" }); }, [state.onboardingRefresh, userId]);
-  const section = expanded.owner === user?.uid ? expanded.value : "";
+  const section = expanded.owner === userId ? expanded.value : "";
   useCommerceAccountBackLayer(section ? 1 : 0, () => {
-    setExpanded({ owner: user?.uid, value: "" });
+    setExpanded({ owner: userId, value: "" });
     return true;
   });
   if (!user) return null;
@@ -38,7 +40,7 @@ export function ScopeCommerceAccountPanel() {
       {account?.enabled === false && !account.managed_balances ? <p data-consent-role="status" role="status" className="text-sm">New purchases and funding are currently unavailable. Your sharing history remains below.</p> : null}
       {!account ? <Button data-consent-role="compact-action" variant="outline" data-consent-quiet-action="true" disabled={busy} onClick={() => void state.refresh()}>Check payments</Button> : <>
         {account.balance ? <CommerceBalanceSummary account={account} /> : null}
-        <Accordion type="single" collapsible value={section} onValueChange={value => setExpanded({ owner: user.uid, value })}>
+        <Accordion type="single" collapsible value={section} onValueChange={value => setExpanded({ owner: userId, value })}>
           {account.balance ? <>
             <AccordionItem value="funding"><AccordionTrigger>Add funds</AccordionTrigger><AccordionContent>
               <CommerceFundingControls enabled={account.readiness?.capabilities.start_funding === true} busy={busy} amount={state.amount} changeAmount={state.changeAmount} checkout={() => void state.checkout()} />
@@ -61,7 +63,7 @@ export function ScopeCommerceAccountPanel() {
             </AccordionContent></AccordionItem> : null}
           </> : null}
           <AccordionItem value="history"><AccordionTrigger>History</AccordionTrigger><AccordionContent>
-            <ScopeCommerceActivity key={user.uid} />
+            <ScopeCommerceActivity key={userId ?? "pending-owner"} />
           </AccordionContent></AccordionItem>
         </Accordion>
         <Button data-consent-role="compact-action" variant="ghost" data-consent-quiet-action="true" disabled={busy} onClick={() => void state.refresh()}>Refresh payment status</Button>

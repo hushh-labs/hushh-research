@@ -1216,22 +1216,14 @@ export function ConnectedSystemsPanel({
     void promise.then(
       () => {
         if (!isCurrentPanelRequest(requestContext)) {
-          const toastId =
-            typeof mutationToast === "string" ||
-            typeof mutationToast === "number"
-              ? mutationToast
-              : null;
-          if (toastId !== null) toast.dismiss(toastId);
+          const toastId = mutationToast?.valueOf();
+          if (typeof toastId === "string" || typeof toastId === "number") toast.dismiss(toastId);
         }
       },
       () => {
         if (!isCurrentPanelRequest(requestContext)) {
-          const toastId =
-            typeof mutationToast === "string" ||
-            typeof mutationToast === "number"
-              ? mutationToast
-              : null;
-          if (toastId !== null) toast.dismiss(toastId);
+          const toastId = mutationToast?.valueOf();
+          if (typeof toastId === "string" || typeof toastId === "number") toast.dismiss(toastId);
         }
       },
     );

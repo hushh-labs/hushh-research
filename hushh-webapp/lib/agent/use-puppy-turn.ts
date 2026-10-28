@@ -240,7 +240,7 @@ export function usePuppyTurn({
   chatModel: PuppyChatModel;
   machine: string;
 }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultOwnerToken } = useVault();
   const [turns, setTurns] = useState<PuppyChatTurn[]>([]);
   const turnsRef = useRef<PuppyChatTurn[]>([]);
@@ -273,7 +273,7 @@ export function usePuppyTurn({
     update(() => [...prior, { id: ids.user, role: "user", text: message }, { id: ids.assistant, role: "assistant", text: "", replyTo: ids.user }]);
     const painter = createPainter(ids.assistant, update);
     try {
-      if (!user?.uid || !vaultOwnerToken) throw new Error("PRIVATE_AGENT_UNLOCK_REQUIRED");
+      if (!userId || !vaultOwnerToken) throw new Error("PRIVATE_AGENT_UNLOCK_REQUIRED");
       await runPuppyTurn({
         controller, ids, message, history: puppyModelHistory(prior), conversationId, chatModel,
         vaultOwnerToken, painter, enterStage, update, progress,
@@ -295,7 +295,7 @@ export function usePuppyTurn({
       if (requestRef.current === controller) requestRef.current = null;
       setBusy(false);
     }
-  }, [chatModel, conversationId, enterStage, machine, update, user?.uid, vaultOwnerToken]);
+  }, [chatModel, conversationId, enterStage, machine, update, userId, vaultOwnerToken]);
 
   const stop = useCallback(() => {
     if (!requestRef.current) return;

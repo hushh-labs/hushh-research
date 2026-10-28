@@ -124,7 +124,7 @@ function KaiOnboardingPageContent({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const nativeTestConfig = useNativeTestConfig();
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
 
   const [source, setSource] = useState<OnboardingSource | null>(null);
@@ -188,18 +188,19 @@ function KaiOnboardingPageContent({
         setLoadError(null);
         return;
       }
+      if (!userId) return;
 
       try {
         setLoadError(null);
         setStage("loading");
 
-        const hasVault = await VaultService.checkVault(user.uid);
+        const hasVault = await VaultService.checkVault(userId);
         if (cancelled) return;
 
         if (!hasVault) {
           setSource("pre_vault");
           const remoteState = await PreVaultUserStateService.bootstrapState(
-            user.uid,
+            userId,
           );
           if (cancelled) return;
 
@@ -213,7 +214,7 @@ function KaiOnboardingPageContent({
             setOnboardingFlowActiveCookie(false);
           }
 
-          const pending = await PreVaultOnboardingService.load(user.uid);
+          const pending = await PreVaultOnboardingService.load(userId);
           if (cancelled) return;
           setPreVaultState(pending);
           // The investor-preferences wizard renders here when the root flow is
@@ -240,7 +241,7 @@ function KaiOnboardingPageContent({
         setSource("vault");
 
         if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
-          const pending = await PreVaultOnboardingService.load(user.uid);
+          const pending = await PreVaultOnboardingService.load(userId);
           if (cancelled) return;
           if (pending || isStaticFinanceSetupRoute) {
             setSource("pre_vault");
@@ -254,7 +255,7 @@ function KaiOnboardingPageContent({
         }
 
         const nextProfile = await KaiProfileService.getProfile({
-          userId: user.uid,
+          userId,
           vaultKey,
           vaultOwnerToken,
         });
@@ -268,7 +269,7 @@ function KaiOnboardingPageContent({
           // decision. Returning to the hub leaves its explicit Finish/Skip as
           // the sole authority for resolving onboarding.
           const rootState = await PreVaultUserStateService.bootstrapState(
-            user.uid,
+            userId,
           ).catch(() => null);
           setOnboardingRequiredCookie(
             !PreVaultUserStateService.isSetupResolved(rootState),
@@ -315,7 +316,7 @@ function KaiOnboardingPageContent({
     authLoading,
     inviteToken,
     user,
-    user?.uid,
+    userId,
     isVaultUnlocked,
     vaultKey,
     vaultOwnerToken,
@@ -357,7 +358,7 @@ function KaiOnboardingPageContent({
   }, [source, stage]);
 
   const handleLaunchDashboard = async () => {
-    if (saving || !user) {
+    if (saving || !userId) {
       return {
         status: "blocked" as const,
         summary: "Finance setup is not ready to finish yet.",
@@ -369,7 +370,7 @@ function KaiOnboardingPageContent({
       // Preferences are only the first Finance checkpoint. Continue into the
       // existing portfolio-source choice; the explicit terminal Finance step
       // marks the capability complete after Plaid, statement, or "later" settles.
-      const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
+      const journey = await PreVaultUserStateService.bootstrapState(userId, {
         force: true,
       });
       if (!canActivateFinanceSetup(journey)) {
@@ -381,7 +382,7 @@ function KaiOnboardingPageContent({
         };
       }
       await PreVaultUserStateService.syncOnboardingJourney({
-        userId: user.uid,
+        userId,
         phase: "capability_setup",
         activeCapability: "finance",
         callbackState: "none",
@@ -504,7 +505,7 @@ function KaiOnboardingPageContent({
     return <SetupCapabilityLoading label="Preparing Finance setup…" />;
   }
 
-  if (!user) {
+  if (!user || !userId) {
     return (
       <SetupKaiStageRegion>
         <HushhLoader label="Redirecting..." variant="inline" />
@@ -694,7 +695,7 @@ function KaiOnboardingPageContent({
             const score = computeRiskScore(
               nextAnswers as PreVaultOnboardingAnswers,
             );
-            void PreVaultOnboardingService.saveDraft(user.uid, {
+            void PreVaultOnboardingService.saveDraft(userId, {
               answers: nextAnswers,
               risk_score: score,
               risk_profile: score === null ? null : mapRiskProfile(score),
@@ -727,7 +728,7 @@ function KaiOnboardingPageContent({
                 }
 
                 const nextProfile = await KaiProfileService.savePreferences({
-                  userId: user.uid,
+                  userId,
                   vaultKey,
                   vaultOwnerToken,
                   updates: nextAnswers,
@@ -739,7 +740,7 @@ function KaiOnboardingPageContent({
                   nextAnswers as PreVaultOnboardingAnswers,
                 );
                 const nextState = await PreVaultOnboardingService.saveDraft(
-                  user.uid,
+                  userId,
                   {
                     answers: nextAnswers,
                     risk_score: score,

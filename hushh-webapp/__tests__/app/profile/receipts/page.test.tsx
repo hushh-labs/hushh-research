@@ -680,6 +680,7 @@ describe("ProfileReceiptsPage", () => {
         providerData: [{ providerId: "google.com" }],
         getIdToken: vi.fn().mockResolvedValue("token-abc"),
       },
+      userId: "user-123",
       loading: false,
     });
     mocks.useVault.mockReturnValue({

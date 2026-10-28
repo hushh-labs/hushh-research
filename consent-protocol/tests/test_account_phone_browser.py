@@ -24,6 +24,7 @@ from tests.helpers.phone_conflict_browser import (
     OWNERS,
     PHONE,
     _assert_erased,
+    _assert_linked_deleted,
     _assert_preserved,
     _schema,
     _seed,
@@ -31,6 +32,7 @@ from tests.helpers.phone_conflict_browser import (
 from tests.helpers.phone_transfer_postgres import database_url as database_url
 
 pytestmark = [pytest.mark.feature_auth_reliability, pytest.mark.trace_loop]
+SCENARIOS = {"recover", "delete", "delete_linked", "transfer", "devices"}
 
 
 class RecordedFirebase:
@@ -282,14 +284,15 @@ def _install_provider_transport(monkeypatch, recorded):
     monkeypatch.setattr(account_firebase_mutations, "AuthorizedSession", ProviderSession)
 
 
-def _fixture_app(pool, recorded, baseline, outcomes):
+def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
     from api.middlewares.observability import observability_middleware
-    from api.routes import account, db_proxy
+    from api.routes import account, account_phone_linked_deletion, db_proxy
     from hushh_mcp.services import account_deletion_provider_worker as worker
 
     app = FastAPI()
     app.middleware("http")(observability_middleware)
     app.include_router(account.router)
+    app.include_router(account_phone_linked_deletion.router)
     app.include_router(db_proxy.router)
     recorded.install_http(app)
 
@@ -301,11 +304,15 @@ def _fixture_app(pool, recorded, baseline, outcomes):
 
     @app.post("/__phone_fixture/reset/{scenario}")
     async def reset(scenario: str):
-        if scenario not in {"recover", "delete", "transfer", "devices"}:
+        if scenario not in SCENARIOS:
             raise HTTPException(404)
         baseline.clear()
         baseline.update(await _seed(pool, files=scenario in {"recover", "transfer"}))
         recorded.active = "previous" if scenario == "devices" else "receiving-a"
+        # The sign-in handoff remains the path whenever in-place deletion is off.
+        monkeypatch.setenv(
+            "HUSHH_PHONE_LINKED_DELETION_ENABLED", "false" if scenario == "delete" else "true"
+        )
         recorded.phone = PHONE
         recorded.claims.clear()
         recorded.challenges.clear()
@@ -313,18 +320,22 @@ def _fixture_app(pool, recorded, baseline, outcomes):
         recorded.sends = 0
         return {"ready": True}
 
-    @app.post("/__phone_fixture/drain/delete")
-    async def drain():
+    @app.post("/__phone_fixture/drain/{scenario}")
+    async def drain(scenario: str):
+        if scenario not in {"delete", "delete_linked"}:
+            raise HTTPException(404)
         # Controlled scheduler delivery; canonical lease, journal and SQL writer.
         return {"settled": await worker.drain(limit=1)}
 
     @app.post("/__phone_fixture/assert/{scenario}")
     async def assert_persisted(scenario: str):
-        if scenario not in {"recover", "delete", "transfer", "devices"}:
+        if scenario not in SCENARIOS:
             raise HTTPException(404)
         async with pool.acquire() as conn:
             if scenario == "delete":
                 await _assert_erased(conn, recorded, baseline)
+            elif scenario == "delete_linked":
+                await _assert_linked_deleted(conn, recorded, baseline)
             else:
                 await _assert_preserved(conn, recorded, baseline, scenario)
         outcomes.append(scenario)
@@ -353,7 +364,7 @@ async def test_recorded_phone_browser_journeys(
         _install_ports(monkeypatch, pool, engine, recorded)
         outcomes = []
         baseline = {}
-        app = _fixture_app(pool, recorded, baseline, outcomes)
+        app = _fixture_app(pool, recorded, baseline, outcomes, monkeypatch)
         async with browser_backend(app) as origin:
             try:
                 result = await run_browser_process(
@@ -368,7 +379,20 @@ async def test_recorded_phone_browser_journeys(
             except AssertionError as error:
                 if not readback_failure:
                     raise
-                report = json.loads(str(error).removeprefix("Browser loop failed: "))
+                report = None
+                for line in reversed(str(error).splitlines()):
+                    try:
+                        candidate = json.loads(line.removeprefix("Browser loop failed: "))
+                    except json.JSONDecodeError:
+                        continue
+                    if (
+                        isinstance(candidate, dict)
+                        and candidate.get("code") == "PHONE_BROWSER_LOOP_FAILED"
+                    ):
+                        report = candidate
+                        break
+                if report is None:
+                    raise
                 assert report["code"] == "PHONE_BROWSER_LOOP_FAILED"
                 assert report["stage"] == "transfer_readback"
                 assert report["diagnostics"]["transfer"] == {
@@ -382,14 +406,14 @@ async def test_recorded_phone_browser_journeys(
                 }
                 async with pool.acquire() as connection:
                     await _assert_preserved(connection, recorded, baseline, "transfer")
-                assert outcomes == ["recover", "delete"]
+                assert outcomes == ["recover", "delete", "delete_linked"]
                 return
         assert not readback_failure, (
             "A blocked authoritative status read must not pass the browser gate"
         )
         assert result["feature"] == "phone_conflict"
         assert result["engine"] == browser_engine
-        assert outcomes == ["recover", "delete", "transfer", "devices"]
+        assert outcomes == ["recover", "delete", "delete_linked", "transfer", "devices"]
         assert "legacy_257_handoff_rejected" in result["trace_loop"]
     finally:
         engine.dispose()

@@ -382,6 +382,7 @@ describe("RiaPicksPage", () => {
         uid: "ria-user-1",
         getIdToken: vi.fn().mockResolvedValue("token-123"),
       },
+      userId: "ria-user-1",
     });
     mocks.usePersonaState.mockReturnValue({
       riaCapability: "ready",

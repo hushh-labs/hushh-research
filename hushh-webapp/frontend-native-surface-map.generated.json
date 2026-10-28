@@ -4043,6 +4043,69 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/kai/portfolio/analysis",
+      "page_file": "app/one/kai/portfolio/analysis/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/kai/kai-portfolio-detail-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "KaiFlow"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.kai.portfolio.analysis",
+          "purpose": "Review source-backed portfolio analysis.",
+          "screen": "kai_portfolio_analysis",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The route displays available saved portfolio facts and labels missing information.",
+          "next_route": "/one/kai?tab=portfolio",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/kai/portfolio/analysis",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fanalysis",
+        "expectedMarker": "native-route-kai-portfolio-analysis",
+        "expectedRoute": "/one/kai/portfolio/analysis",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/kai/portfolio/holdings",
       "page_file": "app/one/kai/portfolio/holdings/page.tsx",
       "physical_page_exists": true,
@@ -9870,6 +9933,9 @@
         "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
         "phone_mandate.delete_previous",
+        "phone_mandate.delete_previous_cancel",
+        "phone_mandate.delete_previous_confirm",
+        "phone_mandate.delete_previous_verify_again",
         "phone_mandate.recover",
         "phone_mandate.review_previous_devices",
         "phone_mandate.select_country",
@@ -11000,5 +11066,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "25d819595d1a019beb7efbf3c0fc9282f8bc4fd19ed8c6234a76b8ededaaad36"
+  "content_sha256": "81262939761ae018b55d963f07218de1a95071f5e4ec15d86dea0f22bf70db25"
 }

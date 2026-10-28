@@ -66,6 +66,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/connected-systems")).toBe("connected_systems");
     expect(resolveRouteId("/one/kai")).toBe("kai_home");
     expect(resolveRouteId("/one/kai/market")).toBe("kai_home");
+    expect(resolveRouteId("/one/kai/portfolio/analysis")).toBe("kai_portfolio_analysis");
     expect(resolveRouteId("/one/kai/news")).toBe("kai_market_news");
     expect(resolveRouteId("/kai")).toBe("kai_home");
     expect(resolveRouteId("/kai/dashboard")).toBe(

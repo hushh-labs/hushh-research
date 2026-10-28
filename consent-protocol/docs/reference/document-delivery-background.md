@@ -22,7 +22,10 @@ device-encrypted version 1 delivery contract retain their existing behavior.
 The requester explicitly submits `oneCopyRequested=true`,
 `activityAccepted=true` and
 `activityDisclosureVersion=one-document-activity-v1`. The owner explicitly accepts
-server copying with `oneCopyAccepted=true` on the existing Allow action. Existing
+server copying with `oneCopyAccepted=true` on the existing Allow action. The owner
+review projects the sealed `oneCopyRequested=true` marker; every Allow surface shows
+the copy terms and sends acceptance only when it is present, because a Drive-only
+request refuses acceptance. Existing
 OAuth, Trusted membership and historical approvals do not grant copy consent.
 New combined requests, including Trusted recipients, wait for the same combined
 Allow before either delivery proceeds. Historical and Drive-only Trusted requests
@@ -119,3 +122,10 @@ The nearest regressions are `tests/services/test_document_delivery_background.py
 and `tests/services/test_document_delivery_background_exports.py`.
 It uses real isolated PostgreSQL and the existing signed-payment flow; only
 Google, Stripe session transport and ciphertext storage are synthetic.
+
+
+Allow diagnostic compatibility: missing explicit owner-copy acceptance retains
+HTTP 422 and `detail.code=invalid_argument`, with additive fixed
+`detail.reason=owner_copy_consent_missing`. Copy acceptance on a Drive-only
+request uses `owner_copy_consent_unexpected`. Both refuse the transaction before
+approval/payment effects. These diagnostics never supply or bypass consent.

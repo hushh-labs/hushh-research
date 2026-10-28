@@ -345,3 +345,48 @@ def test_an_enable_operation_that_completes_with_an_error_is_a_refusal(caplog):
     )
     # It refused at the enablement step: nothing after it ran.
     assert session.posts == 1
+
+
+@pytest.mark.parametrize("mode", ["link", "already", "foreign", "unverified"])
+def test_managed_billing_uses_only_the_admitted_account_and_requires_readback(mode):
+    expected = "billingAccounts/000000-000000-000000"
+
+    class Session:
+        def __init__(self):
+            self.links = []
+
+        def get(self, url, **kwargs):
+            if url.endswith(expected):
+                return _Response(200, {"name": expected, "open": True})
+            assert url.endswith("/projects/managed-pilot-project/billingInfo")
+            if mode == "foreign":
+                return _Response(
+                    200,
+                    {
+                        "billingAccountName": "billingAccounts/111111-111111-111111",
+                        "billingEnabled": True,
+                    },
+                )
+            if mode == "already" or (self.links and mode != "unverified"):
+                return _Response(200, {"billingAccountName": expected, "billingEnabled": True})
+            return _Response(200, {"billingAccountName": "", "billingEnabled": False})
+
+        def put(self, url, **kwargs):
+            self.links.append(kwargs["json"])
+            return _Response(200, {})
+
+    session = Session()
+    arguments = dict(project_id="managed-pilot-project", expected_account=expected, session=session)
+    if mode in {"foreign", "unverified"}:
+        with pytest.raises(oauth.ByocAuthorizeError):
+            oauth.ensure_billing(token="synthetic", **arguments)  # noqa: S106 -- mock transport only
+    else:
+        result = oauth.ensure_billing(token="synthetic", **arguments)  # noqa: S106 -- mock transport only
+        assert result["observation"] == {
+            "projectId": "managed-pilot-project",
+            "billingAccountName": expected,
+            "billingEnabled": True,
+        }
+    assert session.links == (
+        [] if mode in {"foreign", "already"} else [{"billingAccountName": expected}]
+    )

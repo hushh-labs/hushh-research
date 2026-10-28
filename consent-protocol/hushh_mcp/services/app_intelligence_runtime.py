@@ -54,6 +54,10 @@ from hushh_mcp.services.capability_run_service import (
 )
 from hushh_mcp.services.generated_contracts import generated_contract_path
 from hushh_mcp.services.route_orchestration_index import load_route_orchestration_index
+from hushh_mcp.services.service_api_auth_boundary import (
+    _endpoint_auth_boundary,
+    _source_auth_boundary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1286,22 +1290,9 @@ def _discover_native_semantic_actions(
     return sorted(discovered, key=lambda item: (item["service_id"], item["tool_name"]))
 
 
-def _endpoint_auth_boundary(route: Any) -> str:
-    """Classify only the route's auth boundary, never its request values."""
-    dependant = getattr(route, "dependant", None)
-    dependencies = getattr(dependant, "dependencies", None) or []
-    names = {
-        str(getattr(getattr(dependency, "call", None), "__name__", ""))
-        for dependency in dependencies
-    }
-    # These exact placement guards retain the underlying authentication
-    # dependency and additionally refuse private owners on hub content routes.
-    # This catalog label never admits an owner or binds an executable action.
-    if names & {"require_vault_owner_token", "hub_content_owner"}:
-        return "vault_owner"
-    if names & {"require_firebase_auth", "hub_content_firebase"}:
-        return "firebase_auth"
-    return "not_declared"
+# Browser-only credential brokers must never enter the agent capability catalog,
+# even as unbound endpoint metadata. They are not semantic agent actions.
+_INTERNAL_AUTHORITY_ROUTES = frozenset({"/api/one/calendar/guest-photo-token"})
 
 
 def _discover_service_api_endpoints_from_router(
@@ -1316,7 +1307,11 @@ def _discover_service_api_endpoints_from_router(
     for route in getattr(router, "routes", ()) or ():
         path = str(getattr(route, "path", "") or "").strip()
         methods = getattr(route, "methods", None)
-        if not path or not isinstance(methods, (set, frozenset, list, tuple)):
+        if (
+            path in _INTERNAL_AUTHORITY_ROUTES
+            or not path
+            or not isinstance(methods, (set, frozenset, list, tuple))
+        ):
             continue
         operation_name = str(getattr(route, "name", "") or "").strip()
         auth_boundary = _endpoint_auth_boundary(route)
@@ -1341,19 +1336,6 @@ def _discover_service_api_endpoints_from_router(
     return sorted(
         result, key=lambda item: (item["path"], item["method"], item["operation_name"] or "")
     )
-
-
-def _source_auth_boundary(node: ast.AST) -> str:
-    """Read a declared auth dependency from a route source fallback."""
-    names = {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
-    # These exact placement guards retain the underlying authentication
-    # dependency and additionally refuse private owners on hub content routes.
-    # This catalog label never admits an owner or binds an executable action.
-    if names & {"require_vault_owner_token", "hub_content_owner"}:
-        return "vault_owner"
-    if names & {"require_firebase_auth", "hub_content_firebase"}:
-        return "firebase_auth"
-    return "not_declared"
 
 
 def _discover_service_api_endpoints_from_source(service_id: str) -> list[dict[str, Any]]:
@@ -1410,6 +1392,8 @@ def _discover_service_api_endpoints_from_source(service_id: str) -> list[dict[st
             if not route_path.startswith("/"):
                 continue
             path = f"{prefix.rstrip('/')}{route_path}" if prefix else route_path
+            if path in _INTERNAL_AUTHORITY_ROUTES:
+                continue
             result.append(
                 {
                     "capability_id": f"api.{clean_service_id}.{method.lower()}.{node.name}",

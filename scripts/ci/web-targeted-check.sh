@@ -163,7 +163,9 @@ if has_match '^hushh-webapp/(components/(consent/|profile/|secrets/)|lib/(consen
   ran=1
 fi
 
+drive_layout_required=0
 if has_match '^hushh-webapp/(components/consent/|components/agent/(drive-background-search|drive-read-memory-action|first-connect-insights-card)\.tsx|lib/agent/(connector-memory-review|drive-sharing-card-preferences|first-connect-insights)\.ts|lib/(consent/document-share-consent|services/drive-sharing-service|feed/use-feed-actionables)\.ts|e2e/(document-share-review\.layout\.spec\.ts|drive-sharing-card\.layout\.spec\.ts|fixtures/(document-share-|drive-sharing-card|drive-memory-boundaries))|__tests__/.*(document-share|drive-sharing|consent-center-page-deeplink))'; then
+  drive_layout_required=1
   run_full_suite_check "Drive exact-file review boundary" npm run test:drive-sharing-web
   run_check "Drive mounted review layout" npm run test:drive-sharing-layout
   ran=1
@@ -171,7 +173,14 @@ fi
 
 if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|components/(app-ui/illustrated-request-dialog\.(tsx|module\.css)|consent/((document-file-request|document-request-button|request-scope-button|drive-packet-catalog)\.tsx|packets/)|wallet/request-cards-button\.tsx|connections/person-profile-(page\.tsx|page\.module\.css|hero\.tsx|packets\.tsx)|profile/profile-workspace-page\.tsx|ui/(alert-dialog|sheet)\.tsx|icons/ui/shortcut-(action-icons\.tsx|icon-motion\.module\.css))|lib/(navigation/(web-history-back|profile-pane)\.ts|morphy-ux/hooks/use-shortcut-icon-motion\.ts)|app/globals\.css|e2e/(helpers/drawer-geometry\.ts|connections-drawer\.layout\.spec\.ts|person-profile-actions\.layout\.spec\.ts|financial-packets\.layout\.spec\.ts|profile-confirmation-back\.spec\.ts|shortcut-icons\.motion\.spec\.ts|fixtures/(connections-|person-profile(-requests|-request-ports)?\.tsx|person-profile-browser\.ts|profile-confirmation-back\.tsx|shortcut-icon-motion\.tsx))|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
   run_full_suite_check "Connections web boundary" npm run test:connections-web
-  run_check "Connections mounted browser layout" npm run test:connections-layout
+  # Drive runs the full first-connect spec without a grep filter in both browser
+  # projects. Its selected cases therefore include Connections' filtered cases.
+  # The governance contract checks those assumptions before this can land.
+  if [ "$drive_layout_required" -eq 1 ]; then
+    run_check "Connections mounted browser layout" npm run test:connections-layout:without-covered
+  else
+    run_check "Connections mounted browser layout" npm run test:connections-layout
+  fi
   ran=1
 fi
 
@@ -197,7 +206,8 @@ fi
 
 # Calendar owns a transport-backed fixture for connected Schedule. Keep this
 # explicitly registered; the general layout script enumerates its own specs.
-if has_match '^hushh-webapp/(components/calendar/|lib/calendar/|lib/services/google-calendar-service\.ts|e2e/calendar-connected-workspace\.layout\.spec\.ts|e2e/fixtures/calendar-connected)'; then
+if has_match '^hushh-webapp/(components/calendar/|lib/calendar/|lib/services/google-calendar-service\.ts|lib/services/calendar-insights-service\.ts|e2e/calendar-connected-workspace\.layout\.spec\.ts|e2e/fixtures/calendar-connected)'; then
+  run_full_suite_check "Calendar HUSSH person photos" npm run test:calendar-hussh-photos
   run_check "Calendar workspace layout" npm run test:calendar-workspace-layout
   ran=1
 fi

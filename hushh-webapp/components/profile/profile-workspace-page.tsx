@@ -28,8 +28,8 @@ import { PROFILE_ICONS } from "@/components/icons/profile-icons";
 import accountStyles from "@/components/profile/profile-your-account.module.css";
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
-import { toast } from "sonner";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
+import { useNativeProfileFeatures } from "./use-native-profile-features";
 import { NativeProfilePresentation } from "./native-profile-menu";
 import { AccountConfirmationPreparation } from "./account-confirmation-preparation";
 import { useNativeProfilePreferences } from "./use-native-profile-preferences";
@@ -44,10 +44,8 @@ import { useProfileVaultMethodsModel } from "./use-profile-vault-methods-model";
 import { useNativeVaultMethods } from "./use-native-vault-methods";
 import { NativeVaultPasswordEditor } from "./native-vault-password-editor";
 import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./native-request-pricing";
-import { useNativePayouts } from "./use-native-payouts";
 import { useNativeReferrals } from "./use-native-referrals";
 import { ReferralsPanelView } from "./referrals-panel";
-import { useNativeConnectors } from "./use-native-connectors";
 import { useNativeMemory } from "./use-native-memory";
 import { NativeMemoryEditor } from "./native-memory-editor";
 import { validNativeMemoryDraft, type NativeMemoryDraft } from "@/lib/capacitor/native-profile-memory-scene";
@@ -97,7 +95,7 @@ import { useNativeRuntimeSettings } from "@/components/profile/use-native-runtim
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import { MailActionsGroup } from "@/components/profile/mail-actions-group";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
-import { buildProfileConnectorsStackEntry } from "@/components/profile/profile-connectors-section";
+import { buildProfileConnectorsStackEntry, RetainedProfileConnectors, useRetainedProfileConnectorNavigation } from "@/components/profile/profile-connectors-section";
 import type { ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
 import {
   buildProfileLegalStackEntries,
@@ -535,8 +533,8 @@ function ProfilePageContent({
   nativeControlsEligible = true,
   nativeMenuOpen = false,
   onNativeMenuClose,
-  retainedConnectors,
-}: ProfilePageProps & { retainedConnectors?: ConnectorsPanelPresentation }) {
+}: ProfilePageProps) {
+  const [retainedConnectors, setRetainedConnectors] = useState<ConnectorsPanelPresentation>();
   const isPanePresentation = presentation !== "route";
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
   const appAccent = useAccent();
@@ -564,7 +562,7 @@ function ProfilePageContent({
     signOut,
     startPhoneVerification,
     confirmPhoneVerification,
-    confirmPhoneTransfer,
+    confirmPhoneTransfer, confirmPhoneLinkedDeletion,
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
@@ -987,11 +985,9 @@ function ProfilePageContent({
   const [nativeSharedMemoryAvailable, setNativeSharedMemoryAvailable] = useState(false);
   const [nativeSecretsAvailable, setNativeSecretsAvailable] = useState(false);
   const [nativeWorldModelAvailable, setNativeWorldModelAvailable] = useState(false);
-  const [nativeConnectorsAvailable, setNativeConnectorsAvailable] = useState(false);
-  const nativeConnectorsWanted = presentation === "native-page" && nativeMenuOpen && nativeConnectorsAvailable &&
-    activePanel === "connectors" && vaultAccess.canMutateSecureData && retainedConnectors !== undefined;
-  const nativeConnectors = useNativeConnectors(retainedConnectors, nativeDetailOwner, nativeConnectorsWanted);
-  const nativeConnectorsActive = nativeConnectorsWanted && nativeConnectors.mapped && !nativeConnectors.failed;
+  const { agentSettingsActive, agentSettings, nativeAgentSettings, nativeConnectors, nativeConnectorsActive,
+    setNativeConnectorsAvailable, nativePayoutActive, nativePayout, setNativePaymentsAvailable, setNativePaymentsFailed } = useNativeProfileFeatures({
+    panel: activePanel, native: presentation === "native-page", open: nativeMenuOpen, secure: vaultAccess.canMutateSecureData, owner: nativeDetailOwner, userId: applicationOwnerId || null, connectors: retainedConnectors });
   useBackLayer(pathname, nativeConnectorsActive && nativeConnectors.nested ? 3 : 0, nativeConnectors.back, { profile_pane: "1" });
   const nativeWorldModelActive = presentation === "native-page" && nativeMenuOpen && nativeWorldModelAvailable &&
     activePanel === "world-model" && vaultAccess.canMutateSecureData;
@@ -1017,11 +1013,6 @@ function ProfilePageContent({
   const memorySecrets = useSecretsListModel({
     active: activePanel === "my-data" && isVaultUnlocked && (presentation !== "native-page" || nativeMenuOpen && (!nativeMemoryAvailable || nativeSecretsAvailable || nativeMemoryWebBody)),
     native: nativeMemoryActive && nativeSecretsAvailable && !nativeMemoryWebBody, current: contextVisit.current });
-  // PaymentsAndEarnings now includes information-access funding/refunds and
-  // source-bound Answer setup. The legacy native Hashcoin projection cannot
-  // replace that complete owner composition without losing those operations.
-  const nativePayoutActive = false;
-  const nativePayout = useNativePayouts(nativePayoutActive);
   const nativeReferralActive = presentation === "native-page" && nativeMenuOpen &&
     activePanel === "referrals" && isVaultUnlocked;
   const nativeReferrals = useNativeReferrals(presentation === "native-page" && nativeMenuOpen && activePanel === "referrals", applicationOwnerId ?? null);
@@ -1262,6 +1253,7 @@ function ProfilePageContent({
   const nativeWorldModel = useNativeWorldModel({ active: nativeWorldModelActive, owner: nativeDetailOwner, model: worldModel,
     onAccount: () => updateProfileView({ panel: "account", detail: null }, "push"),
     onMemory: () => updateProfileView({ panel: "my-data", detail: null }, "push") });
+  const changeRetainedConnector = useRetainedProfileConnectorNavigation({ pane: isPanePresentation, pathname, query: searchParams, detail: activeDetail, updateView: updateProfileView });
   useBackLayer(pathname, nativeWorldModelActive && nativeWorldModel.nested ? 3 : 0, nativeWorldModel.back,
     isPanePresentation ? { profile_pane: "1" } : undefined);
   const nativeMemory = useNativeMemory({
@@ -1729,7 +1721,7 @@ function ProfilePageContent({
 
     // Resolve auth first so a vault-unlock requirement is handled as a guard
     // (not as a failed delete). Only the real delete-and-ack work is wrapped in
-    // the branded promise toast.
+    // the branded promise morphyToast.
     let resolution: Awaited<ReturnType<typeof resolveDeleteAccountAuth>>;
     try {
       resolution = await resolveDeleteAccountAuth({
@@ -1930,7 +1922,7 @@ function ProfilePageContent({
       const idToken = await user.getIdToken();
       const result = await RiaService.setContactDiscoverability(idToken, next);
       setContactDiscoverable(Boolean(result.contact_discoverable));
-      toast.success(
+      morphyToast.success(
         result.contact_discoverable
           ? "People who have your number can find and connect with you automatically."
           : "You are hidden from contact sync.",
@@ -1940,7 +1932,7 @@ function ProfilePageContent({
         "[ProfilePage] Failed to update contact discoverability:",
         error,
       );
-      toast.error("Could not update contact discoverability.");
+      morphyToast.error("Could not update contact discoverability.");
     } finally {
       setSavingContactDiscoverable(false);
     }
@@ -1964,7 +1956,7 @@ function ProfilePageContent({
       setMarketplaceOptIn(stored);
       CacheSyncService.onMarketplaceVisibilityChanged(applicationOwnerId);
       await refreshPersonaState({ force: true });
-      toast.success(
+      morphyToast.success(
         stored
           ? "Investor marketplace profile is now discoverable."
           : "Investor marketplace profile is now hidden.",
@@ -1975,7 +1967,7 @@ function ProfilePageContent({
         "[ProfilePage] Failed to update marketplace opt-in:",
         error,
       );
-      toast.error("Couldn't update marketplace visibility.");
+      morphyToast.error("Couldn't update marketplace visibility.");
       return { kind: "failed" };
     } finally {
       setSavingMarketplaceOptIn(false);
@@ -2089,7 +2081,7 @@ function ProfilePageContent({
         changeSupportDraft({ message: "" });
       } else {
         setSupportComposerState({ status: "editing" });
-        toast.success("Message sent");
+        morphyToast.success("Message sent");
       }
       return { kind: "accepted" };
     } catch (error) {
@@ -2118,14 +2110,14 @@ function ProfilePageContent({
       setGmailActionBusy("disconnect");
       const next = await gmail.disconnectGmail();
       if (!next) return;
-      toast.success("Mail disconnected and Mail receipt data was deleted.");
+      morphyToast.success("Mail disconnected and Mail receipt data was deleted.");
     } catch (error) {
       const message = sanitizeGmailUserMessage(error, {
         fallback:
           "We couldn't disconnect Mail right now. Please try again in a moment.",
       });
       console.error("[ProfilePage] Failed to disconnect Gmail:", error);
-      toast.error(message);
+      morphyToast.error(message);
     } finally {
       setGmailActionBusy(null);
     }
@@ -2137,10 +2129,10 @@ function ProfilePageContent({
       setGmailActionBusy("sync");
       const payload = await gmail.syncNow();
       if (!payload?.run?.run_id) {
-        toast.message("We're already syncing your receipts.");
+        morphyToast.custom("We're already syncing your receipts.");
         return;
       }
-      toast.message("Syncing your receipts now.");
+      morphyToast.custom("Syncing your receipts now.");
     } catch (error) {
       const message = sanitizeGmailUserMessage(error, {
         fallback:
@@ -2148,7 +2140,7 @@ function ProfilePageContent({
         authFallback: "Reconnect Mail to continue syncing your receipts.",
       });
       console.error("[ProfilePage] Failed to start Gmail sync:", error);
-      toast.error(message);
+      morphyToast.error(message);
     } finally {
       setGmailActionBusy(null);
     }
@@ -3030,7 +3022,7 @@ function ProfilePageContent({
   ): Promise<boolean> => {
     const target = pkmPreviewEntityTarget(entity);
     const reviewed = domainPreview.open && domainPreview.presentation?.groups.some(group => group.kind === "entities" && group.items.includes(entity));
-    if (!target || !reviewed) { toast.error("Reopen this saved entry before removing it."); return false; }
+    if (!target || !reviewed) { morphyToast.error("Reopen this saved entry before removing it."); return false; }
     const domainKey = domainPreview.domainKey || selectedDomain?.key || null;
     const topLevelScopePath = domainPreview.topLevelScopePath;
     if (
@@ -3122,7 +3114,7 @@ function ProfilePageContent({
 
       void refreshPkmMetadata(true);
       void refreshDomainManifest(domainKey, true);
-      toast.success("Saved entry removed.");
+      morphyToast.success("Saved entry removed.");
       return true;
     } catch (error) {
       if (!operation.current()) return committed;
@@ -3136,8 +3128,8 @@ function ProfilePageContent({
         presentation: committed ? null : current.presentation,
         deletingEntityKey: null,
       }));
-      if (committed) toast.success("Entry removed. Refresh to load the latest details.");
-      else toast.error(message);
+      if (committed) morphyToast.success("Entry removed. Refresh to load the latest details.");
+      else morphyToast.error(message);
       return committed;
     } finally {
       if (previewIsCurrent()) setDomainPreview(value => ({ ...value, deletingEntityKey: null }));
@@ -3165,7 +3157,7 @@ function ProfilePageContent({
     const permissionKey = permission.key;
     const previousManifest = cloneManifest(domainManifests[domainKey] ?? null);
     if (!previousManifest) {
-      toast.error("These details are still preparing sharing controls.");
+      morphyToast.error("These details are still preparing sharing controls.");
       return;
     }
     const operation = memoryOperations.beginWrite(domainKey);
@@ -3214,7 +3206,7 @@ function ProfilePageContent({
       }));
       await Promise.all([refreshConsentCenter(true), refreshPkmMetadata(true)]);
       if (!operation.current()) return;
-      toast.success(
+      morphyToast.success(
         nextPosture === "private"
           ? "This section is private."
           : "One will ask before sharing this section.",
@@ -3231,7 +3223,7 @@ function ProfilePageContent({
       }));
 
       if (committed) {
-        toast.success("Sharing updated. Refresh to load the latest access state.");
+        morphyToast.success("Sharing updated. Refresh to load the latest access state.");
       } else if (error instanceof PkmScopeExposureError && error.status === 409) {
         const [refreshed] = await Promise.all([
           refreshDomainManifest(domainKey, true, operation.current),
@@ -3239,13 +3231,13 @@ function ProfilePageContent({
           refreshPkmMetadata(true),
         ]);
         if (!operation.current()) return;
-        toast.error(
+        morphyToast.error(
           refreshed ? "Sharing changed elsewhere. The latest version has been reloaded."
             : "Sharing changed elsewhere. Refresh these details before trying again.",
         );
       } else {
         void refreshDomainManifest(domainKey, true);
-        toast.error(message || "Couldn't update sharing right now.");
+        morphyToast.error(message || "Couldn't update sharing right now.");
       }
     } finally {
       if (operation.current()) setPendingPermissionToggles((current) => {
@@ -3267,7 +3259,7 @@ function ProfilePageContent({
     const contextText = submitted.text.trim();
 
     if (!contextText) {
-      toast.error("Add financial context before saving.");
+      morphyToast.error("Add financial context before saving.");
       return false;
     }
     const operation = memoryOperations.beginWrite("financial");
@@ -3354,7 +3346,7 @@ function ProfilePageContent({
       }
       if (!operation.current()) return false;
 
-      toast.success(
+      morphyToast.success(
         submitted.target
           ? "Financial context updated."
           : "Financial context saved.",
@@ -3373,7 +3365,7 @@ function ProfilePageContent({
           : "Couldn't save financial context.";
       setPkmError(message);
       setNativeContextError("Couldn't save financial context. Your text is still here. Try again when ready.");
-      toast.error(message);
+      morphyToast.error(message);
       return false;
     } finally {
       if (operation.current()) setSavingFinancialContext(false);
@@ -3487,7 +3479,7 @@ function ProfilePageContent({
           ? error.message
           : "Couldn't delete financial context.";
       setPkmError(message);
-      toast.error(message);
+      morphyToast.error(message);
       return false;
     }
   };
@@ -3644,7 +3636,7 @@ function ProfilePageContent({
     mode: phoneNumber ? "replace" as const : "link" as const, currentPhoneNumber: phoneNumber,
     startVerification: phoneNumber ? startPhoneReplacement : startPhoneVerification,
     confirmVerification: phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification,
-    confirmTransfer: confirmPhoneTransfer,
+    confirmTransfer: confirmPhoneTransfer, confirmLinkedDeletion: confirmPhoneLinkedDeletion,
     ...phoneRecoveryHandoff(user, signOut),
     onCompleted: handleAccountPhoneCompleted, onBackStepChange: bindPhoneBackStep, onNavigationGuardChange: bindPhoneNavigationGuard, onCancel: popProfileStack,
   };
@@ -3683,6 +3675,7 @@ function ProfilePageContent({
           >
             {presentation === "native-page" ? <div ref={setNativeNameHost} /> : <DisplayNameEditor
               user={user}
+              ownerId={applicationOwnerId}
               onSaved={() => setEditingDisplayName(false)}
               onCancel={() => setEditingDisplayName(false)}
             />}
@@ -4261,7 +4254,7 @@ function ProfilePageContent({
         activePanel === "hosting"
           ? "Where your private agent runs."
           : "Your version and available updates.",
-      content: <AgentSettingsPanel kind={activePanel} userId={applicationOwnerId} />,
+      content: <AgentSettingsPanel kind={activePanel} userId={applicationOwnerId} controller={agentSettings} />,
     });
   } else if (!routeBlockedByVault && activePanel === "account") {
     profileStackEntries.push({
@@ -4322,7 +4315,7 @@ function ProfilePageContent({
             isPanePresentation && accountStyles.managedContent,
           )}
         >
-          <PaymentsAndEarnings key={applicationOwnerId} />
+          <PaymentsAndEarnings key={applicationOwnerId} commerce={nativePayout.commerce} answer={nativePayout.answer} />
         </div>
       ),
     });
@@ -4374,7 +4367,7 @@ function ProfilePageContent({
             onSaved={
               pricingReturnTo
                 ? () => {
-                    toast.success("Price saved");
+                    morphyToast.success("Price saved");
                     router.replace(pricingReturnTo);
                   }
                 : undefined
@@ -4516,7 +4509,7 @@ function ProfilePageContent({
       buildProfileConnectorsStackEntry({
         detail: activeDetail,
         updateView: updateProfileView,
-        ...(retainedConnectors ? { content: retainedConnectors.webBody } : {}),
+        ...(presentation === "native-page" ? { content: retainedConnectors?.webBody ?? <p role="status">Loading connectors…</p> } : {}),
       }),
     );
   } else if (activePanel === "legal") {
@@ -4888,7 +4881,7 @@ function ProfilePageContent({
               setTimeout(() => {
                 vaultUnlockCompletingRef.current = false;
               }, 0);
-              toast.success("Vault unlocked.");
+              morphyToast.success("Vault unlocked.");
               return;
             }
             if (pendingProfileTarget) {
@@ -4904,7 +4897,7 @@ function ProfilePageContent({
             setTimeout(() => {
               vaultUnlockCompletingRef.current = false;
             }, 0);
-            toast.success("Vault unlocked.");
+            morphyToast.success("Vault unlocked.");
           }}
         />
       )}
@@ -4936,7 +4929,7 @@ function ProfilePageContent({
               );
               setPendingProfileTarget(null);
             }
-            toast.success("Vault created and unlocked.");
+            morphyToast.success("Vault created and unlocked.");
             setTimeout(() => {
               vaultCreationCompletingRef.current = false;
             }, 0);
@@ -5098,10 +5091,18 @@ function ProfilePageContent({
       { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
     ] }],
   } : undefined;
-  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onMemoryCapability={setNativeMemoryAvailable} onSharedMemoryCapability={setNativeSharedMemoryAvailable} onSecretMemoryCapability={setNativeSecretsAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
+  return <><RetainedProfileConnectors open={nativeMenuOpen && activePanel === "connectors" && vaultAccess.canMutateSecureData}
+    connectorId={activeDetail?.startsWith("connector:") ? activeDetail.slice("connector:".length) : null}
+    onConnectorChange={changeRetainedConnector} publish={setRetainedConnectors} />
+  <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePaymentsAvailable} onMemoryCapability={setNativeMemoryAvailable} onSharedMemoryCapability={setNativeSharedMemoryAvailable} onSecretMemoryCapability={setNativeSecretsAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
     referrals={{ active: nativeReferralActive, pages: nativeReferrals.pages, rows: nativeReferrals.rows, editor: nativeReferrals.editor, formScene: nativeReferrals.formScene,
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
-    workspace={activePanel === "connectors" ? { kind: "connectors", active: nativeConnectorsActive && !showVaultUnlock,
+    workspace={activePanel === "hosting" || activePanel === "software-updates" ? { kind: activePanel,
+      active: agentSettingsActive && !showVaultUnlock, pages: nativeAgentSettings.pages, rows: nativeAgentSettings.rows,
+      back: () => { if (nativeAgentSettings.navigationBlocked()) return false; if (!nativeAgentSettings.back()) popProfileStack(); return true; },
+      ancestor: () => { if (nativeAgentSettings.root()) return true; return false; },
+      root: () => { if (!nativeAgentSettings.root()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }
+    } : activePanel === "connectors" ? { kind: "connectors", active: nativeConnectorsActive && !showVaultUnlock,
       visitKey: activeDetail ?? "catalog", pages: nativeConnectors.pages, rows: nativeConnectors.rows, editor: nativeConnectors.editor, ancestor: nativeConnectors.ancestor, formScene: nativeConnectors.formScene,
       back: () => { if (nativeConnectors.navigationBlocked()) return false; if (!nativeConnectors.back()) popProfileStack(); return true; },
       root: () => {
@@ -5132,8 +5133,9 @@ function ProfilePageContent({
     } : activePanel === "payouts" ? { kind: "payouts", active: nativePayoutActive && !showVaultUnlock, pages: nativePayout.pages, rows: nativePayout.rows,
       onPresented: nativePayout.onPresented,
       ancestor: nativePayout.ancestor,
-      back: () => { if (!nativePayout.back()) popProfileStack(); },
-      root: () => updateProfileView({ panel: null, detail: null }, "replace") } : { kind: "request-pricing", active: nativePricingActive && !showVaultUnlock, pages: [nativePricing.page], rows: nativePricing.rows,
+      formScene: nativePayout.formScene, editor: destinationId => nativePayout.editor(destinationId, () => setNativePaymentsFailed(true)),
+      back: () => { if (nativePayout.busy) return false; if (!nativePayout.back()) popProfileStack(); return true; },
+      root: () => { if (!nativePayout.reset()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; } } : { kind: "request-pricing", active: nativePricingActive && !showVaultUnlock, pages: [nativePricing.page], rows: nativePricing.rows,
       root: () => updateProfileView({ panel: null, detail: null }, "replace"), formScene: nativePricingEditorOpen ? "request-price" : null,
       editor: destinationId => nativePricingEditorOpen ?
         <NativeRequestPricingEditor userId={applicationOwnerId} model={nativePricingModel} destinationId={destinationId}
@@ -5229,15 +5231,16 @@ function ProfilePageContent({
           else if (showResetConfirm) await handleResetAccount();
         }],
       ]), editor: destinationId => editingDisplayName && activePanel === "account" && !activeDetail ?
-        <NativeDisplayNameEditor user={user} destinationId={destinationId} portalFallback webHost={nativeNameHost}
+        <NativeDisplayNameEditor user={user} ownerId={applicationOwnerId} destinationId={destinationId} portalFallback webHost={nativeNameHost}
           onWebFallback={() => setNativeAccountException("name")}
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: applicationOwnerId, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
-      ...(nativeConnectorsActive ? { navigationLocked: nativeConnectors.blocking } : nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : nativeMemoryActive ? { navigationLocked: nativeMemory.busy } : nativeRuntimeActive ? { navigationLocked: runtimeSettings.isSaving || runtimeSettings.isRemoving || runtimeSettings.credentialValidation.status === "checking" } : {}),
+      ...(agentSettingsActive ? { navigationLocked: nativeAgentSettings.navigationBlocked() } : nativePayoutActive ? { navigationLocked: nativePayout.busy } : nativeConnectorsActive ? { navigationLocked: nativeConnectors.blocking } : nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : nativeMemoryActive ? { navigationLocked: nativeMemory.busy } : nativeRuntimeActive ? { navigationLocked: runtimeSettings.isSaving || runtimeSettings.isRemoving || runtimeSettings.credentialValidation.status === "checking" } : {}),
       enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) && !(nativeFinanceActive && nativeFinance.busy) &&
-        !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen) && !(nativePayoutActive && nativePayout.busy),
+        !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen),
       name: user.displayName || "Your account", email: user.email, portrait: nativePortrait,
       onClose: () => {
+        if (agentSettingsActive && nativeAgentSettings.navigationBlocked() || nativePayoutActive && nativePayout.busy) return false;
         if (nativeConnectorsActive && nativeConnectors.navigationBlocked() || nativeWorldModelActive && nativeWorldModel.navigationBlocked() ||
             nativeMemoryActive && nativeMemory.navigationBlocked() || nativeRuntimeActive && runtimeSettings.operationPending()) return false;
         return closeNativeProfile();
@@ -5248,13 +5251,10 @@ function ProfilePageContent({
       owner: applicationOwnerId, context: JSON.stringify([applicationOwnerId, snapshotVaultSessionEpoch(), activePanel, activeDetail]),
       onClose: closeNativeProfile, onBack: () => backProfilePane(pathname, searchParams) }}>
     {page}
-  </NativeProfilePresentation>;
+  </NativeProfilePresentation></>;
 }
 
 export function ProfilePage(props: ProfilePageProps) {
-  // Profile cannot depend on a feature body's hosting admission. Connectors
-  // keeps its complete owner-aware React handoff until both hosting modes have
-  // a qualified native model port; the other native scenes remain independent.
   return <Suspense fallback={null}><ProfilePageContent {...props} /></Suspense>;
 }
 

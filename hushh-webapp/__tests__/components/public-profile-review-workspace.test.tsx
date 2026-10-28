@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }));
-vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: mocks.user }) }));
+vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultKey: "memory-only-vault-key", vaultOwnerToken: "vault-owner-token" }),
 }));

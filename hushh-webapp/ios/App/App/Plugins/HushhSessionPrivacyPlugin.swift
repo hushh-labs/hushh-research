@@ -119,7 +119,7 @@ struct NativeProfilePreparationTarget: Equatable, Decodable {
     }
     static let scenes: Set<String> = ["account-name", "referral-handle", "phone", "writing-style", "support",
         "vault-passphrase", "request-price", "world-model-fact-edit", "world-model-sources", "world-model-public-profiles", "world-model-invitation",
-        "runtime-provider", "connector-custom-server", "connector-profile-link", "connector-packet-price", "memory-financial-context"]
+        "runtime-provider", "connector-custom-server", "connector-profile-link", "connector-packet-price", "memory-financial-context", "payment-funding", "payment-country"]
     var valid: Bool {
         identity.valid && NativeDrawerIdentity.identifier(visitId) && updateSequence > 0 &&
             updateSequence <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration &&

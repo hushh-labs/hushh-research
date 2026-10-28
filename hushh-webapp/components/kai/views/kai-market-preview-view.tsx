@@ -395,14 +395,14 @@ export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, 
                   <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" className="float-left mr-1 mt-px h-4 w-4 rounded-full [&_img]:h-4 [&_img]:w-4" />
                   {row.companyName}
                 </span>
-                {!sharedTime ? <time dateTime={row.asOf || undefined} className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{formatMarketQuoteTime(row.asOf)}</time> : null}
+                {!sharedTime && row.asOf && Number.isFinite(Date.parse(row.asOf)) ? <time dateTime={row.asOf} className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{formatMarketQuoteTime(row.asOf)}</time> : null}
               </button>;
             })}
           </div>
         ))}
       </div>
-      {sharedTime ? <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
-        <time dateTime={commonAsOf || undefined}>{commonAsOf ? formatOverviewAsOf(commonAsOf) : "Quote time unavailable"}</time>
+      {sharedTime && commonAsOf && Number.isFinite(Date.parse(commonAsOf)) ? <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
+        <time dateTime={commonAsOf}>{formatOverviewAsOf(commonAsOf)}</time>
       </p> : null}
     </div>
   );
@@ -1087,7 +1087,7 @@ export function KaiMarketPreviewView() {
           </SurfaceCard>
 
           {displayLoading && !hasPayload ? (
-            <div className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
+            <div className="mt-9 w-full">
               <div className="flex min-h-32 flex-col items-center justify-center gap-3 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-5 text-center text-[14px] text-[color:var(--one-fg2)] shadow-[var(--app-card-shadow-standard)]">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <p>Loading your market view.</p>
@@ -1096,7 +1096,7 @@ export function KaiMarketPreviewView() {
           ) : null}
 
           {displayError && !hasPayload ? (
-            <div className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
+            <div className="mt-9 w-full">
               <div className="space-y-3 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-4 text-left shadow-[var(--app-card-shadow-standard)]">
                 <div className="flex items-center gap-2 text-[color:var(--one-down)]">
                   <AlertTriangle className="h-4 w-4" />
@@ -1120,7 +1120,7 @@ export function KaiMarketPreviewView() {
           ) : null}
 
           {displayError && hasPayload ? (
-            <div className="mx-auto mt-5 w-full max-w-[1080px] px-[var(--one-gutter)]">
+            <div className="mt-5 w-full">
               <div className="flex items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-3 text-left text-[12px] text-[color:var(--one-fg2)] shadow-[var(--app-card-shadow-standard)]">
                 <span className="flex min-w-0 items-center gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-[color:var(--one-down)]" />

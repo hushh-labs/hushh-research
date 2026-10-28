@@ -11,3 +11,11 @@ export function customNativePresentationEnabled(): boolean {
   } }).__HUSHH_NATIVE_DRAWER_BOOTSTRAP__;
   return bootstrap?.contractVersion === 1 && bootstrap.enabled === true && bootstrap.coherentShell === true;
 }
+
+/** Bootstrap capability for the private, immediate-choice family. This is not
+ * a second preference switch and never qualifies rich/controlled popups. */
+export function nativeOwnedChoicesEnabled(): boolean {
+  if (!customNativePresentationEnabled()) return false;
+  return (window as Window & { __HUSHH_NATIVE_DRAWER_BOOTSTRAP__?: { ownedChoices?: boolean } })
+    .__HUSHH_NATIVE_DRAWER_BOOTSTRAP__?.ownedChoices === true;
+}

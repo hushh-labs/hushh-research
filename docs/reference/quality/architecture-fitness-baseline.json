@@ -18280,7 +18280,8 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/pod_turn.py",
       "symbol": null,
-      "value": 1196
+      "value": 1199,
+      "review": "Reviewed hosted_pod_adc source foundation: explicit managed placement with exact attached identity, unchanged BYOC bridge/upgrade custody, default-off hosted enrollment. Focused adapter/model negatives pass; no live hosted acceptance claimed."
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18568,7 +18569,8 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/text_runtime.py",
       "symbol": null,
-      "value": 1143
+      "value": 1143,
+      "review": "Reviewed hosted_pod_adc source foundation: explicit managed placement with exact attached identity, unchanged BYOC bridge/upgrade custody, default-off hosted enrollment. Focused adapter/model negatives pass; no live hosted acceptance claimed."
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22420,7 +22422,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/profile/gmail/oauth/return/page.test.tsx",
       "symbol": null,
-      "value": 727
+      "value": 729
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22429,7 +22431,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/profile/receipts/page.test.tsx",
       "symbol": null,
-      "value": 2649
+      "value": 2650
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22447,7 +22449,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/ria/picks-page.test.tsx",
       "symbol": null,
-      "value": 760
+      "value": 761
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22537,7 +22539,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/consent-center-page-location-actions.test.tsx",
       "symbol": null,
-      "value": 556
+      "value": 558
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22879,7 +22881,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/feed/feed-actionables-connection-dedup.test.tsx",
       "symbol": null,
-      "value": 1793
+      "value": 1794
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23311,7 +23313,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/marketplace/page.tsx",
       "symbol": null,
-      "value": 1972
+      "value": 1973
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23356,7 +23358,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/one/setup/kai/page.tsx",
       "symbol": null,
-      "value": 793
+      "value": 794
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23374,7 +23376,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/profile/pkm-agent-lab/page-client.tsx",
       "symbol": null,
-      "value": 1561
+      "value": 1565
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23536,7 +23538,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/location-command-provider.tsx",
       "symbol": null,
-      "value": 802
+      "value": 806
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23734,7 +23736,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/consent/consent-center-page.tsx",
       "symbol": null,
-      "value": 4221
+      "value": 4223
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23779,7 +23781,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/developers/developer-docs-hub.tsx",
       "symbol": null,
-      "value": 2045
+      "value": 2051
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23797,7 +23799,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/feed/feed-page.tsx",
       "symbol": null,
-      "value": 1410
+      "value": 1413
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24436,7 +24438,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-voice/one-voice-mail-draft-bridge.tsx",
       "symbol": null,
-      "value": 879
+      "value": 880
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25165,7 +25167,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/notifications/fcm-service.ts",
       "symbol": null,
-      "value": 1626
+      "value": 1644
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25588,7 +25590,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/gmail-receipts-service.ts",
       "symbol": null,
-      "value": 1373
+      "value": 1375
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27605,7 +27607,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_world_model_invitations.py",
       "symbol": "test_claim_contract_on_single_connection_postgres",
-      "value": 258
+      "value": 271
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28132,7 +28134,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/world_model_invitations.py",
       "symbol": "claim",
-      "value": 99
+      "value": 100
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28573,7 +28575,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/feed/use-feed-actionables-sos-address.test.tsx",
       "symbol": null,
-      "value": 580
+      "value": 581
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29519,7 +29521,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/world_model_invitations.py",
       "symbol": "create",
-      "value": 84
+      "value": 85
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29996,7 +29998,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_world_model_invitations.py",
       "symbol": null,
-      "value": 547
+      "value": 560
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -86544,6 +86546,181 @@
         "source_sha256": "a8bb0db384d1d229e9bcf7fd2d2625223be581a8b6e11105bc22889eca940673",
         "reviewer": "ci_deletion",
         "review": "Extend existing zero-effect teardown matrix with explicit managed, legacy managed and reserved-snapshot race. No duplicate test or oversized function introduced."
+      }
+    ]
+  },
+  "hosted_private_image_review_20261026": {
+    "scope": [
+      "consent-protocol/api/routes/one/pod_turn.py",
+      "consent-protocol/hushh_mcp/one_adk/text_runtime.py"
+    ],
+    "reason": "Bounded hosted mode dispatch in retained legacy modules. New private renderer functions remain below the gene budget; hosted tests are in their dedicated sub-500-line module. Legacy BYOC validation and fixtures are preserved.",
+    "independent_review": "hosted_custody_review: no remaining blocking security finding in the source foundation; live admission, IAM/custody and erasure remain unqualified.",
+    "acceptance": "Focused common-renderer, exact identity, environment refusal and BYOC custom-custody upgrade regressions; not whole-pilot completion."
+  },
+  "start_fresh_owner_split_review_20261028": {
+    "base_revision": "0c279ce919486b6a95241f8244e19e44cc6b35e7",
+    "scope": "20 exact module and function ceilings only, each +1 to +18 lines, from moving application-owner uses to the validated owner for same-login start fresh and from resolving generation-aware owner identity outside the owner graph lock. No new findings, no function exceptions and no global 500/250/80 budget changes.",
+    "entries": [
+      {
+        "key": "module_size|hushh-webapp/components/consent/consent-center-page.tsx||module exceeds the advisory operon budget",
+        "before": 4221,
+        "after": 4223,
+        "source_sha256": "746d4b00e7ac89bb47369838e261a4caf50b9ad141a36039817e083ca6f013f3",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Reads and guards the validated application owner (useAuth().userId) for start-fresh accounts; unchanged for generation 0."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/app/profile/receipts/page.test.tsx||module exceeds the advisory operon budget",
+        "before": 2649,
+        "after": 2650,
+        "source_sha256": "e7b83473fc96add492c4e82c7ed0989d61162408f6d2cb710d190efca6e0761d",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Generation-0 fixture adds userId equal to its Firebase UID for the validated-owner contract."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/developers/developer-docs-hub.tsx||module exceeds the advisory operon budget",
+        "before": 2045,
+        "after": 2051,
+        "source_sha256": "00eac8af0263c359a8f52d194bdaaef1782d7dd5443cf51817989d70101a0d58",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Reads and guards the validated application owner (useAuth().userId) for start-fresh accounts; unchanged for generation 0."
+      },
+      {
+        "key": "module_size|hushh-webapp/app/marketplace/page.tsx||module exceeds the advisory operon budget",
+        "before": 1972,
+        "after": 1973,
+        "source_sha256": "17a26c8e71f57f21ff81b6ab05ddeaaad200365a72ce241b29a341704ddff321",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Reads and guards the validated application owner (useAuth().userId) for start-fresh accounts; unchanged for generation 0."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/feed/feed-actionables-connection-dedup.test.tsx||module exceeds the advisory operon budget",
+        "before": 1793,
+        "after": 1794,
+        "source_sha256": "5f6ccc9add75b6f9dfa8e7ad20b8e1e94d0bbf36cc149fa2afb325ecbb75eb45",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Generation-0 fixture adds userId equal to its Firebase UID for the validated-owner contract."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/notifications/fcm-service.ts||module exceeds the advisory operon budget",
+        "before": 1626,
+        "after": 1644,
+        "source_sha256": "4c2d5359afc17e9b44445a356badc50e691450a343ed4cb6f6245f21d4a6076a",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Departing push session resolved by its owner or Firebase UID so sign-out clears a withdrawn start-fresh owner; clearing returns that owner for push unregistration."
+      },
+      {
+        "key": "module_size|hushh-webapp/app/profile/pkm-agent-lab/page-client.tsx||module exceeds the advisory operon budget",
+        "before": 1561,
+        "after": 1565,
+        "source_sha256": "3b3241a716f06d6df5663473c141c468bab787f7125ed4e01f4ee304c3c53fc5",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Reads and guards the validated application owner (useAuth().userId) for start-fresh accounts; unchanged for generation 0."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/feed/feed-page.tsx||module exceeds the advisory operon budget",
+        "before": 1410,
+        "after": 1413,
+        "source_sha256": "5c920b23bfe4f976b02baf23538899d004ea8720bfe7920e2b9e4da967607d33",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Reads and guards the validated application owner (useAuth().userId) for start-fresh accounts; unchanged for generation 0."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/gmail-receipts-service.ts||module exceeds the advisory operon budget",
+        "before": 1373,
+        "after": 1375,
+        "source_sha256": "763de0ce7859c9e57cc46199548fb881fd8168555a040d91b6ee8c6eae1db25f",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Reads and guards the validated application owner (useAuth().userId) for start-fresh accounts; unchanged for generation 0."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/one-voice/one-voice-mail-draft-bridge.tsx||module exceeds the advisory operon budget",
+        "before": 879,
+        "after": 880,
+        "source_sha256": "3ff708f44ec9b314437c0b30a944b754ded2fb17f5ce9ff2bb38cab0b038cbce",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Reads and guards the validated application owner (useAuth().userId) for start-fresh accounts; unchanged for generation 0."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/location-command-provider.tsx||module exceeds the advisory operon budget",
+        "before": 802,
+        "after": 806,
+        "source_sha256": "4176d4fcaf8e9dfb1e523d878012fe509559077fb690f693cfe0504defb8368c",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Reads and guards the validated application owner (useAuth().userId) for start-fresh accounts; unchanged for generation 0."
+      },
+      {
+        "key": "module_size|hushh-webapp/app/one/setup/kai/page.tsx||module exceeds the advisory operon budget",
+        "before": 793,
+        "after": 794,
+        "source_sha256": "f4db8eba0f029f18a32a188f33c71ba4769a3881a254f1e7bc38f2039e8c8ce3",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Reads and guards the validated application owner (useAuth().userId) for start-fresh accounts; unchanged for generation 0."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/app/ria/picks-page.test.tsx||module exceeds the advisory operon budget",
+        "before": 760,
+        "after": 761,
+        "source_sha256": "e7a48de68ccb06cbf8d85f4650bb7409754592d896f24ac54b18df54ae5f5a62",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Generation-0 fixture adds userId equal to its Firebase UID for the validated-owner contract."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/app/profile/gmail/oauth/return/page.test.tsx||module exceeds the advisory operon budget",
+        "before": 727,
+        "after": 729,
+        "source_sha256": "6ce12a94a07d17a6e6adc4ffcb8ba8a98b7f7e82b2847497fa438ceeeff3aff2",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Generation-0 fixture adds userId equal to its Firebase UID for the validated-owner contract."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/feed/use-feed-actionables-sos-address.test.tsx||module exceeds the advisory operon budget",
+        "before": 580,
+        "after": 581,
+        "source_sha256": "a477830a93775c51b4e86de66dedf5665a8c3105eccf1edde3dc96ba9d7fe52a",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Generation-0 fixture adds userId equal to its Firebase UID for the validated-owner contract."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/consent-center-page-location-actions.test.tsx||module exceeds the advisory operon budget",
+        "before": 556,
+        "after": 558,
+        "source_sha256": "d79bf86b1a176e98ddd3aed5f2e45b90914c4c0642130b0a23493a22c32cf30f",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Generation-0 fixture adds userId equal to its Firebase UID for the validated-owner contract."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_world_model_invitations.py|test_claim_contract_on_single_connection_postgres|function exceeds the advisory gene budget",
+        "before": 258,
+        "after": 271,
+        "source_sha256": "d2a9d97d65c8745835e147d0133a4f0f20c86864352f473a6aade0464861a66b",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Single-connection probe proves the external identity read runs outside the locked claim transaction, and the locked rechecks reuse that record (both fail if regressed)."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/world_model_invitations.py|claim|function exceeds the advisory gene budget",
+        "before": 99,
+        "after": 100,
+        "source_sha256": "06f2bc1437390f61b5f92d99c398b380da1bb1c11b297eefdd645911fb734c9e",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Resolves the generation-aware owner record before the owner graph lock and reuses it in the locked recheck, so admission-on identity reads cannot self-block on that lock."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/world_model_invitations.py|create|function exceeds the advisory gene budget",
+        "before": 84,
+        "after": 85,
+        "source_sha256": "06f2bc1437390f61b5f92d99c398b380da1bb1c11b297eefdd645911fb734c9e",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Resolves the generation-aware owner record before the owner graph lock and reuses it in the locked recheck, so admission-on identity reads cannot self-block on that lock."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_world_model_invitations.py||module exceeds the advisory operon budget",
+        "before": 547,
+        "after": 560,
+        "source_sha256": "d2a9d97d65c8745835e147d0133a4f0f20c86864352f473a6aade0464861a66b",
+        "reviewer": "owner-split migration; per-group adversarial review",
+        "review": "Single-connection probe proves the external identity read runs outside the locked claim transaction, and the locked rechecks reuse that record (both fail if regressed)."
       }
     ]
   }

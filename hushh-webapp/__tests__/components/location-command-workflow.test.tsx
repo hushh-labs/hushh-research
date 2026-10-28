@@ -759,7 +759,7 @@ it("an uncertain writer response offers explicit task recovery without automatic
   expect(screen.queryByText(/Location setup complete/)).not.toBeInTheDocument();
 });
 
-it.each(["unplaced", "pending_byoc", "hussh_pods", "unavailable"] as const)(
+it.each(["unplaced", "pending_byoc", "unavailable"] as const)(
   "refuses command content before hub or device work when placement is %s",
   async (placement) => {
     if (placement === "unavailable") {
@@ -785,8 +785,8 @@ it.each(["unplaced", "pending_byoc", "hussh_pods", "unavailable"] as const)(
   },
 );
 
-it.each(["capabilities", "assessment"] as const)("keeps a %s refusal private without hub fallback or device effects", async (phase) => {
-  h.hosting.mockResolvedValue({ hostingMode: "byoc" });
+it.each((["byoc", "hussh_pods"] as const).flatMap(placement => (["capabilities", "assessment"] as const).map(phase => ({ placement, phase }))))("keeps $placement/$phase private without hub fallback or device effects", async ({ placement, phase }) => {
+  h.hosting.mockResolvedValue({ hostingMode: placement });
   h.pod.mockImplementation((route: string) => privateCommandRefusal(route, phase));
   render(<App />);
   fireEvent.click(screen.getByText("Begin command"));

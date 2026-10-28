@@ -60,7 +60,7 @@ describe("profile security deletion contract", () => {
 
   it("uses the same destructive settlement from Profile and setup chrome", () => {
     expect(topAppBarSource).toContain('import { OnboardingRouteActions }');
-    expect(topAppBarSource).toContain('<OnboardingRouteActions key={user?.uid');
+    expect(topAppBarSource).toContain('<OnboardingRouteActions key={userId ?? "signed-out"}');
     expect(onboardingSource).toContain("needsCloudReview = accountCleanupProvider(error)");
     expect(onboardingSource).toContain("if (!needsCloudReview) setDeleteConfirmOpen(false)");
     expect(onboardingSource).toContain("<AccountCloudCleanup");
@@ -103,7 +103,7 @@ describe("profile security deletion contract", () => {
   it("keeps onboarding chrome canonical and shell-sized", () => {
     const shell = topAppBarSource;
     expect(shell).toContain('import { OnboardingRouteActions }');
-    expect(shell).toContain('<OnboardingRouteActions key={user?.uid');
+    expect(shell).toContain('<OnboardingRouteActions key={userId ?? "signed-out"}');
     const source = onboardingSource;
     const signOutItemStart = source.indexOf(
       "onClick={() => void handleSignOut()}",

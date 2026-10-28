@@ -1,17 +1,11 @@
+import type { HushhNativeDrawersPlugin } from "./native-drawers-plugin";
+export type { HushhNativeDrawersPlugin } from "./native-drawers-plugin";
+import { validNativePayoutPath, validNativeAgentSettingsPath, type NativePayoutPageId, type NativeAgentSettingsPageId } from "./native-profile-paths";
+export { validNativePayoutPath, validNativeAgentSettingsPath } from "./native-profile-paths";
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { NativeControlAppearance } from "./native-control-appearance";
 import { PROFILE_PREPARATION_SCENES, type ProfilePreparationDescription } from "./native-profile-preparation";
-import type { NativeProfileNameScenePort } from "./native-profile-name-scene";
-import type { NativePasswordScenePort } from "./native-profile-password-scene";
-import type { NativeProfilePricingScenePort } from "./native-profile-pricing-scene";
-import type { NativeProfileStyleScenePort } from "./native-profile-style-scene";
-import type { NativeSupportScenePort } from "./native-profile-support-scene";
-import type { NativePhoneScenePort } from "./native-profile-phone-scene";
-import type { NativeWorldModelScenePort } from "./native-profile-world-model-scene";
-import type { NativeRuntimeScenePort } from "./native-profile-runtime-scene";
-import type { NativeConnectorScenePort } from "./native-profile-connector-scene";
-import type { NativeMemoryScenePort } from "./native-profile-memory-scene";
-import { sameNativeWorkspace, type NativeWorkspacePort, type NativeWorkspaceIdentity, type NativeWorkspaceChoice, type NativeWorkspaceEdit, type NativeWorkspaceFinalEdit } from "./native-workspace";
+import { sameNativeWorkspace, type NativeWorkspacePort, type NativeWorkspaceIdentity } from "./native-workspace";
 import { nativeLegalActionIds, validNativeLegalDocument, type NativeLegalDocument } from "./native-profile-legal";
 
 /** Private presentation, never public chrome metadata. Values and callbacks are
@@ -44,12 +38,11 @@ export type NativeDrawerRow = {
 };
 export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[] };
 /** Bounded native destinations, not URLs or another routing authority. */
-export type NativePayoutPageId = "payouts" | "payout-activity" | "payout-stripe" | `payout-receipt-${1 | 2 | 3 | 4 | 5 | 6}`;
 export type NativeMemoryPageId = "memory" | "memory-domain" | "memory-section" | "memory-entity" | "memory-sharing" | "memory-connection" | "memory-confirm" | "memory-live" | "memory-record" | "memory-shared" | "memory-shared-person" | "memory-received" | "memory-received-files" | "memory-secrets" | "memory-secret" | "memory-secret-remove" | "memory-identity";
 export type NativeWorldModelPageId = "world-model" | "world-model-fact" | "world-model-remove" | "world-model-research" | "world-model-sources" | "world-model-invitations" | "world-model-review" | "world-model-review-fact";
 export type NativeConnectorPageId = "connectors" | "connector-detail" | "connector-confirm" | "connector-custom" | "connector-custom-detail" | "connector-custom-confirm" |
   "connector-preparation" | "connector-files" | "connector-group-files" | "connector-selection" | "connector-packets" | "connector-packet" | "connector-trust" | "connector-trust-rule" | "connector-trust-confirm";
-export type NativeProfilePage = { id: NativeConnectorPageId | NativeWorldModelPageId | NativeMemoryPageId | NativePayoutPageId | "referrals" | "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "gemini" | "finance-preferences" | "finance-anchor" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
+export type NativeProfilePage = { id: NativeAgentSettingsPageId | NativeConnectorPageId | NativeWorldModelPageId | NativeMemoryPageId | NativePayoutPageId | "referrals" | "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "gemini" | "finance-preferences" | "finance-anchor" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
   title: string; sections: readonly NativeDrawerSection[]; legalDocument?: NativeLegalDocument;
   /** Private feature filter (legacy wire name), submitted to its owning model. */
   memorySearch?: { id: string; query: string } };
@@ -100,89 +93,13 @@ export type NativeDrawerIsolation = { generation: number; isolated: boolean };
 export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
-export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort> {
-  /** Private, one-shot pasteboard delivery after the authored Copy choice. */
-  copyProfileReferralLink?(options: NativeDrawerChoice & { link: string }): Promise<{ copied: boolean }>;
-  applyProfileMemoryScene?: NativeMemoryScenePort["applyProfileMemoryScene"];
-  confirmProfileMemoryAction?: NativeMemoryScenePort["confirmProfileMemoryAction"];
-  settleProfileMemoryAction?: NativeMemoryScenePort["settleProfileMemoryAction"];
-  retireProfileMemoryScene?: NativeMemoryScenePort["retireProfileMemoryScene"];
-  applyProfileConnectorScene?: NativeConnectorScenePort["applyProfileConnectorScene"];
-  confirmProfileConnectorAction?: NativeConnectorScenePort["confirmProfileConnectorAction"];
-  settleProfileConnectorAction?: NativeConnectorScenePort["settleProfileConnectorAction"];
-  retireProfileConnectorScene?: NativeConnectorScenePort["retireProfileConnectorScene"];
-  applyProfileRuntimeScene?: NativeRuntimeScenePort["applyProfileRuntimeScene"];
-  confirmProfileRuntimeAction?: NativeRuntimeScenePort["confirmProfileRuntimeAction"];
-  settleProfileRuntimeAction?: NativeRuntimeScenePort["settleProfileRuntimeAction"];
-  retireProfileRuntimeScene?: NativeRuntimeScenePort["retireProfileRuntimeScene"];
-  getCapabilities(): Promise<NativeDrawerIsolation & { profileReferralPages?: boolean; profilePreparation?: boolean; closeSettlements?: boolean;
-    contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; compatibleBackRefreshes?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileSharedMemoryPages?: boolean; profileSecretMemoryPages?: boolean; profileMemoryScene?: boolean; profileWorldModelPages?: boolean; profileWorldModelPublicProfiles?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean; routeWorkspaces?: readonly "referrals"[] }>;
-  applyProfileWorldModelScene?: NativeWorldModelScenePort["applyProfileWorldModelScene"];
-  confirmProfileWorldModelAction?: NativeWorldModelScenePort["confirmProfileWorldModelAction"];
-  settleProfileWorldModelAction?: NativeWorldModelScenePort["settleProfileWorldModelAction"];
-  retireProfileWorldModelScene?: NativeWorldModelScenePort["retireProfileWorldModelScene"];
-  applyProfilePricingScene?(options: Parameters<NativeProfilePricingScenePort["applyProfilePricingScene"]>[0]): ReturnType<NativeProfilePricingScenePort["applyProfilePricingScene"]>;
-  confirmProfilePricingAction?(options: Parameters<NativeProfilePricingScenePort["confirmProfilePricingAction"]>[0]): ReturnType<NativeProfilePricingScenePort["confirmProfilePricingAction"]>;
-  settleProfilePricingAction?(options: Parameters<NativeProfilePricingScenePort["settleProfilePricingAction"]>[0]): ReturnType<NativeProfilePricingScenePort["settleProfilePricingAction"]>;
-  retireProfilePricingScene?(options: Parameters<NativeProfilePricingScenePort["retireProfilePricingScene"]>[0]): ReturnType<NativeProfilePricingScenePort["retireProfilePricingScene"]>;
-  applyProfilePasswordScene?(options: Parameters<NativePasswordScenePort["applyProfilePasswordScene"]>[0]): ReturnType<NativePasswordScenePort["applyProfilePasswordScene"]>;
-  confirmProfilePasswordAction?(options: Parameters<NativePasswordScenePort["confirmProfilePasswordAction"]>[0]): ReturnType<NativePasswordScenePort["confirmProfilePasswordAction"]>;
-  settleProfilePasswordAction?(options: Parameters<NativePasswordScenePort["settleProfilePasswordAction"]>[0]): ReturnType<NativePasswordScenePort["settleProfilePasswordAction"]>;
-  retireProfilePasswordScene?(options: Parameters<NativePasswordScenePort["retireProfilePasswordScene"]>[0]): ReturnType<NativePasswordScenePort["retireProfilePasswordScene"]>;
-  getPresentationState?(options: NativeDrawerIdentity): Promise<({ valid: true } & NativeDrawerPresentationState) | { valid: false }>;
-  applyProfilePhoneScene?(options: Parameters<NativePhoneScenePort["applyProfilePhoneScene"]>[0]): ReturnType<NativePhoneScenePort["applyProfilePhoneScene"]>;
-  confirmProfilePhoneAction?(options: Parameters<NativePhoneScenePort["confirmProfilePhoneAction"]>[0]): ReturnType<NativePhoneScenePort["confirmProfilePhoneAction"]>;
-  settleProfilePhoneAction?(options: Parameters<NativePhoneScenePort["settleProfilePhoneAction"]>[0]): ReturnType<NativePhoneScenePort["settleProfilePhoneAction"]>;
-  retireProfilePhoneScene?(options: Parameters<NativePhoneScenePort["retireProfilePhoneScene"]>[0]): ReturnType<NativePhoneScenePort["retireProfilePhoneScene"]>;
-  applyProfileSupportScene?(options: Parameters<NativeSupportScenePort["applyProfileSupportScene"]>[0]): ReturnType<NativeSupportScenePort["applyProfileSupportScene"]>;
-  confirmProfileSupportAction?(options: Parameters<NativeSupportScenePort["confirmProfileSupportAction"]>[0]): ReturnType<NativeSupportScenePort["confirmProfileSupportAction"]>;
-  settleProfileSupportAction?(options: Parameters<NativeSupportScenePort["settleProfileSupportAction"]>[0]): ReturnType<NativeSupportScenePort["settleProfileSupportAction"]>;
-  retireProfileSupportScene?(options: Parameters<NativeSupportScenePort["retireProfileSupportScene"]>[0]): ReturnType<NativeSupportScenePort["retireProfileSupportScene"]>;
-  applyProfileNameScene?(options: Parameters<NativeProfileNameScenePort["applyProfileNameScene"]>[0]): ReturnType<NativeProfileNameScenePort["applyProfileNameScene"]>;
-  confirmProfileNameAction?(options: Parameters<NativeProfileNameScenePort["confirmProfileNameAction"]>[0]): ReturnType<NativeProfileNameScenePort["confirmProfileNameAction"]>;
-  settleProfileNameAction?(options: Parameters<NativeProfileNameScenePort["settleProfileNameAction"]>[0]): ReturnType<NativeProfileNameScenePort["settleProfileNameAction"]>;
-  retireProfileNameScene?(options: Parameters<NativeProfileNameScenePort["retireProfileNameScene"]>[0]): ReturnType<NativeProfileNameScenePort["retireProfileNameScene"]>;
-  applyProfileStyleScene?(options: Parameters<NativeProfileStyleScenePort["applyProfileStyleScene"]>[0]): ReturnType<NativeProfileStyleScenePort["applyProfileStyleScene"]>;
-  confirmProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["confirmProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["confirmProfileStyleAction"]>;
-  settleProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["settleProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["settleProfileStyleAction"]>;
-  retireProfileStyleScene?(options: Parameters<NativeProfileStyleScenePort["retireProfileStyleScene"]>[0]): ReturnType<NativeProfileStyleScenePort["retireProfileStyleScene"]>;
-  addListener: NativeMemoryScenePort["addListener"] & NativeConnectorScenePort["addListener"] & NativeRuntimeScenePort["addListener"] & NativeWorldModelScenePort["addListener"] & NativeProfilePricingScenePort["addListener"] & NativePasswordScenePort["addListener"] & NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & NativeSupportScenePort["addListener"] & NativePhoneScenePort["addListener"] & {
-    (eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
-    (eventName: "workspaceChoice", listener: (event: NativeWorkspaceChoice) => void): Promise<PluginListenerHandle>;
-    (eventName: "workspaceEdit", listener: (event: NativeWorkspaceEdit) => void): Promise<PluginListenerHandle>;
-    (eventName: "workspaceFinalEdit", listener: (event: NativeWorkspaceFinalEdit) => void): Promise<PluginListenerHandle>;
-    (eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
-    (eventName: "readmissionRequested", listener: (event: NativeDrawerReadmission) => void): Promise<PluginListenerHandle>;
-    (eventName: "presentationSettled", listener: (event: NativeDrawerPresentationState) => void): Promise<PluginListenerHandle>;
-  };
-  apply(options: NativeDrawerProjection): Promise<NativeDrawerReceipt>;
-  confirmChoice(options: NativeDrawerChoice): Promise<{ valid: boolean }>;
-  settleChoice?(options: NativeDrawerIdentity & { sequence: number; privacyGeneration: number; success: boolean }): Promise<{ valid: boolean }>;
-  retire(options: NativeDrawerIdentity): Promise<NativeDrawerReceipt>;
-}
+
 let nativeDrawersPlugin: HushhNativeDrawersPlugin | undefined;
 export function nativeDrawers(): HushhNativeDrawersPlugin {
   return nativeDrawersPlugin ??= registerPlugin<HushhNativeDrawersPlugin>("HushhNativeDrawers");
 }
 
-/** Admission needs the whole scene handshake, including confirmed withdrawal.
- * A flag alone cannot safely transfer an editor to a partially capable wrapper.
- * Keep this mapping shared by the destination and its editor adapters. */
-export function hasNativeProfileScene(plugin: HushhNativeDrawersPlugin, scene: "account-name" | "writing-style" | "support" | "phone" | "vault-passphrase" | "request-price" | "world-model" | "runtime-provider" | "connector-custom-server" | "memory-financial-context"): boolean {
-  const methods = scene === "memory-financial-context" ? [plugin.applyProfileMemoryScene, plugin.confirmProfileMemoryAction, plugin.settleProfileMemoryAction, plugin.retireProfileMemoryScene]
-    : scene === "account-name"
-    ? [plugin.applyProfileNameScene, plugin.confirmProfileNameAction, plugin.settleProfileNameAction, plugin.retireProfileNameScene]
-    : scene === "writing-style"
-      ? [plugin.applyProfileStyleScene, plugin.confirmProfileStyleAction, plugin.settleProfileStyleAction, plugin.retireProfileStyleScene]
-      : scene === "support" ? [plugin.applyProfileSupportScene, plugin.confirmProfileSupportAction, plugin.settleProfileSupportAction, plugin.retireProfileSupportScene]
-      : scene === "vault-passphrase" ? [plugin.applyProfilePasswordScene, plugin.confirmProfilePasswordAction, plugin.settleProfilePasswordAction, plugin.retireProfilePasswordScene]
-      : scene === "request-price" ? [plugin.applyProfilePricingScene, plugin.confirmProfilePricingAction, plugin.settleProfilePricingAction, plugin.retireProfilePricingScene]
-      : scene === "world-model" ? [plugin.applyProfileWorldModelScene, plugin.confirmProfileWorldModelAction, plugin.settleProfileWorldModelAction, plugin.retireProfileWorldModelScene]
-      : scene === "connector-custom-server" ? [plugin.applyProfileConnectorScene, plugin.confirmProfileConnectorAction, plugin.settleProfileConnectorAction, plugin.retireProfileConnectorScene]
-      : scene === "runtime-provider" ? [plugin.applyProfileRuntimeScene, plugin.confirmProfileRuntimeAction, plugin.settleProfileRuntimeAction, plugin.retireProfileRuntimeScene]
-      : [plugin.applyProfilePhoneScene, plugin.confirmProfilePhoneAction, plugin.settleProfilePhoneAction, plugin.retireProfilePhoneScene];
-  return methods.every(method => typeof method === "function");
-}
+export { hasNativeProfileScene } from "./native-profile-scene-capabilities";
 
 // Public eligibility metadata only. The private presentation installs this
 // observer before admission; base adapters compare it across awaited choices.
@@ -301,13 +218,6 @@ function closedShape(value: object, keys: readonly string[]): boolean {
   return Object.keys(value).every(key => keys.includes(key));
 }
 
-/** Closed financial presentation ancestry; never admits arbitrary destinations. */
-export function validNativePayoutPath(pages: readonly NativeProfilePage[]): boolean {
-  if (pages[0]?.id !== "payouts" || pages.length > 8) return false;
-  const start = ["payout-activity", "payout-stripe"].includes(pages[1]?.id ?? "") ? 2 : 1;
-  return pages.slice(start).every((page, index) => page?.id === `payout-receipt-${index + 1}`) && pages.length - start <= 6;
-}
-
 export function validNativeMemoryPath(pages: readonly NativeProfilePage[]): boolean {
   if (pages[0]?.id !== "memory" || pages.length > 5) return false;
   const children: Partial<Record<NativeMemoryPageId, readonly NativeMemoryPageId[]>> = {
@@ -377,12 +287,14 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
       value.profileStack[0]?.id === "memory" && !validNativeMemoryPath(value.profileStack) ||
       value.profileStack[0]?.id === "world-model" && !validNativeWorldModelPath(value.profileStack) ||
       value.profileStack[0]?.id === "connectors" && !validNativeConnectorPath(value.profileStack) ||
+      ["hosting", "software-updates"].includes(value.profileStack[0]?.id ?? "") && !validNativeAgentSettingsPath(value.profileStack) ||
       value.profileStack.some(page => page && ["finance-preferences", "finance-anchor"].includes(page.id)) && !validNativeFinancePath(value.profileStack) ||
       new Set(value.profileStack.map(page => page?.id)).size !== value.profileStack.length ||
       value.profileStack.some((page, index) => !page || !closedShape(page, ["id", "title", "sections", "legalDocument", "memorySearch"]) ||
         page.memorySearch !== undefined && (!["memory", "connectors"].includes(page.id) || !page.memorySearch || typeof page.memorySearch !== "object" || Array.isArray(page.memorySearch) || !closedShape(page.memorySearch, ["id", "query"]) ||
           !validIdentifier(page.memorySearch.id) || typeof page.memorySearch.query !== "string" || page.memorySearch.query.length > 256) ||
-        !(index === 0 ? ["referrals", "connectors", "world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].includes(page.id) :
+        !(index === 0 ? ["hosting", "software-updates", "referrals", "connectors", "world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].includes(page.id) :
+          validNativeAgentSettingsPath(value.profileStack!) ||
           validNativeFinancePath(value.profileStack!) ||
           value.profileStack?.[0]?.id === "memory" && validNativeMemoryPath(value.profileStack) ||
           value.profileStack?.[0]?.id === "world-model" && validNativeWorldModelPath(value.profileStack) ||
@@ -475,7 +387,7 @@ export function nativeDrawerChoiceAllowed(choice: NativeDrawerChoice, state: Nat
   if (choice.action === "root") return state.family === "profile" && state.backEnabled && (state.profileStack?.length ?? 0) > 1 && choice.rowId === undefined;
   if (choice.action === "ancestor") return state.family === "profile" && state.backEnabled &&
     (choice.rowId === "security" && ["security/devices/device-unlink", "security/vault/vault-method", "security/vault/vault-remove"].includes(state.profileStack?.map(page => page.id).join("/") ?? "") ||
-      !!state.profileStack && (validNativePayoutPath(state.profileStack) || validNativeMemoryPath(state.profileStack) || validNativeFinancePath(state.profileStack) || validNativeWorldModelPath(state.profileStack) || validNativeConnectorPath(state.profileStack)) && state.profileStack.slice(0, -2).some(page => page.id === choice.rowId));
+      !!state.profileStack && (validNativeAgentSettingsPath(state.profileStack) || validNativePayoutPath(state.profileStack) || validNativeMemoryPath(state.profileStack) || validNativeFinancePath(state.profileStack) || validNativeWorldModelPath(state.profileStack) || validNativeConnectorPath(state.profileStack)) && state.profileStack.slice(0, -2).some(page => page.id === choice.rowId));
   if (choice.action !== "row" || !validIdentifier(choice.rowId)) return false;
   if (state.profileStack?.at(-1)?.memorySearch?.id === choice.rowId) return typeof choice.text === "string" && choice.text.length <= 256;
   const document = valueDocument(state);

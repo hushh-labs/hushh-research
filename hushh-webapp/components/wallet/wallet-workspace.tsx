@@ -1,5 +1,6 @@
 "use client";
 
+import { withNativeFeedbackScope } from "@/lib/capacitor/native-feedback-sink";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 
 /**
@@ -71,7 +72,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
-import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
+import { AdaptiveWalletCardForm } from "@/components/wallet/native-wallet-card-form";
 import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handoff";
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
@@ -233,11 +234,11 @@ export function WalletWorkspace() {
       void loadWalletCardArtwork(kind).catch(() => {});
     }
   }, []);
-  const { user, loading: authLoading, sessionVerificationRequired } = useAuth();
+  const { user, userId, loading: authLoading, sessionVerificationRequired } = useAuth();
   const authBlocked = authLoading || Boolean(sessionVerificationRequired);
   const sharingUserRef = useRef(user);
   sharingUserRef.current = user;
-  const renderedOwnerId = user?.uid ?? null;
+  const renderedOwnerId = userId;
   const activeOwnerIdRef = useRef<string | null>(renderedOwnerId);
   activeOwnerIdRef.current = renderedOwnerId;
   useEffect(() => {
@@ -334,7 +335,6 @@ export function WalletWorkspace() {
     }
   };
   const [walletAccessOpen, setWalletAccessOpen] = useState(false);
-  const [addFooterHost, setAddFooterHost] = useState<HTMLDivElement | null>(null);
   const walletAccessTrigger = useRef<HTMLButtonElement>(null);
   const addTrigger = useRef<HTMLButtonElement>(null);
   const pendingCardRef = useRef<HTMLElement>(null);
@@ -473,9 +473,9 @@ export function WalletWorkspace() {
   );
   const vaultContext = useCallback(() => {
     const token = vaultOwnerToken && getVaultOwnerTokenRef.current();
-    if (authBlocked || vaultEpoch !== snapshotVaultSessionEpoch() || !user?.uid || !vaultKey || !token) return null;
-    return { userId: user.uid, vaultKey, vaultOwnerToken: token };
-  }, [user?.uid, vaultKey, vaultOwnerToken, authBlocked, vaultEpoch]);
+    if (authBlocked || vaultEpoch !== snapshotVaultSessionEpoch() || !userId || !vaultKey || !token) return null;
+    return { userId, vaultKey, vaultOwnerToken: token };
+  }, [userId, vaultKey, vaultOwnerToken, authBlocked, vaultEpoch]);
   useEffect(() => {
     const ownerId = profileVisit.ownerId;
     if (!ownerId || !profileVisit.authorized) {
@@ -559,11 +559,11 @@ export function WalletWorkspace() {
   const [referralErrorVisit, setReferralErrorVisit] = useState<typeof profileVisit | null>(null);
   const referralReadRevision = useRef(0);
   const loadReferral = useCallback(async () => {
-    if (!user) return;
+    if (!user || !userId) return;
     const visit = profileVisit;
     const revision = ++referralReadRevision.current;
     const isCurrent = () => profileVisitRef.current === visit &&
-      activeOwnerIdRef.current === user.uid && revision === referralReadRevision.current;
+      activeOwnerIdRef.current === userId && revision === referralReadRevision.current;
     if (!isCurrent()) return;
     setReferralErrorVisit(null);
     try {
@@ -574,7 +574,7 @@ export function WalletWorkspace() {
     } catch {
       if (isCurrent()) setReferralErrorVisit(visit);
     }
-  }, [user, profileVisit]);
+  }, [user, userId, profileVisit]);
   const revokeReferral = useCallback(async (slug: string) => {
     const visit = profileVisit;
     const context = vaultContext();
@@ -754,7 +754,7 @@ export function WalletWorkspace() {
   // number decrypted from the vault. The owner still commits it here.
   useEffect(() => {
     if (introductionOpen || view.kind !== "list" || filing) return;
-    const offer = peekSecretOffer({ ownerUserId: user?.uid, fileTo: "wallet" });
+    const offer = peekSecretOffer({ ownerUserId: userId, fileTo: "wallet" });
     const context = vaultContext();
     if (!offer || !context) return;
     let active = true;
@@ -772,7 +772,7 @@ export function WalletWorkspace() {
     return () => {
       active = false;
     };
-  }, [introductionOpen, filing, user?.uid, vaultContext, view.kind]);
+  }, [introductionOpen, filing, userId, vaultContext, view.kind]);
 
   const focusedCardId = focusedCardIdOf(view);
   const focusedCard = cards.find((card) => card.cardId === selectedDeckCardId) ?? cards[0] ?? null;
@@ -809,7 +809,7 @@ export function WalletWorkspace() {
     };
     if (!context || !isCurrent()) return null;
     return { ...context, isCurrent, getIdToken: async () => {
-      if (!isCurrent() || sharingUserRef.current?.uid !== context.userId) throw new Error("Wallet changed.");
+      if (!isCurrent() || activeOwnerIdRef.current !== context.userId || !sharingUserRef.current) throw new Error("Wallet changed.");
       return sharingUserRef.current.getIdToken();
     } };
   }, [vaultContext]);
@@ -825,7 +825,7 @@ export function WalletWorkspace() {
     };
     if (!context || !isCurrent()) return null;
     return { ...context, isCurrent, getIdToken: async () => {
-      if (!isCurrent() || sharingUserRef.current?.uid !== context.userId) throw new Error("Wallet changed.");
+      if (!isCurrent() || activeOwnerIdRef.current !== context.userId || !sharingUserRef.current) throw new Error("Wallet changed.");
       return sharingUserRef.current.getIdToken();
     } };
   }, []);
@@ -935,8 +935,8 @@ export function WalletWorkspace() {
     }
   };
 
-  const confirmRemove = () => {
-    const target = removeTarget;
+  const confirmRemove = (confirmedTarget = removeTarget) => {
+    const target = confirmedTarget;
     setRemoveTarget(null);
     if (!target || removalRef.current) return;
     const current = vaultContextRef.current();
@@ -946,12 +946,12 @@ export function WalletWorkspace() {
     cardReadRevision.current += 1;
     cardActionScopeRef.current.revision += 1;
     setSelectedDeckCardId(null); dispatch({ type: "unfocus" });
-    const handle = morphyToast.promise(removeCard(target.card.cardId, current, operation), {
+    const handle = withNativeFeedbackScope("workspace", () => morphyToast.promise(removeCard(target.card.cardId, current, operation), {
       isCurrent: () => activeOwnerIdRef.current === current.userId && profileVisitRef.current === operation.visit && isVaultSessionEpochCurrent(operation.visit.epoch) && vaultContextRef.current()?.vaultOwnerToken === current.vaultOwnerToken,
       loading: "Removing card…",
       success: "Card removed.",
       error: "The card could not be removed.",
-    })?.valueOf(); // Sonner boxes promise handles; dismissal needs the primitive ID.
+    }))?.valueOf(); // Sonner boxes promise handles; dismissal needs the primitive ID.
     if (typeof handle === "string" || typeof handle === "number") operation.toastId = handle;
   };
 
@@ -1128,7 +1128,7 @@ export function WalletWorkspace() {
             <span className={workspaceStyles.collectionCount}>{ready ? `${cards.length} ${cards.length === 1 ? "payment card" : "payment cards"}` : "Your cards"}</span>
             <div className="flex items-center gap-2">
               <Button ref={walletAccessTrigger} variant="ghost" size="compact" disabled={!ready} onClick={() => setWalletAccessOpen(true)} aria-label="Wallet access" className={workspaceStyles.accessButton}><ShieldCheck aria-hidden="true" className="size-4" /><span>Wallet access</span></Button>
-              <Button ref={addTrigger} size="compact" disabled={!ready || Boolean(currentSave)} onClick={() => selectTab("add")} aria-label="Add a card" data-testid="one-wallet-add"><Plus aria-hidden="true" className="size-4" />Add card</Button>
+                <Button ref={addTrigger} size="compact" disabled={!ready || Boolean(currentSave)} onClick={() => selectTab("add")} aria-label="Add a card" data-testid="one-wallet-add"><Plus aria-hidden="true" className="size-4" />Add card</Button>
             </div>
           </div>
           <TopShellTabs
@@ -1218,6 +1218,9 @@ export function WalletWorkspace() {
               key={renderedOwnerId}
               cards={cards}
               pendingCard={pendingCard}
+              nativePending={currentSave ? { label: `${currentSave.status === "saving" ? "Saving card…" : "Save not confirmed"} · •••• ${currentSave.last4}`,
+                ...(currentSave.status === "failed" ? { retry: () => { const job = saveJob.current; if (job) void executeSave(job); }, dismiss: () => { saveJob.current = null; setPendingSave(null); clearSecretOffer(); setFiling(null); setOfferNickname(null); } } : {}) } : undefined}
+              nativeHistoryContext={getHistoryContext}
               addDisabled={Boolean(currentSave)}
               cardholderNames={cardholderNames}
               artworks={artworks}
@@ -1226,6 +1229,10 @@ export function WalletWorkspace() {
               onSelect={selectCard}
               onOverview={() => { cardActionScopeRef.current.revision += 1; setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
               onAdd={() => selectTab("add")}
+              nativeAddPresented={activeTab === "add"}
+              nativeOperations={{ copyNumber: copyCardNumber, readSecurityCode, getShareContext: getCardShareContext,
+                removeConfirmed: card => { const context = vaultContextRef.current(); if (context && !busyCardId && !removalRef.current) confirmRemove({ card, context }); } }}
+              onSharing={() => selectTab("sharing")}
               details={cardDetails}
               active={activeTab === "cards"}
               onRemove={requestRemove}
@@ -1239,29 +1246,15 @@ export function WalletWorkspace() {
           </div>
           </SwipeViews>
           </div>
-          <SettingsDetailPanel open={ready && activeTab === "add"} onOpenChange={open => { if (!open) returnToWalletView(); }} title="Add card" headerTextOverflow="wrap"
-            surfaceClassName={`${workspaceStyles.addPanel} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} bodyClassName={workspaceStyles.addBody}
-            desktopMaxWidth="560px" desktopMaxWidthClassName="sm:!max-w-[560px]"
-            onCloseAutoFocus={event => { event.preventDefault(); (saveJob.current ? pendingCardRef.current : addTrigger.current)?.focus({ preventScroll: true }); }}
-            footer={<div ref={setAddFooterHost} className={workspaceStyles.addFooter} />}>
-            {ready ? (
-              <SecureCardAddForm
-                backRoute={ROUTES.ONE_WALLET}
-                collectSecurityCode
-                showIntroduction={false}
-                getNetworkContext={vaultContext}
-                inSheet
-                footerHost={addFooterHost}
-                scanInToolbar
-                key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
-                active={activeTab === "add"}
-                initialNickname={offerNickname ?? undefined}
-                initialPan={filing?.pan}
-                onSubmit={beginSave}
-                onCancel={returnToWalletView}
-              />
-            ) : null}
-          </SettingsDetailPanel>
+          {ready ? <AdaptiveWalletCardForm
+            key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
+            open={activeTab === "add"} ownerId={renderedOwnerId ?? ""}
+            onReturnFocus={() => (saveJob.current ? pendingCardRef.current : addTrigger.current)?.focus({ preventScroll: true })}
+            backRoute={ROUTES.ONE_WALLET} collectSecurityCode showIntroduction={false}
+            getNetworkContext={vaultContext} inSheet scanInToolbar
+            initialNickname={offerNickname ?? undefined} initialPan={filing?.pan}
+            onSubmit={beginSave} onCancel={returnToWalletView}
+          /> : null}
           <SettingsDetailPanel open={ready && walletAccessOpen} onOpenChange={setWalletAccessOpen} title="Wallet access" description="Manage Wallet-wide permissions and sharing history."
             surfaceClassName={`${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} desktopMaxWidth="680px" desktopMaxWidthClassName="sm:!max-w-[680px]"
             onCloseAutoFocus={event => { event.preventDefault(); walletAccessTrigger.current?.focus({ preventScroll: true }); }}>
@@ -1287,7 +1280,7 @@ export function WalletWorkspace() {
               <AlertDialogCancel data-testid="one-wallet-remove-cancel">Keep card</AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
-                onClick={confirmRemove}
+                onClick={() => confirmRemove()}
                 data-testid="one-wallet-remove-confirm-action"
               >
                 Remove card

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.helpers.deployment_cli import document_installer_environment
+from tests.helpers import document_delivery_ci
 from tests.helpers.deployment_cli import frontend_release as _frontend_release
 from tests.helpers.deployment_cli import uat_build_module as _uat_build_module
 
@@ -466,35 +466,30 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
         )
 
 
-@pytest.mark.parametrize("ci", ["true", "false"])
-def test_document_gate_preserves_official_mirrors_and_both_browser_engines(tmp_path, ci):
-    mirrors = tmp_path / "apt-mirrors.txt"
-    mirrors.write_text(
-        "http://azure.archive.ubuntu.com/ubuntu/ 10\nhttp://archive.ubuntu.com/ubuntu/ 20\nhttp://security.ubuntu.com/ubuntu/ 30\n"
-    )
-    environment = document_installer_environment(tmp_path)
-    script = _read("scripts/ci/document-delivery-check.sh").replace(
-        "/etc/apt/apt-mirrors.txt", mirrors.as_posix()
-    )
-    stubs = (
-        'git() { echo "$FIXTURE_ROOT"; }; node() { :; }; '
-        'sudo() { [ "$1 $2" = "sed -i" ] || return 1; '
-        'sed "$3" "$4" > "$4.filtered" && mv "$4.filtered" "$4"; };\n'
-    )
-    calls = tmp_path / "calls"
-    result = subprocess.run(  # noqa: S603 - authored gate with synthetic package commands only.
-        [shutil.which("bash") or "bash", "-c", stubs + script],
-        env={
-            **environment,
-            "CI": ci,
-        },
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    assert ("azure.archive" not in mirrors.read_text()) is (ci == "true")
-    assert "http://archive.ubuntu.com/ubuntu/" in mirrors.read_text()
-    assert "http://security.ubuntu.com/ubuntu/" in mirrors.read_text()
-    actual = calls.read_text().splitlines() if calls.exists() else []
-    expected = ["playwright install --with-deps chromium webkit"] if ci == "true" else []
-    assert actual == expected
+@pytest.mark.parametrize(
+    "ci,mode,runner,expected",
+    document_delivery_ci.DOCUMENT_PLATFORM_CASES,
+)
+def test_document_gate_preserves_official_mirrors_and_both_browser_engines(
+    tmp_path, ci, mode, runner, expected
+):
+    document_delivery_ci.assert_document_platform(tmp_path, ci, mode, runner, expected)
+
+
+def test_document_crypto_requires_both_platforms_without_broadening_editor_work():
+    document_delivery_ci.assert_document_platform_wiring()
+
+
+@pytest.mark.parametrize(
+    "mode,runner,expected",
+    [
+        ((), "Linux", 0),
+        (("--ci-linux-document",), "Linux", 0),
+        (("--ci-linux-document",), "macOS", 64),
+        (("--ci-macos-webkit",), "macOS", 64),
+        (("unknown",), "Linux", 64),
+        (("all", "extra"), "Linux", 64),
+    ],
+)
+def test_integration_document_mode_is_explicit_and_validated(tmp_path, mode, runner, expected):
+    document_delivery_ci.assert_integration_mode(tmp_path, mode, runner, expected)
