@@ -6,6 +6,7 @@ import { accountDeletionSteps } from "@/lib/auth/account-deletion-progress";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { AccountDeletionMark, AccountDeletionProgress } from "./account-deletion-progress";
 import { AccountRegistrationRecoveryPanel } from "./account-registration-recovery";
+import { usePendingRetry } from "./use-pending-retry";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiService } from "@/lib/services/api-service";
 import { snapshotAuthSessionGeneration, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
@@ -15,11 +16,12 @@ export function SessionVerificationRecovery({
   onRetry,
   onSignOut,
 }: {
-  onRetry: () => void;
+  onRetry: () => void | Promise<unknown>;
   onSignOut: () => void;
 }) {
   const { user, userId: accountOwnerId, accountCleanup, accountRegistration, signOut } = useAuth();
   const deletionPending = isAccountDeletionActive(accountOwnerId);
+  const [checking, refresh] = usePendingRetry(onRetry);
   const [continuingId, setContinuingId] = useState<string | null>(null);
   const [continuationFailure, setContinuationFailure] = useState<{ operationId: string; message: string } | null>(null);
   const [acceptedOperationId, setAcceptedOperationId] = useState<string | null>(null);
@@ -163,11 +165,12 @@ export function SessionVerificationRecovery({
             type="button"
           >{continuing ? continuingLabel : continueLabel}</button>}
           {(!advancesAlone || continuationError) && <button
-            className="min-h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background"
-            onClick={onRetry}
+            className="min-h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background disabled:opacity-50"
+            disabled={checking}
+            onClick={refresh}
             type="button"
           >
-            {cleanup ? "Refresh status" : deletionPending ? "Check status" : "Try again"}
+            {checking ? "Checking…" : cleanup ? "Refresh status" : deletionPending ? "Check status" : "Try again"}
           </button>}
           <button
             className="min-h-11 rounded-full border border-border px-6 text-sm font-semibold text-foreground"

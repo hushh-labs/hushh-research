@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import type { AccountRegistrationRecovery } from "@/lib/auth/account-registration";
-import { registrationAdvancesAlone } from "@/lib/auth/account-recovery-cadence";
+import { canReauthenticateIdentityHere } from "@/lib/auth/identity-reauth-capability";
 import { snapshotAuthSessionGeneration, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { LEGAL_CONTACT_EMAIL } from "@/lib/legal/legal-documents";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { withDeadline } from "@/lib/utils/with-deadline";
 import { RegistrationProgress } from "./account-deletion-progress";
+import { usePendingRetry } from "./use-pending-retry";
 
 const PROVIDERS = [
   { id: "google.com", label: "Verify with Google" },
@@ -17,11 +19,37 @@ const PROVIDERS = [
 ] as const;
 const PRIMARY = "min-h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background disabled:opacity-50";
 const SECONDARY = "min-h-11 rounded-full border border-border px-6 text-sm font-semibold text-foreground disabled:opacity-50";
+const SIGN_IN_ANOTHER_WAY = "Deleted information stays deleted. To create a new account now, sign out, then sign in with Google, Apple, Microsoft or an email code.";
+
+/** "here": a linked provider this device can verify. "web": linked, but only the web can verify it. */
+type Verification = "here" | "web" | "unavailable";
+
+/** One honest title and body per state; the panel offers only controls that can change the outcome. */
+export function registrationRecoveryCopy(recovery: AccountRegistrationRecovery, verification: Verification, phone: boolean) {
+  switch (recovery.state) {
+    case "ready":
+      return { title: "Start fresh?", body: "Your previous account was deleted. You can create a new account with this sign-in. Deleted information stays deleted." };
+    case "fresh_identity_required":
+      if (verification === "here") return { title: "Verify it’s you", body: "Verify your sign-in before creating a new account. Refreshing a session does not replace this check." };
+      if (verification === "web") return { title: "Verify it’s you on the web", body: "This app can’t verify your sign-in yet. Sign out, then sign in to One on the web to start fresh. Deleted information stays deleted." };
+      // Fresh proof comes only from Google, Apple, Microsoft or an email code; a phone or
+      // password session can't supply it, and refreshing it never will.
+      return { title: phone ? "Starting fresh with a phone sign-in isn’t available yet" : "Starting fresh with this sign-in isn’t available yet", body: SIGN_IN_ANOTHER_WAY };
+    case "action_required":
+      return recovery.reason === "identity_write_unconfirmed"
+        ? { title: "Confirming your previous cleanup", body: "A sign-in change from your deletion is still settling. This page checks again on its own. Deleted information stays deleted." }
+        : { title: "Your previous cleanup needs attention", body: "We couldn’t confirm that your previous account’s cleanup finished, so a new account can’t start yet. Deleted information stays deleted. Email support and we’ll finish it with you." };
+    case "waiting_for_identity":
+      return { title: "Your account was deleted", body: "Your information was erased. For your security, you can verify your sign-in and start fresh in a moment." };
+    default:
+      return { title: "Your account is finishing cleanup", body: "Cleanup continues if you close this window." };
+  }
+}
 
 export function AccountRegistrationRecoveryPanel({ user, recovery, onRetry, onSignOut }: {
   user: User;
   recovery: AccountRegistrationRecovery;
-  onRetry: () => void;
+  onRetry: () => void | Promise<unknown>;
   onSignOut: () => void;
 }) {
   const current = useRef({ user, recovery });
@@ -33,14 +61,16 @@ export function AccountRegistrationRecoveryPanel({ user, recovery, onRetry, onSi
   const [acceptedDigest, setAcceptedDigest] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [uncertainReview, setUncertainReview] = useState<AccountRegistrationRecovery | null>(null);
+  const [checking, refresh] = usePendingRetry(onRetry);
   const review = recovery.state === "ready" ? recovery.review : null;
-  const providers = PROVIDERS.filter(provider => user.providerData?.some(item => item.providerId === provider.id));
-  const title = review ? "Start fresh?" : recovery.state === "fresh_identity_required"
-    ? "Verify it’s you" : recovery.state === "action_required"
-      ? "Your previous cleanup needs attention" : recovery.state === "waiting_for_identity"
-        ? "Your account was deleted" : "Your account is finishing cleanup";
-  // The AuthProvider re-checks these states itself; everything else waits for the person.
-  const advancesAlone = registrationAdvancesAlone(recovery);
+  const linked = PROVIDERS.filter(provider => user.providerData?.some(item => item.providerId === provider.id));
+  const providers = linked.filter(provider => canReauthenticateIdentityHere(provider.id));
+  const verification: Verification = providers.length ? "here" : linked.length ? "web" : "unavailable";
+  const phone = user.providerData?.some(item => item.providerId === "phone") === true;
+  const { title, body } = registrationRecoveryCopy(recovery, verification, phone);
+  // Signing in another way is the only step left here, so it leads.
+  const signInElsewhere = recovery.state === "fresh_identity_required" && verification !== "here";
+  const historical = recovery.state === "action_required" && recovery.reason === "historical_cleanup_unconfirmed";
 
   async function operate(provider?: typeof PROVIDERS[number]["id"]) {
     const episode = snapshotAuthSessionGeneration();
@@ -89,15 +119,7 @@ export function AccountRegistrationRecoveryPanel({ user, recovery, onRetry, onSi
   return <main className="flex min-h-[70vh] items-center justify-center bg-background px-6 py-12">
     <section aria-labelledby="registration-recovery-title" className="w-full max-w-md rounded-3xl border border-border/70 bg-card p-7 shadow-sm" role="alert">
       <h1 id="registration-recovery-title" className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">{review
-        ? "Your previous account was deleted. You can create a new account with this sign-in. Deleted information stays deleted."
-        : recovery.state === "fresh_identity_required"
-          ? "Verify your sign-in before creating a new account. Refreshing a session does not replace this check."
-          : recovery.state === "action_required"
-            ? "We need to confirm the previous cloud and access cleanup before you can start again. Your deleted information stays deleted."
-            : recovery.state === "waiting_for_identity"
-              ? "Your information was erased. For your security, you can verify your sign-in and start fresh in a moment."
-              : "Cleanup continues if you close this window."}</p>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">{body}</p>
       {recovery.state !== "action_required" && <RegistrationProgress recovery={recovery} />}
       {review && <label className="mt-5 flex items-start gap-3 text-sm leading-6 text-foreground">
         <input type="checkbox" className="mt-1 size-4 shrink-0" disabled={busy} checked={acceptedDigest === review.digest}
@@ -110,8 +132,12 @@ export function AccountRegistrationRecoveryPanel({ user, recovery, onRetry, onSi
           onClick={() => void operate()}>{busy ? "Creating your account…" : "Create new account"}</button>}
         {recovery.state === "fresh_identity_required" && providers.map(provider => <button key={provider.id} className={PRIMARY}
           type="button" disabled={busy} onClick={() => void operate(provider.id)}>{busy ? "Verifying…" : provider.label}</button>)}
-        {!advancesAlone && <button className={SECONDARY} type="button" disabled={busy} onClick={onRetry}>Refresh status</button>}
-        <button className={SECONDARY} type="button" disabled={busy} onClick={onSignOut}>Sign out</button>
+        {recovery.state === "action_required" && <a className={`${historical ? PRIMARY : SECONDARY} flex items-center justify-center`}
+          href={`mailto:${LEGAL_CONTACT_EMAIL}`}>Email {LEGAL_CONTACT_EMAIL}</a>}
+        {/* Only a review can change on refresh; every other state re-checks alone or needs another sign-in. */}
+        {review && <button className={SECONDARY} type="button" disabled={busy || checking} onClick={refresh}>
+          {checking ? "Checking…" : "Refresh status"}</button>}
+        <button className={signInElsewhere ? PRIMARY : SECONDARY} type="button" onClick={onSignOut}>Sign out</button>
       </div>
     </section>
   </main>;

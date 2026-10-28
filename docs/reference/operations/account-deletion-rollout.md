@@ -782,6 +782,22 @@ response reports `ready_to_start_fresh` only when Firebase removal is confirmed,
 so it stays `false` while the shared identity is retained. Where generations are
 on, the next sign-in reaches start-fresh through `registration-status` instead.
 
+### Start-fresh recovery screens
+
+Each registration screen offers only a step that can change its answer:
+
+- Fresh proof comes from a Google, Apple or Microsoft sign-in (`registration_review`)
+  or an email code (its purpose-bound enrollment). A phone or password session can't
+  supply it, so that screen says starting fresh with this sign-in isn't available yet
+  and leads with Sign out. The native app verifies Google and Apple only; a Microsoft
+  sign-in is sent to the web instead of a button that always fails.
+- `historical_cleanup_unconfirmed` needs support (`support@hushh.ai`) and offers no
+  refresh. `identity_write_unconfirmed` settles on the server, so the web re-checks it
+  on its own at 15 s, 30 s, 1, 2, then every 5 minutes.
+- Refresh appears only on the review, where its answer can change, and reads
+  "Checking…" while pending. Forced validations coalesce: at most one runs and one
+  waits. Sign out is never disabled.
+
 ## Maintainer UAT backend-only erasure
 
 The test-account helper uses `AccountService.erase_uat_backend_account`, not

@@ -44,6 +44,7 @@ import {
 } from "@capacitor-firebase/authentication";
 import { HushhAuth, type AuthUser } from "@/lib/capacitor";
 import { authSessionInvalidationCodeFromFirebaseError } from "@/lib/auth/session-invalidation";
+import { canReauthenticateIdentityHere } from "@/lib/auth/identity-reauth-capability";
 import { toast } from "sonner";
 import { GOOGLE_CONTACTS_READ_SCOPE } from "@/lib/contacts/initial-contact-onboarding-config";
 import { googleSignupConfigured, requestGoogleSignupToken } from "@/lib/auth/google-signup-token";
@@ -748,10 +749,8 @@ export class AuthService {
     }
     // Callers may name the session by its application owner; provider proofs bind the Firebase UID.
     const firebaseUid = firebaseUidForOwner(expectedUserId);
-    if (Capacitor.isNativePlatform()) {
-      if (providerId === "apple.com") return this.reauthenticateNativeIdentity("apple", firebaseUid, isCurrent);
-      throw new Error("native_identity_unavailable");
-    }
+    if (!canReauthenticateIdentityHere(providerId)) throw new Error("native_identity_unavailable");
+    if (Capacitor.isNativePlatform()) return this.reauthenticateNativeIdentity("apple", firebaseUid, isCurrent);
     const currentUser = auth.currentUser;
     if (!expectedUserId || !isCurrent() || !currentUser ||
         currentUser.uid !== firebaseUid ||

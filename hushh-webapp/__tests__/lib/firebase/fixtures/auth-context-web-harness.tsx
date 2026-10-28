@@ -321,7 +321,7 @@ function renderProvider() {
 function CleanupInterfaceProbe() {
   const { sessionVerificationRequired,retrySessionVerification,signOut }=useAuth();
   return sessionVerificationRequired
-    ? <SessionVerificationRecovery onRetry={() => void retrySessionVerification()} onSignOut={() => void signOut()} />
+    ? <SessionVerificationRecovery onRetry={retrySessionVerification} onSignOut={() => void signOut()} />
     : <SessionProbe />;
 }
 

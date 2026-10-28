@@ -21,11 +21,17 @@ type Props = {
   onAuthenticated: (customToken: string) => Promise<void>;
 };
 
+// Verify consumed the code, then the account changed (409) or the enrollment lapsed
+// (409 at verify, 400 while finishing sign-in): that code can never succeed, so only a new code continues.
+const staleCode = (error: unknown) => error instanceof EmailAuthRequestError
+  && (error.code === "enrollment_expired" || error.status === 409 && error.code === "enrollment_changed");
+
 export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, onAuthenticated }: Props) {
   const [view, setView] = useState<"closed" | "email" | "code" | "registration">("closed");
   const [available, setAvailable] = useState(false);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
+  const [stale, setStale] = useState(false);
   const [challenge, setChallenge] = useState<EmailChallenge | null>(null);
   const [registration, setRegistration] = useState<Extract<EmailVerification, { status: "registration_required" }> | null>(null);
   const [accepted, setAccepted] = useState(false);
@@ -58,7 +64,7 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
     generation.current += 1;
     binding.current = null;
     requestKey.current = null;
-    setCode(""); setChallenge(null); setRegistration(null); setAccepted(false); setSubmitted(false); setNotice(""); setView("email");
+    setCode(""); setStale(false); setChallenge(null); setRegistration(null); setAccepted(false); setSubmitted(false); setNotice(""); setView("email");
   }
 
   async function operation(work: (epoch: number) => Promise<void>) {
@@ -84,7 +90,7 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
         email, browser_binding: binding.current, request_key: requestKey.current,
       });
       if (!mounted.current || epoch !== generation.current) return;
-      setChallenge(result); setCode(""); setRegistration(null); setAccepted(false); setSubmitted(false); setView("code");
+      setChallenge(result); setCode(""); setStale(false); setRegistration(null); setAccepted(false); setSubmitted(false); setView("code");
     });
   }
 
@@ -94,9 +100,10 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
     await operation(async (epoch) => {
       const result = await ApiService.emailAuthRequest<EmailVerification>("verify", {
         challenge_id: challenge.challenge_id, code, browser_binding: binding.current!,
-      });
+      }).catch((error: unknown) => { if (staleCode(error)) return null; throw error; });
       if (!mounted.current || epoch !== generation.current) return;
       setCode("");
+      if (!result) { setStale(true); setNotice("Request a new sign-in code."); return; }
       if (result.status === "registration_required") {
         setRegistration(result); setAccepted(false); setSubmitted(false); setView("registration");
         return;
@@ -142,20 +149,23 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
       </Button>
     </form> : null}
     {view === "code" && challenge ? <form onSubmit={verifyCode} className={styles.emailForm}>
-      <p className={styles.emailHint}>Enter the code sent to {challenge.destination}.</p>
-      <label htmlFor="email-sign-in-code" className={styles.emailLabel}>Six-digit code</label>
-      <Input id="email-sign-in-code" inputMode="numeric" autoComplete="one-time-code"
-        aria-describedby="email-sign-in-expiry"
-        pattern="[0-9]{6}" maxLength={6} value={code} required autoFocus
-        className={cn(styles.emailInput, styles.emailCode)} disabled={busy || disabled || expired}
-        onChange={(event) => setCode(event.target.value.replace(/[^0-9]/g, "").slice(0, 6))} />
-      <p id="email-sign-in-expiry" className={styles.emailHint} role="timer" aria-live="off">
-        {expired ? "This code expired. Request a new one." : `Code expires in ${expiryCountdown}.`}
-      </p>
-      <Button type="submit" className={cn(styles.providerButton, styles.emailSubmit)} disabled={busy || disabled || expired || code.length !== 6}>
-        {busy ? "Verifying…" : "Verify and sign in"}
-      </Button>
-      <Button type="button" variant="ghost" className={styles.emailQuietAction}
+      {stale ? null : <>
+        <p className={styles.emailHint}>Enter the code sent to {challenge.destination}.</p>
+        <label htmlFor="email-sign-in-code" className={styles.emailLabel}>Six-digit code</label>
+        <Input id="email-sign-in-code" inputMode="numeric" autoComplete="one-time-code"
+          aria-describedby="email-sign-in-expiry"
+          pattern="[0-9]{6}" maxLength={6} value={code} required autoFocus
+          className={cn(styles.emailInput, styles.emailCode)} disabled={busy || disabled || expired}
+          onChange={(event) => setCode(event.target.value.replace(/[^0-9]/g, "").slice(0, 6))} />
+        <p id="email-sign-in-expiry" className={styles.emailHint} role="timer" aria-live="off">
+          {expired ? "This code expired. Request a new one." : `Code expires in ${expiryCountdown}.`}
+        </p>
+        <Button type="submit" className={cn(styles.providerButton, styles.emailSubmit)} disabled={busy || disabled || expired || code.length !== 6}>
+          {busy ? "Verifying…" : "Verify and sign in"}
+        </Button>
+      </>}
+      <Button type="button" variant={stale ? "default" : "ghost"}
+        className={stale ? cn(styles.providerButton, styles.emailSubmit) : styles.emailQuietAction}
         disabled={busy || disabled || remaining > 0} onClick={() => { requestKey.current = null; void requestCode(); }}>
         {remaining > 0 ? `Resend in ${remaining}s` : "Send a new code"}
       </Button>
