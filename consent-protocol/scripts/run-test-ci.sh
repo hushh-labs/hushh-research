@@ -59,25 +59,21 @@ fi
 # Measured 2026-09-26 on the full manifest (see docs/reference/operations/ci.md):
 # serial vs parallel, same pass count, three clean parallel runs.
 #
-# Most *_postgres.py files and the legacy-named Drive sharing, trusted-auto, owner
-# scenario and Feed suites run serially afterwards. They share ONE real database
-# (ONE_COMMAND_TEST_DATABASE_URL), and although each
+# The *_postgres.py files and the legacy-named Drive sharing, trusted-auto, owner
+# scenario and Feed suites are the exception and run serially afterwards. They
+# share ONE real database (ONE_COMMAND_TEST_DATABASE_URL), and although each
 # test gets its own schema, Postgres catalog work is database-wide: two workers
 # raced on `CREATE EXTENSION pgcrypto` (UniqueViolation on
 # pg_extension_name_index, first parallel CI run), and a migration reading
 # pg_constraint hit "could not open relation" while another worker dropped its
 # test schema. Neither is a product defect; both are shared-database artefacts,
-# so those files keep the serial run they had before. The two explicit exceptions
-# below create private clusters and stay ordered within their own worker.
+# so those files keep the serial run they had before.
 PYTEST_PARALLEL_ARGS=(-n auto --dist loadfile)
 
 PARALLEL_TESTS=()
 POSTGRES_TESTS=()
 for test_file in "${TESTS[@]}"; do
   case "$test_file" in
-    # These two files create private PostgreSQL clusters. Keep each file on
-    # one xdist worker in its original order; all other shared-DB tests stay serial.
-    tests/test_private_agent_adoption_postgres.py|tests/test_account_erasure_lock_timeout_postgres.py) PARALLEL_TESTS+=("$test_file") ;;
     *_postgres.py|tests/services/test_document_delivery*.py|tests/test_hashcoin_wallet.py|tests/services/test_drive_sharing_store.py|tests/services/test_drive_trusted_auto.py|tests/services/test_drive_owner_meeting_notes_scenario.py|tests/services/test_drive_feed_projection.py|tests/services/test_drive_request_payment_v1_lane.py) POSTGRES_TESTS+=("$test_file") ;;
     *) PARALLEL_TESTS+=("$test_file") ;;
   esac

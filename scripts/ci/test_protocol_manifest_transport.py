@@ -84,24 +84,6 @@ class ProtocolManifestTransportTest(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertIn("Unknown backend test partition", result.stderr)
 
-    def test_private_postgres_files_are_kept_whole_and_run_once_in_parallel(self):
-        isolated = [
-            "tests/test_private_agent_adoption_postgres.py",
-            "tests/test_account_erasure_lock_timeout_postgres.py",
-        ]
-        shared = "tests/owner_postgres.py"
-        results = {}
-        for partition in (None, "parallel", "database"):
-            result, calls = self._run_manifest([*isolated, shared], partition)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            results[partition] = calls
-        parallel = [["-q", "-n", "auto", "--dist", "loadfile", *isolated]]
-        database = [["-q", shared]]
-        collection = [["--collect-only", "-q", "tests/"]]
-        self.assertEqual(results["parallel"], parallel + collection)
-        self.assertEqual(results["database"], database)
-        self.assertEqual(results[None], parallel + database + collection)
-
     def test_partition_still_refuses_a_missing_file_outside_its_selection(self):
         missing = "tests/owner_postgres.py"
         result, calls = self._run_manifest(["tests/ordinary.py", missing], "parallel", [missing])
