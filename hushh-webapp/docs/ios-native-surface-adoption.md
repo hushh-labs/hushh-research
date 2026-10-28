@@ -18,14 +18,25 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated audit — 2026-10-28
 
-The subsequent Dev-backed qualification app from `1f59682cfc` is installed on
-the iPhone. Its signed source executable SHA-256 is
+The Dev-backed qualification app from `c002957256` is installed on the iPhone.
+Its signed source app executable SHA-256 is
+`0fbb44e1a9c48746adc231ad5173da6af485903d205158833669d8a502eec743`,
+and its matching test-runner executable SHA-256 is
+`ca73db0dfc66260d806aa9356b5ce3c922ad24588021a78bd0c5ef1d2b33785c`.
+All 1,804 exported web assets matched the signed bundle, the Dev backend identity
+matched and the package pins remained unchanged. Installed bytes were not read
+back. Its public Vault layout check passed keyboard, recovery and sign-out
+reachability, portrait and background/resume. This is the existing React gate,
+not native Vault qualification. This source integrates main through
+`8c1985f4b0` and preserves the shared upstream branch. The prior Dev-backed
+qualification app from `1f59682cfc` had
+signed source executable SHA-256
 `133669444f34a1d5393aa20d4f40f366378494de090ddb8e8ffe00aefde14ec8`;
 all 1,789 exported web assets matched the signed bundle, and the pinned package
 manifest and lockfile remained unchanged. Dev uses the repository's
 UAT-compatible runtime label while targeting the Dev backend. Installed bytes
-were not read back. The installed test runner includes the public mixed-input
-sample added with this record; its signed source executable SHA-256 is
+were not read back. Its test runner included the public mixed-input
+sample; its signed source executable SHA-256 was
 `7d5bdd0363b7aa54b4ce4d5589149aeb13eff820e61e7ed15884d042c25dd5f1`.
 The app reached the Vault gate. Whole-value reviewer input
 was not acknowledged and Unlock was not submitted, including after a public
@@ -37,8 +48,7 @@ Mail test on `b3dff87177` did not reach Mail because its starting Chat composer
 was not admitted after the Finance setup journey. Neither result establishes
 an authentication rejection or a Mail product defect.
 
-The local source integrates main through `84b80bcab6` and the shared upstream
-branch in `b3dff87177`. The earlier Dev-backed Release qualification build
+The earlier Dev-backed Release qualification build
 from `b3dff87177` had signed source app executable SHA-256
 `edbb637b7471e99abddf1414e0f62278158243a4073c61ab635448fe427e2365` and its
 matching signed source test executable SHA-256 is
@@ -133,13 +143,19 @@ drafts only. Focused iPhone-simulator tests cover these model contracts; UIKit
 callback timing, real keyboards and device privacy transitions remain unqualified.
 The hard Vault gate still uses its complete React journey. Its creation form
 also guards both password fields and IME-confirming Enter against early submit.
+The Profile password editor is not a hard-gate implementation: a native gate
+must cover recovery, enrollment and deletion as well as password entry, while
+the existing guard retains authentication, decryption and owner-token authority.
+Its transient edits and actions must be fenced by owner, document and privacy
+generation, and its complete presentation must retire before any fallback is
+revealed. No password-only native gate is admitted by the qualification flag.
 
 Source `519010d63b` shares UIKit text projection across native Profile name,
 password, pricing and runtime editors. A Release iPhone simulator run preserved
 selection, shortening, Unicode and marked text; a secure-field case and three
 existing editor-lifecycle checks also passed. A negative control reproducing the
 old collapsed selection failed as expected. This is not physical-device or
-real-keyboard/IME acceptance. The installed device build is `1f59682cfc`.
+real-keyboard/IME acceptance. The installed device build is `c002957256`.
 The same projection was subsequently applied to native phone-number and OTP
 fields; its simulator check and the existing phone-scene lifecycle check passed.
 Main through `f103c68b38` was integrated in `46ee7ba445`, retaining both sides
