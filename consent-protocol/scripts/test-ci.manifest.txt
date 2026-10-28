@@ -466,6 +466,9 @@ tests/test_account_legal_acceptance_postgres.py
 tests/test_firebase_auth_split.py
 tests/services/test_account_deletion_lifecycle_service.py
 tests/services/test_account_deletion_provider_cleanup.py
+# The owner's deletion notice follows only a committed erasure; admission wakes the drain.
+tests/services/test_account_deletion_completion.py
+tests/services/test_support_email_service.py
 tests/test_account_deletion_tombstone_migration.py
 tests/test_account_erasure_lock_timeout_postgres.py
 tests/test_account_deletion_release_workflow.py

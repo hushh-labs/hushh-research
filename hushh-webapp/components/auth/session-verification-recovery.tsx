@@ -2,7 +2,9 @@
 
 import { useRef, useState } from "react";
 import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
+import { accountDeletionSteps } from "@/lib/auth/account-deletion-progress";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
+import { AccountDeletionMark, AccountDeletionProgress } from "./account-deletion-progress";
 import { AccountRegistrationRecoveryPanel } from "./account-registration-recovery";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiService } from "@/lib/services/api-service";
@@ -41,6 +43,10 @@ export function SessionVerificationRecovery({
   const runsWithoutYou = Boolean(cleanup && !cleanup.local_erasure_confirmation_required &&
     (cleanup.state === "cleaning_up" || cleanup.state === "waiting_for_provider"));
   const delayed = runsWithoutYou && cleanup?.delayed === true;
+  // The AuthProvider re-checks on the backend's cadence, so a working deletion needs no
+  // manual refresh. Steps that need the person keep their controls.
+  const advancesAlone = runsWithoutYou && !delayed;
+  const steps = cleanup ? accountDeletionSteps(cleanup, null) : null;
   const title = localErasureConfirmationRequired
     ? "Finish account deletion"
     : cleanup?.state === "action_required"
@@ -58,7 +64,7 @@ export function SessionVerificationRecovery({
         ? "Your private agent stays paused until this step is done."
       : delayed
         ? "Your information stays hidden. Deletion is queued on our side and finishes without you. You can sign out and check back later."
-        : "Your private agent is paused while we delete your account. This usually takes a few minutes. You can close this window or sign out; deletion keeps going.";
+        : "Your private agent is paused while we erase your information. You can close this window or sign out; deletion keeps going.";
 
   async function continueCleanup() {
     const owner = snapshotAuthSessionGeneration();
@@ -118,12 +124,12 @@ export function SessionVerificationRecovery({
         className="w-full max-w-md rounded-3xl border border-border/70 bg-card p-7 text-center shadow-sm"
         role="alert"
       >
-        <div
+        {steps ? <AccountDeletionMark still={!advancesAlone} /> : <div
           aria-hidden="true"
           className="mx-auto mb-5 flex size-12 items-center justify-center rounded-full bg-muted text-xl"
         >
           🔒
-        </div>
+        </div>}
         <h1
           id="session-verification-title"
           className="text-xl font-semibold tracking-tight text-foreground"
@@ -147,6 +153,7 @@ export function SessionVerificationRecovery({
         {cleanup?.state === "action_required" && !cleanup.local_erasure_confirmation_required && <p className="mt-3 text-sm leading-6 text-muted-foreground">
           Provider access needs review before we can finish. Retry cleanup, or contact support if it stays paused.
         </p>}
+        {steps && <AccountDeletionProgress steps={steps} />}
         {continuationError && <p role="status" className="mt-3 text-sm text-destructive">{continuationError}</p>}
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
           {canContinueCleanup && <button
@@ -155,13 +162,13 @@ export function SessionVerificationRecovery({
             onClick={() => void continueCleanup()}
             type="button"
           >{continuing ? continuingLabel : continueLabel}</button>}
-          <button
+          {(!advancesAlone || continuationError) && <button
             className="min-h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background"
             onClick={onRetry}
             type="button"
           >
             {cleanup ? "Refresh status" : deletionPending ? "Check status" : "Try again"}
-          </button>
+          </button>}
           <button
             className="min-h-11 rounded-full border border-border px-6 text-sm font-semibold text-foreground"
             onClick={onSignOut}
