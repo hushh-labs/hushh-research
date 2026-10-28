@@ -17,12 +17,16 @@ BACKEND_TESTS = ROOT / "consent-protocol/tests/test_plg_release_source.py"
 ADDED = "hushh-webapp/app/api/plg-email/unsubscribe/[token]/route.ts"
 
 
-def test_failed_w2_candidate_cannot_reuse_w3_source_admission():
+@pytest.mark.parametrize(
+    "old_sha",
+    ["cfe8c062bd1c455249fc4626720d426edaf9668a", "73c207c423a3197c56ca9f5c3daf86911b0a1ad5"],
+)
+def test_old_candidates_cannot_reuse_current_source_admission(old_sha):
     module = _load("plg_frontend_fixed_source", SOURCE)
     record = dict(module.FIXED_RECORD, changes=[])
     module._check_record(module.SOURCE_SHA, record)
     with pytest.raises(module.Refused, match="not the recorded"):
-        module._check_record("cfe8c062bd1c455249fc4626720d426edaf9668a", record)
+        module._check_record(old_sha, record)
 
 
 def _load(name, path):
@@ -206,7 +210,7 @@ def _rebind_candidate(module, record, write, monkeypatch, data, candidate):
 def test_real_git_source_proof_never_authorizes_traffic_or_environments(admission):
     module, data, _, _, _ = admission
     proof = module.qualify_source(data["candidate"])
-    assert len(proof["changes"]) == 18
+    assert len(proof["changes"]) == 19
     assert proof["sourceQualified"] is True
     assert proof["trafficAuthorized"] is False
     assert proof["environmentAccepted"] is False
