@@ -219,9 +219,13 @@ describe("toMoverGroups", () => {
       [time, later].map(value => formatLocalDateTime(value, { hour: "numeric", minute: "2-digit" })),
     );
     rerender(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1)], [mover("B", -1, true, null)]) }));
-    expect(screen.getByText("Time unavailable", { exact: true })).toBeVisible();
-    expect(container.querySelectorAll("button > time")).toHaveLength(2);
+    expect(screen.queryByText(/Time unavailable/i)).not.toBeInTheDocument();
+    expect(container.querySelectorAll("button > time")).toHaveLength(1);
     expect(container.textContent).not.toMatch(/cached/i);
+    rerender(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1, true, null)], [mover("B", -1, true, null)]) }));
+    expect(container.querySelector("[data-market-mover-freshness]")).toBeNull();
+    expect(container.querySelector("time")).toBeNull();
+    expect(container.textContent).not.toMatch(/time unavailable/i);
     rerender(createElement(OneMarketMovers, { groups: groupsFor([], []) }));
     expect(container.querySelectorAll("[data-market-mover-pair]")).toHaveLength(3);
     expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(6);
