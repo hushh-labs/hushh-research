@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-10-25",
-  "total_routes": 142,
-  "native_required_routes": 115,
-  "excluded_routes": 27,
+  "generated_at": "2026-10-28",
+  "total_routes": 146,
+  "native_required_routes": 118,
+  "excluded_routes": 28,
   "routes": [
     {
       "route": "/one/documents/open",
@@ -378,6 +378,11 @@
       "route": "/one/connected-systems",
       "classification": "excluded-web-only",
       "reason": "Local CRM is explicitly localhost-only development; requireLocalCrmRoute rejects Capacitor builds before reading request headers."
+    },
+    {
+      "route": "/one/connected-systems/[systemId]",
+      "classification": "excluded-web-only",
+      "reason": "The detail inherits the local CRM layout, which rejects Capacitor builds before rendering; it is available only on explicitly enabled localhost development."
     },
     {
       "route": "/one/consent",
@@ -1428,6 +1433,48 @@
       "initialRoute": "/login?redirect=%2Fria%2Fclients",
       "expectedMarker": "native-route-ria-clients",
       "expectedRoute": "/ria/clients",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/ria/clients/[userId]",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture",
+      "expectedMarker": "native-route-ria-client-workspace",
+      "expectedRoute": "/ria/clients/native-audit-fixture",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/ria/clients/[userId]/accounts/[accountId]",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture%2Faccounts%2Facct_demo_taxable_main",
+      "expectedMarker": "native-route-ria-client-account-detail",
+      "expectedRoute": "/ria/clients/native-audit-fixture/accounts/acct_demo_taxable_main",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/ria/clients/[userId]/requests/[requestId]",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture%2Frequests%2Frequest_demo_kai_specialized_bundle",
+      "expectedMarker": "native-route-ria-client-request-detail",
+      "expectedRoute": "/ria/clients/native-audit-fixture/requests/request_demo_kai_specialized_bundle",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

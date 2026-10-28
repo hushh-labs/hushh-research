@@ -18,7 +18,7 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated audit — 2026-10-28
 
-The local integrated source `95dc95d6da` includes main and the shared branch.
+The local integrated source through `46ee7ba445` includes main and the shared branch.
 Its generated map contains 161 routes and 17 separately enumerated query-driven
 views; enumeration is discovery, not acceptance. The iPhone now has the
 Dev-backed qualification build from `85d175b750` installed (executable SHA-256
@@ -34,13 +34,13 @@ Ordinary builds retain the established renderer and the qualification switch.
 | Privacy and interruption | Existing native privacy and presentation owners | Ten warm Profile background/resume cycles and Control Center recovery passed on `773bd90a6f`; other interruption and overlay combinations remain unqualified. |
 | Other routes and nested states | Existing feature owners and renderer-specific fallbacks | The generated inventory covers route discovery, not every interaction state. Native completion, visual and accessibility review, mutation fixtures and physical performance acceptance remain open. |
 
-The combined surface map includes four standard dynamic routes without native
-inventory rows: `/one/connected-systems/[systemId]` and the RIA client,
-account and request detail routes under `/ria/clients/[userId]`. The current
-Dev static export contains one generated connected-system path and one fixture
-path for each RIA detail family. Arbitrary identifiers and their native
-navigation have not been verified; the generated map must not count these
-unclassified routes as native acceptance.
+The native inventory now classifies all standard route-layout entries, including
+the local-only connected-system detail and the RIA client, account and request
+details. The latter have separate, non-identifying static audit fixtures. The
+existing product route builders still use arbitrary dynamic IDs, while the
+Capacitor export enumerates only configured or audit fixtures. An independent
+source review found no adapter for those real dynamic RIA paths; this is an
+unverified native navigation gap, not a native acceptance claim.
 
 Fourteen in-app query-backed views (Finance, Consent, Location, Connect and
 Mail) are discovered in the surface map but do not have separate route-inventory
@@ -62,6 +62,15 @@ Back/Search contracts passed. Calendar's 72-case suite passed with `TZ=UTC`;
 seven date-dependent cases failed with this Mac's Pacific timezone, so that
 local test-environment assumption remains visible rather than being counted as
 an unconditional pass.
+
+The integrated phone-linked deletion flow also has local stale-visit and
+uncertain-response protections. A source review identified two remaining server
+boundaries: a different device can change the requester's phone binding before
+the subsequent claim, and removal of a target can remove the deletion receipt.
+The client does not replay an uncertain claim within the same review or report
+an uncertain deletion as finished. Atomic cross-device claim fencing and
+authoritative reconciliation still need implementation and database-backed
+proof before release.
 
 The hard Vault gate is one React-owned credential journey, not the Profile
 password-change scene. Its reachable states are checking/retry, setup-required,

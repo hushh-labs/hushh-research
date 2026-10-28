@@ -2981,7 +2981,11 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/connected-systems/[systemId]",
+        "classification": "excluded-web-only",
+        "reason": "The detail inherits the local CRM layout, which rejects Capacitor builds before rendering; it is available only on explicitly enabled localhost development."
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -10378,7 +10382,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/ria/clients/[userId]",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture",
+        "expectedMarker": "native-route-ria-client-workspace",
+        "expectedRoute": "/ria/clients/native-audit-fixture",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -10434,7 +10451,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/ria/clients/[userId]/accounts/[accountId]",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture%2Faccounts%2Facct_demo_taxable_main",
+        "expectedMarker": "native-route-ria-client-account-detail",
+        "expectedRoute": "/ria/clients/native-audit-fixture/accounts/acct_demo_taxable_main",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -10490,7 +10520,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/ria/clients/[userId]/requests/[requestId]",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture%2Frequests%2Frequest_demo_kai_specialized_bundle",
+        "expectedMarker": "native-route-ria-client-request-detail",
+        "expectedRoute": "/ria/clients/native-audit-fixture/requests/request_demo_kai_specialized_bundle",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -11142,5 +11185,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "efbbbf604121837e02e0a5f784bcd957f17e57bdb006f389903f73f81e656ca8"
+  "content_sha256": "e4ca7fc7e8a48bb28a3c77ac60e417546c42299d120f0d665f0b2f53e6d6f2d3"
 }

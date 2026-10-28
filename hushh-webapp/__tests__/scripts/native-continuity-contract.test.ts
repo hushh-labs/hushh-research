@@ -415,6 +415,13 @@ ${script.slice(boundary)}`], {
     expect(flows).toContain('type: "click_shell_action", ariaLabel: "Open Profile"');
   });
 
+  it("classifies every standard app route in the native inventory", () => {
+    const layout = JSON.parse(source("lib/navigation/app-route-layout.contract.json")) as Array<{ route: string; mode: string }>;
+    const inventory = JSON.parse(source("native-route-inventory.json")) as { routes: Array<{ route: string }> };
+    const classified = new Set(inventory.routes.map(entry => entry.route));
+    expect(layout.filter(entry => entry.mode === "standard" && !classified.has(entry.route)).map(entry => entry.route)).toEqual([]);
+  });
+
   it("keeps canonical Profile inventory redirects and XCTest fixtures off deleted routes", () => {
     const inventory = JSON.parse(source("native-route-inventory.json")) as {
       routes: Array<{ route: string; initialRoute?: string }>;

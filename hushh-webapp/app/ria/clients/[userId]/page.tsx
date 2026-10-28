@@ -12,7 +12,10 @@ export async function generateStaticParams(): Promise<Array<{ userId: string }>>
   if (process.env.CAPACITOR_BUILD !== "true") {
     return [];
   }
-  return [{ userId: nativeStaticExportUserId }];
+  // The native audit uses a public fixture, never the reviewer's identifier in
+  // route reports. This does not make arbitrary dynamic paths available in a
+  // static export; product navigation still needs its own native route owner.
+  return [...new Set([nativeStaticExportUserId, "native-audit-fixture"])].map(userId => ({ userId }));
 }
 
 export default async function RiaClientWorkspacePage({

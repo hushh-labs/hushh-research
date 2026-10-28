@@ -7182,7 +7182,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "consent",
-      "native_surface_id": null
+      "native_surface_id": "native-route-ria-client-workspace"
     },
     {
       "route_pattern": "/ria/clients/[userId]/accounts/[accountId]",
@@ -7229,7 +7229,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-ria-client-account-detail"
     },
     {
       "route_pattern": "/ria/clients/[userId]/requests/[requestId]",
@@ -7276,7 +7276,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-ria-client-request-detail"
     },
     {
       "route_pattern": "/ria/onboarding",
