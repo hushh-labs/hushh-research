@@ -2,7 +2,8 @@
 
 import { claimPhoneForOwner, transferPhoneForOwner } from "./account-phone-claim";
 import type { User } from "firebase/auth";
-import { getAuthSessionGeneration, snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { identitySessionIsCurrent, ownerForFirebaseUser } from "./account-identity-session";
 
 import { ApiError, apiJson } from "@/lib/services/api-client";
 import { readAccountIdentityResponse } from "@/lib/services/account-identity-response";
@@ -30,10 +31,6 @@ function beginIdentityWork(userId: string): IdentityWork {
   return { userId, generation: getAuthSessionGeneration(), sequence: ++identityWorkSequence };
 }
 
-function ownerForFirebaseUser(user: User | null | undefined): string | null {
-  const principal = snapshotValidatedAuthSessionPrincipal();
-  return user && principal?.firebaseUid === user.uid ? principal.ownerId : null;
-}
 
 function beginUserIdentityWork(user: User | null | undefined): IdentityWork | null {
   const owner = ownerForFirebaseUser(user);
@@ -46,11 +43,6 @@ function identityWorkIsCurrent(work: IdentityWork): boolean {
     (!published || published.generation !== work.generation || published.sequence <= work.sequence);
 }
 
-function identitySessionIsCurrent(userId: string, generation: number | null): boolean {
-  const owner = snapshotValidatedAuthSessionOwner();
-  return generation !== null && generation === getAuthSessionGeneration() &&
-    (!owner || owner.userId === userId);
-}
 
 export class AccountIdentityService {
   static hasVerifiedPhone(identity: AccountIdentity | null | undefined): boolean {

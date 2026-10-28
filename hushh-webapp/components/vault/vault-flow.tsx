@@ -32,6 +32,7 @@ import {
   VaultService,
 } from "@/lib/services/vault-service";
 import { isRetryableVaultReadError, VAULT_READ_RETRY_DELAYS_MS } from "@/lib/vault/vault-read-recovery";
+import { isWebAuthnCancellationError } from "@/components/vault/vault-webauthn-cancellation";
 import { downloadTextFile } from "@/lib/utils/native-download";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -132,69 +133,6 @@ const VAULT_INPUT_CONTROL_CLASS =
 const VAULT_INPUT_VISIBILITY_CLASS =
   "inline-flex size-11 shrink-0 items-center justify-center text-foreground/50 transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--app-accent)]";
 const VAULT_FIELD_STACK_CLASS = "space-y-[var(--app-form-field-gap)]";
-
-// A passkey cancellation is a normal user decision, not an application
-// failure. Keep it in the credential surface so the user can choose a
-// fallback without a disappearing toast or an automatic second ceremony.
-//
-// A bare "cancel" or "cancelled" substring is too broad — it matches
-// aborted fetches, cancelled analytics, and other non-WebAuthn noise.
-// Require at least one WebAuthn-specific context word alongside the
-// cancellation signal so we only silence real passkey dismissals.
-const WEBAUTHN_CANCEL_CONTEXT = [
-  "passkey",
-  "authentication",
-  "credential",
-  "webauthn",
-  "webauth",
-  "user",
-  "operation",
-  "request",
-  "prompt",
-  "securitykey",
-  "security key",
-];
-function isWebAuthnCancellationError(value: unknown): boolean {
-  const error = value as { name?: unknown; message?: unknown; code?: unknown } | null;
-  const name = typeof error?.name === "string" ? error.name.toLowerCase() : "";
-  const code = typeof error?.code === "string" ? error.code.toLowerCase() : "";
-  const message =
-    typeof value === "string"
-      ? value.toLowerCase()
-      : typeof error?.message === "string"
-        ? error.message.toLowerCase()
-        : "";
-
-  // AbortError / NotAllowedError from navigator.credentials.get are the
-  // two most reliable signals — they are DOMException names, not strings.
-  if (name === "aborterror" || name === "notallowederror") return true;
-
-  // Structured AbortSignal cancellation codes used by some frameworks.
-  if (code.includes("cancel") || code.includes("abort")) return true;
-
-  // For substring matches, require a WebAuthn context word near the cancel
-  // term so we don't misclassify unrelated cancellations. Match both
-  // British "cancelled" and American "canceled" spellings.
-  const hasCancel = (text: string): boolean =>
-    /cancell?ed?/i.test(text) || /timed out or was not allowed/i.test(text);
-
-  if (hasCancel(message)) {
-    return WEBAUTHN_CANCEL_CONTEXT.some((ctx) => message.includes(ctx));
-  }
-
-  // A few platform-specific cancellation strings that carry their own context.
-  const explicitCancelPhrases = [
-    "passkey request cancelled",
-    "passkey request canceled",
-    "passkey authentication cancelled",
-    "passkey authentication canceled",
-    "user cancelled",
-    "user canceled",
-    "cancelled by user",
-    "canceled by user",
-  ];
-  return explicitCancelPhrases.some((phrase) => message.includes(phrase));
-}
 
 function isDuplicateWebAuthnError(value: unknown): boolean {
   const error = value as { name?: unknown; message?: unknown } | null;
