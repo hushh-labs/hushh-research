@@ -71,11 +71,12 @@ struct HushhNativeContentScrollState {
     mutating func apply(y: CGFloat, fromPerson: Bool) -> CGFloat? {
         guard y.isFinite else { return nil }
         let next = max(0, y)
-        guard let previous = lastY else { lastY = next; return progress }
+        let previous = lastY
         lastY = next
-        if !fromPerson && next > 10 { return nil }
-        let delta = next - previous
         if next <= 10 { direction = -1; distance = 0; progress = 0; return 0 }
+        guard let previous else { return progress }
+        if !fromPerson { return nil }
+        let delta = next - previous
         guard abs(delta) >= 1.5 else { return nil }
         let nextDirection: CGFloat = delta > 0 ? 1 : -1
         if nextDirection != direction { direction = nextDirection; distance = 0 }

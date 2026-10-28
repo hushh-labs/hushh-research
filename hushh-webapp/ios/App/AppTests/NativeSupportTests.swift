@@ -534,6 +534,13 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertNil(state.apply(y: 288, fromPerson: true))
         XCTAssertLessThan(try XCTUnwrap(state.apply(y: 282, fromPerson: true)), progress)
         XCTAssertEqual(state.apply(y: 0, fromPerson: false), 0)
+        // An owned overlay clears the baseline while preserving displacement.
+        // The first sample at the top must still restore the navigation.
+        state.reset(progress: 1)
+        XCTAssertEqual(state.apply(y: 10, fromPerson: false), 0)
+        state.reset(progress: 0.6)
+        XCTAssertEqual(state.apply(y: 100, fromPerson: false), 0.6,
+                       "A deeper first sample must not invent a scroll")
     }
     func testLegalReaderRejectsExecutableFieldsAndAdmitsOnlyCurrentDocumentLinks() throws {
         let object: [String: Any] = ["type": "privacy", "version": "1", "effectiveDate": "October 17, 2026", "summary": "Synthetic public document",
