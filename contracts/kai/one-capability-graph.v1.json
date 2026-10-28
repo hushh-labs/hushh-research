@@ -56074,12 +56074,25 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:phone_mandate.delete_previous_cancel",
+      "actions:phone_mandate.delete_previous_confirm",
+      "actions:phone_mandate.delete_previous_verify_again",
+      "actions:route.kai_portfolio_analysis",
+      "screens:screen:/one/kai/portfolio/analysis"
+    ],
     "breaking": [],
-    "changed": [],
-    "compatible": [],
-    "deprecated": [],
-    "from_revision": "9b5521cadef9905c",
+    "changed": [
+      "actions:phone_mandate.delete_previous",
+      "actions:route.kai_portfolio_sources"
+    ],
+    "compatible": [
+      "actions:route.kai_portfolio_sources"
+    ],
+    "deprecated": [
+      "actions:phone_mandate.delete_previous"
+    ],
+    "from_revision": "a6a99d8a8ceae915",
     "migrated": [],
     "removed": []
   },
