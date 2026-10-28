@@ -33,9 +33,13 @@ review. The React hard Vault is not native-qualified.
 
 The bottom-chrome top-of-scroll correction in `325598ffad` passed its focused
 iOS simulator test and a negative control, but has not been physically
-qualified. The Profile AI-selection correction in `db56101939` passed its
-focused suite and typecheck; it is not in the installed web assets. Neither
-establishes app-wide native, accessibility or performance acceptance.
+qualified. The Profile AI-selection corrections in `db56101939` and
+`20528d552e` passed their focused suite and typecheck; they are not in the
+installed web assets. A wider admission experiment was removed after review:
+provider discovery can still change renderer during a visit, and operation
+locks, current server catalog and mutation permission need coherent native
+ownership before that family can be qualified. Neither correction establishes
+app-wide native, accessibility or performance acceptance.
 
 The earlier Dev-backed qualification app from `c002957256` had
 Its signed source app executable SHA-256 is
