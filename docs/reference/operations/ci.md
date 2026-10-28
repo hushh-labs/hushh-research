@@ -293,6 +293,14 @@ clearance. The runner's explicit `PROTOCOL_TEST_PARTITION` is `parallel` or
 No tests or isolation checks were removed and no timeout was increased. Hosted
 latency remains to be measured on the combined candidate.
 
+**Candidate awaiting hosted qualification (28 October 2026):**
+[run 40741369811](https://github.com/hushh-labs/hushh-research/actions/runs/40741369811)
+spent 25m08s executing 2,133 passing and one skipped serial database cases. The
+proposed change divides that same manifest between two independent runners and
+PostgreSQL services, still serial within each runner. The aggregate gate must
+pass both shards. Local `all` remains unsharded. Verify combined coverage,
+isolation and elapsed time on the hosted candidate before claiming a speedup.
+
 ### Failure causes and next improvements
 
 - **PR preparation:** missing Live Memory impact declarations and an unauthorized

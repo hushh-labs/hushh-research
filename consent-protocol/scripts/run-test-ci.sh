@@ -79,6 +79,34 @@ for test_file in "${TESTS[@]}"; do
   esac
 done
 
+# GitHub may split the shared-database files across two independent runners,
+# each with its own PostgreSQL service. Files remain serial within each runner.
+# Validate the complete manifest before filtering so a missing file cannot be
+# hidden by assigning it to the other shard. Local runs remain unsharded.
+if [ -n "${PROTOCOL_DATABASE_SHARD_COUNT:-}" ] || [ -n "${PROTOCOL_DATABASE_SHARD_INDEX:-}" ]; then
+  if [ "$PROTOCOL_TEST_PARTITION" != "database" ] || [ "${PROTOCOL_DATABASE_SHARD_COUNT:-}" != "2" ]; then
+    echo "Database sharding requires the database partition and exactly two shards" >&2
+    exit 2
+  fi
+  case "${PROTOCOL_DATABASE_SHARD_INDEX:-}" in
+    1|2) ;;
+    *) echo "Database shard index must be 1 or 2" >&2; exit 2 ;;
+  esac
+  SHARDED_POSTGRES_TESTS=()
+  position=0
+  for test_file in "${POSTGRES_TESTS[@]}"; do
+    if [ "$((position % 2 + 1))" -eq "$PROTOCOL_DATABASE_SHARD_INDEX" ]; then
+      SHARDED_POSTGRES_TESTS+=("$test_file")
+    fi
+    position=$((position + 1))
+  done
+  if [ "${#SHARDED_POSTGRES_TESTS[@]}" -eq 0 ]; then
+    echo "Database shard contains no tests" >&2
+    exit 2
+  fi
+  POSTGRES_TESTS=("${SHARDED_POSTGRES_TESTS[@]}")
+fi
+
 CI_OFFLINE_DB_DIR=""
 CI_PYTEST_ARGS_FILE="$(mktemp "${TMPDIR:-/tmp}/hushh-pytest-args.XXXXXX")"
 if [ -z "${OFFLINE_DB_PATH:-}" ]; then
