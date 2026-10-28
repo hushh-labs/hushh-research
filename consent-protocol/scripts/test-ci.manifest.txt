@@ -1548,3 +1548,5 @@ tests/test_pod_runtime_writer.py
 # Additive server-readable copies preserve legacy sale authority.
 tests/services/test_document_delivery_background.py
 tests/services/test_document_delivery_background_exports.py
+# The owner's review decides whether the production Allow route accepts a One copy.
+tests/services/test_document_delivery_owner_allow.py
