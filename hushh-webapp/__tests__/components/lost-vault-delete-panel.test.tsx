@@ -47,6 +47,9 @@ vi.mock("@/lib/services/auth-service", () => ({
   },
 }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {} }));
+vi.mock("@/lib/auth/google-signup-token", () => ({
+  preloadGoogleSignupAuth: async () => {},
+}));
 vi.mock("@/lib/firebase/config", () => ({
   prepareRecaptchaVerifier: mocks.prepareRecaptcha,
   resetRecaptcha: mocks.resetRecaptcha,

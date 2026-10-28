@@ -12,6 +12,7 @@ from cachetools import TTLCache
 from hushh_mcp.services.google_oauth_attempt import connection_generation
 
 _GOOGLE_PICTURE_HOST = re.compile(r"lh[3-6](?:-tt|-d[a-gz])?\.(?:google|googleusercontent)\.com")
+_HOSTED_DOMAIN = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?")
 
 
 class CalendarPhotoOwner(Protocol):
@@ -59,12 +60,16 @@ class CalendarProfilePhotos:
 
     def __init__(self, owner: CalendarPhotoOwner) -> None:
         self.owner = owner
-        self.cache: TTLCache[tuple[str, str, str, str], str] = TTLCache(maxsize=512, ttl=900)
+        self.cache: TTLCache[tuple[str, str, str, str], dict[str, str | None]] = TTLCache(
+            maxsize=512, ttl=900
+        )
         self.failure_cache: TTLCache[tuple[str, str, str, str], bool] = TTLCache(
             maxsize=512, ttl=60
         )
 
-    async def lookup(self, *, user_id: str, account_id: str, row: dict[str, Any]) -> str | None:
+    async def lookup(
+        self, *, user_id: str, account_id: str, row: dict[str, Any]
+    ) -> dict[str, str | None] | None:
         subject = str(row.get("provider_subject") or "").strip()
         if row.get("status") != "connected" or not subject:
             return None
@@ -97,12 +102,15 @@ class CalendarProfilePhotos:
             ):
                 return None
             picture = _google_picture_url(profile.get("picture"))
+            raw_domain = str(profile.get("hd") or "").strip().lower()
+            hosted_domain = raw_domain if _HOSTED_DOMAIN.fullmatch(raw_domain) else None
+            identity = {"picture_url": picture, "hosted_domain": hosted_domain}
         except Exception:
             # A photo lookup cannot make Calendar status unavailable. Cache the
             # fallback briefly so a provider failure does not flood polling.
-            picture = None
-        if picture:
-            self.cache[key] = picture
+            identity = None
+        if identity is not None:
+            self.cache[key] = identity
         else:
             self.failure_cache[key] = True
-        return picture
+        return identity

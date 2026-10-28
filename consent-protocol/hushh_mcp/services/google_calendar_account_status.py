@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from typing import Any, Callable, Literal, Protocol
 
 from hushh_mcp.services.google_oauth_attempt import connection_generation
@@ -17,11 +18,12 @@ class CalendarAccountStatusOwner(Protocol):
 
     async def _calendar_picture(
         self, *, user_id: str, account_id: str, row: dict[str, Any]
-    ) -> str | None: ...
+    ) -> dict[str, str | None] | None: ...
 
 
 _ACCOUNTS_SQL = """SELECT account_id, provider_subject, provider_email,
-                      refresh_token_ciphertext, status, scope_csv, access_level
+                      refresh_token_ciphertext, status, scope_csv, access_level,
+                      connected_at
                FROM google_calendar_additional_accounts WHERE user_id = :user_id
                ORDER BY connected_at, account_id"""
 
@@ -30,7 +32,7 @@ def _project_accounts(
     default: dict[str, Any],
     rows: list[dict[str, Any]],
     primary: dict[str, Any] | None,
-    pictures: dict[tuple[str, str], str | None],
+    pictures: dict[tuple[str, str], dict[str, str | None] | None],
     calendar_list_access: Callable[[object | None], bool],
 ) -> list[dict[str, Any]]:
     accounts: list[dict[str, Any]] = []
@@ -39,12 +41,28 @@ def _project_accounts(
             {
                 "account_id": "default",
                 "google_email": default["google_email"],
-                "profile_photo_url": pictures.get(("default", connection_generation(primary)))
+                "profile_photo_url": (
+                    pictures.get(("default", connection_generation(primary))) or {}
+                ).get("picture_url")
                 if primary
                 else None,
+                "hosted_domain": (
+                    pictures.get(("default", connection_generation(primary))) or {}
+                ).get("hosted_domain")
+                if primary
+                else None,
+                "provider_subject_sha256": hashlib.sha256(
+                    str(primary["provider_subject"]).encode()
+                ).hexdigest()
+                if primary and default["connected"] and primary.get("provider_subject")
+                else "",
                 "status": default["status"],
                 "connected": default["connected"],
                 "access_level": default["access_level"],
+                "scope_csv": default.get("scope_csv", "") if default["connected"] else "",
+                "grant_generation": connection_generation(primary)
+                if primary and default["connected"]
+                else "",
                 "calendar_list_access": default.get("calendar_list_access", False),
             }
         )
@@ -55,12 +73,28 @@ def _project_accounts(
             {
                 "account_id": row["account_id"],
                 "google_email": row["provider_email"],
-                "profile_photo_url": pictures.get((row["account_id"], connection_generation(row)))
+                "profile_photo_url": (
+                    pictures.get((row["account_id"], connection_generation(row))) or {}
+                ).get("picture_url")
                 if row["status"] == "connected"
                 else None,
+                "hosted_domain": (
+                    pictures.get((row["account_id"], connection_generation(row))) or {}
+                ).get("hosted_domain")
+                if row["status"] == "connected"
+                else None,
+                "provider_subject_sha256": hashlib.sha256(
+                    str(row["provider_subject"]).encode()
+                ).hexdigest()
+                if row["status"] == "connected" and row.get("provider_subject")
+                else "",
                 "status": row["status"],
                 "connected": row["status"] == "connected",
                 "access_level": row["access_level"],
+                "scope_csv": row.get("scope_csv", "") if row["status"] == "connected" else "",
+                "grant_generation": connection_generation(row)
+                if row["status"] == "connected"
+                else "",
                 "calendar_list_access": calendar_list_access(row["scope_csv"]),
             }
         )

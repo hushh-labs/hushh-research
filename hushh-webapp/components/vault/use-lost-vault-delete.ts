@@ -11,6 +11,7 @@ import {
 import type { User } from "firebase/auth";
 import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
+import { preloadGoogleSignupAuth } from "@/lib/auth/google-signup-token";
 import {
   AccountService,
   type LostVaultDeleteOptions,
@@ -63,6 +64,10 @@ function identityMessage(error: unknown): string {
     return "Sign-in check cancelled. Try again.";
   if (code === "identity_popup_blocked")
     return "Allow the sign-in window, then try again.";
+  if (code === "identity_initialization_not_ready")
+    return "Google sign-in is getting ready. Try again in a moment.";
+  if (code === "identity_timeout")
+    return "Your sign-in check timed out. Close the sign-in window and try again.";
   if (code === "native_identity_unavailable")
     return "Use One on the web, or contact support.";
   if (code === "session_changed" || code === "identity_mismatch")
@@ -161,6 +166,13 @@ export function useLostVaultDelete(
   const selectedCountry = DELETION_PHONE_COUNTRIES.find(
     (option) => option.value === country,
   )!;
+
+  useEffect(() => {
+    // Warm the existing singleton before the tap; loading it inside the click
+    // would lose the browser's permission to open Google's account chooser.
+    if (!Capacitor.isNativePlatform())
+      void preloadGoogleSignupAuth().catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (resendAt <= Date.now()) return;

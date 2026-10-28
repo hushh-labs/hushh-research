@@ -161,6 +161,23 @@ Consent-manager surface rules:
 4. Kai only exposes `ria:*` pick sources when the relationship, proposal, grant, and artifact are all active and refer to the same approved capability.
 5. Active PKM-derived Picks syncs update the entitled artifact without requiring a new request. An advisor's bounded investor debate thesis travels only inside that same artifact and is used as attributed context for a selected investor's live Debate; it is not new `attr.*` scope authority, source lineage, event payload, or durable run history. A later revocation blocks new Market, preview, Debate, retry, and refresh reads, while an already-running Debate uses its authorized start-time snapshot.
 
+## Google reauthentication for account deletion
+
+For account deletion on the web, a configured Google sign-in client uses the existing, gesture-bound
+Google Identity Services identity grant with Firebase `reauthenticateWithCredential`.
+The deletion screen preloads that client before the tap. This avoids the hosted
+Firebase popup return-event failure already handled by initial Google sign-in.
+Unconfigured builds retain Firebase popup reauthentication; native Google keeps
+its existing same-user bridge.
+
+The grant requests identity scopes only. Credentials remain in memory and are
+never exchanged through replacement sign-in. The Firebase user and current
+owner session are checked across the grant, credential exchange and fresh-token
+read. Readiness, cancellation, blocked windows and timeouts leave verification
+retryable. Fresh backend authentication, linked-phone verification and the final
+explicit deletion confirmation remain required. Local regression coverage does
+not establish a successful deployed Google exchange or authorize a live deletion.
+
 ## MCP Read-Only Tools
 
 1. `list_ria_profiles`
