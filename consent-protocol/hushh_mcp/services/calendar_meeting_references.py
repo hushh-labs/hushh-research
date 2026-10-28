@@ -211,20 +211,14 @@ async def _generated_files(service, meet_pages, name, check, refs, states):
                 else:
                     raise ArtifactUnavailable("temporarily_unavailable")
         except ArtifactUnavailable as error:
-            states[kind] = error.state
+            states[kind] = (
+                "temporarily_unavailable" if error.state == "token_rejected" else error.state
+            )
         except (ValueError, TypeError, AttributeError):
             states[kind] = "temporarily_unavailable"
 
 
-async def _discover(
-    service, user_id, grant, event, calendar_id, code, refs, states, inspect_token, meet_scopes
-):
-    calendar = service.insights.calendar
-
-    async def check():
-        await calendar._check_read_binding(user_id, grant.binding)
-
-    await check()
+async def _initial_meet_token(calendar, user_id, grant, check, inspect_token, meet_scopes):
     token = await calendar.connections.access_token(
         user_id=user_id, service="calendar", access_level="read"
     )
@@ -247,6 +241,21 @@ async def _discover(
     await check()
     if not scopes & meet_scopes:
         raise ArtifactUnavailable("permission_required")
+    return token, refreshed
+
+
+async def _discover(
+    service, user_id, grant, event, calendar_id, code, refs, states, inspect_token, meet_scopes
+):
+    calendar = service.insights.calendar
+
+    async def check():
+        await calendar._check_read_binding(user_id, grant.binding)
+
+    await check()
+    token, refreshed = await _initial_meet_token(
+        calendar, user_id, grant, check, inspect_token, meet_scopes
+    )
 
     async def meet_pages(path, field, params=None, *, page_size=100):
         nonlocal token, refreshed

@@ -12,6 +12,7 @@ from opentelemetry.instrumentation.utils import suppress_instrumentation
 
 from hushh_mcp.services.calendar_insights_service import CalendarInsightsService
 from hushh_mcp.services.calendar_meeting_common import ArtifactUnavailable
+from hushh_mcp.services.calendar_meeting_provider import collect_meet_pages, meet_request
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_connection_service import (
@@ -26,7 +27,6 @@ from hushh_mcp.services.google_drive_adapter import (
     RESOURCE_KEY,
     DriveReadError,
     GoogleDriveAdapter,
-    classify_google_forbidden_response,
 )
 
 MEET_SCOPES = {CALENDAR_MEET_READ_SCOPE, "https://www.googleapis.com/auth/meetings.space.created"}
@@ -171,68 +171,10 @@ class CalendarMeetingArtifacts:
         return token
 
     async def _meet(self, token, path, params=None):
-        async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
-            with suppress_instrumentation():
-                async with client.stream(
-                    "GET",
-                    "https://meet.googleapis.com/v2/" + path,
-                    headers={"Authorization": f"Bearer {token}", "Accept-Encoding": "identity"},
-                    params=params,
-                ) as response:
-                    if response.status_code == 401:
-                        raise ArtifactUnavailable("token_rejected")
-                    if response.status_code == 403:
-                        reason = await classify_google_forbidden_response(response)
-                        raise ArtifactUnavailable(
-                            "temporarily_unavailable" if reason == "rate_limited" else reason,
-                            retryable=reason == "rate_limited",
-                        )
-                    if response.status_code == 404:
-                        raise ArtifactUnavailable("unavailable")
-                    if response.status_code == 429 or response.status_code >= 500:
-                        raise ArtifactUnavailable("temporarily_unavailable", retryable=True)
-                    if response.status_code != 200:
-                        raise ArtifactUnavailable("temporarily_unavailable")
-                    raw = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        raw.extend(chunk)
-                        if len(raw) > 262144:
-                            raise ArtifactUnavailable("temporarily_unavailable")
-                    result = json.loads(raw)
-                    if not isinstance(result, dict):
-                        raise ArtifactUnavailable("temporarily_unavailable")
-                    return result
+        return await meet_request(token, path, params)
 
     async def _meet_pages(self, token, path, field, params=None, *, page_size=100):
-        items, seen, page = [], set(), None
-        for _ in range(10):
-            request_params = {
-                **(params or {}),
-                "pageSize": page_size,
-                **({"pageToken": page} if page else {}),
-            }
-            try:
-                response = await self._meet(token, path, request_params)
-            except ArtifactUnavailable as error:
-                if not error.retryable:
-                    raise
-                await asyncio.sleep(0.2)
-                response = await self._meet(token, path, request_params)
-            rows = response.get(field)
-            # Meet's protobuf JSON omits empty repeated fields, including on
-            # a sparse page that still carries a continuation token.
-            if rows is None and set(response).issubset({"nextPageToken"}):
-                rows = []
-            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
-                raise ArtifactUnavailable("temporarily_unavailable")
-            items.extend(rows)
-            page = response.get("nextPageToken")
-            if not page:
-                return items
-            if not isinstance(page, str) or len(page) > 2048 or page in seen:
-                raise ArtifactUnavailable("temporarily_unavailable")
-            seen.add(page)
-        raise ArtifactUnavailable("temporarily_unavailable")
+        return await collect_meet_pages(self._meet, token, path, field, params, page_size=page_size)
 
     async def _references(
         self, user_id, grant: CalendarGrantIdentity, event, calendar_id, *, for_chat=False

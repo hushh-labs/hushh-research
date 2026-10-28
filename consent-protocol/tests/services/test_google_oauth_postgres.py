@@ -5,113 +5,23 @@ Set GOOGLE_OAUTH_TEST_DATABASE_URL only for an agent-owned local instance under
 """
 
 import asyncio
-import base64
-import os
-import secrets
 import threading
-from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
-from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, text
-from sqlalchemy.engine import make_url
+from sqlalchemy import event, text
 
-from db.db_client import DatabaseClient
 from hushh_mcp.services.google_connection_service import (
-    CALENDAR_LIST_READ_SCOPE,
-    CALENDAR_MEET_DRIVE_READ_SCOPE,
-    CALENDAR_MEET_READ_SCOPE,
     GoogleConnectionError,
-    GoogleConnectionService,
 )
-from tests.google_oauth_postgres_support import install_calendar_schema
+from tests.google_oauth_postgres_support import (
+    OWNER,
+    finish,
+    seed_connected_with_sibling,
+    start,
+)
 
-OWNER = "synthetic-owner"
-
-
-@pytest.fixture
-def pg_service(monkeypatch):
-    url = os.getenv("GOOGLE_OAUTH_TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("requires disposable local PostgreSQL")
-    parsed = make_url(url)
-    assert not parsed.host and str(parsed.query.get("host", "")).startswith(
-        "/tmp/hushh-google-oauth-pg."  # noqa: S108 - explicitly supplied disposable socket
-    )
-    schema = "google_oauth_test_" + uuid4().hex
-    base = create_engine(url)
-    with base.begin() as connection:
-        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
-    try:
-        with engine.begin() as connection:
-            install_calendar_schema(connection, OWNER)
-        monkeypatch.setenv(
-            "GOOGLE_OAUTH_TOKEN_KEY", base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
-        )
-        service = GoogleConnectionService(db=DatabaseClient(engine=engine))
-        signing_key = secrets.token_bytes(32)
-        monkeypatch.setattr(service, "_signing_key", lambda: signing_key)
-        monkeypatch.setattr(service, "is_configured", lambda: True)
-        monkeypatch.setattr(service, "_client_id", lambda: "synthetic-client")
-        monkeypatch.setattr(service, "_client_secret", lambda: "synthetic-secret")
-        monkeypatch.setattr(
-            service,
-            "_userinfo",
-            AsyncMock(return_value={"sub": "synthetic-provider", "email": "owner@example.test"}),
-        )
-
-        async def token_exchange(_url, payload):
-            return {
-                "access_token": "synthetic-access-" + payload["code"],
-                "refresh_token": "synthetic-refresh-" + payload["code"],
-                # This transaction fixture models an accepted incremental
-                # Google grant; scope-denial behavior has separate unit tests.
-                "scope": "openid email profile "
-                "https://www.googleapis.com/auth/calendar.events.readonly "
-                "https://www.googleapis.com/auth/calendar.freebusy "
-                "https://www.googleapis.com/auth/calendar.calendarlist.readonly "
-                "https://www.googleapis.com/auth/contacts.readonly "
-                "https://www.googleapis.com/auth/drive.readonly",
-                "expires_in": 3600,
-            }
-
-        monkeypatch.setattr(service, "_post_form", AsyncMock(side_effect=token_exchange))
-        yield service, engine
-    finally:
-        engine.dispose()
-        with base.begin() as connection:
-            connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
-        base.dispose()
-
-
-async def start(service):
-    return await service.start_native(user_id=OWNER, service="calendar", access_level="read")
-
-
-async def finish(connection_service, attempt, code="fresh", **overrides):
-    params = {
-        "user_id": OWNER,
-        "service": "calendar",
-        "access_level": "read",
-        "server_auth_code": code,
-        "state": attempt["state"],
-    }
-    return await connection_service.complete_native(**(params | overrides))
-
-
-async def seed_connected_with_sibling(service, engine):
-    await finish(service, await start(service), "initial")
-    with engine.begin() as connection:
-        # Keep the provider connected on Calendar disconnect so the test also
-        # proves invalidation when the shared credential generation is unchanged.
-        connection.execute(
-            text(
-                "INSERT INTO google_service_grants(user_id, service, status) VALUES (:owner, 'gmail', 'connected')"
-            ),
-            {"owner": OWNER},
-        )
+pytest_plugins = ("tests.google_oauth_postgres_support",)
 
 
 @pytest.mark.asyncio
@@ -137,121 +47,6 @@ async def test_native_success_consumes_once_and_publishes_both_rows(pg_service):
         assert connection.execute(
             text("SELECT expires_at <= clock_timestamp() FROM google_oauth_attempts")
         ).scalar_one()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "meeting_scopes", [(), (CALENDAR_MEET_READ_SCOPE, CALENDAR_MEET_DRIVE_READ_SCOPE)]
-)
-async def test_new_calendar_grant_persists_actual_optional_meeting_scopes(
-    pg_service, meeting_scopes
-):
-    service, engine = pg_service
-    granted = (*service.scopes("calendar", "read"), CALENDAR_LIST_READ_SCOPE, *meeting_scopes)
-    service._post_form.side_effect = None
-    service._post_form.return_value = {
-        "access_token": "synthetic-access",
-        "refresh_token": "synthetic-refresh",
-        "scope": " ".join(granted),
-        "expires_in": 3600,
-    }
-    attempt = await service.start_native(
-        user_id=OWNER, service="calendar", access_level="read", include_meeting_files=True
-    )
-    result = await finish(service, attempt)
-    assert result["connected"] is True
-    with engine.connect() as connection:
-        stored = connection.execute(
-            text(
-                "SELECT scope_csv FROM google_service_grants WHERE user_id = :owner AND service = 'calendar'"
-            ),
-            {"owner": OWNER},
-        ).scalar_one()
-    assert set(stored.split()) == set(granted)
-
-
-@pytest.mark.asyncio
-async def test_first_calendar_after_mail_persists_partial_optional_consent(pg_service):
-    service, engine = pg_service
-    mail_scopes = service.scopes("gmail", "read")
-    service._post_form.side_effect = None
-    service._post_form.return_value = {
-        "access_token": "synthetic-mail-access",
-        "refresh_token": "synthetic-mail-refresh",
-        "scope": " ".join(mail_scopes),
-        "expires_in": 3600,
-    }
-    mail_attempt = await service.start_native(user_id=OWNER, service="gmail", access_level="read")
-    assert (await finish(service, mail_attempt, "mail", service="gmail"))["connected"] is True
-
-    calendar_scopes = (*service.scopes("calendar", "read"), CALENDAR_LIST_READ_SCOPE)
-    service._post_form.return_value = {
-        "access_token": "synthetic-calendar-access",
-        "refresh_token": "synthetic-calendar-refresh",
-        "scope": " ".join((*mail_scopes, *calendar_scopes)),
-        "expires_in": 3600,
-    }
-    attempt = await service.start_native(
-        user_id=OWNER, service="calendar", access_level="read", include_meeting_files=True
-    )
-    assert (await finish(service, attempt, "calendar"))["connected"] is True
-    with engine.connect() as connection:
-        grants = dict(
-            connection.execute(
-                text(
-                    "SELECT service, scope_csv FROM google_service_grants WHERE user_id = :owner AND status = 'connected'"
-                ),
-                {"owner": OWNER},
-            ).all()
-        )
-    assert set(grants) == {"gmail", "calendar"}
-    assert set(mail_scopes) <= set(grants["gmail"].split())
-    assert set(grants["calendar"].split()) == set((*mail_scopes, *calendar_scopes))
-
-
-@pytest.mark.asyncio
-async def test_new_additional_account_partial_meeting_consent_preserves_primary(pg_service):
-    service, engine = pg_service
-    await finish(service, await start(service), "primary")
-    primary_before = await service.status(user_id=OWNER, service="calendar")
-    service._userinfo.return_value = {"sub": "synthetic-additional", "email": "second@example.test"}
-    granted = (*service.scopes("calendar", "manage"), CALENDAR_LIST_READ_SCOPE)
-    service._post_form.side_effect = None
-    service._post_form.return_value = {
-        "access_token": "synthetic-access-additional",
-        "refresh_token": "synthetic-refresh-additional",
-        "scope": " ".join(granted),
-        "expires_in": 3600,
-    }
-    attempt = await service.start_native(
-        user_id=OWNER,
-        service="calendar",
-        access_level="manage",
-        calendar_additional=True,
-        include_meeting_files=True,
-    )
-    result = await finish(service, attempt, "additional", access_level="manage")
-    assert result["connected"] is True
-    assert result["completed_account_id"] != "default"
-    assert set(
-        next(
-            account
-            for account in result["accounts"]
-            if account["account_id"] == result["completed_account_id"]
-        )["scope_csv"].split()
-    ) == set(granted)
-    primary_after = await service.status(user_id=OWNER, service="calendar")
-    assert primary_after["scope_csv"] == primary_before["scope_csv"]
-    with engine.connect() as connection:
-        assert (
-            connection.execute(
-                text(
-                    "SELECT count(*) FROM google_calendar_additional_accounts WHERE user_id = :owner"
-                ),
-                {"owner": OWNER},
-            ).scalar_one()
-            == 1
-        )
 
 
 @pytest.mark.asyncio

@@ -42,12 +42,14 @@ from hushh_mcp.services.google_calendar_meeting_grant import (
     CalendarGrantIdentity,
     native_allowed_scope_sets,
     requested_calendar_level,
+    require_existing_calendar_optional_scopes,
     require_meeting_scopes,
 )
 from hushh_mcp.services.google_calendar_meeting_grant import (
     read_calendar_grant_identity as resolve_calendar_grant_identity,
 )
 from hushh_mcp.services.google_calendar_profile_photo import CalendarProfilePhotos
+from hushh_mcp.services.google_connection_cached_token import cached_bearer
 from hushh_mcp.services.google_connection_contract import (
     CALENDAR_GUEST_PHOTO_SCOPE,
     CALENDAR_LIST_READ_SCOPE,
@@ -629,32 +631,16 @@ class GoogleConnectionService:
                 status_code=403,
                 reason_code="google_permission_required",
             )
-        prior_calendar_connected = False
-        if service == "calendar" and existing and existing.get("status") == "connected":
-            prior_calendar = await self._execute_raw_async(
-                """SELECT status FROM google_service_grants
-                   WHERE user_id = :user_id AND provider = 'google' AND service = 'calendar'""",
-                {"user_id": user_id},
-            )
-            prior_calendar_connected = bool(
-                prior_calendar.data and prior_calendar.data[0].get("status") == "connected"
-            )
-        if prior_calendar_connected:
-            require_meeting_scopes(requested_scopes, granted_scopes, GoogleConnectionError)
-        if (
-            prior_calendar_connected
-            and CALENDAR_LIST_READ_SCOPE in requested_scopes
-            and (
-                not _scopes_cover(
-                    set(_clean(token.get("scope")).split()), {CALENDAR_LIST_READ_SCOPE}
-                )
-            )
-        ):
-            raise GoogleConnectionError(
-                "Calendar list permission was not granted",
-                status_code=403,
-                reason_code="calendar_list_permission_required",
-            )
+        await require_existing_calendar_optional_scopes(
+            self,
+            user_id=user_id,
+            service=service,
+            existing=existing,
+            requested_scopes=requested_scopes,
+            granted_scopes=granted_scopes,
+            token_scope=_clean(token.get("scope")),
+            covers=_scopes_cover,
+        )
         expires_at = _now() + timedelta(seconds=max(60, int(token.get("expires_in") or 3600)))
         refresh = self._encrypt(refresh_token, aad=f"google-connection:{user_id}")
         access = self._encrypt(access_token, aad=f"google-connection:{user_id}")
@@ -1255,23 +1241,15 @@ class GoogleConnectionService:
                 status_code=403,
                 reason_code="google_permission_required",
             )
-        expiry = row.get("access_token_expires_at")
-        try:
-            if (
-                not force_refresh
-                and expiry
-                and datetime.fromisoformat(str(expiry).replace("Z", "+00:00"))
-                > _now() + timedelta(seconds=90)
-            ):
-                return self._decrypt(
-                    {
-                        "ciphertext": row.get("access_token_ciphertext"),
-                        "iv": row.get("access_token_iv"),
-                    },
-                    aad=f"google-connection:{user_id}",
-                )
-        except ValueError:
-            pass
+        cached = cached_bearer(
+            row,
+            aad=f"google-connection:{user_id}",
+            force_refresh=force_refresh,
+            decrypt=self._decrypt,
+            now=_now,
+        )
+        if cached is not None:
+            return cached
         refresh_token = self._decrypt(
             {"ciphertext": row.get("refresh_token_ciphertext"), "iv": row.get("refresh_token_iv")},
             aad=f"google-connection:{user_id}",
@@ -1355,23 +1333,15 @@ class GoogleConnectionService:
                 reason_code="google_permission_required",
             )
         aad = self._calendar_account_aad(user_id, account_id)
-        expiry = row.get("access_token_expires_at")
-        try:
-            if (
-                not force_refresh
-                and expiry
-                and datetime.fromisoformat(str(expiry).replace("Z", "+00:00"))
-                > _now() + timedelta(seconds=90)
-            ):
-                return self._decrypt(
-                    {
-                        "ciphertext": row.get("access_token_ciphertext"),
-                        "iv": row.get("access_token_iv"),
-                    },
-                    aad=aad,
-                )
-        except ValueError:
-            pass
+        cached = cached_bearer(
+            row,
+            aad=aad,
+            force_refresh=force_refresh,
+            decrypt=self._decrypt,
+            now=_now,
+        )
+        if cached is not None:
+            return cached
         refresh_token = self._decrypt(
             {"ciphertext": row.get("refresh_token_ciphertext"), "iv": row.get("refresh_token_iv")},
             aad=aad,
