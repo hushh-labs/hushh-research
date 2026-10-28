@@ -805,7 +805,9 @@ async def test_concurrent_replacement_refuses_stale_callback(monkeypatch, bounda
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("admitted", [True, False])
-async def test_cached_bearer_is_admitted_against_one_provider_grant_snapshot(monkeypatch, admitted):
+async def test_cached_bearer_is_admitted_against_one_provider_grant_snapshot(
+    monkeypatch, active_account_lifecycle, admitted
+):
     from hushh_mcp.services import owner_placement_guard
 
     # This case isolates the grant snapshot; the owner must already be eligible

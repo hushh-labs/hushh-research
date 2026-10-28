@@ -154,6 +154,8 @@ POST /api/one/calendar/guest-photo-token
 POST /api/one/calendar/insights
 POST /api/one/calendar/meetings
 POST /api/one/calendar/meetings/detail
+POST /api/one/calendar/meetings/download
+POST /api/one/calendar/meetings/open
 POST /api/one/calendar/meetings/context
 POST /api/one/calendar/proposals
 POST /api/one/calendar/proposals/execute
