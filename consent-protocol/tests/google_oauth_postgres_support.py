@@ -36,7 +36,7 @@ def install_calendar_schema(connection: Any, owner: str) -> None:
     connection.exec_driver_sql(sql)
     for name in (
         "369_calendar_additional_accounts.sql",
-        "433_calendar_guest_photo_access.sql",
+        "434_calendar_guest_photo_access.sql",
     ):
         migration = Path(__file__).parents[1] / "db/migrations" / name
         sql = migration.read_text().replace("BEGIN;", "").replace("COMMIT;", "")
