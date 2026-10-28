@@ -2198,11 +2198,20 @@ final class AppUITests: XCTestCase {
             XCTFail("NATIVE_BOTTOM_SCROLL_FEED_ROUTE_NOT_ADMITTED"); return
         }
         let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
-        // Observe the rendered dock child, not an optional AX container.
-        let dock = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Talk to One")).firstMatch
-        guard waitForAdmittedControl(bar), waitForAdmittedControl(dock) else {
+        // Voice readiness can replace the idle label while retaining the same
+        // dock. This check measures its geometry, not provider availability.
+        let voiceLabel = NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@ OR label BEGINSWITH %@", "Talk to One", "Checking voice connection", "Voice unavailable")
+        let dock = app.buttons.matching(voiceLabel).firstMatch
+        let barReady = waitForAdmittedControl(bar)
+        let dockReady = waitForAdmittedControl(dock)
+        guard barReady, dockReady else {
+            print("NATIVE_BOTTOM_SCROLL_ADMISSION bar_exists=\(bar.exists) bar_hittable=\(bar.exists && bar.isHittable) dock_exists=\(dock.exists) dock_hittable=\(dock.exists && dock.isHittable)")
             reportNativeDockAdmission(app)
             XCTFail("NATIVE_BOTTOM_SCROLL_FEED_NOT_ADMITTED"); return
+        }
+        let webDock = app.webViews.buttons.matching(voiceLabel).firstMatch
+        guard !webDock.exists || !webDock.isHittable else {
+            XCTFail("NATIVE_BOTTOM_SCROLL_WEB_DOCK_INTERACTIVE"); return
         }
         let layout = app.buttons["native-vault-layout"].firstMatch
         if layout.exists {
