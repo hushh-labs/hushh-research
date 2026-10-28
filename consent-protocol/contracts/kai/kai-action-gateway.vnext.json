@@ -33506,6 +33506,110 @@
       }
     },
     {
+      "action_id": "route.kai_portfolio_analysis",
+      "surface_id": "kai_portfolio_detail",
+      "label": "Show portfolio analysis",
+      "aliases": [
+        "show my portfolio analysis",
+        "open portfolio briefing"
+      ],
+      "search_keywords": [
+        "portfolio",
+        "analysis",
+        "briefing"
+      ],
+      "meaning": "Opens the source-backed portfolio analysis.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/analysis"
+        ],
+        "screens": [
+          "kai_portfolio_analysis"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/analysis"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/portfolio/analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_portfolio_analysis",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_portfolio_analysis",
+            "label": "Show portfolio analysis",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/portfolio/analysis",
+              "screen": "kai_portfolio_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.kai_portfolio_sources",
       "surface_id": "kai_portfolio_detail",
       "label": "Show Connected Sources",

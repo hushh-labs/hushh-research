@@ -59,6 +59,8 @@ export type OneLocationRecommendationReason = {
 };
 
 export type OneLocationRecipient = {
+  /** Candidate hint only; Finance checks the connection and verification transactionally. */
+  isFinanceAdvisor?: boolean;
   userId: string;
   displayName: string;
   /** Opaque public person reference; present when this person has a request profile. */

@@ -67,7 +67,7 @@ describe("Portfolio workspace hierarchy", () => {
   });
 
   it("owns finite detail routes through one shared detail component", () => {
-    const sections = ["holdings", "allocation", "performance", "sources"];
+    const sections = ["holdings", "allocation", "performance", "analysis", "sources"];
 
     for (const section of sections) {
       const page = read(`app/one/kai/portfolio/${section}/page.tsx`);
@@ -76,7 +76,7 @@ describe("Portfolio workspace hierarchy", () => {
     }
 
     const detail = read("components/kai/kai-portfolio-detail-page.tsx");
-    expect(detail).toContain('width="reading"');
+    expect(detail).toContain('width="agent"');
     expect(detail).toContain("dashboardSection={section}");
 
     // Per-route Back resolution (including this one) lives in the
