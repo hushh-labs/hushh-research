@@ -7219,7 +7219,7 @@
     "action_gateway": "eca5b20202df56cb08e43928cf214de8c5745549a78a1cf2f4869270440efeeb",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "a53e42359c26801361b197fefc688eaea9b0cd9c693aabc6532c9f4cd84fdd32",
-    "data_plane": "3ab441159fb51530f912d3fac317a98c62a3e609f8b5e50ce99bee0bd583babd",
+    "data_plane": "69c12c7f59acb8105948d1832c1cdd276b3b19ddcb6734a9d29c80fc732a4ccc",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "bb4ecedeab47142295673f4f99e63263ec3fc5fa02ac7fbf10a00b03b755ccae",
