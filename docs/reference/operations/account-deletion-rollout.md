@@ -124,7 +124,11 @@ purpose-bound Firebase-verified status read survives refresh and terminal raw-ID
 scrubbing; it grants no account or vault access. The privacy gate shows durable
 progress without sign-out. Unsupported external-key revocation requires explicit
 confirmation bound to the inventory digest, and cannot excuse uncertain OAuth
-revocation. The UAT-only local reset now requires database attestation and empty
+revocation. Locked-vault deletion collects that confirmation in the existing
+final step, writes it into the initial cleanup receipt, and returns the person
+to login with a pending notice once the durable operation is acknowledged.
+Historical operations without recorded approval still require separate consent.
+The UAT-only local reset now requires database attestation and empty
 provider custody before following the same staged SQL path.
 
 The latest focused checks passed **260 backend** and **167 frontend** cases,

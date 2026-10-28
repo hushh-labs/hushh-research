@@ -21,10 +21,19 @@ from hushh_mcp.services.account_connection_sharing_erasure import (
     CONNECTION_SHARING_ERASURE_TABLES,
     connection_sharing_erasure_queries,
 )
+from hushh_mcp.services.account_deletion_inventory_review import (
+    ACCOUNT_ERASURE_SQL_LIMITS as _ACCOUNT_ERASURE_SQL_LIMITS,
+)
+from hushh_mcp.services.account_deletion_inventory_review import (
+    ProviderCleanupReviewChanged,
+)
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     _postgres_sqlstate,
     settle_cleanup_database_call,
+)
+from hushh_mcp.services.account_deletion_prepare_transaction import (
+    prepare_full_account_cleanup_transaction,
 )
 from hushh_mcp.services.account_deletion_provider_cleanup import (
     ProviderCredentialSnapshot,
@@ -81,10 +90,6 @@ ACCOUNT_DELETION_PAUSED_CODE = "ACCOUNT_DELETION_PAUSED"
 _RELEASE_FENCE_MESSAGE = "during a lifecycle release"
 # Cancel blocked SQL in PostgreSQL, where cancellation also unwinds the
 # transaction. An asyncio timeout alone would leave a DB thread holding locks.
-_ACCOUNT_ERASURE_SQL_LIMITS = text(
-    "SELECT set_config('lock_timeout', '3000ms', TRUE), "
-    "set_config('statement_timeout', '20000ms', TRUE)"
-)
 _RECOVERY_ERASURE_BATCH_SIZE = 100
 
 
@@ -1398,6 +1403,9 @@ class AccountService:
         self,
         user_id: str,
         target: DeleteAccountTarget = "both",
+        *,
+        reviewed_inventory_sha256: str | None = None,
+        accept_local_erasure: bool = False,
     ) -> Dict[str, Any]:
         """Delete either the whole account or one persona."""
         requested_target = self._normalized_target(target)
@@ -1422,6 +1430,8 @@ class AccountService:
             return await self._delete_full_account(
                 user_id,
                 requested_target=requested_target,
+                reviewed_inventory_sha256=reviewed_inventory_sha256,
+                accept_local_erasure=accept_local_erasure,
             )
 
         remaining_personas = [persona for persona in personas if persona != requested_target]
@@ -1936,6 +1946,8 @@ class AccountService:
         *,
         requested_target: DeleteAccountTarget,
         backend_only: bool = False,
+        reviewed_inventory_sha256: str | None = None,
+        accept_local_erasure: bool = False,
     ) -> Dict[str, Any]:
         """Prepare durable cleanup, or execute the attested UAT-only local reset."""
         if backend_only and (
@@ -1946,7 +1958,10 @@ class AccountService:
             raise ValueError("backend_only_erasure_requires_uat_database")
         if not backend_only:
             return await self._prepare_full_account_cleanup(
-                user_id, requested_target=requested_target
+                user_id,
+                requested_target=requested_target,
+                reviewed_inventory_sha256=reviewed_inventory_sha256,
+                accept_local_erasure=accept_local_erasure,
             )
         cleanup = await self._erase_shared_files_if_present(user_id, backend_only=backend_only)
         if cleanup is not None:
@@ -1956,45 +1971,39 @@ class AccountService:
         )
 
     async def _prepare_full_account_cleanup(
-        self, user_id: str, *, requested_target: DeleteAccountTarget
+        self,
+        user_id: str,
+        *,
+        requested_target: DeleteAccountTarget,
+        reviewed_inventory_sha256: str | None = None,
+        accept_local_erasure: bool = False,
     ) -> Dict[str, Any]:
         """Persist approval and custody before returning; the existing worker continues."""
-
-        def prepare():
-            with get_db_connection() as conn:
-                conn.execute(_ACCOUNT_ERASURE_SQL_LIMITS)
-                from hushh_mcp.services.account_deletion_release_admission import (
-                    admit_erasure_transaction,
-                )
-
-                admit_erasure_transaction(conn)
-                self._lock_fabric_receipt_users(conn, user_ids=(user_id,))
-                guard_answer_erasure(conn, user_id=user_id)
-                identity = user_id
-                if self._table_exists(conn, "account_generations"):
-                    from hushh_mcp.services.account_generation_service import (
-                        AccountGenerationService,
-                    )
-
-                    identity = AccountGenerationService.identity_in_transaction(conn, user_id)
-                return AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
-                    conn,
-                    user_id=user_id,
-                    firebase_uid=identity,
-                    table_exists=self._table_exists,
-                    requested_target=requested_target,
-                )
 
         from hushh_mcp.services.phone_transfer_service import PhoneTransferInProgressError
 
         try:
-            prepared = await settle_cleanup_database_call(prepare)
+            prepared = await settle_cleanup_database_call(
+                prepare_full_account_cleanup_transaction,
+                self,
+                user_id,
+                get_connection=get_db_connection,
+                requested_target=requested_target,
+                reviewed_inventory_sha256=reviewed_inventory_sha256,
+                accept_local_erasure=accept_local_erasure,
+            )
         except PhoneTransferInProgressError:
             return {
                 "success": False,
                 "account_deleted": False,
                 "error_code": "PHONE_TRANSFER_IN_PROGRESS",
                 "error": "PHONE_TRANSFER_IN_PROGRESS",
+            }
+        except ProviderCleanupReviewChanged:
+            return {
+                "success": False,
+                "account_deleted": False,
+                "error_code": "ACCOUNT_DELETE_CLEANUP_REVIEW_CHANGED",
             }
         except PersonalAgentDeprovisioningRequiredError:
             from hushh_mcp.services.account_personal_agent_erasure import (
@@ -2022,6 +2031,7 @@ class AccountService:
                 "owner_id": user_id,
                 "state": prepared.state,
                 "credential_count": prepared.credential_count,
+                "local_erasure_confirmation_required": prepared.local_erasure_confirmation_required,
             },
         }
 

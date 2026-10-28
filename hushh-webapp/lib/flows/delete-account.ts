@@ -35,6 +35,17 @@ import {
   isReportedAccountDeletionFailure,
   isLostVaultPrecommitError,
 } from "./delete-account-outcomes";
+import {
+  ACCOUNT_ERASURE_BANKS_NOT_DISCONNECTED_MESSAGE,
+  AccountErasureBanksNotDisconnectedError,
+  revokeVaultBanksBeforeErasure,
+} from "./delete-account-bank-preflight";
+export {
+  ACCOUNT_ERASURE_BANKS_NOT_DISCONNECTED_MESSAGE,
+  AccountErasureBanksNotDisconnectedError,
+  revokeVaultBanksBeforeErasure,
+} from "./delete-account-bank-preflight";
+
 export {
   ACCOUNT_DELETION_FAILED_CODE,
   ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE,
@@ -84,44 +95,6 @@ export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE =
   "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING";
 export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE =
   "Your private agent or cloud setup must be removed before the account can be deleted. Please try again later or contact support.";
-
-export const ACCOUNT_ERASURE_BANKS_NOT_DISCONNECTED_MESSAGE =
-  "We couldn't disconnect your linked banks at Plaid, so nothing was deleted. Check your connection and try again.";
-
-/** Raised before anything is erased: a sealed bank connection could not be revoked. */
-export class AccountErasureBanksNotDisconnectedError extends Error {
-  readonly code = "ACCOUNT_ERASURE_BANKS_NOT_DISCONNECTED";
-
-  constructor(readonly failed: number) {
-    super(ACCOUNT_ERASURE_BANKS_NOT_DISCONNECTED_MESSAGE);
-    this.name = "AccountErasureBanksNotDisconnectedError";
-  }
-}
-
-/**
- * Deleting or resetting the account erases the vault, and with it the only
- * copy of each sealed Plaid token. Revoke every connection at Plaid first, or
- * it would stay live with nobody able to disconnect it. Without the vault key
- * (the vault cannot be opened) there is nothing this device can revoke.
- */
-export async function revokeVaultBanksBeforeErasure(params: {
-  userId: string;
-  vaultKey: string | null | undefined;
-  vaultOwnerToken: string;
-  isCurrent?: () => boolean;
-}): Promise<void> {
-  if (params.isCurrent?.() === false) throw new Error("Account deletion cancelled before submission.");
-  if (!params.vaultKey) return;
-  const { revokeAllVaultPlaidAtPlaid } = await import("@/lib/kai/plaid-vault/vault-sync");
-  if (params.isCurrent?.() === false) throw new Error("Account deletion cancelled before submission.");
-  const outcome = await revokeAllVaultPlaidAtPlaid({
-    userId: params.userId,
-    vaultKey: params.vaultKey,
-    vaultOwnerToken: params.vaultOwnerToken,
-    isCurrent: params.isCurrent,
-  }).catch(() => ({ revoked: 0, failed: -1 }));
-  if (outcome.failed !== 0) throw new AccountErasureBanksNotDisconnectedError(outcome.failed);
-}
 
 function isRecoverableAccountDeletionPrecondition(error: unknown): boolean {
   return (
@@ -203,6 +176,11 @@ export function lostVaultDeletionErrorMessage(error: unknown): string {
       return "This check is unavailable. Contact support.";
     case "ACCOUNT_DELETE_VERIFICATION_UNAVAILABLE":
       return "We cannot verify you right now. Try later.";
+    case "ACCOUNT_DELETE_CLEANUP_REVIEW_CHANGED":
+    case "ACCOUNT_DELETE_CLEANUP_REVIEW_REQUIRED":
+      return "Account details changed. Review deletion again.";
+    case "ACCOUNT_DELETE_REVIEW_UNAVAILABLE":
+      return "We couldn't review deletion right now. Try again.";
     case "PERSONAL_AGENT_DEPROVISION_REQUIRED":
       return "Your private agent must be removed first. Contact support.";
     default:
@@ -358,6 +336,8 @@ export async function executeLostVaultAccountDeletion(params: {
   firebaseIdToken: string;
   phoneIdToken?: string;
   continuationId?: string;
+  reviewedInventorySha256?: string;
+  acceptLocalErasure?: boolean;
   owner?: AccountDeletionOwner;
   /** The initiating UI/session can cancel until the destructive request starts. */
   isCurrent?: () => boolean;
@@ -373,9 +353,14 @@ export async function executeLostVaultAccountDeletion(params: {
       firebaseIdToken: params.firebaseIdToken,
       phoneIdToken: params.phoneIdToken,
       ...(params.continuationId ? { continuationId: params.continuationId } : {}),
+      ...(params.reviewedInventorySha256
+        ? { reviewedInventorySha256: params.reviewedInventorySha256 }
+        : {}),
+      ...(params.acceptLocalErasure === true ? { acceptLocalErasure: true } : {}),
       isCurrent: () => isValidatedAuthSessionOwnerCurrent(owner) && params.isCurrent?.() !== false,
     }),
     isKnownPrecommitError: isLostVaultPrecommitError,
+    handoffPendingToLogin: true,
   });
 }
 
@@ -386,6 +371,7 @@ async function executeAccountDeletion(params: {
   performDeletion: () => Promise<AccountDeletionResult>;
   isKnownPrecommitError?: (error: unknown) => boolean;
   isCurrent?: () => boolean;
+  handoffPendingToLogin?: boolean;
 }): Promise<AccountDeletionResult> {
   // Preserve the exact approval owner across bank preflight and token capture.
   const owner = params.owner;
@@ -425,6 +411,13 @@ async function executeAccountDeletion(params: {
   if (result?.success === true && result.cleanup_pending === true && result.account_deleted === false &&
       result.cleanup_operation?.owner_id === params.userId &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(result.cleanup_operation.id)) {
+    if (params.handoffPendingToLogin &&
+        result.cleanup_operation.local_erasure_confirmation_required === false &&
+        isValidatedAuthSessionOwnerCurrent(owner)) {
+      // The reviewed consent is durable, so the person may leave while the
+      // worker finishes. This is a pending handoff, never deletion success.
+      return result;
+    }
     if (isValidatedAuthSessionOwnerCurrent(owner)) {
       dispatchAuthSessionVerificationRequired(owner, "AUTH_ACCOUNT_DELETION_IN_PROGRESS");
     }

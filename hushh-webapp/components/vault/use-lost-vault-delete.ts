@@ -11,12 +11,17 @@ import {
 import type { User } from "firebase/auth";
 import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
+import { useAuth } from "@/hooks/use-auth";
 import { preloadGoogleSignupAuth } from "@/lib/auth/google-signup-token";
 import {
   AccountService,
   type LostVaultDeleteOptions,
+  type LostVaultDeletionReview,
 } from "@/lib/services/account-service";
+import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { apiErrorCode } from "@/lib/services/api-client";
+import { DELETION_PHONE_COUNTRIES, identityMessage, phoneMessage } from "./lost-vault-delete-details";
+export { DELETION_PHONE_COUNTRIES } from "./lost-vault-delete-details";
 import { getAuthSessionGeneration, snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import {
   prepareRecaptchaVerifier,
@@ -31,77 +36,19 @@ import {
   getPhoneNumberValidationError,
   resolvePhoneInputChange,
 } from "@/components/auth/phone-verification-flow";
-import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
-import {
-  getCountryCallingCode,
-  isSupportedCountry,
-  type CountryCode,
-} from "libphonenumber-js/core";
-import mobileMetadata from "libphonenumber-js/mobile/metadata";
 
 export type DeletionStage =
   | "review"
   | "phone"
   | "confirm"
   | "deleting"
+  | "requested"
   | "pending"
   | "retained"
   | "ready"
   | "uncertain";
 export type DeletionProvider = "google.com" | "apple.com";
-// Use the same numbering plans as the existing phone-entry UI, including NANP.
-export const DELETION_PHONE_COUNTRIES = COUNTRY_PHONE_OPTIONS.filter((option) =>
-  isSupportedCountry(option.value as CountryCode, mobileMetadata),
-).map((option) => ({
-  ...option,
-  dialCode: `+${getCountryCallingCode(option.value as CountryCode, mobileMetadata)}`,
-}));
 const RESEND_DELAY_MS = 30_000;
-
-function identityMessage(error: unknown): string {
-  const code = error instanceof Error ? error.message : "";
-  if (code === "identity_cancelled")
-    return "Sign-in check cancelled. Try again.";
-  if (code === "identity_popup_blocked")
-    return "Allow the sign-in window, then try again.";
-  if (code === "identity_initialization_not_ready")
-    return "Google sign-in is getting ready. Try again in a moment.";
-  if (code === "identity_timeout")
-    return "Your sign-in check timed out. Close the sign-in window and try again.";
-  if (code === "native_identity_unavailable")
-    return "Use One on the web, or contact support.";
-  if (code === "session_changed" || code === "identity_mismatch")
-    return "Your account changed. Sign in again.";
-  return "We could not verify you. Try again.";
-}
-
-function phoneMessage(error: unknown, sending: boolean): string {
-  switch (apiErrorCode(error)) {
-    case "ACCOUNT_DELETE_PHONE_MISMATCH":
-      return "That number does not match your linked phone. Check the full number and country code.";
-    case "ACCOUNT_DELETE_PHONE_INVALID":
-      return "Enter a valid mobile number and country code.";
-    case "ACCOUNT_DELETE_PHONE_BINDING_CONFLICT":
-      return "Your linked phone records disagree. No code was sent. Contact support.";
-    case "ACCOUNT_DELETE_METHOD_UNAVAILABLE":
-      return "Your account’s phone changed. Go back and verify your account again.";
-    case "ACCOUNT_DELETE_VERIFICATION_UNAVAILABLE":
-      return "We could not check your linked phone. Try again.";
-  }
-  const code = String((error as { code?: unknown })?.code ?? "").replace(
-    /^auth\//,
-    "",
-  );
-  if (code === "code-expired" || code === "session-expired")
-    return "This code expired. Request a new code.";
-  if (code === "invalid-verification-code")
-    return "That code is incorrect. Check it and try again.";
-  if (code === "too-many-requests")
-    return "Too many attempts. Wait a moment before requesting another code.";
-  return sending
-    ? "We could not send the code. Try again."
-    : "That code did not work. Try again or request a new code.";
-}
 
 /** Proof state belongs to one mounted owner/session and one verification attempt. */
 export function useLostVaultDelete(
@@ -109,6 +56,7 @@ export function useLostVaultDelete(
   resolvePhone: () => Promise<string | null>,
   continuationId?: string,
 ) {
+  const { signOut } = useAuth();
   const generation = getAuthSessionGeneration();
   const owner = useMemo(
     () => ({
@@ -149,6 +97,7 @@ export function useLostVaultDelete(
   );
   const valid = (attempt: number) => current() && owner.attempt === attempt;
   const [options, setOptions] = useState<LostVaultDeleteOptions | null>(null);
+  const [review, setReview] = useState<LostVaultDeletionReview | null>(null);
   const [stage, setStage] = useState<DeletionStage>("review");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -259,6 +208,7 @@ export function useLostVaultDelete(
     setPhoneProof("");
     setCode("");
     setAcknowledged(false);
+    setReview(null);
   }
   function editNumber(value: string, countryValue?: string) {
     if (!current() || owner.submitted) return;
@@ -279,6 +229,33 @@ export function useLostVaultDelete(
     setError("Your sign-in check expired. Verify your account again.");
   }
 
+  async function prepareFinalReview(
+    token: string, phoneToken: string | undefined, attempt: number,
+  ) {
+    try {
+      const result = await AccountService.reviewLostVaultDeletion({
+        firebaseIdToken: token,
+        phoneIdToken: phoneToken,
+        continuationId,
+        isCurrent: () => valid(attempt),
+      });
+      if (!valid(attempt)) return;
+      if (!/^[0-9a-f]{64}$/.test(result.inventory_sha256) ||
+          !Number.isInteger(result.credential_count) || result.credential_count < 0 ||
+          typeof result.local_erasure_required !== "boolean") {
+        throw new Error("invalid cleanup review");
+      }
+      setReview(result);
+      setStage("confirm");
+    } catch {
+      if (!valid(attempt)) return;
+      clearPhoneProof();
+      setProviderProof("");
+      setStage("review");
+      setError("We couldn’t review deletion. Verify your account again.");
+    }
+  }
+
   async function verifyProvider(provider: DeletionProvider) {
     const attempt = begin();
     if (attempt === null) return;
@@ -293,13 +270,18 @@ export function useLostVaultDelete(
       if (!valid(attempt)) return;
       // The provider may leave Chrome on its tab after settling. Ask the
       // browser to bring this original deletion panel forward before the next step.
-      window.focus();
+      try {
+        window.focus();
+      } catch {
+        // Focus is best effort and must not invalidate a verified owner.
+      }
       const freshOptions =
         await AccountService.getLostVaultDeleteOptions(token);
       if (!valid(attempt)) return;
       setOptions(freshOptions);
       setProviderProof(token);
-      setStage(freshOptions.phone_available ? "phone" : "confirm");
+      if (freshOptions.phone_available) setStage("phone");
+      else await prepareFinalReview(token, undefined, attempt);
     } catch (cause) {
       if (valid(attempt)) setError(identityMessage(cause));
     } finally {
@@ -343,7 +325,7 @@ export function useLostVaultDelete(
       if ("phoneIdToken" in result) {
         owner.phoneAttempt = null;
         setPhoneProof(result.phoneIdToken);
-        setStage("confirm");
+        await prepareFinalReview(providerProof, result.phoneIdToken, attempt);
       } else setVerificationId(result.verificationId);
       setResendAt(Date.now() + RESEND_DELAY_MS);
       setNow(Date.now());
@@ -373,7 +355,7 @@ export function useLostVaultDelete(
       if (!valid(attempt)) return;
       owner.phoneAttempt = null;
       setPhoneProof(proof);
-      setStage("confirm");
+      await prepareFinalReview(providerProof, proof, attempt);
     } catch (cause) {
       if (valid(attempt)) setError(phoneMessage(cause, false));
     } finally {
@@ -385,6 +367,7 @@ export function useLostVaultDelete(
     if (
       !acknowledged ||
       !providerProof ||
+      !review ||
       (options?.phone_available && !phoneProof)
     )
       return;
@@ -400,15 +383,32 @@ export function useLostVaultDelete(
         firebaseIdToken: providerProof,
         phoneIdToken: phoneProof || undefined,
         continuationId,
+        reviewedInventorySha256: review.inventory_sha256,
+        acceptLocalErasure: review.local_erasure_required,
         isCurrent: () => valid(attempt),
       });
       if (!valid(attempt)) return;
+      if (result.cleanup_pending === true && result.account_deleted === false &&
+          result.cleanup_operation?.local_erasure_confirmation_required === false) {
+        setStage("requested");
+        try {
+          await signOut({
+            redirectTo: buildLoginRouteWithAuthSessionNotice("account_deletion_requested"),
+            expectedUserId: owner.principal!.ownerId,
+          });
+        } catch {
+          // The submitted operation remains pending; never offer DELETE again.
+        }
+        return;
+      }
       setStage(
         result.details?.firebase_auth_user === "identity_retained"
           ? "retained"
           : result.ready_to_start_fresh === true
             ? "ready"
-            : "pending",
+            : result.account_deleted === false
+              ? "requested"
+              : "pending",
       );
     } catch (cause) {
       if (!valid(attempt)) return;
@@ -438,6 +438,7 @@ export function useLostVaultDelete(
   }
   return {
     options,
+    review,
     stage,
     loading,
     busy,

@@ -38,6 +38,10 @@ from hushh_mcp.services.account_deletion_cleanup_policy import (
 from hushh_mcp.services.account_deletion_cleanup_stall import (
     AccountDeletionDrainReport as AccountDeletionDrainReport,
 )
+from hushh_mcp.services.account_deletion_inventory_review import (
+    ProviderCleanupReviewChanged,
+    review_provider_inventory_in_transaction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +131,7 @@ class PreparedProviderCleanup:
     cleanup_id: str
     state: str
     credential_count: int
+    local_erasure_confirmation_required: bool = True
 
 
 def account_deletion_user_hash(user_id: str) -> str:
@@ -361,6 +366,8 @@ class AccountDeletionLifecycleService:
         table_exists: Callable,
         describe_inventory: Callable | None = None,
         requested_target: str = "both",
+        reviewed_inventory_sha256: str | None = None,
+        accept_local_erasure: bool = False,
     ) -> PreparedProviderCleanup:
         """Fence the exact owner and preserve its current encrypted source rows.
 
@@ -398,7 +405,8 @@ class AccountDeletionLifecycleService:
         previous = (
             conn.execute(
                 text("""SELECT provider_cleanup_id,erasure_phase,provider_cleanup_inventory,
-                cleanup_intent_kind,firebase_uid,account_owner_id,provider_cleanup_requested_target
+                provider_cleanup_receipt,cleanup_intent_kind,firebase_uid,account_owner_id,
+                provider_cleanup_requested_target
                 FROM account_deletion_tombstones
                 WHERE user_id_hash=:user_id_hash FOR UPDATE"""),
                 params,
@@ -420,65 +428,29 @@ class AccountDeletionLifecycleService:
                 str(previous["provider_cleanup_id"]),
                 "cleaning_up",
                 len(previous["provider_cleanup_inventory"]),
+                any(
+                    item.get("revocationSupport") == "unsupported"
+                    or item.get("authorityScope") == "retain_shared_google"
+                    for item in previous["provider_cleanup_inventory"].values()
+                )
+                and previous["provider_cleanup_receipt"].get("localErasureAccepted") is not True,
             )
 
-        inventory_row = (
-            conn.execute(
-                text("""WITH prepared AS MATERIALIZED (
-                SELECT public.account_provider_cleanup_live_inventory(:owner) AS inventory)
-                SELECT inventory,encode(sha256(convert_to(inventory::text,'UTF8')),'hex')
-                    AS inventory_sha256 FROM prepared"""),
-                params,
-            )
-            .mappings()
-            .one()
+        inventory, review = review_provider_inventory_in_transaction(
+            conn, owner=owner, describe_inventory=describe_inventory
         )
-        inventory = inventory_row["inventory"]
-        if not isinstance(inventory, dict) or len(inventory) > 128:
-            raise RuntimeError("provider cleanup inventory is unavailable")
-        if describe_inventory is None:
-            from hushh_mcp.services.account_deletion_provider_credentials import (
-                describe_inventory as describe_inventory,
-            )
-        if describe_inventory is not None:
-            metadata = describe_inventory(conn, owner, inventory)
-            if not isinstance(metadata, dict) or set(metadata) != set(inventory):
-                raise RuntimeError("provider cleanup metadata is unavailable")
-            for ref, extra in metadata.items():
-                if not isinstance(extra, dict) or set(extra) - {
-                    "groupDigest",
-                    "revocationSupport",
-                    "authorityScope",
-                }:
-                    raise ValueError("provider cleanup metadata is invalid")
-                if "authorityScope" in extra and (
-                    extra["authorityScope"] != "retain_shared_google"
-                    or extra.get("revocationSupport") != "required"
-                    or "groupDigest" not in extra
-                ):
-                    raise ValueError("provider cleanup authority is invalid")
-                if extra.get("revocationSupport") not in {"required", "unsupported", "unverified"}:
-                    raise ValueError("provider cleanup support is invalid")
-                if "groupDigest" in extra and not re.fullmatch(
-                    r"[0-9a-f]{64}", extra["groupDigest"]
-                ):
-                    raise ValueError("provider cleanup group is invalid")
-                inventory[ref].update(extra)
-            # PostgreSQL's canonical JSON representation owns the digest used
-            # by the transition guard; Python serialization is not equivalent.
-            inventory_row = {
-                "inventory_sha256": conn.execute(
-                    text("""SELECT encode(sha256(
-                convert_to(CAST(:inventory AS jsonb)::text,'UTF8')),'hex')"""),
-                    {"inventory": json.dumps(inventory)},
-                ).scalar_one()
-            }
+        if reviewed_inventory_sha256 is not None and (
+            reviewed_inventory_sha256 != review.inventory_sha256
+        ):
+            raise ProviderCleanupReviewChanged("provider cleanup review changed")
+        if accept_local_erasure and reviewed_inventory_sha256 is None:
+            raise ProviderCleanupReviewChanged("local erasure needs an exact review")
         cleanup_id = str(uuid4())
         receipt = {
             "version": 2,
             "cleanupId": cleanup_id,
             "ownerHash": params["user_id_hash"],
-            "inventorySha256": inventory_row["inventory_sha256"],
+            "inventorySha256": review.inventory_sha256,
             "items": {
                 ref: {
                     **item,
@@ -488,6 +460,8 @@ class AccountDeletionLifecycleService:
                 for ref, item in inventory.items()
             },
         }
+        if accept_local_erasure and review.local_erasure_required:
+            receipt["localErasureAccepted"] = True
         conn.execute(
             text("""INSERT INTO account_deletion_tombstones
                 (user_id_hash,firebase_uid,account_owner_id,provider_cleanup_id,provider_cleanup_inventory,
@@ -505,7 +479,12 @@ class AccountDeletionLifecycleService:
                 "receipt": json.dumps(receipt),
             },
         )
-        return PreparedProviderCleanup(cleanup_id, "cleaning_up", len(inventory))
+        return PreparedProviderCleanup(
+            cleanup_id,
+            "cleaning_up",
+            len(inventory),
+            review.local_erasure_required and not accept_local_erasure,
+        )
 
     @staticmethod
     def _guarded_identity_inventory_in_transaction(

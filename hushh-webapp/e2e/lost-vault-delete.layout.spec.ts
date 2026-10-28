@@ -150,7 +150,7 @@ for (const viewport of [
   { width: 393, height: 852, native: true },
   { width: 1440, height: 900, native: false },
 ]) {
-  for (const outcome of ["identity_retained", "quarantined", "deleted"]) {
+  for (const outcome of ["identity_retained", "quarantined", "deleted", "pending"]) {
     test(`lost-vault proof and terminal ${outcome} at ${viewport.width}px ${viewport.native ? "native" : "web"}`, async ({
       page,
     }, testInfo) => {
@@ -234,7 +234,9 @@ for (const viewport of [
       });
       await deletion.click();
       const notice =
-        outcome === "identity_retained"
+        outcome === "pending"
+          ? "account_deletion_requested"
+          : outcome === "identity_retained"
           ? "account_deletion_identity_retained"
           : outcome === "deleted"
             ? "account_deleted_ready_to_start_fresh"
@@ -248,17 +250,22 @@ for (const viewport of [
           ? "will not be removed automatically"
           : outcome === "deleted"
             ? "start fresh"
+            : outcome === "pending"
+              ? "Deletion requested. Cleanup continues"
             : "Account removal still needs attention",
       );
       await expect(page).toHaveURL("https://lost-vault.test/login"); // login consumes its typed notice.
       expect(
         events.filter((event) => event === "deletion-submitted"),
       ).toHaveLength(1);
-      expect(events).toContain("device-secrets-cleared");
+      expect(events).toContain(outcome === "pending" ? "local-state-cleared" : "device-secrets-cleared");
       expect(events.indexOf("preflight-accepted")).toBeLessThan(
         events.indexOf("sms-requested"),
       );
       expect(events.indexOf("phone-verified")).toBeLessThan(
+        events.indexOf("deletion-submitted"),
+      );
+      expect(events.indexOf("provider-inventory-reviewed")).toBeLessThan(
         events.indexOf("deletion-submitted"),
       );
       await expect(
