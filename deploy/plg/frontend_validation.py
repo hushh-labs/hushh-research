@@ -1,4 +1,4 @@
-"""Verify a Main-owned W2 frontend validation receipt; never authorize traffic."""
+"""Verify a Main-owned fixed frontend validation receipt; never authorize traffic."""
 
 from __future__ import annotations
 

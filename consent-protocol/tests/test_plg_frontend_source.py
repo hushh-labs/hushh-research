@@ -17,6 +17,14 @@ BACKEND_TESTS = ROOT / "consent-protocol/tests/test_plg_release_source.py"
 ADDED = "hushh-webapp/app/api/plg-email/unsubscribe/[token]/route.ts"
 
 
+def test_failed_w2_candidate_cannot_reuse_w3_source_admission():
+    module = _load("plg_frontend_fixed_source", SOURCE)
+    record = dict(module.FIXED_RECORD, changes=[])
+    module._check_record(module.SOURCE_SHA, record)
+    with pytest.raises(module.Refused, match="not the recorded"):
+        module._check_record("cfe8c062bd1c455249fc4626720d426edaf9668a", record)
+
+
 def _load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
