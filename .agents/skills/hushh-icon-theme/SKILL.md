@@ -136,10 +136,9 @@ the chat glyph for talking to One. The contract test above rejects any sparkle
 reference, the registry included, and any consent card element that paints a
 background behind a sole glyph.
 
-Codex discovers this portable skill through `.agents/skills/hushh-icon-theme/`;
-Claude's `.claude/skills/hushh-icon-theme/` is a checked relative directory link
-to that source. Governed owner skills also remain in `.agents/skills/`;
-host adapters contain no copied skill or second behavioral policy.
+Read this portable skill directly from `.agents/skills/hushh-icon-theme/`.
+Automatic discovery depends on the active host; do not create a vendor-specific
+copy or adapter for this policy.
 
 ### UI Replacement Index
 
