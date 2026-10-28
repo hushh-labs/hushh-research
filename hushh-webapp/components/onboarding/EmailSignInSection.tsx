@@ -9,6 +9,7 @@ import styles from "./AuthStepLight.module.css";
 import { cn } from "@/lib/utils";
 import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import { ApiService } from "@/lib/services/api-service";
+import { startJourneyTrace } from "@/lib/observability/journey-trace";
 import {
   createEmailBrowserBinding, EmailAuthRequestError,
   type EmailChallenge, type EmailVerification,
@@ -23,7 +24,7 @@ type Props = {
 
 // Verify consumed the code, then the account changed (409) or the enrollment lapsed
 // (409 at verify, 400 while finishing sign-in): that code can never succeed, so only a new code continues.
-const staleCode = (error: unknown) => error instanceof EmailAuthRequestError
+const staleCode = (error: unknown): error is EmailAuthRequestError => error instanceof EmailAuthRequestError
   && (error.code === "enrollment_expired" || error.status === 409 && error.code === "enrollment_changed");
 
 export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, onAuthenticated }: Props) {
@@ -32,6 +33,7 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [stale, setStale] = useState(false);
+  const [trace] = useState(() => startJourneyTrace("email_code"));
   const [challenge, setChallenge] = useState<EmailChallenge | null>(null);
   const [registration, setRegistration] = useState<Extract<EmailVerification, { status: "registration_required" }> | null>(null);
   const [accepted, setAccepted] = useState(false);
@@ -100,7 +102,11 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
     await operation(async (epoch) => {
       const result = await ApiService.emailAuthRequest<EmailVerification>("verify", {
         challenge_id: challenge.challenge_id, code, browser_binding: binding.current!,
-      }).catch((error: unknown) => { if (staleCode(error)) return null; throw error; });
+      }).catch((error: unknown) => {
+        if (!staleCode(error)) throw error;
+        trace("code_stale", { code: error.code, status: error.status });
+        return null;
+      });
       if (!mounted.current || epoch !== generation.current) return;
       setCode("");
       if (!result) { setStale(true); setNotice("Request a new sign-in code."); return; }
@@ -166,7 +172,7 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
       </>}
       <Button type="button" variant={stale ? "default" : "ghost"}
         className={stale ? cn(styles.providerButton, styles.emailSubmit) : styles.emailQuietAction}
-        disabled={busy || disabled || remaining > 0} onClick={() => { requestKey.current = null; void requestCode(); }}>
+        disabled={busy || disabled || remaining > 0} onClick={() => { if (stale) trace("resend_requested"); requestKey.current = null; void requestCode(); }}>
         {remaining > 0 ? `Resend in ${remaining}s` : "Send a new code"}
       </Button>
     </form> : null}

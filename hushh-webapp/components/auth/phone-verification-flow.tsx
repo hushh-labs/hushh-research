@@ -63,6 +63,9 @@ import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { PhoneConflictRecovery } from "@/components/auth/phone-conflict-recovery";
+import { startJourneyTrace } from "@/lib/observability/journey-trace";
+
+const tracePhone = startJourneyTrace("phone_transfer");
 
 const FLOW_CONTROL_SHELL_CLASS_NAME =
   "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:bg-white/[0.08]";
@@ -864,6 +867,7 @@ export function usePhoneVerificationFlow({
         const actionRequired = apiErrorCode(error) === "PHONE_TRANSFER_ACTION_REQUIRED";
         const pending = actionRequired || apiErrorCode(error) === "PHONE_TRANSFER_IN_PROGRESS";
         transferGuard.pending = pending; setTransferPending(pending);
+        tracePhone("transfer_refused", { code: apiErrorCode(error) ?? "unknown", controls_hidden: apiErrorCode(error) === "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE" });
         if (apiErrorCode(error) === "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE") { setTransferUnavailable(true); advanceEntryRevision(); setConflict("choices"); }
         setOperationError(actionRequired ? "Phone transfer needs a security check. Contact one@hushh.ai and check progress again." : pending ? "Finishing phone transfer. Check progress again." :
           phoneFailureMessage(error, error instanceof Error ? error.message : "Phone transfer could not be confirmed. Please retry."));

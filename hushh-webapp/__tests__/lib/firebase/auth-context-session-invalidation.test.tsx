@@ -260,6 +260,33 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     warn.mockRestore();
   });
 
+  it.each(["uat", "production"])("traces the recovery journey to the console only outside production (%s), without identity", async environment => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const karma = () => info.mock.calls.map(([line]) => String(line)).filter(line => line.startsWith("[KARMA]"));
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", environment);
+    vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_DEBUG", "true"); // A debug toggle never opens production.
+    mocks.firebaseUser = { ...makeUser(), providerData: [{ providerId: "phone" }], getIdTokenResult: async () => ({ signInProvider: "phone" }) } as unknown as User;
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
+    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "fresh_identity_required" }));
+    act(() => requestExplicitSessionVerification());
+    await screen.findByRole("heading", { name: "Starting fresh with a phone sign-in isn’t available yet" });
+    if (environment === "production") {
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+      expect(karma()).toEqual([]);
+    } else {
+      const line = (body: string) => new RegExp(`^\\[KARMA\\]\\[uat\\]\\[web\\]\\[op=\\w+\\]\\[seq=\\d+\\]\\[\\+\\d+\\.\\dms\\] ${body}$`);
+      await waitFor(() => expect(karma()).toContainEqual(expect.stringMatching(
+        line("registration\\.shown state=fresh_identity_required reason=null verification=unavailable session=phone controls=sign_out"))));
+      expect(karma()).toContainEqual(expect.stringMatching(
+        line("session\\.validation_completed forced=true outcome=unavailable duration_ms=\\d+ registration=fresh_identity_required")));
+      // The fixture's uid, email and phone number never reach a console line.
+      for (const entry of karma()) expect(entry).not.toMatch(/account-owner|owner@example\.test|14155550100/);
+    }
+    info.mockRestore();
+  });
+
   it("admits a replacement owner without changing Firebase identity and handles terminal verification", async () => {
     const ownerId = "acct_" + "1".repeat(32);
     mocks.apiGetAccountSessionStatus.mockImplementation(async () => activeSessionResponse("account-owner", ownerId, 1));

@@ -102,9 +102,11 @@ import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-
 import { type AccountRegistrationRecovery } from "@/lib/auth/account-registration";
 import { parseAccountCleanupOperation, type AccountCleanupOperation } from "@/lib/auth/account-cleanup-operation";
 import { nextRecoveryCheckDelay, recoveryPollPhase, registrationAdvancesAlone } from "@/lib/auth/account-recovery-cadence";
+import { startJourneyTrace } from "@/lib/observability/journey-trace";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
+const traceSession = startJourneyTrace("session");
 const WEB_AUTH_OBSERVER_WATCHDOG_MS = 10_000;
 const PHONE_RECOVERY_RETRY_DELAYS_MS = [2_000, 5_000, 15_000] as const;
 const PHONE_RECOVERY_REQUEST_BUDGET_MS = 10_000;
@@ -1206,6 +1208,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // At most one validation runs and one waits, however often Refresh is pressed:
       // the waiting one has not read any state yet, so joining it loses nothing.
       if (predecessor && (!force || queuedSessionValidationRef.current === predecessor)) {
+        if (force) traceSession("validation_joined");
         return predecessor;
       }
 
@@ -1246,7 +1249,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const owner = snapshotValidatedAuthSessionOwner();
         const episode = getAuthSessionGeneration();
 
+        const started = performance.now();
         const validation = await validateAccountSession(currentUser);
+        traceSession("validation_completed", { forced: force, outcome: validation.outcome, duration_ms: Math.round(performance.now() - started),
+          registration: validation.outcome === "unavailable" ? validation.registration?.state ?? null : null });
         const firebaseUserId = !IS_NATIVE
           ? (AuthService.getCurrentUser()?.uid ?? null)
           : null;

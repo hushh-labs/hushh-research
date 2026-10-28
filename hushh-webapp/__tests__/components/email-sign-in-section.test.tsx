@@ -91,9 +91,15 @@ describe("Email sign-in authority handoff", () => {
         .mockRejectedValueOnce(new EmailAuthRequestError(error, message, status))
         .mockResolvedValueOnce({ ...challenge, challenge_id: "opaque-challenge-next" });
       const authenticated = vi.fn();
+      const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
       render(<EmailSignInSection disabled={false} onBusyChange={vi.fn()} onExpandedChange={vi.fn()} onAuthenticated={authenticated} />);
       await enterCode();
       expect(await screen.findByRole("alert")).toHaveTextContent("Request a new sign-in code.");
+      // The Dev/UAT console names the code and status only, never the address.
+      const lines = info.mock.calls.map(([line]) => String(line)).filter(line => line.startsWith("[KARMA]"));
+      expect(lines).toContainEqual(expect.stringMatching(new RegExp(` email_code\\.code_stale code=${error} status=${status}$`)));
+      expect(lines.join("\n")).not.toContain("person@example.com");
+      info.mockRestore();
       expect(screen.queryByLabelText("Six-digit code")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Verify and sign in" })).not.toBeInTheDocument();
       const resend = screen.getByRole("button", { name: "Send a new code" });

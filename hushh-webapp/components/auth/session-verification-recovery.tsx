@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 import { accountDeletionSteps } from "@/lib/auth/account-deletion-progress";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
@@ -9,6 +9,7 @@ import { AccountRegistrationRecoveryPanel } from "./account-registration-recover
 import { usePendingRetry } from "./use-pending-retry";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiService } from "@/lib/services/api-service";
+import { startJourneyTrace } from "@/lib/observability/journey-trace";
 import { snapshotAuthSessionGeneration, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { withDeadline } from "@/lib/utils/with-deadline";
 
@@ -21,7 +22,8 @@ export function SessionVerificationRecovery({
 }) {
   const { user, userId: accountOwnerId, accountCleanup, accountRegistration, signOut } = useAuth();
   const deletionPending = isAccountDeletionActive(accountOwnerId);
-  const [checking, refresh] = usePendingRetry(onRetry);
+  const [trace] = useState(() => startJourneyTrace("session_recovery"));
+  const [checking, refresh] = usePendingRetry(onRetry, trace);
   const [continuingId, setContinuingId] = useState<string | null>(null);
   const [continuationFailure, setContinuationFailure] = useState<{ operationId: string; message: string } | null>(null);
   const [acceptedOperationId, setAcceptedOperationId] = useState<string | null>(null);
@@ -48,6 +50,11 @@ export function SessionVerificationRecovery({
   // The AuthProvider re-checks on the backend's cadence, so a working deletion needs no
   // manual refresh. Steps that need the person keep their controls.
   const advancesAlone = runsWithoutYou && !delayed;
+  const cleanupState = cleanup?.state ?? null;
+  useEffect(() => {
+    // The registration panel traces its own screens.
+    if (!accountRegistration) trace("shown", { cleanup: cleanupState, delayed, deletion_pending: deletionPending, advances_alone: advancesAlone });
+  }, [trace, accountRegistration, cleanupState, delayed, deletionPending, advancesAlone]);
   const steps = cleanup ? accountDeletionSteps(cleanup, null) : null;
   const title = localErasureConfirmationRequired
     ? "Finish account deletion"

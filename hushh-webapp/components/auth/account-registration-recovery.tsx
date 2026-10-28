@@ -6,6 +6,7 @@ import type { AccountRegistrationRecovery } from "@/lib/auth/account-registratio
 import { canReauthenticateIdentityHere } from "@/lib/auth/identity-reauth-capability";
 import { snapshotAuthSessionGeneration, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { LEGAL_CONTACT_EMAIL } from "@/lib/legal/legal-documents";
+import { startJourneyTrace } from "@/lib/observability/journey-trace";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { withDeadline } from "@/lib/utils/with-deadline";
@@ -20,6 +21,9 @@ const PROVIDERS = [
 const PRIMARY = "min-h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background disabled:opacity-50";
 const SECONDARY = "min-h-11 rounded-full border border-border px-6 text-sm font-semibold text-foreground disabled:opacity-50";
 const NEEDS_VERIFICATION: AccountRegistrationRecovery = { state: "fresh_identity_required" };
+/** Sign-in methods are public enums; anything else is reported as "other", never verbatim. */
+const SESSION_KINDS = new Set(["phone", "custom", "password", "google.com", "apple.com", "microsoft.com"]);
+const VERIFY_FAILURES = new Set(["native_identity_unavailable", "identity_cancelled", "identity_popup_blocked", "identity_mismatch", "session_changed"]);
 
 /** "here": a linked provider this device can verify. "web": linked, but only the web can verify it. */
 type Verification = "here" | "web" | "unavailable";
@@ -79,7 +83,8 @@ export function AccountRegistrationRecoveryPanel({ user, recovery, onRetry, onSi
   const [acceptedDigest, setAcceptedDigest] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [uncertainReview, setUncertainReview] = useState<AccountRegistrationRecovery | null>(null);
-  const [checking, refresh] = usePendingRetry(onRetry);
+  const [trace] = useState(() => startJourneyTrace("registration"));
+  const [checking, refresh] = usePendingRetry(onRetry, trace);
   const signInProvider = useSessionSignInProvider(user);
   const review = recovery.state === "ready" ? recovery.review : null;
   const linked = PROVIDERS.filter(provider => user.providerData?.some(item => item.providerId === provider.id));
@@ -89,6 +94,14 @@ export function AccountRegistrationRecoveryPanel({ user, recovery, onRetry, onSi
   // Signing in another way is the only step left here, so it leads; no countdown promises otherwise.
   const signInElsewhere = (recovery.state === "fresh_identity_required" || recovery.state === "waiting_for_identity")
     && verification !== "here";
+  const reason = recovery.state === "action_required" ? recovery.reason : null;
+  const session = signInProvider === null ? "unknown" : SESSION_KINDS.has(signInProvider) ? signInProvider : "other";
+  const controls = [...(review ? ["create_account"] : []), ...(recovery.state === "fresh_identity_required" ? providers.map(provider => provider.id) : []),
+    ...(recovery.state === "action_required" ? ["email_support"] : []), ...(review ? ["refresh"] : []), "sign_out"].join(",");
+  // One line per distinct screen: which state the person sees and exactly which controls it offers.
+  useEffect(() => {
+    trace("shown", { state: recovery.state, reason, verification, session, controls: controls.split(",") });
+  }, [trace, recovery.state, reason, verification, session, controls]);
 
   async function operate(provider?: typeof PROVIDERS[number]["id"]) {
     const episode = snapshotAuthSessionGeneration();
@@ -99,6 +112,9 @@ export function AccountRegistrationRecoveryPanel({ user, recovery, onRetry, onSi
     running.current = true;
     setBusy(true);
     setFailure(null);
+    const started = performance.now();
+    const step = provider ? "verify" : "create";
+    trace(`${step}_requested`, provider ? { provider } : {});
     try {
       if (provider) {
         await AuthService.reauthenticateIdentity(user.uid, provider, isCurrent);
@@ -112,6 +128,7 @@ export function AccountRegistrationRecoveryPanel({ user, recovery, onRetry, onSi
         setUncertainReview(recovery);
         const response = await withDeadline(ApiService.startFreshAccount(token, review, isCurrent), Date.now() + 12_000);
         if (!isCurrent()) return;
+        trace("create_response", { status: response.status, duration_ms: Math.round(performance.now() - started) });
         if (response.status === 409) {
           setAcceptedDigest(null);
           setUncertainReview(null);
@@ -120,9 +137,14 @@ export function AccountRegistrationRecoveryPanel({ user, recovery, onRetry, onSi
         }
         if (!response.ok) throw new Error("registration_unconfirmed");
       }
-      if (isCurrent()) onRetry(); // Normal session admission owns releasing private screens.
+      if (isCurrent()) {
+        trace(`${step}_completed`, { duration_ms: Math.round(performance.now() - started) });
+        onRetry(); // Normal session admission owns releasing private screens.
+      }
     } catch (error) {
       if (!isCurrent()) return;
+      const code = error instanceof Error && VERIFY_FAILURES.has(error.message) ? error.message : "other";
+      trace(`${step}_failed`, { reason: provider ? code : "unconfirmed", duration_ms: Math.round(performance.now() - started) });
       setFailure(provider
         ? error instanceof Error && error.message === "native_identity_unavailable"
           ? "Verify this sign-in in One on the web."
