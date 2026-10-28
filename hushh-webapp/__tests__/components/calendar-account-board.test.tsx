@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,11 +20,15 @@ vi.mock("@/lib/services/google-calendar-service", async importOriginal => ({
 }));
 vi.mock("@/lib/perf/use-periodic-task", () => ({ usePeriodicTask: vi.fn(), useCoarseClock: () => Date.now() }));
 vi.mock("@/components/calendar/calendar-insights", () => ({
-  CalendarInsights: ({ account }: { account: { account_id: string } }) => <div data-testid="insights-account">{account.account_id}</div>,
+  CalendarInsights: ({ account, initialLibrary }: { account: { account_id: string }; initialLibrary?: { day: string } | null }) => {
+    const [initial] = useState(initialLibrary);
+    return <div><div data-testid="insights-account">{account.account_id}</div><div data-testid="insights-restored-day">{initial?.day || "none"}</div></div>;
+  },
 }));
 
 import { CalendarAccountBoard } from "@/components/calendar/calendar-account-board";
 import type { CalendarBoardDay, GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
+import { markCalendarMeetingOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 
 const date = "2026-10-21";
 const event = (account: string, id: string, title: string, start: string, end: string) => ({
@@ -60,6 +65,7 @@ describe("three-account Calendar board", () => {
   afterEach(() => vi.useRealTimers());
 
   beforeEach(() => {
+    window.sessionStorage.clear();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(`${date}T08:00:00Z`));
     vi.clearAllMocks();
@@ -116,6 +122,18 @@ describe("three-account Calendar board", () => {
     fireEvent.change(selector, { target: { value: "third" } });
     expect(within(insights).getByTestId("insights-account")).toHaveTextContent("third");
     expect(within(insights).queryByText("Across your connected accounts today")).toBeNull();
+  });
+
+  it("returns to the exact account's library once after OAuth without replaying its old day", () => {
+    markCalendarMeetingOAuthReturn("owner", { accountId: "second", day: "2026-10-14", timeZone: "UTC", filter: "notes", query: "Growth" });
+    render(page());
+    const insights = screen.getByRole("region", { name: "Calendar insights" });
+    expect(within(insights).getByRole("combobox", { name: "Calendar account" })).toHaveValue("second");
+    expect(within(insights).getByTestId("insights-restored-day")).toHaveTextContent("2026-10-14");
+    fireEvent.click(screen.getByRole("tab", { name: "Board" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Insights" }));
+    expect(screen.getByTestId("insights-account")).toHaveTextContent("second");
+    expect(screen.getByTestId("insights-restored-day")).toHaveTextContent("none");
   });
 
   it("hands a single-account opening to One with its exact bounds", async () => {

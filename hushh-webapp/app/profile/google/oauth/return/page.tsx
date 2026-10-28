@@ -10,9 +10,10 @@ import {
   snapshotValidatedAuthSessionOwner,
   isValidatedAuthSessionOwnerCurrent,
 } from "@/lib/auth/session-owner";
-import { consumeCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
+import { consumeCalendarSetupOAuthReturn, markCalendarMeetingOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import {
   clearGoogleOAuthAttempt,
+  hasCalendarMeetingFileGrant,
   readGoogleOAuthPopupAttempt,
   settleGoogleOAuthPopup,
   type GoogleOAuthPopupAttempt,
@@ -220,18 +221,20 @@ function GoogleOAuthReturnContent() {
       attempt?.service === "calendar" ? attempt.accessLevel ?? "read" : "read";
     const isVerifiedCalendarConnection = (connection: GoogleConnectionCompletion | null) => {
       if (attempt?.calendarAdditional && !connection?.completed_account_id) return false;
-      const completedAccount = connection?.completed_account_id
-        ? connection.accounts?.find(
-            account => account.account_id === connection.completed_account_id,
-          )
-        : connection;
+      const completedId = connection?.completed_account_id || "default";
+      if (attempt?.meetingFiles && completedId !== attempt.targetAccountId) return false;
+      const account = connection?.accounts?.find(item => item.account_id === completedId);
+      const completedAccount = account || (completedId === "default" ? connection : null);
       return Boolean(
         connection?.service === "calendar" &&
           (!attempt || connection.service === attempt.service) &&
           completedAccount?.connected &&
           completedAccount.status === "connected" &&
           (requestedAccessLevel !== "manage" ||
-            completedAccount.access_level === "manage"),
+            completedAccount.access_level === "manage") &&
+          (!attempt?.meetingFiles || hasCalendarMeetingFileGrant(
+            connection!, attempt.targetAccountId || "", attempt.expectedSubjectSha256, attempt.priorGrantGeneration,
+          )),
       );
     };
     const settleSuccess = () => {
@@ -239,7 +242,12 @@ function GoogleOAuthReturnContent() {
         return;
       if (terminalOutcomeRecorded.current) return;
       terminalOutcomeRecorded.current = true;
-      if (isSameWindowCalendar) clearGoogleOAuthAttempt();
+      if (isSameWindowCalendar) {
+        if (attempt?.meetingFiles && attempt.meetingReturn) {
+          markCalendarMeetingOAuthReturn(active.ownerId, attempt.meetingReturn);
+        }
+        clearGoogleOAuthAttempt();
+      }
       trackEvent("one_calendar_action", {
         route_id: "one_calendar",
         action: "connected",
@@ -273,7 +281,7 @@ function GoogleOAuthReturnContent() {
             authority.current.generation === active.generation &&
             authority.current.ownerId === active.ownerId;
           if (!remainsCurrent()) return;
-          const status = attempt?.calendarAdditional ? null : await user
+          const status = attempt?.calendarAdditional && !attempt.meetingFiles ? null : await user
             .getIdToken()
             .then((idToken) => {
               if (!remainsCurrent()) return null;
@@ -282,9 +290,10 @@ function GoogleOAuthReturnContent() {
             .catch(() => null);
           if (!remainsCurrent()) return;
           if (
-            status && isVerifiedCalendarConnection({
+            status && (!attempt?.meetingFiles || Boolean(attempt.priorGrantGeneration)) && isVerifiedCalendarConnection({
               service: "calendar",
               ...status,
+              ...(attempt?.meetingFiles && attempt.targetAccountId ? { completed_account_id: attempt.targetAccountId } : {}),
             })
           ) {
             settleSuccess();

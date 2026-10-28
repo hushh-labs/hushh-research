@@ -779,6 +779,9 @@ account controls weekly Insights and Recordings & Notes independently of Board,
 Invitations, the global Calendar default, and the Drive account selection. The
 all-account Board summary is not shown in Insights. Switching account, owner, or
 vault session remounts the view and clears prior account results.
+An authorized meeting-file upgrade returns to the same selected account, library
+day, time zone, search and filter after the callback; the one-use return context
+contains only these UI coordinates.
 
 The overview remains a scheduled-time summary for the selected account. Its
 Refresh control re-reads the current view; entry, foreground return, and manual
@@ -794,7 +797,7 @@ filter and originating row focus.
 | --- | --- |
 | Date row | Selected local date, **Today**, previous and next day arrows. Defaults to today in the resolved Calendar zone; the selected Schedule date is independent. |
 | Search and filters | **Search meetings on this day**; **All**, **Recordings**, **Notes**. Search and kind are sent with the account/day-bound request, applied after file discovery and authorization, and continue through remaining pages. |
-| Row | One row for an ended meeting occurrence only when an accessible Meet recording or smart note is verified. It shows title, local start time, Recording/Notes indicators and opens detail. Multiple files stay on that row. Transcript and Calendar attachments do not qualify. |
+| Row | One row for an ended meeting occurrence only when an accessible recording or meeting note is linked by an exact Meet resource or by that Calendar occurrence's exact attachment file ID. It shows title, local start time, Recording/Notes indicators and opens detail. Multiple files and readable copies across calendars stay on that row. Transcript does not qualify. |
 | Empty | **No recordings or notes for this day.** only after a complete provider check. Search/filter empty uses **No matching recordings or notes for this day.** |
 | Partial | One permission, processing, provider, recurrence, request-budget or historical-retention notice. **Continue checking this day** uses the sealed, short-lived, selected account/date/grant/search/filter-bound cursor. The page remains incomplete until all eligible candidates and files are verified. |
 | Permission action | **Allow recording and notes access** starts an explicit Calendar incremental OAuth request for Meet and Meet-created Drive read scopes on the selected Google account. Private Google connections currently report that this upgrade is unavailable. |
@@ -806,6 +809,14 @@ budget, then returns a continuation. Calendar pages are 50 events. Meet record
 and artifact lists page up to ten times each; an unresolved provider limit is
 reported as incomplete. Meet conference records can expire after 30 days, so
 older days cannot establish a complete negative result from Meet alone.
+Meet conference listing is organizer-limited for attendees. The library also
+checks exact Calendar attachments, including shortcuts and target resource keys,
+even when the selected attendee cannot list the organizer's Meet record. An
+attached Google Doc labeled as meeting notes or an attached video labeled as a
+recording is Calendar-linked evidence, not proof that Meet generated it. Generic
+attachments and Drive-wide title matches are excluded. Missing or ambiguous Meet
+identity, inaccessible files, and a bounded attachment limit keep discovery
+incomplete rather than showing a complete empty day.
 
 ### Meeting details and file actions
 
