@@ -127,7 +127,8 @@ confirmation bound to the inventory digest, and cannot excuse uncertain OAuth
 revocation. Locked-vault deletion collects that confirmation in the existing
 final step, writes it into the initial cleanup receipt, and returns the person
 to login with a pending notice once the durable operation is acknowledged.
-Historical operations without recorded approval still require separate consent.
+Historical operations without recorded approval use the purpose-bound cleanup
+confirmation, then sign out to login when that approval is recorded.
 The UAT-only local reset now requires database attestation and empty
 provider custody before following the same staged SQL path.
 

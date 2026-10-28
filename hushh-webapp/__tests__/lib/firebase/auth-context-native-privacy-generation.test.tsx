@@ -1,6 +1,6 @@
 // Register the shared provider mocks before importing the provider itself.
 import {
-  mocks, deferred, makeUser, NativePhoneProbe,
+  mocks, deferred, makeUser, NativePhoneProbe, NativeDeletionHandoffProbe,
   SessionProbe, emitPrivacy, activeSessionResponse, resetNativeAuthMocks,
   cleanupNativeAuthMocks,
 } from "./fixtures/auth-context-native-harness";
@@ -14,6 +14,22 @@ describe("AuthProvider native privacy generations", () => {
   beforeEach(resetNativeAuthMocks);
 
   afterEach(cleanupNativeAuthMocks);
+
+  it("returns a pending deletion to native login under the Firebase identity while clearing application-owner notifications", async () => {
+    const ownerId = "acct_" + "d".repeat(32);
+    const firebaseUid = "native-account-owner";
+    mocks.restoreNativeSession.mockResolvedValue(makeUser(firebaseUid));
+    mocks.apiGetAccountSessionStatus.mockResolvedValue(Response.json({
+      active: true, firebase_uid: firebaseUid, owner_id: ownerId, account_generation: 1,
+    }));
+    render(<AuthProvider><SessionProbe /><NativeDeletionHandoffProbe /></AuthProvider>);
+    await waitFor(() => expect(snapshotValidatedAuthSessionOwner()?.userId).toBe(ownerId));
+    fireEvent.click(screen.getByRole("button", { name: "Finish pending deletion" }));
+    await waitFor(() => expect(mocks.replaceDocument).toHaveBeenCalledWith("/login?auth_notice=account_deletion_requested"));
+    expect(mocks.clearLocalChatNotificationState).toHaveBeenCalledWith(ownerId);
+    expect(mocks.authServiceSignOut).toHaveBeenCalledWith(firebaseUid);
+    expect(mocks.apiDeleteSession).not.toHaveBeenCalled();
+  });
 
   it.each(["manual", "replacement", "automatic"])("waits for backend persistence before native %s verification succeeds", async (mode) => {
     mocks.restoreNativeSession.mockResolvedValue(makeUser());

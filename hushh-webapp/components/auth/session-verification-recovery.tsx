@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
+import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { AccountRegistrationRecoveryPanel } from "./account-registration-recovery";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiService } from "@/lib/services/api-service";
@@ -15,26 +16,35 @@ export function SessionVerificationRecovery({
   onRetry: () => void;
   onSignOut: () => void;
 }) {
-  const { user, userId: accountOwnerId, accountCleanup, accountRegistration } = useAuth();
+  const { user, userId: accountOwnerId, accountCleanup, accountRegistration, signOut } = useAuth();
   const deletionPending = isAccountDeletionActive(accountOwnerId);
   const [continuingId, setContinuingId] = useState<string | null>(null);
   const [continuationFailure, setContinuationFailure] = useState<{ operationId: string; message: string } | null>(null);
+  const [acceptedOperationId, setAcceptedOperationId] = useState<string | null>(null);
+  const [acknowledgedReview, setAcknowledgedReview] = useState<string | null>(null);
   const cleanup = accountCleanup;
   const current = useRef({ user, cleanup });
   current.current = { user, cleanup };
+  const session = snapshotAuthSessionGeneration();
+  const reviewKey = user && cleanup && session
+    ? JSON.stringify([user.uid, session.generation, cleanup.id, cleanup.inventory_sha256])
+    : null;
+  const acknowledged = reviewKey !== null && acknowledgedReview === reviewKey;
   const continuing = Boolean(cleanup && continuingId === cleanup.id);
   const continuationError = cleanup && continuationFailure?.operationId === cleanup.id ? continuationFailure.message : null;
   const localErasureConfirmationRequired = cleanup?.local_erasure_confirmation_required === true;
   const canContinueCleanup = localErasureConfirmationRequired || cleanup?.state === "action_required";
-  const continueLabel = localErasureConfirmationRequired ? "Remove Hussh’s copy" : "Retry cleanup";
+  const continueLabel = localErasureConfirmationRequired ? "Permanently delete account" : "Retry cleanup";
   const continuingLabel = localErasureConfirmationRequired ? "Confirming…" : "Retrying…";
   // Only work the backend owns keeps going without the person. "Delayed" is the
   // backend's stall signal, never a client guess from elapsed time.
   const runsWithoutYou = Boolean(cleanup && !cleanup.local_erasure_confirmation_required &&
     (cleanup.state === "cleaning_up" || cleanup.state === "waiting_for_provider"));
   const delayed = runsWithoutYou && cleanup?.delayed === true;
-  const title = cleanup?.state === "action_required"
-    ? "Your cleanup needs attention"
+  const title = localErasureConfirmationRequired
+    ? "Finish account deletion"
+    : cleanup?.state === "action_required"
+      ? "Your cleanup needs attention"
     : delayed
       ? "Deletion is taking longer than usual"
       : cleanup?.state === "waiting_for_provider"
@@ -42,19 +52,27 @@ export function SessionVerificationRecovery({
         : cleanup ? "Deleting your account" : deletionPending ? "Checking your account deletion" : "Reconnect to continue securely";
   const cleanupMessage = !cleanup
     ? null
-    : !runsWithoutYou
-      ? "Your private agent stays paused until this step is done."
+    : localErasureConfirmationRequired
+      ? "Confirm your earlier deletion request to finish cleanup."
+      : !runsWithoutYou
+        ? "Your private agent stays paused until this step is done."
       : delayed
         ? "Your information stays hidden. Deletion is queued on our side and finishes without you. You can sign out and check back later."
         : "Your private agent is paused while we delete your account. This usually takes a few minutes. You can close this window or sign out; deletion keeps going.";
 
   async function continueCleanup() {
     const owner = snapshotAuthSessionGeneration();
-    if (!cleanup || !user || !owner || continuing) return;
+    const currentReviewKey = user && cleanup && owner
+      ? JSON.stringify([user.uid, owner.generation, cleanup.id, cleanup.inventory_sha256])
+      : null;
+    if (!cleanup || !user || !owner || continuing || acceptedOperationId === cleanup.id ||
+        (localErasureConfirmationRequired && (currentReviewKey === null || acknowledgedReview !== currentReviewKey))) return;
     // Cleanup has its own Firebase-verified purpose boundary. A deleting
     // identity deliberately has no normal application-owner admission.
     const ownsCleanup = () => isValidatedAuthSessionOwnerCurrent(owner)
-      && current.current.user?.uid === user.uid && current.current.cleanup?.id === cleanup.id;
+      && current.current.user?.uid === user.uid
+      && current.current.cleanup?.id === cleanup.id
+      && current.current.cleanup?.inventory_sha256 === cleanup.inventory_sha256;
     setContinuingId(cleanup.id);
     setContinuationFailure(null);
     try {
@@ -70,6 +88,19 @@ export function SessionVerificationRecovery({
         return;
       }
       if (!response.ok) throw new Error("Cleanup needs review");
+      if (localErasureConfirmationRequired) {
+        setAcceptedOperationId(cleanup.id);
+        try {
+          await signOut({
+            redirectTo: buildLoginRouteWithAuthSessionNotice("account_deletion_requested"),
+          });
+        } catch {
+          if (ownsCleanup()) {
+            setContinuationFailure({ operationId: cleanup.id, message: "Deletion requested. Sign out to return to login." });
+          }
+        }
+        return;
+      }
       onRetry();
     } catch {
       if (ownsCleanup()) {
@@ -104,17 +135,23 @@ export function SessionVerificationRecovery({
             ? cleanupMessage
             : deletionPending ? "Your account deletion is still being checked. Your private information stays hidden until we confirm the result." : "We couldn’t verify this account, so your private information stayed hidden. Check your connection and try again."}
         </p>
-        {cleanup?.local_erasure_confirmation_required && <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          This removes this environment’s encrypted copies. Shared provider access used by other environments and externally managed keys stay valid.
-        </p>}
+        {cleanup?.local_erasure_confirmation_required && <>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            Removes Hussh’s encrypted copies. Shared provider access and external keys remain valid.
+          </p>
+          <label className="mt-3 flex items-start gap-2 text-left text-sm text-foreground">
+            <input type="checkbox" checked={acknowledged} onChange={event => setAcknowledgedReview(event.target.checked ? reviewKey : null)} />
+            <span>I agree to finish deleting this account.</span>
+          </label>
+        </>}
         {cleanup?.state === "action_required" && !cleanup.local_erasure_confirmation_required && <p className="mt-3 text-sm leading-6 text-muted-foreground">
           Provider access needs review before we can finish. Retry cleanup, or contact support if it stays paused.
         </p>}
         {continuationError && <p role="status" className="mt-3 text-sm text-destructive">{continuationError}</p>}
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
           {canContinueCleanup && <button
             className="min-h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background disabled:opacity-50"
-            disabled={continuing}
+            disabled={continuing || acceptedOperationId === cleanup?.id || (localErasureConfirmationRequired && !acknowledged)}
             onClick={() => void continueCleanup()}
             type="button"
           >{continuing ? continuingLabel : continueLabel}</button>}
