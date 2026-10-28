@@ -60,9 +60,10 @@ export function StockQuoteHeader({ row, loadQuote }: {
   }) : null;
   const quoteLabel = row.quote_status === "unsupported" ? "Unsupported quote"
     : !usable(price) ? "Quote unavailable"
-    : observed ? `Quoted ${observed}` : "Quote time unavailable";
+    : observed ? `Quoted ${observed}` : null;
   const freshnessLabel = usable(price) && (stale || delayed)
-    ? stale ? " · Cached quote" : " · Delayed" : "";
+    ? stale ? "Cached quote" : "Delayed" : null;
+  const quoteMetadata = ["USD", quoteLabel, freshnessLabel].filter(Boolean).join(" · ");
   return <section aria-label="Stock quote">
     <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
       <p className={styles.value}>{usable(price) ? formatCurrency(price) : loading ? "Loading quote…" : "Unavailable"}</p>
@@ -74,7 +75,7 @@ export function StockQuoteHeader({ row, loadQuote }: {
       ) : null}
     </div>
     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs leading-[18px] text-muted-foreground">
-      <p>USD · {quoteLabel}{freshnessLabel}</p>
+      <p>{quoteMetadata}</p>
       {failed && loadQuote ? (
         <ShellActionSurface variant="pill" className="h-11 text-xs sm:text-xs" disabled={loading}
           data-voice-control-id="analysis_stock_quote_retry"
