@@ -216,6 +216,22 @@ def test_checkpoint_collision_refuses_blind_stage_replay(modules, tmp_path):
     assert json.loads((tmp_path / "deploy-intent.json").read_bytes()) == {"status": "requested"}
 
 
+def test_capacity_failure_reports_only_allowlisted_reason(modules, monkeypatch, tmp_path):
+    producer = modules.producer
+    result = SimpleNamespace(
+        returncode=2,
+        stdout=b"",
+        stderr=b"capacity budget blocked: unresolved non-target volume routing\n",
+    )
+    monkeypatch.setattr(producer.subprocess, "run", lambda *_a, **_kw: result)
+    with pytest.raises(ValueError, match="qualification_capacity_volume_unresolved"):
+        producer.capacity(tmp_path, {"environment": "dev"}, early=True)
+    result.stderr = b"secret-value-must-never-appear"
+    with pytest.raises(ValueError, match="qualification_actual_capacity_not_admitted") as exc:
+        producer.capacity(tmp_path, {"environment": "dev"}, early=True)
+    assert "secret-value" not in str(exc.value)
+
+
 def test_secret_alias_change_never_returns_payload(modules):
     class Cloud:
         target, project_number = modules.target, "12345"
@@ -299,6 +315,7 @@ def test_isolated_jobs_execute_required_gates_without_routing_shared_jobs(module
         "source",
         "schema",
         "iam-pre",
+        *(["capacity-early"] if environment == "dev" else []),
         "image",
         "capacity",
         "deploy",
