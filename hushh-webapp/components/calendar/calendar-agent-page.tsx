@@ -275,11 +275,13 @@ export function CalendarAgentPage({
     const operationOwnerId = activeOwnerIdRef.current;
     if (meetingFiles && targetAccountId) {
       const lifetime = popupLifetimeRef.current;
+      const settlementRequest = statusRequestRef.current;
       void pollCalendarMeetingGrant({
         ownerId: operationOwnerId, targetAccountId, expectedSubjectSha256, priorGrantGeneration,
         getUser: () => latestUserRef.current,
         isCurrent: () => !lifetime?.signal.aborted && identityRef.current === identity &&
-          activeOwnerIdRef.current === operationOwnerId && latestOwnerIdRef.current === operationOwnerId,
+          activeOwnerIdRef.current === operationOwnerId && latestOwnerIdRef.current === operationOwnerId &&
+          statusRequestRef.current === settlementRequest,
         onVerified: setStatus,
       });
       return;
@@ -291,9 +293,9 @@ export function CalendarAgentPage({
       status: additional ? current?.status ?? "disconnected" : "connected",
       access_level: additional ? current?.access_level ?? null : accessLevel,
       scope_csv: current?.scope_csv ?? "",
-      // The web callback succeeded only after the requested list scope was
-      // verified. An immediate status read can still return the old grant.
-      calendar_list_access: additional ? current?.calendar_list_access ?? false : true,
+      // The callback proves Calendar connection. Optional scopes are read
+      // from the settled account status rather than inferred from the request.
+      calendar_list_access: current?.calendar_list_access ?? false,
       accounts: current?.accounts,
       account_limit: current?.account_limit,
     }));
@@ -329,6 +331,7 @@ export function CalendarAgentPage({
     accountId?: string, includeMeetingFiles = false, meetingReturn?: CalendarMeetingReturnContext) => {
     if (!user || !userId || busyRef.current) return;
     const targetAccountId = accountId || "default";
+    const strictMeetingUpgrade = Boolean(meetingReturn);
     const meetingAccount = status?.accounts?.find(item => item.account_id === targetAccountId);
     if (!additional && status?.connected && status.access_level === "manage") accessLevel = "manage";
     includeCalendarList = includeCalendarList || includeMeetingFiles || (!additional && status?.calendar_list_access === true);
@@ -344,7 +347,7 @@ export function CalendarAgentPage({
           accessLevel,
           calendarAdditional: additional,
           meetingFiles: includeMeetingFiles,
-          ...(includeMeetingFiles ? { targetAccountId, expectedSubjectSha256: meetingAccount?.provider_subject_sha256, priorGrantGeneration: meetingAccount?.grant_generation, meetingReturn } : {}),
+          ...(strictMeetingUpgrade ? { targetAccountId, expectedSubjectSha256: meetingAccount?.provider_subject_sha256, priorGrantGeneration: meetingAccount?.grant_generation, meetingReturn } : {}),
         });
     const popup = attempt ? openGoogleOAuthPopup(attempt) : null;
     setBusy(true);
@@ -353,7 +356,7 @@ export function CalendarAgentPage({
       if (activeOwnerIdRef.current !== operationOwnerId) { popup?.close(); return; }
       if (privateAgent) {
         popup?.close();
-        if (includeMeetingFiles) {
+        if (strictMeetingUpgrade) {
           toast.error("Meeting file access is not available for private Google connections yet.");
           return;
         }
@@ -417,8 +420,8 @@ export function CalendarAgentPage({
         if (
           !verifiedAccount?.connected || verifiedAccount.status === "needs_reauth" ||
           (accessLevel === "manage" && verifiedAccount.access_level !== "manage") ||
-          (includeCalendarList && verifiedAccount.calendar_list_access !== true)
-          || (includeMeetingFiles && !hasCalendarMeetingFileGrant(completed, targetAccountId, meetingAccount?.provider_subject_sha256, meetingAccount?.grant_generation))
+          (strictMeetingUpgrade && includeCalendarList && verifiedAccount.calendar_list_access !== true)
+          || (strictMeetingUpgrade && !hasCalendarMeetingFileGrant(completed, targetAccountId, meetingAccount?.provider_subject_sha256, meetingAccount?.grant_generation))
         ) {
           throw new Error(
             accessLevel === "manage"
@@ -456,7 +459,7 @@ export function CalendarAgentPage({
             accessLevel,
             calendarAdditional: additional,
             meetingFiles: includeMeetingFiles,
-            ...(includeMeetingFiles ? { targetAccountId, expectedSubjectSha256: meetingAccount?.provider_subject_sha256, priorGrantGeneration: meetingAccount?.grant_generation, meetingReturn } : {}),
+            ...(strictMeetingUpgrade ? { targetAccountId, expectedSubjectSha256: meetingAccount?.provider_subject_sha256, priorGrantGeneration: meetingAccount?.grant_generation, meetingReturn } : {}),
           });
         if (!persistGoogleOAuthSameWindowAttempt(sameWindow)) {
           throw new Error(
@@ -506,7 +509,7 @@ export function CalendarAgentPage({
       if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
       const settled = settlement;
       if (finished === "settled" && settled) {
-        if (settled.outcome === "succeeded") applyVerifiedSuccess(accessLevel, additional, targetAccountId, includeMeetingFiles, meetingAccount?.provider_subject_sha256, meetingAccount?.grant_generation);
+        if (settled.outcome === "succeeded") applyVerifiedSuccess(accessLevel, additional, strictMeetingUpgrade ? targetAccountId : undefined, includeMeetingFiles, meetingAccount?.provider_subject_sha256, meetingAccount?.grant_generation);
         else if (settled.outcome === "failed")
           morphyToast.error(settled.message || "Google Calendar could not be connected.");
       } else {
@@ -515,7 +518,8 @@ export function CalendarAgentPage({
           accessLevel,
           additional,
           meetingFiles: includeMeetingFiles,
-          targetAccountId,
+          targetAccountId: strictMeetingUpgrade ? targetAccountId : undefined,
+          previousAccountIds: status?.accounts?.map(account => account.account_id),
           expectedSubjectSha256: meetingAccount?.provider_subject_sha256,
           priorGrantGeneration: meetingAccount?.grant_generation,
           callbackRecorded: Boolean(callbackSettlement),
@@ -679,7 +683,7 @@ export function CalendarAgentPage({
     return <>
       <CalendarConnectedWorkspace userId={userId} status={status} busy={busy}
         onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
-        onAddAccount={() => { void connect("manage", true, true); }}
+        onAddAccount={() => { void connect("manage", true, true, undefined, true); }}
         onReconnectAccount={(accountId) => { void connect("manage", true, true, accountId); }}
         onAllowMeetingFiles={(accountId, returnContext) => { const selected = status.accounts?.find(account => account.account_id === accountId); void connect(selected?.access_level || "read", selected?.calendar_list_access === true, accountId !== "default", accountId === "default" ? undefined : accountId, true, returnContext); }}
         onDisconnectAccount={(accountId) => { setDisconnectAccountId(accountId); setDisconnectConfirmOpen(true); }}
@@ -735,7 +739,7 @@ export function CalendarAgentPage({
             journeyVariant={journeyVariant}
             busy={busy || checkingConnection || !user}
             needsReauth={needsReauth}
-            onConnect={() => void connect("read")}
+            onConnect={() => void connect("read", false, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length)}
           >
             {popupWaitingNotice}
           </CalendarConnectHero>
@@ -823,7 +827,7 @@ export function CalendarAgentPage({
                         size="prominent"
                         className="w-full rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
                         disabled={busy}
-                        onClick={() => void connect("read")}
+                        onClick={() => void connect("read", false, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length)}
                         data-voice-control-id="open_calendar_connector"
                         data-voice-action-id={
                           journeyVariant === "onboarding"

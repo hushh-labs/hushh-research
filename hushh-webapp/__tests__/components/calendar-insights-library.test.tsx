@@ -11,8 +11,8 @@ vi.mock("@/lib/services/calendar-insights-service", () => ({
 import { CalendarInsights } from "@/components/calendar/calendar-insights";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
-function insights() {
-  return <CalendarInsights userId="owner" account={{ account_id: "default", google_email: "owner@example.com", status: "connected", connected: true, access_level: "manage", calendar_list_access: true }} today="2026-10-14" zone="UTC" getIdToken={mocks.getIdToken} />;
+function insights(onAllowMeetingFiles?: (accountId: string) => void) {
+  return <CalendarInsights userId="owner" account={{ account_id: "default", google_email: "owner@example.com", status: "connected", connected: true, access_level: "manage", calendar_list_access: true }} today="2026-10-14" zone="UTC" getIdToken={mocks.getIdToken} onAllowMeetingFiles={onAllowMeetingFiles} />;
 }
 
 const meetingGrant = "b".repeat(64);
@@ -23,7 +23,8 @@ function meetingRow(id: string, title: string, kinds: ("recording" | "notes")[])
 }
 function meetingPage(meetings: ReturnType<typeof meetingRow>[], complete = true, date = "2026-10-14", timeZone = "UTC") {
   return { complete, next_cursor: null, date, time_zone: timeZone, account_id: "default",
-    limitations: complete ? [] : ["processing"], checked_events: meetings.length, meetings };
+    limitations: complete ? [] : ["processing"], checked_events: meetings.length, meetings,
+    meeting_file_access: "ready" as const };
 }
 
 describe("Calendar Insights meeting library", () => {
@@ -155,16 +156,32 @@ describe("Calendar Insights meeting library", () => {
   });
 
   it("shows complete empty only after a complete check and switches the local day", async () => {
+    const allow = vi.fn();
     mocks.insights.mockImplementation(async (path: string, body: { date: string; time_zone: string }) => path === "meetings" ?
-      { ...meetingPage([], true, body.date, body.time_zone), complete: body.date === "2026-10-15", limitations: body.date === "2026-10-15" ? [] : ["permission_required"] } :
+      { ...meetingPage([], true, body.date, body.time_zone), complete: body.date === "2026-10-15", limitations: body.date === "2026-10-15" ? [] : ["permission_required"], meeting_file_access: body.date === "2026-10-15" ? "ready" : "missing" } :
       { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 });
-    render(insights());
+    render(insights(allow));
     fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
-    await screen.findByText(/Allow recording and notes access/);
+    await screen.findByRole("button", { name: "Allow recording and notes access" });
+    fireEvent.click(screen.getByRole("button", { name: "Allow recording and notes access" }));
+    expect(allow).toHaveBeenCalledWith("default", expect.objectContaining({ day: "2026-10-14", timeZone: "UTC" }));
     expect(screen.queryByText("No recordings or notes for this day.")).toBeNull();
     fireEvent.change(screen.getByLabelText("Recording and notes date"), { target: { value: "2026-10-15" } });
     expect(await screen.findByText("No recordings or notes for this day.")).toBeInTheDocument();
     expect(mocks.insights).toHaveBeenCalledWith("meetings", expect.objectContaining({ date: "2026-10-15" }), expect.any(String), expect.any(AbortSignal));
+  });
+
+  it("never offers another consent when a ready account hits a resource denial", async () => {
+    const allow = vi.fn();
+    mocks.insights.mockImplementation(async (path: string, body: { date: string; time_zone: string }) => path === "meetings" ?
+      { ...meetingPage([], false, body.date, body.time_zone), limitations: ["resource_denied"] } :
+      { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 });
+    render(insights(allow));
+    fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
+    expect(await screen.findByText(/Google denied access/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Allow recording and notes access" })).toBeNull();
+    expect(screen.queryByText("No recordings or notes for this day.")).toBeNull();
+    expect(allow).not.toHaveBeenCalled();
   });
 
   it("refreshes late notes and removes revoked detail without showing transcript or chat actions", async () => {

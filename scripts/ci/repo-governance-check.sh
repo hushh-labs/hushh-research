@@ -32,6 +32,7 @@ python3 scripts/ci/test_release_cadence.py
 python3 scripts/ci/test_release_cadence_qualification.py
 python3 scripts/ci/test_release_cadence_maintenance.py
 python3 scripts/ci/test_release_cadence_monitor.py
+python3 scripts/ci/test_release_cadence_checkpoint.py
 bash scripts/ci/verify-protocol-ci-parity.sh --self-test
 python3 scripts/ci/test_protocol_manifest_transport.py
 python3 scripts/ci/test_apply_governance_teams.py
