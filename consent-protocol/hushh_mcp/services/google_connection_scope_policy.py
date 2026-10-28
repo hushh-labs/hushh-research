@@ -42,7 +42,7 @@ async def require_previous_google_scopes(
 ) -> None:
     """A new shared bearer cannot silently revoke a connected service grant."""
     grants = await port._execute_raw_async(
-        """SELECT scope_csv FROM google_service_grants
+        """SELECT service, scope_csv FROM google_service_grants
            WHERE user_id = :user_id AND provider = 'google' AND status = 'connected'""",
         {"user_id": user_id},
     )
@@ -50,7 +50,7 @@ async def require_previous_google_scopes(
         scope
         for grant in grants.data
         for scope in str(grant.get("scope_csv") or "").strip().split()
-        if scope != CALENDAR_GUEST_PHOTO_SCOPE
+        if grant.get("service") != "calendar" or scope != CALENDAR_GUEST_PHOTO_SCOPE
     }
     if required and (not token_scope or not covers(set(token_scope.split()), required)):
         raise GoogleConnectionError(

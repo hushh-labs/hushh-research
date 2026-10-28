@@ -10009,6 +10009,9 @@
         "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
         "phone_mandate.delete_previous",
+        "phone_mandate.delete_previous_cancel",
+        "phone_mandate.delete_previous_confirm",
+        "phone_mandate.delete_previous_verify_again",
         "phone_mandate.recover",
         "phone_mandate.review_previous_devices",
         "phone_mandate.select_country",
@@ -11139,5 +11142,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "145feb7b48d8cb1f2c73220a3eccf940f1c84fa2ccdbb37132be5c61b697549d"
+  "content_sha256": "efbbbf604121837e02e0a5f784bcd957f17e57bdb006f389903f73f81e656ca8"
 }

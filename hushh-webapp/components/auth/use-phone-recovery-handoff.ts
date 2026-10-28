@@ -9,16 +9,23 @@ import { ROUTES } from "@/lib/navigation/routes";
 
 type SignOut = (options: { redirectTo: string; expectedUserId?: string }) => Promise<void>;
 export function phoneRecoveryHandoff(user: User | null | undefined, signOut: SignOut) {
-  const begin = async (action: PhoneRecoveryAction, phone: string) => {
+  const admitted = () => {
     const owner = snapshotValidatedAuthSessionPrincipal();
     const current = () => Boolean(user && owner && owner.firebaseUid === user.uid && isValidatedAuthSessionOwnerCurrent(owner));
     if (!user || !current()) throw new Error("Your account changed. Sign in again.");
+    return { owner: owner!, current, user };
+  };
+  const begin = async (action: PhoneRecoveryAction, phone: string) => {
+    const { owner, current, user } = admitted();
     const result = await PhoneRecoveryService.create(user, action, phone, current);
     if (!current()) return;
-    await signOut({ expectedUserId: owner!.ownerId,
+    await signOut({ expectedUserId: owner.ownerId,
       redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(phoneRecoveryReviewRoute(result.continuation_id))}` });
   };
-  return { recoverPreviousAccount: (phone: string) => begin("recover", phone), deletePreviousAccount: (phone: string) => begin("delete", phone), revokePreviousAccountDevices: (phone: string) => begin("revoke", phone) };
+  return { recoverPreviousAccount: (phone: string) => begin("recover", phone), deletePreviousAccount: (phone: string) => begin("delete", phone), revokePreviousAccountDevices: (phone: string) => begin("revoke", phone),
+    // In-place deletion of the number's holder; the old sign-in handoff remains its fallback.
+    prepareLinkedDeletion: (phone: string) => { const { current, user } = admitted(); return PhoneRecoveryService.prepareLinkedDeletion(user, phone, current); },
+    cancelLinkedDeletion: (operation: string) => { const { current, user } = admitted(); return PhoneRecoveryService.cancelLinkedDeletion(user, operation, current); } };
 }
 
 export function usePhoneRecoveryHandoff(user: User | null | undefined, signOut: SignOut) {

@@ -61,14 +61,14 @@ def _include_guest_photos(
     if service == "calendar" and not calendar_additional:
         existing_grant = (
             connection.execute(
-                text("""SELECT guest_photo_access FROM google_service_grants
+                text("""SELECT status, guest_photo_access FROM google_service_grants
                 WHERE user_id = :user_id AND provider = 'google' AND service = 'calendar' FOR UPDATE"""),
                 {"user_id": user_id},
             )
             .mappings()
             .first()
         )
-    additional_photo_access = True
+    additional_photo_access = False
     if calendar_account_id:
         account = (
             connection.execute(
@@ -83,7 +83,9 @@ def _include_guest_photos(
             raise GoogleConnectionError(
                 "Choose a connected Calendar account to reconnect", status_code=409
             )
-        additional_photo_access = bool(account["guest_photo_access"])
+        additional_photo_access = account["status"] in ("connected", "needs_reauth") and bool(
+            account["guest_photo_access"]
+        )
     elif calendar_additional:
         slots = connection.execute(
             text("""SELECT COUNT(*) FROM google_calendar_additional_accounts
@@ -109,7 +111,11 @@ def _include_guest_photos(
     return service == "calendar" and (
         additional_photo_access
         if calendar_additional
-        else existing_grant is None or bool(existing_grant["guest_photo_access"])
+        else bool(
+            existing_grant
+            and existing_grant["status"] in ("connected", "needs_reauth")
+            and existing_grant["guest_photo_access"]
+        )
     )
 
 

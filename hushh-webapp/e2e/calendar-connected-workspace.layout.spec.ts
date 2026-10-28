@@ -101,6 +101,20 @@ test("three-account Board keeps its measure, heading roles and account actions a
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test("a broken HUSSH portrait keeps the Calendar account initial and size", async ({ page }) => {
+  const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, true);
+  const account = page.getByRole("group", { name: "Calendar account qa-work@example.com" });
+  const avatar = account.locator("[data-photo-source=hussh]");
+  await expect(avatar.locator("[data-slot=avatar-fallback]")).toBeVisible();
+  await expect(avatar.locator("img")).toHaveCount(0);
+  const bounds = await avatar.boundingBox();
+  expect(bounds?.width).toBeGreaterThan(30);
+  expect(bounds?.height).toBeGreaterThan(30);
+  expect(unexpectedRequests).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
 for (const width of [390, 1440]) {
   test(`Calendar caps each account at three events and scrolls the rest inside at ${width}px`, async ({ page }) => {
     const { errors, unexpectedRequests } = await openFixture(page, width, false, "busy", false, true);
@@ -116,6 +130,12 @@ for (const width of [390, 1440]) {
       const label = page.getByRole("group", { name: `Calendar account ${email}` }).getByText(email, { exact: true });
       await expect(label).toBeVisible();
       await assertCalendarAccountLabel(label, width);
+    }
+    await expect(page.getByRole("group", { name: "Calendar account qa-owner@example.com" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
+    await expect(page.getByRole("group", { name: "Calendar account qa-work@example.com" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
+    await expect(page.getByRole("group", { name: "Calendar account qa-projects@example.com" }).locator("[data-photo-url]")).toHaveCount(0);
+    for (const email of ["qa-owner@example.com", "qa-work@example.com"]) {
+      await expect.poll(() => page.getByRole("group", { name: `Calendar account ${email}` }).locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
     }
     for (const event of ["QA Design Review", "QA Client Call", "QA Project Focus"]) await expect(page.getByRole("button", { name: new RegExp(`^Open ${event}`) })).toBeVisible();
     await expect(page.getByText("1 cross-account overlap")).toBeVisible();
@@ -398,6 +418,9 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByText("See your full day in Google Calendar")).toHaveCount(0);
     await page.getByRole("tab", { name: "Invitations", exact: true }).click();
     await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
+    await expect.poll(() => page.getByRole("button", { name: "Open invitation: QA Product Sync" }).locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
+    await expect(page.getByRole("button", { name: "Show Google contact photos" })).toHaveCount(0);
     const invitationBounds = (await cta.boundingBox())!;
     expect(invitationBounds.width).toBe(scheduleBounds.width);
     expect(invitationBounds.height).toBe(scheduleBounds.height);
@@ -431,8 +454,12 @@ for (const width of [320, 390, 1440]) {
       const accepted = item.textContent?.includes("Accepted") ?? false;
       return Boolean(item.querySelector("[data-accepted-indicator]")) === accepted;
     }))).toBe(true);
-    // A Hussh connection photo must not be presented as the guest's Google photo.
-    await expect(guests.filter({ hasText: "Manish" }).locator("img")).toHaveCount(0);
+    await expect(guests.filter({ hasText: "Manish" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
+    await expect(guests.filter({ hasText: "You" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
+    for (const name of ["Manish", "You"]) {
+      await expect.poll(() => guests.filter({ hasText: name }).locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
+    }
+    expect(calls.some(call => call.path.endsWith("/guest-photo-token"))).toBe(false);
     const guestBounds = await guests.evaluateAll(items => items.map(item => {
       const { x, y, width: rowWidth } = item.getBoundingClientRect();
       return { x, y, rowWidth };

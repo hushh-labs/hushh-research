@@ -9,11 +9,11 @@ on:
         required: true
         type: string
       security_run:
-        description: Exact W2 CI source run bound to the protected security worker
+        description: Exact W4 CI source run bound to the protected security worker
         required: true
         type: string
       security_attempt:
-        description: Current attempt of that exact W2 CI source run
+        description: Current attempt of that exact W4 CI source run
         required: true
         type: string
 
@@ -77,7 +77,7 @@ jobs:
           REQUESTED_SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
-          [[ "$REQUESTED_SHA" == cfe8c062bd1c455249fc4626720d426edaf9668a ]]
+          [[ "$REQUESTED_SHA" == 2a860818549f2d6c16d1f98bd8fb9cebe01a1f84 ]]
           authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization" \
@@ -151,7 +151,7 @@ jobs:
           SOURCE_SHA: ${{ needs.admit.outputs.sha }}
         run: |
           set -euo pipefail
-          [[ "$SOURCE_SHA" == cfe8c062bd1c455249fc4626720d426edaf9668a ]]
+          [[ "$SOURCE_SHA" == 2a860818549f2d6c16d1f98bd8fb9cebe01a1f84 ]]
           [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
           [[ -z "$(git status --porcelain)" ]]
 
@@ -281,7 +281,7 @@ jobs:
           SOURCE_SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
-          [[ "$SOURCE_SHA" == cfe8c062bd1c455249fc4626720d426edaf9668a ]]
+          [[ "$SOURCE_SHA" == 2a860818549f2d6c16d1f98bd8fb9cebe01a1f84 ]]
           authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization" \

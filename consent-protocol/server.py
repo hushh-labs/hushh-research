@@ -476,8 +476,9 @@ app.include_router(fabric.router)
 # Account deletion and management
 app.include_router(account.router)
 
-from api.routes import iam, invites, marketplace, ria  # noqa: E402
+from api.routes import account_phone_linked_deletion, iam, invites, marketplace, ria  # noqa: E402
 
+app.include_router(account_phone_linked_deletion.router)
 app.include_router(iam.router)
 app.include_router(ria.router)
 app.include_router(marketplace.router)

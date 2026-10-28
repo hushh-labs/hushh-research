@@ -1,0 +1,63 @@
+import { describe, expect, it } from "vitest";
+import { calendarHusshPeople, calendarHusshPerson } from "@/lib/calendar/calendar-hussh-people";
+import type { AccountEmailAlias } from "@/lib/services/account-service";
+import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
+
+const husshPhoto = "data:image/png;base64,aGVsbG8=";
+const googlePhoto = "https://lh3.googleusercontent.com/a/google=s96-c";
+const connection = (userId: string, email: string, photoUrl: string | null, emailVerified = true): ConnectionSummaryEntry => ({
+  connectionId: userId, userId, email, displayName: "Same name", photoUrl, emailVerified, createdAt: null,
+});
+const alias = (email: string, status: AccountEmailAlias["verification_status"] = "verified"): AccountEmailAlias => ({
+  alias_id: email, user_id: "owner", email, email_normalized: email, verification_status: status, verification_source: "email_code",
+});
+const resolve = (connections: ConnectionSummaryEntry[], overrides: Partial<Parameters<typeof calendarHusshPeople>[0]> = {}) => calendarHusshPeople({
+  connections, ownerId: "owner", ownerEmail: "owner@example.test", ownerEmailVerified: true,
+  ownerPhotoUrl: husshPhoto, ...overrides,
+});
+
+describe("Calendar HUSSH identity resolution", () => {
+  it("uses the canonical HUSSH photo for verified exact Connections even when Google has a different photo", () => {
+    const people = resolve([connection("peer", "Peer@Example.Test", husshPhoto)]);
+    expect(calendarHusshPerson(people, " peer@example.test ")?.photoUrl).toBe(husshPhoto);
+    expect(calendarHusshPerson(people, "peer+other@example.test")).toBeNull();
+    expect(calendarHusshPerson(people, "unknown@example.test")).toBeNull();
+    expect(googlePhoto).not.toBe(husshPhoto);
+  });
+
+  it("does not use names, unverified emails, duplicate owners or unadmitted image URLs", () => {
+    const people = resolve([
+      connection("peer-a", "a@example.test", husshPhoto),
+      connection("peer-b", "b@example.test", husshPhoto),
+      connection("unverified", "unverified@example.test", husshPhoto, false),
+      connection("duplicate-a", "duplicate@example.test", husshPhoto),
+      connection("duplicate-b", "DUPLICATE@example.test", husshPhoto),
+      connection("bad-url", "bad@example.test", "https://images.example.test/photo.png"),
+    ]);
+    expect(calendarHusshPerson(people, "a@example.test")?.userId).toBe("peer-a");
+    expect(calendarHusshPerson(people, "b@example.test")?.userId).toBe("peer-b");
+    expect(calendarHusshPerson(people, "unverified@example.test")).toBeNull();
+    expect(calendarHusshPerson(people, "duplicate@example.test")).toBeNull();
+    expect(calendarHusshPerson(people, "bad@example.test")?.photoUrl).toBeNull();
+  });
+
+  it("uses the owner photo only for a verified primary or verified linked email", () => {
+    const people = resolve([], { ownerAliases: [alias("linked@example.test"), alias("pending@example.test", "pending")] });
+    expect(calendarHusshPerson(people, "owner@example.test")?.photoUrl).toBe(husshPhoto);
+    expect(calendarHusshPerson(people, "linked@example.test")?.userId).toBe("owner");
+    expect(calendarHusshPerson(people, "pending@example.test")).toBeNull();
+    expect(calendarHusshPerson(people, "second-google@example.test")).toBeNull();
+    expect(calendarHusshPerson(resolve([], { ownerEmailVerified: false }), "owner@example.test")).toBeNull();
+  });
+
+  it("keeps ambiguous owner and peer email claims as initials", () => {
+    const people = resolve([connection("peer", "owner@example.test", husshPhoto)]);
+    expect(calendarHusshPerson(people, "owner@example.test")).toBeNull();
+  });
+
+  it("reflects updated and removed profile photos on the next bounded read", () => {
+    expect(calendarHusshPerson(resolve([connection("peer", "peer@example.test", googlePhoto)]), "peer@example.test")?.photoUrl).toBe(googlePhoto);
+    expect(calendarHusshPerson(resolve([connection("peer", "peer@example.test", husshPhoto)]), "peer@example.test")?.photoUrl).toBe(husshPhoto);
+    expect(calendarHusshPerson(resolve([connection("peer", "peer@example.test", null)]), "peer@example.test")?.photoUrl).toBeNull();
+  });
+});

@@ -25,6 +25,7 @@ export function registerCalendarConnectedFixture() {
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "calendar-connected-"));
     fixtureDirectory = outDir;
     const boundary = path.join(root, "e2e/fixtures/calendar-connected-boundaries.ts");
+    const identityBoundary = path.join(root, "e2e/fixtures/calendar-connected-identity.ts");
     await build({
       configFile: false, logLevel: "error", oxc: { jsx: { runtime: "automatic" } },
       plugins: [{ name: "calendar-fixture-css", transform(source, id) {
@@ -33,6 +34,8 @@ export function registerCalendarConnectedFixture() {
       } }],
       resolve: { alias: [
         { find: "@/lib/vault/vault-context", replacement: boundary },
+        { find: "@/hooks/use-auth", replacement: identityBoundary },
+        { find: "@/hooks/use-effective-avatar-url", replacement: identityBoundary },
         { find: /^(?:@\/lib\/services\/|\.\/)api-service$/, replacement: boundary },
         { find: /^(?:@\/lib\/services\/|\.\/)auth-service$/, replacement: boundary },
         { find: "next/navigation", replacement: boundary },
@@ -129,7 +132,7 @@ function fixtureEvents(day: string, variant: "standard" | "long" | "empty" | "bu
   return variant === "long" ? events.map(event => event.calendar_id === "primary" && event.id === "shared-id"
     ? { ...event, title: privateLongTitle, location: privateLongLocation } : event) : events;
 }
-export async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" | "busy" = "standard", replay: false | "future" | "today" = false, boardMode = false) {
+export async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" | "busy" = "standard", replay: false | "future" | "today" = false, boardMode = false, brokenWorkPhoto = false) {
   // Settle the previous fixture before registering the next fixture's error
   // collector: navigating away intentionally cancels its pending reads.
   await page.goto("about:blank");
@@ -140,6 +143,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
   await page.clock.setFixedTime(new Date(replay === "today" ? "2030-01-17T08:42:20Z" : replay ? "2030-01-16T02:00:00Z" : qaNow));
   const errors: string[] = [];
   const unexpectedRequests: string[] = [];
+  const fixturePortraits = [1, 2, 3].map(number => `data:image/webp;base64,${fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${number}.webp`)).toString("base64")}`);
   await page.route("**/*", route => { unexpectedRequests.push(route.request().url()); return route.abort(); });
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
@@ -148,14 +152,14 @@ export async function openFixture(page: Page, width: number, locked = false, var
       contentType: "image/png", body: fs.readFileSync(path.join(process.cwd(), `public/one-calendar/providers/${provider}.png`)),
     }));
   }
-  await page.route("https://calendar-fixture.test/avatars/manish.png", route => route.fulfill({
-    contentType: "image/png", body: fs.readFileSync(path.join(process.cwd(), "public/one-calendar/providers/google-meet-reference.png")),
-  }));
   await page.route("**/api/one/connections", route => route.fulfill({ json: { items: [
-    { connectionId: "qa-manish", userId: "qa-manish", email: "manish@example.test", displayName: "Manish", photoUrl: "https://calendar-fixture.test/avatars/manish.png", createdAt: null },
+    { connectionId: "qa-manish", userId: "qa-manish", email: "manish@example.test", emailVerified: true, displayName: "Manish", photoUrl: fixturePortraits[2], createdAt: null },
+    { connectionId: "qa-priya", userId: "qa-priya", email: "qa-organizer-0@example.test", emailVerified: true, displayName: "Priya Mehta", photoUrl: fixturePortraits[1], createdAt: null },
+    { connectionId: "qa-work", userId: "qa-work", email: "qa-work@example.com", emailVerified: true, displayName: "QA Work", photoUrl: brokenWorkPhoto ? "data:image/png;base64,AA==" : fixturePortraits[1], createdAt: null },
   ] } }));
+  await page.route("**/api/account/email-aliases", route => route.fulfill({ json: { success: true, user_id: "synthetic-calendar-owner", aliases: [] } }));
   await page.route("https://calendar-fixture.test/calendar-fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
-  await page.route("https://calendar-fixture.test/calendar-connected-fixture**", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connected Calendar QA</title><style>${css}</style><style>:root{--app-bottom-content-clearance:164px}body{margin:0}</style></head><body><div id="root"></div><script src="/calendar-fixture.js"></script></body></html>` }));
+  await page.route("https://calendar-fixture.test/calendar-connected-fixture**", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connected Calendar QA</title><style>${css}</style><style>:root{--app-bottom-content-clearance:164px}body{margin:0}</style></head><body><div id="root"></div><script>window.__calendarFixturePhoto=${JSON.stringify(fixturePortraits[0])}</script><script src="/calendar-fixture.js"></script></body></html>` }));
   let failAvailability = false;
   let mailFailure = false;
   let scheduleVariant = variant;

@@ -99,6 +99,7 @@ that file for the full record; this table is the index.
 | `trusted_device_registry` | `personal_metadata` | `iam-consent-governance` | 1 table |
 | `trusted_device_authorization_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `account_phone_transfer_workflow` | `workflow_state` | `iam-consent-governance` | `account_phone_transfers`, `account_phone_recovery_continuations`, `account_device_actions`; hash-only proofs and bounded navigation/action receipts |
+| `account_phone_linked_deletion_workflow` | `workflow_state` | `iam-consent-governance` | `account_phone_linked_deletions`; opaque phone-proven deletion admission with hash-only receipts |
 | `trusted_device_audit` | `audit_regulated` | `iam-consent-governance` | 1 table |
 | `two_way_connection_graph` | `workflow_state` | `iam-consent-governance` | 3 tables |
 | `vault_key_material` | `personal_encrypted` | `security-audit` | 2 tables |

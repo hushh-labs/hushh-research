@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from cachetools import TTLCache
 
 from hushh_mcp.services.google_calendar_profile_photo import _google_picture_url
 from hushh_mcp.services.google_connection_service import GoogleConnectionService
@@ -44,6 +45,7 @@ async def test_additional_calendar_account_does_not_impersonate_default_status()
         return_value={
             "picture_url": "https://lh4.googleusercontent.com/a/second=s96-c",
             "hosted_domain": "example.com",
+            "verified_email": "second@example.com",
         }
     )
 
@@ -55,6 +57,7 @@ async def test_additional_calendar_account_does_not_impersonate_default_status()
         {
             "account_id": "second",
             "google_email": "second@example.com",
+            "google_email_verified": True,
             "profile_photo_url": "https://lh4.googleusercontent.com/a/second=s96-c",
             "hosted_domain": "example.com",
             "provider_subject_sha256": hashlib.sha256(b"google-second").hexdigest(),
@@ -94,12 +97,15 @@ async def test_calendar_picture_checks_subject_and_connection_generation():
     row = {
         "status": "connected",
         "provider_subject": "google-second",
+        "provider_email": "second@example.com",
         "refresh_token_ciphertext": "generation-one",
     }
     service.access_token = AsyncMock(return_value="synthetic-token")
     service._userinfo = AsyncMock(
         return_value={
             "sub": "google-second",
+            "email": "second@example.com",
+            "email_verified": True,
             "picture": "https://lh3.googleusercontent.com/a/second=s96-c",
         }
     )
@@ -109,6 +115,7 @@ async def test_calendar_picture_checks_subject_and_connection_generation():
     assert photo == {
         "picture_url": "https://lh3.googleusercontent.com/a/second=s96-c",
         "hosted_domain": None,
+        "verified_email": "second@example.com",
     }
     assert service.access_token.await_args.kwargs["account_id"] == "second"
     assert await service._calendar_picture(user_id="owner", account_id="second", row=row) == photo
@@ -127,6 +134,72 @@ async def test_calendar_picture_checks_subject_and_connection_generation():
     assert (
         await service._calendar_picture(user_id="owner", account_id="second", row=foreign) is None
     )
+
+
+@pytest.mark.asyncio
+async def test_calendar_account_email_requires_matching_verified_google_claim():
+    service = GoogleConnectionService(db=Mock())
+    row = {
+        "status": "connected",
+        "provider_subject": "google-second",
+        "provider_email": "second@example.com",
+        "refresh_token_ciphertext": "generation-one",
+    }
+    service.access_token = AsyncMock(return_value="synthetic-token")
+    service._calendar_account = AsyncMock(return_value=row)
+    service._userinfo = AsyncMock(
+        return_value={
+            "sub": "google-second",
+            "email": "other@example.com",
+            "email_verified": True,
+        }
+    )
+    identity = await service._calendar_picture(user_id="owner", account_id="second", row=row)
+    assert identity is not None and identity["verified_email"] is None
+
+    service._calendar_photos.cache.clear()
+    service._userinfo.return_value = {
+        "sub": "google-second",
+        "email": "second@example.com",
+        "email_verified": False,
+    }
+    identity = await service._calendar_picture(user_id="owner", account_id="second", row=row)
+    assert identity is not None and identity["verified_email"] is None
+
+
+@pytest.mark.asyncio
+async def test_verified_calendar_email_is_refreshed_after_short_cache_window():
+    service = GoogleConnectionService(db=Mock())
+    row = {
+        "status": "connected",
+        "provider_subject": "google-second",
+        "provider_email": "second@example.com",
+        "refresh_token_ciphertext": "generation-one",
+    }
+    now = [0.0]
+    service._calendar_photos.cache = TTLCache(maxsize=512, ttl=60, timer=lambda: now[0])
+    service.access_token = AsyncMock(return_value="synthetic-token")
+    service._calendar_account = AsyncMock(return_value=row)
+    service._userinfo = AsyncMock(
+        return_value={
+            "sub": "google-second",
+            "email": "second@example.com",
+            "email_verified": True,
+        }
+    )
+
+    first = await service._calendar_picture(user_id="owner", account_id="second", row=row)
+    assert first is not None and first["verified_email"] == "second@example.com"
+    service._userinfo.return_value = {
+        "sub": "google-second",
+        "email": "second@example.com",
+        "email_verified": False,
+    }
+    now[0] = 61.0
+
+    refreshed = await service._calendar_picture(user_id="owner", account_id="second", row=row)
+    assert refreshed is not None and refreshed["verified_email"] is None
+    assert service._userinfo.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -187,6 +260,7 @@ async def test_photo_lookup_does_not_return_stale_connected_status():
     assert result["accounts"][0]["status"] == "needs_reauth"
     assert result["accounts"][0]["connected"] is False
     assert result["accounts"][0]["profile_photo_url"] is None
+    assert result["accounts"][0]["google_email_verified"] is False
 
 
 @pytest.mark.asyncio
@@ -229,6 +303,9 @@ async def test_calendar_account_photos_remain_bound_to_each_google_subject():
         side_effect=lambda *, account_id, **_: {
             "picture_url": f"https://lh3.googleusercontent.com/a/{account_id}",
             "hosted_domain": None,
+            "verified_email": "owner@example.com"
+            if account_id == "default"
+            else "second@example.com",
         }
     )
 
@@ -239,3 +316,4 @@ async def test_calendar_account_photos_remain_bound_to_each_google_subject():
         "https://lh3.googleusercontent.com/a/second",
         "https://lh3.googleusercontent.com/a/third",
     ]
+    assert [item["google_email_verified"] for item in result["accounts"]] == [True, True, False]

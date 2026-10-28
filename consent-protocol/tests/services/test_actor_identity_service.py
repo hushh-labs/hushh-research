@@ -235,6 +235,7 @@ class _PhoneClaimFakeConnection:
         }
         self.fail_claim = False
         self.statement_order: list[str] = []
+        self.full_account_tombstones: set[str] = set()
 
     class _Transaction:
         def __init__(self, conn: "_PhoneClaimFakeConnection") -> None:
@@ -333,6 +334,8 @@ class _PhoneClaimFakeConnection:
         return row
 
     async def fetch(self, query: str, *args):
+        if "account_deletion_tombstones" in query:
+            return [{"user_id_hash": h} for h in args[0] if h in self.full_account_tombstones]
         assert "FOR UPDATE" in query
         user_id, phone_number = args
         return [

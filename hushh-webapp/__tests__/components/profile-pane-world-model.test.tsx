@@ -45,6 +45,7 @@ const auth = vi.hoisted(() => ({
   startPhoneVerification: vi.fn().mockResolvedValue({ autoVerified: false }),
   confirmPhoneVerification: vi.fn(),
   confirmPhoneTransfer: vi.fn(),
+  confirmPhoneLinkedDeletion: vi.fn(),
   startPhoneReplacement: async () => undefined,
   confirmPhoneReplacement: async () => undefined,
 }));

@@ -447,3 +447,33 @@ def test_confirm_requires_literal_true_and_does_not_echo_credentials(monkeypatch
     response = client.post(f"/api/account/trusted-devices/revocations/{operation}/cancel", json={})
     assert response.status_code == 200 and response.json()["state"] == "not_started"
     cancel.assert_awaited_once_with("previous", operation)
+
+
+def test_linked_deletion_routes_hide_credentials_and_stay_off_in_production(monkeypatch):
+    from api.routes import account_phone_linked_deletion as linked_routes
+    from hushh_mcp.services import phone_linked_deletion
+
+    app = FastAPI()
+    app.include_router(linked_routes.router)
+    app.dependency_overrides[routes.recovery_owner] = lambda: "receiving"
+    client = TestClient(app)
+    secret = "synthetic-sensitive-token"
+    for body in (
+        {"confirmed": True, "phone_id_token": secret, "test_code": "123456"},
+        {"confirmed": False, "phone_id_token": secret},
+    ):
+        response = client.post(
+            "/api/account/phone/linked-account/deletions/confirm",
+            json={"operation_id": str(uuid4()), "phone_number": PHONE, **body},
+        )
+        assert response.status_code == 422 and secret not in response.text
+        assert response.json() == {"detail": {"code": "PHONE_RECOVERY_INVALID_REQUEST"}}
+    for name in ("HUSHH_PHONE_LINKED_DELETION_ENABLED", "APP_RUNTIME_PROFILE", "HUSHH_DEPLOY_ENV"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    assert phone_linked_deletion.enabled() is False
+    response = client.post(
+        "/api/account/phone/linked-account/deletions", json={"phone_number": PHONE}
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "PHONE_LINKED_DELETION_UNAVAILABLE"

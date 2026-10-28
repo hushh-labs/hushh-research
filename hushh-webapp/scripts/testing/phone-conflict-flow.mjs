@@ -166,7 +166,7 @@ try {
   await Promise.all(Object.values(optimizer?.metadata.discovered || {}).map(dep => dep.processing));
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await ({ chromium, webkit }[config.engine]).launch({ headless: true });
-  for (const scenario of ["recover", "delete", "transfer", "devices"]) {
+  for (const scenario of ["recover", "delete", "delete_linked", "transfer", "devices"]) {
     activeScenario = scenario;
     stage = scenario;
     await fixtureRequest("reset", scenario);
@@ -236,6 +236,28 @@ try {
           assert.equal(erasures, 1);
           record("delete_real_sql_worker_and_terminal_ui");
         }
+      } else if (scenario === "delete_linked") {
+        stage = "delete_linked_review";
+        let linkedConfirms = 0;
+        page.on("request", request => {
+          if (request.method() === "POST" && new URL(request.url()).pathname === "/api/account/phone/linked-account/deletions/confirm") linkedConfirms++;
+        });
+        await page.getByRole("button", { name: "Delete my previous account", exact: true }).click();
+        await page.getByRole("heading", { name: "Delete the account linked to ••01?", exact: true }).waitFor();
+        assert.equal(await page.getByRole("button", { name: "Delete and continue", exact: true }).isDisabled(), true);
+        await page.getByRole("checkbox", { name: "I understand this can’t be undone.", exact: true }).check();
+        const confirmed = page.waitForResponse(response => response.request().method() === "POST" &&
+          new URL(response.url()).pathname === "/api/account/phone/linked-account/deletions/confirm")
+          .then(async response => ({ status: response.status(), body: await response.json() }));
+        stage = "delete_linked_confirm";
+        await page.getByRole("button", { name: "Delete and continue", exact: true }).click();
+        const receipt = await confirmed;
+        assert.equal(receipt.status, 200); assert.equal(receipt.body.state, "admitted");
+        await page.getByTestId("phone-fixture-destination").filter({ hasText: "/one/setup" }).waitFor();
+        assert.equal(linkedConfirms, 1); assert.equal(erasures, 0); assert.equal(transfers, 0);
+        stage = "delete_linked_worker";
+        await fixtureRequest("drain", scenario);
+        record("delete_linked_phone_proof_claim_and_worker_erasure");
       } else if (scenario === "transfer") {
         await page.getByRole("button", { name: "Use this number on this account", exact: true }).click();
         await page.getByRole("heading", { name: "Use this number on this account?", exact: true }).waitFor();

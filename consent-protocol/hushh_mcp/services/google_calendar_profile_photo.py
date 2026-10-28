@@ -1,4 +1,4 @@
-"""Owner-bound Google Calendar account photos for presentation only."""
+"""Owner-bound Google Calendar account picture and verified email claim."""
 
 from __future__ import annotations
 
@@ -56,12 +56,14 @@ def _google_picture_url(value: object | None) -> str | None:
 
 
 class CalendarProfilePhotos:
-    """Resolve photos through the matching grant, then fence on its generation."""
+    """Resolve userinfo through the matching grant and fence its generation."""
 
     def __init__(self, owner: CalendarPhotoOwner) -> None:
         self.owner = owner
+        # The verified email now gates HUSSH account portraits. Keep this
+        # authority claim short-lived even when the Google photo is unchanged.
         self.cache: TTLCache[tuple[str, str, str, str], dict[str, str | None]] = TTLCache(
-            maxsize=512, ttl=900
+            maxsize=512, ttl=60
         )
         self.failure_cache: TTLCache[tuple[str, str, str, str], bool] = TTLCache(
             maxsize=512, ttl=60
@@ -104,7 +106,20 @@ class CalendarProfilePhotos:
             picture = _google_picture_url(profile.get("picture"))
             raw_domain = str(profile.get("hd") or "").strip().lower()
             hosted_domain = raw_domain if _HOSTED_DOMAIN.fullmatch(raw_domain) else None
-            identity = {"picture_url": picture, "hosted_domain": hosted_domain}
+            account_email = str(row.get("provider_email") or "").strip().lower()
+            profile_email = str(profile.get("email") or "").strip().lower()
+            verified_email = (
+                profile_email
+                if profile.get("email_verified") is True
+                and account_email
+                and profile_email == account_email
+                else None
+            )
+            identity = {
+                "picture_url": picture,
+                "hosted_domain": hosted_domain,
+                "verified_email": verified_email,
+            }
         except Exception:
             # A photo lookup cannot make Calendar status unavailable. Cache the
             # fallback briefly so a provider failure does not flood polling.

@@ -271,6 +271,32 @@ def _dml_grants(connection) -> None:
             )
 
 
+def _schema_grant(cursor, user: str) -> None:
+    """Use the actual owned schema role; Cloud SQL CREATE lacks grant option."""
+    from psycopg2 import sql
+
+    cursor.execute("SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='public'")
+    row = cursor.fetchone()
+    require(
+        row is not None and row[0] in {user, MIGRATOR_ROLE, "pg_database_owner"},
+        "qualification_runtime_schema_owner_unverified",
+    )
+    # The enclosing transaction and canonical temporary owner membership bound
+    # this role switch to the already-verified private qualification database.
+    cursor.execute(sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(row[0])))
+    cursor.execute(
+        sql.SQL("GRANT USAGE,CREATE ON SCHEMA public TO {}").format(sql.Identifier(RUNTIME_ROLE))
+    )
+    cursor.execute(
+        "SELECT has_schema_privilege(%s,'public','USAGE'),has_schema_privilege(%s,'public','CREATE')",
+        (RUNTIME_ROLE, RUNTIME_ROLE),
+    )
+    require(cursor.fetchone() == (True, True), "qualification_runtime_schema_grant_unverified")
+    cursor.execute(sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(user)))
+    cursor.execute("SELECT current_user")
+    require(cursor.fetchone() == (user,), "qualification_runtime_admin_role_not_restored")
+
+
 def install(connection) -> None:
     """Only a fresh admitted initializer/explicit reconciliation may call this."""
     from psycopg2 import sql
@@ -304,12 +330,8 @@ def install(connection) -> None:
             require(
                 cursor.fetchone()[:2] == (True, True), "qualification_existing_admin_read_required"
             )
+            _schema_grant(cursor, user)
             _dml_grants(connection)
-            cursor.execute(
-                sql.SQL("GRANT USAGE,CREATE ON SCHEMA public TO {}").format(
-                    sql.Identifier(RUNTIME_ROLE)
-                )
-            )
             for name in TABLES:
                 cursor.execute(
                     sql.SQL("ALTER TABLE public.{} OWNER TO {}").format(

@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AgentCalendarProposalCard } from "../../components/agent/agent-calendar-proposal-card";
 import { CalendarConnectedWorkspace } from "../../components/calendar/calendar-connected-workspace";
 import { authorizeSyntheticVault, lockSyntheticVault } from "./calendar-connected-boundaries";
+import { setFixtureIdentity } from "./calendar-connected-identity";
+import { publishValidatedAuthSessionOwner } from "../../lib/auth/session-owner";
 
 /** Synthetic records are supplied by the browser test's Calendar API interceptor. */
 function Fixture() {
@@ -10,9 +12,13 @@ function Fixture() {
   const [proposal, setProposal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [owner, setOwner] = useState({ id: "synthetic-calendar-owner", email: "qa-owner@example.com", token: "synthetic-firebase-owner-token" });
+  useEffect(() => {
+    setFixtureIdentity(owner);
+    publishValidatedAuthSessionOwner(owner.id);
+  }, [owner]);
   const board = new URLSearchParams(location.search).has("board");
   const boardAccounts = ["qa-owner@example.com", "qa-work@example.com", "qa-projects@example.com"]
-    .map((google_email, index) => ({ account_id: index === 0 ? "default" : index === 1 ? "work" : "projects", google_email, status: "connected" as const, connected: true, access_level: "manage" as const, calendar_list_access: true }));
+    .map((google_email, index) => ({ account_id: index === 0 ? "default" : index === 1 ? "work" : "projects", google_email, google_email_verified: index < 2, status: "connected" as const, connected: true, access_level: "manage" as const, calendar_list_access: true }));
   return <>
     <div className="fixed inset-x-0 top-0 z-50 flex h-12 items-center justify-center bg-background text-xs text-muted-foreground">{location.search.includes("providerReplay=1") ? "Explorer-backed local replay · sanitized dates · not live UAT" : "Synthetic Calendar QA fixture"}</div>
     <div data-testid="calendar-scroll-root" className="h-dvh overflow-y-auto pt-16 pb-[var(--app-bottom-content-clearance)]">

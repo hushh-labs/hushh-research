@@ -7,6 +7,9 @@ export function renderPhoneVerificationFlow(options?: {
   confirmTransfer?: ReturnType<typeof vi.fn>;
   recoverPreviousAccount?: ReturnType<typeof vi.fn>;
   deletePreviousAccount?: ReturnType<typeof vi.fn>;
+  prepareLinkedDeletion?: ReturnType<typeof vi.fn>;
+  confirmLinkedDeletion?: ReturnType<typeof vi.fn>;
+  cancelLinkedDeletion?: ReturnType<typeof vi.fn>;
   codePresentation?: "onboarding";
   phonePresentation?: "compact";
   confirmVerification?: ReturnType<typeof vi.fn>;
@@ -36,6 +39,9 @@ export function renderPhoneVerificationFlow(options?: {
       confirmTransfer={options?.confirmTransfer}
       recoverPreviousAccount={options?.recoverPreviousAccount}
       deletePreviousAccount={options?.deletePreviousAccount}
+      prepareLinkedDeletion={options?.prepareLinkedDeletion}
+      confirmLinkedDeletion={options?.confirmLinkedDeletion}
+      cancelLinkedDeletion={options?.cancelLinkedDeletion}
       onCompleted={onCompleted}
       onContinueExisting={options?.onContinueExisting}
       onBackStepChange={options?.onBackStepChange}
