@@ -62,6 +62,32 @@ function runtimeState(
 }
 
 describe("executeAgentGatewayAction", () => {
+  it("refuses a parked previous-account deletion directive at the current executor", async () => {
+    const { parseParkedAppActionDirective } = await import("@/lib/services/agent-chat-client");
+    const directive = parseParkedAppActionDirective({
+      status: "ready_to_run",
+      directive: { action_id: "phone_mandate.delete_previous", slot_values: {} },
+    });
+    expect(directive?.actionId).toBe("phone_mandate.delete_previous");
+    const router = { push: vi.fn() };
+    const result = await executeAgentGatewayAction({
+      actionId: directive!.actionId,
+      slots: directive!.slots,
+      allowedActionIds: [directive!.actionId],
+      userId: "user_1",
+      router,
+      appRuntimeState: runtimeState({
+        route: { pathname: "/register-phone", screen: "register_phone", subview: null },
+      }),
+      hasPortfolioData: false,
+      busyOperations: {},
+      setAnalysisParams: vi.fn(),
+    });
+
+    expect(result).toMatchObject({ status: "blocked", reason: "manual_only" });
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["ria.picks.open_category_avoid", "/ria/picks?source=my&category=top-picks&search=1&share=private", "avoid", "my"],
     ["ria.picks.open_source_kai", "/ria/picks?source=my&category=avoid&search=1&share=private", "avoid", "kai"],
