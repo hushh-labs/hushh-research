@@ -54,6 +54,12 @@ export function registerFinanceScreenChecks(
         const manageAction = overview.getByRole("button", { name: "Manage portfolio", exact: true });
         const importBox = (await importAction.boundingBox())!;
         const manageBox = (await manageAction.boundingBox())!;
+        const optionsBox = (await overview.getByTestId("portfolio-overview-options").boundingBox())!;
+        const valueBox = (await overview.getByTestId("portfolio-value-card").boundingBox())!;
+        expect(importBox.y).toBeGreaterThanOrEqual(optionsBox.y + optionsBox.height);
+        expect(manageBox.y).toBeGreaterThanOrEqual(optionsBox.y + optionsBox.height);
+        expect(importBox.y).toBeGreaterThanOrEqual(valueBox.y + valueBox.height);
+        expect(manageBox.y).toBeGreaterThanOrEqual(valueBox.y + valueBox.height);
         expect(importBox.x + importBox.width).toBeLessThanOrEqual(manageBox.x);
         expect(Math.abs(importBox.y - manageBox.y)).toBeLessThanOrEqual(1);
         await importAction.click();
