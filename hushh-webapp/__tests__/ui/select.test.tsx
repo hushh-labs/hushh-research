@@ -71,6 +71,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("shared Select native presentation", () => {
+  it("keeps an initially unset choice empty if it becomes a required named field", () => {
+    const field = (named: boolean) => <form><Select {...(named ? { name: "choice", required: true } : {})}>
+      <SelectTrigger aria-label="Time"><SelectValue placeholder="Choose a time" /></SelectTrigger>
+      <SelectContent><SelectItem value="first">First</SelectItem><SelectItem value="second">Second</SelectItem></SelectContent>
+    </Select></form>;
+    const view = render(field(false));
+    view.rerender(field(true));
+    const form = view.container.querySelector("form")!;
+    expect(new FormData(form).get("choice")).toBe("");
+    expect(form.checkValidity()).toBe(false);
+  });
   it("opens the country selector after cancelling an adjacent native choice without replacing either form owner", async () => {
     render(<form><Field /><Select value="none"><SelectTrigger aria-label="Issuing region"><SelectValue /></SelectTrigger>
       <SelectContent><SelectItem value="none">Select region…</SelectItem>
