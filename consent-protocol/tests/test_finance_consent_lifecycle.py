@@ -17,6 +17,25 @@ from hushh_mcp.one_adk.consent_redaction import (
 
 
 @pytest.mark.asyncio
+async def test_finance_model_callback_rechecks_authority_before_consent_redaction(monkeypatch):
+    from hushh_mcp.one_adk import finance_share_context
+
+    calls = []
+
+    async def recheck(context, *, lookup):
+        calls.append("recheck")
+
+    def redact(context, request):
+        calls.append("redact")
+
+    monkeypatch.setattr(finance_share_context, "recheck_finance_context", recheck)
+    _, callback, _ = finance_share_context.finance_model_callbacks(lookup=None, before_model=redact)
+    assert callback.__wrapped__ is redact
+    await callback(object(), object())
+    assert calls == ["recheck", "redact"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("redact", [True, False])
 async def test_finance_object_lifecycle_reuses_actual_one_history_redaction(monkeypatch, redact):
     source = f"finance:{BUNDLE}:1"

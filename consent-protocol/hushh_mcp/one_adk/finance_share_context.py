@@ -7,6 +7,7 @@ the recipient explicitly submits the exact locally decrypted projection per turn
 import hashlib
 import json
 import re
+from functools import wraps
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
@@ -190,6 +191,7 @@ def finance_model_callbacks(*, lookup, before_model):
     async def track_current_consent(callback_context: Any) -> None:
         await track_consent_access(callback_context, lookup=lookup)
 
+    @wraps(before_model)
     async def finance_before_model(callback_context: Any, llm_request: Any) -> None:
         await recheck_finance_context(callback_context, lookup=lookup)
         before_model(callback_context, llm_request)

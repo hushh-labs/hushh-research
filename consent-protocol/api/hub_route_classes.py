@@ -239,6 +239,8 @@ POST /api/one/world-model/invitation-preview
 POST /api/one/calendar/rescheduling/options
 GET /api/one/source-snapshots/document-request-payments
 [CIPHERTEXT]
+GET,POST /api/one/finance/shares
+DELETE,GET,PUT /api/one/finance/shares/{grant_id}
 POST /api/one/pod/browser-approval/export
 GET,PUT /api/one/hosted-memory/pilot/envelope
 GET /api/one/files/storage
