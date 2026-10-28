@@ -82,7 +82,7 @@ export function PhoneMandatePageContent() {
     retrySessionVerification,
     startPhoneVerification,
     confirmPhoneVerification,
-    confirmPhoneTransfer,
+    confirmPhoneTransfer, confirmPhoneLinkedDeletion,
     refreshUser,
     signOut,
   } = useAuth();
@@ -384,6 +384,7 @@ export function PhoneMandatePageContent() {
               startVerification={startPhoneVerification}
               confirmVerification={confirmPhoneVerification}
               confirmTransfer={confirmPhoneTransfer}
+              confirmLinkedDeletion={confirmPhoneLinkedDeletion}
               {...recoveryHandoff}
               onCompleted={continueToNextRoute}
               onContinueExisting={continueToNextRoute}

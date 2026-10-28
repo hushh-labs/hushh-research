@@ -5529,6 +5529,40 @@ claiming ongoing automatic completion. Account erasure waits for committed
 provider work so its recovery context cannot disappear. Existing deletion 202
 and cleanup-pending behavior remains authoritative.
 
+Phone-proven deletion of the linked account (migration 436) lets a signed-in
+person who proves possession of a number delete the account that currently holds
+it, then verify the number on their own account. One number belongs to one
+account. `POST /api/account/phone/linked-account/deletions` takes
+`{phone_number}` and always returns the same `prepared` shape: operation ID,
+`expires_at` (five minutes), a `••NN` hint from the submitted number and
+`transport`. Whether the number has a holder, or a protected one, is never
+revealed before proof. `POST /api/account/phone/linked-account/deletions/confirm`
+requires `operation_id`, the same `phone_number`, literal `confirmed: true` and
+exactly one proof: a fresh real-SMS `phone_id_token` (transfer-grade: Firebase
+phone provider, authentication within 300 seconds, not a provider fictional
+number, single-use authentication event) or, only for configured UAT fixture
+numbers outside any production runtime, the fixture `test_code`. Five wrong
+fixture codes cancel the operation. After proof the server rechecks the
+holder's exact binding (digest, binding revision, generation) under its locks,
+refuses reviewer fixtures (`PHONE_LINKED_ACCOUNT_PROTECTED`) and phone-only
+identities that could never be claimed afterwards
+(`PHONE_LINKED_DELETION_RECOVERY_REQUIRED`), records admission before dispatch,
+and runs the existing full-account erasure for the holder. The erasure's
+admission transaction rechecks the binding again under the holder's exclusive
+lifecycle locks; a moved number refuses with `PHONE_LINKED_DELETION_STALE` and
+commits nothing. Receipts are `admitted`, `refused` (with the existing deletion
+refusal codes) or `action_required`. A lost response is read back through
+`GET /api/account/phone/linked-account/deletions/{operation_id}`, which settles
+only from the committed full-account tombstone and never dispatches again;
+`POST …/{operation_id}/cancel` fences a prepared operation. The person then
+claims the number through the existing `/phone/claim` or `/phone/uat-test/*`
+writers. An explicit OTP claim is never blocked by a holder whose full-account
+deletion is committed: the canonical per-number writer detaches that dead
+binding atomically. Provisional phone-orphan intents and background provider
+hydration never release a binding. Production stays off until
+`HUSHH_PHONE_LINKED_DELETION_ENABLED` is set; while off, the delete choice
+keeps the previous-account sign-in handoff.
+
 Native verification extends the existing isolated proof bridge rather than
 linking the primary Firebase user. Owner/attempt fences suppress stale native
 callbacks. Harmless rerenders, typing and background/foreground events do not

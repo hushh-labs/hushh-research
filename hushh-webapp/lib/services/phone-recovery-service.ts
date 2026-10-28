@@ -17,6 +17,20 @@ export type DeviceRevocationStatus = {
   operation_id: string; state: "prepared" | "pending" | "completed" | "action_required" | "expired" | "stale" | "not_started";
   success?: boolean; device_id?: string; podBindingVersion?: number;
 };
+export type LinkedDeletionPreparation = {
+  operation_id: string; state: "prepared"; expires_at: string; phone_hint: string; transport: "sms" | "configured_test";
+};
+export type LinkedDeletionReceipt = {
+  operation_id: string; code?: string;
+  state: "prepared" | "expired" | "cancelled" | "pending" | "admitted" | "refused" | "action_required";
+};
+export type LinkedDeletionProof = { test_code: string; phone_id_token?: never } | { phone_id_token: string; test_code?: never };
+const LINKED_STATES = ["prepared", "expired", "cancelled", "pending", "admitted", "refused", "action_required"];
+function linkedReceipt(value: LinkedDeletionReceipt, operation: string): LinkedDeletionReceipt {
+  if (value?.operation_id !== operation || !LINKED_STATES.includes(value.state) ||
+    (value.code !== undefined && !/^[A-Z][A-Z_]{2,63}$/.test(value.code))) throw new Error("Account deletion status is unavailable.");
+  return value;
+}
 
 async function request<T>(user: User, current: () => boolean, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   if (!current()) throw new Error("Your account changed. Sign in again.");
@@ -29,7 +43,27 @@ async function request<T>(user: User, current: () => boolean, path: string, body
 }
 
 const ROOT = "/api/account/phone/recovery/continuations";
+const LINKED = "/api/account/phone/linked-account/deletions";
 export const PhoneRecoveryService = {
+  /** Opaque until proof: the response never reveals whether the number has an account. */
+  async prepareLinkedDeletion(user: User, phone: string, current: () => boolean) {
+    const value = await request<LinkedDeletionPreparation>(user, current, LINKED, { phone_number: phone });
+    if (!phoneRecoveryId(value?.operation_id) || value.state !== "prepared" || typeof value.phone_hint !== "string" ||
+      !["sms", "configured_test"].includes(value.transport) || !Number.isFinite(Date.parse(value.expires_at))) {
+      throw new Error("Account deletion is unavailable. Try again.");
+    }
+    return value;
+  },
+  async confirmLinkedDeletion(user: User, operation: string, phone: string, proof: LinkedDeletionProof, current: () => boolean) {
+    return linkedReceipt(await request<LinkedDeletionReceipt>(user, current, `${LINKED}/confirm`,
+      { operation_id: operation, phone_number: phone, confirmed: true, ...proof }), operation);
+  },
+  async linkedDeletionStatus(user: User, operation: string, current: () => boolean) {
+    return linkedReceipt(await request<LinkedDeletionReceipt>(user, current, `${LINKED}/${encodeURIComponent(operation)}`), operation);
+  },
+  cancelLinkedDeletion(user: User, operation: string, current: () => boolean) {
+    return request<LinkedDeletionReceipt>(user, current, `${LINKED}/${encodeURIComponent(operation)}/cancel`, {});
+  },
   async create(user: User, action: PhoneRecoveryAction, phone: string, current: () => boolean) {
     const result = await request<{ continuation_id: string; state: string; expires_at: string }>(user, current, ROOT, { action, phone_number: phone });
     if (!phoneRecoveryId(result?.continuation_id) || result.state !== "awaiting_previous_sign_in") throw new Error("Account recovery is unavailable. Try again.");

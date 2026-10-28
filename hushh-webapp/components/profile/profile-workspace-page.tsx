@@ -562,7 +562,7 @@ function ProfilePageContent({
     signOut,
     startPhoneVerification,
     confirmPhoneVerification,
-    confirmPhoneTransfer,
+    confirmPhoneTransfer, confirmPhoneLinkedDeletion,
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
@@ -3636,7 +3636,7 @@ function ProfilePageContent({
     mode: phoneNumber ? "replace" as const : "link" as const, currentPhoneNumber: phoneNumber,
     startVerification: phoneNumber ? startPhoneReplacement : startPhoneVerification,
     confirmVerification: phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification,
-    confirmTransfer: confirmPhoneTransfer,
+    confirmTransfer: confirmPhoneTransfer, confirmLinkedDeletion: confirmPhoneLinkedDeletion,
     ...phoneRecoveryHandoff(user, signOut),
     onCompleted: handleAccountPhoneCompleted, onBackStepChange: bindPhoneBackStep, onNavigationGuardChange: bindPhoneNavigationGuard, onCancel: popProfileStack,
   };
