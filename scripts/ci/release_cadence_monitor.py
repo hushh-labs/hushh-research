@@ -10,6 +10,8 @@ import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from subprocess import TimeoutExpired
+from zipfile import BadZipFile
 
 from release_cadence import (
     CONTROLLER,
@@ -19,6 +21,7 @@ from release_cadence import (
     verify_child,
 )
 from release_cadence_github import (
+    Ledger,
     api,
     artifact_json,
     configuration,
@@ -351,6 +354,39 @@ def publish(repository: str, issue: dict | None, state: dict | None, journal: di
     print(f"Release monitoring: https://github.com/{repository}/issues/{issue['number']}")
 
 
+def checkpoint_healthy(repository: str, policy: dict, state: dict | None, disabled: bool) -> bool:
+    """Distinguish a certified quiet run from a failed or missing publication."""
+    if (state is None or os.environ.get("ACCOUNTING_OUTCOME") != "success"
+            or os.environ.get("CHECKPOINT_PRESENCE_OUTCOME") != "success"):
+        return False
+    present, outcome = os.environ.get("CHECKPOINT_PRESENT"), os.environ.get("CHECKPOINT_OUTCOME")
+    if disabled:
+        # main() has already checked the certified disabled snapshot's digest.
+        return present == "false" and outcome == "skipped"
+    from release_cadence import state_digest
+    if present == "true" and outcome == "success":
+        path = Path(os.environ["RUNNER_TEMP"], "release-cadence-authority", "checkpoint.json")
+        try:
+            checkpoint = json.loads(path.read_text())
+            ledger = Ledger(repository, policy["state_branch"])
+            return (bool(re.fullmatch(r"[0-9a-f]{40}", checkpoint.get("ledger_sha", "")))
+                    and ledger.head == checkpoint["ledger_sha"] and ledger.state is not None
+                    and checkpoint.get("state_sha256") == state_digest(ledger.state) == state_digest(state))
+        except (UnsafeRelease, OSError, ValueError, KeyError, TypeError, AttributeError, TimeoutExpired):
+            return False
+    if present != "false" or outcome != "skipped":
+        return False
+    # No write is valid only if the current ledger still matches both its
+    # existing immutable certificate and this run's final observed state.
+    try:
+        ledger = Ledger(repository, policy["state_branch"])
+        checkpoint = ledger.verify_checkpoint()
+        return (checkpoint is not None and ledger.state is not None
+                and state_digest(ledger.state) == state_digest(state))
+    except (UnsafeRelease, OSError, ValueError, KeyError, TypeError, TimeoutExpired, BadZipFile):
+        return False
+
+
 def main() -> int:
     repository, controller = os.environ["GITHUB_REPOSITORY"], int(os.environ["GITHUB_RUN_ID"])
     require(os.environ["GITHUB_REF_NAME"] == "main", "Monitor requires protected main")
@@ -375,14 +411,13 @@ def main() -> int:
         previous["pending_releases"] = [f"release:{ordinal}:{lane}" for ordinal, request in state["requests"].items()
                                        for lane, child in request["lanes"].items()
                                        if child["state"] in {"pending", "running", "dispatching", "deferred"}]
-    healthy = state is not None and os.environ.get("CHECKPOINT_OUTCOME") == "success"
-    if disabled:
-        healthy = healthy and os.environ.get("ACCOUNTING_OUTCOME") == "success"
+    healthy = checkpoint_healthy(repository, policy, state, disabled)
     journal, notices = observations(repository, state, event, previous, healthy, enabled=policy["enabled"])
     journal["production_baseline_run_id"] = policy.get("production_baseline_run_id")
     if disabled and healthy:
         journal["checkpoint_at"] = snapshot["checkpoint"]["checkpoint_at"]
     publish(repository, issue, state, journal, notices, controller, assignee)
+    require(healthy, "Cadence accounting or checkpoint publication was not verified")
     return 0
 
 

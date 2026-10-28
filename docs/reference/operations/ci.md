@@ -424,7 +424,8 @@ dedicated UAT runner capacity.
 Accounting persists in the state-only `automation/release-cadence-state` branch.
 Fast-forward-only updates reject concurrent writers. A tiny immutable
 `release-cadence-authority` artifact certifies the ledger commit and state hash
-from each protected-main controller run. Both reconciliation and bot authorization
+when a protected-main controller changes or refreshes the ledger. A verified
+quiet or disabled run does not create a new artifact. Both reconciliation and bot authorization
 require the newest certified checkpoint, rejecting forged or replayed branch
 state. The bot is not a member of either human dispatch cohort; each child is
 authorized only for its recorded run ID, workflow, milestone, source and complete
@@ -522,6 +523,10 @@ The observer still verifies the existing immutable checkpoint and reports its
 last certified count and timestamp, rather than claiming a new accounting pass.
 A missing or inconsistent certificate remains a verification failure. Re-enabling
 the policy resumes ordinary distinct-source accounting without resetting counts.
+The observer uploads any checkpoint written before a later accounting failure.
+It verifies the current ledger and certificate before treating an unchanged run
+as healthy. Reporting to the monitoring issue is best effort if GitHub is
+unavailable; the controller itself fails when verification cannot be completed.
 
 Obsolete failed candidates may be retired only by a governed production operator
 through `retire_failed_before` and `reviewed_ledger_sha` on a dedicated manual

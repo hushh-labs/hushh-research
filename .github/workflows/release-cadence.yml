@@ -73,20 +73,33 @@ jobs:
           if [[ -n "$RECOVER_CHECKPOINT_SHA" ]]; then args+=(--recover-head "$RECOVER_CHECKPOINT_SHA"); fi
           if [[ -n "$RETIRE_FAILED_BEFORE" || -n "$REVIEWED_LEDGER_SHA" ]]; then args+=(--retire-failed-before "${RETIRE_FAILED_BEFORE:-0}" --reviewed-ledger-sha "$REVIEWED_LEDGER_SHA"); fi
           python3 scripts/ci/release-cadence.py reconcile "${args[@]}"
+      - name: Check for a new accounting checkpoint
+        id: checkpoint-presence
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/release-cadence-authority/checkpoint.json" ]]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish immutable controller authority and accounting checkpoint
         id: checkpoint
-        if: always()
+        # A failed accounting step can still have written recovery evidence.
+        if: always() && steps.checkpoint-presence.outcome == 'success' && steps.checkpoint-presence.outputs.present == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: release-cadence-authority
           path: ${{ runner.temp }}/release-cadence-authority/checkpoint.json
           retention-days: 90
           overwrite: true
-          if-no-files-found: warn
+          if-no-files-found: error
       - name: Report release milestones and failures in GitHub
         if: always()
         timeout-minutes: 2
         env:
           ACCOUNTING_OUTCOME: ${{ steps.accounting.outcome }}
+          CHECKPOINT_PRESENCE_OUTCOME: ${{ steps.checkpoint-presence.outcome }}
+          CHECKPOINT_PRESENT: ${{ steps.checkpoint-presence.outputs.present }}
           CHECKPOINT_OUTCOME: ${{ steps.checkpoint.outcome }}
         run: python3 scripts/ci/release_cadence_monitor.py
