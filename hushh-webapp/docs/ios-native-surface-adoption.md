@@ -18,7 +18,26 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated audit — 2026-10-28
 
-The Dev-backed qualification app from `c002957256` is installed on the iPhone.
+The iPhone now has a Dev-backed qualification app built from `6e362ad3aa`.
+Its signed source app executable SHA-256 is
+`8e087f56256c295e9d1f05a33374b0801ba157c45d6b578543f6392ffcf37e13`, and its
+test executable SHA-256 is
+`7be045167bfb587d39e13a5ebdb1f239e76ccdb91fdb0e3e1a32463142a5e58b`.
+All 1,806 copied web assets matched the signed bundle; the native plugin backend
+matches Dev. Installed bytes were not read back. This Release qualification
+build uses `ENABLE_TESTABILITY=YES` and is not distribution-performance evidence.
+The Vault remained locked. A public sample lost characters despite an observed
+focus flag and was cleared; no private input or Unlock was attempted. The
+experimental real-field comparison was subsequently removed after security
+review. The React hard Vault is not native-qualified.
+
+The bottom-chrome top-of-scroll correction in `325598ffad` passed its focused
+iOS simulator test and a negative control, but has not been physically
+qualified. The Profile AI-selection correction in `db56101939` passed its
+focused suite and typecheck; it is not in the installed web assets. Neither
+establishes app-wide native, accessibility or performance acceptance.
+
+The earlier Dev-backed qualification app from `c002957256` had
 Its signed source app executable SHA-256 is
 `0fbb44e1a9c48746adc231ad5173da6af485903d205158833669d8a502eec743`,
 and its matching test-runner executable SHA-256 is

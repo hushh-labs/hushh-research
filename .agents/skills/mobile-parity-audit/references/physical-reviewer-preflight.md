@@ -88,16 +88,14 @@ another reviewer store or a privileged app-unlock route.
    substitute another environment. Record an explicitly selected dev replica
    as dev evidence, not UAT or release acceptance.
    If whole-value input is not acknowledged, do not submit or retry the private
-   value. Use the existing synthetic secure-entry probe first, with the matching
-   Xcode toolchain selected explicitly through `DEVELOPER_DIR`. On the same
-   iOS 27.2 candidate, Xcode 27.1 delivered six of eight public characters;
-   Xcode 27.2 passed both public samples and the subsequent normal reviewer
-   unlock. This comparison identifies a working toolchain, not every possible
-   input-loss cause. On a later candidate, both public samples passed but the
-   private entry was incomplete even with the matching toolchain; re-focusing
-   the field did not resolve it. Do not infer private-input admission from the
-   public probe alone. Keep synthetic counts separate from private input, which
-   must remain process-only and produce only acknowledgement booleans.
+   value. Diagnose with an isolated public secure-input fixture and the matching
+   Xcode toolchain. Do not reveal a real Vault field or clear input whose owner
+   is unknown to inspect a sample. A masked length, a visible keyboard, or an
+   asynchronously sampled focus flag cannot prove exact delivery. A public
+   fixture pass alone does not qualify private input: establish an appropriate
+   non-disclosing delivery and cleanup contract, including interruption,
+   rejection and test-runner restart, before another private attempt. Preserve
+   privacy coverage and stop if cleanup or an unlock outcome is uncertain.
 7. Check that the native privacy cover has actually retired before private
    input. XCTest can report an underlying WebKit control as hittable while
    UIKit still covers it. Use only the authored recovery action or cancel a
