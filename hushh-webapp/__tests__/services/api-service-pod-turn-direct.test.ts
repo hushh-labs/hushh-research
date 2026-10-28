@@ -196,6 +196,50 @@ describe("ApiService owner-direct pod path", () => {
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
+  it("does not dispatch Memory status after the vault locks during pod admission", async () => {
+    vi.useRealTimers();
+    let admit!: (value: typeof PIN) => void;
+    const admission = new Promise<typeof PIN>((resolve) => { admit = resolve; });
+    ownerPodMocks.loadPinnedEndpoint.mockReturnValue(admission);
+    ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
+    mockFetch.mockResolvedValue(json({}));
+    const pending = ApiService.getPodMemoryStatus(PIN.hushhId);
+    await vi.waitFor(() => expect(ownerPodMocks.loadPinnedEndpoint).toHaveBeenCalled());
+    advanceVaultSessionEpoch();
+    admit(PIN);
+    await expect(pending).rejects.toThrow();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not return Memory status after the vault locks during its response", async () => {
+    vi.useRealTimers();
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
+    ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
+    let respond!: (value: Response) => void;
+    mockFetch.mockReturnValue(new Promise<Response>((resolve) => { respond = resolve; }));
+    const pending = ApiService.getPodMemoryStatus(PIN.hushhId);
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledOnce());
+    advanceVaultSessionEpoch();
+    respond(json({ provider: { consent: "granted" } }));
+    await expect(pending).rejects.toThrow();
+  });
+
+  it.each(["vault", "owner"])("does not return Memory status if the %s changes during parsing", async (boundary) => {
+    vi.useRealTimers();
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
+    ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
+    let finish!: (value: unknown) => void;
+    const response = json({});
+    const parse = vi.spyOn(response, "json").mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    mockFetch.mockResolvedValue(response);
+    const pending = ApiService.getPodMemoryStatus(PIN.hushhId);
+    await vi.waitFor(() => expect(parse).toHaveBeenCalledOnce());
+    if (boundary === "vault") advanceVaultSessionEpoch();
+    else publishValidatedAuthSessionPrincipal({ firebaseUid: "uid-other", ownerId: "uid-other", accountGeneration: 1 });
+    finish({ provider: { consent: "granted" } });
+    await expect(pending).rejects.toThrow();
+  });
+
   it.each([false, true])("routes chat/history through pod admission without hub fallback (stream=%s)", async (streaming) => {
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
     ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
