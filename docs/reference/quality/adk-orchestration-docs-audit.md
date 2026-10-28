@@ -209,11 +209,12 @@ or model selection was changed for these navigation checks.
 
 Interactive qualification found a new redirect defect after a separate fixture
 referrer-policy correction: the login POST succeeds, but its redirected request
-can arrive after the executor closes the action scope. The local repair joins
-explicit Chromium redirect chains under their original authority, refuses unknown
-parents and waits for the final document before returning a frame. The 83 nearest
-cases pass; the delayed-redirect regression fails against deployed source. Pinned
-local Chromium also passes manual login, observation suppression, encrypted
+can arrive after the executor closes the action scope. The repair is now on Main:
+it joins explicit Chromium redirect chains under their original authority, refuses
+unknown parents and waits for the final document before returning a frame. The 83
+nearest cases passed locally; the historical deployed predecessor failed the
+delayed-redirect regression. Pinned local Chromium also passes manual login,
+observation suppression, encrypted
 remembering, new-task restoration, logout rejection, Forget, one reviewed save
 and Stop. These are **local driver receipts**, not cloud qualification or installed
 owner acceptance; the corrected immutable image still needs that evidence.
