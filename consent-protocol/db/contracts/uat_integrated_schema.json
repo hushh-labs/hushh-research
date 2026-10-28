@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 436,
+  "expected_migration_version": 438,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -8,6 +8,9 @@
     "account_enrollment_review_digest",
     "account_firebase_mutations_settled",
     "account_generation_admission_cutoff",
+    "account_legacy_cleanup_reference",
+    "account_legacy_cleanup_settleable",
+    "account_legacy_provider_custody_absent",
     "account_provider_cleanup_contract_version",
     "account_provider_cleanup_live_inventory",
     "account_provider_cleanup_pending",
@@ -265,6 +268,7 @@
     "retire_erased_account_generation",
     "retire_superseded_pod_signing_key",
     "rollback_pkm_domain_revision_v1",
+    "settle_legacy_account_generation",
     "stamp_account_generation_retirement",
     "stamp_drive_owner_payout_held_at",
     "start_or_resume_pkm_upgrade_v1",
@@ -4745,5 +4749,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 436
+  "expected_schema_head": 438
 }

@@ -372,12 +372,14 @@
     "433_connect_directory_presence.sql",
     "434_calendar_guest_photo_access.sql",
     "435_finance_connection_sharing.sql",
-    "436_phone_linked_account_deletions.sql"
+    "436_phone_linked_account_deletions.sql",
+    "437_account_legacy_generation_settlement.sql"
   ],
   "environment_overlays": {
     "uat": [
       "174_hushh_tech_uat_client_foundation.sql",
-      "360_uat_drive_collection_retirement.sql"
+      "360_uat_drive_collection_retirement.sql",
+      "438_uat_legacy_generation_settlement.sql"
     ]
   },
   "groups": {
@@ -789,6 +791,8 @@
     "433_connect_directory_presence.sql": "rollback/433_connect_directory_presence.rollback.sql",
     "434_calendar_guest_photo_access.sql": "rollback/434_calendar_guest_photo_access.rollback.sql",
     "435_finance_connection_sharing.sql": "rollback/435_finance_connection_sharing.rollback.sql",
-    "436_phone_linked_account_deletions.sql": "rollback/436_phone_linked_account_deletions.rollback.sql"
+    "436_phone_linked_account_deletions.sql": "rollback/436_phone_linked_account_deletions.rollback.sql",
+    "437_account_legacy_generation_settlement.sql": "rollback/437_account_legacy_generation_settlement.rollback.sql",
+    "438_uat_legacy_generation_settlement.sql": "rollback/438_uat_legacy_generation_settlement.rollback.sql"
   }
 }
