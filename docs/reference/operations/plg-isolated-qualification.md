@@ -186,8 +186,10 @@ into this helper.
 Runtime receives explicit DML on the resulting source tables, read access to
 source views, sequence usage,
 and the source's explicit `service_role` routine permissions through direct
-object grants. It receives no shared-role membership, DDL, or migration-ledger
-write grant. The existing source schema verifier checks S's required relations,
+object grants. S also requires public-schema CREATE and ownership of the five
+startup tables described in `deploy/plg/README.md`; this synthetic runtime is not
+a no-DDL role. It receives no shared-role membership or migration-ledger write
+grant. The existing source schema verifier checks S's required relations,
 columns and functions. Provider contract 2, the four absent phone tables, empty
 owner/event/credential/outbox state, generation zero and the exact Memory index
 are independently checked. Initialization executes pinned 408's parser comparison.
