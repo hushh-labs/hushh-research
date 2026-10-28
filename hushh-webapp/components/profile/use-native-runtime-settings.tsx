@@ -32,6 +32,10 @@ export function useNativeRuntimeSettings(model: GeminiRuntimeSettingsModel, owne
     if (current()) setNotice(done ? success : "Couldn’t finish. Refresh these settings before trying again.");
   };
   const ready = active && model.hasSavedKey !== null && !model.loadFailed && !busy;
+  // The default mode is only an initial placeholder until the saved provider
+  // has been read. Do not render it as the person's selection during loading
+  // or after a failed read.
+  const selectionKnown = model.hasSavedKey !== null && !model.loadFailed;
   const rows: NativeDrawerActions["rows"] = new Map([
     ["runtime-managed", () => invoke(model.selectManaged, "Using Hussh’s AI.")],
     ["runtime-byok", () => { if (current() && !model.operationPending()) { void model.selectByok(); setEditorOpen(true); } }],
@@ -40,8 +44,8 @@ export function useNativeRuntimeSettings(model: GeminiRuntimeSettingsModel, owne
     ["runtime-retry", async () => { if (current() && !model.operationPending()) { setNotice(null); await model.refresh(); } }],
   ]);
   const content: NativeDrawerRow[] = [
-    { id: "runtime-managed", label: "Use Hussh’s AI", detail: "No key needed.", enabled: ready, selected: model.mode === "hushh_managed_vertex", artworkId: "gemini", pending: model.isSaving && model.mode === "hushh_managed_vertex" },
-    { id: "runtime-byok", label: "Use my own key", detail: "Your key stays locked to you.", enabled: ready, selected: model.mode === "byok", artworkId: "gemini", chevron: true },
+    { id: "runtime-managed", label: "Use Hussh’s AI", detail: "No key needed.", enabled: ready, selected: selectionKnown && model.mode === "hushh_managed_vertex", artworkId: "gemini", pending: model.isSaving && model.mode === "hushh_managed_vertex" },
+    { id: "runtime-byok", label: "Use my own key", detail: "Your key stays locked to you.", enabled: ready, selected: selectionKnown && model.mode === "byok", artworkId: "gemini", chevron: true },
   ];
   if (model.hasSavedKey === null) content.push({ id: "runtime-loading", label: "Checking your configuration…", enabled: true, readOnly: true });
   if (model.loadFailed || notice) content.push({ id: "runtime-outcome", label: notice ?? "Couldn’t load your configuration.", enabled: true, readOnly: true },

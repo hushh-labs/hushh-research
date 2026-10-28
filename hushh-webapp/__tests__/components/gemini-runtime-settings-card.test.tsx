@@ -1,7 +1,8 @@
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GeminiRuntimeSettingsCard, useGeminiRuntimeSettingsModel } from "@/components/connections/gemini-runtime-settings-card";
+import { GeminiRuntimeSettingsCard, useGeminiRuntimeSettingsModel, type GeminiRuntimeSettingsModel } from "@/components/connections/gemini-runtime-settings-card";
+import { useNativeRuntimeSettings } from "@/components/profile/use-native-runtime-settings";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useAiPlacement } from "@/lib/connections/use-ai-placement";
 
@@ -91,6 +92,22 @@ beforeEach(() => {
   });
 
 describe("GeminiRuntimeSettingsCard setup choice", () => {
+
+  it("does not show a native AI selection until saved settings are known", () => {
+    const model = {
+      current: () => true, isSaving: false, isRemoving: false,
+      credentialValidation: { status: "idle" }, mode: "hushh_managed_vertex",
+    } as unknown as GeminiRuntimeSettingsModel;
+    const hook = renderHook(({ hasSavedKey, loadFailed }) => useNativeRuntimeSettings(
+      { ...model, hasSavedKey, loadFailed }, "synthetic-owner", true,
+    ), { initialProps: { hasSavedKey: null as boolean | null, loadFailed: false } });
+    const managed = () => hook.result.current.page.sections[0].rows.find(row => row.id === "runtime-managed");
+    expect(managed()?.selected).toBe(false);
+    hook.rerender({ hasSavedKey: false, loadFailed: false });
+    expect(managed()?.selected).toBe(true);
+    hook.rerender({ hasSavedKey: false, loadFailed: true });
+    expect(managed()?.selected).toBe(false);
+  });
 
   it.each([
     { status: { hostingMode: "shared" }, placement: "shared" },
