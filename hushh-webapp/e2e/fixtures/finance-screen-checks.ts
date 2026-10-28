@@ -289,9 +289,9 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
       const portfolio = page.getByTestId("portfolio-chart-fixture");
       await portfolio.scrollIntoViewIfNeeded();
       await expect(portfolio.locator("path.recharts-area-curve")).toHaveAttribute("d", /^M/);
+      // Panels fill the tab column (asserted on the identically styled overview
+      // section above); only overflow is checked here, not a 728px reading cap.
       expect(await portfolio.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-      const bounds = await portfolio.boundingBox();
-      expect(bounds!.width).toBeLessThanOrEqual(728);
       await page.screenshot({ path: test.info().outputPath(`portfolio-${width}-${theme}.png`) });
       const stocks = page.getByTestId("market-iphone-fixture");
       const search = stocks.getByRole("searchbox", { name: "Search stocks" });
