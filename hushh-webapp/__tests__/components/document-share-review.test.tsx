@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DocumentRequestPriceSheetProps as PriceSheetProps } from "@/components/consent/document-request-price-sheet";
+import { ONE_COPY_ALLOW_DISCLOSURE, type DocumentRequestPriceSheetProps as PriceSheetProps } from "@/components/consent/document-request-price-sheet";
 const state = vi.hoisted(() => ({
   uid: "a",
   providers: [] as { providerId: string; email: string | null }[],
@@ -1314,13 +1314,13 @@ describe("exact-file document review", () => {
       expect(screen.getByText("The note says 3 months. We used the picked dates: 2 Sep – 2 Oct.")).toBeVisible();
       expect(screen.getByRole("button", { name: "Edit price" })).toBeEnabled();
       expect(screen.queryByRole("checkbox")).toBeNull();
+      expect(screen.queryByText(ONE_COPY_ALLOW_DISCLOSURE) !== null).toBe(oneCopyRequested);
       // The price sits with the terms, with what the owner gets after fees.
       const price = screen.getByText("Price").closest("dl");
       expect(price).toBe(screen.getByText("Share with").closest("dl"));
       expect(screen.getByText("You get this minus a 3% fee and Stripe's fee.")).toBeVisible();
       fireEvent.click(allow);
-      await waitFor(() => expect(state.allow).toHaveBeenCalledExactlyOnceWith(
-        "owner-a", requestId, { revision: 0, amountCents: 50, ...(oneCopyRequested ? { oneCopyAccepted: true } : {}) }, expect.any(Function)));
+      await waitFor(() => expect(state.allow).toHaveBeenCalledExactlyOnceWith("owner-a", requestId, { revision: 0, amountCents: 50, ...(oneCopyRequested ? { oneCopyAccepted: true } : {}) }, expect.any(Function)));
       expect(screen.queryByRole("dialog", { name: "Set a price" })).toBeNull();
     });
 
