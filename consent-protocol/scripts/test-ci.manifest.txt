@@ -763,6 +763,7 @@ tests/test_pod_browser_adk_continuation.py
 tests/test_pod_browser_sessions.py
 tests/test_pod_binding_transactions.py
 tests/test_pod_consent_authority.py
+tests/test_pod_consent_wire_scope.py
 tests/test_pod_ingress_axis.py
 tests/test_pod_session_authority.py
 tests/test_pod_turn_route.py
@@ -1535,6 +1536,7 @@ tests/test_drive_packet_public_summary_routes.py
 tests/test_consumer_consent_replay_postgres.py
 
 tests/test_phone_transfer_postgres.py
+tests/test_phone_linked_deletion_postgres.py
 
 tests/test_phone_transfer_authority.py
 tests/test_phone_bootstrap.py
