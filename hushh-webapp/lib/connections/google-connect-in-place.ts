@@ -348,6 +348,7 @@ export function connectCalendarInPlace(
           serverClientId: start.server_client_id,
           accessLevel: start.access_level,
           ...(start.include_calendar_list ? { includeCalendarList: true } : {}),
+          ...(start.include_guest_photos ? { includeGuestPhotos: true } : {}),
         });
         if (!current()) return "stale";
         const status = await GoogleCalendarService.completeNativeConnect({

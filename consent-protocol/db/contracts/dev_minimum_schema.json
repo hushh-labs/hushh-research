@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 433,
+  "expected_migration_version": 434,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -479,11 +479,13 @@
       "contact_sync_consent_enabled_at",
       "contact_sync_consent_rule_version",
       "created_at",
+      "directory_listed",
       "investor_marketplace_opt_in",
       "last_active_persona",
       "personas",
       "public_person_ref",
       "public_profile_status",
+      "role_label",
       "updated_at",
       "user_id"
     ],
@@ -2062,6 +2064,7 @@
       "status",
       "scope_csv",
       "access_level",
+      "guest_photo_access",
       "refresh_token_ciphertext",
       "refresh_token_iv",
       "refresh_token_tag",
@@ -2130,6 +2133,7 @@
       "access_level",
       "created_at",
       "disconnected_at",
+      "guest_photo_access",
       "last_used_at",
       "provider",
       "scope_csv",
@@ -4132,5 +4136,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 433
+  "expected_schema_head": 434
 }

@@ -65,6 +65,11 @@ export interface DocumentRequestPriceSheetProps {
   initialAmountCents?: number | null;
   /** Trusted requests set price without an additional consent grant. */
   priceOnly?: boolean;
+  /**
+   * The request asks for a One copy. Allow also accepts it, so the sheet
+   * shows its terms where the owner confirms. Never shown for price-only.
+   */
+  oneCopyRequested?: boolean;
   /** A caller with a different settlement lane supplies its existing account control. */
   settlement?: ReactNode;
   /**
@@ -85,6 +90,13 @@ export interface DocumentRequestPriceSheetProps {
 /** The same rule, in the same words, as the server's invalid_payment_amount. */
 export const DOCUMENT_REQUEST_PRICE_RULE =
   "Choose a price from $0.50 to $500.";
+
+/**
+ * What an owner accepts when Allow also approves a One copy. One wording for
+ * every Allow surface; the copy is encrypted but not hidden from Hussh.
+ */
+export const ONE_COPY_ALLOW_DISCLOSURE =
+  "Allow also lets Hussh keep encrypted copies of these files for this requester. Hussh can open them for delivery. You can stop One access and see its activity. Files the requester saved can’t be recalled.";
 const LEGACY_PRICE_RULE = "Choose a whole-dollar price from $1 to $500.";
 
 // 44px targets, the same chip grammar as the Location duration ladder: a fixed
@@ -168,6 +180,7 @@ function PriceSheet({
   estimateCents = null,
   initialAmountCents = null,
   priceOnly = false,
+  oneCopyRequested = false,
   busy,
   error,
   onSubmit,
@@ -289,6 +302,9 @@ function PriceSheet({
             </dl>
             {periodText && periodNote ? (
               <HelperText data-slot="price-sheet-period-note">{periodNote}</HelperText>
+            ) : null}
+            {oneCopyRequested && !priceOnly ? (
+              <HelperText data-slot="price-sheet-one-copy">{ONE_COPY_ALLOW_DISCLOSURE}</HelperText>
             ) : null}
           </>
         )}

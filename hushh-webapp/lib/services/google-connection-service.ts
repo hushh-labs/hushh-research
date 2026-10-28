@@ -15,6 +15,8 @@ export type GoogleConnectionStatus = {
   scope_csv: string;
   /** Calendar only: whether Google granted subscribed-calendar discovery. */
   calendar_list_access?: boolean;
+  /** Calendar only: optional guest profile access granted in its OAuth flow. */
+  guest_photo_access?: boolean;
 };
 
 export type GoogleConnectionCompletion = GoogleConnectionStatus & {

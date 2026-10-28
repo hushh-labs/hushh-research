@@ -539,6 +539,9 @@ class HushhAuthPlugin : Plugin() {
         if (call.getBoolean("includeCalendarList", false) == true) {
             calendarScopes.add(Scope("https://www.googleapis.com/auth/calendar.calendarlist.readonly"))
         }
+        if (call.getBoolean("includeGuestPhotos", false) == true) {
+            calendarScopes.add(Scope("https://www.googleapis.com/auth/contacts.readonly"))
+        }
         val calendarOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestServerAuthCode(serverClientId, true)
             .requestEmail()

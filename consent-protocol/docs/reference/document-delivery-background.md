@@ -22,7 +22,10 @@ device-encrypted version 1 delivery contract retain their existing behavior.
 The requester explicitly submits `oneCopyRequested=true`,
 `activityAccepted=true` and
 `activityDisclosureVersion=one-document-activity-v1`. The owner explicitly accepts
-server copying with `oneCopyAccepted=true` on the existing Allow action. Existing
+server copying with `oneCopyAccepted=true` on the existing Allow action. The owner
+review projects the sealed `oneCopyRequested=true` marker; every Allow surface shows
+the copy terms and sends acceptance only when it is present, because a Drive-only
+request refuses acceptance. Existing
 OAuth, Trusted membership and historical approvals do not grant copy consent.
 New combined requests, including Trusted recipients, wait for the same combined
 Allow before either delivery proceeds. Historical and Drive-only Trusted requests
