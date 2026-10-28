@@ -629,10 +629,20 @@ class GoogleConnectionService:
                 status_code=403,
                 reason_code="google_permission_required",
             )
-        if service == "calendar":
+        prior_calendar_connected = False
+        if service == "calendar" and existing and existing.get("status") == "connected":
+            prior_calendar = await self._execute_raw_async(
+                """SELECT status FROM google_service_grants
+                   WHERE user_id = :user_id AND provider = 'google' AND service = 'calendar'""",
+                {"user_id": user_id},
+            )
+            prior_calendar_connected = bool(
+                prior_calendar.data and prior_calendar.data[0].get("status") == "connected"
+            )
+        if prior_calendar_connected:
             require_meeting_scopes(requested_scopes, granted_scopes, GoogleConnectionError)
         if (
-            service == "calendar"
+            prior_calendar_connected
             and CALENDAR_LIST_READ_SCOPE in requested_scopes
             and (
                 not _scopes_cover(
@@ -754,15 +764,19 @@ class GoogleConnectionService:
                 status_code=403,
                 reason_code="google_permission_required",
             )
-        if CALENDAR_LIST_READ_SCOPE in requested_scopes and not _scopes_cover(
-            set(scopes.split()), {CALENDAR_LIST_READ_SCOPE}
+        if (
+            prior
+            and prior.get("status") == "connected"
+            and CALENDAR_LIST_READ_SCOPE in requested_scopes
+            and not _scopes_cover(set(scopes.split()), {CALENDAR_LIST_READ_SCOPE})
         ):
             raise GoogleConnectionError(
                 "Calendar list permission was not granted",
                 status_code=403,
                 reason_code="calendar_list_permission_required",
             )
-        require_meeting_scopes(requested_scopes, scopes.split(), GoogleConnectionError)
+        if prior and prior.get("status") == "connected":
+            require_meeting_scopes(requested_scopes, scopes.split(), GoogleConnectionError)
         require_previous_calendar_scopes(prior=prior, token_scope=scopes, covers=_scopes_cover)
         refresh_token = _clean(token.get("refresh_token"))
         if not refresh_token and prior and prior.get("status") == "connected":
@@ -1187,6 +1201,7 @@ class GoogleConnectionService:
         service: GoogleService,
         access_level: Literal["read", "manage"],
         account_id: str = "default",
+        force_refresh: bool = False,
     ) -> str:
         from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
@@ -1197,7 +1212,10 @@ class GoogleConnectionService:
                     "This account only grants Calendar access", status_code=403
                 )
             return await self._additional_calendar_access_token(
-                user_id=user_id, account_id=account_id, access_level=access_level
+                user_id=user_id,
+                account_id=account_id,
+                access_level=access_level,
+                force_refresh=force_refresh,
             )
         required_scopes = set(self.scopes(service, access_level))
         service_name = "Google Calendar" if service == "calendar" else "Google service"
@@ -1239,9 +1257,12 @@ class GoogleConnectionService:
             )
         expiry = row.get("access_token_expires_at")
         try:
-            if expiry and datetime.fromisoformat(
-                str(expiry).replace("Z", "+00:00")
-            ) > _now() + timedelta(seconds=90):
+            if (
+                not force_refresh
+                and expiry
+                and datetime.fromisoformat(str(expiry).replace("Z", "+00:00"))
+                > _now() + timedelta(seconds=90)
+            ):
                 return self._decrypt(
                     {
                         "ciphertext": row.get("access_token_ciphertext"),
@@ -1306,7 +1327,12 @@ class GoogleConnectionService:
         return access_token
 
     async def _additional_calendar_access_token(
-        self, *, user_id: str, account_id: str, access_level: Literal["read", "manage"]
+        self,
+        *,
+        user_id: str,
+        account_id: str,
+        access_level: Literal["read", "manage"],
+        force_refresh: bool = False,
     ) -> str:
         row = await self._calendar_account(user_id, account_id)
         if not row or row["status"] != "connected":
@@ -1331,9 +1357,12 @@ class GoogleConnectionService:
         aad = self._calendar_account_aad(user_id, account_id)
         expiry = row.get("access_token_expires_at")
         try:
-            if expiry and datetime.fromisoformat(
-                str(expiry).replace("Z", "+00:00")
-            ) > _now() + timedelta(seconds=90):
+            if (
+                not force_refresh
+                and expiry
+                and datetime.fromisoformat(str(expiry).replace("Z", "+00:00"))
+                > _now() + timedelta(seconds=90)
+            ):
                 return self._decrypt(
                     {
                         "ciphertext": row.get("access_token_ciphertext"),

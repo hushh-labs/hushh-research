@@ -181,14 +181,14 @@ async def _verify_record(service, user_id, code, event, calendar_id, record, beg
     return name
 
 
-async def _generated_files(service, token, name, check, refs, states):
+async def _generated_files(service, meet_pages, name, check, refs, states):
     for resource, kind, destination, key in [
         ("recordings", "recording", "driveDestination", "file"),
         ("smartNotes", "notes", "docsDestination", "document"),
         ("transcripts", "transcript", "docsDestination", "document"),
     ]:
         try:
-            items = await service._meet_pages(token, f"{name}/{resource}", resource)
+            items = await meet_pages(f"{name}/{resource}", resource)
             await check()
             states[kind] = "not_generated"
             for item in items:
@@ -228,13 +228,57 @@ async def _discover(
     token = await calendar.connections.access_token(
         user_id=user_id, service="calendar", access_level="read"
     )
-    scopes = await inspect_token(token, grant.provider_subject)
+    refreshed = False
+    try:
+        scopes = await inspect_token(token, grant.provider_subject)
+    except ArtifactUnavailable as error:
+        if error.state != "token_rejected":
+            raise
+        refreshed = True
+        token = await calendar.connections.access_token(
+            user_id=user_id, service="calendar", access_level="read", force_refresh=True
+        )
+        try:
+            scopes = await inspect_token(token, grant.provider_subject)
+        except ArtifactUnavailable as second:
+            raise ArtifactUnavailable(
+                "temporarily_unavailable" if second.state == "token_rejected" else second.state
+            ) from None
     await check()
     if not scopes & meet_scopes:
         raise ArtifactUnavailable("permission_required")
+
+    async def meet_pages(path, field, params=None, *, page_size=100):
+        nonlocal token, refreshed
+        try:
+            return await service._meet_pages(token, path, field, params, page_size=page_size)
+        except ArtifactUnavailable as error:
+            if error.state != "token_rejected" or refreshed:
+                raise ArtifactUnavailable(
+                    "temporarily_unavailable" if error.state == "token_rejected" else error.state
+                ) from None
+        refreshed = True
+        token = await calendar.connections.access_token(
+            user_id=user_id, service="calendar", access_level="read", force_refresh=True
+        )
+        try:
+            scopes = await inspect_token(token, grant.provider_subject)
+        except ArtifactUnavailable as error:
+            raise ArtifactUnavailable(
+                "temporarily_unavailable" if error.state == "token_rejected" else error.state
+            ) from None
+        await check()
+        if not scopes & meet_scopes:
+            raise ArtifactUnavailable("permission_required")
+        try:
+            return await service._meet_pages(token, path, field, params, page_size=page_size)
+        except ArtifactUnavailable as error:
+            raise ArtifactUnavailable(
+                "temporarily_unavailable" if error.state == "token_rejected" else error.state
+            ) from None
+
     begin, finish = _event_window(event)
-    matches = await service._meet_pages(
-        token,
+    matches = await meet_pages(
         "conferenceRecords",
         "conferenceRecords",
         {
@@ -250,12 +294,16 @@ async def _discover(
     name = await _verify_record(
         service, user_id, code, event, calendar_id, matches[0], begin, finish
     )
-    await _generated_files(service, token, name, check, refs, states)
+    await _generated_files(service, meet_pages, name, check, refs, states)
     return next(
         (
             state
             for state in (
                 "permission_required",
+                "account_mismatch",
+                "provider_configuration",
+                "provider_policy",
+                "resource_denied",
                 "temporarily_unavailable",
                 "processing",
                 "unavailable",

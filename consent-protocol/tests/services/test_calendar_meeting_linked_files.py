@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock
 
 from hushh_mcp.services import calendar_meeting_artifacts as artifacts_module
+from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_calendar_meeting_artifacts import EVENT, GRANT, run, setup
 
 
@@ -63,6 +64,55 @@ def test_attendee_reads_exact_calendar_linked_files_when_meet_record_is_organize
         "recording-file",
         "notes-file",
     }
+
+
+def test_meet_and_recording_denials_do_not_hide_an_independently_linked_note(monkeypatch):
+    insights, svc, drive = setup()
+    monkeypatch.setattr(
+        artifacts_module,
+        "inspect_token",
+        AsyncMock(
+            return_value={
+                "https://www.googleapis.com/auth/meetings.space.readonly",
+                "https://www.googleapis.com/auth/drive.meet.readonly",
+            }
+        ),
+    )
+    event = {
+        **EVENT,
+        "attachments": [
+            {"fileId": "recording-file", "title": "Review recording", "mimeType": "video/mp4"},
+            {
+                "fileId": "notes-file",
+                "title": "Notes by Gemini",
+                "mimeType": "application/vnd.google-apps.document",
+            },
+        ],
+    }
+    insights.raw_event = AsyncMock(return_value=(GRANT, event))
+    svc._meet_pages = AsyncMock(side_effect=artifacts_module.ArtifactUnavailable("resource_denied"))
+
+    async def facts(*, file_id, **_kwargs):
+        if file_id == "recording-file":
+            raise DriveReadError("source_unavailable", status_code=403)
+        return {
+            "title": "Notes by Gemini",
+            "mimeType": "application/vnd.google-apps.document",
+            "viewUrl": "https://docs.google.com/document/d/notes-file/edit",
+            "pdfExportUrl": "https://docs.google.com/document/d/notes-file/export?format=pdf",
+            "capabilities": {"canDownload": True},
+        }
+
+    drive.get_file_facts.side_effect = facts
+    result = run(
+        svc.detail(user_id="owner", calendar_id="primary", event_id="event", content=False)
+    )
+    assert [(item["kind"], item["state"]) for item in result["artifacts"]] == [
+        ("recording", "resource_denied"),
+        ("notes", "available"),
+    ]
+    assert result["discovery"] == "resource_denied" and result["complete"] is False
+    assert result["artifacts"][1]["pdf_export_url"].endswith("format=pdf")
 
 
 def test_calendar_shortcut_uses_exact_target_resource_key_for_full_provider_links(monkeypatch):

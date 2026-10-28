@@ -214,6 +214,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
           <CalendarCompactAction disabled={busy || actionBusy || (status.accounts?.length || 0) >= 3} onClick={onAddAccount}><Plus aria-hidden className="size-4" />Add account</CalendarCompactAction>
           <Button variant="ghost" size="icon" aria-label="Refresh all Calendar accounts" disabled={busy || actionBusy} onClick={() => setRevision(value => value + 1)}><RefreshCw aria-hidden className="size-5" /></Button>
         </div>} />
+      {(status.accounts?.length || 0) < 3 ? <p className={styles.description}>Adding an account asks for Calendar access and optional Meet and meeting-file access for Recordings &amp; Notes.</p> : null}
       {connectionNotice}
       <div className={styles.topTabs}><SegmentedTabs ariaLabel="Calendar sections" value={tab} onValueChange={value => setTab(value as typeof tab)} options={[{ value: "board", label: "Board" }, { value: "invitations", label: "Invitations" }, { value: "insights", label: "Insights" }]} /></div>
       {tab === "board" ? <>

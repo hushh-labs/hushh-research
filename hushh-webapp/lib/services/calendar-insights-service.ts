@@ -15,6 +15,7 @@ export type Meeting = CalendarEventSummary & {
 export type MeetingLibrary = {
   complete: boolean; next_cursor: string | null; date: string; time_zone: string;
   account_id: string; limitations: string[]; checked_events: number; meetings: Meeting[];
+  meeting_file_access: "ready" | "missing" | "unverified";
 };
 export type MeetingArtifact = {
   file_id: string; kind: "recording" | "notes" | "transcript"; state: string;
@@ -44,6 +45,7 @@ export class CalendarInsightsRequestError extends Error {
 function validLibrary(value: unknown): value is MeetingLibrary {
   if (!record(value) || !Array.isArray(value.meetings) || !Array.isArray(value.limitations) ||
       typeof value.complete !== "boolean" || typeof value.account_id !== "string" ||
+      !["ready", "missing", "unverified"].includes(String(value.meeting_file_access)) ||
       typeof value.date !== "string" || typeof value.time_zone !== "string" ||
       !(value.next_cursor === null || typeof value.next_cursor === "string")) return false;
   return value.meetings.every(item => record(item) && typeof item.id === "string" &&

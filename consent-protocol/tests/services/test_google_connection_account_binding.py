@@ -131,7 +131,11 @@ async def _store(service, *, token=None, level="read"):
         user_id="owner",
         token=token
         if token is not None
-        else {"access_token": "synthetic-access", "refresh_token": "synthetic-refresh"},
+        else {
+            "access_token": "synthetic-access",
+            "refresh_token": "synthetic-refresh",
+            "scope": " ".join(GoogleConnectionService.scopes("calendar", level)),
+        },
         service="calendar",
         requested_scopes=GoogleConnectionService.scopes("calendar", level),
         oauth_started_at=datetime(2026, 9, 22, tzinfo=UTC),
@@ -169,7 +173,13 @@ async def test_verified_same_account_can_reuse_its_refresh_token(monkeypatch):
         }
     )
     service = _service(monkeypatch, db)
-    await _store(service, token={"access_token": "synthetic-access"})
+    await _store(
+        service,
+        token={
+            "access_token": "synthetic-access",
+            "scope": " ".join(GoogleConnectionService.scopes("calendar", "read")),
+        },
+    )
     service._decrypt.assert_called_once()
     assert service._encrypt.call_args_list[0].args == ("synthetic-old-refresh",)
 

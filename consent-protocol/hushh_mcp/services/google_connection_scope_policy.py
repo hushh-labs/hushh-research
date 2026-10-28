@@ -22,9 +22,7 @@ def selected_grant_scopes(
 ) -> tuple[str, set[str], bool]:
     """Persist only proven optional authority; retain mandatory scope validation."""
     granted = set(token_scope.split())
-    scopes = token_scope or " ".join(
-        scope for scope in requested_scopes if scope != CALENDAR_GUEST_PHOTO_SCOPE
-    )
+    scopes = token_scope
     guest_photos = (
         service == "calendar"
         and CALENDAR_GUEST_PHOTO_SCOPE in requested_scopes

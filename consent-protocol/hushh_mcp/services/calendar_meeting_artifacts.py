@@ -26,9 +26,24 @@ from hushh_mcp.services.google_drive_adapter import (
     RESOURCE_KEY,
     DriveReadError,
     GoogleDriveAdapter,
+    classify_google_forbidden_response,
 )
 
 MEET_SCOPES = {CALENDAR_MEET_READ_SCOPE, "https://www.googleapis.com/auth/meetings.space.created"}
+
+
+def _drive_error_state(error: DriveReadError) -> str:
+    if str(error) == "reconnect_required":
+        return "temporarily_unavailable"
+    if error.status_code == 403:
+        return error.provider_reason or "resource_denied"
+    if str(error) == "operation_not_allowed":
+        return "resource_denied"
+    if str(error) == "identity_not_verified":
+        return "account_mismatch"
+    if error.retryable or str(error) == "provider_response_invalid":
+        return "temporarily_unavailable"
+    return "unavailable"
 
 
 def source_url(value, resource_key=None):
@@ -66,8 +81,8 @@ async def inspect_token(token, subject):
             with suppress_instrumentation():
                 connection.request("GET", "/tokeninfo?" + urlencode({"access_token": token}))
                 response = connection.getresponse()
-                if response.status in (400, 401, 403):
-                    raise ArtifactUnavailable("permission_required")
+                if response.status in (400, 401):
+                    raise ArtifactUnavailable("token_rejected")
                 if response.status != 200:
                     raise ValueError()
                 raw = response.read(65537)
@@ -79,8 +94,10 @@ async def inspect_token(token, subject):
 
     try:
         info = await asyncio.to_thread(read)
-        if info.get("sub") != subject or int(info.get("expires_in", 0)) <= 0:
-            raise ArtifactUnavailable("permission_required")
+        if info.get("sub") != subject:
+            raise ArtifactUnavailable("account_mismatch")
+        if int(info.get("expires_in", 0)) <= 0:
+            raise ArtifactUnavailable("token_rejected")
         return set(info.get("scope", "").split())
     except ArtifactUnavailable:
         raise
@@ -97,6 +114,10 @@ def _fold_availability(states, artifacts, discovery):
                     state
                     for state in (
                         "permission_required",
+                        "account_mismatch",
+                        "provider_configuration",
+                        "provider_policy",
+                        "resource_denied",
                         "temporarily_unavailable",
                         "source_changed",
                         "unavailable",
@@ -119,19 +140,57 @@ class CalendarMeetingArtifacts:
         # separately verified Drive connector authority.
         self.oauth = oauth or get_external_connector_oauth_service().drive()
 
+    async def _selected_token(self, user_id, grant, *, force_refresh=False):
+        """Verify the selected account's live scopes, refreshing one rejected bearer."""
+        await self.insights.calendar._check_read_binding(user_id, grant.binding)
+        token = await self.insights.calendar.connections.access_token(
+            user_id=user_id,
+            service="calendar",
+            access_level="read",
+            **({"force_refresh": True} if force_refresh else {}),
+        )
+        try:
+            scopes = await inspect_token(token, grant.provider_subject)
+        except ArtifactUnavailable as error:
+            if error.state != "token_rejected":
+                raise
+            if force_refresh:
+                raise ArtifactUnavailable("temporarily_unavailable") from None
+            token = await self.insights.calendar.connections.access_token(
+                user_id=user_id, service="calendar", access_level="read", force_refresh=True
+            )
+            try:
+                scopes = await inspect_token(token, grant.provider_subject)
+            except ArtifactUnavailable as second:
+                raise ArtifactUnavailable(
+                    "temporarily_unavailable" if second.state == "token_rejected" else second.state
+                ) from None
+        await self.insights.calendar._check_read_binding(user_id, grant.binding)
+        if CALENDAR_MEET_READ_SCOPE not in scopes or CALENDAR_MEET_DRIVE_READ_SCOPE not in scopes:
+            raise ArtifactUnavailable("permission_required")
+        return token
+
     async def _meet(self, token, path, params=None):
         async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
             with suppress_instrumentation():
                 async with client.stream(
                     "GET",
                     "https://meet.googleapis.com/v2/" + path,
-                    headers={"Authorization": f"Bearer {token}"},
+                    headers={"Authorization": f"Bearer {token}", "Accept-Encoding": "identity"},
                     params=params,
                 ) as response:
-                    if response.status_code in (401, 403):
-                        raise ArtifactUnavailable("permission_required")
+                    if response.status_code == 401:
+                        raise ArtifactUnavailable("token_rejected")
+                    if response.status_code == 403:
+                        reason = await classify_google_forbidden_response(response)
+                        raise ArtifactUnavailable(
+                            "temporarily_unavailable" if reason == "rate_limited" else reason,
+                            retryable=reason == "rate_limited",
+                        )
                     if response.status_code == 404:
                         raise ArtifactUnavailable("unavailable")
+                    if response.status_code == 429 or response.status_code >= 500:
+                        raise ArtifactUnavailable("temporarily_unavailable", retryable=True)
                     if response.status_code != 200:
                         raise ArtifactUnavailable("temporarily_unavailable")
                     raw = bytearray()
@@ -147,11 +206,18 @@ class CalendarMeetingArtifacts:
     async def _meet_pages(self, token, path, field, params=None, *, page_size=100):
         items, seen, page = [], set(), None
         for _ in range(10):
-            response = await self._meet(
-                token,
-                path,
-                {**(params or {}), "pageSize": page_size, **({"pageToken": page} if page else {})},
-            )
+            request_params = {
+                **(params or {}),
+                "pageSize": page_size,
+                **({"pageToken": page} if page else {}),
+            }
+            try:
+                response = await self._meet(token, path, request_params)
+            except ArtifactUnavailable as error:
+                if not error.retryable:
+                    raise
+                await asyncio.sleep(0.2)
+                response = await self._meet(token, path, request_params)
             rows = response.get(field)
             # Meet's protobuf JSON omits empty repeated fields, including on
             # a sparse page that still carries a continuation token.
@@ -269,23 +335,37 @@ class CalendarMeetingArtifacts:
                 await self.insights.calendar._check_read_binding(user_id, grant.binding)
 
             await check()
-            token = await self.insights.calendar.connections.access_token(
-                user_id=user_id, service="calendar", access_level="read"
-            )
-            scopes = await inspect_token(token, grant.provider_subject)
-            if (
-                CALENDAR_MEET_READ_SCOPE not in scopes
-                or CALENDAR_MEET_DRIVE_READ_SCOPE not in scopes
-            ):
-                raise ArtifactUnavailable("permission_required")
+            token = await self._selected_token(user_id, grant)
             await check()
-            (
-                source_facts,
-                facts,
-                source_kwargs,
-                target_kwargs,
-                shortcut_source,
-            ) = await self._browse_file_facts(ref, token, check)
+            try:
+                (
+                    source_facts,
+                    facts,
+                    source_kwargs,
+                    target_kwargs,
+                    shortcut_source,
+                ) = await self._browse_file_facts(ref, token, check)
+            except DriveReadError as error:
+                if error.retryable:
+                    await asyncio.sleep(0.2)
+                    (
+                        source_facts,
+                        facts,
+                        source_kwargs,
+                        target_kwargs,
+                        shortcut_source,
+                    ) = await self._browse_file_facts(ref, token, check)
+                elif str(error) != "reconnect_required":
+                    raise
+                else:
+                    token = await self._selected_token(user_id, grant, force_refresh=True)
+                    (
+                        source_facts,
+                        facts,
+                        source_kwargs,
+                        target_kwargs,
+                        shortcut_source,
+                    ) = await self._browse_file_facts(ref, token, check)
             if shortcut_source:
                 result["file_id"] = target_kwargs["file_id"]
             mime = facts["mimeType"]
@@ -326,16 +406,7 @@ class CalendarMeetingArtifacts:
         except ArtifactUnavailable as error:
             return {**public_ref, "state": error.state}
         except DriveReadError as error:
-            return {
-                **public_ref,
-                "state": "permission_required"
-                if error.status_code == 403
-                or str(error)
-                in {"reconnect_required", "operation_not_allowed", "identity_not_verified"}
-                else "temporarily_unavailable"
-                if error.retryable or str(error) == "provider_response_invalid"
-                else "unavailable",
-            }
+            return {**public_ref, "state": _drive_error_state(error)}
         except (UnicodeError, httpx.HTTPError):
             return {**public_ref, "state": "temporarily_unavailable"}
 

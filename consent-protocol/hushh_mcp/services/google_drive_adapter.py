@@ -229,10 +229,18 @@ LIVE_EXTRACTABLE_ORIGINAL_TYPES = (
 class DriveReadError(RuntimeError):
     """Only authored safe codes cross the transport boundary."""
 
-    def __init__(self, code: str, *, retryable: bool = False, status_code: int | None = None):
+    def __init__(
+        self,
+        code: str,
+        *,
+        retryable: bool = False,
+        status_code: int | None = None,
+        provider_reason: str | None = None,
+    ):
         super().__init__(code)
         self.retryable = retryable
         self.status_code = status_code
+        self.provider_reason = provider_reason
 
 
 @dataclass(frozen=True)
@@ -271,33 +279,42 @@ def _file_path(file_id: str) -> str:
     return f"/files/{file_id}"
 
 
-async def retryable_403_response(response: httpx.Response) -> bool:
-    """Read bounded reason codes without releasing provider messages or content."""
+async def classify_google_forbidden_response(response: httpx.Response) -> str:
+    """Return a closed reason from a bounded 403 body; never expose its message."""
     if response.headers.get("Content-Encoding", "identity").lower() != "identity":
-        return False
+        return "resource_denied"
     data = bytearray()
     async for chunk in response.aiter_raw():
         if len(data) + len(chunk) > ERROR_RESPONSE_LIMIT:
-            return False
+            return "resource_denied"
         data.extend(chunk)
     try:
         result = json.loads(data)
     except (ValueError, UnicodeError, RecursionError):
-        return False
+        return "resource_denied"
     error = result.get("error") if isinstance(result, dict) else None
     if not isinstance(error, dict) or type(error.get("code")) is not int or error["code"] != 403:
-        return False
-    reasons = error.get("errors")
-    return (
-        isinstance(reasons, list)
-        and 1 <= len(reasons) <= 16
-        and all(
-            isinstance(item, dict)
-            and isinstance(item.get("reason"), str)
-            and item["reason"] in RETRYABLE_403_REASONS
-            for item in reasons
-        )
-    )
+        return "resource_denied"
+    reasons = set()
+    for key in ("errors", "details"):
+        values = error.get(key)
+        if isinstance(values, list):
+            for item in values[:16]:
+                if isinstance(item, dict) and isinstance(item.get("reason"), str):
+                    reasons.add(item["reason"].replace("_", "").replace("-", "").upper())
+    if reasons and reasons <= {
+        reason.replace("_", "").replace("-", "").upper() for reason in RETRYABLE_403_REASONS
+    }:
+        return "rate_limited"
+    if reasons & {"SERVICEDISABLED", "APIDISABLED", "ACCESSNOTCONFIGURED"}:
+        return "provider_configuration"
+    if reasons & {"ORGRESTRICTION", "DOMAINPOLICY", "ADMINPOLICYENFORCED"}:
+        return "provider_policy"
+    return "resource_denied"
+
+
+async def retryable_403_response(response: httpx.Response) -> bool:
+    return await classify_google_forbidden_response(response) == "rate_limited"
 
 
 def _resource_keys(value: dict[str, str] | None) -> None:
@@ -627,10 +644,14 @@ class GoogleDriveAdapter:
                 headers_ms = (body_started - started) * 1000
                 if response.status_code == 401:
                     raise DriveReadError("reconnect_required")
-                if response.status_code == 403 and await retryable_403_response(response):
-                    # A rate-limited metadata read is not evidence that a
-                    # shortcut target is unavailable. Retry the same durable page.
-                    raise DriveReadError("provider_unavailable", retryable=True)
+                if response.status_code == 403:
+                    reason = await classify_google_forbidden_response(response)
+                    if reason == "rate_limited":
+                        # A rate limit is not evidence that a file is unavailable.
+                        raise DriveReadError("provider_unavailable", retryable=True)
+                    raise DriveReadError(
+                        "source_unavailable", status_code=403, provider_reason=reason
+                    )
                 if response.status_code in {403, 404, 410}:
                     raise DriveReadError("source_unavailable", status_code=response.status_code)
                 if response.status_code == 429 or response.status_code >= 500:

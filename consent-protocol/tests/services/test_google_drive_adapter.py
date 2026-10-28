@@ -429,15 +429,18 @@ async def test_transport_never_falls_back_redirects_or_discloses_provider_errors
 
 @pytest.mark.parametrize("operation", ["file", "list"])
 @pytest.mark.parametrize(
-    "reason,retryable",
+    "reason,retryable,provider_reason",
     [
-        ("rateLimitExceeded", True),
-        ("userRateLimitExceeded", True),
-        ("insufficientFilePermissions", False),
+        ("rateLimitExceeded", True, None),
+        ("userRateLimitExceeded", True, None),
+        ("insufficientFilePermissions", False, "resource_denied"),
+        ("SERVICE_DISABLED", False, "provider_configuration"),
+        ("accessNotConfigured", False, "provider_configuration"),
+        ("ORG_RESTRICTION", False, "provider_policy"),
     ],
 )
 async def test_rest_403_rate_limits_are_retryable_without_marking_sources_unavailable(
-    adapter, monkeypatch, operation, reason, retryable
+    adapter, monkeypatch, operation, reason, retryable, provider_reason
 ):
     original = httpx.AsyncClient
     requests = []
@@ -459,6 +462,7 @@ async def test_rest_403_rate_limits_are_retryable_without_marking_sources_unavai
             )
     assert str(caught.value) == ("provider_unavailable" if retryable else "source_unavailable")
     assert caught.value.retryable is retryable
+    assert caught.value.provider_reason == provider_reason
     assert len(requests) == 1 and requests[0].method == "GET"
 
 
