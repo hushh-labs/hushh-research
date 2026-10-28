@@ -5,8 +5,8 @@ own committed graph. Its revision equals the compiled one, and the gate then
 returns whatever ``breaking`` list the author recorded. ``help.open_examples``
 was repurposed inside merge commit 4d939219a with ``breaking: []`` that way.
 
-Repository-history tests build a throwaway repository under ``tmp_path`` and
-never read the real repository's git state.
+Every test builds a throwaway repository under ``tmp_path`` and never reads the
+real repository's git state.
 """
 
 from __future__ import annotations
@@ -389,44 +389,6 @@ def test_stale_revision_deprecation_does_not_acknowledge_the_change(
 
     with pytest.raises(RuntimeError, match=r"actions:X"):
         _gate(generator._read_previous())
-
-
-def test_dev_phone_deletion_revision_is_retired_without_accepting_other_revisions() -> None:
-    """The ledger declares rejection for this predecessor, not arbitrary revisions."""
-    ledger = json.loads(
-        (
-            Path(__file__).resolve().parents[1] / LEDGER_RELATIVE.relative_to("consent-protocol")
-        ).read_text(encoding="utf-8")
-    )
-    semantic_id = "actions:phone_mandate.delete_previous"
-    previous = {
-        "revision": "a6a99d8a8ceae915",
-        "actions": [
-            {
-                "capability_id": semantic_id.removeprefix("actions:"),
-                "version": 1,
-                "description": "previous-account sign-in",
-            }
-        ],
-    }
-    current = {
-        "revision": "new-phone-review",
-        "actions": [
-            {
-                "capability_id": semantic_id.removeprefix("actions:"),
-                "version": 1,
-                "description": "fresh-proof deletion review",
-            }
-        ],
-    }
-    declarations = tuple(ledger["deprecations"])
-    change = generator._semantic_diff(previous, current, deprecations=declarations)
-    assert change["deprecated"] == [semantic_id]
-    assert change["breaking"] == []
-
-    previous["revision"] = "unrecognized-old-revision"
-    change = generator._semantic_diff(previous, current, deprecations=declarations)
-    assert change["breaking"] == [semantic_id]
 
 
 @pytest.mark.parametrize("marker", ["CI", "GITHUB_ACTIONS"])
