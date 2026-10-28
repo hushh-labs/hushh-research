@@ -17,7 +17,7 @@ import { CategoryPacketRows } from "@/components/consent/packets/category-packet
 import { BuyerPacketPage, BuyerPacketRows, useBuyerPacketRequests } from "@/components/consent/packets/buyer-packets";
 import {
   buyerNotes, buyerSummary, checkedDate, documentLine, ownerPacketPrice, ownerPacketStatus, ownerPacketTitle,
-  ownerStatusLine, ownerDocumentCount, packetGaps, periodLabel, packetPeriod, sortedDocuments,
+  ownerSortingStatus, ownerStatusLine, ownerDocumentCount, packetGaps, periodLabel, packetPeriod, sortedDocuments,
 } from "@/components/consent/packets/packet-copy";
 import { useOpenerFocus } from "@/components/consent/payouts/receipts/receipt-ui";
 import { formatDocumentRequestPrice, parseDocumentRequestPrice } from "@/lib/consent/document-request-price";
@@ -205,7 +205,8 @@ export function useDrivePacketCatalogModel({ ownerPersonRef, ownerName = "the ow
   const live = useMemo(() => selected?.kind === "provider_discovery" && value.previews[selected.packetId]
     ? { ...selected, preview: value.previews[selected.packetId] } : selected, [selected, value.previews]);
   const previewStatus = live?.kind === "provider_discovery" ? live.preview?.status : undefined;
-  const taggingActive = live?.kind === "provider_discovery" &&
+  // A sorting retry waits minutes to hours (retryAt); the 30 s catalog poll covers it.
+  const taggingActive = live?.kind === "provider_discovery" && !live.preview?.tagging?.retryAt &&
     ["queued", "running"].includes(live.preview?.tagging?.status ?? "");
   const selectedSummary = selected?.kind === "provider_discovery" ? selected.preview : undefined;
   const localPreview = selected ? value.previews[selected.packetId] : undefined;
@@ -401,7 +402,7 @@ function OwnerPacketPage({ onClose, ...options }: OwnerPacketOptions & { packet:
 
 /** Display facts have no operation authority and are shared with native rows. */
 export function ownerPacketSections(packet: DrivePacket, amount: number | null, current?: () => boolean): PacketPageSection[] {
-  const status = ownerPacketStatus(packet);
+  const status = ownerPacketStatus(packet), sorting = ownerSortingStatus(packet);
   const preview = packet.kind === "provider_discovery" ? packet.preview : undefined;
   const documents = preview?.documents ?? (packet.contents ? sortedDocuments(packet.contents.documents) : []);
   const more = (preview?.matched ?? packet.documentCount ?? 0) - documents.length;
@@ -421,6 +422,8 @@ export function ownerPacketSections(packet: DrivePacket, amount: number | null, 
     }],
     { id: "status", title: "Status", rows: [
       { id: "status", title: status.word, description: status.detail, tone: status.tone },
+      ...sorting ? [{ id: "sorting", title: sorting.word, tone: sorting.tone,
+        ...sorting.detail ? { description: sorting.detail } : {}, ...sorting.value ? { value: sorting.value } : {} }] : [],
       ...preview?.updatedAt ? [{ id: "searched", title: preview.stale ? "Previous search" : "Last searched", value: new Date(preview.updatedAt).toLocaleString() }] : [],
       ...preview?.limited ? [{ id: "limited", title: "Some files are still missing. Refresh to continue.", tone: "attention" as const }] : [],
       ...packetGaps(packet).map((gap, index) => ({ id: `gap-${index}`, title: gap, tone: "attention" as const })),

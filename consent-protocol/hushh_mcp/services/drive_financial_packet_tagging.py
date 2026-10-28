@@ -11,11 +11,13 @@ from fastapi import HTTPException
 
 from hushh_mcp.services import drive_financial_packet_tag_store as tags
 from hushh_mcp.services.drive_document_prefix import PREFIX_POLICY
+from hushh_mcp.services.drive_financial_packet_failures import failure_code
 from hushh_mcp.services.drive_groups.adapters import IsolatedHeadEmbedder, TransportHeadSource
 from hushh_mcp.services.drive_groups.indexer import classify_candidates
 from hushh_mcp.services.drive_groups.models import load_bundle
 from hushh_mcp.services.drive_telemetry import correlation_tag, drive_logger, drive_stage
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import RAW_PREFIX_LIMIT, DriveReadError
 from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
@@ -23,38 +25,60 @@ from hushh_mcp.services.owner_placement_guard import admit_hub_content
 logger = drive_logger("financial_packet_tagging")
 
 
-_OAUTH_FAILURE_CODES = frozenset(
-    {
-        "connector_unavailable",
-        "invalid_argument",
-        "reconnect_required",
-        "connection_changed",
-        "insufficient_scope",
-        "unexpected_scope",
-    }
-)
+# The drive bulk-share join delays: an ordinary token refresh settles well within them.
+_REFRESH_JOIN_DELAYS = (0.2, 0.4, 0.8)
 
 
-def _failure_code(error):
-    if isinstance(error, DriveOAuthError):
-        code = str(error)
-        return code if code in _OAUTH_FAILURE_CODES else "oauth_unavailable"
-    return "processing_timeout" if isinstance(error, TimeoutError) else "processing_unavailable"
+def _refresh_pending(error):
+    return (
+        isinstance(error, DriveOAuthError)
+        and error.status_code == 409
+        and str(error) == "refresh_in_progress"
+    )
 
 
 class CandidateReads:
     def __init__(self, worker, job):
         self.worker, self.job = worker, job
         self.allowed = {item["source"]["id"]: item["source"] for item in job["items"]}
+        self._first_read, self._credential_ready = asyncio.Lock(), False
+
+    async def _tool(self, tool_name, arguments):
+        # Concurrent head reads share one owner credential. The batch's first read
+        # runs alone, so a refresh that is due (always, after a long retry wait)
+        # finishes before reads go concurrent.
+        if not self._credential_ready:
+            async with self._first_read:
+                if not self._credential_ready:
+                    response = await self._join_refresh(tool_name, arguments)
+                    self._credential_ready = True
+                    return response
+        return await self._join_refresh(tool_name, arguments)
+
+    async def _join_refresh(self, tool_name, arguments):
+        # A token that comes due mid-batch can still meet a sibling's refresh lease.
+        # Losing it is normal contention, not a failed batch: failing would cancel
+        # the sibling's refresh in flight. Briefly join the committed refresh,
+        # re-checking authority between waits, as bulk sharing does.
+        for attempt in range(len(_REFRESH_JOIN_DELAYS) + 1):
+            if attempt:
+                await asyncio.sleep(_REFRESH_JOIN_DELAYS[attempt - 1])
+                await self.worker.current(self.job)
+            try:
+                return await self.worker.transport.read_group_index_tool(
+                    user_id=self.job["user_id"],
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    expected_generation=self.job["connection_generation"],
+                )
+            except DriveOAuthError as error:
+                if not _refresh_pending(error) or attempt == len(_REFRESH_JOIN_DELAYS):
+                    raise
+        raise AssertionError("unreachable refresh retry")
 
     async def verify_source(self, source):
         await self.worker.current(self.job)
-        response = await self.worker.transport.read_group_index_tool(
-            user_id=self.job["user_id"],
-            tool_name="get_file_metadata",
-            arguments={"fileId": source["id"]},
-            expected_generation=self.job["connection_generation"],
-        )
+        response = await self._tool("get_file_metadata", {"fileId": source["id"]})
         await self.worker.current(self.job)
         file = response.payload.get("file", {}) if not response.is_error else {}
         if (
@@ -73,12 +97,7 @@ class CandidateReads:
             raise DriveReadError("invalid_argument")
         source = self.allowed[arguments["fileId"]]
         await self.verify_source(source)
-        response = await self.worker.transport.read_group_index_tool(
-            user_id=user_id,
-            tool_name=tool_name,
-            arguments=arguments,
-            expected_generation=self.job["connection_generation"],
-        )
+        response = await self._tool(tool_name, arguments)
         await self.verify_source(source)
         return response
 
@@ -200,6 +219,7 @@ class FinancialPacketTagger:
         except (
             DriveOAuthError,
             DriveReadError,
+            ConnectorLifecycleError,
             PermissionError,
             ValueError,
             TimeoutError,
@@ -207,13 +227,21 @@ class FinancialPacketTagger:
             asyncio.CancelledError,
         ) as error:
             # No file, source evidence, sale version or owner result is removed.
+            code = failure_code(error)
             try:
-                await tags.commit(self.store, job, error=True)
-            except (DriveOAuthError, DriveReadError, PermissionError, HTTPException):
-                pass
+                settled = await tags.commit(self.store, job, error=code)
+            except (
+                DriveOAuthError,
+                DriveReadError,
+                ConnectorLifecycleError,
+                PermissionError,
+                HTTPException,
+            ):
+                settled = "unrecorded"
             logger.info(
-                "period_packet.tagging outcome=deferred code=%s packet_tag=%s",
-                _failure_code(error),
+                "period_packet.tagging outcome=deferred code=%s settled=%s packet_tag=%s",
+                code,
+                settled,
                 correlation_tag(str(job["packet_id"])),
             )
             if isinstance(error, asyncio.CancelledError):
