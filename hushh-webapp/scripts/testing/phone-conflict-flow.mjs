@@ -37,8 +37,28 @@ function clickFailure(error) {
 async function buttonState(button) {
   const values = await Promise.allSettled([
     button.count(), button.isVisible(), button.isEnabled({ timeout: 1000 }),
+    button.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      const tags = ["HTML", "BODY", "DIV", "BUTTON", "SPAN", "OL", "LI", "SECTION", "DIALOG", "IFRAME", "VITE-ERROR-OVERLAY"];
+      const roles = ["dialog", "alertdialog", "presentation", "none"];
+      const slots = ["dialog-overlay", "dialog-content", "alert-dialog-overlay", "alert-dialog-content", "sheet-overlay", "sheet-content", "toast", "toaster"];
+      const role = hit?.getAttribute("role");
+      const slot = hit?.getAttribute("data-slot");
+      // Only geometry, booleans and fixed enums; never DOM text, classes or URLs.
+      return {
+        target_receives_pointer: hit === element || element.contains(hit),
+        target_pointer_events: getComputedStyle(element).pointerEvents === "none" ? "none" : "other",
+        target_box: { x: box.x, y: box.y, width: box.width, height: box.height },
+        hit_tag: tags.includes(hit?.tagName) ? hit.tagName : "other",
+        hit_role: roles.includes(role) ? role : "other",
+        hit_slot: slots.includes(slot) ? slot : "other",
+        hit_is_toast: Boolean(hit?.closest("[data-sonner-toaster]")),
+        hit_is_dialog: Boolean(hit?.closest('[role="dialog"], [role="alertdialog"]')),
+      };
+    }, undefined, { timeout: 1000 }),
   ]);
-  return Object.fromEntries(["count", "visible", "enabled"].map((key, index) =>
+  return Object.fromEntries(["count", "visible", "enabled", "hit_test"].map((key, index) =>
     [key, values[index].status === "fulfilled" ? values[index].value : null]));
 }
 const isTransferReadback = pathname => /^\/api\/account\/phone\/transfer\/[a-f0-9-]{36}$/.test(pathname);
