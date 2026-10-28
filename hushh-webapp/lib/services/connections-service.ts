@@ -60,6 +60,8 @@ export interface ConnectionSummaryEntry {
   displayName: string | null;
   photoUrl: string | null;
   email?: string | null;
+  /** Verified by the counterpart's HUSSH identity; absent is unverified. */
+  emailVerified?: boolean;
   createdAt: string | null;
   /**
    * Whether this connection holds a verified RIA profile — the same

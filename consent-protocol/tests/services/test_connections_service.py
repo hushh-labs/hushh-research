@@ -2211,6 +2211,8 @@ def test_list_connections_maps_rows():
             "user_id": "user-b",
             "display_name": "Bob",
             "photo_url": None,
+            "email": "bob@example.test",
+            "email_verified": True,
             "created_at": "2026-07-09T00:00:00Z",
         }
     ]
@@ -2218,6 +2220,18 @@ def test_list_connections_maps_rows():
         out = svc.list_connections("user-a")
     assert out[0]["userId"] == "user-b"
     assert out[0]["connectionId"] == "conn-1"
+    assert out[0]["email"] == "bob@example.test"
+    assert out[0]["emailVerified"] is True
+
+
+def test_list_connections_never_claims_unknown_email_is_verified():
+    svc = _svc()
+    rows = [{"connection_id": "conn-1", "user_id": "user-b", "email": "bob@example.test"}]
+    db = _RecordingDB([rows, []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.list_connections("user-a")
+    assert out[0]["emailVerified"] is False
+    assert "a.email_verified" in db.calls[0][0]
 
 
 def test_list_connections_annotates_ria_status_per_row():

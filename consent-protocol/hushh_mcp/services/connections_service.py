@@ -3543,7 +3543,7 @@ class ConnectionsService:
             """
             SELECT c.id AS connection_id,
                    CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id,
-                   a.display_name, COALESCE(NULLIF(BTRIM(a.custom_photo_url), ''), NULLIF(BTRIM(a.photo_url), '')) AS photo_url, a.email, c.created_at,
+                   a.display_name, COALESCE(NULLIF(BTRIM(a.custom_photo_url), ''), NULLIF(BTRIM(a.photo_url), '')) AS photo_url, a.email, a.email_verified, c.created_at,
                    EXISTS (
                      SELECT 1
                      FROM connection_origins contact_origin
@@ -3578,6 +3578,7 @@ class ConnectionsService:
                 "displayName": r.get("display_name"),
                 "photoUrl": r.get("photo_url"),
                 "email": r.get("email"),
+                "emailVerified": r.get("email_verified") is True,
                 "createdAt": _iso(r.get("created_at")),
                 "isRia": str(r.get("user_id") or "") in ria_user_ids,
                 "connectedFromContacts": bool(r.get("connected_from_contacts")),
