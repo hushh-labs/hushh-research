@@ -12,6 +12,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Literal
@@ -20,8 +21,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.utils.firebase_admin import get_firebase_auth_app
 from db.connection import get_pool
+from hushh_mcp.services import plg_audience_index
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
 from hushh_mcp.services.actor_identity_service import ActorIdentityService, resolve_firebase_email
+from hushh_mcp.services.plg_audience_identity import current_records
 from hushh_mcp.services.plg_catalog import activity_catalog, public_activity_catalog
 from hushh_mcp.services.plg_outcomes import value_summaries
 from hushh_mcp.services.plg_reporting import reporting_identifiers, reporting_policy
@@ -99,6 +102,10 @@ def _cursor(request: AudienceRequest, secret: str, now: datetime) -> tuple[str |
             or now - at > timedelta(minutes=15)
         ):
             raise ValueError
+        if payload["page"].startswith(plg_audience_index.PREFIX) != (
+            request.segment in plg_audience_index.SEGMENTS
+        ):
+            raise ValueError
         return payload["page"], at
     except Exception:
         raise AudienceCursorError("invalid audience cursor") from None
@@ -140,7 +147,17 @@ def _firebase_page(page: str | None):
     app = get_firebase_auth_app()
     if app is None or app.project_id != "hushh-pda":
         raise RuntimeError("audience identity source unavailable")
-    return auth.list_users(page_token=page, max_results=PAGE_SIZE, app=app)
+    source = auth.list_users(page_token=page, max_results=PAGE_SIZE, app=app)
+    if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true":
+        from types import SimpleNamespace
+
+        records = list(source.users)
+        return SimpleNamespace(
+            users=current_records(records),
+            next_page_token=source.next_page_token,
+            scanned=len(records),
+        )
+    return source
 
 
 def _registered(record) -> bool:
@@ -320,15 +337,103 @@ def _matches(row: dict, request: AudienceRequest) -> bool:
     return bool(activity["counts"].get(key, 0) > 0)
 
 
+async def _registered_customers(conn, eligible, policy):
+    active = await AccountDeletionLifecycleService.active_projection_user_ids(
+        conn, user_ids=eligible
+    )
+    excluded = len(eligible) - len(active)
+    identity_service = ActorIdentityService()
+    phones = await identity_service.read_provider_phone_fallbacks(
+        conn, candidates={uid: str(eligible[uid].phone_number or "") for uid in active}
+    )
+    identities = await identity_service.get_many(active, conn=conn)
+    aliases = await identity_service.get_many_verified_email_aliases(active, conn=conn)
+    customers = {
+        uid
+        for uid in active
+        if getattr(eligible[uid], "firebase_uid", uid) not in policy.account_ids
+        and policy.eligible(
+            uid,
+            identities.get(uid),
+            (
+                *(reporting_identifiers(eligible[uid]) or ()),
+                *aliases.get(uid, []),
+            ),
+        )
+    }
+    return customers, identities, phones, excluded + len(active) - len(customers)
+
+
+async def _audience_rows(conn, eligible, active, identities, phones, request, at):
+    result = []
+    since = at - timedelta(days=7)
+    ids = sorted(active)
+    epochs = {
+        r["user_id"]: r
+        for r in await conn.fetch(
+            "SELECT user_id,generation,started_at FROM one_product_activity_epochs "
+            "WHERE user_id=ANY($1::text[]) ORDER BY user_id FOR SHARE",
+            ids,
+            timeout=5,
+        )
+    }
+    observations = await conn.fetch(ATTEMPTS_SQL, ids, request.agentId, since, at, timeout=5)
+    if len(observations) > 100000:
+        raise ValueError("audience attempt page exceeds bound")
+    capped = {
+        r["user_id"]
+        for r in await conn.fetch(
+            "SELECT user_id FROM one_product_activity_observations "
+            "WHERE user_id=ANY($1::text[]) AND observed_at >= $2 AND observed_at <= $3 "
+            "GROUP BY user_id,(observed_at AT TIME ZONE 'UTC')::date HAVING COUNT(*)>=500",
+            ids,
+            since,
+            at,
+            timeout=5,
+        )
+    }
+    verified = await value_summaries(conn, ids, request.agentId, since, at)
+    for uid in eligible:
+        if uid not in active:
+            continue
+        row = {
+            "accountId": uid,
+            "agentId": request.agentId,
+            "identity": _identity(eligible[uid], identities.get(uid), phones.get(uid)),
+            "activity": summarize_attempts(
+                [r for r in observations if r["user_id"] == uid],
+                agent_id=request.agentId,
+                now=at,
+                grace=request.graceMinutes,
+                epoch=epochs.get(uid),
+                limited=uid in capped,
+                enabled=enabled_for(uid),
+            ),
+            "verified": verified[uid],
+        }
+        if _matches(row, request):
+            result.append(row)
+    return result
+
+
 async def audience_page(request: AudienceRequest, secret: str, now: datetime) -> dict:
     policy = reporting_policy()
     page, at = _cursor(request, secret, now)
-    source = await asyncio.wait_for(asyncio.to_thread(_firebase_page, page), timeout=6)
+    source = (
+        await plg_audience_index.source_page(request, page, at, PAGE_SIZE)
+        if request.segment in plg_audience_index.SEGMENTS
+        else await asyncio.wait_for(asyncio.to_thread(_firebase_page, page), timeout=6)
+    )
     records = list(source.users)
-    if len(records) > PAGE_SIZE or len({r.uid for r in records}) != len(records):
+    scanned = getattr(source, "scanned", len(records))
+    if (
+        not isinstance(scanned, int)
+        or not len(records) <= scanned <= PAGE_SIZE
+        or len({r.uid for r in records}) != len(records)
+    ):
         raise ValueError("invalid audience source page")
     eligible = {r.uid: r for r in records if _registered(r)}
-    excluded = len(records) - len(eligible)
+    excluded = scanned - len(eligible)
     result = []
     since = at - timedelta(days=7)
     if eligible:
@@ -336,78 +441,11 @@ async def audience_page(request: AudienceRequest, secret: str, now: datetime) ->
         async with pool.acquire(timeout=3) as conn, conn.transaction(isolation="read_committed"):
             await conn.execute("SET LOCAL statement_timeout='5s'")
             await conn.execute("SET LOCAL lock_timeout='1s'")
-            active = await AccountDeletionLifecycleService.active_projection_user_ids(
-                conn, user_ids=eligible
+            active, identities, phones, withheld = await _registered_customers(
+                conn, eligible, policy
             )
-            excluded += len(eligible) - len(active)
-            identity_service = ActorIdentityService()
-            phones = await identity_service.read_provider_phone_fallbacks(
-                conn, candidates={uid: str(eligible[uid].phone_number or "") for uid in active}
-            )
-            identities = await identity_service.get_many(active, conn=conn)
-            aliases = await identity_service.get_many_verified_email_aliases(active, conn=conn)
-            customers = {
-                uid
-                for uid in active
-                if policy.eligible(
-                    uid,
-                    identities.get(uid),
-                    (
-                        *(reporting_identifiers(eligible[uid]) or ()),
-                        *aliases.get(uid, []),
-                    ),
-                )
-            }
-            excluded += len(active) - len(customers)
-            active = customers
-            ids = sorted(active)
-            epochs = {
-                r["user_id"]: r
-                for r in await conn.fetch(
-                    "SELECT user_id,generation,started_at FROM one_product_activity_epochs "
-                    "WHERE user_id=ANY($1::text[]) ORDER BY user_id FOR SHARE",
-                    ids,
-                    timeout=5,
-                )
-            }
-            observations = await conn.fetch(
-                ATTEMPTS_SQL, ids, request.agentId, since, at, timeout=5
-            )
-            if len(observations) > 100000:
-                raise ValueError("audience attempt page exceeds bound")
-            capped = {
-                r["user_id"]
-                for r in await conn.fetch(
-                    "SELECT user_id FROM one_product_activity_observations "
-                    "WHERE user_id=ANY($1::text[]) AND observed_at >= $2 AND observed_at <= $3 "
-                    "GROUP BY user_id,(observed_at AT TIME ZONE 'UTC')::date HAVING COUNT(*)>=500",
-                    ids,
-                    since,
-                    at,
-                    timeout=5,
-                )
-            }
-            verified = await value_summaries(conn, ids, request.agentId, since, at)
-            for uid in eligible:
-                if uid not in active:
-                    continue
-                row = {
-                    "accountId": uid,
-                    "agentId": request.agentId,
-                    "identity": _identity(eligible[uid], identities.get(uid), phones.get(uid)),
-                    "activity": summarize_attempts(
-                        [r for r in observations if r["user_id"] == uid],
-                        agent_id=request.agentId,
-                        now=at,
-                        grace=request.graceMinutes,
-                        epoch=epochs.get(uid),
-                        limited=uid in capped,
-                        enabled=enabled_for(uid),
-                    ),
-                    "verified": verified[uid],
-                }
-                if _matches(row, request):
-                    result.append(row)
+            excluded += withheld
+            result = await _audience_rows(conn, eligible, active, identities, phones, request, at)
     return {
         "version": 1,
         "environment": "production",
@@ -418,7 +456,7 @@ async def audience_page(request: AudienceRequest, secret: str, now: datetime) ->
         "graceMinutes": request.graceMinutes,
         "source": "firebase_registered_accounts",
         "traversal": "live",
-        "scanned": len(records),
+        "scanned": scanned,
         "excluded": excluded,
         "rows": result,
         "nextCursor": _next_cursor(source.next_page_token, request, secret, at),
