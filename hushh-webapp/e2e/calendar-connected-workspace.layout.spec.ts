@@ -351,7 +351,7 @@ if (process.env.CALENDAR_PROVIDER_REPLAY_PATH) {
     const { errors, unexpectedRequests } = await openFixture(page, width, false, "empty", "future");
     await page.getByRole("button", { name: "Calendar settings and actions", exact: true }).click();
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await page.getByRole("textbox", { name: "Time zone", exact: true }).fill("Asia/Calcutta");
+    await page.getByRole("textbox", { name: "Time zone", exact: true }).fill("Asia/Kolkata");
     await page.getByRole("button", { name: "Save settings", exact: true }).click();
     await page.getByRole("button", { name: "Next day", exact: true }).click();
     await page.getByRole("tab", { name: "Free time", exact: true }).click();
@@ -369,7 +369,7 @@ if (process.env.CALENDAR_PROVIDER_REPLAY_PATH) {
     const today = await openFixture(page, width, false, "empty", "today");
     await page.getByRole("button", { name: "Calendar settings and actions", exact: true }).click();
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await page.getByRole("textbox", { name: "Time zone", exact: true }).fill("Asia/Calcutta");
+    await page.getByRole("textbox", { name: "Time zone", exact: true }).fill("Asia/Kolkata");
     await page.getByRole("button", { name: "Save settings", exact: true }).click();
     await page.getByRole("tab", { name: "Free time", exact: true }).click();
     await expect(page.getByText(/^2:13.*11:00 PM$/)).toBeVisible();

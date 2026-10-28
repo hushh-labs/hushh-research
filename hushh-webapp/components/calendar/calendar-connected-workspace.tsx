@@ -31,6 +31,8 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
+import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
+import { CalendarJoinLink } from "./calendar-join-link";
 import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 export { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { GoogleCalendarService, GoogleCalendarError, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceReview, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
@@ -82,11 +84,11 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   getIdTokenRef.current = getIdToken;
   const [tab, setTab] = useState("schedule");
   const [view, setView] = useState("today");
-  const deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const deviceZone = calendarTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [zonePreference, setZonePreference] = useState(() => ({ account: status.google_email, value: deviceZone, explicit: false }));
   // Use the same device timezone as One chat. Google calendar metadata describes
   // the provider's defaults, not the owner's current display preference.
-  const zone = zonePreference.account === status.google_email ? zonePreference.value : deviceZone;
+  const zone = calendarTimeZone(zonePreference.account === status.google_email ? zonePreference.value : deviceZone);
   const [zoneInput, setZoneInput] = useState(zone);
   const [zoneError, setZoneError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -341,7 +343,8 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   });
   const saveSettings = () => {
     try {
-      calendarDate(now, zoneInput.trim());
+      const nextZone = calendarTimeZone(zoneInput);
+      calendarDate(now, nextZone);
       if (!/^\d{2}:\d{2}$/.test(settingsStart) || !/^\d{2}:\d{2}$/.test(settingsEnd) || settingsStart >= settingsEnd) throw new Error("Availability end must be after start.");
       if (selectionDraft.key !== calendarAccountKey) throw new Error("Calendar account changed. Reopen settings.");
       if (calendarOptions.length && !calendarOptions.some(calendar => selectionDraft.overrides[calendar.id] ?? calendar.availability_default_included !== false)) throw new Error("Choose at least one calendar for availability.");
@@ -349,7 +352,8 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
       // override only when the person explicitly reviews and saves settings.
       const overrides = Object.fromEntries(Object.entries(selectionDraft.overrides).filter(([id]) => calendarOptions.some(calendar => calendar.id === id)));
       setAppliedSelection({ key: calendarAccountKey, overrides });
-      const preference = { account: status.google_email, value: zoneInput.trim(), explicit: true };
+      const preference = { account: status.google_email, value: nextZone, explicit: true };
+      setZoneInput(nextZone);
       setZonePreference(preference); setStartTime(settingsStart); setEndTime(settingsEnd); setZoneError(""); setSettingsOpen(false);
     } catch (error) { setZoneError(error instanceof RangeError ? "Enter a valid IANA time zone, such as Asia/Kolkata." : formatFailure(error).message); }
   };
@@ -480,7 +484,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
           {selected.description ? <p className="whitespace-pre-wrap break-words text-sm">{selected.description}</p> : null}
           {selected.location ? <p className="text-sm">{selected.location}</p> : null}
           {selected.organizer?.email ? <p className="break-all text-sm text-muted-foreground">Organizer: {selected.organizer.email}</p> : null}
-          {isCalendarEventEnded(selected, now, zone) ? <p className={`${presentationStyles.status} text-muted-foreground`}>Ended</p> : safeMeetingUrl(selected.conference_url) ? <a className={presentationStyles.joinLink} href={safeMeetingUrl(selected.conference_url)!} target="_blank" rel="noopener noreferrer">Join meeting</a> : null}
+          {isCalendarEventEnded(selected, now, zone) ? <p className={`${presentationStyles.status} text-muted-foreground`}>Ended</p> : safeMeetingUrl(selected.conference_url) ? <CalendarJoinLink className={presentationStyles.joinLink} url={selected.conference_url} accountEmail={status.google_email} /> : null}
           {selected.can_decline ? <CalendarCompactAction onClick={() => { setStep("choice"); setResult(null); setReview(null); }}>Can't attend</CalendarCompactAction> : <p className="text-sm text-muted-foreground">Attendance changes are available on invitations to your connected account.</p>}
         </div> : step === "choice" ? <div className="space-y-4">
           <fieldset disabled={submitting || busy} className="space-y-2"><legend className="text-sm font-semibold">Can't attend</legend><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={!offerTimes} onChange={() => setOfferTimes(false)} />Decline only</label><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={offerTimes} onChange={() => setOfferTimes(true)} />Decline &amp; offer another time</label></fieldset>
