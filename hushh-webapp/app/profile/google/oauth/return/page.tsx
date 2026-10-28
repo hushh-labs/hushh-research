@@ -58,18 +58,18 @@ type CompletionFlow = {
 };
 
 function GoogleOAuthReturnContent() {
-  const { user, loading } = useAuth();
+  const { user, userId, loading } = useAuth();
   const router = useRouter();
   const search = useSearchParams();
   const flow = useRef<CompletionFlow | null>(null);
   const cloudFlow = useRef<{ ownerId: string; generation: number; result: Promise<void> } | null>(null);
   const terminalOutcomeRecorded = useRef(false);
   const authority = useRef({
-    ownerId: loading ? null : user?.uid,
+    ownerId: loading ? null : userId,
     generation: 0,
     mounted: false,
   });
-  const ownerId = loading ? null : user?.uid;
+  const ownerId = loading ? null : userId;
   useLayoutEffect(() => {
     if (authority.current.ownerId !== ownerId) {
       authority.current = {
@@ -95,17 +95,17 @@ function GoogleOAuthReturnContent() {
     // Cloud authorization uses the registered Google return URL, but its state
     // is namespaced and never enters the Calendar completion or popup flow.
     if (state?.startsWith("byoc.")) {
-      if (!user || !code || authority.current.ownerId !== user.uid) {
+      if (!user || !userId || !code || authority.current.ownerId !== userId) {
         router.replace(ROUTES.ONE_SETUP_CLOUD);
         return cleanup;
       }
-      if (cloudFlow.current && (cloudFlow.current.ownerId !== user.uid || cloudFlow.current.generation !== effectGeneration)) {
+      if (cloudFlow.current && (cloudFlow.current.ownerId !== userId || cloudFlow.current.generation !== effectGeneration)) {
         router.replace(ROUTES.ONE_SETUP_CLOUD);
         return cleanup;
       }
       if (!cloudFlow.current) {
         cloudFlow.current = {
-          ownerId: user.uid,
+          ownerId: userId,
           generation: effectGeneration,
           result: ApiService.completeByocAuthorize({ code, state }).then(() => undefined),
         };
@@ -170,10 +170,11 @@ function GoogleOAuthReturnContent() {
     }
     if (
       !user ||
+      !userId ||
       !code ||
       !state ||
       (flow.current &&
-        (flow.current.ownerId !== user.uid ||
+        (flow.current.ownerId !== userId ||
           flow.current.generation !== authority.current.generation))
     ) {
       fail(
@@ -189,14 +190,14 @@ function GoogleOAuthReturnContent() {
       const isEffectCurrent = () =>
         Boolean(
           sessionOwner &&
-          sessionOwner.userId === user.uid &&
+          sessionOwner.userId === userId &&
           isValidatedAuthSessionOwnerCurrent(sessionOwner) &&
           authority.current.mounted &&
           authority.current.generation === generation &&
-          authority.current.ownerId === user.uid,
+          authority.current.ownerId === userId,
         );
       flow.current = {
-        ownerId: user.uid,
+        ownerId: userId,
         generation,
         attempt,
         returnToSetup: consumeCalendarSetupOAuthReturn(),
@@ -206,7 +207,7 @@ function GoogleOAuthReturnContent() {
           }
           return completeGoogleOAuth({
             idToken,
-            userId: user.uid,
+            userId,
             code,
             state,
             isEffectCurrent,
@@ -297,7 +298,7 @@ function GoogleOAuthReturnContent() {
         );
       });
     return cleanup;
-  }, [loading, router, search, user]);
+  }, [loading, router, search, user, userId]);
 
   if (!message) return <HushhLoader label="Finishing Google connection…" />;
   return (

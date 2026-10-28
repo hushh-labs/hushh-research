@@ -16,7 +16,7 @@ import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/l
  * locks. Never logged, never stored, never sent anywhere.
  */
 export function useSecretReveal(active = true) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultKey, getVaultOwnerToken } = useVault();
   const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
@@ -25,9 +25,9 @@ export function useSecretReveal(active = true) {
   const requests = useRef(new Map<string, symbol>());
   const mounted = useRef(false);
   const token = getVaultOwnerToken();
-  const locked = !active || !user?.uid || !vaultKey || !token || privacy?.shielded || privacy?.appIsActive === false ||
+  const locked = !active || !userId || !vaultKey || !token || privacy?.shielded || privacy?.appIsActive === false ||
     Capacitor.isNativePlatform() && !privacy;
-  const uid = user?.uid ?? null;
+  const uid = userId;
   const current = useRef({ uid, vaultKey, epoch, active });
 
   useLayoutEffect(() => {
@@ -110,6 +110,6 @@ export function useSecretReveal(active = true) {
     busyId: snapshot.uid === uid && snapshot.key === vaultKey && snapshot.epoch === epoch ? snapshot.busy : null,
     reveal,
     hide,
-    vaultContext: { userId: user?.uid ?? "", vaultKey, vaultOwnerToken: token },
+    vaultContext: { userId: userId ?? "", vaultKey, vaultOwnerToken: token },
   };
 }

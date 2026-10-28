@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 const save = vi.hoisted(() => vi.fn().mockResolvedValue({ count: 0 }));
 vi.mock("@/lib/profile/gmail-receipt-memory-save", () => ({ saveReceiptCanonicalIndexToMemory: save }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "synthetic-owner" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "synthetic-owner" }, userId: "synthetic-owner" }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-token", isVaultUnlocked: true }) }));
 
 import { GmailReceiptMemorySave } from "@/components/gmail/gmail-receipt-memory-save";

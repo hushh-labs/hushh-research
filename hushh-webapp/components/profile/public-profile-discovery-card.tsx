@@ -12,24 +12,24 @@ import { AdaptiveDetailSurface, SettingsGroup, SettingsRow } from "@/components/
 
 /** The launcher stays compact; disclosure and consent belong to the opened flow. */
 export function PublicProfileDiscoveryEntry({ userId }: { userId?: string | null }) {
-  const { user } = useAuth();
+  const { user, userId: ownerId } = useAuth();
   const [open, setOpen] = useState(false);
   const [observation, setObservation] = useState<{ ownerId: string; job: PublicProfileDiscoveryJob | null } | null>(null);
   useEffect(() => {
     let current = true;
-    if (!user || (userId && user.uid !== userId)) return;
+    if (!user || !ownerId || (userId && ownerId !== userId)) return;
     void (async () => {
       try {
         const job = await PublicProfileDiscoveryService.getStatus(await user.getIdToken());
-        if (current) setObservation({ ownerId: user.uid, job });
+        if (current) setObservation({ ownerId, job });
       } catch {
         // Optional discovery does not place an outage banner above the agents.
         if (current) setObservation(null);
       }
     })();
     return () => { current = false; };
-  }, [user, userId, open]);
-  if (!user || observation?.ownerId !== user.uid || ["claimed", "cancelled"].includes(observation.job?.status || "")) return null;
+  }, [user, ownerId, userId, open]);
+  if (!user || !ownerId || observation?.ownerId !== ownerId || ["claimed", "cancelled"].includes(observation.job?.status || "")) return null;
   const ready = observation.job?.status === "ready";
   return <>
     <SettingsGroup className="mb-5">
@@ -38,7 +38,7 @@ export function PublicProfileDiscoveryEntry({ userId }: { userId?: string | null
     </SettingsGroup>
     <AdaptiveDetailSurface open={open} onOpenChange={setOpen} title="Claim your profile"
       mobilePresentation="sheet" bodyClassName="[&>section]:border-0 [&>section]:bg-transparent [&>section]:p-0 [&_h2]:sr-only">
-      {open ? <PublicProfileDiscoveryCard key={user.uid} userId={user.uid} /> : null}
+      {open ? <PublicProfileDiscoveryCard key={ownerId} userId={ownerId} /> : null}
     </AdaptiveDetailSurface>
   </>;
 }
@@ -67,7 +67,7 @@ function statusCopy(job: PublicProfileDiscoveryJob): string {
 }
 
 export function PublicProfileDiscoveryCard({ userId, onboarding = false }: { userId?: string | null; onboarding?: boolean }) {
-  const { user } = useAuth();
+  const { user, userId: ownerId } = useAuth();
   const [job, setJob] = useState<PublicProfileDiscoveryJob | null>(null);
   const [available, setAvailable] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -82,7 +82,7 @@ export function PublicProfileDiscoveryCard({ userId, onboarding = false }: { use
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!user || (userId && user.uid !== userId)) return;
+    if (!user || !ownerId || (userId && ownerId !== userId)) return;
     try {
       const next = await PublicProfileDiscoveryService.getStatus(await user.getIdToken());
       setJob(next);
@@ -96,7 +96,7 @@ export function PublicProfileDiscoveryCard({ userId, onboarding = false }: { use
     } finally {
       setLoading(false);
     }
-  }, [user, userId]);
+  }, [user, ownerId, userId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {

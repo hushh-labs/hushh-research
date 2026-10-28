@@ -34,7 +34,7 @@ function actionConfiguration(projection: DockProjection) {
 
 /** One retained native host; existing features retain all operation authority. */
 export function NativeAgentDock({ enabled }: { enabled: boolean }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const dock = useAgentDockState();
   const ports = useNativeDockPorts();
   const theme = useNativeControlAppearance("on-accent");
@@ -49,8 +49,8 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   const [measurement, measure] = useState(0);
   const family: "text" | "voice" = dock?.composerVisible ? "text" : "voice";
   const port = ports?.get(family);
-  const current = useRef({ enabled, user: user?.uid, dock, ports, theme, suppressed, overlay, family, port });
-  current.current = { enabled, user: user?.uid, dock, ports, theme, suppressed, overlay, family, port };
+  const current = useRef({ enabled, user: userId, dock, ports, theme, suppressed, overlay, family, port });
+  current.current = { enabled, user: userId, dock, ports, theme, suppressed, overlay, family, port };
   const identity = useRef<DockIdentity | null>(null);
   const underlay = useRef(false);
   const reservedRegions = useRef(false);
@@ -66,7 +66,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   const presentation = useRef(Symbol("native-dock"));
   const applied = useRef<{ sequence: number; configuration: string; privacyGeneration: number } | null>(null);
   const [active, setActive] = useState(false);
-  const owner = useRef(user?.uid);
+  const owner = useRef(userId);
   useLayoutEffect(() => {
     if (previousOverlay.current === overlay) return;
     previousOverlay.current = overlay;
@@ -74,7 +74,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
     // open/close cycle just because the same editor is retained.
     generation.current++;
     if (!overlay || !snapshotSupported.current || !identity.current || !applied.current || !port || port.projection.mode !== "text") return;
-    const captured = identity.current, privacyGeneration = applied.current.privacyGeneration, account = user?.uid, handoffGeneration = generation.current;
+    const captured = identity.current, privacyGeneration = applied.current.privacyGeneration, account = userId, handoffGeneration = generation.current;
     const original = port.projection;
     // The drawer may synchronously revoke input choices before the final edit
     // receipt reaches JS. Reconcile the committed text only, never an action.
@@ -89,10 +89,10 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
           typeof result.editRevision !== "number" || !fence.current?.acknowledgeDraftSnapshot(result.editRevision)) return;
       flushSync(() => next.onEdit?.(result.text!));
     }).catch(() => { /* No action or uncertain read is replayed. */ });
-  }, [overlay, port, user?.uid]);
+  }, [overlay, port, userId]);
   useLayoutEffect(() => {
-    if (owner.current === user?.uid) return;
-    owner.current = user?.uid; generation.current++; failed.current = false;
+    if (owner.current === userId) return;
+    owner.current = userId; generation.current++; failed.current = false;
     const previous = identity.current;
     identity.current = null; fence.current = null; settledConsumption.current = 0;
     // Clear the departing owner's private replica immediately, rather than
@@ -105,7 +105,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       pending.current = Promise.all([pending.current.catch(() => undefined), retirement]).then(() => undefined)
         .catch(() => { failed.current = true; });
     }
-  }, [user?.uid]);
+  }, [userId]);
 
   useLayoutEffect(() => {
     if (!customNativePresentationEnabled() || discovered || !enabled || !ports || !Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
@@ -273,7 +273,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
 
   useLayoutEffect(() => {
     if (!supported || !listenersReady || !ports) return;
-    if (!user?.uid || suppressed || dock?.suppressed) {
+    if (!userId || suppressed || dock?.suppressed) {
       generation.current++;
       const previous = identity.current;
       identity.current = null; fence.current = null;
@@ -363,7 +363,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
         identity.current = null; fence.current = null; ports.present(false); setActive(false);
       } catch { /* uncertain ownership remains concealed and noninteractive */ }
     });
-  }, [supported, listenersReady, user?.uid, suppressed, dock?.suppressed, dock?.host, enabled, overlay, theme, port, measurement, ports, family, regionRevision]);
+  }, [supported, listenersReady, userId, suppressed, dock?.suppressed, dock?.host, enabled, overlay, theme, port, measurement, ports, family, regionRevision]);
 
   useEffect(() => {
     const generationCounter = generation;

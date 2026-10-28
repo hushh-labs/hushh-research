@@ -93,7 +93,12 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.signedIn ? mocks.user : null, loading: false }),
+  useAuth: () => ({
+    user: mocks.signedIn ? mocks.user : null,
+    // Generation-0 fixtures: the application owner equals the Firebase UID.
+    userId: mocks.signedIn ? mocks.user.uid : null,
+    loading: false,
+  }),
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({

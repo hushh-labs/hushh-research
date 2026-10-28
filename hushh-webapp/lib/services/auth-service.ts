@@ -47,6 +47,7 @@ import { authSessionInvalidationCodeFromFirebaseError } from "@/lib/auth/session
 import { toast } from "sonner";
 import { GOOGLE_CONTACTS_READ_SCOPE } from "@/lib/contacts/initial-contact-onboarding-config";
 import { googleSignupConfigured, requestGoogleSignupToken } from "@/lib/auth/google-signup-token";
+import { firebaseUidForOwner, lastAdmittedOwnerFor, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 export type GoogleSignInOptions = {
   purpose?: "authentication" | "initial_contacts";
@@ -380,7 +381,8 @@ export class AuthService {
     token: string,
     expectedUserId: string,
   ): boolean {
-    return this.idTokenSubject(token) === expectedUserId;
+    // Callers may name the session by its application owner; tokens carry the Firebase UID.
+    return this.idTokenSubject(token) === firebaseUidForOwner(expectedUserId);
   }
 
   private static nativeIdentityMismatchError(expectedUserId: string): Error {
@@ -432,7 +434,7 @@ export class AuthService {
         !this.idTokenBelongsToUser(initialToken, expectedUserId),
     );
     const firebaseUser = auth.currentUser;
-    if (firebaseUser && (!expectedUserId || firebaseUser.uid === expectedUserId)) {
+    if (firebaseUser && (!expectedUserId || firebaseUser.uid === firebaseUidForOwner(expectedUserId))) {
       try {
         const token = await firebaseUser.getIdToken(forceRefresh);
         if (!expectedUserId || this.idTokenBelongsToUser(token, expectedUserId)) {
@@ -588,7 +590,7 @@ export class AuthService {
       return token;
     }
     const user = auth.currentUser;
-    if (!user || user.uid !== expectedUserId) throw new Error("session_changed");
+    if (!user || user.uid !== firebaseUidForOwner(expectedUserId)) throw new Error("session_changed");
     const token = await user.getIdToken(true);
     if (!isCurrent() || auth.currentUser !== user) throw new Error("session_changed");
     return token;
@@ -605,13 +607,14 @@ export class AuthService {
         throw new Error("identity_link_web_required");
       } else {
         const user = auth.currentUser;
-        if (!user || user.uid !== expectedUserId) throw new Error("session_changed");
+        const firebaseUid = firebaseUidForOwner(expectedUserId);
+        if (!user || user.uid !== firebaseUid) throw new Error("session_changed");
         if (user.providerData?.some((provider) => provider.providerId === "google.com")) {
           return await this.documentRequestIdentityToken(expectedUserId, isCurrent);
         }
         // Keep the popup on the explicit Add Google account gesture.
         const result = await linkWithPopup(user, this.createWebProvider("google"));
-        if (!isCurrent() || auth.currentUser !== user || result.user.uid !== expectedUserId) throw new Error("session_changed");
+        if (!isCurrent() || auth.currentUser !== user || result.user.uid !== firebaseUid) throw new Error("session_changed");
       }
       return await this.documentRequestIdentityToken(expectedUserId, isCurrent);
     } catch (error) {
@@ -667,16 +670,18 @@ export class AuthService {
     directWebGrant: boolean,
   ): Promise<string> {
     if (!expectedUserId || !isCurrent()) throw new Error("session_changed");
+    // Callers may name the session by its application owner; provider proofs bind the Firebase UID.
+    const firebaseUid = firebaseUidForOwner(expectedUserId);
     if (Capacitor.isNativePlatform()) {
-      return this.reauthenticateNativeIdentity("google", expectedUserId, isCurrent);
+      return this.reauthenticateNativeIdentity("google", firebaseUid, isCurrent);
     }
     const currentUser = auth.currentUser;
-    if (!currentUser || currentUser.uid !== expectedUserId ||
+    if (!currentUser || currentUser.uid !== firebaseUid ||
         !currentUser.providerData.some((provider) => provider.providerId === "google.com")) {
       throw new Error("google_identity_required");
     }
     const assertCurrent = () => {
-      if (!isCurrent() || auth.currentUser !== currentUser || currentUser.uid !== expectedUserId) throw new Error("session_changed");
+      if (!isCurrent() || auth.currentUser !== currentUser || currentUser.uid !== firebaseUid) throw new Error("session_changed");
     };
     assertCurrent();
     try {
@@ -696,7 +701,7 @@ export class AuthService {
         );
       })();
       assertCurrent();
-      if (result.user.uid !== expectedUserId) throw new Error("identity_mismatch");
+      if (result.user.uid !== firebaseUid) throw new Error("identity_mismatch");
       const token = await result.user.getIdToken(true);
       assertCurrent();
       return token;
@@ -734,18 +739,20 @@ export class AuthService {
     if (providerId === "google.com") {
       return this.reauthenticateGoogleIdentity(expectedUserId, isCurrent);
     }
+    // Callers may name the session by its application owner; provider proofs bind the Firebase UID.
+    const firebaseUid = firebaseUidForOwner(expectedUserId);
     if (Capacitor.isNativePlatform()) {
-      if (providerId === "apple.com") return this.reauthenticateNativeIdentity("apple", expectedUserId, isCurrent);
+      if (providerId === "apple.com") return this.reauthenticateNativeIdentity("apple", firebaseUid, isCurrent);
       throw new Error("native_identity_unavailable");
     }
     const currentUser = auth.currentUser;
     if (!expectedUserId || !isCurrent() || !currentUser ||
-        currentUser.uid !== expectedUserId ||
+        currentUser.uid !== firebaseUid ||
         !currentUser.providerData.some((provider) => provider.providerId === providerId)) {
       throw new Error(providerId === "apple.com" ? "apple_identity_required" : "microsoft_identity_required");
     }
     const assertCurrent = () => {
-      if (!isCurrent() || auth.currentUser !== currentUser || currentUser.uid !== expectedUserId) {
+      if (!isCurrent() || auth.currentUser !== currentUser || currentUser.uid !== firebaseUid) {
         throw new Error("session_changed");
       }
     };
@@ -753,7 +760,7 @@ export class AuthService {
     try {
       const result = await reauthenticateWithPopup(currentUser, this.createWebProvider(providerId === "apple.com" ? "apple" : "microsoft"));
       assertCurrent();
-      if (result.user.uid !== expectedUserId) throw new Error("identity_mismatch");
+      if (result.user.uid !== firebaseUid) throw new Error("identity_mismatch");
       const token = await result.user.getIdToken(true);
       assertCurrent();
       return token;
@@ -1443,7 +1450,10 @@ export class AuthService {
     this.debugLog("🚪 [AuthService] Signing out...");
     // Start local preview removal alongside both auth stores. There is no await
     // between the caller's ownership fence and starting credential teardown.
-    const notificationOwner = departingUserId ?? auth.currentUser?.uid;
+    // Local notification state is keyed by the application owner.
+    const notificationOwner =
+      departingUserId ?? snapshotValidatedAuthSessionOwner()?.userId ??
+      lastAdmittedOwnerFor(auth.currentUser?.uid) ?? auth.currentUser?.uid;
     const localNotificationCleanup = import("@/lib/notifications/fcm-service")
       .then(({ clearLocalChatNotificationState }) => clearLocalChatNotificationState(notificationOwner));
 

@@ -14,7 +14,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: routerReplaceMock }),
 }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: "user-1" } }),
+  useAuth: () => ({ user: { uid: "user-1" }, userId: "user-1" }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultOwnerToken: "owner-token" }),

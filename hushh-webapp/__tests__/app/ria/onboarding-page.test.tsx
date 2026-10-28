@@ -332,6 +332,7 @@ describe("RiaOnboardingPage", () => {
         phoneNumber: "+16505550101",
         getIdToken: vi.fn().mockResolvedValue("token-ria-1"),
       },
+      userId: "user-ria-1",
       phoneNumber: "+16505550101",
     });
     mocks.usePersonaState.mockReturnValue({
@@ -383,7 +384,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("shows sign-in message when no user", async () => {
-    mocks.useAuth.mockReturnValue({ user: null });
+    mocks.useAuth.mockReturnValue({ user: null, userId: null });
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {

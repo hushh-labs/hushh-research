@@ -82,7 +82,7 @@ function summarizeCard(card: AgentPkmPreviewCard): string {
 
 export function PublicProfileReviewWorkspace() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const [job, setJob] = useState<PublicProfileDiscoveryJob | null>(null);
   const [profile, setProfile] = useState<PublicProfileReview | null>(null);
@@ -120,13 +120,13 @@ export function PublicProfileReviewWorkspace() {
   }, [vaultKey, vaultOwnerToken]);
 
   const prepareProfile = useCallback(async (source: PublicProfileReview, corrections: string[], existingCards: AgentPkmPreviewCard[]) => {
-    if (!user || !vaultOwnerToken) throw new Error("Unlock your private vault to prepare the review.");
+    if (!userId || !vaultOwnerToken) throw new Error("Unlock your private vault to prepare the review.");
     setPreparing(true);
     setError(null);
     try {
-      const metadata = await PersonalKnowledgeModelService.getMetadata(user.uid, false, vaultOwnerToken);
+      const metadata = await PersonalKnowledgeModelService.getMetadata(userId, false, vaultOwnerToken);
       const manifests = await Promise.all(metadata.domains.map(async (domain) =>
-        PersonalKnowledgeModelService.getDomainManifest(user.uid, domain.key, vaultOwnerToken).catch(() => null),
+        PersonalKnowledgeModelService.getDomainManifest(userId, domain.key, vaultOwnerToken).catch(() => null),
       ));
       const message = [
         "Create reviewable personal knowledge candidates from the following unverified public-web findings.",
@@ -137,7 +137,7 @@ export function PublicProfileReviewWorkspace() {
         ...corrections.map((item) => "Owner-provided correction (not a public source): " + item),
       ].join("\n\n");
       const preview = await previewAgentPkmMemory({
-        userId: user.uid,
+        userId,
         message,
         currentDomains: metadata.domains.map((domain) => domain.key),
         currentManifests: manifests,
@@ -149,11 +149,11 @@ export function PublicProfileReviewWorkspace() {
     } finally {
       setPreparing(false);
     }
-  }, [user, vaultOwnerToken]);
+  }, [userId, vaultOwnerToken]);
 
   useEffect(() => {
-    if (!user || !vaultKey || !vaultOwnerToken) return;
-    const key = user.uid + ":profile-discovery-review";
+    if (!userId || !vaultKey || !vaultOwnerToken) return;
+    const key = userId + ":profile-discovery-review";
     if (loadKey.current === key) return;
     loadKey.current = key;
     let active = true;
@@ -193,7 +193,7 @@ export function PublicProfileReviewWorkspace() {
       }
     })();
     return () => { active = false; };
-  }, [commitDraft, persistDraft, prepareProfile, user, vaultKey, vaultOwnerToken]);
+  }, [commitDraft, persistDraft, prepareProfile, userId, vaultKey, vaultOwnerToken]);
 
   const hasSharingImpact = useMemo(() => Boolean(draft?.cards.some((card) =>
     draft.selected_card_ids.includes(card.card_id) && (card.sharing_impact?.active_recipient_count || 0) > 0,
@@ -242,7 +242,7 @@ export function PublicProfileReviewWorkspace() {
   };
 
   const completeClaim = async (rejectAll: boolean) => {
-    if (!user || !profile || !draft || !vaultKey || !vaultOwnerToken || savingToPkm) return;
+    if (!userId || !profile || !draft || !vaultKey || !vaultOwnerToken || savingToPkm) return;
     const chosen = rejectAll ? [] : draft.cards.filter((card) => draft.selected_card_ids.includes(card.card_id));
     if (!rejectAll && chosen.length === 0) {
       setError("Choose at least one detail, or discard the whole profile.");
@@ -269,7 +269,7 @@ export function PublicProfileReviewWorkspace() {
           ...draft.owner_corrections.map((item) => "Owner-provided correction (not a public source): " + item),
         ].join("\n");
         const result = pending.length ? await addToPKM({
-          userId: user.uid,
+          userId,
           cards: pending,
           sourceMessage,
           vaultKey,

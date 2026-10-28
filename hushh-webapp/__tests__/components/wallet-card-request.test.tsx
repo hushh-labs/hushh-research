@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     user: { uid: "owner", getIdToken: async () => "identity" },
+    userId: "owner",
   }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({

@@ -33,7 +33,7 @@ type PreferenceLoadState = "loading" | "ready" | "error";
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 
 export function EmailOnboardingSetupClient() {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const [enabled, setEnabled] = useState(false);
   const [loadState, setLoadState] = useState<PreferenceLoadState>("loading");
@@ -41,24 +41,24 @@ export function EmailOnboardingSetupClient() {
   const [identityStatus, setIdentityStatus] = useState<{
     ownerId: string; vaultKey: string | null; complete: boolean; checking: boolean;
   } | null>(null);
-  const identityStatusCurrent = identityStatus?.ownerId === user?.uid && identityStatus?.vaultKey === vaultKey;
+  const identityStatusCurrent = identityStatus?.ownerId === userId && identityStatus?.vaultKey === vaultKey;
   const identityPrefaceComplete = identityStatusCurrent && identityStatus?.complete;
-  const checkingIdentity = Boolean(user?.uid && vaultKey && vaultOwnerToken &&
+  const checkingIdentity = Boolean(userId && vaultKey && vaultOwnerToken &&
     (!identityStatusCurrent || identityStatus?.checking));
 
   // The intake marker belongs to Soul's private envelope, not its Markdown.
   useEffect(() => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
+    if (!userId || !vaultKey || !vaultOwnerToken) return;
 
     let cancelled = false;
     const setResult = (complete: boolean, checking: boolean) => {
-      if (!cancelled) setIdentityStatus({ ownerId: user.uid, vaultKey, complete, checking });
+      if (!cancelled) setIdentityStatus({ ownerId: userId, vaultKey, complete, checking });
     };
     setResult(false, true);
     void (async () => {
       try {
         const completed = await KycIdentityProfilePkmService.hasCompletedIntake({
-          userId: user.uid,
+          userId,
           vaultKey,
           vaultOwnerToken,
         });
@@ -76,15 +76,15 @@ export function EmailOnboardingSetupClient() {
     return () => {
       cancelled = true;
     };
-  }, [user, vaultKey, vaultOwnerToken]);
+  }, [userId, vaultKey, vaultOwnerToken]);
 
   const loadPreference = useCallback(async () => {
-    if (!user?.uid) return;
+    if (!user || !userId) return;
     setLoadState("loading");
     try {
       const idToken = await user.getIdToken();
       const value = await loadEmailDraftingEnabled({
-        userId: user.uid,
+        userId,
         idToken,
       });
       setEnabled(value);
@@ -94,10 +94,10 @@ export function EmailOnboardingSetupClient() {
       setLoadState("error");
       toast.error("Couldn't load this setting. Try again.");
     }
-  }, [user]);
+  }, [user, userId]);
 
   useEffect(() => {
-    if (!user?.uid) {
+    if (!user || !userId) {
       setEnabled(false);
       setLoadState("loading");
       return;
@@ -108,7 +108,7 @@ export function EmailOnboardingSetupClient() {
       try {
         const idToken = await user.getIdToken();
         const value = await loadEmailDraftingEnabled({
-          userId: user.uid,
+          userId,
           idToken,
         });
         if (!cancelled) {
@@ -126,7 +126,7 @@ export function EmailOnboardingSetupClient() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, userId]);
 
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "email",
@@ -139,14 +139,14 @@ export function EmailOnboardingSetupClient() {
   const persistPreference = useCallback(
     async (checked: boolean) => {
       const previous = enabled;
-      if (!user?.uid || loadState !== "ready") return;
+      if (!user || !userId || loadState !== "ready") return;
 
       setEnabled(checked);
       setSaving(true);
       try {
         if (checked && vaultKey && vaultOwnerToken) {
           await OneKycClientZkService.ensureConnector({
-            userId: user.uid,
+            userId,
             vaultKey,
             vaultOwnerToken,
           });
@@ -165,7 +165,7 @@ export function EmailOnboardingSetupClient() {
         }
         const idToken = await user.getIdToken();
       const saved = await saveEmailDraftingEnabled({
-        userId: user.uid,
+        userId,
         idToken,
         enabled: checked,
       });
@@ -182,17 +182,17 @@ export function EmailOnboardingSetupClient() {
     } finally {
       setSaving(false);
     }
-  }, [enabled, loadState, user, vaultKey, vaultOwnerToken]);
+  }, [enabled, loadState, user, userId, vaultKey, vaultOwnerToken]);
 
   const handleToggle = useCallback(
     (checked: boolean) => {
-      if (!user?.uid || loadState !== "ready" || saving) return;
+      if (!userId || loadState !== "ready" || saving) return;
       void persistPreference(checked);
     },
-    [loadState, persistPreference, saving, user?.uid],
+    [loadState, persistPreference, saving, userId],
   );
 
-  if (!user || checkingIdentity) {
+  if (!user || !userId || checkingIdentity) {
     return <SetupCapabilityLoading label="One moment…" />;
   }
 
@@ -203,8 +203,8 @@ export function EmailOnboardingSetupClient() {
         routeKey="/one/setup/email"
       >
         <KycIdentityPreface
-          key={user.uid}
-          onComplete={() => setIdentityStatus({ ownerId: user.uid, vaultKey, complete: true, checking: false })}
+          key={userId}
+          onComplete={() => setIdentityStatus({ ownerId: userId, vaultKey, complete: true, checking: false })}
         />
       </CapabilityVaultPrerequisite>
     );

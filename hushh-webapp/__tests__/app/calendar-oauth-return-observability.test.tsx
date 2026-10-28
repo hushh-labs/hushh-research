@@ -23,6 +23,7 @@ vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     loading: false,
     user: { uid: "owner", getIdToken: async () => "owner-token" },
+    userId: "owner",
   }),
 }));
 vi.mock("@/lib/auth/session-owner", () => ({

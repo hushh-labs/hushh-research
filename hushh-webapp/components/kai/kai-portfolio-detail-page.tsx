@@ -14,11 +14,11 @@ export function KaiPortfolioDetailPage({
 }: {
   section: Exclude<PortfolioDashboardSection, "overview">;
 }) {
-  const { user, loading } = useAuth();
+  const { user, userId, loading } = useAuth();
   const { vaultOwnerToken } = useVault();
   const [flowState, setFlowState] = useState<FlowState>("checking");
 
-  if (loading || !user) return null;
+  if (loading || !user || !userId) return null;
 
   return (
     <AppPageShell
@@ -33,7 +33,7 @@ export function KaiPortfolioDetailPage({
       }}
     >
       <KaiFlow
-        userId={user.uid}
+        userId={userId}
         mode="dashboard"
         vaultOwnerToken={vaultOwnerToken ?? ""}
         dashboardSection={section}

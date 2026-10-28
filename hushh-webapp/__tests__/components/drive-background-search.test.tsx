@@ -10,7 +10,7 @@ const state = vi.hoisted(() => ({
   bulk: { recentBulkShares: vi.fn(), bulkSharesForSearch: vi.fn(), bulkShareFiles: vi.fn(),
     prepareBulkShare: vi.fn(), approveBulkShare: vi.fn(), stopBulkShare: vi.fn(), bulkShareStatus: vi.fn(), retryBulkShare: vi.fn() },
 }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid }, userId: state.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({
   isVaultUnlocked: state.unlocked, getVaultOwnerToken: state.getToken,
 }) }));

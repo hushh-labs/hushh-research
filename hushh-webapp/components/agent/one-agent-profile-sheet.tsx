@@ -55,19 +55,21 @@ import { OnePresenceAvatar, type OnePresenceState } from "./one-presence-avatar"
 /** A read-only feed preview; the full Feed owns actions and read acknowledgements. */
 function OneFeedPreview({
   user,
+  ownerId,
   onNavigate,
 }: {
   user: User;
+  ownerId: string;
   onNavigate: (href: string) => void;
 }) {
   const { data, loading, error, refresh } = useStaleResource<FeedListResponse>({
-    cacheKey: CACHE_KEYS.FEED_LIST(user.uid),
+    cacheKey: CACHE_KEYS.FEED_LIST(ownerId),
     resourceLabel: "one_profile_feed",
     retainOnInvalidate: true,
     load: async (options) =>
       FeedService.list({
         idToken: await user.getIdToken(),
-        userId: user.uid,
+        userId: ownerId,
         limit: 20,
         force: options?.force,
       }),
@@ -75,7 +77,7 @@ function OneFeedPreview({
   useFeedLiveRefresh(() => {
     void refresh({ force: true });
   });
-  const clearedThrough = readFeedClearedThroughId(user.uid);
+  const clearedThrough = readFeedClearedThroughId(ownerId);
   const visibleItems = (data?.items ?? []).filter(
     (item) =>
       !isFeedItemHidden(item, isLocalCrmBuildEnabled()) &&
@@ -144,11 +146,11 @@ type OneAgentProfileProps = {
 /** Rich One content uses the existing owned content plane, not a second
  * two-row menu. Native owns the header; the shared body owns Feed and tabs. */
 function NativeOneAgentProfile({ open, onOpenChange, modelControl, nativeReady = false, presenceState = "connected" }: OneAgentProfileProps) {
-  const { user } = useAuth();
-  const context = JSON.stringify([user?.uid, snapshotVaultSessionEpoch(), "one-profile"]);
+  const { user, userId } = useAuth();
+  const context = JSON.stringify([userId, snapshotVaultSessionEpoch(), "one-profile"]);
   const close = () => onOpenChange(false);
   return <NativeFeaturePage pane open={open && nativeReady && !!user} title="One"
-    owner={user?.uid ?? null} context={context} backLabel="Back to Chat" closeLabel="Close One profile"
+    owner={userId} context={context} backLabel="Back to Chat" closeLabel="Close One profile"
     bodyClassName={styles.nativeBody} onBack={close} onClose={close}>
     <OneProfileContent open={open && nativeReady} onOpenChange={onOpenChange} modelControl={modelControl} presenceState={presenceState} />
   </NativeFeaturePage>;
@@ -187,7 +189,7 @@ function WebOneAgentProfile({
 /** One content model and hierarchy across renderers; no duplicated identity,
  * feed policy, private-name projection or tab/action authority. */
 function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "connected", sheet = false }: OneAgentProfileProps & { sheet?: boolean }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const profileName = useOneDisplayName(open);
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const router = useRouter();
@@ -204,17 +206,18 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
   let feed: ReactNode = (
     <p className={styles.notice}>Sign in to view your feed.</p>
   );
-  if (open && tab === "feed" && user)
-    feed = <OneFeedPreview key={user.uid} user={user} onNavigate={navigate} />;
+  if (open && tab === "feed" && user && userId)
+    feed = <OneFeedPreview key={userId} user={user} ownerId={userId} onNavigate={navigate} />;
 
   let todo: ReactNode = (
     <p className={styles.notice}>Sign in to view your to-do list.</p>
   );
-  if (open && tab === "todo" && user) {
+  if (open && tab === "todo" && user && userId) {
     todo = (
       <OneTodoPreview
-        key={user.uid}
+        key={userId}
         user={user}
+        ownerId={userId}
         vaultKey={vaultKey}
         vaultOwnerToken={vaultOwnerToken}
         isVaultUnlocked={isVaultUnlocked}

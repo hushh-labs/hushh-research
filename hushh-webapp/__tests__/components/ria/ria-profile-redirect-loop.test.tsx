@@ -189,6 +189,7 @@ describe("RiaProfileSection redirect loop breaker", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mocks.useAuth.mockReturnValue({
       user: { uid: "u1", getIdToken: vi.fn().mockResolvedValue("tok") },
+      userId: "u1",
     });
     mocks.usePersonaState.mockReturnValue({
       riaCapability: "switch",

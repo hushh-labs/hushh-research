@@ -37,10 +37,10 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
   profileAction?: ReactNode;
   theme?: "light" | "dark";
 }) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const vault = useContext(VaultContext);
   const token = vault?.vaultOwnerToken ?? null;
-  const ownerId = user?.uid ?? null;
+  const ownerId = userId;
   const [loaded, setLoaded] = useState<{ token: string; ownerId: string; circles: OneLocationCircleSummary[] } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(initialCircleId);
   const [loading, setLoading] = useState(false);

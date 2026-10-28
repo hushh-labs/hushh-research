@@ -39,6 +39,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     user: { uid: "user-1", getIdToken: mocks.getIdToken },
+    userId: "user-1",
     loading: false,
   }),
 }));
@@ -48,6 +49,7 @@ vi.mock("@/hooks/use-auth", () => ({
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: { uid: "user-1", getIdToken: mocks.getIdToken },
+    userId: "user-1",
     loading: false,
   }),
 }));

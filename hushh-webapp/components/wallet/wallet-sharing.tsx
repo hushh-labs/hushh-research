@@ -32,9 +32,9 @@ type SharingState = { owner: string; requests: ConsentCenterEntry[]; grants: Con
 
 export type WalletSharingProps = { cards?: WalletCardSummary[]; cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean; getHistoryContext?: (cardId: string) => CardShareContext | null; receivedHistory?: boolean };
 export function useWalletSharingOwner({ cardDetails = false, active = true, getHistoryContext }: WalletSharingProps = {}) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultKey } = useVault();
-  const actions = useConsentActions({ userId: user?.uid });
+  const actions = useConsentActions({ userId });
   const [selection, setSelection] = useState<{ entry: ConsentCenterEntry; active: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -45,28 +45,28 @@ export function useWalletSharingOwner({ cardDetails = false, active = true, getH
   const [revision, setRevision] = useState(0);
 
   const reviewTrigger = useRef<HTMLButtonElement | null>(null);
-  const owner = user?.uid;
+  const owner = userId;
   const current = state?.owner === owner ? state : null;
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !userId) return;
     let cancelled = false;
     // Keep this owner's confirmed rows in place while refreshing in the background.
     setSelection(null);
     setConfirmRevoke(false);
     const deadline = window.setTimeout(() => {
       cancelled = true;
-      setState({ owner: user.uid, requests: [], grants: [], error: true });
+      setState({ owner: userId, requests: [], grants: [], error: true });
     }, 15_000);
     void user.getIdToken().then((idToken) => loadWalletSharing({
-      userId: user.uid, idToken, cancelled: () => cancelled,
+      userId, idToken, cancelled: () => cancelled,
     })).then((result) => {
-      if (!cancelled) { window.clearTimeout(deadline); setState({ owner: user.uid, ...result, error: false }); }
+      if (!cancelled) { window.clearTimeout(deadline); setState({ owner: userId, ...result, error: false }); }
     }).catch(() => {
-      if (!cancelled) { window.clearTimeout(deadline); setState({ owner: user.uid, requests: [], grants: [], error: true }); }
+      if (!cancelled) { window.clearTimeout(deadline); setState({ owner: userId, requests: [], grants: [], error: true }); }
     });
     return () => { cancelled = true; window.clearTimeout(deadline); };
-  }, [user, revision, cardDetails, getHistoryContext]);
+  }, [user, userId, revision, cardDetails, getHistoryContext]);
 
   useEffect(() => {
     if (!active) { setSelection(null); setConfirmRevoke(false); }
