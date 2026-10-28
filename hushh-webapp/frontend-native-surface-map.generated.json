@@ -9870,6 +9870,9 @@
         "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
         "phone_mandate.delete_previous",
+        "phone_mandate.delete_previous_cancel",
+        "phone_mandate.delete_previous_confirm",
+        "phone_mandate.delete_previous_verify_again",
         "phone_mandate.recover",
         "phone_mandate.review_previous_devices",
         "phone_mandate.select_country",
@@ -11000,5 +11003,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "25d819595d1a019beb7efbf3c0fc9282f8bc4fd19ed8c6234a76b8ededaaad36"
+  "content_sha256": "37670fd014f6a2399b3eb954f64bc8b809d15e6dc9c5f4fae74d023934b50166"
 }

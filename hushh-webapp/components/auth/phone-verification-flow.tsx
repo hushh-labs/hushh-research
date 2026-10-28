@@ -1,6 +1,9 @@
 "use client";
 
 import { performPhoneRecovery } from "./use-phone-recovery-handoff";
+import { usePhoneLinkedDeletion } from "./use-phone-linked-deletion";
+import type { LinkedDeletionInput } from "@/lib/auth/phone-linked-deletion";
+import type { LinkedDeletionPreparation } from "@/lib/services/phone-recovery-service";
 
 import { DEFAULT_COUNTRY_VALUE, DEFAULT_PHONE_COUNTRY_OPTION, E164_PHONE_PATTERN, PHONE_COUNTRY_OPTIONS, composePhoneNumber, derivePhoneFields, getCountryOption, getCountryOptionLabel, getMobileNumberLengthRange, getPhoneEntryError, getPhoneNumberValidationError, maskPhoneNumberForOtp, resolvePhoneInputChange } from "@/lib/auth/phone-input";
 import type { CountryPhoneOption } from "@/lib/constants/country-phone-options";
@@ -82,6 +85,9 @@ export type PhoneVerificationFlowProps = {
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmVerification: (otp: string) => Promise<User>;
   confirmTransfer?: () => Promise<User>;
+  confirmLinkedDeletion?: (input: LinkedDeletionInput) => Promise<User>;
+  prepareLinkedDeletion?: (phoneNumber: string) => Promise<LinkedDeletionPreparation>;
+  cancelLinkedDeletion?: (operation: string) => Promise<unknown>;
   recoverPreviousAccount?: (phoneNumber: string) => Promise<void> | void;
   deletePreviousAccount?: (phoneNumber: string) => Promise<void> | void;
   revokePreviousAccountDevices?: (phoneNumber: string) => Promise<void> | void;
@@ -125,7 +131,7 @@ export function usePhoneVerificationFlow({
   currentPhoneNumber,
   startVerification,
   confirmVerification,
-  confirmTransfer,
+  confirmTransfer, confirmLinkedDeletion, prepareLinkedDeletion, cancelLinkedDeletion,
   recoverPreviousAccount,
   deletePreviousAccount, revokePreviousAccountDevices,
   onCompleted,
@@ -165,7 +171,7 @@ export function usePhoneVerificationFlow({
   );
   const [verificationCode, setVerificationCode] = useState("");
   const [codeError, setCodeError] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<"choices" | "review" | null>(null);
+  const [conflict, setConflict] = useState<"choices" | "review" | "delete" | null>(null);
   const [transferPending, setTransferPending] = useState(false);
   const [transferEligible, setTransferEligible] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
@@ -181,14 +187,20 @@ export function usePhoneVerificationFlow({
   // double-clicks.
   const phoneFlowInFlightRef = useMemo(() => ({ current: false, visit }), [visit]);
   const transferGuard = useMemo(() => ({ pending: false, visit }), [visit]);
+  const deletionGuard = useMemo(() => ({ pending: false, visit }), [visit]);
   useLayoutEffect(() => {
-    onNavigationGuardChange?.(() => current() && (phoneFlowInFlightRef.current || transferGuard.pending));
+    onNavigationGuardChange?.(() => current() && (phoneFlowInFlightRef.current || transferGuard.pending || deletionGuard.pending));
     return () => onNavigationGuardChange?.(null);
-  }, [current, onNavigationGuardChange, phoneFlowInFlightRef, transferGuard]);
+  }, [current, onNavigationGuardChange, phoneFlowInFlightRef, transferGuard, deletionGuard]);
 
   // `step` read from an effect that must not re-run when it changes.
   const stepRef = useRef(step);
   const changeStep = useCallback((next: VerificationStep) => { stepRef.current = next; setStep(next); }, []);
+  const deletion = usePhoneLinkedDeletion({ phone: submittedPhoneNumber, conflict, busy, guard: deletionGuard, current,
+    inFlight: phoneFlowInFlightRef, setBusy, setConflict, setError: setOperationError,
+    prepare: prepareLinkedDeletion, cancel: cancelLinkedDeletion, confirm: confirmLinkedDeletion,
+    fallback: () => performPhoneRecovery(deletePreviousAccount, submittedPhoneNumber, current, phoneFlowInFlightRef, setBusy, setOperationError),
+    onDeleted: async verified => { visit.verified = true; visit.verifiedUser = verified; setConflict(null); changeStep("linked"); await onCompleted(verified); } });
   const seededOwner = useRef(ownerKey);
   useEffect(() => {
     stepRef.current = step;
@@ -219,9 +231,9 @@ export function usePhoneVerificationFlow({
     setCountryQuery("");
     setVerificationCode("");
     setCodeError(null); setOperationError(null); setBusy(false);
-    setConflict(null); setTransferPending(false); transferGuard.pending = false;
+    setConflict(null); setTransferPending(false); transferGuard.pending = false; deletionGuard.pending = false;
     changeStep(mode === "link" && currentPhoneNumber ? "linked" : "phone");
-  }, [currentPhoneNumber, mode, ownerKey, changeStep, visit, transferGuard]);
+  }, [currentPhoneNumber, mode, ownerKey, changeStep, visit, transferGuard, deletionGuard]);
 
   // Start on the person's own country, not on ours.
   //
@@ -256,6 +268,7 @@ export function usePhoneVerificationFlow({
     if (phoneFlowInFlightRef.current) return true;
     visit.smsTransport = false;
     if (conflict === "review" && !transferPending) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); return true; }
+    if (conflict === "delete") { if (deletion.leave()) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); } return true; }
     if (transferPending) return true;
     advanceEntryRevision();
     setVerificationCode("");
@@ -264,7 +277,7 @@ export function usePhoneVerificationFlow({
     setConflict(null);
     changeStep("phone");
     return true;
-  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision, conflict, transferPending, visit]);
+  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision, conflict, transferPending, visit, deletion]);
 
   useEffect(() => {
     onBackStepChange?.(step === "code" ? returnToPhoneNumber : null);
@@ -929,6 +942,8 @@ export function usePhoneVerificationFlow({
 
   return { ready: formOwner === ownerKey, step, busy, maskedPhone, submittedPhoneNumber, verificationCode, codeError, phoneNumberError, operationError,
     conflict, transferPending, transferEligible, handleTransfer, recoverPrevious,
+    deletionReview: deletion.prepared, deletionNeedsFreshProof: deletion.freshProof, deletePrevious: deletion.review, confirmDeletion: deletion.submit,
+    restartVerification: () => { if (current() && !phoneFlowInFlightRef.current && deletion.leave()) { advanceEntryRevision(); setVerificationCode(""); setOperationError(null); setConflict(null); changeStep("phone"); } },
     startFreshSms: () => handleStartVerification(false, submittedPhoneNumber, "sms"),
     reviewTransfer: () => { if (current() && visit.entryRevision === entryRevision && conflict === "choices" && transferEligible && !busy && !phoneFlowInFlightRef.current) { advanceEntryRevision(); setConflict("review"); setOperationError(null); } },
     countries: PHONE_COUNTRY_OPTIONS,

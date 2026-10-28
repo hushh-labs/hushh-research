@@ -69,6 +69,7 @@ async def _schema(pool):
             "418_account_provider_cleanup_staging.sql",
             "423_account_shared_provider_authority.sql",
             "431_phone_recovery_actions.sql",
+            "436_phone_linked_account_deletions.sql",
         ):
             await conn.execute((ROOT / "db/migrations" / name).read_text())
 
@@ -76,7 +77,7 @@ async def _schema(pool):
 async def _seed(pool, *, files: bool):
     async with pool.acquire() as conn:
         await conn.execute(
-            "TRUNCATE account_deletion_tombstones,account_generations,actor_profiles,vault_keys,pkm_data,shared_files_storage,account_phone_transfers,account_phone_auth_fences,account_firebase_mutations,internal_access_events,trusted_devices,trusted_device_audit_events CASCADE"
+            "TRUNCATE account_phone_linked_deletions,account_deletion_tombstones,account_generations,actor_profiles,vault_keys,pkm_data,shared_files_storage,account_phone_transfers,account_phone_auth_fences,account_firebase_mutations,internal_access_events,trusted_devices,trusted_device_audit_events CASCADE"
         )
         for uid in OWNERS.values():
             await conn.execute("INSERT INTO actor_profiles(user_id) VALUES($1)", uid)
@@ -139,6 +140,37 @@ async def _assert_erased(conn, recorded, baseline):
         )
         == 0
     )
+    assert await conn.fetchval("SELECT count(*) FROM account_phone_recovery_continuations") == 0
+    assert recorded.unlink_count == 0
+
+
+async def _assert_linked_deleted(conn, recorded, baseline):
+    """Phone proof deleted the holder; the worker erased it; the requester owns the number."""
+    for table in ("actor_profiles", "vault_keys", "pkm_data", "actor_identity_cache"):
+        assert (
+            await conn.fetchval(
+                f"SELECT count(*) FROM {table} WHERE user_id=$1", OWNERS["previous"]
+            )
+            == 0
+        )
+    for table, before in baseline.items():
+        assert await conn.fetch(
+            f"SELECT {PRESERVATION_PROJECTIONS[table]} FROM {table} ORDER BY user_id"
+        ) == [row for row in before if row["user_id"] != OWNERS["previous"]]
+    assert await conn.fetchval("SELECT erasure_phase FROM account_deletion_tombstones") == "erased"
+    owner = await conn.fetchval(
+        "SELECT user_id FROM actor_identity_cache WHERE phone_number=$1 AND phone_verified=TRUE",
+        PHONE,
+    )
+    assert owner == OWNERS["receiving-a"]
+    receipts = await conn.fetch(
+        "SELECT state,target_user_id,proof_event_digest IS NOT NULL AS proven "
+        "FROM account_phone_linked_deletions WHERE state<>'cancelled'"
+    )
+    # Final erasure detached the holder id; the admitted receipt survives.
+    assert [dict(row) for row in receipts] == [
+        {"state": "admitted", "target_user_id": None, "proven": True}
+    ]
     assert await conn.fetchval("SELECT count(*) FROM account_phone_recovery_continuations") == 0
     assert recorded.unlink_count == 0
 
