@@ -125,8 +125,7 @@ export function useNativeOwnedChoice(binding: Binding, authoredTrigger?: { curre
     };
     if (isSessionChromeSuppressed()) { restoreWeb(); return; }
     const identity = createNativePresentationIdentity();
-    const appearance = readNativeControlAppearance("accent");
-    if (!identity || !appearance) { restoreWeb(); return; }
+    if (!identity || !readNativeControlAppearance("accent")) { restoreWeb(); return; }
     pending.current = true; bound.current = { signature: snapshot.signature, visit: snapshot.visit };
     setPresented(true);
     const isCurrent = () => mounted.current && epoch.current === generation &&
@@ -137,6 +136,10 @@ export function useNativeOwnedChoice(binding: Binding, authoredTrigger?: { curre
         const capabilities = await nativeDrawerAcknowledged(source.getCapabilities());
         if (!isCurrent() || !pending.current) return;
         if (!port || capabilities.ownedChoices !== true) { restoreWeb(); return; }
+        // Capability lookup may outlive a theme change; project committed CSS
+        // again before creating the retained native presentation.
+        const appearance = readNativeControlAppearance("accent");
+        if (!appearance) { restoreWeb(); return; }
         const values = new Map<string, string>();
         const options = snapshot.options!.map(option => {
           const handle = crypto.randomUUID(); values.set(handle, option.value);

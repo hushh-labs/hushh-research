@@ -9,6 +9,7 @@ import { NativeOwnedChoiceLease, validOwnedChoiceProjection, type OwnedChoiceEve
 
 const runtime = vi.hoisted(() => ({
   native: true, current: true, revision: 0, privacy: new Set<(state: unknown) => void>(),
+  appearance: { appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111" },
   events: new Set<(event: OwnedChoiceEvent) => void>(), capabilities: vi.fn(), prepare: vi.fn(), retire: vi.fn(), read: vi.fn(), update: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/wallet", useSearchParams: () => new URLSearchParams() }));
@@ -17,7 +18,7 @@ vi.mock("@/lib/auth/use-session-chrome-suppression", () => ({ isSessionChromeSup
 vi.mock("@/lib/capacitor/native-navigation", () => ({ useNativeNavigationOverlayRef: (ref: unknown) => ref }));
 vi.mock("@/lib/capacitor/native-presentation-regions", () => ({ useNativeOverlayCollisionPadding: (padding: unknown) => padding }));
 vi.mock("@/lib/capacitor/native-control-appearance", () => ({
-  readNativeControlAppearance: () => ({ appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111" }),
+  readNativeControlAppearance: () => runtime.appearance,
 }));
 vi.mock("@/lib/capacitor/native-drawer-owner", () => ({
   captureNativeDrawerOwner: () => runtime.current ? ({ documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1 }) : null,
@@ -61,6 +62,7 @@ function Field(props: Partial<React.ComponentProps<typeof Select>> = {}) {
 
 beforeEach(() => {
   runtime.native = true; runtime.current = true; runtime.events.clear(); runtime.privacy.clear();
+  runtime.appearance = { appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111" };
   runtime.capabilities.mockReset().mockResolvedValue({ ownedChoices: true });
   runtime.prepare.mockReset().mockImplementation(async state => receipt(state));
   runtime.retire.mockReset().mockImplementation(async state => ({ ...state, phase: "retired" }));
@@ -133,6 +135,17 @@ describe("shared Select native presentation", () => {
     // A new user intent is independent of the cancelled capability request.
     fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
     await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+  });
+  it("uses the committed theme when capabilities resolve after a preference change", async () => {
+    const capabilities = deferred<{ ownedChoices: boolean }>();
+    runtime.capabilities.mockReturnValueOnce(capabilities.promise);
+    render(<Field />);
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+    await waitFor(() => expect(runtime.capabilities).toHaveBeenCalledOnce());
+    runtime.appearance = { appearance: "dark", accentHex: "#D19A66", foregroundHex: "#E0A36A" };
+    await act(async () => capabilities.resolve({ ownedChoices: true }));
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+    expect(runtime.prepare.mock.calls[0][0]).toMatchObject(runtime.appearance);
   });
   it("keeps the form owner and controlled refusal while projecting opaque handles only", async () => {
     const changed = vi.fn();
@@ -225,6 +238,21 @@ describe("private immediate-choice boundary", () => {
       } };
     return { value: new NativeOwnedChoiceLease(state, port, () => true, complete, failed), complete, failed };
   }
+  it("prepares with the latest theme received while its listener is attaching", async () => {
+    const listener = deferred<{ remove: () => Promise<void> }>();
+    const attach = vi.fn().mockReturnValue(listener.promise);
+    const port = { prepareOwnedChoice: runtime.prepare, retireOwnedChoice: runtime.retire,
+      getOwnedChoiceState: runtime.read, updateOwnedChoice: runtime.update, addListener: attach };
+    const value = new NativeOwnedChoiceLease(state, port, () => true, vi.fn(), vi.fn());
+    const presenting = value.present(state);
+    await waitFor(() => expect(attach).toHaveBeenCalledOnce());
+    const next = { appearance: "dark" as const, accentHex: "#D19A66", foregroundHex: "#E0A36A" };
+    value.updateAppearance(next);
+    await act(async () => listener.resolve({ remove: async () => undefined }));
+    await presenting;
+    expect(runtime.prepare.mock.calls[0][0]).toMatchObject(next);
+    await value.retire();
+  });
   it("rejects extra protected fields, malformed options and duplicate handles", () => {
     expect(validOwnedChoiceProjection(state)).toBe(true);
     for (const invalid of [{ ...state, vaultKey: "forbidden" }, { ...state, options: [null] },

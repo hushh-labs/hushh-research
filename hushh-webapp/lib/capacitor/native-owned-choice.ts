@@ -116,6 +116,13 @@ export class NativeOwnedChoiceLease {
       }))) return;
       this.removeVault = subscribeVaultSessionEpoch(() => this.invalidate());
       if (!this.owns()) return;
+      // Listener and privacy admission may span a preference change. Apply the
+      // latest observed appearance before the first native presentation.
+      if (this.requestedAppearance) {
+        this.projection = { ...this.projection, ...this.requestedAppearance };
+        this.requestedAppearance = undefined;
+        if (!validOwnedChoiceProjection(this.projection)) throw new Error("OWNED_CHOICE_INVALID");
+      }
       this.attempted = true;
       const receipt = await nativeDrawerAcknowledged(this.port.prepareOwnedChoice(this.projection));
       if (this.disposed) return;
