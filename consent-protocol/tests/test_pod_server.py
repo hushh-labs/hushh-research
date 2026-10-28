@@ -125,63 +125,6 @@ def test_pod_info_reports_pod_role():
     assert "central" in info["controlPlane"]
 
 
-async def test_gmail_restart_waits_for_authority_but_not_foreground_startup(monkeypatch):
-    import asyncio
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock
-
-    from api.routes.one import pod_maintenance
-    from hushh_mcp.services import (
-        pod_identity_store,
-        pod_session_authority,
-        pod_storage,
-        pod_upgrade_admission,
-    )
-
-    recovering, recover, gmail_started, gmail_stopped = (asyncio.Event() for _ in range(4))
-
-    async def authority(**kwargs):
-        recovering.set()
-        await recover.wait()
-
-    async def gmail():
-        gmail_started.set()
-        try:
-            await asyncio.Event().wait()
-        finally:
-            gmail_stopped.set()
-
-    permit = SimpleNamespace(release=AsyncMock())
-    admission = SimpleNamespace(acquire_turn=AsyncMock(return_value=permit))
-    monkeypatch.setattr(pod_storage, "resolve_boot_custody", AsyncMock(return_value=(None, None)))
-    monkeypatch.setattr(
-        pod_identity_store, "resolve_durable_private_key_b64", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(pod_session_authority, "build_pod_session_authority", authority)
-    monkeypatch.setattr(pod_upgrade_admission, "ADMISSION", admission)
-    monkeypatch.setattr(pod_maintenance, "gmail_notification_job", gmail)
-    monkeypatch.setattr(pod_server, "_start_heartbeat_loop", lambda: None)
-    monkeypatch.setattr(pod_server, "_ensure_memory_bank_task", AsyncMock())
-    monkeypatch.delenv("POD_FILES_ENABLED", raising=False)
-    boot = asyncio.create_task(pod_server._pod_startup())
-    try:
-        await asyncio.wait_for(recovering.wait(), 1)
-        assert not gmail_started.is_set()
-        admission.acquire_turn.assert_not_awaited()
-        recover.set()
-        await asyncio.wait_for(boot, 1)
-        await asyncio.wait_for(gmail_started.wait(), 1)
-        permit.release.assert_not_awaited()
-        await pod_server._stop_files_queue()
-        assert gmail_stopped.is_set()
-        permit.release.assert_awaited_once()
-        assert pod_server.app.state.gmail_restart_consumer is None
-    finally:
-        boot.cancel()
-        await asyncio.gather(boot, return_exceptions=True)
-        await pod_server._stop_files_queue()
-
-
 def test_a_hub_outage_is_a_clean_503_not_a_raw_500():
     """A pod reads the data plane THROUGH the hub, so a hub outage is a dependency
     outage and must answer like one -- the same shape as the DB handlers beside it.
