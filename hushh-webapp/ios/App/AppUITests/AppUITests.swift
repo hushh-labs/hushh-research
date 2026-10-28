@@ -5228,7 +5228,10 @@ final class AppUITests: XCTestCase {
                         guard waitForAdmittedControl(ownKey), waitForAdmittedControl(providerBack) else {
                             let loading = app.buttons["native-profile-row-runtime-loading"].firstMatch
                             let retry = app.buttons["native-profile-row-runtime-retry"].firstMatch
-                            print("PROFILE_PROVIDER_READ_STATE byok=\(ownKey.exists) enabled=\(ownKey.exists && ownKey.isEnabled) loading=\(loading.exists) retry=\(retry.exists && retry.isHittable) web=\(app.webViews.matching(identifier: "native-webview").count > 0)")
+                            let unverified = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "couldn't verify your hosting connection")).firstMatch
+                            let pending = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "agent is still getting ready")).firstMatch
+                            let managed = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Use Hussh AI")).firstMatch
+                            print("PROFILE_PROVIDER_READ_STATE byok=\(ownKey.exists) enabled=\(ownKey.exists && ownKey.isEnabled) loading=\(loading.exists) retry=\(retry.exists && retry.isHittable) back=\(providerBack.exists && providerBack.isHittable) web=\(app.webViews.matching(identifier: "native-webview").count > 0) host_unknown=\(unverified.exists) host_pending=\(pending.exists) web_managed=\(managed.exists)")
                             XCTFail("PROFILE_NATIVE_PROVIDER_NOT_ADMITTED"); return
                         }
                         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_PROVIDER_DUPLICATE_WEB_BODY")

@@ -18,27 +18,43 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated audit — 2026-10-28
 
-The local integrated source through `cf2416ea35` includes main and the shared branch.
-Its generated map contains 161 routes and 17 separately enumerated query-driven
-views; enumeration is discovery, not acceptance. The iPhone now has the
+The local source integrates main through `84b80bcab6` in `b7fbe3c56a`. The
+generated map contains 162 routes and 17 separately enumerated query-driven
+views; the native inventory contains 147 entries, of which 119 are required.
+Enumeration is discovery, not acceptance. The iPhone has the
 Dev-backed qualification build from `cf2416ea35` installed (signed source app executable
 SHA-256 `40e9e9d7ee866888d47ba69a0ce3448099fca1baef17dc9bd2b2e346f73bd9fb`;
-test bundle SHA-256 `cb85b9aaf58943970f1d80d4455f8c3201058ab2abc70eee1c91167cdc32222c`).
+the original test bundle SHA-256 was `cb85b9aaf58943970f1d80d4455f8c3201058ab2abc70eee1c91167cdc32222c`).
 Its 1,783 exported web assets match the signed source bundle, and its backend and
 Firebase identity match the Dev profile. This Release qualification build uses
 `ENABLE_TESTABILITY=YES`; it is not performance proof for a differently compiled
-distribution binary. The app and matching runner installed and One launched, but
-XCTest timed out enabling automation before its test body; installed executable
-bytes were not read back. Functional evidence in the table is from the earlier
-`773bd90a6f` app and does not transfer to the installed build.
+distribution binary. XCTest subsequently entered the installed app and reached
+the protected Chat session; installed executable bytes were not read back. The
+later test-only runner, built with the bidirectional Profile search correction,
+has test executable SHA-256 `08f443294097a5a1393c80478b9837824d77bd8ad6c445655f676a74e631c04b`.
+The subsequent provider-diagnostic runner is `c959ebc528c511e43fbbc8d613b5ef77a34822fa8e73918e6e79b457912d35db`.
+The merged main changes and later commits are not in the installed app.
 Ordinary builds retain the established renderer and the qualification switch.
 
 | Family | Renderer and operation owner | Evidence and remaining qualification |
 | --- | --- | --- |
-| Profile and nested settings | Typed native scenes where admitted; React feature owners and complete web handoff elsewhere | Read-only journeys covered Hosting, Updates, Account, Payouts, Memory sharing, World Model, Security, Devices, Connectors, Invite, Help and Legal on `773bd90a6f`. The Memory editor was unavailable; Pricing returned Retry while its Dev endpoint returned 503; AI provider used web. No full-family or mutation acceptance. |
+| Profile and nested settings | Typed native scenes where admitted; React feature owners and complete web handoff elsewhere | On `cf2416ea35`, read-only journeys covered Hosting, Updates, Account, Payouts, Memory sharing, Security, Devices, Connectors, Invite, Help and Legal. The Connector catalog and Drive return passed with the corrected test runner; the prior failed search did not establish its cause. The Memory editor was unavailable. Pricing displayed Retry with Back available; the AI-provider native controls were not admitted and a WebView was observed. Neither full-family nor mutation acceptance is established. |
 | Bottom navigation and Agent Dock | Retained native bar and dock; shared route, scroll and voice owners | On `773bd90a6f`, three Feed scroll/reversal cycles preserved the dock, WebView and draft with no interactive web duplicate. The check accepts voice-readiness labels and does not establish voice availability or frame pacing. |
 | Privacy and interruption | Existing native privacy and presentation owners | Ten warm Profile background/resume cycles and Control Center recovery passed on `773bd90a6f`; other interruption and overlay combinations remain unqualified. |
 | Other routes and nested states | Existing feature owners and renderer-specific fallbacks | The generated inventory covers route discovery, not every interaction state. Native completion, visual and accessibility review, mutation fixtures and physical performance acceptance remain open. |
+
+Dev's serving backend revision returned 503 for Pricing during these checks.
+Its current service configuration does not set the staged Drive-sharing flag
+or owner cohort, and identifies its environment as `dev`; the current source's
+staged admission only accepts `development`, `local`, `test` or `uat` outside
+production. This makes admission a likely cause, not proof of the specific 503:
+the same public error also covers other failures. No rollout policy was changed.
+The AI-provider diagnostic observed a web view but neither the native provider
+controls nor the tested web status labels; this does not establish a usable
+handoff or its cause. Current source also fences the hosting observation to
+its owner visit and refresh revision before render. The focused settings suite
+reproduced the old stale first render and passed after the fix; this does not
+prove it caused the device's admission failure.
 
 The native inventory now classifies all standard route-layout entries, including
 the local-only connected-system detail and the RIA client, account and request
@@ -51,8 +67,10 @@ unverified native navigation gap, not a native acceptance claim.
 Fourteen in-app query-backed views (Finance, Consent, Location, Connect and
 Mail) are discovered in the surface map but do not have separate route-inventory
 rows. A parent-route smoke is not evidence that each view or nested state passed.
-The route-report verifier now rejects skipped, incomplete or duplicate results;
-that correction does not itself supply the missing view coverage.
+The route-report verifier rejects skipped, incomplete or duplicate results and
+missing auth/data contracts. `/one/welcome` now records the authentication and
+loaded state asserted by its existing beacon. Those corrections do not themselves
+supply the missing view coverage.
 
 The shared native private editors now retain menu delegates until dismissal,
 fence overlapping menu completions and keep unfinished IME candidates inside
