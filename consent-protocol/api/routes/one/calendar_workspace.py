@@ -42,6 +42,7 @@ from api.routes.one.calendar_workspace_models import (
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
 from hushh_mcp.services.owner_placement_guard import (
+    admit_hub_content,
     hub_content_firebase,
     hub_content_firebase_read_only,
     hub_content_owner,
@@ -425,9 +426,11 @@ async def meeting_library(
 ):
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await _insights(payload.account_id).library(
+        result = await _insights(payload.account_id).library(
             user_id=firebase_uid, **payload.model_dump(exclude={"account_id"})
         )
+        await admit_hub_content(firebase_uid, "one_calendar_meeting_library")
+        return result
     except Exception as exc:
         raise _http(exc) from exc
 
@@ -440,7 +443,9 @@ async def meeting_detail(
 ):
     from api.routes.one.calendar_meeting_actions import meeting_detail as action
 
-    return await action(payload, response, firebase_uid, artifacts=_artifacts, http_error=_http)
+    result = await action(payload, response, firebase_uid, artifacts=_artifacts, http_error=_http)
+    await admit_hub_content(firebase_uid, "one_calendar_meeting_detail")
+    return result
 
 
 @router.post("/meetings/download")
@@ -466,7 +471,7 @@ async def meeting_open(
 async def _meeting_file_action(payload, response, firebase_uid, *, download):
     from api.routes.one.calendar_meeting_actions import meeting_file_action
 
-    return await meeting_file_action(
+    result = await meeting_file_action(
         payload,
         response,
         firebase_uid,
@@ -474,6 +479,8 @@ async def _meeting_file_action(payload, response, firebase_uid, *, download):
         artifacts=_artifacts,
         http_error=_http,
     )
+    await admit_hub_content(firebase_uid, "one_calendar_meeting_file_action")
+    return result
 
 
 @router.post("/meetings/context")

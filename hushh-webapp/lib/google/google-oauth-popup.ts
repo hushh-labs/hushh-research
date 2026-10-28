@@ -1,11 +1,26 @@
 "use client";
 
 import { assertOAuthReturnOrigin, openOAuthWindow } from "@/lib/connections/oauth-window";
+import { validCalendarMeetingReturn, type CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
+import type { GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
 
 const ATTEMPT_KEY = "one_google_oauth_popup_attempt_v1";
 const FALLBACK_ATTEMPT_KEY = "one_google_oauth_popup_attempt_fallback_v1";
 const SETTLEMENT_KEY = "one_google_oauth_popup_settlement_v1";
 const MAX_AGE_MS = 15 * 60 * 1000;
+const MEETING_SCOPES = [
+  "https://www.googleapis.com/auth/meetings.space.readonly",
+  "https://www.googleapis.com/auth/drive.meet.readonly",
+];
+
+export function hasCalendarMeetingFileGrant(status: GoogleCalendarStatus, accountId: string, expectedSubjectSha256?: string, priorGrantGeneration?: string): boolean {
+  const account = status.accounts?.find(item => item.account_id === accountId);
+  if (!account?.connected || account.status !== "connected" ||
+      (expectedSubjectSha256 && account.provider_subject_sha256 !== expectedSubjectSha256) ||
+      (priorGrantGeneration !== undefined && (!account.grant_generation || account.grant_generation === priorGrantGeneration))) return false;
+  const granted = new Set((account.scope_csv || "").replaceAll(",", " ").split(/\s+/));
+  return MEETING_SCOPES.every(scope => granted.has(scope));
+}
 
 export type GoogleOAuthPopupService = "gmail_send" | "calendar";
 export type GoogleOAuthPopupAttempt = {
@@ -17,6 +32,11 @@ export type GoogleOAuthPopupAttempt = {
   returnMode?: "popup" | "same_window";
   accessLevel?: "read" | "manage";
   calendarAdditional?: boolean;
+  meetingFiles?: true;
+  targetAccountId?: string;
+  expectedSubjectSha256?: string;
+  priorGrantGeneration?: string;
+  meetingReturn?: CalendarMeetingReturnContext;
 };
 export type GoogleOAuthPopupSettlement = {
   schemaVersion: 1;
@@ -75,7 +95,9 @@ function storage(target: Window | null | undefined): Storage | null {
 
 export function createGoogleOAuthPopupAttempt(
   service: GoogleOAuthPopupService,
-  options: { ownerId: string; accessLevel?: "read" | "manage"; calendarAdditional?: boolean },
+  options: { ownerId: string; accessLevel?: "read" | "manage"; calendarAdditional?: boolean;
+    meetingFiles?: boolean; targetAccountId?: string; expectedSubjectSha256?: string; priorGrantGeneration?: string;
+    meetingReturn?: CalendarMeetingReturnContext },
 ): GoogleOAuthPopupAttempt {
   return {
     version: 1,
@@ -85,6 +107,11 @@ export function createGoogleOAuthPopupAttempt(
     ownerId: options.ownerId,
     ...(options.accessLevel ? { accessLevel: options.accessLevel } : {}),
     ...(options.calendarAdditional ? { calendarAdditional: true } : {}),
+    ...(options.meetingFiles ? { meetingFiles: true } : {}),
+    ...(options.targetAccountId ? { targetAccountId: options.targetAccountId } : {}),
+    ...(options.expectedSubjectSha256 ? { expectedSubjectSha256: options.expectedSubjectSha256 } : {}),
+    ...(options.priorGrantGeneration ? { priorGrantGeneration: options.priorGrantGeneration } : {}),
+    ...(options.meetingReturn ? { meetingReturn: options.meetingReturn } : {}),
   };
 }
 
@@ -153,6 +180,12 @@ export function readGoogleOAuthPopupAttempt(): GoogleOAuthPopupAttempt | null {
         parsed.accessLevel === "manage") &&
       (parsed.calendarAdditional === undefined ||
         parsed.calendarAdditional === true) &&
+      (parsed.meetingFiles === undefined || parsed.meetingFiles === true) &&
+      (parsed.targetAccountId === undefined || /^[A-Za-z0-9_-]{1,128}$/.test(parsed.targetAccountId)) &&
+      (parsed.expectedSubjectSha256 === undefined || /^[a-f0-9]{64}$/.test(parsed.expectedSubjectSha256)) &&
+      (parsed.priorGrantGeneration === undefined || typeof parsed.priorGrantGeneration === "string" && parsed.priorGrantGeneration.length <= 128) &&
+      (parsed.meetingReturn === undefined || validCalendarMeetingReturn(parsed.meetingReturn)) &&
+      (!parsed.meetingFiles || (parsed.service === "calendar" && parsed.targetAccountId === parsed.meetingReturn?.accountId)) &&
       Date.now() - parsed.startedAt >= 0 &&
       Date.now() - parsed.startedAt <= MAX_AGE_MS
     )
