@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { SectionLabel } from "@/components/app-ui/typography";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
@@ -22,14 +23,18 @@ function largestPosition(model?: DashboardViewModel) {
 /** A summary of the active saved portfolio, without assuming a market update or recommendation. */
 export function PortfolioBriefing({ model, onOpen, advisorAction }: { model?: DashboardViewModel; onOpen?: () => void; advisorAction?: ReactNode }) {
   const largest = largestPosition(model);
-  return <SurfaceCard>
+  const leadingSector = model?.quality.sectorReady ? model.equity_sector_allocation[0] : undefined;
+  return <SurfaceCard data-testid="portfolio-briefing">
     <SurfaceCardContent className="space-y-3 p-5">
-      <h2 className="text-base font-semibold">One’s briefing</h2>
-      <p className="text-sm leading-6 text-muted-foreground">
-        {!model ? "Add a portfolio to see your analysis." : largest
+      <div className="flex items-center justify-between gap-3"><SectionLabel role="heading" aria-level={2}>One’s briefing</SectionLabel><span className={styles.description}>{model ? "Portfolio overview" : "Get started"}</span></div>
+      <p className="text-lg font-semibold leading-7">{model ? "A closer look at your portfolio." : "Your portfolio, at a glance."}</p>
+      <ul className="space-y-3 text-sm leading-6 text-muted-foreground">
+        <li>{!model ? "Add a portfolio to see your analysis." : largest
           ? `${largest.name} is your largest tracked position at ${largest.weightPct.toFixed(1)}% of your portfolio.`
-          : "Your saved portfolio is ready to review. Position concentration is unavailable for this source."}
-      </p>
+          : "Your saved portfolio is ready to review. Position concentration is unavailable for this source."}</li>
+        {model ? <li>{model.quality.historyReady ? "Dated portfolio balances are available to review." : "This source does not provide enough dated balances for a history chart."}</li> : null}
+        {leadingSector ? <li>{`${leadingSector.sector} represents ${leadingSector.pct.toFixed(1)}% of your portfolio.`}</li> : null}
+      </ul>
       <div className="flex flex-wrap gap-2">{onOpen ? <ShellActionSurface variant="pill" className="min-h-11" onClick={onOpen}>
         {model ? "View analysis" : "Import portfolio"}
       </ShellActionSurface> : null}{advisorAction}</div>
@@ -42,7 +47,7 @@ export function PortfolioAnalysis({ model, source }: { model: DashboardViewModel
   const largest = largestPosition(model);
   return <div className="space-y-4" data-testid="portfolio-analysis">
     <SurfaceCard><SurfaceCardContent className="space-y-3 p-5">
-      <h2 className="text-base font-semibold">Portfolio overview</h2>
+      <h2 className="ui-text-section-label">Portfolio overview</h2>
       <p className="text-sm text-muted-foreground">Based on {source.toLowerCase()} information{model.hero.statementPeriod ? ` · ${model.hero.statementPeriod}` : " · current saved snapshot"}.</p>
       <dl className={styles.summaryFacts}>
         <div><dt>Portfolio value</dt><dd>{money(model.hero.totalValue)}</dd></div>
@@ -52,14 +57,14 @@ export function PortfolioAnalysis({ model, source }: { model: DashboardViewModel
       </dl>
     </SurfaceCardContent></SurfaceCard>
     <SurfaceCard><SurfaceCardContent className="space-y-3 p-5">
-      <h2 className="text-base font-semibold">Value history</h2>
+      <h2 className="ui-text-section-label">Value history</h2>
       {model.quality.historyReady ? <>
         <PortfolioHistoryChart data={model.history} height={180} />
         <p className={styles.description}>Saved balance changes may include deposits and withdrawals; they are not investment returns.</p>
       </> : <p className={styles.description}>This source does not provide enough dated balances for a history chart.</p>}
     </SurfaceCardContent></SurfaceCard>
     <SurfaceCard><SurfaceCardContent className="space-y-3 p-5">
-      <h2 className="text-base font-semibold">Position concentration</h2>
+      <h2 className="ui-text-section-label">Position concentration</h2>
       {model.canonicalModel.positions.length && model.hero.totalValue > 0 ? <>
         <p className={styles.description}>The largest available positions as a share of the selected portfolio's value.</p>
         <dl className={styles.facts}>{[...model.canonicalModel.positions].sort((a, b) => b.marketValue - a.marketValue).slice(0, 5).map(position =>
@@ -67,7 +72,7 @@ export function PortfolioAnalysis({ model, source }: { model: DashboardViewModel
       </> : <p className={styles.description}>Position concentration is unavailable for this source.</p>}
     </SurfaceCardContent></SurfaceCard>
     <SurfaceCard><SurfaceCardContent className="space-y-3 p-5">
-      <h2 className="text-base font-semibold">Allocation</h2>
+      <h2 className="ui-text-section-label">Allocation</h2>
       {model.quality.allocationReady && model.allocation.length ? <dl className={styles.facts}>
         {model.allocation.map(row => <div className={styles.fact} key={row.name}><dt>{row.name}</dt><dd>{money(row.value)}{model.hero.totalValue > 0 ? ` · ${(row.value / model.hero.totalValue * 100).toFixed(1)}%` : ""}</dd></div>)}
       </dl> : <p className={styles.description}>Allocation is unavailable for this source.</p>}

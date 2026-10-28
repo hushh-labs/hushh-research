@@ -42,9 +42,11 @@ describe("Portfolio workspace hierarchy", () => {
     expect(dashboard).toContain("<PortfolioOverview");
     const overview = read("components/kai/views/portfolio-overview.tsx");
     expect(overview).toContain('testId="portfolio-overview-options"');
-    for (const title of ["Holdings", "Allocation", "Performance", "Portfolio source"]) {
+    for (const title of ["Holdings", "Allocation", "Performance"]) {
       expect(overview).toContain(`title: "${title}"`);
     }
+    expect(overview).not.toContain('title: "Portfolio source"');
+    expect(overview).toContain('onOpenSection("sources")}>Manage portfolio');
     expect(dashboard).toContain('testId="portfolio-holdings-mobile-list"');
     expect(dashboard).toContain("isHoldingsEditing");
     expect(dashboard).toContain('className="hidden min-w-0 md:block"');
