@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { useLayoutEffect } from "react";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
-import { SecureCardAddForm as CardForm } from "@/components/wallet/secure-card-add-form";
+import { SecureCardAddForm as CardForm, useSecureCardFormOwner } from "@/components/wallet/secure-card-add-form";
 
 const networkApi = vi.hoisted(() => ({ resolve: vi.fn(), supported: vi.fn(), artwork: vi.fn(), select: vi.fn(), preview: vi.fn(), display: vi.fn(), banks: vi.fn() }));
 vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { resolveCardNetwork: networkApi.resolve, supportedCardNetworks: networkApi.supported, resolveCardArtwork: networkApi.artwork, selectCardArtwork: networkApi.select, previewCardArtwork: networkApi.preview, checkCardArtworkDisplay: networkApi.display, bankArtwork: networkApi.banks } }));
@@ -24,6 +24,24 @@ function fillRequired() {
   fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Test Owner" } });
   fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "12/99" } });
 }
+
+it("invalidates retired native draft replicas on reset and closure, without losing an active draft", async () => {
+  const onSubmit = vi.fn();
+  const view = renderHook(({ active }) => useSecureCardFormOwner({ onSubmit, active, getNetworkContext: networkContext }), { initialProps: { active: true } });
+  const lifetime = view.result.current.draftLifetime, token = lifetime.current.token;
+  act(() => { view.result.current.setPan("4242424242424242"); view.result.current.setSecurityCode("007"); });
+  expect(lifetime.current.token).toBe(token); // Same-draft native retirement may reconcile final text.
+  act(() => view.result.current.resetDraft());
+  expect(lifetime.current.token).not.toBe(token);
+  expect(view.result.current.pan).toBe("");
+  expect(view.result.current.securityCode).toBe("");
+  const resetToken = lifetime.current.token;
+  view.rerender({ active: false });
+  expect(lifetime.current.token).not.toBe(resetToken);
+  view.unmount();
+  expect(lifetime.current.alive).toBe(false);
+  expect(onSubmit).not.toHaveBeenCalled();
+});
 
 it("collects a masked manual code only when owner Wallet enables it, preserving leading zeroes", async () => {
   const save = vi.fn().mockResolvedValue(undefined);

@@ -112,11 +112,13 @@ typealias NativeMemoryEditorModel = NativeProfileEditorModel<NativeMemoryProject
            hasPending: { [weak model] in model?.pending != nil }, appearance: { [weak model] in
                guard let model else { return nil }
                return HushhNativeControlAppearance(appearance: model.projection.appearance, accentHex: model.projection.accentHex, foregroundHex: model.projection.foregroundHex)
-           }, cancel: { [weak model] in model?.action("cancel") }, clear: { [weak model] in model?.clear() })
+           }, cancel: { [weak model] in model?.action("cancel") }, clear: { [weak model] in model?.clear() },
+           dismissPopups: { [weak model] completion in if let model { model.dismissEditorMenus(completion: completion) } else { completion() } })
     }()
     var coverage: (() -> Void)? { didSet { sheet.coverage = coverage } }
     var coversPresentation: Bool { sheet.coversPresentation }
     var presentationSettled: Bool { sheet.presentationSettled }
+    var feedbackPresenter: UIViewController? { sheet.feedbackPresenter }
     func refreshPrivacy() { sheet.refresh() }
     init(_ projection: NativeMemoryProjection) { model = NativeMemoryEditorModel(projection) }
     func present(from parent: UIViewController, completion: @escaping (Bool) -> Void) -> Bool { sheet.present(from: parent, completion: completion) }

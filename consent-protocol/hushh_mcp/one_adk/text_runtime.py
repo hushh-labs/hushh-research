@@ -222,14 +222,16 @@ def _runtime_model(
             vertex_project=runtime_vertex_project,
             vertex_location=runtime_vertex_location,
         )
-    if runtime_mode == "user_adc":
+    if runtime_mode in {"user_adc", "hosted_pod_adc"}:
         # Native owner ADC by default; an explicit dev bridge changes only the
         # inference destination and verifies the attached owner workload identity.
         from hushh_mcp.runtime_providers.owner_gemini import build_owner_gemini_adk_model
 
         if credential:
             raise ValueError("user ADC cannot be constructed from an API key")
-        return build_owner_gemini_adk_model(model, vertex_location=managed_location)
+        return build_owner_gemini_adk_model(
+            model, vertex_location=managed_location, require_hosted=runtime_mode == "hosted_pod_adc"
+        )
     if runtime_mode != "hushh_managed_vertex":
         # Closed set, and closed is the point. hussh's own Vertex identity used to
         # be the DEFAULT branch: any mode string that was not exactly "byok" landed

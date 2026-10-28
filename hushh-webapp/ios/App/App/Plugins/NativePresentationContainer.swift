@@ -132,6 +132,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     static let isolationDidChange = Notification.Name("HushhNativeDrawerIsolationDidChange")
     enum BasePresentation { case underlay, contentBacked, coherentDrawers }
     let webView: WKWebView
+    private let privacyShield: HushhSessionPrivacyShield
     let basePresentation: BasePresentation
     var contentBackedPresentation: Bool { basePresentation != .underlay }
     var legacyRegionPresentation: Bool { basePresentation == .contentBacked }
@@ -178,7 +179,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         return privacyConcealed && underlay.isHidden && contentChrome.isHidden &&
             groups.values.allSatisfy(\.isHidden) && !focused(underlay) && !focused(contentChrome)
     }
-    #if DEBUG
+    #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
     private(set) var lastRegionRefusal = 0
     private(set) var lastRejectedInitialFrame: CGRect?
     var baseEditorFocused: Bool {
@@ -186,12 +187,12 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
             if view.accessibilityIdentifier == "native-dock-editor" { return view.isFirstResponder }
             return view.subviews.contains(where: focused)
         }
-        return focused(underlay)
+        return focused(underlay) || focused(contentChrome)
     }
     #endif
 
     private func rejectRegion(_ reason: NativeRegionRefusal) -> Bool {
-        #if DEBUG
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         lastRegionRefusal = reason.rawValue
         #endif
         return false
@@ -213,12 +214,12 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         if let initialPose {
             guard let drawer, let privacyGeneration, covered, isolated, !privacyConcealed,
                   initialPose.document == document,
-                  privacyGeneration == HushhSessionPrivacyShield.shared.snapshot().generation else { return rejectRegion(.initialContext) }
+                  privacyGeneration == privacyShield.snapshot().generation else { return rejectRegion(.initialContext) }
             guard initialPose.isContained(in: bounds),
                   abs(initialPose.frame.minY) <= 1, abs(initialPose.frame.maxY - bounds.height) <= 1,
                   initialPose.hasValidGeometry,
                   initialPose.opacity == 0 || initialPose.opacity == 1 else {
-                #if DEBUG
+                #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
                 lastRejectedInitialFrame = initialPose.frame
                 #endif
                 return rejectRegion(.initialGeometry)
@@ -271,14 +272,16 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     func acceptsPresentationRevision(_ revision: Int?, privacyGeneration: Int?) -> Bool {
         regionPrivacyGeneration == nil ||
             (revision == regionRevision && privacyGeneration == regionPrivacyGeneration &&
-                privacyGeneration == HushhSessionPrivacyShield.shared.snapshot().generation)
+                privacyGeneration == privacyShield.snapshot().generation)
     }
     #if DEBUG
     private var continuity: NativePanelContinuityProbe?
     #endif
 
-    init(webView: WKWebView, basePresentation: BasePresentation = .underlay, drawerClipping: Bool = false) {
+    init(webView: WKWebView, basePresentation: BasePresentation = .underlay, drawerClipping: Bool = false,
+         privacyShield: HushhSessionPrivacyShield = .shared) {
         self.webView = webView
+        self.privacyShield = privacyShield
         self.basePresentation = basePresentation
         self.drawerClipping = drawerClipping && basePresentation == .contentBacked
         super.init(frame: webView.frame)
@@ -384,7 +387,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     /// clipping. Base hosts survive behind WK; only its authored header is above.
     func acquireContentPane(_ identity: NativeContentPaneIdentity, viewport: CGSize, preparing: Bool = false) -> Bool {
         guard wholeNativeDrawers, viewport == bounds.size, !privacyConcealed || preparing && preparationBaseIsConcealed,
-              identity.privacyGeneration == HushhSessionPrivacyShield.shared.snapshot().generation,
+              identity.privacyGeneration == privacyShield.snapshot().generation,
               contentPaneFence.acquire(identity) else { return false }
         underlay.layer.zPosition = -1
         for (id, control) in controls where control.pane != identity { setAdmission(id, admitted: false) }
@@ -415,7 +418,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     func allowsControl(_ id: String) -> Bool {
         guard !privacyConcealed, !ownedDrawerIsolation, !overlayIsolated, let control = controls[id] else { return false }
         if let pane = control.pane {
-            return contentPaneAdmits(pane) && pane.privacyGeneration == HushhSessionPrivacyShield.shared.snapshot().generation
+            return contentPaneAdmits(pane) && pane.privacyGeneration == privacyShield.snapshot().generation
         }
         return contentPane == nil
     }
@@ -506,8 +509,12 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         guard wholeNativeDrawers, ownedDrawerIsolation != covered else { return }
         ownedDrawerIsolation = covered
         isolationGeneration += 1
-        webView.isUserInteractionEnabled = !covered && !privacyConcealed
-        webView.accessibilityElementsHidden = covered || privacyConcealed
+        // Native paint may remain concealed after authorized WebView recovery.
+        // That retained-paint latch is not the current session privacy gate.
+        // Releasing an owned popup must use the same gate as window recovery.
+        webView.isUserInteractionEnabled = false
+        webView.accessibilityElementsHidden = true
+        if !covered { releasePrivacyIsolation() }
         underlay.isUserInteractionEnabled = !covered
         underlay.accessibilityElementsHidden = covered
         if covered {
@@ -604,6 +611,8 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     func conceal() {
         #if DEBUG
         continuity?.discard()
+        #endif
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         lastRegionRefusal = 0
         lastRejectedInitialFrame = nil
         #endif
@@ -618,7 +627,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     }
 
     func revealUnderlay(presentationRegionRevision: Int? = nil, privacyGeneration: Int? = nil) {
-        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        let privacy = privacyShield.snapshot()
         guard privacy.appIsActive, !privacy.shielded,
               acceptsPresentationRevision(presentationRegionRevision, privacyGeneration: privacyGeneration) else { return }
         privacyConcealed = false
@@ -630,7 +639,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     /// Releasing window privacy restores the web safe gate even when no native
     /// bar is admitted there. It does not reveal a stale native underlay.
     func releasePrivacyIsolation() {
-        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        let privacy = privacyShield.snapshot()
         guard privacy.appIsActive, !privacy.shielded else { return }
         webView.isUserInteractionEnabled = !ownedDrawerIsolation
         webView.accessibilityElementsHidden = ownedDrawerIsolation

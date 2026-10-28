@@ -56,7 +56,7 @@ export const WALLET_CARD_SERVICE_COPY = {
 /* ------------------------------------------------------------------- types */
 
 /** Mirrors the server-side `preferred_contact` closed set (contract §3). */
-export type WalletCardPreferredContact = "email" | "phone" | "linkedin" | "website";
+export type WalletCardPreferredContact = import("@/lib/wallet/wallet-card-draft").WalletCardPreferredContact;
 
 export type WalletPassVariant = "profile" | "referral" | "nws";
 

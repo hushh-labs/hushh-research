@@ -265,3 +265,31 @@ def test_a_failed_creation_is_not_reported_as_ok() -> None:
     )
     assert result["ok"] is False
     assert result["status"] == 409
+
+
+@pytest.mark.parametrize("attempt", [None, "invalid", "a" * 32])
+def test_managed_project_creation_names_its_tenancy_and_durable_operation(attempt):
+    session = _Session(_Response(200, {"name": "operations/managed"}))
+    fields = dict(
+        project_id="managed-pilot-project",
+        display_name="Synthetic pilot",
+        parent_type="folder",
+        parent_id="123",
+        token=FAKE_BEARER,
+        session=session,
+        tenancy="hussh-hosted",
+        provision_attempt_id=attempt,
+        environment="dev",
+    )
+    if attempt != "a" * 32:
+        with pytest.raises(ValueError):
+            create_project(**fields)
+        assert session.calls == []
+        return
+    assert create_project(**fields)["ok"]
+    assert session.calls[0]["json"]["labels"] == {
+        "created-by": "hussh-one",
+        "tenancy": "hussh-hosted",
+        "hussh-provision-attempt": attempt,
+        "hussh-environment": "dev",
+    }

@@ -14,8 +14,11 @@ import { useScopeCommerceAccount } from "@/components/consent/use-scope-commerce
 import { COMMERCE_SANDBOX_COPY } from "@/lib/services/scope-commerce-sandbox";
 
 /** Account-level funds and earning controls; every movement requires a human gesture. */
-export function ScopeCommerceAccountPanel() {
-  const state = useScopeCommerceAccount();
+export function ScopeCommerceAccountPanel({ model }: { model?: ReturnType<typeof useScopeCommerceAccount> } = {}) {
+  return model ? <ScopeCommerceAccountView state={model} /> : <OwnedScopeCommerceAccountPanel />;
+}
+function OwnedScopeCommerceAccountPanel() { return <ScopeCommerceAccountView state={useScopeCommerceAccount()} />; }
+function ScopeCommerceAccountView({ state }: { state: ReturnType<typeof useScopeCommerceAccount> }) {
   const { user, account, busy, message, review } = state;
   const userId = user?.uid;
   const [expanded, setExpanded] = useState({ owner: user?.uid, value: state.onboardingRefresh ? "payouts" : "" });

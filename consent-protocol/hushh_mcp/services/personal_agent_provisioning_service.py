@@ -71,6 +71,7 @@ from hushh_mcp.services.compute_backend import (
     PodSpec,
     adoption_expectations,
 )
+from hushh_mcp.services.hosted_erasure_execution import ManagedErasureOperator
 from hushh_mcp.services.orphan_erase_backoff import error_fields
 from hushh_mcp.services.owner_direct_ingress import ingress_for_provision, ingress_for_update
 from hushh_mcp.services.personal_agent_feed import (
@@ -164,7 +165,6 @@ from hushh_mcp.services.pod_update_identity import (
 from hushh_mcp.services.user_cloud_service import (
     resolve_user_cloud,
     spec_coordinates,
-    spec_coordinates_from_row,
 )
 
 logger = logging.getLogger(__name__)
@@ -573,8 +573,10 @@ class PersonalAgentProvisioningService:
         grant: Optional[_Grant] = None,
         backend: Optional[ComputeBackend] = None,
         substrate: Optional[Any] = None,
+        managed_erasure: Optional[ManagedErasureOperator] = None,
     ) -> None:
         self._registry = registry
+        self._managed_erasure = managed_erasure
         self._grant: _Grant = grant or PersonalAgentGrantService()
         # Per-tenant substrate, resolved per person when not injected. Left as None
         # rather than defaulting to the no-substrate ensurer: a default here would
@@ -854,8 +856,13 @@ class PersonalAgentProvisioningService:
                 raise PersonalAgentCloudNotAuthorizedError(
                     "Shared Files must complete a qualified transfer before changing hosting. Nothing was moved."
                 ) from None
-            phase = "reserved"
-            substrate_receipt: Optional[dict[str, Any]] = None
+            from hushh_mcp.services.personal_agent_provision_execution import (
+                ProvisionExecutionState,
+                ReservedProvisionExecution,
+                run_reserved_provision,
+            )
+
+            execution = ProvisionExecutionState(reservation["phase"])
             provision_release = configured_release(str(os.getenv("HUSSH_ONE_POD_IMAGE") or ""))
 
             async def _record(
@@ -865,7 +872,6 @@ class PersonalAgentProvisioningService:
                 next_phase: Optional[str] = None,
                 target: Optional[dict] = None,
             ) -> None:
-                nonlocal phase
                 target_phase = next_phase or (
                     "failed" if status == "provisioning_failed" else status
                 )
@@ -881,15 +887,15 @@ class PersonalAgentProvisioningService:
                         attestation_ref=handle.attestation_ref,
                         liveness_mode=metadata.get("livenessMode"),
                     )
-                if substrate_receipt is not None:
-                    metadata["substrateReceipt"] = substrate_receipt
+                if execution.substrate_receipt is not None:
+                    metadata["substrateReceipt"] = execution.substrate_receipt
                 if metadata:
                     fields["backend_metadata"] = metadata
                 fields = {key: value for key, value in fields.items() if value is not None}
                 published = await self._registry.publish_provision(
                     user_id=user_id,
                     attempt_id=reservation["attemptId"],
-                    expected_phase=phase,
+                    expected_phase=execution.phase,
                     next_phase=target_phase,
                     evidence={"registry": fields, **({"target": target} if target else {})},
                 )
@@ -897,7 +903,7 @@ class PersonalAgentProvisioningService:
                     raise RuntimeError(
                         "personal agent provision publication requires reconciliation"
                     )
-                phase = target_phase
+                execution.phase = target_phase
 
             record = _record
             await record_provisioning_feed_event_safe(
@@ -972,149 +978,30 @@ class PersonalAgentProvisioningService:
                 **spec_coordinates(cloud),
                 files_library_enabled=bool(cloud and cloud.files_library_enabled),
             )
-            # The person's own target wins over the one this service was constructed
-            # with. BYOC is the production path, so a pod belonging to someone who has
-            # connected their own cloud must be built THERE even though the hub that
-            # is building it runs on hushh's. Absent a per-person target this returns
-            # the injected backend unchanged, so nothing existing moves.
-            # The tenant's infrastructure has to exist before a pod can be built on it:
-            # the pod's service account, its CMEK bucket and its wrapped log key all
-            # come from the bootstrap, and a pod created without them boots into a
-            # project with nowhere to write and no key to write with.
-            #
-            # Called UNCONDITIONALLY and resolved per person. Targets with no per-tenant
-            # substrate get the no-op ensurer, so this costs them nothing and the
-            # orchestrator never names a provider to decide -- which is what keeps this
-            # file passing tests/test_deployment_boundary_holds.py.
-            substrate = self._substrate_for(spec)
-            # Rendering is pure. Keep the callback bound to this operation before
-            # the substrate's first notification mutation, then pin UID from its
-            # immutable creation acknowledgement inside the registry port.
-            notification_backend = self._backend_for(spec)
-            renderer = getattr(notification_backend, "render_bootstrap_plan", None)
-            target_for = getattr(notification_backend, "provision_target_for", None)
-            notification_ready = getattr(
-                self._registry, "notification_checkpoint_admission_ready", None
+            return await run_reserved_provision(
+                ReservedProvisionExecution(
+                    service=self,
+                    user_id=user_id,
+                    reservation=reservation,
+                    release=provision_release,
+                    state=execution,
+                    record=_record,
+                    feed=record_provisioning_feed_event_safe,
+                    ledger=ledger,
+                    deferred_key=pod_key is None,
+                ),
+                spec,
             )
-            schema_ready = notification_ready is not None and await notification_ready()
-            if callable(renderer) and callable(target_for) and schema_ready:
-                from hushh_mcp.services.pod_notification_checkpoint import (
-                    bind_notification_checkpoint,
-                )
-
-                def acknowledge_provision_notification(result: dict) -> None:
-                    nonlocal substrate_receipt
-                    # Keep the later host publication from overwriting an admitted
-                    # Scheduler creation receipt with the earlier bootstrap inventory.
-                    substrate_receipt = result["inventory"]
-
-                spec = replace(
-                    spec,
-                    on_notification_checkpoint=bind_notification_checkpoint(
-                        registry=self._registry,
-                        owner_loop=owner_loop,
-                        user_id=user_id,
-                        spec=spec,
-                        renderer=renderer,
-                        service=target_for(spec).get("service", ""),
-                        kind="provision",
-                        attempt_id=reservation["attemptId"],
-                        operation_id=reservation["attemptId"],
-                        acknowledge=acknowledge_provision_notification,
-                    ),
-                )
-            receipt = await substrate.ensure(spec)
-            from hushh_mcp.services.byoc_substrate_inventory import merge_substrate_inventory
-
-            substrate_receipt = merge_substrate_inventory(
-                receipt.as_record() if receipt.resource_ids else None, substrate_receipt
-            )
-            await _record("provisioning", next_phase="substrate")
-            if not receipt.applied and substrate.ensurer_id != "none":
-                # Stop rather than provision onto infrastructure that is not there. The
-                # row stays in `provisioning` for the reconcile sweep, and the message
-                # carries the FIRST failing step -- the applier already marks everything
-                # downstream "not attempted", so naming them all would report one cause
-                # as several problems.
-                first = (receipt.failed_steps or [{}])[0]
-                raise SubstrateNotReadyError(
-                    f"substrate not ready in {receipt.tenant_ref}: "
-                    f"{first.get('step') or receipt.detail or 'unknown step'}"
-                )
-
-            backend = self._backend_for(spec)
-            # Pre-bind the identity the pod will present. A user-owned pod boots and
-            # heartbeats WHILE the backend is still waiting for Ready, and the hub
-            # binds a heartbeat to the row's recorded runtime identity -- which,
-            # until now, was written only after `provision` returned. So the first
-            # beat of every such pod was refused (`email_not_bound`, live
-            # 2026-09-02) and the handshake waited for the next one. The backend
-            # knows the identity from the spec alone; asking it here is neutral
-            # (no provider named) and optional (a backend without the method
-            # behaves exactly as before).
-            identity_of = getattr(backend, "runtime_identity_for", None)
-            expected_identity = str(identity_of(spec) or "").strip() if identity_of else ""
-            identity_handle = BackendHandle(
-                backend=getattr(backend, "backend_id", None),
-                backend_metadata={"runtime_service_account": expected_identity}
-                if expected_identity
-                else {},
-            )
-            target_of = getattr(backend, "provision_target_for", None)
-            await _record(
-                "provisioning",
-                handle=identity_handle if expected_identity else None,
-                next_phase="host_requested",
-                target=target_of(spec) if target_of else None,
-            )
-            handle = await backend.provision(spec)
-            await _record("provisioning", handle=handle, next_phase="host_acknowledged")
-            await _record("connecting", handle=handle)
-
-            if pod_key is None:
-                # The host exists; the pod now has to boot and hand us its public key.
-                # Stop here rather than minting: a standing pkm.read with no pod to
-                # hold it is read authority granted to nobody, which is the one
-                # ordering SECURITY-REVIEW.md M3 exists to prevent.
-                await record_provisioning_feed_event_safe(
-                    user_id=user_id, event_type=FEED_EVENT_CONNECTING
-                )
-                logger.info(
-                    "personal_agent.connecting hushh_id=%s service=%s backend=%s",
-                    hushh_id or "<none>",
-                    handle.external_agent_id or "<none>",
-                    handle.backend or "null",
-                )
-                # The host is Ready and reachable: pull the key NOW rather than
-                # waiting for the pod's next heartbeat to notice `connecting`.
-                # Same collector, same rotation rule as adoption. Best-effort: a
-                # miss leaves the row at `connecting` for the heartbeat path.
-                collected = await self._collect_key_now(user_id)
-                return {
-                    "hushhId": hushh_id,
-                    "status": collected or "connecting",
-                    "backend": handle.backend,
-                    "externalAgentId": handle.external_agent_id,
-                    "a2aRoute": handle.a2a_route,
-                    "standingReadExpiresAt": None,
-                }
-
-            # Mint only after the row + host exist.
-            grant = await self._grant.issue_standing_pkm_read(user_id, ledger=ledger)
-            # Flip to provisioned now that the read authority is live.
-            await _record("provisioned", handle=handle)
         except Exception as exc:
-            # Mark the row failed so the state is legible to the user and to the
-            # reconcile sweep. Best-effort and swallowed: this is an error path
+            # Preserve uncertain provider/checkpoint work for reconciliation;
+            # ordinary failures retain the existing terminal handling. Best-effort: this is an error path
             # already, and a registry write that fails here must not replace the
             # original exception with a less informative one. When it does fail the
             # row stays in ``provisioning``, which is exactly the pre-existing
             # behaviour -- so this can only ever add information, never remove it.
-            if record is not None:
-                try:
-                    await record("provisioning_failed")
-                except Exception:
-                    logger.exception("personal_agent.failed_status_write_failed")
+            from hushh_mcp.services.provision_attempt import retain_provision_failure
+
+            await retain_provision_failure(record, exc, logger)
             # Surface the stall to the user, then re-raise UNCHANGED: the feed is a
             # projection, never an error handler.
             await record_provisioning_feed_event_safe(
@@ -1123,22 +1010,6 @@ class PersonalAgentProvisioningService:
                 reason=user_safe_failure_reason(exc),
             )
             raise
-
-        await record_provisioning_feed_event_safe(user_id=user_id, event_type=FEED_EVENT_READY)
-        logger.info(
-            "personal_agent.provisioned hushh_id=%s service=%s backend=%s",
-            hushh_id or "<none>",
-            handle.external_agent_id or "<none>",
-            handle.backend or "null",
-        )
-        return {
-            "hushhId": hushh_id,
-            "status": "provisioned",
-            "backend": handle.backend,
-            "externalAgentId": handle.external_agent_id,
-            "a2aRoute": handle.a2a_route,
-            "standingReadExpiresAt": grant.get("expiresAt"),
-        }
 
     async def _collect_key_now(self, user_id: str) -> Optional[str]:
         """Pull a freshly built pod's key immediately. Never raises.
@@ -1775,6 +1646,9 @@ class PersonalAgentProvisioningService:
             # Ingress is an owner-pod property: an approved update retains it.
             ingress=ingress_for_update(metadata),
         )
+        from hushh_mcp.services.compute_backend_resolution import bind_private_upgrade
+
+        spec = await bind_private_upgrade(spec, row, registry=self._registry, lease=held)
         backend = self._backend_for(spec)
         if resume_files_queue_operation is not None:
             if held is None or set_by_newer_hub(row) or current_image != spec.upgrade_target_image:
@@ -1884,6 +1758,8 @@ class PersonalAgentProvisioningService:
         ):
             raise RuntimeError("image upgrade host binding changed before execution")
         spec = replace(spec, upgrade_attempt_id=hashlib.sha256(lease.encode()).hexdigest())
+        spec = await bind_private_upgrade(spec, row, registry=self._registry, lease=lease)
+        backend = self._backend_for(spec)
         claimed_metadata = dict(row.get("backend_metadata") or {})
         claimed_row = row
         approval_metadata = claimed_metadata.get("upgradeApproval")
@@ -2511,16 +2387,9 @@ class PersonalAgentProvisioningService:
         hushh_id = row.get("hushh_id")
         if not hushh_id or hushh_id != reservation.get("hushhId"):
             raise RuntimeError("erasure owner identity unavailable")
-        spec = PodSpec(
-            hushh_id=hushh_id,
-            phone_e164_hash=str(row.get("phone_e164_hash") or ""),
-            pod_pubkey=str(row.get("pod_pubkey") or ""),
-            billing_space_id=row.get("billing_space_id"),
-            **adoption_expectations(metadata),
-            deployment_target=row.get("deployment_target"),
-            model_credential_mode=row.get("model_credential_mode"),
-            **spec_coordinates_from_row(row),
-        )
+        from hushh_mcp.services.compute_backend_resolution import cleanup_spec
+
+        spec = cleanup_spec(row, registry=self._registry)
         backend = self._backend_for(spec)
         observe = getattr(backend, "observe_erasure_target", None)
         if observe is None or getattr(backend, "backend_id", None) != row.get("backend"):
@@ -2663,16 +2532,9 @@ class PersonalAgentProvisioningService:
         acknowledgement = reservation.get("computeAcknowledgement")
         if reservation.get("computeAdmission") and not acknowledgement:
             raise RuntimeError("erasure compute acknowledgement unresolved")
-        spec = PodSpec(
-            hushh_id=row["hushh_id"],
-            phone_e164_hash=str(row.get("phone_e164_hash") or ""),
-            pod_pubkey=str(row.get("pod_pubkey") or ""),
-            billing_space_id=row.get("billing_space_id"),
-            **adoption_expectations(metadata),
-            deployment_target=row.get("deployment_target"),
-            model_credential_mode=row.get("model_credential_mode"),
-            **spec_coordinates_from_row(row),
-        )
+        from hushh_mcp.services.compute_backend_resolution import cleanup_spec
+
+        spec = cleanup_spec(row, registry=self._registry)
         backend = self._backend_for(spec)
         if getattr(backend, "backend_id", None) != row.get("backend") or not hasattr(
             backend, "erase_compute"
@@ -2760,16 +2622,9 @@ class PersonalAgentProvisioningService:
             raise RuntimeError("erasure substrate inventory readback unconfirmed")
 
     def _reserved_cleanup_backend(self, snapshot: dict, *, grant_release: bool = False):
-        metadata = snapshot.get("backend_metadata") or {}
-        spec = PodSpec(
-            hushh_id=snapshot["hushh_id"],
-            phone_e164_hash=str(snapshot.get("phone_e164_hash") or ""),
-            pod_pubkey=str(snapshot.get("pod_pubkey") or ""),
-            **adoption_expectations(metadata),
-            deployment_target=snapshot.get("deployment_target"),
-            model_credential_mode=snapshot.get("model_credential_mode"),
-            **spec_coordinates_from_row(snapshot),
-        )
+        from hushh_mcp.services.compute_backend_resolution import cleanup_spec
+
+        spec = cleanup_spec(snapshot, registry=self._registry)
         backend = self._backend_for(spec)
         if not never_hosted.cleanup_backend_matches(snapshot, backend, grant_release):
             raise RuntimeError("reserved cleanup backend mismatch")
@@ -2786,10 +2641,9 @@ class PersonalAgentProvisioningService:
         snapshot = reservation.get("registrySnapshot") or {}
         metadata = snapshot.get("backend_metadata") or {}
         inventory = reservation.get("substrateInventory") or {}
-        project = snapshot.get("user_cloud_project")
-        bootstrap_ref = str(snapshot.get("user_cloud_bootstrap_sa") or "").removeprefix(
-            "serviceAccount:"
-        )
+        from hushh_mcp.services.compute_backend_resolution import frozen_cleanup_coordinates
+
+        project, bootstrap_ref = frozen_cleanup_coordinates(snapshot)
         email = metadata.get("runtime_service_account")
         retain = getattr(self._registry, "retain_erasure_writer_receipt", None)
         if (
@@ -2870,10 +2724,9 @@ class PersonalAgentProvisioningService:
         snapshot = reservation.get("registrySnapshot") or {}
         inventory = reservation.get("substrateInventory") or {}
         retain = getattr(self._registry, "retain_erasure_bucket_receipt", None)
-        project = snapshot.get("user_cloud_project")
-        bootstrap_ref = str(snapshot.get("user_cloud_bootstrap_sa") or "").removeprefix(
-            "serviceAccount:"
-        )
+        from hushh_mcp.services.compute_backend_resolution import frozen_cleanup_coordinates
+
+        project, bootstrap_ref = frozen_cleanup_coordinates(snapshot)
         if (
             not current
             or current.get("status") != "suspended"
@@ -3669,57 +3522,32 @@ class PersonalAgentProvisioningService:
             # compute deletion. A later substrate guard cannot undo them.
             if not personal_agent_substrate_teardown_enabled():
                 raise
-            from hushh_mcp.services.hosted_tier_guard import require_supported_erasure
+            from hushh_mcp.services.compute_backend_resolution import require_erasure_supported
 
-            require_supported_erasure(await self._registry.get(user_id))
+            await require_erasure_supported(
+                await self._registry.get(user_id), registry=self._registry
+            )
             reserve = getattr(self._registry, "reserve_erasure", None)
             if reserve is not None:
                 try:
                     reservation = await reserve(user_id=user_id)
                     if not isinstance(reservation, dict):
                         raise RuntimeError("erasure reservation unavailable")
-                    require_supported_erasure(reservation.get("registrySnapshot"))
+                    await require_erasure_supported(
+                        reservation.get("registrySnapshot"), registry=self._registry
+                    )
                     if (
                         expected_erasure_attempt is not None
                         and reservation.get("attemptId") != expected_erasure_attempt
                     ):
                         raise RuntimeError("erasure attempt changed")
-                    if await never_hosted.erase_reserved_outside_chain(self, user_id=user_id, reservation=reservation):  # fmt: skip
-                        return {"status": "unprovisioned", "noOp": False, "rowDeleteDeferred": True}
-                    if not reservation.get("bootstrapGrantRelease"):
-                        if not (reservation.get("accountErasure") or {}).get("admission"):
-                            if not reservation.get("computeAdmission"):
-                                qualified = await self._fence_reserved_erasure(
-                                    user_id=user_id, reservation=reservation
-                                )
-                                await self._erase_reserved_memory(
-                                    user_id=user_id, qualified=qualified
-                                )
-                            await self._erase_reserved_compute(user_id=user_id)
-                            await self._retain_reserved_substrate_inventory(user_id=user_id)
-                            await self._revoke_reserved_runtime_writer(user_id=user_id)
-                            from hushh_mcp.services.pod_files.erasure import erase_reserved_files
-
-                            await erase_reserved_files(self, user_id=user_id)
-                            await self._erase_reserved_mail_resources(user_id=user_id)
-                            await self._erase_reserved_bucket(user_id=user_id)
-                            await self._erase_reserved_kms_material(user_id=user_id)
-                            await self._erase_reserved_signing_secret(user_id=user_id)
-                        await self._erase_reserved_runtime_account(user_id=user_id)
-                        await self._erase_reserved_runtime_grant(user_id=user_id)
-                        await self._erase_reserved_repository_grant(user_id=user_id)
-                        await self._retain_reserved_repository_inventory(user_id=user_id)
-                    await self._erase_reserved_bootstrap_grants(user_id=user_id)
-                    # Phase returns alone are not completion evidence. Keep the
-                    # registry until the account transaction archives the proof.
-                    await asyncio.to_thread(
-                        AccountService().assert_personal_agent_external_resources_absent, user_id
+                    from hushh_mcp.services.personal_agent_erasure_execution import (
+                        run_reserved_erasure,
                     )
-                    return {
-                        "status": "unprovisioned",
-                        "noOp": False,
-                        "rowDeleteDeferred": True,
-                    }
+
+                    return await run_reserved_erasure(
+                        self, user_id=user_id, reservation=reservation
+                    )
                 except Exception as exc:
                     logger.warning(
                         "personal_agent.erasure_admission_unavailable %s", error_fields(exc)

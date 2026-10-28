@@ -57,3 +57,18 @@ export function isAzureHomeSelectable(): boolean {
   if (process.env.NEXT_PUBLIC_AZURE_BYOC_SELECTABLE === "1") return true;
   return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() === "dev";
 }
+
+/** A private mode chooses direct admission; it never establishes authority. */
+export function isPrivateHostingMode(mode: unknown): boolean {
+  return mode === "byoc" || mode === "hussh_pods";
+}
+
+/** Only use on a signature-verified binding, never an unsigned hosting status. */
+export function isPrivatePodBinding(binding: Record<string, unknown>): boolean {
+  if (isOwnerCloudTarget(binding.deployment_target)) {
+    return !("hosting_mode" in binding);
+  }
+  return binding.deployment_target === "gcp"
+    && binding.hosting_mode === "hussh_hosted"
+    && binding.environment === "dev";
+}

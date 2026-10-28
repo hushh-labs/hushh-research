@@ -44,6 +44,7 @@ const unrelated: Array<[string, string[]]> = [
   ["@/components/agent/agent-dock", ["AgentDockProvider"]],
   ["@/components/app-ui/ambient-chrome-mask", ["AmbientChromeController"]],
   ["@/components/ui/sonner", ["Toaster"]],
+  ["@/components/app-ui/native-feedback-toaster", ["NativeFeedbackToaster"]],
   ["@/components/status-bar-manager", ["StatusBarManager"]],
   ["@/components/keyboard-inset-manager", ["KeyboardInsetManager"]],
   ["@/components/profile/world-model-provider", ["WorldModelProvider"]],
@@ -81,8 +82,11 @@ vi.doMock("@/lib/capacitor/native-navigation", async (original) => ({
   useNativeNavigationBlocked: () => {}, nativeShellOverlayBlocked: () => false,
 }));
 
+// Install mocks before loading the real shell; module transformation is setup,
+// outside the unchanged behavioral deadline for recovery and readmission.
+const { Providers } = await import("@/app/providers");
+
 it("@feature_account_deletion @trace_loop keeps a retained Account URL sealed throughout recovery and resumes only on active admission", async () => {
-  const { Providers } = await import("@/app/providers");
   window.history.replaceState(null, "", "/?" + query);
   vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => { callback(0); return 1; });
   const view = render(<Providers><div>Route content</div></Providers>);

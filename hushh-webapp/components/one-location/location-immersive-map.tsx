@@ -25,12 +25,11 @@ import {
   Search,
   UsersRound,
   WifiOff,
-  X,
 } from "@/components/icons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { LocationMapCloseControl, LocationMapCheckInControl, LocationMapLocateControl } from "./location-map-stationary-controls";
 import {
   MAP_RENDERER_CLASSNAME,
   MAP_SURFACE_CLASSNAME,
@@ -3997,23 +3996,7 @@ export function LocationImmersiveMap({
         className="pointer-events-none absolute inset-x-0 top-0 z-30 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:grid-cols-[1fr_auto_1fr]"
       >
         <div className="col-start-1 row-start-1 flex min-w-0 items-center">
-          <ShellActionSurface
-            className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
-            aria-label="Back to Location"
-            data-testid="one-location-map-close"
-            disabled={closing}
-            onClick={closeMap}
-            onPointerUp={(event) => {
-              if (
-                event.pointerType === "touch" ||
-                event.pointerType === "pen"
-              ) {
-                closeMap();
-              }
-            }}
-          >
-            <X className="h-5 w-5 stroke-[2.25]" />
-          </ShellActionSurface>
+          <LocationMapCloseControl owner={auth.userId} toneClassName={MAP_ACCENT_CONTROL_CLASSNAME} closing={closing} onClose={closeMap} />
         </div>
         {/*
           Hidden on a phone while the check-in sheet is open.
@@ -4165,65 +4148,12 @@ export function LocationImmersiveMap({
             !demoMode &&
             isCheckInSurface &&
             !nearbyCheckInOpen ? (
-              <ShellActionSurface
-                variant="pill"
-                // ShellActionSurface's own wrapper is shrink-0 by default (a
-                // fixed-size top-bar control never used to need to give way).
-                // Here it shares a grid column with Locate and can be pushed
-                // by Sharing sitting dead-center, so it needs to be the one
-                // that yields -- wrapperClassName reaches the actual flex
-                // item; min-w-0 on the trigger itself lets its own truncate
-                // span ellipsis instead of just refusing to shrink.
-                wrapperClassName="min-w-0 shrink"
-                className={`pointer-events-auto min-w-0 border shadow-lg backdrop-blur-md ${
-                  nearbyPresenceState.presence
-                    ? MAP_ACCENT_ACTIVE_CLASSNAME
-                    : MAP_ACCENT_CONTROL_CLASSNAME
-                }`}
-                aria-label={
-                  nearbyPresenceState.presence
-                    ? `Checked in${
-                        nearbyPresenceState.attendees.length > 0
-                          ? `, ${nearbyPresenceState.attendees.length} nearby`
-                          : ""
-                      }`
-                    : "Check in nearby"
-                }
-                data-testid="one-location-map-nearby-check-in"
-                onClick={openNearbyCheckIn}
-              >
-                <UsersRound className="h-4 w-4 shrink-0" />
-                <span data-location-type-role="compact-action" className="truncate">
-                  {nearbyPresenceState.presence ? "Checked in" : "Check in"}
-                </span>
-              </ShellActionSurface>
+              <LocationMapCheckInControl owner={auth.userId} toneClassName={nearbyPresenceState.presence ? MAP_ACCENT_ACTIVE_CLASSNAME : MAP_ACCENT_CONTROL_CLASSNAME}
+                checkedIn={Boolean(nearbyPresenceState.presence)} count={nearbyPresenceState.attendees.length} onOpen={openNearbyCheckIn} />
             ) : null}
             {rendererReady ? (
-              <ShellActionSurface
-                className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
-                aria-label={
-                  busy === "locate"
-                    ? isCheckInSurface && displayedPlaceFocus?.active
-                      ? "Centering your check-in place"
-                      : "Finding your location"
-                    : isCheckInSurface && displayedPlaceFocus?.active
-                      ? "Show my check-in place"
-                      : "Show my location"
-                }
-                aria-busy={busy === "locate"}
-                data-testid="one-location-map-locate"
-                disabled={busy === "locate"}
-                onClick={() => void locateMe()}
-              >
-                {busy === "locate" ? (
-                  <Loader2
-                    className="h-5 w-5 animate-spin stroke-[2.25]"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <LocateFixed className="h-5 w-5 stroke-[2.25]" />
-                )}
-              </ShellActionSurface>
+              <LocationMapLocateControl owner={auth.userId} toneClassName={MAP_ACCENT_CONTROL_CLASSNAME} busy={busy === "locate"}
+                placeFocused={Boolean(isCheckInSurface && displayedPlaceFocus?.active)} onLocate={() => void locateMe()} />
             ) : null}
           </div>
         ) : null}
@@ -5060,7 +4990,7 @@ export function LocationImmersiveMap({
                               }`
                             : "Want to check in?"
                         }
-                        data-testid="one-location-map-nearby-check-in"
+                data-testid="one-location-map-nearby-check-in"
                         onClick={openNearbyCheckIn}
                       >
                         <span data-location-type-role="compact-action" className="truncate">

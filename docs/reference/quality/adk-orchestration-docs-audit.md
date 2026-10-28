@@ -174,6 +174,27 @@ required. Authenticated GitHub, selected PKM disclosure and
 Browser-to-Files retain separate gates. No production, stable publication or
 automatic owner upgrade is authorized.
 
+Two-owner information sharing acceptance covers the existing **fixed-term** flow:
+request, exact review, selected encrypted access and revocation/expiry. It does
+not add automatic renewal. Paid Sandbox admission for the intended pair is a
+separate configuration decision; free readiness does not establish paid access.
+
+The deployed GCP and Azure owner setup checks now preserve the Hosting return
+path, expose Finish for the saved connection and return there after finishing.
+Azure identifies its existing cloud connection as Azure AI. No owner placement
+or model selection was changed for these navigation checks.
+
+Interactive qualification found a new redirect defect after a separate fixture
+referrer-policy correction: the login POST succeeds, but its redirected request
+can arrive after the executor closes the action scope. The local repair joins
+explicit Chromium redirect chains under their original authority, refuses unknown
+parents and waits for the final document before returning a frame. The 83 nearest
+cases pass; the delayed-redirect regression fails against deployed source. Pinned
+local Chromium also passes manual login, observation suppression, encrypted
+remembering, new-task restoration, logout rejection, Forget, one reviewed save
+and Stop. These are **local driver receipts**, not cloud qualification or installed
+owner acceptance; the corrected immutable image still needs that evidence.
+
 ### PR #8437 verification history
 
 The following receipts describe the preceding repair sequence; they do not

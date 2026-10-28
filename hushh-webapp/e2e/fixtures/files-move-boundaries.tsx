@@ -13,6 +13,8 @@ export const FilesService = {
   },
 };
 export function useNativeNavigationOverlayRef<T>(ref?: Ref<T>) { return ref; }
+export function nativeShellOverlayBlocked() { return false; }
+export function useNativeShellOverlayBlocked() { return false; }
 export function useNativeOverlayCollisionPadding<T>(padding: T) { return padding; }
 export function NativeChatChrome() { throw new Error("Native presentation is not admitted in this web fixture"); }
 

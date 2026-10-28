@@ -109,6 +109,8 @@ export const KaiMarketNewsResourceService = {
   },
 };
 export class MarketNewsSnapshotChangedError extends Error {}
+export function getVoiceSurfaceMetadata() { return null; }
+export function useVoiceSurfaceMetadata() { return null; }
 export function usePublishVoiceSurfaceMetadata() {}
 export function useVoiceSurfaceControlTracking() {
   return { activeControlId: null, lastInteractedControlId: null };

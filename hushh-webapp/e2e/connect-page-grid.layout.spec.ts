@@ -556,9 +556,15 @@ for (const width of [320, 393, 768]) {
     // The active pager measures its height in ResizeObserver + rAF after the
     // rows mount. Wait for that layout commit before testing wheel propagation.
     await expect.poll(() => root.evaluate((node) => node.scrollHeight - node.clientHeight)).toBeGreaterThan(600);
+    // A real gesture can begin after the page has already moved.
+    await root.evaluate((node) => { node.scrollTop = 12; });
+    await expect.poll(() => root.evaluate((node) => node.scrollTop)).toBe(12);
     const maxScroll = await root.evaluate((node) => node.scrollHeight - node.clientHeight);
     // The gesture carries all the way to the end of the page, through People.
-    expect(await wheelFromRow()).toBeGreaterThanOrEqual(maxScroll - 2);
+    await wheelFromRow();
+    await expect.poll(() => root.evaluate((node) =>
+      node.scrollHeight - node.clientHeight - node.scrollTop,
+    )).toBeLessThanOrEqual(2);
 
     // The last result and its action stay clear of the bottom chrome.
     await root.evaluate((node) => { node.scrollTop = node.scrollHeight; });

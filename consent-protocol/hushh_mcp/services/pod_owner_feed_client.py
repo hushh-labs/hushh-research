@@ -188,9 +188,9 @@ _SHARED_LOCK = threading.Lock()
 def owner_feed_client() -> Optional[PodOwnerFeedClient]:
     """The process's feed client, or None when this agent cannot verify a feed."""
     global _SHARED
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
-    if not owner_cloud_agent():
+    if not private_pod_runtime():
         return None
     if not owner_feed_enabled():
         return None

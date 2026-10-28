@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+
 import { useStableThemeSelection } from "@/components/theme-toggle";
 import { readAccentPalette } from "@/components/app-ui/native-accent-choice";
 import { useAccent, writeAccent } from "@/lib/theme/accent";
@@ -77,6 +77,6 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
     editor: (destinationId?: string) => enabled && styleOpen && destinationId ?
     <NativeStyleSheet model={style} plugin={nativeDrawers() as ReturnType<typeof nativeDrawers> & NativeProfileStyleScenePort}
       destinationId={destinationId} onClose={() => setStyleOpen(false)} onFallback={() => {
-        setStyleOpen(false); toast.error("Writing style couldn’t open. Please try again.");
+        setStyleOpen(false); morphyToast.error("Writing style couldn’t open. Please try again.");
       }} /> : null };
 }

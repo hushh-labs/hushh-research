@@ -117,7 +117,19 @@ class ProviderAdkModel(BaseLlm):
             return owner_model_client(
                 self.provider, self.runtime_mode or "", self.credential or None
             )
-        if self.runtime_mode == "user_adc" and self.provider == "gemini" and not self.credential:
+        if (
+            self.runtime_mode in {"user_adc", "hosted_pod_adc"}
+            and self.provider == "gemini"
+            and not self.credential
+        ):
+            if self.runtime_mode == "hosted_pod_adc":
+                from hushh_mcp.runtime_settings import pod_hosted_adc_enabled
+
+                from .owner_gemini import require_admitted_model
+
+                if not pod_hosted_adc_enabled():
+                    raise RuntimeError("Hosted pod model authority is unavailable")
+                self.model = require_admitted_model(self.model)
             from .owner_gemini import build_owner_gemini_client
 
             return build_owner_gemini_client()
@@ -150,7 +162,7 @@ class ProviderAdkModel(BaseLlm):
         managed Vertex and copy the config for the developer path so one provider
         cannot mutate another turn's request.
         """
-        if self.runtime_mode in {"user_adc", "hushh_managed_vertex"}:
+        if self.runtime_mode in {"user_adc", "hosted_pod_adc", "hushh_managed_vertex"}:
             return config
         copier = getattr(config, "model_copy", None)
         if callable(copier):

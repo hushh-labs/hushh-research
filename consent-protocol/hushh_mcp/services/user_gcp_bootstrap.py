@@ -793,6 +793,11 @@ class UserGcpBootstrap:
         """
         project, region = self._project, self._region
         by_type = {r["type"]: r for r in plan.get("resources", [])}
+        destruction_delay = by_type.get("kms_key", {}).get("destroyScheduledDuration")
+        if destruction_delay is not None and (
+            plan.get("tenancy") != "hussh-hosted" or destruction_delay != "86400s"
+        ):
+            raise BootstrapError("Disposable key destruction policy is not admitted")
         keyring = "hushh-one"
         kms_key = by_type.get("kms_key", {}).get("id", "")
         bucket = by_type.get("gcs_bucket", {}).get("id", "")
@@ -979,7 +984,8 @@ class UserGcpBootstrap:
                     f"{region}/keyRings/{keyring}/cryptoKeys"
                 ),
                 "params": {"cryptoKeyId": kms_key},
-                "body": {"purpose": "ENCRYPT_DECRYPT"},
+                "body": {"purpose": "ENCRYPT_DECRYPT"}
+                | ({"destroyScheduledDuration": destruction_delay} if destruction_delay else {}),
                 "tolerate": [409],
             },
             {
@@ -1248,44 +1254,23 @@ class UserGcpBootstrap:
         calls = self.plan_calls(plan)
         if dry_run:
             return {"dryRun": True, "project": self._project, "steps": calls}
-        if not self._token:
-            raise BootstrapError(
-                "apply(dry_run=False) needs an impersonated bootstrap token; see "
-                "mint_bootstrap_token. It will not fall back to hushh's own identity."
-            )
-
         from copy import deepcopy
 
         results: list[dict[str, Any]] = deepcopy(completed_prefix or [])
         notification_steps = {
             call["step"] for call in calls if call.get("capability") == "gmail_notifications"
         }
-        if results and (
-            checkpoint is None
-            or len(results) >= len(calls)
-            or any(result.get("ok") is not True for result in results)
-            or [result.get("step") for result in results]
-            != [call["step"] for call in calls[: len(results)]]
-        ):
-            raise BootstrapError("Bootstrap continuation requires a verified successful prefix")
+        from hushh_mcp.services.byoc_bootstrap_execution import validate_bootstrap_continuation
+
+        validate_bootstrap_continuation(calls, results, checkpoint)
+
+        if not self._token and not (results and len(results) == len(calls)):
+            raise BootstrapError(
+                "apply(dry_run=False) needs an impersonated bootstrap token; see "
+                "mint_bootstrap_token. It will not fall back to hushh's own identity."
+            )
 
         def _checkpoint(phase: str, step: str) -> None:
-            selected_checkpoint = (
-                notification_checkpoint
-                if step in notification_steps and notification_checkpoint is not None
-                else checkpoint
-            )
-            if selected_checkpoint is None:
-                return
-            if (
-                selected_checkpoint is notification_checkpoint
-                and step == "gmail_notification_prerequisite"
-            ):
-                # This preflight reads authority only. An unavailable capability
-                # has no notification mutation to admit or resource to retain.
-                return
-            from copy import deepcopy
-
             # Only qualified resource/IAM observations leave the applier. Error
             # text and provider response bodies can contain private configuration.
             safe = [
@@ -1304,13 +1289,18 @@ class UserGcpBootstrap:
                     }
                 }
                 for result in results
-                if selected_checkpoint is not notification_checkpoint
-                or result["step"] in notification_steps
             ]
-            if selected_checkpoint is notification_checkpoint:
-                for result in safe:
-                    result["capability"] = "gmail_notifications"
-            selected_checkpoint(phase, step, safe)
+            from hushh_mcp.services.byoc_bootstrap_execution import publish_bootstrap_checkpoints
+
+            publish_bootstrap_checkpoints(
+                phase=phase,
+                step=step,
+                completed=safe,
+                notification_steps=notification_steps,
+                checkpoint=checkpoint,
+                notification_checkpoint=notification_checkpoint,
+                managed=plan.get("tenancy") == "hussh-hosted",
+            )
 
         headers = {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
         unmet: set[str] = set()
@@ -1435,6 +1425,21 @@ class UserGcpBootstrap:
             # owner's project. Tolerating it blindly would point this person's pod at
             # storage it cannot write, and the failure would surface far from the cause.
             if ok and code == 409 and call["step"] == "cmek_bucket":
+                # Managed cleanup requires evidence that this attempt created the bucket.
+                # A conflict, even after an absence read, cannot establish that fact.
+                if plan.get("tenancy") == "hussh-hosted":
+                    results.append(
+                        {
+                            "step": call["step"],
+                            "status": code,
+                            "ok": False,
+                            "detail": "Managed bucket creation requires reconciliation.",
+                        }
+                    )
+                    _checkpoint("observed", call["step"])
+                    _observe(call["step"], False)
+                    unmet.add(call["step"])
+                    continue
                 owned = self._bucket_is_ours(call, request_headers)
                 if not owned:
                     ok = False
@@ -1444,8 +1449,9 @@ class UserGcpBootstrap:
                             "status": code,
                             "ok": False,
                             "detail": (
-                                "that bucket name is taken by a project this bootstrap does "
-                                "not own -- GCS names are globally unique. Choose another."
+                                "that bucket is outside this project or its encryption or access "
+                                "settings differ from the approved plan. GCS names are globally "
+                                "unique. Choose another or resolve the settings."
                             ),
                         }
                     )
@@ -1778,13 +1784,19 @@ class UserGcpBootstrap:
         return f"{lookup.get('prefix', '')}{value}"
 
     def _bucket_is_ours(self, call: dict[str, Any], headers: dict[str, str]) -> bool:
-        """After a 409, does that bucket actually live in THIS project?
+        """After a 409, verify both project ownership and approved bucket custody.
 
         Read rather than assumed, because the alternative is silently adopting a
         stranger's bucket name and discovering it at the pod's first write.
         """
-        name = str((call.get("body") or {}).get("name") or "")
-        if not name:
+        from hushh_mcp.services.pod_files.provisioning import bucket_matches
+
+        body = call.get("body")
+        if not isinstance(body, dict) or not isinstance(body.get("encryption"), dict):
+            return False
+        name = str(body.get("name") or "")
+        key = body["encryption"].get("defaultKmsKeyName")
+        if not name or not isinstance(key, str) or not key:
             return False
         # Ask which buckets THIS project has and look for the name, rather than reading
         # the bucket and trying to infer ownership from its fields. A bucket GET returns
@@ -1802,7 +1814,19 @@ class UserGcpBootstrap:
         )
         if getattr(listing, "status_code", 0) != 200:
             return False
-        return any(str(item.get("name")) == name for item in (listing.json().get("items") or []))
+        items = _json_or_empty(listing).get("items")
+        if not isinstance(items, list):
+            return False
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                if bucket_matches(item, bucket=name, kms_key=key):
+                    return True
+            except (AttributeError, TypeError):
+                # Malformed provider metadata cannot establish custody.
+                continue
+        return False
 
     def _merge_binding(self, call: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
         """Read the policy, add our binding, write it back. Never overwrite.

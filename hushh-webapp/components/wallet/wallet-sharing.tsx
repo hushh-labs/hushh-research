@@ -21,7 +21,7 @@ import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
 import { WalletSharingHistory } from "./wallet-sharing-history";
 
-function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
+export function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
   if (value == null) return "Check access duration in Manage";
   const date = typeof value === "number" ? new Date(value < 1e12 ? value * 1000 : value) : new Date(value);
   if (!Number.isFinite(date.getTime())) return "Check access duration in Manage";
@@ -30,7 +30,8 @@ function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
 
 type SharingState = { owner: string; requests: ConsentCenterEntry[]; grants: ConsentCenterEntry[]; incompleteRequests?: boolean; error: boolean };
 
-export function WalletSharing({ cardDetails = false, active = true, getHistoryContext, receivedHistory = true }: { cards?: WalletCardSummary[]; cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean; getHistoryContext?: (cardId: string) => CardShareContext | null; receivedHistory?: boolean } = {}) {
+export type WalletSharingProps = { cards?: WalletCardSummary[]; cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean; getHistoryContext?: (cardId: string) => CardShareContext | null; receivedHistory?: boolean };
+export function useWalletSharingOwner({ cardDetails = false, active = true, getHistoryContext }: WalletSharingProps = {}) {
   const { user } = useAuth();
   const { vaultKey } = useVault();
   const actions = useConsentActions({ userId: user?.uid });
@@ -122,6 +123,11 @@ export function WalletSharing({ cardDetails = false, active = true, getHistoryCo
     } finally { busyRef.current = false; setBusy(false); }
   };
 
+  return { owner, current, selection, setSelection, busy, actionError, confirmRevoke, setConfirmRevoke, duration, setDuration, setRevision, vaultKey, open, mutate, reviewTrigger };
+}
+
+export function WalletSharing({ cardDetails = false, active = true, getHistoryContext, receivedHistory = true }: WalletSharingProps = {}) {
+  const { owner, current, selection, setSelection, busy, actionError, confirmRevoke, setConfirmRevoke, duration, setDuration, setRevision, vaultKey, open, mutate, reviewTrigger } = useWalletSharingOwner({ cardDetails, active, getHistoryContext });
   const renderGroup = (title: string, entries: ConsentCenterEntry[], active: boolean) => (
     <section className="space-y-3" aria-label={title}>
       <h3 className="ui-text-section-title">{title} <span className="ml-1 text-sm font-normal text-muted-foreground">{current && !current.error ? entries.length : "—"}</span></h3>

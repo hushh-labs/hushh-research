@@ -9,7 +9,7 @@ import { createWalletCardImageFile, type WalletCardImageKind } from "@/lib/walle
 import type { WalletDemoProfile } from "./wallet-demo-cards";
 import presentationStyles from "./wallet-connect-presentation.module.css";
 
-export function WalletCardImageShareButton({ cardId, profile, disabled = false }: {
+export function useWalletCardImageShare({ cardId, profile, disabled = false }: {
   cardId: string; profile: WalletDemoProfile; disabled?: boolean;
 }) {
   const kind: WalletCardImageKind = cardId === "agent-one-referral" ? "referral" : cardId === "agent-one-nws" ? "nws" : "profile";
@@ -25,7 +25,7 @@ export function WalletCardImageShareButton({ cardId, profile, disabled = false }
   const [attempt, setAttempt] = useState(0);
   const [sharing, setSharing] = useState(false);
   useEffect(() => {
-    if (disabled) return;
+    if (disabled) { setPrepared(null); return; }
     const controller = new AbortController();
     void createWalletCardImageFile({ kind, profile: identity, signal: controller.signal }).then(
       file => { if (!controller.signal.aborted) setPrepared({ key, file }); },
@@ -33,7 +33,7 @@ export function WalletCardImageShareButton({ cardId, profile, disabled = false }
     );
     return () => controller.abort();
   }, [kind, identity, key, disabled, attempt]);
-  const current = prepared?.key === key ? prepared : null;
+  const current = !disabled && prepared?.key === key ? prepared : null;
   const failed = Boolean(current?.failed);
   const ready = current?.file;
   const share = async () => {
@@ -48,6 +48,11 @@ export function WalletCardImageShareButton({ cardId, profile, disabled = false }
       if (!isShareCancellationError(error)) morphyToast.error("Could not share the card. Try again.");
     } finally { setSharing(false); }
   };
+  return { share, sharing, ready, failed };
+}
+export function WalletCardImageShareButton(props: Parameters<typeof useWalletCardImageShare>[0]) {
+  const { disabled = false } = props;
+  const { share, sharing, ready, failed } = useWalletCardImageShare(props);
   return <Button type="button" size="compact" className={presentationStyles.quietAction} variant="none" effect="fade" loading={sharing || (!disabled && !ready && !failed)} disabled={disabled || sharing || (!ready && !failed)} onClick={() => void share()}>
     <ProfilePaneShareIcon className="mr-2 h-4 w-4" aria-hidden />{failed ? "Retry card image" : "Share card"}
   </Button>;

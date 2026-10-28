@@ -492,13 +492,12 @@ def pod_lifecycle_log_enabled() -> bool:
 
 
 def personal_agent_autoprovision_enabled() -> bool:
-    """Fire a user's pod automatically once their phone is verified.
+    """Allow automatic continuation for an already authorized BYOC home.
 
-    OFF, the phone-verify seam stops where it always has: a ``pending`` registry
-    row reserving the user's HusshID, and a pod only when the owner-authorized
-    ``POST /api/one/personal-agent/provision`` is called. ON, that same seam
-    continues straight through to :meth:`provision`, so every verified signup
-    gets a host with no further interaction.
+    OFF, phone verification reserves a ``pending`` registry row and HusshID;
+    provisioning requires the owner-authorized route. ON, continuation still
+    requires the recorded cloud to be authorized and ready. Unselected, Shared
+    and managed placements retain their explicit owner selection/provision flow.
 
     Separate from ``PERSONAL_AGENT_ENABLED`` on purpose, and defaults OFF. The
     master flag opens the surface; this one decides whether verifying a phone
@@ -723,6 +722,13 @@ def pod_user_adc_enabled() -> bool:
     Read at turn time rather than baked into the image so revoking a person's Vertex
     access takes effect on their next turn rather than their next deploy."""
     return _bool_from_value(_clean_env("HUSSH_POD_USER_ADC_ENABLED"), default=False)
+
+
+def pod_hosted_adc_enabled() -> bool:
+    """Hosted private inference uses an explicit project and its own pod identity."""
+    from hushh_mcp.services.private_gcp_deployment import hosted_runtime_deployment
+
+    return hosted_runtime_deployment() is not None
 
 
 def pod_turn_enabled() -> bool:
@@ -1373,7 +1379,13 @@ def managed_ai_settings() -> ManagedAISettings:
         env, env
     )
     value = load_profile(env)
-    if pod_user_adc_enabled():
+    from hushh_mcp.services.private_gcp_deployment import hosted_runtime_deployment
+
+    hosted = hosted_runtime_deployment()
+    if hosted is not None:
+        value["project"] = hosted.model_project
+        value["auth_mode"] = "vertex_adc"
+    elif pod_user_adc_enabled():
         project = _owner_adc_project()
         value["project"] = project
         value["auth_mode"] = "vertex_adc"

@@ -24,7 +24,8 @@ export function usePacketPublications(enabled: boolean) {
     lease.live = enabled;
     return () => {
       lease.live = false;
-      if (typeof lease.toast === "string" || typeof lease.toast === "number") morphyToast.dismiss(lease.toast);
+      const toastId = lease.toast?.valueOf();
+      if (typeof toastId === "string" || typeof toastId === "number") morphyToast.dismiss(toastId);
     };
   }, [enabled, lease]);
   const empty = useCallback((): Value => {

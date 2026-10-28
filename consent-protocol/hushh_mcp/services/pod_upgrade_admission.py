@@ -190,12 +190,18 @@ class PodUpgradeAdmission:
         except Exception:  # noqa: BLE001 - an unconfigured pod has no durable log
             return None
 
-    async def _append_marker(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _append_marker(
+        self, kind: str, payload: dict[str, Any], *, expected_seq: int | None = None
+    ) -> dict[str, Any]:
         log = self._log()
         if log is None:
             raise PodUpgradeAdmissionRefused("pod lifecycle durable storage unavailable")
         try:
-            record = await log.append(kind, payload)
+            record = await log.append(
+                kind,
+                payload,
+                **({"expected_seq": expected_seq} if expected_seq is not None else {}),
+            )
         except Exception as exc:
             raise PodUpgradeAdmissionRefused(
                 f"pod lifecycle durable append unavailable: {type(exc).__name__}"
@@ -237,29 +243,21 @@ class PodUpgradeAdmission:
         state.hydrated = True
 
     async def acquire_turn(self, *, incarnation: str) -> TurnPermit:
-        key = str(incarnation or "unknown").strip() or "unknown"
-        async with self._condition:
-            state = self._states.setdefault(key, _State(incarnation=key))
-            await self._hydrate(state)
-            if state.draining:
-                raise PodUpgradeInProgress("pod is preparing an approved update")
-            state.active += 1
-        return TurnPermit(self, key)
+        from hushh_mcp.services.pod_runtime_work import acquire_runtime_turn
+
+        return await acquire_runtime_turn(self, incarnation)
 
     async def release_turn(self, key: str) -> None:
-        async with self._condition:
-            state = self._states.get(key)
-            if state is None:
-                return
-            state.active = max(0, state.active - 1)
-            if state.active == 0:
-                if state.draining and state.drain_hooks_complete and state.receipt is None:
-                    state.receipt = await self._persist_idle(state)
-                self._condition.notify_all()
+        from hushh_mcp.services.pod_runtime_work import release_runtime_turn
+
+        await release_runtime_turn(self, key)
 
     async def _persist_idle(self, state: _State) -> dict[str, Any]:
         operation = state.operation_id or ""
         _record_cursor(state.fence_record)
+        from hushh_mcp.services.pod_runtime_work import prepare_idle_writer
+
+        await prepare_idle_writer(self._log())
         cursor = await self._cursor()
         committed = hashlib.sha256(
             f"{operation}|{state.incarnation}|{cursor['seq']}|{cursor['sha']}|active=0".encode(
@@ -285,6 +283,7 @@ class PodUpgradeAdmission:
                     "runtimeEpoch": self._runtime_epoch,
                     "idleReceipt": receipt,
                 },
+                expected_seq=cursor["seq"],
             )
         except (Exception, asyncio.CancelledError):
             state.hydrated = False
