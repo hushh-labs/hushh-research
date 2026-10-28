@@ -1295,19 +1295,19 @@ Tests follow the same economy: add a test only for a real regression, a trust bo
 
 ## Branch Lanes
 
-1. **Dev intake** is the default for new development. Preserve existing `integration/pr-train` work and protection. The staged UAT transition selects changes with exact assembled-SHA Dev acceptance; its existing Main-based default remains active until separately authorized. Governed maintainers retain direct Main operations/hotfix authority under Admin SOP.
-2. UAT and production use a green `main` SHA with successful `Main Post-Merge Smoke`. Dev accepts an exact CI-green branch SHA through the [Dev Fast Lane](./dev-fast-lane.md).
-3. UAT deploys only by an explicit manual dispatch of that green `main` SHA through `.github/workflows/deploy-uat.yml`.
+1. **Dev intake** is the default for new development. Preserve existing `integration/pr-train` work and protection. Governed maintainers retain direct Main operations/hotfix authority under Admin SOP.
+2. Release workflows run from Main. Dev accepts an exact CI-green branch SHA through the [Dev Fast Lane](./dev-fast-lane.md).
+3. UAT deploys by explicit manual dispatch through `.github/workflows/deploy-uat.yml`. The application can be a qualified Main or protected UAT SHA; current admission requires exact Dev acceptance for each selected service. A Main application also requires its landed Main smoke.
 4. Manual UAT dispatch is limited to the current
    `uat.manual_dispatch_users` cohort in `config/ci-governance.json`; do not
    transcribe actor names into this document.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only actors listed in `production.manual_dispatch_users` may trigger it.
-6. Manual UAT uses a qualified Main or protected-UAT application SHA with exact Dev acceptance. Production requires UAT acceptance and Main approval, preserving distinct SHAs and identical content; the explicit emergency mode waives only predecessor deployment. Automatic publication remains disabled.
-7. Feature and hotfix branches may deploy to dev through its governed main-owned dispatch. UAT and production require promotion through `main`.
+6. Ordinary production requires UAT acceptance and Main approval, preserving distinct application and approval SHAs and identical content. The explicit emergency mode waives only predecessor deployment. Automatic publication remains disabled.
+7. Feature and hotfix branches may deploy to Dev through its governed Main-owned dispatch. The approved direction is to allow UAT-specific work after exact-commit CI without a mandatory Dev deployment; that admission path is not yet qualified or active. Until it is, retain the current Dev acceptance requirement.
 
 Deploy to UAT is expected to behave as a closed-loop release lane:
 
-1. start from an explicitly chosen green `main` SHA
+1. start from an explicitly chosen, qualified application SHA and its required Dev acceptance
 2. sync canonical secrets
 3. capture last healthy revisions
 4. deploy changed surfaces
