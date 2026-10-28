@@ -1425,6 +1425,21 @@ class UserGcpBootstrap:
             # owner's project. Tolerating it blindly would point this person's pod at
             # storage it cannot write, and the failure would surface far from the cause.
             if ok and code == 409 and call["step"] == "cmek_bucket":
+                # Managed cleanup requires evidence that this attempt created the bucket.
+                # A conflict, even after an absence read, cannot establish that fact.
+                if plan.get("tenancy") == "hussh-hosted":
+                    results.append(
+                        {
+                            "step": call["step"],
+                            "status": code,
+                            "ok": False,
+                            "detail": "Managed bucket creation requires reconciliation.",
+                        }
+                    )
+                    _checkpoint("observed", call["step"])
+                    _observe(call["step"], False)
+                    unmet.add(call["step"])
+                    continue
                 owned = self._bucket_is_ours(call, request_headers)
                 if not owned:
                     ok = False
@@ -1434,8 +1449,9 @@ class UserGcpBootstrap:
                             "status": code,
                             "ok": False,
                             "detail": (
-                                "that bucket name is taken by a project this bootstrap does "
-                                "not own -- GCS names are globally unique. Choose another."
+                                "that bucket is outside this project or its encryption or access "
+                                "settings differ from the approved plan. GCS names are globally "
+                                "unique. Choose another or resolve the settings."
                             ),
                         }
                     )
@@ -1768,13 +1784,19 @@ class UserGcpBootstrap:
         return f"{lookup.get('prefix', '')}{value}"
 
     def _bucket_is_ours(self, call: dict[str, Any], headers: dict[str, str]) -> bool:
-        """After a 409, does that bucket actually live in THIS project?
+        """After a 409, verify both project ownership and approved bucket custody.
 
         Read rather than assumed, because the alternative is silently adopting a
         stranger's bucket name and discovering it at the pod's first write.
         """
-        name = str((call.get("body") or {}).get("name") or "")
-        if not name:
+        from hushh_mcp.services.pod_files.provisioning import bucket_matches
+
+        body = call.get("body")
+        if not isinstance(body, dict) or not isinstance(body.get("encryption"), dict):
+            return False
+        name = str(body.get("name") or "")
+        key = body["encryption"].get("defaultKmsKeyName")
+        if not name or not isinstance(key, str) or not key:
             return False
         # Ask which buckets THIS project has and look for the name, rather than reading
         # the bucket and trying to infer ownership from its fields. A bucket GET returns
@@ -1792,7 +1814,19 @@ class UserGcpBootstrap:
         )
         if getattr(listing, "status_code", 0) != 200:
             return False
-        return any(str(item.get("name")) == name for item in (listing.json().get("items") or []))
+        items = _json_or_empty(listing).get("items")
+        if not isinstance(items, list):
+            return False
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                if bucket_matches(item, bucket=name, kms_key=key):
+                    return True
+            except (AttributeError, TypeError):
+                # Malformed provider metadata cannot establish custody.
+                continue
+        return False
 
     def _merge_binding(self, call: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
         """Read the policy, add our binding, write it back. Never overwrite.

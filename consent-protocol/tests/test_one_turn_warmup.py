@@ -174,3 +174,20 @@ async def test_private_startup_refuses_a_fenced_or_replaced_authority(monkeypatc
         authority.require_held.assert_not_awaited()
     else:
         authority.require_held.assert_awaited_once()
+
+
+@pytest.mark.parametrize("resolved", [None, object()])
+def test_normal_agent_still_selects_memory_from_its_resolved_service(monkeypatch, resolved):
+    from unittest.mock import Mock
+
+    from hushh_mcp.one_adk.agent_tree import _SPECIALIST_MODEL, build_one_text_agent
+
+    resolver = Mock(return_value=resolved)
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_memory_service.resolve_pod_memory_service", resolver
+    )
+    agent = build_one_text_agent(model=turn_warmup._WarmupLlm(model=_SPECIALIST_MODEL))
+    resolver.assert_called_once_with()
+    assert any(getattr(tool, "name", "") == "load_memory" for tool in agent.tools) is (
+        resolved is not None
+    )

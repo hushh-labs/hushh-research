@@ -4071,11 +4071,17 @@ export class ApiService {
     unreviewed?: number;
     provider?: { consent?: "absent" | "granted" | "revoked"; bank?: boolean; stale?: boolean };
   } | null> {
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const current = () => Boolean(principal && isValidatedAuthSessionOwnerCurrent(principal)
+      && AuthService.getCurrentUser()?.uid === principal.firebaseUid && isVaultSessionEpochCurrent(vaultEpoch));
     const response = await ApiService.ownerPodRequest(
-      "memory/status", { method: "GET", cache: "no-store" }, false, undefined, hushhId,
+      "memory/status", { method: "GET", cache: "no-store" }, false, undefined, hushhId, current,
     );
+    if (!current()) throw new Error("POD_OWNER_CHANGED");
     if (!response.ok) return null;
     const result = await response.json().catch(() => null);
+    if (!current()) throw new Error("POD_OWNER_CHANGED");
     return result ? { ...result, hushhId } : null;
   }
 
