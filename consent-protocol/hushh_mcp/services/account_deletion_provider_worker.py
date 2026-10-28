@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 
 from hushh_mcp.services import account_deletion_provider_credentials as credentials
@@ -25,7 +26,47 @@ _SETTLED = frozenset({"revoked", "covered_by_group", "local_erasure_approved"})
 async def run_claim(claim: journal.ProviderCleanupClaim) -> bool:
     """No implicit OAuth-failure exception, provider fallback or effect replay."""
     async with release_admission() as admission:
-        return await _run_admitted_claim(claim, admission)
+        erased = await _run_admitted_claim(claim, admission)
+    if erased:
+        await _notify_erased(claim)
+    return erased
+
+
+async def _notify_erased(claim: journal.ProviderCleanupClaim) -> None:
+    """At most once, after the erasure commit and outside release admission.
+
+    The erased transition commits once per claim and is never claimed again, so
+    a retry cannot resend. The recipient is read from the retained sign-in and
+    Hussh never stores it; an uncertain or failed send is logged, not replayed.
+    """
+    from hushh_mcp.services.support_email_service import (
+        SupportEmailConfig,
+        send_verified_account_notice,
+    )
+
+    reason = _notice_skip_reason(SupportEmailConfig.from_env())
+    if reason:
+        logger.info("account_deletion.notice_skipped reason=%s", reason)
+        return
+    try:
+        async with asyncio.timeout(30):
+            await send_verified_account_notice(
+                claim.firebase_uid, "account_deleted", identity_lookup=lambda uid: uid
+            )
+    except Exception as exc:
+        logger.warning("account_deletion.notice_failed error=%s", type(exc).__name__)
+
+
+def _notice_skip_reason(config) -> str | None:
+    # Non-production shares sign-ins with production, so its deletion notice must
+    # be redirected to a test inbox; it never tells a real person their account is gone.
+    # Reasons stay under 24 characters so the runtime log redactor never masks them.
+    redirected = config.delivery_mode == "test" and bool(config.test_to_email)
+    if not config.configured:
+        return "sender_unconfigured"
+    if os.getenv("ENVIRONMENT", "").strip().lower() != "production" and not redirected:
+        return "live_outside_prod"
+    return None
 
 
 async def _verified_grants(claim, admission):
@@ -150,6 +191,7 @@ async def drain_with_outcome(*, limit: int = 5) -> DrainOutcome:
     settled = 0
     paused_reason: PausedReason | None = None
     for _ in range(limit):
+        erased = None
         try:
             async with release_admission() as admission:
                 # Claim only when ready to execute. Later serial work must not
@@ -163,7 +205,7 @@ async def drain_with_outcome(*, limit: int = 5) -> DrainOutcome:
                     async with asyncio.timeout(90):
                         if await _run_admitted_claim(claim, admission):
                             settled += 1
-                            continue
+                            erased = claim
                 except (credentials.CleanupProviderUnavailable, AccountDeletionReleasePaused):
                     pass
                 except (credentials.CleanupCredentialUnavailable, journal.ProviderCleanupNotReady):
@@ -182,13 +224,17 @@ async def drain_with_outcome(*, limit: int = 5) -> DrainOutcome:
                     logger.warning(
                         "account_deletion.provider_worker_failed error=%s", type(exc).__name__
                     )
-                try:
-                    await _store_call(journal.release, claim, action_required=action_required)
-                except journal.ProviderCleanupClaimLost:
-                    pass
+                if erased is None:
+                    try:
+                        await _store_call(journal.release, claim, action_required=action_required)
+                    except journal.ProviderCleanupClaimLost:
+                        pass
         except AccountDeletionReleasePaused as exc:
             # Known release pauses do not consume claims/attempts or turn a
             # healthy pending operation into provider-action quarantine.
             paused_reason = exc.reason
+        if erased is not None:
+            await _notify_erased(erased)  # Committed erasure; admission and timeout are closed.
+        if paused_reason is not None:
             break
     return DrainOutcome(settled, paused_reason)
