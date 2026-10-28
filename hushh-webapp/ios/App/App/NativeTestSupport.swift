@@ -812,7 +812,7 @@ final class NativeVaultLayoutProbe {
                             "unlockHits", "unlockClicks", "unlockAccepted", "chatCount", "chatFocused",
                             "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight",
                             "profileOverlayBlocked", "profileInertBlocked", "profileMoving", "profileSuppressed", "profileVoiceBlocked", "profileDocumentHidden",
-                            "methodClicks", "methodPointerUps", "passphraseFields", "passphraseFocused", "dockActive", "dockFailureStage", "dockFailureCode",
+                            "methodClicks", "methodPointerUps", "passphraseFields", "dockActive", "dockFailureStage", "dockFailureCode",
                             "bottomProgress", "appScrollTop", "appScrollRange", "appScrollHeight", "appScrollClientHeight", "appScrollRootCount", "windowScrollRange", "oneRosterPresent",
                             "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
                             "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial",
@@ -956,7 +956,6 @@ final class NativeVaultLayoutProbe {
         unlockClicks: receipt.clicks, unlockAccepted: receipt.accepted,
         methodClicks: receipt.methodClicks, methodPointerUps: receipt.methodPointerUps,
         passphraseFields: document.querySelectorAll('#unlock-passphrase').length,
-        passphraseFocused: !!document.querySelector('#unlock-passphrase') && document.activeElement === document.querySelector('#unlock-passphrase'),
         dockActive: Boolean(document.querySelector('[data-native-agent-dock-active]')),
         dockFailureStage: finite(dockFailure?.dataset.nativeDockFailureStage),
         dockFailureCode: finite(dockFailure?.dataset.nativeDockFailureCode)

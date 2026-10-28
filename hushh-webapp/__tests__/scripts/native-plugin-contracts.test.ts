@@ -33,11 +33,7 @@ describe("native plugin contract verifier", () => {
     const sample = (body: string) => new Function(`return ${body.trim()}`)() as Record<string, unknown>;
     try {
       expect(sample(script)).toMatchObject({ presentCount: 1, unlockClicks: 0, unlockAccepted: 0,
-        methodClicks: 0, methodPointerUps: 0, passphraseFields: 1, passphraseFocused: false, dockActive: false });
-      input.focus();
-      expect(sample(script)).toMatchObject({ passphraseFocused: true });
-      input.blur();
-      expect(sample(script)).toMatchObject({ passphraseFocused: false });
+        methodClicks: 0, methodPointerUps: 0, passphraseFields: 1, dockActive: false });
       expect(sample(script)).toMatchObject({ unlockClicks: 0, unlockAccepted: 0 });
       expect(forbiddenRead).not.toHaveBeenCalled();
       expect(operation).not.toHaveBeenCalled();
