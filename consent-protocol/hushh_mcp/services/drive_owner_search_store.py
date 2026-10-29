@@ -58,6 +58,10 @@ _COVERAGE_FIELDS = (
     "fileKind",
     "requestedPeriod",
     "dateBasis",
+    "datePolicy",
+    "dateEventBasis",
+    "dateGateApplied",
+    "fallbackActivated",
     "datePushdown",
     "timeIntent",
     "ownerReviewRequired",
@@ -110,7 +114,13 @@ def _semantic_binding_current(checkpoint):
     except (ValueError, TypeError, KeyError):
         raise DriveReadError("search_superseded") from None
     binding = checkpoint.get("semantic_model_binding")
+    if checkpoint.get("discovery_delivery_policy") == "drive_activity_union_v1" and (
+        not isinstance(binding, dict) or binding.get("provider") != "azure_openai"
+    ):
+        raise DriveReadError("search_superseded")
     if binding is None:
+        if checkpoint.get("discovery_delivery_policy") == "drive_activity_union_v1":
+            raise DriveReadError("search_superseded")
         return
     from hushh_mcp.services.drive_request_package_assessment import validate_semantic_model_binding
 
@@ -197,6 +207,13 @@ def view(row: dict) -> dict:
         "updatedAt": row["updated_at"].isoformat(),
         "expiresAt": row["expires_at"].isoformat(),
         "errorCode": row["error_code"],
+        **(
+            {"nextRetryAt": row["next_at"].isoformat(), "retryReason": "provider_unavailable"}
+            if row["status"] == "queued"
+            and row["error_code"] == "provider_unavailable"
+            and row.get("next_at") is not None
+            else {}
+        ),
     }
 
 
@@ -229,9 +246,15 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             purpose="owner-search-checkpoint",
         )
 
-    def _view(self, row):
+    def _view(self, row, *, include_diagnostics=False):
         result = view(row)
         checkpoint = self._checkpoint(row)
+        if include_diagnostics:
+            from hushh_mcp.services.drive_request_discovery import request_diagnostics
+
+            diagnostic = request_diagnostics(checkpoint)
+            if diagnostic is not None:
+                result["diagnostics"] = diagnostic
         if checkpoint.get("v1_live_request") is True:
             preview = checkpoint.get("v1_verified_preview", {})
             evaluated = min(row["matched"], preview.get("evaluated", 0))
@@ -471,7 +494,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
-    async def by_client(self, *, user_id, client_request_id):
+    async def by_client(self, *, user_id, client_request_id, include_diagnostics=False):
         client = _identity(client_request_id)
 
         def operation(connection):
@@ -485,7 +508,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             current = self._access(connection, user_id, read_only=True)
             if row["connection_generation"] != current["connection_generation"]:
                 raise DriveReadError("connection_changed")
-            return self._view(row)
+            return self._view(row, include_diagnostics=include_diagnostics)
 
         return await self._transaction(operation)
 
@@ -848,12 +871,12 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 ):
                     raise DriveReadError("search_superseded")
                 from hushh_mcp.services.drive_request_semantic_plan import (
-                    SemanticDrivePlan,
+                    parse_semantic_plan,
                     semantic_plan_digest,
                 )
 
                 try:
-                    parsed = SemanticDrivePlan.model_validate(checkpoint["semantic_plan"])
+                    parsed = parse_semantic_plan(checkpoint["semantic_plan"])
                     if parsed.status != "ready" or semantic_plan_digest(parsed) != checkpoint.get(
                         "semantic_plan_digest"
                     ):
@@ -1372,6 +1395,13 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     {"job": identity},
                 )
                 return None
+            from hushh_mcp.services.drive_owner_allowed import activity_union_paused
+
+            if (
+                self._checkpoint(row).get("discovery_delivery_policy") == "drive_activity_union_v1"
+                and activity_union_paused()
+            ):
+                return None
             lease = str(uuid4())
             connection.execute(
                 text(
@@ -1437,6 +1467,13 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         return None
 
     def _current(self, connection, job):
+        from hushh_mcp.services.drive_owner_allowed import activity_union_paused
+
+        if (
+            job["checkpoint"].get("discovery_delivery_policy") == "drive_activity_union_v1"
+            and activity_union_paused()
+        ):
+            raise DriveReadError("provider_unavailable", retryable=True)
         self._access(connection, job["user_id"], job["generation"])
         evidence_manifest = self._evidence_current(connection, job["checkpoint"], job["user_id"])
         row = self._owned(connection, job["user_id"], job["job_id"], locked=True)
@@ -1602,6 +1639,24 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             row = self._current(connection, job)
             saved_checkpoint = self._checkpoint(row)
             _semantic_binding_current(saved_checkpoint)
+            if saved_checkpoint.get("discovery_delivery_policy") == "drive_activity_union_v1":
+                prior = saved_checkpoint.get("activity_fallback_decision")
+                decision = checkpoint.get("activity_fallback_decision")
+                if prior is not None and decision != prior:
+                    raise DriveReadError("search_superseded")
+                if prior is None and decision is not None:
+                    if (
+                        saved_checkpoint.get("query_index") != 0
+                        or saved_checkpoint.get("phase") != "user"
+                        or saved_checkpoint.get("page_token") is not None
+                        or not isinstance(decision, dict)
+                        or set(decision) != {"first_page_valid_distinct_count", "armed"}
+                        or type(decision["first_page_valid_distinct_count"]) is not int
+                        or not 0 <= decision["first_page_valid_distinct_count"] <= 1000
+                        or type(decision["armed"]) is not bool
+                        or decision["armed"] != (decision["first_page_valid_distinct_count"] < 3)
+                    ):
+                        raise DriveReadError("search_superseded")
             if saved_checkpoint.get("semantic_model_binding") != checkpoint.get(
                 "semantic_model_binding"
             ):

@@ -114,7 +114,7 @@ FACT_FIELDS = (
 )
 # Live search: one bounded files.list shape, never a caller-chosen field set.
 LIST_FIELDS = (
-    "nextPageToken,incompleteSearch,files(id,name,mimeType,version,modifiedTime,createdTime,driveId,size,md5Checksum,sha256Checksum,headRevisionId,"
+    "nextPageToken,incompleteSearch,files(id,name,mimeType,version,modifiedTime,createdTime,modifiedByMeTime,sharedWithMeTime,viewedByMeTime,imageMediaMetadata(time),driveId,size,md5Checksum,sha256Checksum,headRevisionId,"
     "resourceKey,webViewLink,capabilities(canShare),clientEncryptionDetails(encryptionState),"
     "owners(displayName,emailAddress),sharingUser(displayName,emailAddress),"
     "shortcutDetails(targetId,targetMimeType,targetResourceKey))"
@@ -596,8 +596,11 @@ class GoogleDriveAdapter:
         headers_ms = None
         body_started = None
         outcome = "error"
+        from hushh_mcp.services.drive_rest_admission import rest_admission
+
         try:
             async with (
+                rest_admission(),
                 asyncio.timeout(DEADLINE_SECONDS),
                 (
                     nullcontext(self._read_client.get())

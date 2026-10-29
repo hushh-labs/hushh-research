@@ -498,7 +498,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
     def _require_semantic_search_plan(self, connection, *, request: dict, sharing) -> None:
         """An enrolled order cannot charge before its bound interpretation is ready."""
         from hushh_mcp.services.drive_request_semantic_plan import (
-            SemanticDrivePlan,
+            parse_semantic_plan,
             semantic_plan_digest,
         )
 
@@ -529,7 +529,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 resource_id=str(search["job_id"]),
                 purpose="owner-search-checkpoint",
             )
-            plan = SemanticDrivePlan.model_validate(checkpoint.get("semantic_plan"))
+            plan = parse_semantic_plan(checkpoint.get("semantic_plan"))
             valid = (
                 plan.status == "ready"
                 and checkpoint.get("semantic_plan_digest") == semantic_plan_digest(plan)
