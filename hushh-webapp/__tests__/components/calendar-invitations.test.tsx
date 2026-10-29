@@ -179,6 +179,21 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(mutations()[0]?.[1].headers).not.toHaveProperty("X-Hushh-Consent");
   });
 
+  it.each(["GMAIL_NOT_CONNECTED", "GMAIL_SEND_PERMISSION_REQUIRED", "GMAIL_REAUTH_REQUIRED", "GMAIL_SEND_DISABLED", "GMAIL_SENDER_UNAVAILABLE"])("offers Gmail recovery without losing the proposal for %s", async reasonCode => {
+    const original = mock.apiFetch.getMockImplementation()!;
+    mock.apiFetch.mockImplementation(async (path: string, init: RequestInit) => {
+      if (path.includes("/attendance/") && path.endsWith("/review")) return response({ detail: { message: "Enable Gmail sending", reason_code: reasonCode } }, 409);
+      return original(path, init);
+    });
+    render(view({ workspaceLayout: true, initialFilter: "all", initialEventId: pending.id, initialCalendarId: pending.calendar_id, initialDecision: "offer_times" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Message to organiser" }), { target: { value: "Could we meet tomorrow?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Check time & send email" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Gmail" }));
+    expect(onMailConnect).toHaveBeenCalledOnce();
+    expect(screen.getByRole("textbox", { name: "Message to organiser" })).toHaveValue("Could we meet tomorrow?");
+    expect(mutations()).toHaveLength(0);
+  });
+
   it("offers a reviewed alternative from the workspace without vault unlock", async () => {
     mock.token = null;
     outcome = { calendar: "declined", email: "sent", calendar_error: null, email_error: null };
