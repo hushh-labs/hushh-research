@@ -31,6 +31,12 @@ export class UserLocalStateService {
   static async clearDeviceSecretsForDeletedAccount(userId: string): Promise<void> {
     if (!userId) return;
     const results = await Promise.allSettled([
+      import("@/lib/one-location/sms-alarm-state").then(({ forgetSmsAlarms }) => forgetSmsAlarms(userId)),
+      import("@capacitor/core").then(async ({ Capacitor }) => {
+        if (!Capacitor.isNativePlatform()) return;
+        const { HushhNotifications } = await import("@/lib/capacitor");
+        await HushhNotifications.clearNotificationKey({ userId, deleteAlarmReceipts: true });
+      }),
       import("@/lib/services/onboarding-local-service").then(({ OnboardingLocalService }) =>
         OnboardingLocalService.clearReleaseNotices(userId),
       ),

@@ -71,8 +71,41 @@ def _is_one_location_sms_emergency(data: dict[str, str]) -> bool:
 def _is_one_location_feed_only_transport(
     normalized_type: str,
 ) -> bool:
-    # Ending an SOS stops the recipient alarm; it must never sound a new one.
+    # Ending location access must never create or acknowledge a recipient alarm.
     return normalized_type in ONE_LOCATION_FEED_ONLY_TRANSPORT_TYPES
+
+
+def _presentation_data(
+    data: dict[str, str],
+    *,
+    platform: str,
+    sms_created: bool,
+    show_alert: bool,
+    alarm_version: int,
+    title: str,
+    body: str,
+    feed_only: bool,
+) -> tuple[dict[str, str], bool]:
+    if feed_only:
+        data = {
+            key: value
+            for key, value in data.items()
+            if key.strip().lower() not in ALERT_PRESENTATION_DATA_KEYS
+        }
+    # Presentation is part of the transport contract, not something a client
+    # should infer from missing title/body fields. In particular, consent
+    # bookkeeping events are intentionally data-only and must never be turned
+    # into a generic browser notification by a background service worker.
+    message_data = {
+        **data,
+        "notification_presentation": "alert" if show_alert else "silent",
+    }
+    native_sms_alarm = platform == "android" and sms_created and show_alert and alarm_version == 1
+    if native_sms_alarm:
+        message_data.update(
+            {"sms_alarm_version": "1", "notification_title": title, "notification_body": body}
+        )
+    return message_data, native_sms_alarm
 
 
 def build_push_message(
@@ -86,6 +119,7 @@ def build_push_message(
     request_url: str,
     notification_tag: str,
     show_alert: bool,
+    sms_alarm_version: int = 0,
 ):
     normalized_platform = str(platform or "").strip().lower()
     normalized_type = str(data.get("type") or "").strip().lower()
@@ -120,21 +154,19 @@ def build_push_message(
         normalized_type,
     )
     show_alert = bool(show_alert) and not force_feed_only_transport and not sms_expired
-    if force_feed_only_transport:
-        data = {
-            key: value
-            for key, value in data.items()
-            if key.strip().lower() not in ALERT_PRESENTATION_DATA_KEYS
-        }
-    # Presentation is part of the transport contract, not something a client
-    # should infer from missing title/body fields. In particular, consent
-    # bookkeeping events are intentionally data-only and must never be turned
-    # into a generic browser notification by a background service worker.
-    message_data = {
-        **data,
-        "notification_presentation": "alert" if show_alert else "silent",
-    }
+    message_data, native_sms_alarm = _presentation_data(
+        data,
+        platform=normalized_platform,
+        sms_created=is_sms_created,
+        show_alert=show_alert,
+        alarm_version=sms_alarm_version,
+        title=title,
+        body=body,
+        feed_only=force_feed_only_transport,
+    )
     notification = messaging.Notification(title=title, body=body) if show_alert else None
+    if native_sms_alarm:
+        notification = None
     # Android chat is rendered by the native MessagingStyle service; automatic
     # FCM notification payloads bypass that service while the app is closed.
     if is_chat and (
@@ -195,7 +227,7 @@ def build_push_message(
                 visibility="public" if is_sms_emergency else None,
                 vibrate_timings_millis=([0, 240, 120, 240, 120, 520] if is_sms_emergency else None),
             )
-            if show_alert
+            if show_alert and not native_sms_alarm
             else None,
         )
 
@@ -222,7 +254,7 @@ def build_push_message(
                     alert=messaging.ApsAlert(title=title, body=body),
                     sound=(ONE_LOCATION_SMS_EMERGENCY_IOS_SOUND if is_sms_emergency else "default"),
                     badge=chat_badge if is_chat else 1,
-                    mutable_content=True if is_chat else None,
+                    mutable_content=True if is_chat or is_sms_created else None,
                     category=(
                         ONE_LOCATION_SMS_EMERGENCY_CATEGORY
                         if is_sms_emergency

@@ -45,6 +45,8 @@ const allowedIosUsageDescriptionKeys = new Set([
   // Profile picture: choose from library / take a photo.
   "NSPhotoLibraryUsageDescription",
   "NSCameraUsageDescription",
+  // SMS recipients explicitly authorize persistent iOS 26+ system alarms.
+  "NSAlarmKitUsageDescription",
 ]);
 const unexpectedIosUsageDescriptionKeys = iosUsageDescriptionKeys.filter(
   (key) => !allowedIosUsageDescriptionKeys.has(key)
@@ -71,6 +73,12 @@ const contactsUsageMatch = infoPlist.match(
 );
 if (!contactsUsageMatch?.[1]?.trim()) {
   fail("iOS Info.plist must include non-empty NSContactsUsageDescription.");
+}
+const alarmUsageMatch = infoPlist.match(
+  /<key>NSAlarmKitUsageDescription<\/key>\s*<string>([^<]*)<\/string>/
+);
+if (!alarmUsageMatch?.[1]?.trim()) {
+  fail("SMS alarms require a non-empty NSAlarmKitUsageDescription.");
 }
 
 // Keep the distributed bundle identity at the unique, previously accepted
@@ -122,6 +130,9 @@ const allowedAndroidPermissions = new Set([
   "android.permission.ACCESS_BACKGROUND_LOCATION",
   "android.permission.FOREGROUND_SERVICE",
   "android.permission.FOREGROUND_SERVICE_LOCATION",
+  // One SMS alarm service owns audible playback and CPU wakefulness until ACK.
+  "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+  "android.permission.WAKE_LOCK",
   "android.permission.POST_NOTIFICATIONS",
   "android.permission.READ_CONTACTS",
 ]);
@@ -159,6 +170,18 @@ for (const permission of ["ACCESS_BACKGROUND_LOCATION", "FOREGROUND_SERVICE", "F
 const backgroundService = androidManifest.match(/<service\b[^>]*android:name="\.plugins\.HushhLocation\.BackgroundLocationService"[^>]*\/>/s)?.[0];
 if (!backgroundService?.includes('android:exported="false"') || !backgroundService.includes('android:foregroundServiceType="location"')) {
   fail("Background location sharing requires a non-exported location foreground service.");
+}
+for (const permission of ["FOREGROUND_SERVICE_MEDIA_PLAYBACK", "WAKE_LOCK"]) {
+  if (!androidPermissions.includes(`android.permission.${permission}`)) {
+    fail(`SMS alarms require android.permission.${permission}.`);
+  }
+}
+const smsAlarmService = androidManifest.match(/<service\b[^>]*android:name="\.plugins\.HushhNotifications\.EmergencySmsAlarmService"[^>]*\/>/s)?.[0];
+if (!smsAlarmService?.includes('android:exported="false"') || !smsAlarmService.includes('android:foregroundServiceType="mediaPlayback"')) {
+  fail("SMS alarms require a non-exported mediaPlayback foreground service.");
+}
+if (!infoPlist.includes("<string>audio</string>")) {
+  fail("SMS alarm playback requires the iOS audio background mode.");
 }
 const androidContactsPlugin = read(androidContactsPluginPath);
 const androidDeviceRegion = androidContactsPlugin.match(

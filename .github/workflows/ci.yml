@@ -1074,6 +1074,8 @@ jobs:
           set -euo pipefail
           set -o pipefail
           test -n "${SIMULATOR_ID:-}" || { echo "::error::SIMULATOR_ID was not selected"; exit 1; }
+          # Shared-Keychain tests need the App/NSE entitlements in the simulator.
+          # Ad-hoc signing requires no distribution identity or provisioning key.
           xcodebuild test \
             -project "${XCODE_PROJECT}" \
             -scheme "${XCODE_SCHEME}" \
@@ -1089,7 +1091,7 @@ jobs:
             -maximum-parallel-testing-workers 1 \
             -only-testing:AppTests \
             -only-testing:AppUITests/AppUITests/testAccountNotFoundRecoveryReturnsToLogin \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
             2>&1 | tee "${RUNNER_TEMP}/xcodebuild-ios-tests.log"
 
       - name: Assert the built app actually ships its App Shortcuts

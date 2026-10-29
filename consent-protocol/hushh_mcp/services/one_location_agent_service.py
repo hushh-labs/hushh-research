@@ -66,7 +66,10 @@ from hushh_mcp.services.people_search_sql import (
     mask_directory_phone,
     people_query_match_params,
 )
-from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
+from hushh_mcp.services.push_tokens_service import (
+    PUSH_SMS_DEVICES_FOR_USER_SQL,
+    remove_stale_push_token,
+)
 from hushh_mcp.services.requester_identity import (
     OPAQUE_LABEL_MIN_LENGTH,
     UUID_LIKE_LABEL_PATTERN,
@@ -1714,15 +1717,10 @@ class OneLocationAgentService:
             )
             if receipt is not None:
                 return receipt > 0
-            rows = (
-                get_db()
-                .execute_raw(
-                    PUSH_TOKENS_FOR_USER_SQL,
-                    {"user_id": user_id},
-                )
-                .data
-                or []
+            registrations = get_db().execute_raw(
+                PUSH_SMS_DEVICES_FOR_USER_SQL, {"user_id": user_id}
             )
+            rows = registrations.data or []
             if not rows:
                 return False
             configured, _ = ensure_firebase_admin()
@@ -1764,6 +1762,7 @@ class OneLocationAgentService:
                     request_url=request_url,
                     notification_tag=notification_tag,
                     show_alert=show_alert,
+                    sms_alarm_version=int(row.get("sms_alarm_version") or 0),
                 )
                 queued = _submit_notification_send(
                     messaging=messaging,
@@ -7691,7 +7690,7 @@ class OneLocationAgentService:
         if not row:
             raise OneLocationAgentError(
                 "LOCATION_SOS_VOICE_PREFERENCE_UPDATE_FAILED",
-                "Could not update the SOS voice default.",
+                "Could not update the SMS voice default.",
                 status_code=500,
             )
         return self._sos_voice_preference_payload(row)

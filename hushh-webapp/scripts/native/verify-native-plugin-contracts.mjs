@@ -67,6 +67,7 @@ const ignoredTsMethodsByPlugin = new Map([
   // @objc or @PluginMethod operation on these streaming/event plugins.
   ["Kai", new Set(["addListener"])],
   ["HushhLocation", new Set(["addListener"])],
+  ["HushhNotifications", new Set(["addListener"])],
   ["HushhVoiceInvocation", new Set(["addListener"])],
   ["HushhSessionPrivacy", new Set(["addListener"])],
   ["HushhNativeNavigation", new Set(["addListener"])],

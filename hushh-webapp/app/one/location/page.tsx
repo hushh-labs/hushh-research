@@ -5857,7 +5857,10 @@ export function OneLocationAgentPageContent({
         ++smsRosterRevision.current;
         // Refresh the exact roster and its verified identities at send time.
         // A cached directory page is neither membership nor readiness authority.
-        const roster = await OneLocationService.getSmsRecipientRoster(vaultOwnerToken);
+        const [roster, point] = await Promise.all([
+          OneLocationService.getSmsRecipientRoster(vaultOwnerToken),
+          resolveSosLocation(),
+        ]);
         if (sosOwnerRef.current !== owner) return;
         totalSelected = roster.smsContactUserIds.length;
         setSmsSystemCircleMemberIds(roster.smsContactUserIds);
@@ -5869,8 +5872,6 @@ export function OneLocationAgentPageContent({
           toast.error(sosRecipientReadinessMessage(roster.recipients));
           return;
         }
-        const point = await resolveSosLocation();
-        if (sosOwnerRef.current !== owner) return;
         if (!point) {
           trackSosTriggered({
             selectedCount: totalSelected,
@@ -5903,42 +5904,40 @@ export function OneLocationAgentPageContent({
         if (sosOwnerRef.current !== owner) return;
         setSosIncident(incident);
         const skipped = totalSelected - readyRecipients.length;
-        // Name who could not be reached rather than reporting a flat count. A
-        // contact with notifications off, or who reinstalled and lost their push
-        // token, previously looked identical to one whose phone lit up — the
-        // worst way for an emergency alert to fail.
+        // Report per-contact outcomes so missing alerts are visible.
         const unreachable = incident.delivery
           .filter((outcome) => outcome.alerted === false)
           .map((outcome) => outcome.displayName);
         const reached = incident.delivery.filter((outcome) => outcome.alerted === true).length;
         const shared = incident.delivery.filter((outcome) => !outcome.failed).length;
 
-        // Second channel. A push reaches nobody when notifications are off, so
-        // the same alert goes out by email — the one place a closed app cannot
-        // swallow it. Awaited (not fired and forgotten) so the message below
-        // can tell the sender what actually happened, which is the whole point
-        // of having a fallback. It never throws.
+        // Publication is complete; release Stop before awaiting email.
+        if (sosOperations.current.finish(owner, operation)) {
+          setBusy((current) => current === "sos" ? null : current);
+        }
+        if (shared > 0) {
+          if (shared < totalSelected || unreachable.length > 0) {
+            toast.warning("Some contacts may miss this alert.", { classNames: { title: "!line-clamp-1" } });
+          } else {
+            toast.success(reached > 0 ? "SMS alert sent." : "SMS location shared.", { classNames: { title: "!line-clamp-1" } });
+          }
+        }
+
+        // Await the independent email outcome for telemetry; Stop stays available.
         const mail = await OneLocationService.sendSosEmails({
           vaultOwnerToken,
           grantIds: incident.grantIds,
           latitude: point.latitude,
           longitude: point.longitude,
           accuracyM: point.accuracyM ?? null,
-          // Save my Soul sends the last known position rather than nothing
-          // when the device will not produce a new one — the right call in an
-          // emergency, but only if the person reading it is told how old it
-          // is. The email stamps anything older than a couple of minutes.
+          // Preserve capture time so fallback emails disclose stale positions.
           capturedAt: point.capturedAt,
           note,
           emergencyNumber: sosEmergency?.number ?? null,
         });
         if (sosOwnerRef.current !== owner) return;
 
-        // Emitted after the email fallback so it reports the alert's real
-        // outcome rather than the push channel's. An SOS where every push
-        // failed but two inboxes received it is not an alert that reached
-        // nobody, and recording it as one would point the investigation at
-        // exactly the wrong thing.
+        // Telemetry includes publication and email outcomes.
         trackSosTriggered({
           selectedCount: totalSelected,
           reachedCount: reached,
@@ -5947,33 +5946,26 @@ export function OneLocationAgentPageContent({
           note,
         });
 
+        // A late email completion must not announce success for an incident
+        // the sender has since stopped or replaced.
+        if ((sosIncidentRef.current as SosIncident | null)?.startedAt !== incident.startedAt) return;
+
         if (shared === 0 && mail.emailed === 0) {
           toast.error("The alert could not be sent. Call for help directly.");
-        } else if (shared < totalSelected || unreachable.length > 0) {
+        } else if (shared === 0 && mail.emailed > 0) {
           toast.warning(
-            "Some contacts may miss this alert.",
-            { classNames: { title: "!line-clamp-1" } },
-          );
-        } else {
-          toast.success(
-            reached > 0 || mail.emailed > 0 ? "SMS alert sent." : "SMS location shared.",
+            "SMS alert sent by email. In-app delivery could not be confirmed.",
             { classNames: { title: "!line-clamp-1" } },
           );
         }
         void refresh().catch(() => null);
       } catch (error) {
         if (sosOwnerRef.current !== owner) return;
-        // Recover from memory — SosPanicError carries any partial incident
-        // in-process, so the SOS banner stays up even if localStorage failed.
+        // Keep partial grants stoppable even when local storage failed.
         if (error instanceof SosPanicError && error.partialIncident) {
           setSosIncident(error.partialIncident);
         }
-        // Reported as reaching nobody, because on this path we genuinely cannot
-        // tell. `SosPanicError.partialIncident` carries only grant ids, not
-        // per-recipient delivery, so some contacts may in fact have been
-        // alerted before the throw. Biasing an unobservable emergency outcome
-        // toward failure is the right way round: it surfaces for investigation
-        // rather than being averaged away, which a guessed number would do.
+        // Report unknown delivery as failure; never invent confirmation.
         trackSosTriggered({
           selectedCount: totalSelected,
           reachedCount: 0,
@@ -6165,7 +6157,7 @@ export function OneLocationAgentPageContent({
           recipientUserId,
           commandOperationId,
         });
-        if (smsContactUserIds.includes(recipientUserId)) throw new Error("The emergency contact is still on your SOS list.");
+        if (smsContactUserIds.includes(recipientUserId)) throw new Error("The emergency contact is still on your SMS list.");
         if (sosOwnerRef.current !== auth.userId) return false;
         setSmsSystemCircleMemberIds(smsContactUserIds);
         setSmsRosterLoading(false);
@@ -7391,10 +7383,10 @@ export function OneLocationAgentPageContent({
     // grant the server still holds (armed by voice on another route, or by
     // another device). Mirrors the Save My Soul screen's own stop.
     const grantIds = mergeSosGrantIds(recorded, activeSosGrantsRef.current.map((grant) => grant.id));
-    if (!vaultOwnerToken || !grantIds.length) throw new Error("Unlock One and review the active SOS first.");
-    if (!owner) throw new Error("Sign in to review the active SOS.");
+    if (!vaultOwnerToken || !grantIds.length) throw new Error("Unlock One and review the active SMS first.");
+    if (!owner) throw new Error("Sign in to review the active SMS.");
     const operation = sosOperations.current.begin(owner);
-    if (!operation) throw new Error("An SOS operation is still finishing. Review its result first.");
+    if (!operation) throw new Error("An SMS operation is still finishing. Review its result first.");
     setBusy("sos");
     try {
       const result = await stopSosShares({ grantIds, signal,
@@ -7423,7 +7415,7 @@ export function OneLocationAgentPageContent({
         toast.error(`${result.revoked.length} shares stopped; ${result.unresolved.length} still need review.`);
       } else {
         clearSosIncident(); setSosIncident(null);
-        toast.success("SOS ended. Its live location shares stopped.");
+        toast.success("SMS ended. Its live location shares stopped. Recipients dismiss their own alarms.");
       }
       scheduleOneLocationStateRefresh("location_share_revoked");
       return result;
@@ -12437,7 +12429,7 @@ export function OneLocationAgentPageContent({
   useLocalOnboardingActionHandler("location.stop_sos", async (_slots, context) => {
     const binding = context?.preparedBinding;
     if (!binding || typeof binding.startedAt !== "string" || !Array.isArray(binding.grantIds))
-      return { status: "blocked", summary: "Review this SOS before stopping its shares." };
+      return { status: "blocked", summary: "Review this SMS before stopping its shares." };
     const result = await handleStopSos(
       context?.signal,
       // An empty startedAt means no device record: the stop covers the live SOS
@@ -12446,15 +12438,15 @@ export function OneLocationAgentPageContent({
     );
     return { status: result.unresolved.length ? "blocked" : "succeeded",
       summary: result.unresolved.length
-        ? `Stopped ${result.revoked.length} SOS shares. ${result.unresolved.length} remain unresolved; review the SOS screen.`
-        : `SOS stopped. Verified ${result.revoked.length} shares ended.`,
+        ? `Stopped ${result.revoked.length} SMS shares. ${result.unresolved.length} remain unresolved; review the SMS screen.`
+        : `SMS stopped. Verified ${result.revoked.length} shares ended.`,
     };
   }, { prepare: () => {
     const grantIds = mergeSosGrantIds(sosIncident, activeSosGrants.map((grant) => grant.id));
     return !vaultOwnerToken || !grantIds.length
-      ? { status: "blocked", gate: "input", summary: "There is no active SOS to stop, or One needs to be unlocked." }
+      ? { status: "blocked", gate: "input", summary: "There is no active SMS to stop, or One needs to be unlocked." }
       : { status: "ready", binding: { owner: auth.userId, startedAt: sosIncident?.startedAt ?? "", grantIds: [...grantIds].sort() },
-          summary: `Stop this SOS and revoke its ${grantIds.length} live location shares.` };
+          summary: `Stop this SMS and revoke its ${grantIds.length} live location shares.` };
   } });
 
   const resolveTriggerSos = useCallback(
@@ -12465,7 +12457,7 @@ export function OneLocationAgentPageContent({
       router.replace(`${ROUTES.ONE_LOCATION}?action=sos`, { scroll: false });
       return {
         status: "succeeded" as const,
-        summary: "Opening the SOS review screen. Nothing has been sent.",
+        summary: "Opening the SMS review screen. Nothing has been sent.",
       };
     },
     [router],
@@ -12517,8 +12509,8 @@ export function OneLocationAgentPageContent({
     });
     if (prepared.status !== "ready") return { ...prepared, summary: pool.length ? prepared.summary : adding
       ? "No eligible emergency contacts are available. Choose a connection ready to receive location in One."
-      : "No matching emergency contact could be verified. Review your current SOS list." };
-    return { ...prepared, summary: `${adding ? "Add" : "Remove"} ${(prepared.binding.people as Array<{name: string}>).map((person) => person.name).join(", ")} ${adding ? "to" : "from"} your emergency contacts. ${adding ? "They will receive your Location when you send an SOS." : "Future SOS alerts will no longer include them."}` };
+      : "No matching emergency contact could be verified. Review your current SMS list." };
+    return { ...prepared, summary: `${adding ? "Add" : "Remove"} ${(prepared.binding.people as Array<{name: string}>).map((person) => person.name).join(", ")} ${adding ? "to" : "from"} your emergency contacts. ${adding ? "They will receive your Location when you send an SMS." : "Future SMS alerts will no longer include them."}` };
   };
   useLocalOnboardingActionHandler("location.add_emergency_contact", async (_slots, context) => {
     const ids = context?.preparedBinding?.recipientIds as string[] | undefined;
