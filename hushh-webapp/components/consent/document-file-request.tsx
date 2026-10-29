@@ -221,8 +221,8 @@ export function RequestFilesButton({
                 </div> : null}
               </>}
               <fieldset className="min-w-0" disabled={busy} aria-describedby="document-period-help">
-                <legend data-consent-role="form-label" className="mb-2">Dates covered</legend>
-                <span id="document-period-help" className="sr-only">Start and end dates are required.</span>
+                <legend data-consent-role="form-label" className="mb-2">Time period</legend>
+                <HelperText id="document-period-help">Start and end dates are required. Files can match creation, modification, viewing, sharing, photo or filename dates.</HelperText>
                 <MobileDocumentDateRange
                   start={start}
                   end={end}

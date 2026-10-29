@@ -152,7 +152,7 @@ async def test_v1_stage_claims_only_marked_searches_approved_delivery_and_financ
     ).run(stage="v1")
 
     search.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90, v1_only=True)
-    bulk.run.assert_awaited_once_with(max_jobs=400, deadline_seconds=80, v1_only=True)
+    bulk.run.assert_awaited_once_with(max_jobs=250, deadline_seconds=80, v1_only=True)
     removal.run.assert_awaited_once_with(max_jobs=20, deadline_seconds=45, v1_only=True)
     checkout.run.assert_awaited_once_with(max_jobs=4, deadline_seconds=35, v1_only=True)
     refund.run.assert_awaited_once_with(max_jobs=4, deadline_seconds=35, v1_only=True)
@@ -190,7 +190,7 @@ async def test_sharing_stage_continues_notification_after_permission_failure():
     workers[0].run.assert_not_awaited()
     workers[1].run.assert_not_awaited()
     workers[2].run.assert_awaited_once_with(max_jobs=20, deadline_seconds=75)
-    bulk.run.assert_awaited_once_with(max_jobs=400, deadline_seconds=80)
+    bulk.run.assert_awaited_once_with(max_jobs=250, deadline_seconds=80)
     workers[3].run.assert_awaited_once_with(max_jobs=20, deadline_seconds=35)
     assert result["workers"] == {
         "groups": {"deferred": 1},

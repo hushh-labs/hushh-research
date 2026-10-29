@@ -410,6 +410,7 @@ jobs:
               scripts/deploy/verify-managed-vertex-runtime.sh \
               scripts/deploy/commerce-preview-bindings.sh \
               scripts/deploy/backend-model-settings.sh \
+              scripts/deploy/backend-drive-search-settings.sh \
               scripts/deploy/backend-drive-secret-settings.sh \
               scripts/deploy/scope-commerce-secrets.sh \
               deploy/email-auth/bind_secrets.sh \
@@ -1445,6 +1446,12 @@ jobs:
               --release-environment uat \
               --migration-mode "${{ vars.UAT_MIGRATION_MODE || 'replay' }}"
           )
+          # Migration 440 refuses dispatch without a common keyed claim, including
+          # old workers. Adopt already-dispatched uncertainty before new writers.
+          if [[ -f consent-protocol/db/migrations/440_drive_permission_file_claim_lanes.sql ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" consent-protocol/scripts/adopt_drive_permission_file_claims.py \
+              --release-environment uat > /tmp/uat-drive-file-claim-adoption.json
+          fi
           # Reconcile the fixed Drive connector after migrations while the
           # attested UAT database connection is available. This also migrates
           # the previously reviewed Hushh web return to the Hussh alias.
@@ -1631,6 +1638,8 @@ jobs:
           STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
           STRIPE_CONNECT_UAT_MODE: ${{ vars.STRIPE_CONNECT_UAT_MODE || vars.STRIPE_UAT_MODE || 'test' }}
           DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED || 'true' }}
+          DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED || 'true' }}
+          DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED: ${{ vars.DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED || 'false' }}
           DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT: ${{ vars.DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT || 'gemini' }}
           DRIVE_REQUEST_HASHCOINS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_UAT_ENABLED || 'false' }}
           DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}
@@ -1685,6 +1694,12 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           if grep -q '^[[:space:]]*_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED:' deploy/backend.cloudbuild.yaml; then
             SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=${DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED}"
+          fi
+          for activity_flag in "${DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED}" "${DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED}"; do
+            case "${activity_flag}" in true|false) ;; *) echo "Invalid activity policy control" >&2; exit 1 ;; esac
+          done
+          if grep -q '^[[:space:]]*_DRIVE_REQUEST_ACTIVITY_UNION_ENABLED:' deploy/backend.cloudbuild.yaml; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_ACTIVITY_UNION_ENABLED=${DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED}##_DRIVE_REQUEST_ACTIVITY_UNION_PAUSED=${DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED}"
           fi
           if grep -q '^[[:space:]]*_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER:' deploy/backend.cloudbuild.yaml; then
             case "${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT}" in
@@ -3186,6 +3201,8 @@ jobs:
           STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
           STRIPE_CONNECT_UAT_MODE: ${{ vars.STRIPE_CONNECT_UAT_MODE || vars.STRIPE_UAT_MODE || 'test' }}
           DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED || 'true' }}
+          DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED || 'true' }}
+          DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED: ${{ vars.DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED || 'false' }}
           DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT: ${{ vars.DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT || 'gemini' }}
           DRIVE_REQUEST_HASHCOINS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_UAT_ENABLED || 'false' }}
           DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}
@@ -3262,6 +3279,8 @@ jobs:
           STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
           STRIPE_CONNECT_UAT_MODE: ${{ vars.STRIPE_CONNECT_UAT_MODE || vars.STRIPE_UAT_MODE || 'test' }}
           DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED || 'true' }}
+          DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED || 'true' }}
+          DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED: ${{ vars.DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED || 'false' }}
           DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT: ${{ vars.DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT || 'gemini' }}
           DRIVE_REQUEST_HASHCOINS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_UAT_ENABLED || 'false' }}
           DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}

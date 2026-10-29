@@ -158,6 +158,10 @@ class DrivePermissionStore(DriveSharingStore):
                 and row["lease_expires_at"] > now
             ):
                 return None
+            from hushh_mcp.services.drive_permission_file_claims import claim_file
+
+            if not claim_file(connection, row["file_lock_hmac"], operation=operation_id):
+                return None
             claimed = self._row(
                 connection,
                 """
@@ -253,6 +257,9 @@ class DrivePermissionStore(DriveSharingStore):
             or row["lease_expires_at"] <= now
         ):
             raise DriveSharingError("permission_job_superseded")
+        from hushh_mcp.services.drive_permission_file_claims import require_file_claim
+
+        require_file_claim(connection, row["file_lock_hmac"], operation=str(row["operation_id"]))
         return row
 
     async def require_current(self, job):
@@ -328,6 +335,11 @@ class DrivePermissionStore(DriveSharingStore):
                 or row["lease_expires_at"] <= now
             ):
                 raise DriveSharingError("permission_job_superseded")
+            from hushh_mcp.services.drive_permission_file_claims import require_file_claim
+
+            require_file_claim(
+                connection, row["file_lock_hmac"], operation=str(row["operation_id"])
+            )
 
         await self._transaction(operation)
 

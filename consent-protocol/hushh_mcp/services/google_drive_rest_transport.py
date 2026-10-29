@@ -188,6 +188,13 @@ def rest_query(query: str) -> str:
 
 def _provider_search_evidence(item: dict[str, Any]) -> dict[str, Any]:
     result = content_evidence(item)  # Bind provider facts and binary content identity.
+    for field in ("modifiedByMeTime", "sharedWithMeTime", "viewedByMeTime"):
+        value = item.get(field)
+        if isinstance(value, str) and len(value) <= 64:
+            result[field] = value
+    image = item.get("imageMediaMetadata")
+    if isinstance(image, dict) and isinstance(image.get("time"), str) and len(image["time"]) <= 64:
+        result["imageMediaMetadata"] = {"time": image["time"]}
     version = item.get("version")
     if version is not None:
         if not isinstance(version, str) or not re.fullmatch(r"[0-9]{1,32}", version):
@@ -346,6 +353,36 @@ class GoogleDriveRestTransport:
         finally:
             MUTATION_SENT.reset(marker)
 
+    def _owner_admission_scope(self, user_id, row):
+        """Bind pacing to the authenticated credential generation and its fence."""
+
+        async def generation_current():
+            current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
+            if (
+                not current
+                or current["connection_generation"] != row["connection_generation"]
+                or current["status"] != "connected"
+                or current["verified_policy_hash"] != LIVE_POLICY_HASH
+            ):
+                raise DriveReadError("connection_changed")
+
+        from contextlib import nullcontext
+
+        from hushh_mcp.services.drive_rest_admission import owner_scope
+
+        db = getattr(self._oauth.lifecycle, "db", None)
+        admission_scope = (
+            owner_scope(
+                db=db,
+                owner=user_id,
+                generation=row["connection_generation"],
+                require_current=generation_current,
+            )
+            if db is not None
+            else nullcontext()
+        )
+        return admission_scope
+
     async def _fenced(
         self,
         user_id: str,
@@ -387,8 +424,11 @@ class GoogleDriveRestTransport:
         # plus its method; these owner, grant and generation checks wrap every
         # entry without change.
         operation = getattr(self, operations[tool_name])
-        with drive_stage(logger, "provider") as provider_stage:
-            payload: dict = await operation(arguments, credential["accessToken"])
+
+        admission_scope = self._owner_admission_scope(user_id, row)
+        async with admission_scope:
+            with drive_stage(logger, "provider") as provider_stage:
+                payload: dict = await operation(arguments, credential["accessToken"])
         with drive_stage(logger, "connection_recheck") as recheck_stage:
             current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if (

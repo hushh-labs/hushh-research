@@ -32,6 +32,7 @@ _BACKEND_RELEASE_TOOL_FIXTURES = (
     "scripts/deploy/verify-managed-vertex-runtime.sh",
     "scripts/deploy/commerce-preview-bindings.sh",
     "scripts/deploy/backend-model-settings.sh",
+    "scripts/deploy/backend-drive-search-settings.sh",
     "scripts/deploy/backend-drive-secret-settings.sh",
     "scripts/deploy/scope-commerce-secrets.sh",
     "deploy/email-auth/bind_secrets.sh",
@@ -557,21 +558,30 @@ def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:
     )
 
 
-def test_uat_semantic_provider_reaches_api_and_both_worker_revisions() -> None:
+@pytest.mark.parametrize(
+    "selector,default,expected_name",
+    [
+        ("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT", "gemini", "EXPECTED_SEMANTIC_MODEL_PROVIDER"),
+        ("DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED", "true", "EXPECTED_ACTIVITY_UNION_ENABLED"),
+        ("DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED", "false", "EXPECTED_ACTIVITY_UNION_PAUSED"),
+    ],
+)
+def test_uat_semantic_provider_reaches_api_and_both_worker_revisions(
+    selector, default, expected_name
+) -> None:
     workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
     steps = workflow["jobs"]["deploy"]["steps"]
-    selector = "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT"
-    flag = "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER"
+    flag = selector.replace("_UAT", "")
     for step_id in ("deploy-backend", "deploy-drive-worker", "deploy-drive-v1-worker"):
         step = next(item for item in steps if item.get("id") == step_id)
-        assert step["env"][selector] == "${{ vars." + selector + " || 'gemini' }}"
+        assert step["env"][selector] == "${{ vars." + selector + " || '" + default + "' }}"
     backend = next(item for item in steps if item.get("id") == "deploy-backend")
     assert f"_{flag}=${{{selector}}}" in backend["run"]
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
-    assert build["substitutions"][f"_{flag}"] == "gemini"
+    assert build["substitutions"][f"_{flag}"] == default
     deployment = next(step for step in build["steps"] if step["id"] == "deploy-backend")
     assert (
-        "_DRIVE_SEARCH_SETTINGS=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}|${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}"
+        "_DRIVE_SEARCH_SETTINGS=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}|${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}|${_DRIVE_REQUEST_ACTIVITY_UNION_ENABLED}|${_DRIVE_REQUEST_ACTIVITY_UNION_PAUSED}"
         in deployment["env"]
     )
     deployed_script = _read("scripts/deploy/backend-deploy.sh")
@@ -587,9 +597,10 @@ def test_uat_semantic_provider_reaches_api_and_both_worker_revisions() -> None:
     )
     for script in ("deploy_worker_service.sh", "deploy_v1_worker_service.sh"):
         source = _read(f"deploy/drive/{script}")
-        assert f'{selector}="${{{selector}:-gemini}}"' in source
+        defaults = source + _read("deploy/drive/activity_policy_flags.sh")
+        assert f'{selector}="${{{selector}:-{default}}}"' in defaults
         assert f"{flag}=${{{selector}}}" in source
-        assert f'EXPECTED_SEMANTIC_MODEL_PROVIDER="${{{selector}}}"' in source
+        assert f'{expected_name}="${{{selector}}}"' in source
     for lane in ("dev", "production"):
         assert f"_{flag}=" not in _read(f".github/workflows/deploy-{lane}.yml")
 

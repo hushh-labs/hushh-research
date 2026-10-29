@@ -331,7 +331,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
           # The current YAML invokes extracted helpers even for an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/backend-deploy"
-          for tool in backend-deploy.sh backend-phone-rollback.sh backend-app-surface-settings.sh backend-capacity-settings.sh backend-model-settings.sh backend-drive-secret-settings.sh commerce-preview-bindings.sh \
+          for tool in backend-deploy.sh backend-phone-rollback.sh backend-app-surface-settings.sh backend-capacity-settings.sh backend-model-settings.sh backend-drive-search-settings.sh backend-drive-secret-settings.sh commerce-preview-bindings.sh \
             verify-managed-vertex-runtime.sh scope-commerce-secrets.sh pod-release-env.sh preserve-pod-release.py; do
             cp "scripts/deploy/${tool}" "${RUNNER_TEMP}/release-tools/backend-deploy/${tool}"
           done
