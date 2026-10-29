@@ -125,8 +125,12 @@ def _scanner(container: dict) -> bool:
 def _revision(row: dict, service: str, primary: str) -> dict:
     metadata, spec = row["metadata"], row["spec"]
     name, uid = metadata["name"], metadata.get("uid")
-    name_hint = "drive-worker" if service.endswith("-drive-worker") else "consent-protocol"
-    container = _authorities().capacity_bridge.budget.named_container(spec, name_hint, name)
+    name_hint = (
+        "drive-worker" if service.endswith("-drive-worker") else "consent-protocol"
+    )
+    container = _authorities().capacity_bridge.budget.named_container(
+        spec, name_hint, name
+    )
     for extra in spec["containers"]:
         if extra is not container and (
             extra.get("name") != "clamav"
@@ -269,10 +273,19 @@ def _job(job: dict, images: dict) -> dict:
     }
 
 
-def _job_history(jobs: dict, images: dict, until: str, submissions, probe_images) -> dict:
+def _job_history(
+    jobs: dict, images: dict, until: str, submissions, probe_images, observers=None
+) -> dict:
     from schema_job_history import qualify
 
-    return qualify(jobs, images, until, submissions=submissions, probe_images=probe_images)
+    return qualify(
+        jobs,
+        images,
+        until,
+        submissions=submissions,
+        probe_images=probe_images,
+        observers=observers,
+    )
 
 
 def _revision_history(service: str, state: dict, until: str) -> int:
@@ -369,7 +382,15 @@ class Runtime:
                     ]
                 ),
             }
-        jobs = {name: _job(job, images) for name, job in inventory["jobs"].items()}
+        observer_rows = budget._inventory.observer_rows(inventory, PROJECT)
+        observers = {
+            row["name"]: inventory["jobs"][row["name"]] for row in observer_rows
+        }
+        jobs = {
+            name: _job(job, images)
+            for name, job in inventory["jobs"].items()
+            if name not in observers
+        }
         audit_counts["jobs"] = _job_history(
             jobs,
             images,
@@ -383,11 +404,13 @@ class Runtime:
                     else set()
                 )
             ),
+            observers,
         )
         return {
             "services": services,
             "revisions": revisions,
             "jobs": jobs,
+            "observer_jobs": observer_rows,
             "history_start": HISTORY_START,
             "source_anchor": SOURCE_ANCHOR,
             "audit_counts": audit_counts,
