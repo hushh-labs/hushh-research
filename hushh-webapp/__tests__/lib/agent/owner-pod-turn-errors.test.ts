@@ -14,9 +14,9 @@ const GENERIC = "One couldn't complete that response. Please try again.";
 
 describe("direct-path turn errors", () => {
   it("names a moved agent, a wake that timed out, and an agent that could not be reached", () => {
-    expect(formatAgentChatErrorMessage("POD_ASSIGNMENT_CHANGED")).toMatch(/^Your private agent moved/);
+    expect(formatAgentChatErrorMessage("POD_ASSIGNMENT_CHANGED")).toMatch(/^Agent One moved/);
     expect(formatAgentChatErrorMessage("x", "POD_ASSIGNMENT_CHANGED")).toMatch(/Open Hosting in Settings/);
-    expect(formatAgentChatErrorMessage("POD_CHAT_AUTHORITY_UNAVAILABLE:409:POD_ASSIGNMENT_CHANGED")).toMatch(/^Your private agent moved/);
+    expect(formatAgentChatErrorMessage("POD_CHAT_AUTHORITY_UNAVAILABLE:409:POD_ASSIGNMENT_CHANGED")).toMatch(/^Agent One moved/);
     expect(formatAgentChatErrorMessage("POD_WAKE_TIMEOUT", "POD_WAKE_TIMEOUT"))
       .toBe("Agent One did not wake up in time, so your message was not sent. Try again in a minute.");
     expect(formatAgentChatErrorMessage("POD_NOT_REACHED", "POD_NOT_REACHED")).toMatch(/could not be reached, so your message was not sent/);

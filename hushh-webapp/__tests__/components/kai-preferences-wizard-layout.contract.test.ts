@@ -15,6 +15,18 @@ const profile = { preferences: answers } as KaiProfileV2;
 afterEach(() => { cleanup(); vi.restoreAllMocks(); publishValidatedAuthSessionOwner(null); });
 
 describe("Finance preferences shared web/native operation contracts", () => {
+  it("records a voice answer alongside touch selections without implying a hidden step or silently saving", async () => {
+    const save = vi.fn();
+    const { result } = renderHook(() => useKaiPreferencesWizard({ mode: "onboarding", onComplete: save }));
+    act(() => { result.current.selectAnswer("investment_horizon", "short_term"); result.current.selectAnswer("drawdown_response", "stay"); });
+    await act(async () => {
+      const outcome = await resolveLocalOnboardingHandler("kai.setup.answer_volatility")!({ answer: "moderate" });
+      expect(outcome.summary).toContain("Continue to save");
+    });
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => { await result.current.submit(); });
+    expect(save).toHaveBeenCalledTimes(1);
+  });
   it("collects all preferences in one form and submits the exact answers only once", async () => {
     let finish!: () => void;
     const save = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));

@@ -31,7 +31,7 @@ export function RetainedAgentBar({ children }: { children: ReactNode }) {
   return <VoiceSeatContext.Provider value={voiceSeat}>
     <div data-agent-bar-shell className="flex w-full min-w-0 flex-col gap-2">
       {children}
-      <AgentBarSurface retained data-testid="one-voice-agent-bar" data-agent-dock="one-agent-dock" role="group" aria-label="One Agent One"
+      <AgentBarSurface retained data-testid="one-voice-agent-bar" data-agent-dock="one-agent-dock" role="group" aria-label="Agent One"
         onPointerDown={event => press.current?.(event)}>
         <div ref={setSeat} className="flex w-full min-w-0 items-center" />
       </AgentBarSurface>

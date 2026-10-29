@@ -11,7 +11,7 @@ import type { PacketTone } from "./packet-rows";
 // The server's stand-ins while a packet is checked again. Never shown as-is.
 const CHECKING_TITLE = "Packet being checked";
 const CHECKING_SUMMARIES = new Set(["Coverage is being checked.", "Evidence is being prepared."]);
-const STATUS_GAPS = new Set(["Agent One is checking current evidence.", "Processing is paused."]);
+const STATUS_GAPS = new Set(["The private agent is checking current evidence.", "Processing is paused."]);
 
 export function documentCount(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "document" : "documents"}`;

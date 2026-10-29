@@ -85,6 +85,12 @@ export function useKaiPreferencesWizard(props: KaiPreferencesWizardOptions) {
   };
   const answerByVoice = async (question: keyof WizardAnswers, entry: string): Promise<LocalOnboardingActionResult> => {
     if (!visit.live || visit.pending || props.isSubmitting || currentState().horizonDialogOpen) return { status: "blocked", summary: "Finish the current preference choice first." };
+    if (props.mode === "onboarding") {
+      if (!select(question, entry)) return { status: "blocked", summary: "That choice is unavailable." };
+      return { status: "succeeded", summary: Object.values(currentState().answers).every(Boolean)
+        ? "All preferences are selected. Select Continue to save them."
+        : "Preference selected. Choose the remaining answers." };
+    }
     const index = KAI_PREFERENCE_QUESTIONS.findIndex(item => item.id === question);
     const priorStep = currentState().step;
     if (index !== priorStep) write(state => ({ ...state, step: index }));

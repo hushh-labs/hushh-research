@@ -201,7 +201,7 @@ describe("OneVoiceControl", () => {
     const dock = screen.getByTestId("one-voice-agent-bar");
     expect(dock).toHaveAttribute("data-agent-dock", "one-agent-dock");
     expect(dock).toHaveAttribute("role", "group");
-    expect(dock).toHaveAccessibleName("One Agent One");
+    expect(dock).toHaveAccessibleName("Agent One");
     expect(dock.className).toContain("bottom-chrome-surface");
     expect(dock.className).not.toContain("backdrop-blur");
     // The shared bottom chrome column, never a width of its own.

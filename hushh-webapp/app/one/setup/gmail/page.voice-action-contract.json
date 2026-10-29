@@ -8,45 +8,25 @@
   ],
   "defaults": {
     "reachability": {
-      "active_personas": [
-        "investor",
-        "ria"
-      ]
+      "active_personas": ["investor", "ria"]
     },
     "speaker_persona": "one",
-    "guard_ids": [
-      "auth_signed_in"
-    ]
+    "guard_ids": ["auth_signed_in"]
   },
   "actions": [
     {
       "action_id": "setup.connect_gmail",
       "label": "Connect Gmail",
-      "meaning": "Presents the exact Connect Gmail action so a confirming tap can open the secure Gmail popup while Agent One session remains active.",
-      "aliases": [
-        "connect gmail",
-        "connect my gmail",
-        "set up gmail",
-        "open gmail connector"
-      ],
-      "search_keywords": [
-        "connect",
-        "gmail",
-        "connector"
-      ],
+      "meaning": "Presents the exact Connect Gmail action so a confirming tap can open the secure Gmail popup while the private-agent session remains active.",
+      "aliases": ["connect gmail", "connect my gmail", "set up gmail", "open gmail connector"],
+      "search_keywords": ["connect", "gmail", "connector"],
       "reachability": {
-        "routes": [
-          "/one/setup/gmail"
-        ],
-        "screens": [
-          "one_setup_gmail"
-        ],
+        "routes": ["/one/setup/gmail"],
+        "screens": ["one_setup_gmail"],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
+      "guard_ids": ["auth_signed_in"],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "trusted_activation_required",
@@ -55,13 +35,8 @@
         "path": "local_handler",
         "target": "setup.connect_gmail"
       },
-      "control_ids": [
-        "open_gmail_connector"
-      ],
-      "state_exposure": [
-        "gmail connection state",
-        "active setup capability"
-      ],
+      "control_ids": ["open_gmail_connector"],
+      "state_exposure": ["gmail connection state", "active setup capability"],
       "docs_references": [
         "components/gmail/gmail-receipts-page.tsx",
         "app/one/setup/gmail/gmail-onboarding-setup-client.tsx"
@@ -85,31 +60,15 @@
       "action_id": "setup.finish_gmail",
       "label": "Finish Gmail setup",
       "meaning": "Records an already verified Gmail connection as complete and returns to the setup hub.",
-      "aliases": [
-        "finish gmail setup",
-        "finish gmail",
-        "complete gmail setup"
-      ],
-      "search_keywords": [
-        "finish",
-        "gmail",
-        "complete"
-      ],
+      "aliases": ["finish gmail setup", "finish gmail", "complete gmail setup"],
+      "search_keywords": ["finish", "gmail", "complete"],
       "reachability": {
-        "routes": [
-          "/one/setup/gmail"
-        ],
-        "screens": [
-          "one_setup",
-          "one_setup_gmail"
-        ],
+        "routes": ["/one/setup/gmail"],
+        "screens": ["one_setup", "one_setup_gmail"],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": [
-        "auth_signed_in",
-        "gmail_connected"
-      ],
+      "guard_ids": ["auth_signed_in", "gmail_connected"],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -117,13 +76,8 @@
         "path": "local_handler",
         "target": "setup.finish_gmail"
       },
-      "control_ids": [
-        "finish_gmail_setup"
-      ],
-      "state_exposure": [
-        "gmail connection state",
-        "active setup capability"
-      ],
+      "control_ids": ["finish_gmail_setup"],
+      "state_exposure": ["gmail connection state", "active setup capability"],
       "docs_references": [
         "app/one/setup/gmail/gmail-onboarding-setup-client.tsx",
         "components/onboarding/setup/setup-completion-footer.tsx"
@@ -147,29 +101,15 @@
       "action_id": "setup.skip_gmail",
       "label": "Skip Gmail setup",
       "meaning": "Leaves Gmail setup and returns to the setup hub without recording Gmail as complete.",
-      "aliases": [
-        "skip gmail setup",
-        "skip gmail"
-      ],
-      "search_keywords": [
-        "skip",
-        "gmail",
-        "not now"
-      ],
+      "aliases": ["skip gmail setup", "skip gmail"],
+      "search_keywords": ["skip", "gmail", "not now"],
       "reachability": {
-        "routes": [
-          "/one/setup/gmail"
-        ],
-        "screens": [
-          "one_setup",
-          "one_setup_gmail"
-        ],
+        "routes": ["/one/setup/gmail"],
+        "screens": ["one_setup", "one_setup_gmail"],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
+      "guard_ids": ["auth_signed_in"],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -177,13 +117,8 @@
         "path": "local_handler",
         "target": "setup.skip_gmail"
       },
-      "control_ids": [
-        "skip_gmail_setup"
-      ],
-      "state_exposure": [
-        "gmail connection state",
-        "active setup capability"
-      ],
+      "control_ids": ["skip_gmail_setup"],
+      "state_exposure": ["gmail connection state", "active setup capability"],
       "docs_references": [
         "app/one/setup/gmail/gmail-onboarding-setup-client.tsx",
         "components/onboarding/setup/setup-completion-footer.tsx"

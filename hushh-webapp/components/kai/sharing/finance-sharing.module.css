@@ -52,7 +52,10 @@
 
 /* One task frame: only each step's content scrolls; the footer stays put. */
 .flowSurface.flowSurface { width: min(100%, 728px); margin-inline: auto; height: min(720px, calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px))) !important; max-height: calc(100dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important; --foundation-title3-size: 17px; --foundation-title3-line: 22px; }
-@media (min-width: 640px) { .flowSurface:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) { top: 10px; } }
+@media (min-width: 640px) {
+  .flowSurface:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) { top: 10px; }
+  .flowSurface:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-header"]) { padding-top: 20px; }
+}
 .flowBody.flowBody { display: flex; flex-direction: column; overflow: hidden; }
 .editLayout { display: flex; flex: 1; flex-direction: column; gap: 16px; min-height: 0; min-width: 0; }
 .pager { flex: 1; }

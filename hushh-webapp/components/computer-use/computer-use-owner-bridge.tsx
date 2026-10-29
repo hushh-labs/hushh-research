@@ -95,7 +95,7 @@ export function ComputerUseOwnerBridge({ ownerId, getVaultOwnerToken }: { ownerI
           onClick={() => setPhase("closed")}>Close</ShellActionSurface>
       </div>
       {phase === "checking" ? <p className="text-sm text-muted-foreground" role="status">Checking browser availability…</p>
-        : phase === "unavailable" ? <p className="text-sm text-muted-foreground" role="status">Browser isn’t available on this Agent One yet.</p>
+        : phase === "unavailable" ? <p className="text-sm text-muted-foreground" role="status">Browser isn’t available on Agent One yet.</p>
         : <form onSubmit={(event) => { void start(event); }} className="space-y-[var(--app-form-section-gap)]">
           <div className="space-y-[var(--app-form-field-gap)]">
             <label className="block text-sm" htmlFor={`browser-site-${ownerId}`}>Website</label>

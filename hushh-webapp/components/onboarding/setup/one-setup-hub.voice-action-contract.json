@@ -21,7 +21,7 @@
   "actions": [
     {
       "action_id": "setup.open_cloud",
-      "label": "Set up Agent One",
+      "label": "Set up your private agent",
       "meaning": "Opens one wizard to choose hosting, prove the cloud setup when required, and then select verified AI access.",
       "aliases": [
         "set up my cloud",

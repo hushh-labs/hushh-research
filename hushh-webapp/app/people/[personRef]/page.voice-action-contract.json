@@ -271,7 +271,7 @@
     {
       "action_id": "people.profile.request_scope",
       "label": "Request scope",
-      "meaning": "Opens the Request scope composer to ask this person's Agent One a question. It does not send the question until the person confirms in the dialog, and the owner still approves the exact question, the exact information it would use, and a price before any payment.",
+      "meaning": "Opens the Request scope composer to ask this person's private agent a question. It does not send the question until the person confirms in the dialog, and the owner still approves the exact question, the exact information it would use, and a price before any payment.",
       "aliases": [
         "request scope",
         "ask them a question",

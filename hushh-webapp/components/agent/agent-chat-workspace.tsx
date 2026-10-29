@@ -893,7 +893,7 @@ type AgentChatWorkspaceProps = {
 };
 
 const AGENT_GREETING =
-  "Hi, I'm One \u2014 Agent One. Ask me about your markets, portfolio, memories, or consent workflows.";
+  "Hi, I'm Agent One. Ask me about your markets, portfolio, memories, or consent workflows.";
 const AGENT_GREETING_TIMESTAMP = "Just now";
 const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   text: "",

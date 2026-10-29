@@ -61,12 +61,12 @@ describe("Puppy turn copy", () => {
     ];
     for (const code of agentCodes) {
       const line = puppyFailureMessage(code, outcome, "your Mac");
-      expect(line, code).toMatch(/private agent/);
+      expect(line, code).toMatch(/Agent One/);
       expect(line, code).not.toMatch(/Mac/);
     }
     // The connection step's own typed code keeps One chat's owner-safe words.
     expect(puppyFailureMessage("POD_DIRECT_UNAVAILABLE:ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY", outcome, "your Mac"))
-      .toMatch(/^Your private agent connection is not ready/);
+      .toMatch(/^Agent One connection is not ready/);
     // A Mac refusal wrapped by the agent is still the Mac's.
     expect(puppyFailureMessage("POD_DIRECT_UNAVAILABLE:PUPPY_BUSY", outcome, "your Mac"))
       .toBe("Your Mac is still on another answer. Try again in a moment.");
@@ -78,7 +78,7 @@ describe("Puppy turn copy", () => {
     const timedOut = (phase: "checking" | "waking" | "dispatched") =>
       puppyFailureMessage("x", { timedOut: true, cancelled: false, phase }, "your Mac");
     expect(timedOut("checking")).toBe("Hussh took too long to check Agent One. Try again in a moment.");
-    expect(timedOut("waking")).toBe("Your private agent and your Mac took too long to wake up. Try again in a minute.");
+    expect(timedOut("waking")).toBe("Agent One and your Mac took too long to wake up. Try again in a minute.");
     expect(timedOut("dispatched")).toBe("Your Mac took too long to answer. Check that it's awake, then try again.");
   });
 

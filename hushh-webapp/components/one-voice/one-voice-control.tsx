@@ -282,7 +282,7 @@ export function OneVoiceControl({
           hasPanel ? (panelOpen ? "open" : "collapsed") : undefined
         }
         role="group"
-        aria-label="One Agent One"
+        aria-label="Agent One"
         className="transition-opacity motion-reduce:transition-none"
         onPointerDown={(event) => {
           // A launch replaces the idle button during the press. Its release
