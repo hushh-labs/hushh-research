@@ -101,6 +101,7 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
     policy_generation: str
     processing_scope: str
     runtime_binding: Any = Field(default=None, exclude=True, repr=False)
+    processing_fingerprint: str | None = None
     primary_seconds: float = Field(default=30, gt=0, le=40)
     fallback_seconds: float = Field(default=20, gt=0, le=30)
 
@@ -140,6 +141,11 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
         policy = managed_text_policy()
         if policy is None or policy["generation"] != self.policy_generation:
             raise ManagedTextAuthorityError("UAT managed text processing policy changed")
+        if self.processing_fingerprint is not None and (
+            managed_text_binding(scope=self.processing_scope)["config_fingerprint"]
+            != self.processing_fingerprint
+        ):
+            raise ManagedTextAuthorityError("Managed text model configuration changed")
         if self.require_current is not None:
             try:
                 await self.require_current()
@@ -150,13 +156,13 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                     "Text invocation authority validation failed"
                 ) from None
 
-    async def _observe_response(self, response, *, stream, deadline, observed):
+    async def _observe_response(self, response, *, stream, deadline, observed, require_each=False):
         terminal = (
             response.partial is not True
             and not response.error_code
             and response.interrupted is not True
         )
-        if not observed or terminal:
+        if require_each or not observed or terminal:
             await self._require_current()
         if (stream or self.response_observer is not None) and not observed:
             deadline.reschedule(asyncio.get_running_loop().time() + 60)
@@ -176,14 +182,14 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
             if self.primary_provider == "azure_openai"
             else ("vertex", "azure_openai")
         )
-        # One chat never changes processors, including manually composed models.
+        # A config change selects the next invocation's processor. Never replay
+        # a chat call or its tools on another provider after a transport failure.
         if self.processing_scope == "one_text_chat":
-            if self.primary_provider != "azure_openai":
-                raise ValueError("One chat requires the managed Azure processor")
-            providers = ("azure_openai",)
+            providers = (self.primary_provider,)
         elif not self.allow_fallback:
             providers = providers[:1]
         for index, provider in enumerate(providers):
+            owned_vertex = None
             observed = completed = False
             request = llm_request
             model_name, location = self.model, ""
@@ -199,6 +205,7 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                     if self.fallback_factory is None:
                         raise ValueError("Managed Vertex alternate is not configured")
                     vertex = self.fallback_factory()
+                    owned_vertex = vertex
                 request = llm_request.model_copy(deep=True)
                 request.model = vertex.model
                 # Provider-private encrypted reasoning cannot cross providers.
@@ -208,12 +215,15 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                         for part in content.parts or []
                         if not (part.thought_signature or b"").startswith(b"azure-responses-v1:")
                     ]
-                source = vertex.generate_content_async(request, stream=stream)
+                request.contents = [content for content in request.contents if content.parts]
+                source = vertex.generate_content_async(
+                    request, stream=stream or self.response_observer is not None
+                )
                 model_name = vertex.model
                 from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
 
                 location = ManagedGeminiRuntimeBinding.from_environment().primary_location
-                seconds = self.fallback_seconds
+                seconds = self._primary_timeout(request) if not index else self.fallback_seconds
             logger.info(
                 "managed_text.selection scope=%s policy=%s provider=%s attempt=%s first_output_budget_ms=%s",
                 self.processing_scope,
@@ -229,7 +239,11 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                     async with aclosing(source) as responses:
                         async for response in responses:
                             terminal, publish = await self._observe_response(
-                                response, stream=stream, deadline=deadline, observed=observed
+                                response,
+                                stream=stream,
+                                deadline=deadline,
+                                observed=observed,
+                                require_each=provider == "vertex",
                             )
                             observed = True
                             completed = completed or terminal
@@ -265,6 +279,11 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                     or self.processing_scope == "one_text_chat"
                 ):
                     raise
+            finally:
+                if owned_vertex is not None:
+                    from hushh_mcp.runtime_providers.lifecycle import close_owned_adk_model
+
+                    await close_owned_adk_model(owned_vertex)
 
 
 def build_managed_text_model(
@@ -274,7 +293,7 @@ def build_managed_text_model(
     provider: Literal["azure_openai", "vertex"] | None = None,
     completion_observer: Callable[[dict[str, str]], None] | None = None,
 ):
-    """Reuse central Azure configuration. No settings/receipt lookup selects a provider."""
+    """Reuse the configured transport; model choice grants no information authority."""
     if scope not in TEXT_SCOPES:
         raise ValueError("Unsupported managed text processing scope")
     policy = managed_text_policy()
@@ -298,23 +317,33 @@ def build_managed_text_model(
     if selected not in {"azure_openai", "vertex"}:
         raise ValueError("Invalid UAT managed text provider")
     chat = scope == "one_text_chat"
-    if chat and selected != "azure_openai":
+    azure_chat = chat and selected == "azure_openai"
+    binding = ManagedAzureBinding.from_environment() if azure_chat else None
+    if azure_chat and binding is None:
         raise ValueError("One chat requires the managed Azure processor")
-    binding = ManagedAzureBinding.from_environment() if chat else None
-    if chat and binding is None:
-        raise ValueError("One chat requires the managed Azure processor")
+
+    def azure_unavailable():
+        raise ManagedTextAuthorityError("Vertex chat cannot acquire Azure credentials")
+
     return ManagedPrimaryTextModel(
-        model=config["primary_deployment"],
+        model=resolve_fleet_model_name("gemini-default")
+        if chat and selected == "vertex"
+        else config["primary_deployment"],
         endpoint=config["primary_endpoint"],
-        token_supplier=_credential_supplier(config["tenant_id"], config["client_id"]),
+        token_supplier=azure_unavailable
+        if chat and selected == "vertex"
+        else _credential_supplier(config["tenant_id"], config["client_id"]),
         require_current=require_current,
-        fallback_factory=None if chat else fallback,
+        fallback_factory=None if azure_chat else fallback,
         allow_fallback=not chat,
         primary_provider=cast(ManagedProvider, selected),
         completion_observer=completion_observer,
         policy_generation=policy["generation"],
         processing_scope=scope,
         runtime_binding=binding,
+        processing_fingerprint=managed_text_binding(scope=scope)["config_fingerprint"]
+        if chat
+        else None,
         # The outer first-output budget is independent of the SDK's read-idle
         # budget after output starts. Never kill a healthy stream at 10 seconds.
         timeout_seconds=60 if chat else 30,

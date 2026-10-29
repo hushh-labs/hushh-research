@@ -145,6 +145,102 @@ async def _run(root, observe=None, *, owner="owner", thread="thread"):
     return events, session
 
 
+@pytest.mark.parametrize("finish", [False, True])
+async def test_configured_vertex_search_preserves_native_grounding_and_chat_completion(
+    monkeypatch, finish
+):
+    from google.adk.models.llm_response import LlmResponse
+    from google.adk.tools.google_search_tool import GoogleSearchTool
+    from google.genai import types
+
+    from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
+    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
+    monkeypatch.setattr(RegisteredMcpToolset, "get_tools", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        delegation, "validate_first_party_owner_token", AsyncMock(return_value=object())
+    )
+    monkeypatch.setattr(queued_input, "registry", queued_input.QueuedInputRegistry())
+    requests = []
+
+    async def generate(req, stream=False):
+        requests.append(req.model_copy(deep=True))
+        if len(requests) == 1:
+            yield LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                id="native-search",
+                                name="google_search",
+                                args={
+                                    "request": "Find the public source",
+                                    "finish_turn": finish,
+                                },
+                            ),
+                            thought_signature=b"synthetic-native-search",
+                        )
+                    ],
+                ),
+                partial=False,
+                turn_complete=True,
+            )
+        elif len(requests) == 2:
+            assert any(tool.google_search is not None for tool in req.config.tools)
+            if stream:
+                yield LlmResponse(
+                    content=types.Content(role="model", parts=[types.Part(text=ANSWER)]),
+                    partial=True,
+                )
+            yield LlmResponse(
+                content=types.Content(role="model", parts=[types.Part(text=ANSWER)]),
+                partial=False,
+                turn_complete=True,
+                grounding_metadata=types.GroundingMetadata(
+                    grounding_chunks=[
+                        types.GroundingChunk(
+                            web=types.GroundingChunkWeb(
+                                uri="https://example.test/team/owner", title="Synthetic source"
+                            )
+                        )
+                    ]
+                ),
+            )
+        else:
+            yield LlmResponse(
+                content=types.Content(role="model", parts=[types.Part(text="Normal synthesis.")]),
+                partial=False,
+                turn_complete=True,
+            )
+
+    native = SimpleNamespace(
+        model=resolve_fleet_model_name("gemini-default"), generate_content_async=generate
+    )
+    monkeypatch.setattr(ManagedGeminiRuntimeBinding, "build_adk_model", lambda *a, **k: native)
+    wrapped = managed.build_managed_text_model(scope="one_text_chat")
+    root = build_one_text_agent(model=wrapped)
+    child = next(
+        tool.agent for tool in root.tools if getattr(tool, "name", None) == "google_search"
+    )
+    assert type(child.tools[0]) is GoogleSearchTool
+    events, session = await _run(root)
+    text = "".join(event.delta for event in events if event.type == EventType.TEXT_MESSAGE_CONTENT)
+    expected = ANSWER if finish else "Normal synthesis."
+    assert text == expected
+    assert [
+        message.content
+        for message in adk_events_to_messages(session.events)
+        if message.role == "assistant" and message.content
+    ] == [expected]
+    assert len(requests) == (2 if finish else 3)
+    assert all(req.model == native.model for req in requests)
+    assert sum(event.type == EventType.RUN_FINISHED for event in events) == 1
+    assert not any(event.type == EventType.RUN_ERROR for event in events)
+
+
 def _observe_pending_handoff(monkeypatch, authority):
     from hushh_mcp.one_adk.search_answer import OneSearchAnswerAgent
     from hushh_mcp.one_adk.turn_completion import newest_turn_pending

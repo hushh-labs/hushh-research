@@ -341,11 +341,13 @@ connector, frontend or GitHub workflow edit is needed for these settings.
 For exhausted Azure quota, choose a compatible provisioned Azure resource or
 deployment with available capacity and update the relevant entries in this file.
 Changing a deployment name alone does not create quota or provision a model.
-UAT One chat currently requires Azure: it has no Vertex fallback. The validator
-rejects `managed_provider_selection.uat = "vertex"` for a fleet release because
-that would break chat. Vertex diagnostic pins and the existing eligible Drive
-transport fallback remain available under their current contracts. A new fleet
-provider needs adapter and complete capability qualification before selection.
+To move UAT to Vertex, set `managed_provider_selection.uat` to `vertex`; set it
+back to `azure_openai` to restore Azure. One chat, its specialists and Search,
+voice and the existing managed capability ports use the selected provider.
+Chat stays on that one provider for the invocation: an outage does not replay
+its tools or output through another model. The existing eligible Drive transport
+fallback retains its separate contract. A new fleet provider needs an adapter
+and complete capability qualification before selection.
 
 Validate the complete file without model calls or credentials:
 
@@ -360,8 +362,10 @@ the candidate revision. These internal verification pins take precedence over
 the file at runtime; conflicting pins fail closed. Both Drive workers inherit
 the verified API binding. Operators should edit the file, rather than manually
 change those pins independently. The existing exact-image readiness and
-promotion gates remain mandatory; config validation proves shape and known
-compatibility restrictions, not live quota, model quality or availability.
+promotion gates remain mandatory. They require the configured provider's complete
+bundle, including chat tool round trips and voice audio; a healthy alternate
+cannot silently replace the configured choice. Config validation proves shape,
+not live quota, model quality or availability. Azure remains the checked-in default.
 
 The file is packaged with the backend. A source edit takes effect through the
 normal authorized backend release/restart, including affected workers; it does
@@ -503,7 +507,7 @@ Used by:
 | `CORS_ALLOWED_ORIGINS` | `server.py` | Yes (prod recommended) | Explicit comma-separated CORS allowlist |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes (auth) | Canonical Firebase Admin and Workspace DWD credential. Approved Workspace client ID: `109021324828349644970`. |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`; do not introduce for new config. |
-| `HUSHH_UAT_MANAGED_AI_PROVIDER` / `HUSHH_UAT_MANAGED_TEXT_PROVIDER` | `managed_ai_config.py`, `runtime_providers/managed_text.py` | UAT only | Internal revision pins override `managed_provider_selection.uat` in the packaged config; disagreement fails closed. UAT One chat and fleet release qualification currently require Azure; a Vertex diagnostic/Drive transport is not a complete replacement. API and both Drive workers inherit the exact verified binding. Non-UAT and BYOK selection remain unchanged. |
+| `HUSHH_UAT_MANAGED_AI_PROVIDER` / `HUSHH_UAT_MANAGED_TEXT_PROVIDER` | `managed_ai_config.py`, `runtime_providers/managed_text.py` | UAT only | Internal revision pins override `managed_provider_selection.uat` in the packaged config; disagreement fails closed. The configured Azure or Vertex provider must pass both text scopes and the complete capability bundle. API and both Drive workers inherit the exact verified binding. Non-UAT and BYOK selection remain unchanged. |
 | `HUSHH_GENAI_AUTH_MODE` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Must be `vertex_adc`; hosted API-key mode is rejected. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `hushh_mcp/runtime_providers/factory.py` | Local only | Explicit `developer_api_key` compatibility mode only; never a hosted secret. |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Project metadata hosted; location override local only | Hosted text locations come from the packaged `config/managed-ai-runtime.json` profile; credentials come from workload ADC. `GOOGLE_CLOUD_LOCATION` is a local compatibility override, not a required hosted mount. |

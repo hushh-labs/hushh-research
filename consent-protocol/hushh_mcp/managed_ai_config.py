@@ -94,14 +94,20 @@ def load_private_drive_text_policy(path: Path = PROFILE_PATH) -> dict:
     return value
 
 
-def configured_managed_provider(environment: str, path: Path = PROFILE_PATH) -> str:
+def configured_managed_provider(
+    environment: str, path: Path = PROFILE_PATH, *, document: dict | None = None
+) -> str:
     """Packaged fleet default; revision pins are resolved separately below.
 
     Only UAT has an administrator-selected Azure/Vertex runtime. Other lanes
     retain their existing Vertex contract; BYOK and owner-cloud routing are separate.
     """
-    document = json.loads(path.read_text())
+    document = json.loads(path.read_text()) if document is None else document
+    # Version-one candidates predating the central selector declared Azure in
+    # their existing UAT processor policy. Preserve their release receipts.
     selection = document.get("managed_provider_selection")
+    if selection is None and "managed_provider_selection" not in document:
+        selection = {"uat": document.get("private_drive_text_uat", {}).get("provider")}
     if (
         document.get("version") != 1
         or not isinstance(selection, dict)
@@ -118,8 +124,8 @@ def configured_managed_provider(environment: str, path: Path = PROFILE_PATH) -> 
 def validate_runtime_config(path: Path = PROFILE_PATH) -> dict:
     """Validate all packaged settings without credentials, clients or inference.
 
-    Runtime diagnostics can still pin Vertex explicitly, but a fleet release
-    must retain One chat's existing Azure-only qualification boundary.
+    Provider readiness separately qualifies the selected runtime's complete
+    capability bundle before any candidate is allowed to serve traffic.
     """
     document = json.loads(path.read_text())
     environments = ("local", "dev", "uat", "production")
@@ -133,11 +139,6 @@ def validate_runtime_config(path: Path = PROFILE_PATH) -> dict:
     load_pwm_policy(path, environment="production", provider="vertex")
     load_pwm_policy(path, environment="uat", provider="azure_openai")
     load_managed_runtime_policy(path, environment="uat", provider=providers["uat"])
-    if providers["uat"] != "azure_openai":
-        raise ValueError(
-            "UAT One chat requires qualified Azure processing; "
-            "Vertex is not a supported fleet replacement"
-        )
     return {"valid": True, "providers": providers, "config_fingerprint": profile_hash(document)}
 
 

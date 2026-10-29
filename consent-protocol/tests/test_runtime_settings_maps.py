@@ -600,10 +600,7 @@ def test_file_owned_provider_selection_reaches_runtime_and_research_without_chan
     for environment in ("local", "dev", "production"):
         assert configured_managed_provider(environment, path) == "vertex"
         assert load_managed_runtime_policy(path, environment=environment) is None
-    # The current One contract intentionally has no Vertex substitute. An edit
-    # must be refused before deployment, rather than silently breaking chat.
-    with pytest.raises(ValueError, match="not a supported fleet replacement"):
-        validate_runtime_config(path)
+    assert validate_runtime_config(path)["providers"]["uat"] == "vertex"
     original["managed_provider_selection"]["uat"] = "unsupported"
     path.write_text(json.dumps(original))
     with pytest.raises(ValueError, match="Invalid managed provider selection"):

@@ -1961,10 +1961,14 @@ def _capability_results_fixture(policy):
     return capabilities
 
 
-def _provider_fixture(module, provider):
+def _provider_fixture(module, provider, *, document=None):
     from uuid import UUID, uuid5
 
-    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    document = (
+        document
+        if document is not None
+        else json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    )
     expected = module.context(
         {
             "READINESS_BUILD_ID": "11111111-1111-4111-8111-111111111111",
@@ -1977,6 +1981,7 @@ def _provider_fixture(module, provider):
             "READINESS_ENVIRONMENT": "uat",
         }
     )
+    expected["config_fingerprint"] = module.fingerprint(document)
     core = {
         "schema": "managed_text_probe.v1",
         "provider": provider,
@@ -2018,11 +2023,14 @@ def _provider_fixture(module, provider):
         "execution_image": expected["image"],
         "runtime_account": expected["runtime_account"],
         "execution_terminal": "True",
+        "step_exit": 0,
         "capabilities": {},
     }
     policy = document["managed_runtime_uat"]
     digest = module.fingerprint({"policy": policy, "azure": document["pwm_research_uat"]["azure"]})
     capabilities = _capability_results_fixture(policy)
+    if provider == "vertex":
+        capabilities["public_source"].update(research_contracts=1, attribution_cases=8)
     receipt["capability_proof"] = {
         "schema": "managed_capabilities_probe.v1",
         "provider": provider,
@@ -2045,21 +2053,22 @@ def _provider_fixture(module, provider):
 
 
 @pytest.mark.parametrize(
-    "azure,vertex,selected",
-    [
-        (True, False, "azure_openai"),
-        (False, True, None),
-        (True, True, "azure_openai"),
-        (False, False, None),
-    ],
+    "azure,vertex",
+    [(True, False), (False, True), (True, True), (False, False)],
 )
-def test_provider_release_admission_requires_azure(azure, vertex, selected):
+@pytest.mark.parametrize("configured", ["azure_openai", "vertex"])
+def test_provider_release_admission_qualifies_the_configured_provider(azure, vertex, configured):
     module = _managed_provider_gate()
-    expected, a = _provider_fixture(module, "azure_openai")
-    _, v = _provider_fixture(module, "vertex")
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    document["managed_provider_selection"]["uat"] = configured
+    expected, a = _provider_fixture(module, "azure_openai", document=document)
+    _, v = _provider_fixture(module, "vertex", document=document)
     result = module.evaluate(
-        {"azure_openai": a if azure else None, "vertex": v if vertex else None}, expected
+        {"azure_openai": a if azure else None, "vertex": v if vertex else None},
+        expected,
+        document=document,
     )
+    selected = configured if (azure if configured == "azure_openai" else vertex) else None
     assert result["ready"] is (selected is not None)
     assert result["selected_provider"] == selected
 
@@ -2083,13 +2092,22 @@ def test_provider_release_admission_requires_azure(azure, vertex, selected):
         "root_function",
         "root_stream",
         "root_inventory",
+        "failed_execution",
+        "failed_step",
     ],
 )
 def test_complete_provider_gate_rejects_missing_or_misbound_capability_proof(provider, defect):
     module = _managed_provider_gate()
-    expected, receipt = _provider_fixture(module, provider)
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    document["managed_provider_selection"]["uat"] = provider
+    expected, receipt = _provider_fixture(module, provider, document=document)
+    assert module.evaluate({provider: receipt}, expected, document=document)["ready"] is True
     proof = receipt["capability_proof"]
-    if defect == "missing":
+    if defect == "failed_execution":
+        receipt["execution_terminal"] = "False"
+    elif defect == "failed_step":
+        receipt["step_exit"] = 1
+    elif defect == "missing":
         proof["capabilities"].pop("live_audio")
     elif defect == "failed":
         proof["capabilities"]["image_input"]["ready"] = False
@@ -2119,7 +2137,7 @@ def test_complete_provider_gate_rejects_missing_or_misbound_capability_proof(pro
         proof["capabilities"]["compact_public_search"]["fresh_page_retrieval_claimed"] = True
     else:
         proof["capabilities"]["public_source"]["http_receipts"] = True
-    assert module.evaluate({provider: receipt}, expected)["ready"] is False
+    assert module.evaluate({provider: receipt}, expected, document=document)["ready"] is False
 
 
 def test_vertex_core_receipt_uses_the_actual_selected_policy_generation(monkeypatch):
@@ -2530,7 +2548,7 @@ def test_vertex_drive_evidence_cannot_qualify_one_chat():
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
     assert module.valid_core(vertex["core"], "vertex", expected, document)
     assert module.evaluate({"vertex": vertex}, expected)["selected_provider"] is None
-    vertex["core"]["scopes"]["one_text_chat"] = vertex["core"]["scopes"]["drive_document_requests"]
+    vertex["core"]["scopes"].pop("one_text_chat")
     assert not module.valid_core(vertex["core"], "vertex", expected, document)
 
 
@@ -2539,6 +2557,6 @@ def test_provider_selection_rejects_vertex_before_cloud_mutation(tmp_path, monke
     expected, _ = _provider_fixture(module, "vertex")
     calls = []
     monkeypatch.setattr(module, "run_json", calls.append)
-    with pytest.raises(ValueError, match="qualified Azure"):
+    with pytest.raises(ValueError, match="qualified configured"):
         module.select({"ready": True, "selected_provider": "vertex"}, expected, tmp_path)
     assert calls == []
