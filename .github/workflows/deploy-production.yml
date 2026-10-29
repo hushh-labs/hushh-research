@@ -956,6 +956,7 @@ jobs:
       - name: Qualify WorkOS non-activation before production mutation
         if: steps.scope.outputs.deploy_backend == 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           RESTORATION_SOURCE: ${{ inputs.restoration_validation_run != '' && inputs.sha || '' }}
         run: |
           set -euo pipefail
