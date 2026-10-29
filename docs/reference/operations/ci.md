@@ -1224,6 +1224,13 @@ on main. An uncertain response is reconciled without another rerun request.
 The final gate verifies that new attempt's receipt even if GitHub retained the
 previous successful Secret Scan job. PR permissions remain read-only.
 
+On a PR rerun, the Live Memory impact check reads the current description so a
+corrected explanation does not require closing and reopening the PR. It accepts
+that description only when the live PR remains open and its repository, number,
+head and base identities match the original event. A changed base or head needs
+a fresh validation event. The job logs the evaluated description's digest;
+reviewers still check the current description before merging.
+
 When changing final-gate outcomes or conditions, run the nearest actual gate
 harness alongside the existing security authority/receipt suites before pushing:
 `cd consent-protocol && uv run pytest tests/test_ci_status_gate_fails_closed.py -q`.
