@@ -15,48 +15,112 @@ from functools import partial
 from typing import Literal
 
 
+class ActivityPlannerContractError(AssertionError):
+    """A generated plan failed an authored, synthetic semantic requirement."""
+
+
+def _probe_event(case, stage, result, **metrics):
+    print(
+        json.dumps(
+            {
+                "schema": "drive.activity_planner.probe.v1",
+                "case": case,
+                "stage": stage,
+                "result": result,
+                **metrics,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+
+
+def _planner_prompt(purpose):
+    return json.dumps(
+        {
+            "document_request": {
+                "purpose": purpose,
+                "periodStart": "2026-06-02",
+                "periodEnd": "2026-10-02",
+            },
+            "semantic_plan_version": 2,
+            "transaction_search": True,
+            "current_time_utc": "2026-10-29T00:00:00Z",
+            "user_timezone": "Asia/Kolkata",
+        }
+    )
+
+
+def _require(case, condition, reason):
+    if not condition:
+        _probe_event(case, "grade", "failed", reason=reason)
+        raise ActivityPlannerContractError(reason)
+
+
 def grade_plan(plan, case):
     from hushh_mcp.services.drive_request_discovery import compile_discovery_queries
 
-    if plan is None or plan.version != 2 or plan.status != "ready":
-        raise ValueError("activity_planner_invalid_plan")
+    require = partial(_require, case)
+    require(
+        plan is not None and plan.version == 2 and plan.status == "ready",
+        "activity_planner_invalid_plan",
+    )
     predicates = [p for clause in plan.clauses for p in clause.predicates]
     if case == "ordinary":
-        assert plan.date_basis == "activity_union"
-        assert len(plan.clauses) >= 2
+        require(plan.date_basis == "activity_union", "activity_date_basis_missing")
+        require(len(plan.clauses) >= 2, "concept_alternative_clauses_missing")
         concepts = {
             p.value.casefold()
             for p in predicates
             if not p.negated and p.kind in {"semantic", "content"}
         }
-        assert len(concepts) >= 2
+        require(len(concepts) >= 2, "distinct_executable_concepts_missing")
         for clause in plan.clauses:
-            assert any(
-                p.kind in {"semantic", "content"} and not p.negated for p in clause.predicates
+            require(
+                any(p.kind in {"semantic", "content"} and not p.negated for p in clause.predicates),
+                "clause_concept_missing",
             )
-            assert any(
-                p.kind == "entity"
-                and p.match == "token"
-                and set(p.value.casefold().split()) == {"cedar", "vale"}
-                and p.sparse_fallback_any_token
-                for p in clause.predicates
+            require(
+                any(
+                    p.kind == "entity"
+                    and p.match == "token"
+                    and set(p.value.casefold().split()) == {"cedar", "vale"}
+                    and p.sparse_fallback_any_token
+                    for p in clause.predicates
+                ),
+                "clause_core_entity_or_sparse_fallback_missing",
             )
-        assert not any("consist" in p.value.casefold().split() for p in predicates)
-        assert not any(p.kind == "title" for p in predicates)
+        require(
+            not any("consist" in p.value.casefold().split() for p in predicates),
+            "conversational_glue_became_keyword",
+        )
+        require(not any(p.kind == "title" for p in predicates), "concept_restricted_to_title")
     else:
-        assert plan.date_basis == "created"
+        require(plan.date_basis == "created", "explicit_creation_date_basis_lost")
         for clause in plan.clauses:
-            assert any(
-                p.kind == "title" and p.match == "exact" and p.value == "Research Charter.pdf"
-                for p in clause.predicates
+            require(
+                any(
+                    p.kind == "title" and p.match == "exact" and p.value == "Research Charter.pdf"
+                    for p in clause.predicates
+                ),
+                "explicit_exact_filename_lost",
             )
-            assert any(p.negated and "draft" in p.value.casefold() for p in clause.predicates)
-        assert not any(p.sparse_fallback_any_token for p in predicates)
+            require(
+                any(p.negated and "draft" in p.value.casefold() for p in clause.predicates),
+                "explicit_exclusion_lost",
+            )
+        require(
+            not any(p.sparse_fallback_any_token for p in predicates),
+            "explicit_constraint_relaxed_by_fallback",
+        )
     queries = compile_discovery_queries(
         plan, period_start="2026-06-02", period_end="2026-10-02", timezone="Asia/Kolkata"
     )
-    assert len(queries) == (2 if case == "ordinary" else 1)
-    assert ("createdTime >=" in queries[0]["arguments"]["query"]) == (case != "ordinary")
+    require(len(queries) == (2 if case == "ordinary" else 1), "compiled_query_count_mismatch")
+    require(
+        ("createdTime >=" in queries[0]["arguments"]["query"]) == (case != "ordinary"),
+        "compiled_date_routing_mismatch",
+    )
     return queries
 
 
@@ -84,24 +148,26 @@ async def probe_drive_activity_planner(
         ),
     ):
         started = time.monotonic()
-        async with asyncio.timeout(90):
-            result = await plan_semantic_live_search(
-                partial(interpret_semantic_live_search, model=model),
-                prompt=json.dumps(
-                    {
-                        "document_request": {
-                            "purpose": purpose,
-                            "periodStart": "2026-06-02",
-                            "periodEnd": "2026-10-02",
-                        },
-                        "semantic_plan_version": 2,
-                        "transaction_search": True,
-                        "current_time_utc": "2026-10-29T00:00:00Z",
-                        "user_timezone": "Asia/Kolkata",
-                    }
-                ),
-                user_id="synthetic-activity-planner-readiness",
+        _probe_event(case, "planner", "started")
+        try:
+            async with asyncio.timeout(90):
+                result = await plan_semantic_live_search(
+                    partial(interpret_semantic_live_search, model=model),
+                    prompt=_planner_prompt(purpose),
+                    user_id="synthetic-activity-planner-readiness",
+                )
+        except Exception:
+            _probe_event(
+                case,
+                "planner",
+                "failed",
+                reason="planner_execution_failed",
+                elapsed_ms=round((time.monotonic() - started) * 1000),
             )
+            raise
+        _probe_event(
+            case, "planner", "completed", elapsed_ms=round((time.monotonic() - started) * 1000)
+        )
         queries = grade_plan(result.semantic_query, case)
         rows.append(
             {
@@ -117,6 +183,7 @@ async def probe_drive_activity_planner(
                 ],
             }
         )
+        _probe_event(case, "grade", "passed", **{k: v for k, v in rows[-1].items() if k != "case"})
     return {
         "schema": "drive.activity_planner.probe.v1",
         "passed": True,

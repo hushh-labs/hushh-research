@@ -2,6 +2,7 @@ import XCTest
 import SwiftUI
 import Capacitor
 import WebKit
+import Security
 @testable import App
 
 private final class ZeroSafeAreaView: UIView {
@@ -15,6 +16,54 @@ private final class ZeroSafeAreaView: UIView {
 }
 
 final class NativeSupportTests: XCTestCase {
+    func testSmsAlarmOrderingAndAcknowledgementRejectLateAdmission() throws {
+        let user = "sms-test-\(UUID().uuidString)"
+        let ended = UUID().uuidString
+        let admitted = UUID().uuidString
+        let group = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "NotificationKeychainGroup") as? String)
+        let probe: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "hussh.sms.entitlement-test", kSecAttrAccessGroup as String: group,
+            kSecAttrAccount as String: UUID().uuidString]
+        var insertion = probe
+        insertion[kSecValueData as String] = Data([1])
+        let writable = SecItemAdd(insertion as CFDictionary, nil)
+        defer { SecItemDelete(probe as CFDictionary) }
+        XCTAssertEqual(writable, errSecSuccess,
+            "SMS shared Keychain requires an entitled simulator test host; OSStatus=\(writable)")
+        guard writable == errSecSuccess else { return }
+        defer {
+            for grant in [ended, admitted] {
+                for suffix in ["first", "pending", "ack"] {
+                    SecItemDelete([kSecClass as String: kSecClassGenericPassword,
+                        kSecAttrService as String: "hussh.sms.alarms.v1", kSecAttrAccessGroup as String: group,
+                        kSecAttrAccount as String: SmsAlarmLedger.account(user: user, grant: grant, suffix: suffix)] as CFDictionary)
+                }
+            }
+            let fence = SmsAlarmLedger.account(user: user, grant: admitted, suffix: "pending").prefix(65)
+            SecItemDelete([kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: "hussh.sms.deleted.v1", kSecAttrAccessGroup as String: group,
+                kSecAttrAccount as String: String(fence)] as CFDictionary)
+        }
+        try SmsAlarmLedger.markEnded(user: user, grant: ended)
+        XCTAssertThrowsError(try SmsAlarmLedger.remember(user: user, grant: ended))
+        XCTAssertTrue(SmsAlarmLedger.endedBeforeAdmission(user: user, grant: ended))
+        try SmsAlarmLedger.remember(user: user, grant: admitted)
+        try SmsAlarmLedger.markEnded(user: user, grant: admitted)
+        XCTAssertFalse(SmsAlarmLedger.endedBeforeAdmission(user: user, grant: admitted))
+        XCTAssertEqual(SmsAlarmLedger.pending(user: user), [admitted])
+        try SmsAlarmLedger.acknowledge(user: user, grant: admitted)
+        try SmsAlarmLedger.remember(user: user, grant: admitted)
+        XCTAssertTrue(SmsAlarmLedger.acknowledged(user: user, grant: admitted))
+        XCTAssertTrue(SmsAlarmLedger.pending(user: user).isEmpty)
+        XCTAssertEqual(SmsAlarmLedger.pending(user: user, includeAcknowledged: true), [admitted])
+        try SmsAlarmLedger.forget(user: user)
+        XCTAssertTrue(SmsAlarmLedger.pending(user: user, includeAcknowledged: true).isEmpty)
+        XCTAssertFalse(SmsAlarmLedger.acknowledged(user: user, grant: admitted))
+        XCTAssertFalse(SmsAlarmLedger.endedBeforeAdmission(user: user, grant: ended))
+        XCTAssertThrowsError(try SmsAlarmLedger.remember(user: user, grant: admitted))
+        XCTAssertThrowsError(try SmsAlarmLedger.acknowledge(user: user, grant: admitted))
+    }
+
     @MainActor
     func testOwnedChoiceReadbackCannotRetireAnAttachedSheet() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
