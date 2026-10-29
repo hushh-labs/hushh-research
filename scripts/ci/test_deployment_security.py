@@ -80,7 +80,7 @@ class DeploymentSecurityTest(unittest.TestCase):
             pass
         # Keep GitHub's YAML 1.2 `on` key as text under the local YAML 1.1 parser.
         root = Path(__file__).resolve().parents[2]
-        for name in gate.CALLERS:
+        for name in gate.CALLERS - {"deployment-security.yml"}:
             with self.subTest(workflow=name):
                 source = (root / ".github/workflows" / name).read_text()
                 jobs = yaml.load(source, Loader=Loader)["jobs"]

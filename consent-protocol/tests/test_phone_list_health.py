@@ -216,3 +216,57 @@ def test_hourly_runtime_observation_is_staged_by_environment_rollout(environment
     assert result.returncode == (1 if rollout == "invalid" else 0)
     assert ("--check-phone-runtime" in result.stdout) is (rollout == "true")
     assert ("--emit-health-log" in result.stdout) is (rollout != "invalid")
+
+
+@pytest.mark.parametrize("case", ["normal", "lost-write", "expired", "replaced"])
+def test_cloud_health_lease_fences_duplicates_and_preserves_successors(case):
+    root = Path(__file__).resolve().parents[2]
+    path = root / "deploy/observability/auth_health_job.py"
+    spec = importlib.util.spec_from_file_location("auth_health_job", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    state = {"generation": 0, "body": None}
+    if case == "expired":
+        state.update(generation=4, body={"holder": "old", "expires": 1})
+
+    def cloud(args, **kwargs):
+        if args[1:3] == ["storage", "cp"]:
+            expected = int(
+                next(v.split("=", 1)[1] for v in args if v.startswith("--if-generation-match="))
+            )
+            if expected != state["generation"]:
+                raise module.BoundedReadError("exit")
+            state["body"] = json.loads(Path(args[3]).read_text())
+            state["generation"] += 1
+            if case == "lost-write" and state["generation"] == 1:
+                raise module.BoundedReadError("exit")
+            if case == "replaced":
+                state["generation"] += 1
+                state["body"] = {"holder": "successor", "expires": 2000}
+            return b""
+        if args[1:4] == ["storage", "objects", "describe"]:
+            return str(state["generation"]).encode()
+        if args[1:3] == ["storage", "cat"]:
+            assert args[3].endswith("#" + str(state["generation"]))
+            return json.dumps(state["body"]).encode()
+        if args[1:3] == ["storage", "rm"]:
+            assert args[-2] == f"--if-generation-match={state['generation']}"
+            state["body"] = None
+            state["generation"] = 0
+            return b""
+        raise AssertionError("Unreviewed cloud operation")
+
+    if case == "replaced":
+        with (
+            pytest.raises(ValueError, match="holder changed"),
+            module.lease("hushh-pda-uat", run=cloud, clock=lambda: 1000),
+        ):
+            pytest.fail("A successor's lease authorized this worker")
+        assert state["body"]["holder"] == "successor"
+    else:
+        with module.lease("hushh-pda-uat", run=cloud, clock=lambda: 1000) as acquired:
+            assert acquired
+            with module.lease("hushh-pda-uat", run=cloud, clock=lambda: 1000) as duplicate:
+                assert not duplicate
+            assert state["body"] is not None
+        assert state["body"] is None

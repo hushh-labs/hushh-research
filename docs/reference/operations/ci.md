@@ -21,7 +21,7 @@ flowchart TB
   end
 
   subgraph integration["Integration lane"]
-    freshness["Main Freshness Gate"]
+    freshness["Destination Base Freshness Gate"]
     status["CI Status Gate"]
     queueci["Queue Validation<br/>pass-through: reuses PR Validation<br/>for an identical tree"]
     queue["GitHub merge queue"]
@@ -184,7 +184,7 @@ Never rename required job/check contexts for cosmetic consistency.
 | Device qualification | `ios-voice-device.yml` | Explicit/reusable physical-device evidence; not another PR suite |
 | Capacity | `capacity-maintenance-clock.yml`, `capacity-maintenance.yml` | Due-work controller, authenticated bounded cleanup; timer wait occurs before runner assignment |
 | Operational recovery | `rollback.yml`, `prod-cloudsql-backup-posture.yml` | Governed rollback and daily live backup-posture verification |
-| Security | `verify-protected-lists.yml`, `supply-chain.yml` | Hourly protected-configuration drift; changed-dependency SBOM/provenance |
+| Security | `deployment-security.yml`, `verify-protected-lists.yml`, `supply-chain.yml` | Protected alert clearance inside explicit releases; manual diagnostics; protected-list fallback during cloud-timer qualification; changed-dependency SBOM/provenance |
 | Performance | `editor-performance-nightly.yml` | Daily runner/browser performance drift check, complementing changed-path PR coverage |
 | Dependency cache | `ios-swift-package-cache.yml` | Daily main-owned cache preparation and bounded cold-fetch verification |
 | Signing / package publication | `provision-wallet-pass-certificate.yml`, `publish-hushh-mcp.yml` | Explicit signing-resource creation and verified package publication |
@@ -927,7 +927,10 @@ Manual `PR Validation` with scope `auto` or `all` provides full branch diagnosti
 repository-wide alerts within an explicit release run, in a separate job using
 the Main-only `ci-security` environment. Its fine-grained token has only Secret
 scanning alerts: read and Dependabot alerts: read. Candidate code never executes
-in that job. Any unresolved secret alert blocks release; dependency alerts remain
+in that job. Its Main-only manual diagnostic grants no deployment acceptance.
+Mutation jobs verify the current security attempt; a failed-only rerun cannot
+reuse an earlier clearance. Rerun the complete release workflow through its
+existing recovery contract. Any unresolved secret alert blocks release; dependency alerts remain
 advisory. Inaccessible or incomplete inventories fail closed. The receipt binds
 the release run/attempt, Main workflow, environment, requested scope and resolved
 application reference. Existing release admission still verifies selected services,

@@ -14,7 +14,12 @@ from urllib.parse import quote
 from github_security_authority import GitHub, Refused, SHA, inventory, positive
 
 REPOSITORY = "hushh-labs/hushh-research"
-CALLERS = {"release-ios-appstore.yml", "ship-ios-testflight.yml", "validate-plg-frontend-source.yml", "ship-android-playstore-v1.yml", "deploy-uat-one-chat.yml", "deploy-dev.yml", "publish-hushh-mcp.yml", "deploy-uat.yml", "deploy-production.yml", "resume-ios-testflight.yml", "rollback.yml"}
+CALLERS = {
+    "deploy-dev.yml", "deploy-uat.yml", "deploy-production.yml", "deploy-uat-one-chat.yml",
+    "validate-plg-frontend-source.yml", "release-ios-appstore.yml", "ship-ios-testflight.yml",
+    "resume-ios-testflight.yml", "ship-android-playstore-v1.yml", "publish-hushh-mcp.yml",
+    "rollback.yml", "deployment-security.yml",
+}
 
 
 def verify_run(read, env: dict) -> dict:
@@ -29,6 +34,11 @@ def verify_run(read, env: dict) -> dict:
         or not SHA.fullmatch(env.get("GITHUB_SHA", ""))
     ):
         raise Refused("Deployment security requires an explicit Main-owned release")
+    if path == ".github/workflows/deployment-security.yml":
+        policy = json.loads((Path(__file__).resolve().parents[2] / "config/ci-governance.json").read_text())
+        allowed = set(policy["main"]["protected_pipeline_edit_users"])
+        if not {env.get("GITHUB_ACTOR"), env.get("GITHUB_TRIGGERING_ACTOR")}.issubset(allowed):
+            raise Refused("Manual security diagnostics require a governed pipeline operator")
     run_id = positive(int(env["GITHUB_RUN_ID"]), "deployment run")
     attempt = positive(int(env["GITHUB_RUN_ATTEMPT"]), "deployment attempt")
     run = read(f"repos/{repository}/actions/runs/{run_id}")

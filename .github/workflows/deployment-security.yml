@@ -1,6 +1,23 @@
 name: Deployment Security
 
 on:
+  workflow_dispatch:
+    inputs:
+      application_ref:
+        description: Exact application SHA or branch to inspect; grants no deployment acceptance
+        required: true
+        type: string
+      environment_name:
+        description: Intended release environment
+        required: true
+        default: dev
+        type: choice
+        options: [dev, uat, production, native, package, validation]
+      scope:
+        description: Intended release scope
+        default: all
+        type: choice
+        options: [auto, all, backend, frontend, native, package, validation]
   workflow_call:
     inputs:
       application_ref:

@@ -313,16 +313,47 @@ active. Repeat separately for production. Setting the environment variable back
 to `false` restores list-only monitoring without removing its alerts. No second
 dispatch control, scheduled workflow or notification channel is introduced.
 
-The existing **Verify Protected Configuration** workflow runs hourly and publishes
-the content-free health result. Its selected WIF identity requires
-`logging.logEntries.create` in each target project; the production WIF setup
-declares the narrow `roles/logging.logWriter` role. Verify the live binding
-before enabling the producer. Do not enable a heartbeat
-based on an unverified writer or a one-off local run. After the hourly producer
-has successfully published, add `--enable-auth-heartbeat` to the reconciler
-command to alert when no check result arrives for three hours. Monitoring
-absence conditions require an observed series; metric creation alone proves
-neither a scheduled producer nor failure detection.
+The protected check is moving to the `protected-configuration-health` Cloud Run
+Job and an authenticated hourly Cloud Scheduler target in each monitored project.
+The existing GitHub schedule remains the fallback until consecutive cloud-scheduled
+executions publish healthy count/status events. Retire that schedule only after
+recording the live image, identities, execution names and delivery timestamps.
+
+Use the existing checker, pinned SDK image and non-root container. The task has
+one worker, no retries, a 600-second hard timeout and a 450-second checker deadline.
+A conditional Storage generation lease expires after 900 seconds and fences
+concurrent executions. A worker verifies its holder at the exact generation and
+cannot delete a successor. The operations bucket contains only build inputs/logs
+and opaque lease metadata; 14-day lifecycle rules bound build retention. It is
+separate from owner Files storage.
+
+`setup_auth_health.py` defaults to a read-only plan. Applying requires reviewed
+Main source, verified `kushal@hushh.ai` ADC and a durable local `--receipt` ownership
+journal. Never adopt a pre-existing service account, bucket, job or schedule by
+name alone. The checker gets only its declared secret-version permissions,
+log publication, its lease bucket and optional service metadata observation.
+The clock identity gets only job invocation. Existing runtime-check rollout stays
+independent for UAT and production.
+
+```bash
+python3 deploy/observability/setup_auth_health.py --project hushh-pda-uat
+# After Main acceptance, operator journal path must be outside committed source:
+python3 deploy/observability/setup_auth_health.py --project hushh-pda-uat \
+  --check-phone-runtime --apply --receipt "${TMPDIR:-/tmp}/auth-health-uat.json"
+```
+
+Use a short two-minute schedule only for bounded qualification, then restore
+`17 * * * *`. Read back the actual timer and at least two genuine scheduled
+executions. Do not fabricate health events, inject production errors or infer
+SMS delivery from list integrity. Preserve the three-hour missing-report alert
+once its producer is qualified. `[Managed] Protected Configuration Job Failed`
+uses the native failed-execution counter independently, covering startup/IAM,
+lease/timeouts and non-phone-list failures even if phone-list health is intact.
+It reuses the existing verified notification channels and has no reminder loop.
+
+Apply only the auth policy subset through the existing reconciler. Preserve
+backend and database alerting. A successful configuration plan is not live
+execution or notification proof.
 
 Read back only count/status fields when validating health logs. Test delivery
 through the existing safe notification proof described above; never inject a

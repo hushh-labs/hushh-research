@@ -1,5 +1,4 @@
 name: Ship iOS to TestFlight
-run-name: ${{ inputs.cadence_origin && format('Cadence {0} testflight · {1}', inputs.cadence_ordinal, inputs.cadence_origin) || 'Ship iOS to TestFlight' }}
 
 # This workflow creates a normal UAT-backed TestFlight build only. It never
 # creates an App Store version or submits the app for public App Store review.
@@ -10,14 +9,6 @@ run-name: ${{ inputs.cadence_origin && format('Cadence {0} testflight · {1}', i
 on:
   workflow_dispatch:
     inputs:
-      cadence_origin:
-        description: Internal exact-run release cadence authority (leave blank for manual builds)
-        type: string
-        default: ""
-      cadence_ordinal:
-        description: Internal successful UAT deployment ordinal
-        type: string
-        default: ""
       sha:
         description: Exact green main SHA to ship. Blank selects latest main.
         required: false
@@ -175,17 +166,8 @@ jobs:
         shell: bash
         env:
           EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
-          CADENCE_ORIGIN: ${{ inputs.cadence_origin }}
         run: |
           set -euo pipefail
-          # Automated builds are bound to the healthy UAT release receipt by
-          # the exact-run actor gate above. UAT may advance, and frontend-only
-          # deployments intentionally retain an older backend. Never freeze or
-          # redeploy UAT to make its current backend match a queued app build.
-          if [ -n "$CADENCE_ORIGIN" ]; then
-            echo "Using the independently verified cadence receipt and backend lineage."
-            exit 0
-          fi
           resolver="$RUNNER_TEMP/resolve-cloud-run-serving-state.py"
           git show "$EXPECTED_SHA:scripts/ci/resolve-cloud-run-serving-state.py" > "$resolver"
           service_json="$RUNNER_TEMP/one-voice-uat-backend-service.json"
@@ -206,14 +188,14 @@ jobs:
           }
 
       - name: Materialize automatic packaging credentials
-        if: inputs.cadence_origin != '' || inputs.marketing_version == ''
+        if: inputs.marketing_version == ''
         run: |
           set -euo pipefail
           python3 -m pip install --quiet pyjwt cryptography
           bash scripts/ci/materialize-ios-asc-key.sh
       - name: Resolve automatic packaging before allocating macOS
         id: packaging
-        if: inputs.cadence_origin != '' || inputs.marketing_version == ''
+        if: inputs.marketing_version == ''
         env:
           RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
         run: |
