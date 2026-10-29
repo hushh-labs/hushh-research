@@ -125,12 +125,8 @@ def _scanner(container: dict) -> bool:
 def _revision(row: dict, service: str, primary: str) -> dict:
     metadata, spec = row["metadata"], row["spec"]
     name, uid = metadata["name"], metadata.get("uid")
-    name_hint = (
-        "drive-worker" if service.endswith("-drive-worker") else "consent-protocol"
-    )
-    container = _authorities().capacity_bridge.budget.named_container(
-        spec, name_hint, name
-    )
+    name_hint = "drive-worker" if service.endswith("-drive-worker") else "consent-protocol"
+    container = _authorities().capacity_bridge.budget.named_container(spec, name_hint, name)
     for extra in spec["containers"]:
         if extra is not container and (
             extra.get("name") != "clamav"
@@ -312,6 +308,16 @@ def _revision_history(service: str, state: dict, until: str) -> int:
     )
 
 
+def _job_partition(inventory, images, owner):
+    rows = owner.observer_rows(inventory, PROJECT)
+    observers = {row["name"]: inventory["jobs"][row["name"]] for row in rows}
+    jobs = {
+        name: _job(job, images) for name, job in inventory["jobs"].items()
+        if name not in observers
+    }
+    return jobs, observers, rows
+
+
 class Runtime:
     def __init__(self, prepared: dict, primary_image: str):
         self.prepared, self.primary_image = prepared, primary_image
@@ -382,15 +388,7 @@ class Runtime:
                     ]
                 ),
             }
-        observer_rows = budget._inventory.observer_rows(inventory, PROJECT)
-        observers = {
-            row["name"]: inventory["jobs"][row["name"]] for row in observer_rows
-        }
-        jobs = {
-            name: _job(job, images)
-            for name, job in inventory["jobs"].items()
-            if name not in observers
-        }
+        jobs, observers, observer_rows = _job_partition(inventory, images, budget._inventory)
         audit_counts["jobs"] = _job_history(
             jobs,
             images,

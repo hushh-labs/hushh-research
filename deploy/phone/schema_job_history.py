@@ -48,10 +48,7 @@ def _scope(event, start, until):
     require(
         event.get("logName") == f"projects/{PROJECT}/logs/{lane}"
         and lane
-        in {
-            "cloudaudit.googleapis.com%2Factivity",
-            "cloudaudit.googleapis.com%2Fsystem_event",
-        }
+        in {"cloudaudit.googleapis.com%2Factivity", "cloudaudit.googleapis.com%2Fsystem_event"}
         and payload.get("serviceName") == "run.googleapis.com"
         and event.get("resource", {}).get("labels", {}).get("location") == REGION
         and event.get("resource", {}).get("labels", {}).get("project_id") == PROJECT
@@ -76,11 +73,7 @@ def _launcher(name, uid, container, source, bindings, probe_images, qualified_im
         ]
         require(len(matches) == 1 and args == ["scripts/verify_managed_vertex_runtime.py"])
         body = run(
-            [
-                "git",
-                "show",
-                f"{source}:consent-protocol/scripts/verify_managed_vertex_runtime.py",
-            ]
+            ["git", "show", f"{source}:consent-protocol/scripts/verify_managed_vertex_runtime.py"]
         )
         current = (ROOT / "consent-protocol/scripts/verify_managed_vertex_runtime.py").read_bytes()
         digest = hashlib.sha256(body).hexdigest()
@@ -164,10 +157,7 @@ def _effective_container(spec, birth, images):
 def _execution(event, births, images, bindings, project_number, probe_images, qualified_images):
     from schema_producers import fingerprint
 
-    payload, execution = (
-        event["protoPayload"],
-        event["protoPayload"].get("response", {}),
-    )
+    payload, execution = event["protoPayload"], event["protoPayload"].get("response", {})
     metadata, spec = execution.get("metadata", {}), execution.get("spec", {})
     owners = metadata.get("ownerReferences", [])
     require(
@@ -252,13 +242,7 @@ def _completion(event, births, images, bindings, project_number, probe_images, q
         spec = {"template": row["spec"]["template"]["spec"]["template"]}
         container, source = _effective_container(spec, birth, images)
         _launcher(
-            name,
-            metadata["uid"],
-            container,
-            source,
-            bindings,
-            probe_images,
-            qualified_images,
+            name, metadata["uid"], container, source, bindings, probe_images, qualified_images
         )
         birth.update(
             uid=metadata["uid"],
@@ -350,15 +334,8 @@ def _activity(event, births, jobs, stamp):
 
 
 def review(
-    events,
-    jobs,
-    images,
-    until,
-    *,
-    submissions,
-    project_number,
-    probe_images=frozenset(),
-    observers=None,
+    events, jobs, images, until, *, submissions, project_number,
+    probe_images=frozenset(), observers=None,
 ):
     from schema_producers import HISTORY_START, ROOT
 
