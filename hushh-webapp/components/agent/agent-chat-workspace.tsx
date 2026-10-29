@@ -152,6 +152,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmailDraftCard, type GmailDraftSaveState } from "@/components/agent/email-draft-card";
+import { parseEmailDraftToolResult, type GmailSendReadiness } from "@/lib/agent/email-draft-tool-result";
 import { richEmailPlainText } from "@/components/agent/email-rich-text";
 import {
   AgentCalendarProposalCard,
@@ -392,7 +393,9 @@ import {
   type DelegateResult,
 } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, buildGmailWorkspaceRoute } from "@/lib/navigation/routes";
+import { MailAttentionStack } from "@/components/agent/mail-attention-stack";
+import { receiptSetupExperience } from "@/lib/agent/mail-chat-experiences";
 import { cn } from "@/lib/utils";
 import {
   useConsentActions,
@@ -943,19 +946,17 @@ function getConsentRequiredPayload(
 
 export function getGmailEmailDraftPayload(
   event: AgentChatToolEvent | null,
-): { instruction: string; driveFileId: string | null; initialDraft: EmailDraft | null } | null {
+): { instruction: string; driveFileId: string | null; initialDraft: EmailDraft | null; gmailSend: GmailSendReadiness | null } | null {
   if (!event || event.raw.toolName !== "open_gmail_email_draft") return null;
-  const instruction =
-    typeof event.slots.request === "string" ? event.slots.request.trim() : "";
-  const driveFileId =
-    typeof event.slots.drive_file_id === "string"
-      ? event.slots.drive_file_id.trim()
-      : "";
+  // A refusal opens no card; an event without a result (an older server) still does.
+  const result = parseEmailDraftToolResult(event.raw.result);
+  if (result && result.status !== "draft_opened") return null;
+  const instruction = typeof event.slots.request === "string" ? event.slots.request.trim() : "";
+  const driveFileId = typeof event.slots.drive_file_id === "string" ? event.slots.drive_file_id.trim() : "";
   const draftField = (name: "to" | "cc" | "bcc" | "subject" | "body", limit: number) => {
-    const value = event.slots[name];
-    return typeof value === "string" && value.trim().length <= limit
-      ? value.trim()
-      : "";
+    // Recipients the server resolved win over the model's arguments.
+    const value = result?.envelope && name !== "subject" && name !== "body" ? result.envelope[name] : event.slots[name];
+    return typeof value === "string" && value.trim().length <= limit ? value.trim() : "";
   };
   const body = draftField("body", 12_000);
   const initialDraft = {
@@ -970,6 +971,7 @@ export function getGmailEmailDraftPayload(
         instruction,
         driveFileId: driveFileId && driveFileId.length <= 256 ? driveFileId : null,
         initialDraft: Object.values(initialDraft).some(Boolean) ? initialDraft : null,
+        gmailSend: result?.gmailSend ?? null,
       }
     : null;
 }
@@ -2894,6 +2896,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isEmailDrafting, setIsEmailDrafting] = useState(false);
   const [emailDraftInstruction, setEmailDraftInstruction] = useState("");
   const [emailDraftAutoDraft, setEmailDraftAutoDraft] = useState(false);
+  const [emailDraftGmailSend, setEmailDraftGmailSend] = useState<GmailSendReadiness | null>(null);
   const [emailDraftInitialValue, setEmailDraftInitialValue] =
     useState<EmailDraft | null>(null);
   const [emailDraftAnchorMessageId, setEmailDraftAnchorMessageId] = useState<
@@ -3969,6 +3972,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setEmailDraftOpen(false);
     setEmailDraftInstruction("");
     setEmailDraftAutoDraft(false);
+    setEmailDraftGmailSend(null);
     setEmailDraftInitialValue(null);
     setEmailDraftAnchorMessageId(null);
     setGmailKycReplyRequest(null);
@@ -4136,6 +4140,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }),
       (outcome, { cancelled }) => {
         if (outcome === "connected") {
+          setEmailDraftGmailSend(null); // A confirmed grant supersedes the draft-time hint.
           toast.success(inPlaceConnectCopy("gmail_send", outcome));
           if (item) retryEmailDelivery(item);
         } else if (outcome === "failed") {
@@ -4260,6 +4265,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             : null,
       );
       setEmailDraftAutoDraft(!payload.initialDraft?.body);
+      setEmailDraftGmailSend(payload.gmailSend);
       setEmailDraftAnchorMessageId(assistantMessageId);
       setEmailDraftOpen(true);
       return true;
@@ -6837,6 +6843,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               expiresAt: Date.now() + 5 * 60 * 1000,
             } }));
           },
+          onReceiptSetupNeeded: (state) => {
+            if (streamAbortController.signal.aborted) return;
+            updateMessage(assistantMessageId, (message) => ({ ...message, structuredExperiences: upsertAgentStructuredExperience(
+              message.structuredExperiences ?? [], `${assistantMessageId}:receipt-setup`, receiptSetupExperience(state)) }));
+          },
           // No onThinkingSummary: the model's reasoning is never shown in
           // chat, live or restored. Only the answer and Activity render.
           onStreamHealth: (signal) => {
@@ -8962,6 +8973,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onDraftChange={handleEmailDraftChange}
           onDraftingChange={setIsEmailDrafting}
           onOpenConnections={openConnectorSurface}
+          gmailSend={workflowId ? null : emailDraftGmailSend}
+          onEnableGmailSend={() => handleEnableGmailSend()}
+          enablingGmailSend={gmailSendConnect.pending?.key === "gmail_send"}
           sourceBoundReply={
             workflowId
               ? {
@@ -10092,6 +10106,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     disabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
                     onPromptSelect={handleWelcomePromptSelect}
                   />
+                  {!isPuppySurface ? <MailAttentionStack onAskOne={handleWelcomePromptSelect}
+                    briefDisabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
+                    onEmpty={() => composerTextareaRef.current?.focus()}
+                    onOpenItem={(item) => router.push(buildGmailWorkspaceRoute(item.source === "receipt" ? "receipts" : "kyc"))} /> : null}
                   {chatOnboarding.dailyTip ? (
                     <ChatOnboardingDailyTip
                       tip={chatOnboarding.dailyTip}

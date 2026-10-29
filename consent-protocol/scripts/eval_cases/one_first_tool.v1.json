@@ -234,14 +234,15 @@
       "id": "email.share_own_memory_to_circle_person",
       "family": "email",
       "prompt": "Email my saved academic details to Priya in my circle. Use her connected email address.",
-      "expected": ["list_my_connections"]
+      "expected": ["list_my_connections", "open_gmail_email_draft"]
     },
     {
       "id": "email.draft_running_late",
       "family": "email",
       "prompt": "draft a quick email to Priya saying I will be ten minutes late",
       "expected": [
-        "open_gmail_email_draft"
+        "open_gmail_email_draft",
+        "list_my_connections"
       ]
     },
     {
@@ -249,7 +250,104 @@
       "family": "email",
       "prompt": "send a thank-you email to Dev for dinner last night",
       "expected": [
-        "open_gmail_email_draft"
+        "open_gmail_email_draft",
+        "list_my_connections"
+      ]
+    },
+    {
+      "id": "email.mail_named_connection",
+      "family": "email",
+      "prompt": "can you mail Sharu that I'll be 10 minutes late for the meeting",
+      "runtime_context": "typed_chat",
+      "expected": [
+        "open_gmail_email_draft",
+        "list_my_connections"
+      ]
+    },
+    {
+      "id": "email.mail_named_connection_hinglish",
+      "family": "email",
+      "prompt": "Sharu ko mail kar do ki kal ki meeting cancel hai",
+      "runtime_context": "typed_chat",
+      "expected": [
+        "open_gmail_email_draft",
+        "list_my_connections"
+      ]
+    },
+    {
+      "id": "email.brief_anything_important",
+      "family": "email",
+      "prompt": "anything important in my mail today?",
+      "runtime_context": "typed_chat",
+      "expected": [
+        "ask_email_agent"
+      ]
+    },
+    {
+      "id": "email.brief_blockers",
+      "family": "email",
+      "prompt": "what are my blockers from email this week",
+      "runtime_context": "typed_chat",
+      "expected": [
+        "ask_email_agent"
+      ]
+    },
+    {
+      "id": "email.who_mailed_today",
+      "family": "email",
+      "prompt": "who mailed me today",
+      "runtime_context": "typed_chat",
+      "expected": [
+        "ask_email_agent"
+      ]
+    },
+    {
+      "id": "email.search_receipt_email",
+      "family": "email",
+      "prompt": "search my inbox for the flight receipt email from last month",
+      "runtime_context": "typed_chat",
+      "expected": [
+        "ask_email_agent"
+      ]
+    },
+    {
+      "id": "receipts.spend_two_months",
+      "family": "receipts",
+      "prompt": "what are the expenditures I had in the last 2 months",
+      "runtime_context": "typed_chat",
+      "expected": [
+        "receipt_spending",
+        "get_current_time"
+      ]
+    },
+    {
+      "id": "receipts.spend_two_years",
+      "family": "receipts",
+      "prompt": "how much did I spend in the last 2 years",
+      "runtime_context": "typed_chat",
+      "expected": [
+        "receipt_spending",
+        "get_current_time"
+      ]
+    },
+    {
+      "id": "receipts.overdue_invoices",
+      "family": "receipts",
+      "prompt": "do I have any overdue invoices",
+      "runtime_context": "typed_chat",
+      "expected": [
+        "list_recent_receipts",
+        "get_current_time"
+      ]
+    },
+    {
+      "id": "receipts.what_did_i_buy",
+      "family": "receipts",
+      "prompt": "what did I buy last week",
+      "runtime_context": "typed_chat",
+      "expected": [
+        "list_recent_receipts",
+        "get_current_time"
       ]
     },
     {

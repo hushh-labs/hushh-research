@@ -197,7 +197,7 @@ def _normalize_recipients(value: Any, *, field_name: str) -> tuple[str, ...]:
     normalized: list[str] = []
     for _name, address in parsed:
         address = address.strip().lower()
-        if not address or not _EMAIL_RE.fullmatch(address):
+        if not address or not _EMAIL_RE.fullmatch(address) or address not in raw.lower():
             raise GmailDeliveryError(
                 "INVALID_RECIPIENTS", f"{field_name} contains an invalid email address."
             )

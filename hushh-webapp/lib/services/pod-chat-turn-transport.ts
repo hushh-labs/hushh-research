@@ -1,4 +1,5 @@
 import { PodNotReachedError, PodSendUnconfirmedError, isAgentStillWaking, notReachedBeforeSend } from "@/lib/agent/owner-pod-wake";
+import { legacyReceiptResult } from "@/lib/mail/receipt-availability";
 import { hasPodReceiptTools, projectPodReceiptTools, receiptToolVersion } from "./pod-chat-receipt-capabilities";
 
 /**
@@ -23,6 +24,23 @@ function isCancellation(error: unknown, signal?: AbortSignal | null): boolean {
     Boolean(signal?.aborted) ||
     (error instanceof DOMException && error.name === "AbortError")
   );
+}
+
+/**
+ * A version 1 pod may run the older validator that refuses the newer receipt
+ * setup codes, so its continuation carries them in the generic form. The device
+ * still shows its setup card from the specific code, and a hub turn never passes
+ * through here.
+ */
+function legacyReceiptResults(request: RequestInit): RequestInit {
+  const turn = JSON.parse(String(request.body)) as { forwardedProps?: { receiptToolResults?: unknown } } | null;
+  const results = turn?.forwardedProps?.receiptToolResults;
+  if (!turn?.forwardedProps || !Array.isArray(results)) return request;
+  turn.forwardedProps.receiptToolResults = results.map((item: { result?: unknown } | null) => {
+    const result = legacyReceiptResult(item?.result);
+    return result === item?.result ? item : { ...item, result };
+  });
+  return { ...request, body: JSON.stringify(turn) };
 }
 
 /**
@@ -90,6 +108,7 @@ export async function sendChatTurn(
   if (receipts) {
     if (version === undefined) throw new Error("POD_CHAT_CAPABILITIES_INVALID");
     request = projectPodReceiptTools(request, version);
+    if (version === 1) request = legacyReceiptResults(request);
   }
   try {
     return await fetch(`${url}/api/one/pod/agent-chat`, request);
