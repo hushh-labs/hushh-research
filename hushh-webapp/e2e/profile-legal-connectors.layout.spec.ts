@@ -122,8 +122,8 @@ async function mount(
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.setViewportSize({ width, height: 852 });
-  await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
-    route.fulfill({ contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg'/>" }),
+  await page.route(/\/icons\/connectors\/[a-z0-9-]+\.(?:svg|png|jpg)$/, (route) =>
+    route.fulfill({ path: path.join(process.cwd(), "public", new URL(route.request().url()).pathname) }),
   );
   await page.route("**/api/**", (route) =>
     route.fulfill({
@@ -484,12 +484,19 @@ for (const [entry, act, expectedDetail] of [
   ["chat's Open connectors", async (page: Page) => {
     await page.getByTestId("chat-open-connectors").click();
   }, null],
+  ["chat's History footer", async (page: Page) => {
+    await page.getByTestId("chat-history-opener").click();
+    await page.getByRole("button", { name: "Open Connectors", exact: true }).click();
+  }, null],
 ] as const) {
   test(`Connectors from ${entry} lands in the Profile pane`, async ({ page }) => {
     const errors = await mount(page, { at: "/" });
     await act(page);
     await expect(pane(page)).toBeVisible();
+    await expect(paneTitle(page)).toHaveText(expectedDetail ? "Google Drive" : "Connectors");
     await expect(pane(page).locator("[data-surface='profile']")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "One access", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "What One knows", exact: true })).toHaveCount(0);
     expect(new URL(page.url()).pathname).toBe("/");
     expect(query(page).get("profile_pane")).toBe("1");
     expect(query(page).get("profile_panel")).toBe("connectors");
@@ -543,6 +550,36 @@ test("Back from Connectors opened in chat returns to the chat", async ({ page })
   expect(query(page).get("profile_pane")).toBeNull();
   await expect(page.getByTestId("host-screen")).toBeVisible();
 });
+
+for (const width of [390, 1440]) {
+  for (const dismiss of ["Back", "Close", "Escape"]) {
+    test(`History Connectors returns to the same chat with ${dismiss} at ${width}px`, async ({ page }) => {
+      const consoleErrors: string[] = [];
+      page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
+      const errors = await mount(page, { at: "/", width });
+      const draft = page.getByRole("textbox", { name: "Chat draft" });
+      await draft.fill("Keep my unsent conversation");
+      const original = await draft.elementHandle();
+      const opener = page.getByTestId("chat-history-opener");
+      await opener.click();
+      await page.getByRole("button", { name: "Open Connectors", exact: true }).click();
+      await expect(paneTitle(page)).toHaveText("Connectors");
+      if (dismiss === "Back") await pane(page).screenshot({ path: test.info().outputPath(`chat-connectors-${width}.png`) });
+      await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).not.toBeVisible();
+      if (dismiss === "Escape") await page.keyboard.press("Escape");
+      else await pane(page).getByRole("button", { name: dismiss === "Back" ? "Back in Profile" : "Close Profile" }).click();
+      await expect(pane(page)).toHaveCount(0);
+      await expect(draft).toHaveValue("Keep my unsent conversation");
+      expect(await original!.evaluate(element => element.isConnected)).toBe(true);
+      await expect(page.getByTestId("stream")).toHaveText("Streaming turn 1");
+      await expect(opener).toBeFocused();
+      expect(query(page).get("profile_pane")).toBeNull();
+      await opener.click();
+      await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toBeVisible();
+      expect([...errors, ...consoleErrors]).toEqual([]);
+    });
+  }
+}
 
 for (const at of ["/?profile_pane=1&profile_panel=connectors", "/one?profile_pane=1&profile_panel=connectors"]) {
   test(`a connector sign-in return (${at.split("?")[0]}) lands on Connectors in the pane`, async ({ page }) => {

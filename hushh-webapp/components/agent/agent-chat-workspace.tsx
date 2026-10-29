@@ -19,7 +19,6 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useNativeHistoryPresentation } from "@/components/agent/native-history-presentation";
-import { HistoryConnectorsPage } from "@/components/agent/history-connectors-page";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { agentPkmCaptureJobKey, aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, resumedAgentPkmCaptureMessageId, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
@@ -2799,16 +2798,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isOneProfileOpen, setIsOneProfileOpen] = useState(false);
   const oneProfileTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
-  const [historyConnectorsReady, setHistoryConnectorsReady] = useState<string | null>(null);
-  const [historyConnectorExternalModal, setHistoryConnectorExternalModal] = useState(false);
-  const historyConnectorsOwner = JSON.stringify([applicationOwnerId, vaultSessionEpoch]);
-  useLayoutEffect(() => {
-    if (!isHistoryDrawerOpen || drawerMode !== "connections") setHistoryConnectorsReady(null);
-  }, [isHistoryDrawerOpen, drawerMode]);
-  const openHistoryConnectors = useCallback(() => {
-    setDrawerMode("connections");
-    setIsHistoryDrawerOpen(true);
-  }, []);
   const handleHistoryDrawerOpenChange = useCallback((open: boolean) => {
     const next = transitionConnectionsDrawer(
       { open: isHistoryDrawerOpen, mode: drawerMode },
@@ -2817,9 +2806,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setIsHistoryDrawerOpen(next.open);
     setDrawerMode(next.mode);
   }, [drawerMode, isHistoryDrawerOpen]);
-  // Inline Chat cards use Profile's connector destination. History's footer
-  // uses its own leading presentation, reusing the same connector/OAuth owner.
-  // Neither path replaces the Chat workspace or its draft.
+  // Chat cards and History's footer use Profile's connector destination
+  // without replacing the Chat workspace or its draft.
   const calendarChatRecoveryRef = useRef<() => void>(() => undefined);
   const calendarChatRecoveryBusy = useRef(false);
   const openConnectorSurface = useCallback((
@@ -2843,6 +2831,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       { returnsToOrigin: true, returnFocus: trigger },
     );
   }, []);
+  const openHistoryConnectors = useCallback(() => {
+    // The footer becomes hidden when History closes. Return to its persistent
+    // opener instead, just as the Get App sheet does.
+    openConnectorSurface(undefined,
+      historyDrawerTriggerRef.current ?? historyDrawerFallbackRef.current ?? undefined);
+  }, [openConnectorSurface]);
   const [recoveryCheckedForUid, setRecoveryCheckedForUid] = useState<string | null>(null);
   const pendingDriveRecoveryRef = useRef<{
     ownerUid: string;
@@ -9393,9 +9387,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
-      onOpenConnectors={!isPuppySurface
-        ? (trigger) => { historyDrawerTriggerRef.current = trigger; openHistoryConnectors(); }
-        : undefined}
+      onOpenConnectors={!isPuppySurface ? openHistoryConnectors : undefined}
       onGetApp={offerGetApp ? openGetApp : undefined}
       getAppOpen={getAppOpen}
       driveActivity={!isPuppySurface && !customNativePresentationEnabled()
@@ -9410,8 +9402,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     owner: renderedWorkspaceOwnerId, vaultEpoch: vaultSessionEpoch,
     ready: isCanonicalChatRoute && hasChatAccess && !authLoading && !sessionVerificationRequired && isVaultUnlocked,
     disabled: !isPuppySurface && historyInteractionDisabled,
-    // Destination readiness withdraws the roster without touching Chat/drafts.
-    open: isHistoryDrawerOpen && (drawerMode === "chats" || historyConnectorsReady !== historyConnectorsOwner), surface: agentSurface,
+    open: isHistoryDrawerOpen, surface: agentSurface,
     conversations: isPuppySurface ? puppyConversations : historyListOwner.current &&
       isValidatedAuthSessionOwnerCurrent(historyListOwner.current.auth) && isVaultSessionEpochCurrent(historyListOwner.current.epoch)
       ? conversations : [],
@@ -9426,13 +9417,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     openDriveReview: () => { setDriveActivityPage({ owner: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch, open: true }); },
     openTodoList: () => { handleHistoryDrawerOpenChange(false); router.push(ROUTES.ONE_TODOS); },
   });
-  const historyConnectorsPage = !isPuppySurface && hasChatAccess && isVaultUnlocked ? <HistoryConnectorsPage
-    key={historyConnectorsOwner} owner={renderedWorkspaceOwnerId} context={historyConnectorsOwner}
-    native={customNativePresentationEnabled() && nativeHistoryRenderer !== "web"}
-    open={isHistoryDrawerOpen && drawerMode === "connections"}
-    onReady={() => setHistoryConnectorsReady(historyConnectorsOwner)}
-    onBack={() => setDrawerMode("chats")} onClose={() => handleHistoryDrawerOpenChange(false)}
-    onExternalModalChange={setHistoryConnectorExternalModal} /> : null;
   const getEmailDeliveryAuth = async (scope = emailScopeRef.current) => {
     const isCurrent = () => emailScopeRef.current === scope &&
       workspaceOwnerIdRef.current === scope.ownerId && isVaultSessionEpochCurrent(scope.epoch);
@@ -9731,16 +9715,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           open={isHistoryDrawerOpen}
           onOpenChange={handleHistoryDrawerOpenChange}
           mode={drawerMode}
-          externalModalOpen={historyConnectorExternalModal}
+          externalModalOpen={false}
           chats={renderHistorySidebar(
             "h-full w-full",
             () => handleHistoryDrawerOpenChange(false),
             false,
             "mobile",
           )}
-          connections={nativeHistoryRenderer === "web" ? historyConnectorsPage : null}
+          connections={null}
         />
-        {nativeHistoryRenderer !== "web" ? historyConnectorsPage : null}
         {customNativePresentationEnabled() && isCanonicalChatRoute && hasChatAccess && !isPuppySurface ? <DriveRecentSharing
           active={isHistoryDrawerOpen || driveActivityPageOpen} onNeedsReviewChange={onDriveNeedsReviewChange}
           page={{ open: driveActivityPageOpen,
