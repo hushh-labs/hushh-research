@@ -128,9 +128,9 @@ function meetingTime(meeting: Meeting, zone: string): string {
     : "Time unavailable";
 }
 
-export function CalendarInsights({ userId, account, today, zone, connectionRevision, initialLibrary, getIdToken, getVaultOwnerToken = noVaultToken, onAllowMeetingFiles }: {
+export function CalendarInsights({ userId, account, today, zone, connectionRevision, refreshRevision = 0, refreshControl = "inline", initialLibrary, getIdToken, getVaultOwnerToken = noVaultToken, onAllowMeetingFiles }: {
   userId: string; account: GoogleCalendarAccount; today: string; zone: string;
-  connectionRevision?: number; initialLibrary?: CalendarMeetingReturnContext | null;
+  connectionRevision?: number; refreshRevision?: number; refreshControl?: "inline" | "external"; initialLibrary?: CalendarMeetingReturnContext | null;
   getIdToken: () => Promise<string>; getVaultOwnerToken?: () => string | null;
   onAllowMeetingFiles?: (accountId: string, context: CalendarMeetingReturnContext) => void;
 }) {
@@ -195,6 +195,14 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     setCursor(null);
     setRevision(value => value + 1);
   }, []);
+  const previousRefreshRevision = useRef(refreshRevision);
+  useEffect(() => {
+    if (previousRefreshRevision.current === refreshRevision) return;
+    previousRefreshRevision.current = refreshRevision;
+    refreshBudget.current = 5;
+    autoAdvance.current = 0;
+    refresh();
+  }, [refreshRevision, refresh]);
   useEffect(() => {
     const resume = () => {
       const active = document.visibilityState !== "hidden" && navigator.onLine;
@@ -487,8 +495,8 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const firstLoading = canRefresh && loading && (view === "overview" ? !overview : view === "library" ? !library : !detail);
 
   return <div className={styles.insights} data-view={view} aria-busy={loading}>
-    <div className="flex justify-end"><Button variant="ghost" size="compact" className={presentationStyles.utility}
-      disabled={loading || !canRefresh} onClick={() => { refreshBudget.current = 5; autoAdvance.current = 0; refresh(); }}>Refresh</Button></div>
+    {refreshControl === "inline" ? <div className="flex justify-end"><Button variant="ghost" size="compact" className={presentationStyles.utility}
+      disabled={loading || !canRefresh} onClick={() => { refreshBudget.current = 5; autoAdvance.current = 0; refresh(); }}>Refresh</Button></div> : null}
     {!canRefresh ? <p role="status">Updates paused while this page is hidden or offline.</p> : null}
     {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon-touch"
       aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}>
@@ -496,7 +504,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     {error ? <SectionCard><p role="alert">{error}</p><CalendarCompactAction onClick={refresh}>Try again</CalendarCompactAction></SectionCard> : null}
     {firstLoading ? <CalendarLoading label="Insights loading" /> : null}
     {view === "overview" ? <>
-      <div><h2 className={styles.heading}>Insights</h2><p className={styles.muted}>Understand your time. Make room for what matters.</p></div>
+      <p className={styles.muted}>Understand your time. Make room for what matters.</p>
       <SectionCard title="Executive snapshot" description="This week · scheduled time, not attendance statistics">
         {overview ? <><div className={styles.metrics}><div><strong>{overview.meeting_count}</strong><span>Scheduled events</span></div><div><strong>{hours(overview.meeting_minutes)}</strong><span>Scheduled time</span></div><div><strong>{hours(overview.recurring.reduce((sum, row) => sum + row.minutes, 0))}</strong><span>Recurring time</span></div></div>{!overview.complete ? <p className={styles.muted}>Partial calendar coverage. Totals include only loaded events.</p> : null}</> : <Skeleton aria-label="Snapshot loading" className="h-16 w-full" />}
       </SectionCard>
