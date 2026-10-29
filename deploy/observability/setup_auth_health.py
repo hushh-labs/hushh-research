@@ -21,19 +21,17 @@ FILES = ["config/protected-lists.json", "scripts/ops/verify_secret_list_invarian
          "scripts/ci/process_group.py", "deploy/observability/auth_health_job.py"]
 
 
-def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> dict:
-    if project not in PROJECTS:
-        raise ValueError("Ungoverned health project")
+def _transport(project: str):
     import google.auth
     from google.auth.transport.requests import Request, AuthorizedSession
     import requests
 
     credentials, _ = google.auth.default()
     credentials.refresh(Request())
-    observed = requests.post("https://oauth2.googleapis.com/tokeninfo",
-                             data={"access_token": credentials.token}, timeout=20)
-    if observed.status_code != 200 or observed.json().get("email") != "kushal@hushh.ai":
-        raise RuntimeError("Expected admin ADC identity unavailable")
+    with requests.post("https://oauth2.googleapis.com/tokeninfo",
+                       data={"access_token": credentials.token}, timeout=20) as observed:
+        if observed.status_code != 200 or observed.json().get("email") != "kushal@hushh.ai":
+            raise RuntimeError("Expected admin ADC identity unavailable")
     cli = shutil.which("gcloud") or str(Path.home() / "google-cloud-sdk/bin/gcloud")
     env = {**os.environ, "CLOUDSDK_AUTH_ACCESS_TOKEN": credentials.token}
 
@@ -46,6 +44,10 @@ def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> 
             raise RuntimeError(f"Cloud operation refused: {' '.join(args[:3])}")
         return json.loads(result.stdout) if result.stdout.strip() else {}
 
+    return run, AuthorizedSession(credentials)
+
+
+def _reviewed_source() -> str:
     def git(*args):
         return subprocess.check_output(["git", *args], cwd=ROOT, text=True).strip()
 
@@ -55,6 +57,10 @@ def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> 
     owned = [*FILES, "deploy/observability/auth-health.Dockerfile", "deploy/observability/setup_auth_health.py"]
     if git("status", "--porcelain", "--", *owned) or git("diff", source, "origin/main", "--", *owned):
         raise RuntimeError("Health timer source differs from reviewed Main")
+    return source
+
+
+def _journal(project: str, source: str, journal_path: Path):
     journal = json.loads(journal_path.read_text()) if journal_path.exists() else {
         "project": project, "operation": uuid.uuid4().hex, "phase": "prepared", "source": source,
     }
@@ -66,7 +72,10 @@ def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> 
         journal_path.write_text(json.dumps(journal, indent=2) + "\n")
         journal_path.chmod(0o600)
     save()
-    api = AuthorizedSession(credentials)
+    return journal, save
+
+
+def _bucket(api, run, project: str, operation: str) -> str:
     project_number = str(run(["projects", "describe", project])["projectNumber"])
     bucket = f"{project}-auth-health-ops"
     response = api.get(f"https://storage.googleapis.com/storage/v1/b/{bucket}", timeout=30)
@@ -85,8 +94,11 @@ def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> 
     if (str(existing.get("projectNumber")) != project_number
             or existing.get("labels", {}).get("operation") != operation):
         raise RuntimeError("Existing health bucket has unverified ownership")
-    save(bucket=bucket)
+    return bucket
 
+
+
+def _identities(run, project: str, operation: str, bucket: str, runtime: bool, journal: dict, save):
     checker = f"auth-health-check@{project}.iam.gserviceaccount.com"
     scheduler = f"auth-health-clock@{project}.iam.gserviceaccount.com"
     for account in [checker, scheduler]:
@@ -123,6 +135,10 @@ def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> 
         run(["run", "services", "add-iam-policy-binding", "consent-protocol", f"--region={REGION}",
              f"--member=serviceAccount:{checker}", "--role=roles/run.viewer"])
 
+    return checker, scheduler
+
+
+def _image(run, project: str, operation: str, source: str, bucket: str, save):
     tag = f"gcr.io/{project}/auth-health-job:{source}"
     matches = run(["builds", "list", f"--filter=tags:auth-health-{operation}", "--limit=2"])
     if len(matches) > 1:
@@ -149,6 +165,10 @@ def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> 
     if build.get("status") != "SUCCESS":
         raise RuntimeError("Health image build did not succeed")
     image = f"gcr.io/{project}/auth-health-job@{build['results']['images'][0]['digest']}"
+    return image, build["id"]
+
+
+def _timer(run, project: str, operation: str, image: str, checker: str, scheduler: str, runtime: bool, schedule: str):
     existing = run(["run", "jobs", "describe", JOB, f"--region={REGION}"], optional=True)
     if existing and existing.get("metadata", {}).get("labels", {}).get("operation") != operation:
         raise RuntimeError("Existing health job has unverified ownership")
@@ -169,10 +189,28 @@ def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> 
          "--headers=Content-Type=application/json", f"--oauth-service-account-email={scheduler}",
          "--oauth-token-scope=https://www.googleapis.com/auth/cloud-platform", "--attempt-deadline=30s",
          "--max-retry-attempts=0", f"--description=Hussh auth-health operation {operation}"])
-    save(phase="configured", image=image, build_id=build["id"])
-    return {**journal, "project": project, "source": source, "image": image, "build_id": build["id"],
-            "job": JOB, "schedule": schedule, "runtime_observation": runtime,
-            "task_timeout_seconds": 600, "checker_timeout_seconds": 450, "lease_seconds": 900}
+
+
+
+def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> dict:
+    if project not in PROJECTS:
+        raise ValueError("Ungoverned health project")
+    source = _reviewed_source()
+    journal, save = _journal(project, source, journal_path)
+    operation = journal["operation"]
+    run, api = _transport(project)
+    try:
+        bucket = _bucket(api, run, project, operation)
+        save(bucket=bucket)
+        checker, scheduler = _identities(run, project, operation, bucket, runtime, journal, save)
+        image, build_id = _image(run, project, operation, source, bucket, save)
+        _timer(run, project, operation, image, checker, scheduler, runtime, schedule)
+        save(phase="configured", image=image, build_id=build_id)
+        return {**journal, "source": source, "job": JOB, "schedule": schedule,
+                "runtime_observation": runtime, "task_timeout_seconds": 600,
+                "checker_timeout_seconds": 450, "lease_seconds": 900}
+    finally:
+        api.close()
 
 
 def main() -> int:
