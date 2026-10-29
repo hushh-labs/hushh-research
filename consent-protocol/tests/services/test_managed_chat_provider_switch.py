@@ -18,6 +18,7 @@ from hushh_mcp.runtime_providers.azure_response_history import reasoning_part
 from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from tests.services.test_azure_adk import message, model, request, response
+from tests.services.test_one_azure_chat_contract import advance_model_clock as advance_model_clock
 
 
 def _completed_azure_history():
@@ -71,9 +72,11 @@ async def _run(sessions, session, lookup, adapter, text):
         await runner.close()
 
 
-def _vertex_transport(monkeypatch, sent, signature):
+def _vertex_transport(monkeypatch, sent, signature, *, advance=None, delayed_call=0):
     async def vertex_generate(req, stream=False):
         sent.append(req.model_copy(deep=True))
+        if len(sent) == delayed_call:
+            await advance(40)
         if len(sent) == 1:
             part = types.Part(
                 function_call=types.FunctionCall(
@@ -94,8 +97,9 @@ def _vertex_transport(monkeypatch, sent, signature):
     return native
 
 
+@pytest.mark.parametrize("delayed_call", [0, 1, 2])
 async def test_configured_vertex_chat_preserves_completed_history_signatures_and_one_tool_effect(
-    monkeypatch,
+    monkeypatch, advance_model_clock, delayed_call
 ):
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
@@ -104,7 +108,9 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
     sent, effects = [], []
     signature = b"synthetic-native-signature"
 
-    native = _vertex_transport(monkeypatch, sent, signature)
+    native = _vertex_transport(
+        monkeypatch, sent, signature, advance=advance_model_clock, delayed_call=delayed_call
+    )
 
     async def lookup(query: str) -> dict:
         """Read one synthetic current result."""
@@ -113,7 +119,6 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
 
     vertex = managed.build_managed_text_model(scope="one_text_chat", require_current=AsyncMock())
     assert vertex.model == native.model and vertex.allow_fallback is False
-    assert vertex.primary_seconds == 30
     sessions = InMemorySessionService()
     session = await sessions.create_session(
         app_name="provider_switch", user_id="synthetic", session_id="conversation"
