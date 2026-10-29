@@ -60,7 +60,7 @@ test("Finance sharing swipes retain one fixed frame across resize and reduced mo
 });
 
 for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
-  test(`Finance sharing approval and ended access ${width}px ${theme}`, async ({ page }) => {
+  test(`Finance sharing approval ${width}px ${theme}`, async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await mount(page, width);
@@ -115,6 +115,13 @@ for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
     const sent = page.getByRole("dialog", { name: "Finance shared", exact: true });
     await sent.getByRole("button", { name: "Done", exact: true }).click();
     await expect(sent).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+  test(`Finance received review clears after access ends ${width}px ${theme}`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await mount(page, width);
+    await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
     await page.getByRole("button", { name: "Open sample received Finance", exact: true }).click();
     const received = page.getByRole("dialog", { name: "Sample sender · Finance", exact: true });
     await expect(received.getByRole("region", { name: "Shared allocation" })).toBeVisible();
