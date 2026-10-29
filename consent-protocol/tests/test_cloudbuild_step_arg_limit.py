@@ -534,12 +534,13 @@ def test_shared_files_pilot_bindings_do_not_enable_existing_or_other_lane_revisi
         text=True,
         check=True,
     )
-    assert result.stdout.splitlines() == (
-        [
-            "HUSSH_SHARED_FILES_ENABLED=HUSSH_SHARED_FILES_ENABLED",
-            "HUSSH_SHARED_FILES_BUCKET=HUSSH_SHARED_FILES_BUCKET",
-            "EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY",
-        ]
-        if deploy_env == "dev"
-        else []
-    )
+    shared_files = [
+        "HUSSH_SHARED_FILES_ENABLED=HUSSH_SHARED_FILES_ENABLED",
+        "HUSSH_SHARED_FILES_BUCKET=HUSSH_SHARED_FILES_BUCKET",
+    ]
+    expected = {
+        "dev": [*shared_files, "EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY"],
+        "uat": shared_files,
+        "production": [],
+    }
+    assert result.stdout.splitlines() == expected[deploy_env]
