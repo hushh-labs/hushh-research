@@ -37,7 +37,7 @@ import { CalendarJoinLink } from "./calendar-join-link";
 import { CalendarTimeZoneSelect } from "./calendar-time-zone-select";
 import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 export { safeMeetingUrl } from "@/lib/calendar/calendar-url";
-import { GoogleCalendarService, GoogleCalendarError, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceReview, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
+import { GoogleCalendarService, GoogleCalendarError, calendarFailure, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceReview, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
 import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarTimelineRow, calendarResponse, GoogleCalendarMark, calendarDate, availabilityTimeRangeLabel, calendarProviderDayUrl, MAIN_TABS, SCHEDULE_TABS, durationLabel, eventTime, timeRangeLabel } from "./calendar-schedule-presentation";
 export { calendarDate } from "./calendar-schedule-presentation";
 import { earliestCalendarSlot, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
@@ -46,10 +46,6 @@ import { CacheService } from "@/lib/services/cache-service";
 import scheduleStyles from "./calendar-schedule.module.css";
 import presentationStyles from "./calendar-presentation.module.css";
 import { CalendarCompactAction } from "./calendar-compact-action";
-
-function formatFailure(error: unknown): Error {
-  return error instanceof Error ? error : new Error("Calendar could not be checked.");
-}
 
 type Props = {
   userId: string;
@@ -220,7 +216,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
         if (error instanceof GoogleCalendarError && [401, 403, 409].includes(error.status)) {
           loadedEventKey.current = null; setEvents(null); setUnreadableCalendars([]);
         }
-        setEventsError(formatFailure(error));
+        setEventsError(calendarFailure(error));
       }
     }
     finally { if (isCurrent()) setEventsLoading(false); if (eventFlight.current?.controller === controller) eventFlight.current = null; }
@@ -265,7 +261,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
       if (!firebaseIdToken) throw new Error("Sign in again to check availability.");
       const response = await GoogleCalendarService.availability({ signal: controller.signal, firebaseIdToken, isEffectCurrent: isCurrent, date, timeZone: zone, startTime: "00:00", endTime: "24:00", durationMinutes: duration, calendarOverrides: JSON.parse(selectionJson) });
       if (isCurrent()) { const options = response.calendar_options || response.calendars; rememberCalendars(options); availabilityPreview.current = { key: availabilityKey, value: response }; setAvailability(response); }
-    } catch (error) { if (isCurrent()) { if (!navigator.onLine) failOffline(); else { if (error instanceof GoogleCalendarError && error.calendarOptions) rememberCalendars(error.calendarOptions); setAvailabilityError(formatFailure(error)); } } }
+    } catch (error) { if (isCurrent()) { if (!navigator.onLine) failOffline(); else { if (error instanceof GoogleCalendarError && error.calendarOptions) rememberCalendars(error.calendarOptions); setAvailabilityError(calendarFailure(error)); } } }
     finally { clearTimeout(timeout); window.removeEventListener("offline", failOffline); if (ownsRequest()) setAvailabilityLoading(false); if (availabilityFlight.current?.controller === controller) availabilityFlight.current = null; }
   }, [date, zone, duration, availabilityKey, selectionJson, rememberCalendars]);
   useEffect(() => { if (view === "free" && tab === "schedule") void checkAvailability(); return () => { availabilityFlight.current?.controller.abort(); }; }, [view, tab, checkAvailability]);
@@ -313,7 +309,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
     const isCurrent = () => !lifetime.current?.signal.aborted && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
     submittingRef.current = true; setSubmitting(true); setActionError(null);
     try { await work(); }
-    catch (error) { if (isCurrent()) setActionError(formatFailure(error)); }
+    catch (error) { if (isCurrent()) setActionError(calendarFailure(error)); }
     finally { submittingRef.current = false; if (!lifetime.current?.signal.aborted) setSubmitting(false); }
   };
   const prepareReview = () => runAction(async () => {
@@ -357,7 +353,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
       const preference = { account: status.google_email, value: nextZone, explicit: true };
       setZoneInput(nextZone);
       setZonePreference(preference); setStartTime(settingsStart); setEndTime(settingsEnd); setZoneError(""); setSettingsOpen(false);
-    } catch (error) { setZoneError(error instanceof RangeError ? "Choose a valid time zone." : formatFailure(error).message); }
+    } catch (error) { setZoneError(error instanceof RangeError ? "Choose a valid time zone." : calendarFailure(error).message); }
   };
   const recovery = (error: Error, availabilityFailure = false) => (
     <div role="alert" className="space-y-2">
