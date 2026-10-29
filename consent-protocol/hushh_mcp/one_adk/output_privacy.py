@@ -18,6 +18,7 @@ from hushh_mcp.one_adk.owner_ai_run_errors import (
     owner_ai_bridge_error,
     owner_ai_error_for_exception,
 )
+from hushh_mcp.one_adk.receipt_client_tools import PRIVATE_RECEIPT_ANSWER
 from hushh_mcp.one_adk.run_errors import (
     content_filtered_error,
     is_authored_run_error,
@@ -264,5 +265,74 @@ def drop_empty_history_parts(llm_request: Any) -> int:
         if kept:
             content.parts = kept
             kept_contents.append(content)
+    llm_request.contents = kept_contents
+    return removed
+
+
+def _redaction_placeholder(part: Any) -> bool:
+    response = getattr(getattr(part, "function_response", None), "response", None)
+    return isinstance(response, dict) and response.get("content_redacted") is True
+
+
+def _signature_only(part: Any) -> bool:
+    return bool(getattr(part, "thought_signature", None)) and not any(
+        getattr(part, name, None) for name in ("text", "function_call", "function_response")
+    )
+
+
+def _replay_placeholder(part: Any, role: Any, answered: set[str]) -> bool:
+    if _redaction_placeholder(part):
+        return True
+    call = getattr(part, "function_call", None)
+    if call is not None:
+        # ADK prunes a result without its call, never a call without its result.
+        return bool(call.id) and call.id not in answered
+    return role == "model" and getattr(part, "text", None) == PRIVATE_RECEIPT_ANSWER
+
+
+def drop_replayed_tool_placeholders(llm_request: Any) -> int:
+    """Keep stored-history placeholders out of the outgoing model request.
+
+    Stored history keeps an earlier read, draft or receipt call with emptied
+    arguments and a ``content_redacted`` result, and an earlier spending answer
+    as PRIVATE_RECEIPT_ANSWER (external_read_projection). Replayed, the model
+    copied them: on UAT (2026-10-29) each mail request after the first in a chat
+    became an ``ask_email_agent`` call with no request, and spending questions
+    were answered with that sentence. A call that never got its result, such as
+    a receipt handback the device did not answer, also made every later Azure
+    request invalid. The owner's questions and earlier visible answers stay.
+    Only this request changes; stored history is untouched. Returns the number
+    of parts removed.
+    """
+    contents = getattr(llm_request, "contents", None)
+    if not isinstance(contents, list):
+        return 0
+    answered = {
+        part.function_response.id
+        for content in contents
+        for part in getattr(content, "parts", None) or []
+        if getattr(part, "function_response", None) is not None
+        and part.function_response.id
+        and not _redaction_placeholder(part)
+    }
+    removed = 0
+    kept_contents = []
+    for content in contents:
+        parts = getattr(content, "parts", None)
+        if not isinstance(parts, list):
+            kept_contents.append(content)
+            continue
+        role = getattr(content, "role", None)
+        drop = [_replay_placeholder(part, role, answered) for part in parts]
+        pairs = list(zip(drop, parts, strict=True))
+        if any(drop):
+            # Azure rejects a reasoning item whose following call or answer is gone.
+            pairs = [(gone or _signature_only(part), part) for gone, part in pairs]
+        kept = [part for gone, part in pairs if not gone]
+        removed += len(parts) - len(kept)
+        if len(kept) == len(parts):
+            kept_contents.append(content)
+        elif kept:
+            kept_contents.append(content.model_copy(update={"parts": kept}))
     llm_request.contents = kept_contents
     return removed

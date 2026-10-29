@@ -7,12 +7,15 @@ gets a new SDK invocation ID. Voice/proposals never get typed-chat admission.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+
+logger = logging.getLogger(__name__)
 
 STATE_EXECUTION_SURFACE = "temp:one_execution_surface"
 STATE_EXTERNAL_READ = "temp:one_external_read_invocation"
@@ -233,10 +236,32 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
         invocation = getattr(tool_context, "invocation_id", None)
         if not isinstance(invocation, str) or not invocation:
             return {"status": "blocked", "reason": "invocation_required"}
+        if _missing_required_argument(tool, args):
+            # A schema violation reads nothing, so it must not end the turn's
+            # tools: One retries with the owner's words (2026-10-29, UAT).
+            logger.info("one.read_call_refused reason=missing_argument tool=%s", tool.name)
+            return {
+                "status": "blocked",
+                "reason": "missing_argument",
+                "message": "Nothing was read. Call this tool again with the owner's request.",
+            }
         # Set before any await/dispatch so parallel tool calls cannot race the
         # receipt of retrieved text into a second action.
         tool_context.state[STATE_EXTERNAL_READ] = invocation
     return None
+
+
+def _missing_required_argument(tool: Any, args: dict) -> bool:
+    try:
+        declaration = tool._get_declaration()
+    except Exception:  # noqa: BLE001 - an undeclared tool keeps the existing barrier
+        return False
+    schema = getattr(declaration, "parameters_json_schema", None)
+    required = schema.get("required") if isinstance(schema, dict) else None
+    if required is None:
+        required = getattr(getattr(declaration, "parameters", None), "required", None)
+    values = [args.get(name) for name in required or ()]
+    return any(value is None or (isinstance(value, str) and not value.strip()) for value in values)
 
 
 def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_response: dict) -> None:
@@ -264,7 +289,8 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
         not isinstance(invocation, str)
         or not invocation
         or tool_context.state.get(STATE_EXECUTION_SURFACE) != "typed_chat"
-        or tool_response.get("reason") == "connector_read_complete"
+        # Neither refusal read anything, so neither may record a Drive outcome.
+        or tool_response.get("reason") in {"connector_read_complete", "missing_argument"}
     ):
         return
     if (

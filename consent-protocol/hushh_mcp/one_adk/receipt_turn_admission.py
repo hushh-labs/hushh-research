@@ -41,18 +41,31 @@ async def admit_receipt_continuation(
     load_session: Callable[[], Any],
 ) -> str:
     session = None
-    if forwarded.get("receiptToolResults") is not None and owner_id:
+    results = forwarded.get("receiptToolResults")
+    if results is not None and owner_id:
         session = await read_receipt_continuation_session(
             execution_head(),
             load_session,
             owner_id=owner_id,
             conversation_id=conversation_id,
-            results=forwarded["receiptToolResults"],
+            results=results,
         )
-    return admit_receipt_result(
+    reference = admit_receipt_result(
         forwarded,
         owner_id=owner_id,
         conversation_id=conversation_id,
         session=session,
         messages=messages,
     )
+    if reference:
+        # Only the admitted results continue the paused turn. The browser also
+        # resent the turn's earlier messages, and the bridge ran the question again
+        # beside the pending call, which failed every continuation (UAT, 2026-10-29).
+        admitted = {item["toolCallId"] for item in results or []}
+        messages[:] = [
+            message
+            for message in messages
+            if getattr(message, "role", None) == "tool"
+            and getattr(message, "tool_call_id", None) in admitted
+        ]
+    return reference

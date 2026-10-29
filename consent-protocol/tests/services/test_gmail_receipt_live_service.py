@@ -589,9 +589,8 @@ async def test_unverified_category_is_rejected(confidence, quote):
         }
 
     service._extractor = extract
-    with pytest.raises(GmailApiError) as caught:
-        await _scan(service)
-    assert caught.value.code == "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED"
+    counts = (await _scan(service))["coverage"]["rejection_counts"]
+    assert counts["extractor_not_receipt"] == 1  # Excluded and counted; the page still returns.
 
 
 def _service(messages: list[dict], calls: list[httpx.Request] | None = None):

@@ -103,8 +103,12 @@ _EXTRACTOR_CONCURRENCY = _MAX_PER_PAGE
 _DEADLINE_SECONDS = 55.0
 _EXTRACTOR_TIMEOUT_SECONDS = 15.0
 _EXTRACTOR_RETRIES = 1
-# Only transient model failures are retried. Invalid or unverifiable extraction
-# is a permanent validation failure for this scan, and fails the page typed.
+# Only transient model failures are retried, and after the retry they fail the
+# page typed so the device retries it; an invalid result fails it too. A
+# well-formed answer whose evidence doesn't verify against its own message is
+# not a verified receipt: it is counted with extractor_not_receipt instead of
+# failing every other receipt on the page. One such message used to block an
+# owner's whole sync (UAT, Oct 22-29).
 _RETRYABLE_EXTRACTION_CODES = frozenset(
     {
         "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
@@ -1608,6 +1612,8 @@ class GmailLiveReceiptsService:
                     "Receipt extraction could not be verified against the message.": "receipt",
                 }.get(str(exc), "schema")
                 _logger.warning("live_receipt_validation_failed field=%s", field)
+                if exc.code == "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED":
+                    return None  # Not a verified receipt; the page keeps the others.
                 raise
 
         async def one(message: dict[str, Any]):
@@ -1628,9 +1634,7 @@ class GmailLiveReceiptsService:
                 "verified_merchant": evidence["verified_merchant"],
                 "receipt_signals": evidence["receipt_signals"],
                 "order_candidates": evidence["order_candidates"],
-                # The validator already defines the only admissible final total.
-                # Do not ask the receipt agent to choose among subtotal/tax/fee or
-                # conflicting peer values that the API would reject anyway.
+                # Only the validator's admissible final total; never subtotal/tax/fee peers.
                 "total_candidates": [preferred_total] if preferred_total else [],
                 "event_candidates": evidence["event_candidates"],
             }

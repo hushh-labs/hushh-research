@@ -11,9 +11,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from hushh_mcp.one_adk.email_draft_readiness import gmail_send_readiness
 from hushh_mcp.one_adk.email_draft_recipients import (
     MAX_RECIPIENT_FIELD_LENGTH,
-    gmail_send_readiness,
     resolve_draft_recipients,
 )
 from hushh_mcp.one_adk.mail_instruction import draft_opened_message, needs_draft_addresses
@@ -28,9 +28,11 @@ _FIELD_LIMITS = {
     "body": 12_000,
     "recipient_names": 512,
     "cc_names": 512,
+    "recipient_choices": MAX_RECIPIENT_FIELD_LENGTH,
 }
 _DRIVE_FILE_ID_LIMIT = 256
-_RECIPIENT_FIELDS = ("to", "cc", "bcc", "recipient_names", "cc_names")
+_RECIPIENT_FIELDS = ("to", "cc", "bcc", "recipient_names", "cc_names", "recipient_choices")
+_NAME_FIELDS = ("recipient_names", "cc_names", "recipient_choices")
 _ADDRESS_REQUIRED = {
     "status": "recipient_address_required",
     "message": (
@@ -61,11 +63,12 @@ async def draft_envelope(user_id: str, fields: dict[str, str], state: Any) -> di
     """The resolved envelope, or a refusal whose message names One's next step.
 
     An app before draft contract 2 shows the call's own To, Cc and Bcc, never the
-    envelope, so for it any name is refused: one in the name fields before a
-    lookup, one in to, cc or bcc once it resolves. One then looks the address up.
+    envelope, so for it any name or choice ref is refused: one in those fields
+    before a lookup, one in to, cc or bcc once it resolves. One then looks the
+    address up.
     """
     legacy = needs_draft_addresses(state.get)
-    if legacy and (fields["recipient_names"].strip() or fields["cc_names"].strip()):
+    if legacy and any(fields[name].strip() for name in _NAME_FIELDS):
         logger.info("one.email_draft.recipients outcome=legacy_names")
         return dict(_ADDRESS_REQUIRED)
     envelope = await resolve_draft_recipients(user_id, **{k: fields[k] for k in _RECIPIENT_FIELDS})

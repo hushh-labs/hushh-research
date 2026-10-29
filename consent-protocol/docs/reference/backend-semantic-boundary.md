@@ -172,7 +172,23 @@ These paths should remain deterministic by design:
   an older installed app shows the call's own recipients, so
   `one_adk/email_draft_tool.py` refuses names for it with
   `recipient_address_required` and One looks the address up with
-  `list_my_connections` (a refusal, never a substituted recipient).
+  `list_my_connections` (a refusal, never a substituted recipient). When two to
+  four connections match a To name, the question also carries `choices`
+  (`{ref, name}`, never an address), so the owner's "both" or "all" is One's
+  decision expressed as the refs it passes in `recipient_choices`; refs address
+  To only, so a Cc or Bcc name keeps its address question. A ref is an
+  owner-bound hash of the connection (`one_adk/email_draft_choices.py`),
+  checked by recomputing it over the owner's current connections and never
+  stored; an unknown ref is `recipient_choice_expired`, and refs never single
+  out one of several connections that share a name (that still needs its
+  address). A name its chosen refs answer is not asked again.
+- model-request history: before each One model call,
+  `output_privacy.drop_replayed_tool_placeholders` keeps stored placeholders out
+  of that outgoing request only: an earlier read, draft or receipt call whose
+  stored result is `content_redacted` (its arguments emptied), an earlier private
+  receipt answer, a call that never got its result and an Azure reasoning item
+  left without the call or answer it preceded. Replayed, the model copied `ask_email_agent({})` for every
+  later mail request (UAT, 2026-10-29). Stored history keeps its redaction.
 
 These are safety and infrastructure concerns, not semantic classification concerns.
 
@@ -890,7 +906,14 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   the typed-chat read barrier: it records a separate marker for this invocation,
   and the barrier then also admits only One's device receipt tools and
   `get_current_time`, because another read in the same turn may have set the
-  barrier with provider text. Receipt results return in a new turn where every
+  barrier with provider text. Two schema violations are caught and recorded,
+  never decided for One: a read call missing a required argument reads nothing
+  and is refused with `missing_argument` without arming the barrier or recording
+  a Drive outcome (`one.read_call_refused`), so One can retry in the same turn;
+  and a receipt call whose arguments fail the closed schema is removed from the
+  model response in `receipt_after_model` before the bridge can defer it to the
+  device (`one.receipt_call outcome=invalid_dropped`), failing the turn closed
+  when the response holds nothing else. Receipt results return in a new turn where every
   tool is refused, checked against the closed result schema.
   Host code never runs an Email proposal, including the retired Open Receipts
   action.
