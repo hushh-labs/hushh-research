@@ -19,30 +19,21 @@ qualification build or an explicitly opted-in Debug session. Source or
 simulator evidence does not qualify a family for release. The current task
 targets Dev only.
 
-The latest recorded iPhone candidate was built from `491f4a7e44`, with Dev
-configuration and `ENABLE_TESTABILITY=YES`. Its app and matching test runner were
-installed. Attach-only XCTest passed a credential-free Vault layout
-check covering the keyboard, recovery and sign-out reachability, and
-background/resume. It did not exercise a protected journey. The signed source
-app executable SHA-256 was
-`0bec8298086f3ca99b943cc1e8b0abcd6fc264803d12904da5d103ef4f2e6c85`;
-installed executable bytes were not read back. This is not physical Release
-performance evidence. Earlier build identities and results are in Git history.
+The current document-authority candidate was built from `5947b7b89f` with the
+Dev runtime profile and `ENABLE_TESTABILITY=YES`. Three focused lifecycle tests
+passed on both the physical iPhone 16e and the iPhone 16e simulator. The
+physical Debug Dev app was installed and launched. These checks verify document
+replacement, restart invalidation, fail-closed identity matching and Capacitor
+navigation-delegate forwarding; they do not qualify product routes, visual
+transitions or Release performance.
 
-The shared pane fence rejects a late retirement from an old document after a
-replacement is bound. Its focused simulator regression passed. A source review
-identified a remaining case in which a new document's unadmitted pane cleanup
-can leave its retirement barrier blocked. A recovery must also prove that the
-previous owned presenter has actually detached. Keep the custom shell gated
-until that behavior and the other acceptance requirements below are verified.
-
-The local follow-up fences overlapping retirements and uses identity-bound
-native cancellation and readback to recover same-document handoffs. It retains
-owned presenters until UIKit confirms dismissal; a competing canceled pane
-does not hide an already admitted one. Focused bridge tests and simulator
-dismissal tests cover parts of this behavior. Replacement-document ownership
-and physical acceptance remain unproven; these checks do not qualify a new
-device candidate.
+Every main-frame document receives a random identity at document start. Native
+presentation and privacy actions stay disabled while navigation is pending,
+then require WebKit readback of the exact identity after commit. A new committed
+document retires the previous one. The navigation observer forwards optional
+callbacks to Capacitor's existing delegate without retaining it. Restart clears
+committed identity until the replacement document commits. Focused tests cover
+these boundaries on simulator and physical device.
 
 Native Chrome lifecycle notifications now identify their document and affected
 control revisions when the wrapper advertises that capability. Older wrappers
@@ -55,9 +46,11 @@ remount path still needs reservation-ordering proof for concurrent mounts.
 
 Other known gaps include the native hard Vault, complete AI-provider ownership,
 full route and nested-state coverage, and physical visual, accessibility and
-performance acceptance. Cross-device phone-claim ordering and reconciliation of
-uncertain deletion/claim outcomes also require server-side proof. The tracked
-work is [#7824 Complete and qualify the native iPhone experience](https://github.com/hushh-labs/hushh-research/issues/7824).
+Release performance acceptance. The focused run is not whole-app UI automation.
+Listener-installation reconciliation, Back reservation ordering, cross-device
+phone-claim ordering and uncertain deletion/claim outcomes still need separate
+evidence. The tracked work is [#7824 Complete and qualify the native iPhone
+experience](https://github.com/hushh-labs/hushh-research/issues/7824).
 
 ## Shared component inventory
 
