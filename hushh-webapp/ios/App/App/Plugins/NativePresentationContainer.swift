@@ -57,6 +57,15 @@ struct NativeContentPaneFence {
         identity = next
         return true
     }
+    /// Rolls back only a pane that was acquired but never acknowledged to JS.
+    /// Unlike release(), this does not tombstone the lifetime, so a transient
+    /// preparation refusal can safely retry with the same identity.
+    mutating func rollbackAcquisition(_ requested: NativeContentPaneIdentity) -> Bool {
+        guard requested.valid, document == requested.document, identity == requested,
+              retirement == nil, !retired.contains(Lifetime(requested)) else { return false }
+        identity = nil
+        return true
+    }
     mutating func beginRetirement(_ requested: NativeContentPaneIdentity) -> Bool {
         guard requested.valid, document == nil || document == requested.document,
               identity == nil || identity?.sameLifetime(as: requested) == true,
@@ -434,6 +443,13 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         guard !controls.values.contains(where: { $0.pane?.sameLifetime(as: identity) == true }), contentPaneFence.release(identity) else { return false }
         underlay.layer.zPosition = contentBackedPresentation ? 0 : -1
         // Fresh feature bindings must re-admit; old covered permissions never return.
+        NotificationCenter.default.post(name: Self.isolationDidChange, object: self)
+        return true
+    }
+    func rollbackContentPaneAcquisition(_ identity: NativeContentPaneIdentity) -> Bool {
+        guard !controls.values.contains(where: { $0.pane?.sameLifetime(as: identity) == true }),
+              contentPaneFence.rollbackAcquisition(identity) else { return false }
+        underlay.layer.zPosition = contentBackedPresentation ? 0 : -1
         NotificationCenter.default.post(name: Self.isolationDidChange, object: self)
         return true
     }

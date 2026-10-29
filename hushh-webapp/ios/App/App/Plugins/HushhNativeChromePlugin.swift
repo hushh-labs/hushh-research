@@ -805,7 +805,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             let retained = self.compositor?.contentPane?.sameLifetime(as: identity) == true
             guard retained || !self.paneHandoffObstructed else { call.reject("NATIVE_CONTENT_PANE_REFUSED"); return }
             if !preparing { self.compositor?.revealUnderlay() }
-            guard self.compositor?.acquireContentPane(identity, viewport: viewport, preparing: preparing) == true else {
+            guard let compositor = self.compositor,
+                  compositor.acquireContentPane(identity, viewport: viewport, preparing: preparing) else {
                 call.reject("NATIVE_CONTENT_PANE_REFUSED"); return
             }
             if preparing, let visit {
@@ -813,7 +814,14 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                     guard let self, let container = self.compositor, let host = self.bridge?.viewController?.view else { return false }
                     return container.contentPaneAdmits(identity) && container.preparationBaseIsConcealed &&
                         container.window != nil && container.window === host.window && container.bounds.size == viewport
-                }) else { call.reject("NATIVE_CONTENT_PANE_PREPARATION_REFUSED"); return }
+                }) else {
+                    if !retained {
+                        shield.retireProfilePanePreparation(identity)
+                        _ = compositor.rollbackContentPaneAcquisition(identity)
+                        self.notifyPaneHandoffChanged()
+                    }
+                    call.reject("NATIVE_CONTENT_PANE_PREPARATION_REFUSED"); return
+                }
             }
             self.interactionGeneration += 1
             for slot in self.slots.values { slot.state.invalidateChoices(through: slot.sequence) }

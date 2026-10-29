@@ -1763,6 +1763,36 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(competing.acquire(next), "The retired lifetime must remain fenced")
     }
 
+    func testUnacknowledgedContentPaneAcquisitionCanRollbackAndRetry() {
+        let identity = NativeContentPaneIdentity(document: "document", ownerEpoch: "owner", generation: 1, privacyGeneration: 0)
+        var fence = NativeContentPaneFence()
+        XCTAssertTrue(fence.acquire(identity))
+        XCTAssertTrue(fence.rollbackAcquisition(identity))
+        XCTAssertNil(fence.identity)
+        XCTAssertFalse(fence.retiring)
+        XCTAssertTrue(fence.acquire(identity), "A refused presentation may retry its unacknowledged lifetime")
+        XCTAssertTrue(fence.beginRetirement(identity))
+        XCTAssertTrue(fence.release(identity))
+        XCTAssertFalse(fence.rollbackAcquisition(identity), "A settled retirement cannot be reopened by rollback")
+        XCTAssertFalse(fence.acquire(identity), "A released lifetime remains tombstoned")
+    }
+
+    @MainActor
+    func testUnacknowledgedContainerPaneRollbackRestoresTheSameAdmission() {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        container.frame = web.frame
+        let identity = NativeContentPaneIdentity(document: "document", ownerEpoch: "owner", generation: 1,
+            privacyGeneration: HushhSessionPrivacyShield.shared.snapshot().generation)
+        XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size))
+        XCTAssertTrue(container.rollbackContentPaneAcquisition(identity))
+        XCTAssertNil(container.contentPane)
+        XCTAssertFalse(container.contentPaneRetiring)
+        XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size))
+        XCTAssertTrue(container.beginContentPaneRetirement(identity))
+        XCTAssertTrue(container.releaseContentPane(identity))
+    }
+
     @MainActor
     func testPendingNativeCloseSurvivesContentRefreshAndUncoversTheSameWebViewOnlyAfterAcknowledgement() async throws {
         let state = privateDrawerState(family: "history")
