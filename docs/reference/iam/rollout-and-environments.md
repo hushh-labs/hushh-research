@@ -43,8 +43,9 @@ provider first; one alternate call is allowed only for an unobserved timeout, co
 failure, quota response or transient 500/502/503/504. Configuration, authentication,
 permission/consent errors, schema failure and cancellation do not allow fallback.
 Any emitted model frame prevents replay. No Runner, tool, payment or grant is
-retried by provider failover. Chat allocates 10s + 8s before first output within its existing event
-budget; an observed stream has a bounded 60s completion window and remains
+retried by provider failover. Chat never calls an alternate provider: Azure chat allows 10s before
+first output (30s after an actual Search declaration or tool response) and native Vertex chat 60s,
+within its existing event budget; an observed stream has a bounded 60s completion window and remains
 subject to the caller deadline. Drive allocates 30s + 20s within its owning request deadlines. Existing
 bounded model correction budgets still apply. Vertex selection adds a distinct policy
 generation and binding fingerprint; the unchanged Azure selection preserves its

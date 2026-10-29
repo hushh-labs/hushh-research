@@ -198,8 +198,10 @@ tests/test_one_external_read_projection.py
 # Mail routing has one owner per request kind; named recipients resolve only from active connections.
 tests/test_one_mail_instruction.py
 tests/test_one_email_draft_recipients.py
+tests/test_one_email_draft_readiness.py
 # Receipt functions use the native client continuation, owner binding and ephemeral history projection.
 tests/test_receipt_client_tools.py
+tests/test_receipt_continuation_replay.py
 tests/test_receipt_result_contract.py
 # Queued messages join a live turn only at a step boundary, exactly once, owner-bound.
 tests/test_one_queued_input.py
@@ -237,6 +239,7 @@ tests/test_marketplace_earnings_accrual.py
 tests/test_encrypted_blob_bounds.py
 tests/test_gmail_receipt_cache_cutover.py
 tests/services/test_gmail_receipt_live_service.py
+tests/services/test_gmail_receipt_unverified_page.py
 tests/services/test_gmail_receipt_amounts.py
 tests/test_gmail_receipt_live_routes.py
 tests/services/test_gmail_cache_retention.py

@@ -35,6 +35,8 @@ import {
 } from "@/components/agent/agent-chat-workspace";
 import type { AgentVisibleStreamEvent } from "@/components/agent/agent-turn-stream-panel";
 import { ApiService } from "@/lib/services/api-service";
+import { RECEIPT_ANSWER_REDACTED_TEXT, RECEIPT_ANSWER_UNFINISHED_TEXT, redactReceiptAnswer } from "@/lib/agent/receipt-answer-redaction";
+import { receiptSetupExperience } from "@/lib/agent/mail-chat-experiences";
 import { parseAgentActivityExperience } from "@/lib/agent/agui-structured-experiences";
 import {
   AGENT_CHAT_STREAM_LOST_ERROR,
@@ -446,6 +448,23 @@ describe("a turn whose stream was lost", () => {
     const again = settleAssistantMessageError(empty, AGENT_CHAT_STREAM_LOST_ERROR);
     expect(again.text).toBe(AGENT_CHAT_STREAM_LOST_ERROR);
     expect(again).not.toHaveProperty("errorNotice");
+  });
+
+  it("keeps a failed receipt turn failed when its private answer is retired", () => {
+    const receiptPrivate = { ownerId: "owner-1", vaultEpoch: 1, conversationId, expiresAt: 1 };
+    const failed = settleAssistantMessageError({ ...streaming, text: "", receiptPrivate }, "One couldn't complete that response.");
+    // Negative control (UAT 2026-10-29): a failed spending turn was relabelled as a shown answer.
+    expect(redactReceiptAnswer(failed)).toMatchObject({ status: "error", text: "One couldn't complete that response.", receiptRedacted: true });
+    const partial = redactReceiptAnswer(settleAssistantMessageError({ ...streaming, text: "Private 7.00", receiptPrivate }, AGENT_CHAT_STREAM_LOST_ERROR));
+    expect(partial).toMatchObject({ status: "error", text: AGENT_PARTIAL_ANSWER_LOST_NOTICE, streamEvents: [] });
+    expect(JSON.stringify(partial)).not.toContain("7.00");
+    expect(redactReceiptAnswer({ ...streaming, status: "done" as const, receiptPrivate }).text).toBe(RECEIPT_ANSWER_REDACTED_TEXT);
+    // A turn still running when its vault session moved neither finishes nor claims it was shown; a stop stays a stop.
+    expect(redactReceiptAnswer({ ...streaming, text: "Private 7.00", receiptPrivate })).toMatchObject({ status: "streaming", text: RECEIPT_ANSWER_UNFINISHED_TEXT });
+    expect(redactReceiptAnswer({ ...streaming, status: "done" as const, text: "Stopped.", receiptPrivate }).text).toBe("Stopped.");
+    const setup = { id: "assistant-1:receipt-setup", experience: receiptSetupExperience("sync_required") };
+    expect(redactReceiptAnswer({ ...streaming, status: "done" as const, structuredExperiences: [setup], receiptPrivate }))
+      .toMatchObject({ text: RECEIPT_ANSWER_UNFINISHED_TEXT, structuredExperiences: [setup] });
   });
 
   it("shows the saved answer or waits for the running turn instead of sending it again", async () => {

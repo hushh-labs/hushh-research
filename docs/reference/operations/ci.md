@@ -1104,7 +1104,14 @@ preserving restored service journals and capacity-bridge intent. Historical UAT
 failures without an artifact require exact frozen owner/workflow source, actual
 checkout, completed attempt and runner-output proof that the checkpoint barrier
 was never crossed. This proves no provider mutation; it grants no cleanup or
-release-health authority. Unknown source, incomplete logs, cancellation and failed
+release-health authority. A production attempt stopped by that first guard qualifies
+only through `retention_production_evidence.py`: reviewed owner, workflow and
+publication bodies at its actual checkout, the exact cleanup-job layout including
+operational reference publication, one prepare command group and exactly one guard
+diagnostic as its final output. Only the setup action's exact unstamped cache-glob
+lines may lack timestamps. The operational reference keeps its own intent artifact
+and idempotent tag readback; this proof covers revision-cleanup custody only.
+Unknown source, incomplete logs, cancellation and failed
 checkpoint uploads remain blocked. Every attempt is inspected, including earlier
 attempts of a currently running retry; never delete failed runs to clear admission.
 The reviewed workflow source can identify a skipped primary deployment job even
