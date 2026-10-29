@@ -12,12 +12,13 @@ import json
 import os
 import re
 from pathlib import Path
+from runpy import run_path
 
+import production_activation_continuation as continuation
 import production_backend_successor as reference
 import production_backend_successor_proof as proof
 import production_phone_lease_receipts as leases
 import production_phone_receipt as phone
-import production_activation_continuation as continuation
 import release_artifact_receipts as receipts
 
 MAINTENANCE_WORKFLOW = ".github/workflows/capacity-maintenance.yml"
@@ -102,7 +103,9 @@ def revalidate_initial(anchor: dict) -> None:
         ],
         timeout=120,
     )
-    mode = json.loads(raw)
+    mode = run_path(str(proof.ROOT / "deploy/drive/rebind_protected_document_backend.py"))[
+        "unchanged_mode"
+    ](json.loads(raw), bundle["document_mode"])
     after = ports.snapshot()
     reference.require(
         database == archived["database"]

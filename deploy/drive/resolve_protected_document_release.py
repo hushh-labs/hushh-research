@@ -392,7 +392,7 @@ def resolve(runtime: dict, *, project: str, environment: str) -> dict[str, bool]
     }
 
 
-def main() -> int:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--project", choices=("hushh-pda", "hushh-pda-uat"), required=True
@@ -403,6 +403,10 @@ def main() -> int:
     parser.add_argument("--required-ancestor", default="")
     parser.add_argument("--verify-previous", action="store_true")
     parser.add_argument("--production-restoration", action="store_true")
+    retained = parser.add_mutually_exclusive_group()
+    retained.add_argument("--staged-worker-run-id", default="")
+    retained.add_argument("--activation-run-id", default="")
+    retained.add_argument("--cold-release-mode", action="store_true")
     parser.add_argument("--json-output", type=Path)
     rollback = parser.add_mutually_exclusive_group()
     rollback.add_argument("--rollback-report", type=Path)
@@ -410,9 +414,19 @@ def main() -> int:
     parser.add_argument("--rebind-backend-report", type=Path)
     parser.add_argument("--service", choices=SERVICES)
     parser.add_argument("--revision", default="")
+    return parser
+
+
+def main() -> int:
+    parser = _parser()
     args = parser.parse_args()
     if LANES[args.project][0] != args.environment:
         parser.error("Hosted document release project/environment does not match")
+    if (args.staged_worker_run_id or args.activation_run_id or args.cold_release_mode) and (
+        args.project != "hushh-pda" or args.production_restoration
+        or args.rollback_report or args.manual_rollback or args.rebind_backend_report
+    ):
+        parser.error("Retained worker mode requires an ordinary production verification")
     if _rollback_command(args, parser):
         return 0
     try:
@@ -431,6 +445,11 @@ def main() -> int:
             project=args.project,
             environment=args.environment,
         )
+        if args.staged_worker_run_id or args.activation_run_id or args.cold_release_mode:
+            mode = run_path(str(ROOT / "deploy/drive/rebind_protected_document_backend.py"))[
+                "retained_worker_mode"
+            ](mode, target=args.target_sha, stage_run=args.staged_worker_run_id,
+              activation_run=args.activation_run_id, cold_release=args.cold_release_mode)
         if args.production_restoration:
             mode = run_path(
                 str(ROOT / "deploy/drive/rebind_protected_document_backend.py")
