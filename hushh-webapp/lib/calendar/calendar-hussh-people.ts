@@ -68,13 +68,16 @@ export function calendarHusshPerson(people: CalendarHusshPeople, email: string |
   return people.get(exactEmail(email) || "") ?? null;
 }
 
-/** Join only server-verified, Connect-visible event matches to Calendar people. */
+/** Keep owner-proven addresses and use fresh server matches for invitation peers. */
 export function calendarEventPeople(
   known: CalendarHusshPeople,
   visible: Record<string, { userId: string; photoUrl: string }> | undefined,
+  ownerId: string,
 ): CalendarHusshPeople {
-  if (!visible) return known;
-  const people = new Map(known);
+  // Connections may retain an old email after its Firebase identity changes.
+  // Invitation peers must therefore come only from the current verified lookup.
+  const people = new Map([...known].filter(([, person]) => person.userId === ownerId));
+  if (!visible) return people;
   for (const [address, person] of Object.entries(visible)) {
     const email = exactEmail(address);
     const photoUrl = admittedPhoto(person?.photoUrl);

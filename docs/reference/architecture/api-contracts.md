@@ -2527,15 +2527,17 @@ fallback. Deploy matching native/web assets with the backend. Real provider
 revocation/reauthorization ordering is not proven by local transaction tests.
 
 New Calendar connections, including additional accounts, do not request
-`contacts.readonly` solely for guest photos. Calendar person avatars use the
-current HUSSH photo for an active Connection whose email is verified and
-matches exactly, or for the signed-in owner's verified primary/linked email.
-The owner-bound invitations read also matches the fetched event's organizer and
+`contacts.readonly` solely for guest photos. Calendar account and booking
+surfaces retain their existing verified Connection and signed-in owner photo
+context. Invitations keep the signed-in owner's verified primary/linked email
+photo and match the fetched event's organizer and
 attendee emails to the Connect directory's active, visible profiles, including
 people in Find People who are not Connections. This server-side lookup requires
 a unique exact verified email from both the identity cache and the target's
 current Firebase account, plus contact listing eligibility; it returns only
 the matching user ID and current photo keyed by an email already in the event.
+Invitation peers use only that fresh result, so a stale Connection email cannot
+override a changed Firebase identity.
 It is bounded to 100 event emails and fails to initials if lookup is unavailable.
 Missing, ambiguous, private, unverified and non-HUSSH people retain initials.
 The Connections list adds `emailVerified` from the authoritative actor profile;

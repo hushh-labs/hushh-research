@@ -56,7 +56,7 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(() => !invitationSnapshot(resourceKey));
   const [actionBusy, setActionBusy] = useState(false);
-  const people = useMemo(() => calendarEventPeople(calendarPeople ?? EMPTY_CALENDAR_PEOPLE, data?.people), [calendarPeople, data?.people]);
+  const people = useMemo(() => calendarEventPeople(calendarPeople ?? EMPTY_CALENDAR_PEOPLE, data?.people, userId), [calendarPeople, data?.people, userId]);
   const actionBusyRef = useRef(false);
   const updateBusy = (value: boolean) => { actionBusyRef.current = value; setActionBusy(value); onBusyChange?.(value); };
   const [selectedId, setSelectedId] = useState(initialEventId && initialCalendarId ? `${initialCalendarId}:${initialEventId}` : null);

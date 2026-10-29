@@ -82,6 +82,7 @@ describe("shared page/chat Invitations with real typed transport", () => {
 
   it("uses the same HUSSH photo for organizer, verified self and guests without a Google photo read", async () => {
     const photo = "data:image/png;base64,aGVsbG8=";
+    visiblePeople = { "priya@example.test": { userId: "priya", photoUrl: photo } };
     const calendarPeople = new Map([
       ["owner@example.test", { userId: "owner", displayName: null, photoUrl: photo }],
       ["priya@example.test", { userId: "priya", displayName: "Priya Mehta", photoUrl: photo }],
@@ -110,6 +111,21 @@ describe("shared page/chat Invitations with real typed transport", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
     const guest = within(screen.getByRole("list", { name: "Guests" })).getByRole("listitem", { name: /manish/i });
     expect(guest.querySelector("[data-photo-source=hussh]")).toHaveAttribute("data-photo-url", photo);
+  });
+
+  it("does not render a stale Connection photo when the fresh invitation lookup omits that email", async () => {
+    const photo = "data:image/png;base64,aGVsbG8=";
+    const calendarPeople = new Map([
+      ["owner@example.test", { userId: "owner", displayName: null, photoUrl: photo }],
+      ["priya@example.test", { userId: "priya", displayName: "Priya Mehta", photoUrl: photo }],
+    ]);
+    render(view({ workspaceLayout: true, calendarPeople }));
+    const card = await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+    expect(card.querySelector("[data-photo-source=hussh]")).toBeNull();
+    fireEvent.click(card);
+    const guests = within(screen.getByRole("list", { name: "Guests" })).getAllByRole("listitem");
+    expect(guests.find(guest => guest.textContent?.includes("Priya"))?.querySelector("[data-photo-source=hussh]")).toBeNull();
+    expect(guests.find(guest => guest.textContent?.includes("You"))?.querySelector("[data-photo-source=hussh]")).toHaveAttribute("data-photo-url", photo);
   });
 
   it("does not invent an organizer response when the organizer is absent from attendees", async () => {
