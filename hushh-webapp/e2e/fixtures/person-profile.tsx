@@ -4,6 +4,7 @@ import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { HelperText, RowLabel } from "@/components/app-ui/typography";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { PersonProfileHero, PersonProfileTaskContent, PersonProfileEmptyState } from "@/components/connections/person-profile-hero";
+import { PersonInformationRequestDialog } from "@/components/connections/person-information-request-dialog";
 import { FileText, MessageCircle, ShieldCheck, CreditCard, Share2, Settings, ChevronRight, LockKeyhole, Mail, Phone, MoreHorizontal } from "@/components/icons";
 import { Button } from "@/lib/morphy-ux/button";
 import { SectionCard, StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
@@ -11,14 +12,22 @@ import type { ConsentScopeItem } from "@/lib/consent/consent-scope-items";
 import styles from "@/components/connections/person-profile-page.module.css";
 
 // Production presentation primitives and catalog, with synthetic public details.
-// Authority, request dialogs and service lifetimes belong to the component tests.
-const items: ConsentScopeItem[] = ["Professional", "Financial", "Location", "Interests", "Personal", "Education", "Contact"].map((label) => ({
+// Authority and service lifetimes belong to the component tests. The review uses
+// its production presentation with a synthetic acknowledgement only.
+const items: ConsentScopeItem[] = ["Professional", "Financial", "Location", "Interests", "Personal", "Education", "Contact"].flatMap((label) => [{
   id: `synthetic-${label}`, label: `${label} details`, domainKey: label.toLowerCase(),
   domainLabel: label, pathSegments: ["details"], searchText: `${label} details`.toLowerCase(),
-}));
+}, {
+  id: `synthetic-${label}-summary`, label: `${label} summary`, domainKey: label.toLowerCase(),
+  domainLabel: label, pathSegments: ["summary"], searchText: `${label} summary`.toLowerCase(),
+}]);
 
 function Fixture() {
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [purpose, setPurpose] = useState("");
+  const [durationHours, setDurationHours] = useState(168);
+  const [sent, setSent] = useState(false);
   return <AppPageShell width="agent" fitContent>
     <div className={styles.page} data-profile-fixture>
       <PersonProfileHero
@@ -50,8 +59,14 @@ function Fixture() {
           <div className={styles.pagination}><Button size="compact" variant="none" effect="fade">Previous</Button><span className="text-muted-foreground">1 of 2</span><Button size="compact" variant="none" effect="fade">Next</Button></div>
         </SectionCard>
       </section>
-      <div className={styles.review}><Button size="compact" data-id="review">Review request</Button></div>
+      <div className={styles.review}><Button size="compact" data-id="review" onClick={() => setReviewOpen(true)}>Review request</Button></div>
+      {sent ? <p role="status">Sample request sent</p> : null}
     </div>
+    <PersonInformationRequestDialog open={reviewOpen} onOpenChange={setReviewOpen} displayName="Aarav Sharma"
+      scopes={items.filter(item => selectedIds.has(item.id)).map(item => ({ scopeRef: item.id, label: item.label, domain: item.domainKey, description: null, sensitivity: "sensitive", wildcard: false }))}
+      purpose={purpose} durationHours={durationHours} onPurposeChange={setPurpose} onDurationChange={setDurationHours}
+      requesting={false} canSubmit={selectedIds.size > 0 && purpose.trim().length >= 8}
+      onSubmit={() => { setSent(true); setReviewOpen(false); }} />
   </AppPageShell>;
 }
 

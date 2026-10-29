@@ -33,6 +33,51 @@ async function openFixture(page: Page, width: number, theme = "light") {
 }
 
 const taskIds = ["request-files", "ask-about-files", "request-scope", "request-cards"];
+
+for (const [width, height] of [[320, 568], [390, 844], [844, 390], [1280, 900]]) {
+  test(`information request has aligned selection and reachable fields at ${width}x${height}`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await openFixture(page, width);
+    await page.setViewportSize({ width, height });
+    const search = page.getByRole("searchbox", { name: "Search this list" });
+    await search.fill("Professional details");
+    const row = page.getByTestId("consent-scope-row-synthetic-Professional");
+    const checkbox = row.getByRole("checkbox", { name: "Professional details" });
+    await checkbox.check();
+    const alignment = await row.evaluate(el => {
+      const row = el.getBoundingClientRect(), check = el.querySelector('input[type="checkbox"]')!.getBoundingClientRect();
+      return Math.abs((row.top + row.bottom) / 2 - (check.top + check.bottom) / 2);
+    });
+    expect(alignment).toBeLessThanOrEqual(1);
+    await search.focus();
+    expect(await search.evaluate(el => getComputedStyle(el.parentElement!).boxShadow)).toBe("none");
+    await page.getByRole("button", { name: "Clear search" }).click();
+    await expect(search).toHaveValue("");
+    await page.getByRole("button", { name: "Review request", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    const purpose = dialog.getByTestId("person-profile-purpose");
+    const send = dialog.getByRole("button", { name: "Send request", exact: true });
+    await expect(send).toBeDisabled();
+    await purpose.fill("Preparing for our meeting");
+    const duration = dialog.getByRole("radio", { name: "3 days", exact: true });
+    await duration.click();
+    await expect(duration).toHaveAttribute("aria-checked", "true");
+    await expect(send).toBeEnabled();
+    await expect(send).toBeInViewport();
+    await expect.poll(() => dialog.evaluate(el => getComputedStyle(el).opacity)).toBe("1");
+    const frame = await dialog.boundingBox();
+    expect(frame!.x).toBeGreaterThanOrEqual(0);
+    expect(frame!.y).toBeGreaterThanOrEqual(0);
+    expect(frame!.y + frame!.height).toBeLessThanOrEqual(height + 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+    if (width === 390) await page.screenshot({ path: testInfo.outputPath("information-review.png") });
+    await send.click();
+    await expect(page.getByRole("status").filter({ hasText: "Sample request sent" })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}
+
 async function boxes(page: Page) {
   return page.evaluate(() => Object.fromEntries([...document.querySelectorAll<HTMLElement>("[data-id]")].map((el) => {
     const { top, bottom, left, right, width, height } = el.getBoundingClientRect();

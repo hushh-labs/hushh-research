@@ -35,6 +35,7 @@ export async function buildPersonProfileBrowserFixture({ includePresentation = t
       resolve,
       build: { outDir, emptyOutDir: false, lib: {
         entry: path.join(root, "e2e/fixtures", entry), name: "Fixture", formats: ["iife"], fileName: () => fileName,
+        cssFileName: fileName.replace(/\.js$/, ""),
       } },
     });
     return fs.readFileSync(path.join(outDir, fileName), "utf8");

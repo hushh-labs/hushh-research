@@ -829,19 +829,17 @@ describe("PersonProfilePage request catalog tools", () => {
     );
     const sendRequest = screen.getByRole("button", { name: "Send request" });
     expect(sendRequest).toBeDisabled();
-    const duration = screen.getByTestId(
-      "person-profile-duration-select",
-    ) as HTMLSelectElement;
-    expect(duration.value).toBe("168");
-    fireEvent.change(duration, { target: { value: "24" } });
+    expect(screen.getByRole("radio", { name: "7 days" })).toHaveAttribute("aria-checked", "true");
+    const duration = screen.getByRole("radio", { name: "1 day" });
+    fireEvent.click(duration);
     // The sheet no longer recites the duration; it says what the other person
-    // will see, in the owner's words, and the select carries the number.
+    // will see, in the owner's words, and the radio carries the selection.
     expect(
       screen.getByText(
         "They will see exactly what you asked for, why, and for how long.",
       ),
     ).toBeTruthy();
-    expect(duration.value).toBe("24");
+    expect(duration).toHaveAttribute("aria-checked", "true");
     fireEvent.change(screen.getByTestId("person-profile-purpose"), {
       target: { value: "Checking references for a role" },
     });

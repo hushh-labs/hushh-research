@@ -92,7 +92,6 @@ function assertFcmEventNameMatchesSource() {
 
 /** The first N items the proof needs: center approve, chat approve, deny. */
 const ITEMS_NEEDED = 3;
-const REQUESTED_HOURS = 72;
 /** How the Consent Center labels a 72 hour window in its duration control. */
 const REQUESTED_HOURS_LABEL = "3 days";
 /**
@@ -454,8 +453,8 @@ async function composeRequest(
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page
-    .getByTestId("person-profile-duration-select")
-    .selectOption(String(REQUESTED_HOURS));
+    .getByRole("radio", { name: REQUESTED_HOURS_LABEL, exact: true })
+    .click();
   await page.getByTestId("person-profile-purpose").fill(purpose);
 
   const created = waitForJsonResponse(

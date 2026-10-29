@@ -23,15 +23,7 @@ import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
+import { PersonInformationRequestDialog } from "./person-information-request-dialog";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { usePersonProfilePackets } from "./person-profile-packets";
 import { usePersonConnectorFeatures } from "@/lib/connections/use-person-connector-features";
@@ -1194,41 +1186,15 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           </SectionCard>
         ) : null}
       </div>
-      <Dialog modal open={reviewOpen} onOpenChange={setReviewOpen}>
-        <DialogContent
-          className="consent-presentation-surface w-[calc(100%-2rem)] max-w-[30rem] max-h-[min(32rem,calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px)))] gap-3 overflow-hidden p-4 sm:max-w-[30rem]"
-        >
-          <DialogHeader className="shrink-0 pr-8 text-left">
-            <DialogTitle>Request information from {profile.displayName}</DialogTitle>
-            <DialogDescription>
-              They will see exactly what you asked for, why, and for how long.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
-            <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
-              onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={requesting} />
+      <PersonInformationRequestDialog open={reviewOpen} onOpenChange={setReviewOpen} displayName={profile.displayName}
+        scopes={selectedScopes} purpose={purpose} durationHours={durationHours} onPurposeChange={setPurpose} onDurationChange={setDurationHours}
+        requesting={requesting} canSubmit={Boolean(viewerProfile && purpose.trim().length >= 8 && selectedScopes.length && selectedScopes.length <= 50 && request.available)}
+        onSubmit={() => void submitRequest()}>
             {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
             {!viewerProfile ? <div role="status" className="text-sm text-muted-foreground">
               {viewerUnavailable ? <>Connection details could not refresh. Your review is kept. <Button type="button" size="compact" variant="none" data-consent-quiet-action="true" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button></> : "Checking connection. Your review is kept."}
             </div> : null}
-          </div>
-          <DialogFooter className="shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3">
-            <Button type="button" variant="none" effect="fade" data-consent-quiet-action="true" data-consent-action-context="task" data-voice-control-id="person-profile-request-cancel" onClick={() => setReviewOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="blue-gradient"
-              effect="fill"
-              disabled={!viewerProfile || requesting || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50 || !request.available}
-              onClick={() => void submitRequest()}
-              data-voice-control-id="person-profile-request-confirm"
-            >
-              {requesting ? "Sending…" : "Send request"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </PersonInformationRequestDialog>
       {user ? (
         <VaultUnlockDialog
           user={user}
