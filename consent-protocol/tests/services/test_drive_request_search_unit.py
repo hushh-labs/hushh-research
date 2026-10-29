@@ -4132,7 +4132,9 @@ def test_incident_report_never_fabricates_raw_identity_or_copy_delivery():
     assert report["original_copy_jobs_recreated"] is False
 
 
-def test_live_activity_planner_grade_rejects_unexecuted_aliases_and_relaxed_quotes():
+def test_live_activity_planner_grade_rejects_unexecuted_aliases_and_relaxed_quotes(capsys):
+    import json
+
     from hushh_mcp.services.drive_request_semantic_plan import parse_semantic_plan
     from scripts.probe_drive_activity_planner import grade_plan
 
@@ -4156,8 +4158,16 @@ def test_live_activity_planner_grade_rejects_unexecuted_aliases_and_relaxed_quot
     ]
     assert len(grade_plan(parse_semantic_plan(plan), "ordinary")) == 2
     plan["clauses"][1]["predicates"][1]["value"] = "resume"
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="distinct_executable_concepts_missing"):
         grade_plan(parse_semantic_plan(plan), "ordinary")
+    failure = json.loads(capsys.readouterr().out)
+    assert failure == {
+        "schema": "drive.activity_planner.probe.v1",
+        "case": "ordinary",
+        "stage": "grade",
+        "result": "failed",
+        "reason": "distinct_executable_concepts_missing",
+    }
     plan["date_basis"] = "created"
     plan["clauses"] = [
         {
@@ -4193,9 +4203,9 @@ def test_live_activity_planner_grade_rejects_unexecuted_aliases_and_relaxed_quot
         }
     ]
     plan["clauses"].append(extra)
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="explicit_exact_filename_lost"):
         grade_plan(parse_semantic_plan(plan), "explicit")
     plan["clauses"].pop()
     plan["clauses"][0]["predicates"][0]["match"] = "token"
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="explicit_exact_filename_lost"):
         grade_plan(parse_semantic_plan(plan), "explicit")

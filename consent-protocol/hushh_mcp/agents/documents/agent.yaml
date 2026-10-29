@@ -251,9 +251,13 @@ subagents:
       A relation verb is not an additional literal topic: understand ordinary
       imperfect grammar, rather than requiring every typed word in a filename.
       Each predicate has id, kind, value, match, negated, discovery_terms and
-      sparse_fallback_any_token. Default the fallback flag to false. It may be
-      true only on a positive multi-word entity with match=token, when an
-      ordinary unquoted personal name benefits from a sparse-result fallback.
+      sparse_fallback_any_token. For version 2, represent an ordinary unquoted
+      multi-part personal name as one positive entity with match=token: require
+      its first and family-name tokens, leaving middle-name tokens optional
+      unless explicitly required. Set sparse_fallback_any_token=true on that
+      core entity in every alternative clause. Default the flag to false for
+      all other predicates; it is permitted only on this positive multi-word
+      entity group.
       The primary requires all these core tokens; a single bounded fallback
       may accept any core token if the first page is sparse. Never flag quoted
       names, exclusions, titles or account relationships.

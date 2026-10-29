@@ -20811,7 +20811,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_search_unit.py",
       "symbol": null,
-      "value": 4201
+      "value": 4211
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -87492,5 +87492,13 @@
         "review": "One selected vault-token getter is forwarded to the existing Calendar Insights child after the Main booking composition; no new Calendar route or authority is created."
       }
     ]
+  },
+  "drive_planner_readiness_diagnostics_review_20261029": {
+    "key": "module_size|consent-protocol/tests/services/test_drive_request_search_unit.py||module exceeds the advisory operon budget",
+    "before": 4201,
+    "after": 4211,
+    "source_sha256": "7c2c7b29c81445066f91080f7600240d2d90f06e4c0a7d1df2756caa34ab96fb",
+    "reviewer": "task-owner session review",
+    "review": "Extend the existing real planner-grader regression with fixed failure reasons and exact safe diagnostic shape. Alias and exact-filename negative controls remain. No new test module, budget change, detector change or duplicate-finding collapse. Probe functions stay within the 80-line budget."
   }
 }
