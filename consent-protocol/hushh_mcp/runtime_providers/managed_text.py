@@ -1,7 +1,5 @@
-"""One owning Azure-first UAT text contract; no information or action authority.
-
-A retry repeats only an unobserved model call, never a Runner or its tools.
-Legacy personal pilot receipts are historical records, not this admin policy.
+"""Managed UAT text transport with no information or action authority.
+Retries repeat only unobserved model calls, never a Runner or its tools.
 """
 
 from __future__ import annotations
@@ -15,7 +13,7 @@ from typing import Any, Literal, TypedDict, cast
 from uuid import UUID, uuid5
 
 from google.adk.agents import LlmAgent
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from hushh_mcp.managed_ai_config import (
     load_private_drive_text_policy,
@@ -27,7 +25,7 @@ from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
 logger = logging.getLogger(__name__)
 TEXT_SCOPES = frozenset({"one_text_chat", "drive_document_requests"})
 ONE_TOOL_FIRST_OUTPUT_SECONDS = 30.0
-ONE_NATIVE_SEARCH_FIRST_OUTPUT_SECONDS = 60.0
+ONE_NATIVE_FIRST_OUTPUT_SECONDS = 60.0
 ManagedProvider = Literal["azure_openai", "vertex"]
 
 
@@ -103,8 +101,14 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
     processing_scope: str
     runtime_binding: Any = Field(default=None, exclude=True, repr=False)
     processing_fingerprint: str | None = None
-    primary_seconds: float = Field(default=30, gt=0, le=40)
+    primary_seconds: float = Field(default=30, gt=0, le=60)
     fallback_seconds: float = Field(default=20, gt=0, le=30)
+
+    @model_validator(mode="after")
+    def _validate_primary_budget(self) -> ManagedPrimaryTextModel:
+        if self.primary_provider == "azure_openai" and self.primary_seconds > 40:
+            raise ValueError("Managed Azure first-output budget must be at most 40 seconds")
+        return self
 
     def _primary_timeout(self, request) -> float:
         if self.processing_scope != "one_text_chat":
@@ -123,8 +127,8 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                 for tool in request.config.tools or []
             )
         )
-        if native_search and self.primary_provider == "vertex":
-            return ONE_NATIVE_SEARCH_FIRST_OUTPUT_SECONDS
+        if self.primary_provider == "vertex" and (native_search or continuation):
+            return ONE_NATIVE_FIRST_OUTPUT_SECONDS
         # Native search can be silent while searching. A tool response starts a
         # new model call, but is already inside the user's bounded active turn.
         return (
@@ -279,7 +283,6 @@ def build_managed_text_model(
 
     config = load_pwm_policy(environment="uat", provider="azure_openai")["azure"]
 
-    # One fallback call to the configured Gemini location, no nested regional retries.
     def fallback():
         # Explicit Vertex transport: the default managed factory may now select
         # Azure, which must never masquerade as the alternate provider.
@@ -323,7 +326,7 @@ def build_managed_text_model(
         timeout_seconds=60 if chat else 30,
         # Native Gemini may complete a unary tool-selection call before its
         # first event; give it the same bounded window as native Search.
-        primary_seconds=10 if azure_chat else 30,
+        primary_seconds=10 if azure_chat else ONE_NATIVE_FIRST_OUTPUT_SECONDS if chat else 30,
         fallback_seconds=8 if chat else 20,
         default_reasoning_effort="minimal" if chat else None,
     )

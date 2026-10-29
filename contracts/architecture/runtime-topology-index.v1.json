@@ -7219,7 +7219,7 @@
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
     "action_gateway": "0b1f2a991f7d9a65b0ce1fe53ba436187b8da186bba82e8470e70e5efa542295",
-    "agent_registry": "a0828ad93cd8eba4fc0a72ecedf7e1c1f2710ee1ee2ebe01bcfb4b393cfc2ac2",
+    "agent_registry": "df70bc56339b410251160db5dc346cb5ea4fa42f73a33a17ecb7c8a989912607",
     "cache_manifest": "a53e42359c26801361b197fefc688eaea9b0cd9c693aabc6532c9f4cd84fdd32",
     "data_plane": "7dd54e0fe286fe7b9d6f47eafe2ca509bc06f2145801a9867a175c5c60d2378b",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
