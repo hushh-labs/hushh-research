@@ -48,9 +48,38 @@ require(_PROCESS_SPEC and _PROCESS_SPEC.loader, "Acceptance transport is unavail
 _process_group = importlib.util.module_from_spec(_PROCESS_SPEC)
 _PROCESS_SPEC.loader.exec_module(_process_group)
 
+_ATTEMPT_RECEIPT_SPEC = importlib.util.spec_from_file_location(
+    "uat_attempt_receipt", Path(__file__).with_name("uat_attempt_receipt.py")
+)
+require(_ATTEMPT_RECEIPT_SPEC and _ATTEMPT_RECEIPT_SPEC.loader, "Durable UAT receipt reader is unavailable")
+_attempt_receipt = importlib.util.module_from_spec(_ATTEMPT_RECEIPT_SPEC)
+_ATTEMPT_RECEIPT_SPEC.loader.exec_module(_attempt_receipt)
+InvalidAttemptReceipt = _attempt_receipt.InvalidReceipt
+decode_tag_message = _attempt_receipt.decode_tag_message
+decode_tag_message_with_bytes = _attempt_receipt.decode_tag_message_with_bytes
+attempt_tag_prefix = _attempt_receipt.attempt_tag_prefix
+
 
 class MissingAcceptance(Refused):
     """No retained healthy receipts cover the requested services yet."""
+
+
+def verify_durable_attempt_attestation(
+    receipt_bytes: bytes,
+    *,
+    environment: str,
+    run_id: int,
+    attempt: int,
+) -> None:
+    """Require a GitHub-signed receipt from the exact protected release run."""
+    _attempt_receipt.verify_attestation_bytes(
+        receipt_bytes,
+        kind="full",
+        environment=environment,
+        run_id=run_id,
+        attempt=attempt,
+        read=_bounded_process_read,
+    )
 
 
 def selected(scope: str) -> set[str]:
@@ -172,12 +201,71 @@ class GitHub:
         self.cache[path] = value
         return value
 
+    def read_repository(self, path: str):
+        key = "repository:" + path
+        if key in self.cache:
+            return self.cache[key]
+        remaining = self.deadline - time.monotonic()
+        require(remaining > 0, "Acceptance lookup exceeded its bounded duration")
+        value = json.loads(
+            _bounded_process_read(
+                ["gh", "api", f"repos/{REPOSITORY}/{path}"], min(30, remaining)
+            )
+        )
+        self.cache[key] = value
+        return value
+
+    def _durable_receipt(self, pin: dict, environment: str) -> tuple[dict, str]:
+        run_id, attempt, tag_name = (
+            pin.get(key) for key in ("run_id", "run_attempt", "durable_tag")
+        )
+        ref = self.read_repository(f"git/ref/tags/{tag_name}")
+        require(
+            ref.get("ref") == f"refs/tags/{tag_name}"
+            and ref.get("object", {}).get("type") == "tag"
+            and re.fullmatch(r"[a-f0-9]{40}", str(ref.get("object", {}).get("sha", "")))
+            is not None,
+            "Durable UAT attempt reference is invalid",
+        )
+        tag = self.read_repository(f"git/tags/{ref['object']['sha']}")
+        require(
+            tag.get("tag") == tag_name
+            and tag.get("object", {}).get("type") == "commit"
+            and re.fullmatch(r"[a-f0-9]{40}", str(tag.get("object", {}).get("sha", "")))
+            is not None,
+            "Durable UAT attempt tag is invalid",
+        )
+        receipt, digest, receipt_bytes = decode_tag_message_with_bytes(
+            str(tag.get("message", "")),
+            tag_name=tag_name,
+            tag_target_sha=tag["object"]["sha"],
+            run_id=run_id,
+            attempt=attempt,
+            repository=REPOSITORY,
+            kind="full",
+            environment=environment,
+        )
+        verify_durable_attempt_attestation(
+            receipt_bytes,
+            environment=environment,
+            run_id=run_id,
+            attempt=attempt,
+        )
+        return receipt, digest
+
     def _receipt(self, pin: dict, environment: str) -> tuple[dict, dict, dict]:
         run_id, attempt, artifact_id = (
             pin.get(key) for key in ("run_id", "run_attempt", "artifact_id")
         )
         require(
-            all(type(value) is int and value > 0 for value in (run_id, attempt, artifact_id)),
+            type(run_id) is int
+            and run_id > 0
+            and type(attempt) is int
+            and attempt > 0
+            and (
+                (type(artifact_id) is int and artifact_id > 0)
+                or (environment in {"dev", "uat"} and isinstance(pin.get("durable_tag"), str))
+            ),
             "Invalid acceptance pin",
         )
         run = self.read(f"runs/{run_id}/attempts/{attempt}")
@@ -193,6 +281,13 @@ class GitHub:
             and run.get("head_repository", {}).get("full_name") == REPOSITORY,
             "Acceptance did not come from a successful governed attempt",
         )
+        if environment in {"dev", "uat"} and isinstance(pin.get("durable_tag"), str):
+            receipt, digest = self._durable_receipt(pin, environment)
+            require(
+                receipt.get("run_id") == run_id and receipt.get("run_attempt") == attempt,
+                f"Durable {environment.upper()} receipt belongs to another attempt",
+            )
+            return run, {"id": None, "digest": "sha256:" + digest}, receipt
         artifact = self.read(f"artifacts/{artifact_id}")
         _provenance.validate_artifact(artifact, pin, environment, MAX_BYTES)
         receipt = unpack(self.read(f"artifacts/{artifact_id}/zip", binary=True), artifact["digest"])
@@ -205,7 +300,7 @@ class GitHub:
     def accept(self, pin: dict, environment: str, sha: str, service: str) -> dict:
         run, artifact, receipt = self._receipt(pin, environment)
         run_id, attempt, artifact_id = (
-            pin[key] for key in ("run_id", "run_attempt", "artifact_id")
+            pin.get(key) for key in ("run_id", "run_attempt", "artifact_id")
         )
         image_reference = validate(
             receipt, environment=environment, sha=sha, service=service
@@ -226,7 +321,7 @@ class GitHub:
             previous = predecessor.get("services", {}).get(service)
             require(isinstance(previous, dict), "UAT has no dev receipt for this service")
             self.accept(previous, "dev", sha, service)
-        return {
+        accepted = {
             "run_id": run_id,
             "run_attempt": attempt,
             "artifact_id": artifact_id,
@@ -235,6 +330,9 @@ class GitHub:
             "repository": REPOSITORY,
             **({"image_reference": image_reference} if image_reference is not None else {}),
         }
+        if pin.get("durable_tag"):
+            accepted["durable_tag"] = pin["durable_tag"]
+        return accepted
 
     def accepted_application(self, pin: dict, environment: str) -> dict:
         """Inspect a pinned receipt without conflating its Main workflow SHA.
@@ -263,11 +361,11 @@ class GitHub:
                 f"&per_page=50&page={page}"
             ).get("workflow_runs", [])
             for run in runs:
-                for pin in self.attempt_pins(environment, run.get("id")):
+                for pin in self.attempt_pins(environment, run.get("id"), require_durable=True):
                     for service in sorted(needed - accepted.keys()):
                         try:
                             accepted[service] = self.accept(pin, environment, sha, service)
-                        except Refused:
+                        except (Refused, InvalidAttemptReceipt):
                             # Qualification belongs to this immutable attempt,
                             # not to the latest rerun's status or service scope.
                             continue
@@ -284,23 +382,73 @@ class GitHub:
             "No complete healthy predecessor receipt for this exact SHA and resolved services"
         )
 
-    def attempt_pins(self, environment: str, run_id: int) -> list[dict]:
+    def attempt_pins(
+        self, environment: str, run_id: int, *, require_durable: bool = False
+    ) -> list[dict]:
+        require(environment in {"dev", "uat"}, "Unsupported acceptance environment")
         require(type(run_id) is int and run_id > 0, "Invalid acceptance run")
-        inventory = self.read(f"runs/{run_id}/artifacts?per_page=100")
-        artifacts = _provenance.bounded_artifact_inventory(inventory)
-        pins = {}
-        pattern = rf"release-acceptance-{re.escape(environment)}-{run_id}-([1-9][0-9]*)"
-        for item in artifacts:
-            match = re.fullmatch(pattern, item.get("name", ""))
-            if match is None:
-                continue
-            attempt = int(match[1])
-            require(attempt not in pins, "Acceptance artifact is ambiguous")
-            pins[attempt] = {
-                "run_id": run_id,
-                "run_attempt": attempt,
-                "artifact_id": item.get("id"),
-            }
+        pins: dict[int, dict] = {}
+        durable_tags: dict[int, str] = {}
+        if not require_durable:
+            inventory = self.read(f"runs/{run_id}/artifacts?per_page=100")
+            artifacts = _provenance.bounded_artifact_inventory(inventory)
+            pattern = rf"release-acceptance-{re.escape(environment)}-{run_id}-([1-9][0-9]*)"
+            for item in artifacts:
+                match = re.fullmatch(pattern, item.get("name", ""))
+                if match is None:
+                    continue
+                attempt = int(match[1])
+                require(attempt not in pins, "Acceptance artifact is ambiguous")
+                if item.get("expired") is not True:
+                    pins[attempt] = {
+                        "run_id": run_id,
+                        "run_attempt": attempt,
+                        "artifact_id": item.get("id"),
+                    }
+
+        if environment in {"dev", "uat"}:
+            tag_prefix = attempt_tag_prefix(environment)
+            refs = self.read_repository(
+                f"git/matching-refs/tags/{tag_prefix}/{run_id}-"
+            )
+            require(isinstance(refs, list), f"Durable {environment.upper()} tag inventory is malformed")
+            tag_pattern = rf"refs/tags/{re.escape(tag_prefix)}/{run_id}-([1-9][0-9]*)"
+            for ref in refs:
+                if not isinstance(ref, dict):
+                    continue
+                match = re.fullmatch(tag_pattern, str(ref.get("ref", "")))
+                if match is None or ref.get("object", {}).get("type") != "tag":
+                    continue
+                attempt = int(match[1])
+                object_sha = ref.get("object", {}).get("sha")
+                if re.fullmatch(r"[a-f0-9]{40}", str(object_sha or "")) is None:
+                    continue
+                try:
+                    tag = self.read_repository(f"git/tags/{object_sha}")
+                    if tag.get("tag") != ref["ref"].removeprefix("refs/tags/"):
+                        continue
+                    if tag.get("object", {}).get("type") != "commit":
+                        continue
+                    decode_tag_message(
+                        str(tag.get("message", "")),
+                        tag_name=tag["tag"],
+                        tag_target_sha=str(tag["object"].get("sha", "")),
+                        run_id=run_id,
+                        attempt=attempt,
+                        repository=REPOSITORY,
+                        kind="full",
+                        environment=environment,
+                    )
+                except (Refused, InvalidAttemptReceipt, KeyError, TypeError):
+                    continue
+                require(attempt not in durable_tags, f"Durable {environment.upper()} attempt tag is ambiguous")
+                durable_tags[attempt] = tag["tag"]
+            for attempt, tag_name in durable_tags.items():
+                pin = pins.get(attempt, {"run_id": run_id, "run_attempt": attempt})
+                pin["durable_tag"] = tag_name
+                pins[attempt] = pin
+        if require_durable:
+            pins = {attempt: pin for attempt, pin in pins.items() if pin.get("durable_tag")}
         return [pins[attempt] for attempt in sorted(pins, reverse=True)]
 
 

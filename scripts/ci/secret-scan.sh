@@ -147,7 +147,15 @@ fi
 
 # This is required authority; a missing or non-executable reader must fail closed.
 SECURITY_READER="$REPO_ROOT/scripts/ci/github-security-alerts.sh"
-if [ ! -f "$SECURITY_READER" ] || [ ! -x "$SECURITY_READER" ]; then
+if [ "${CI_SECURITY_RECEIPT_MODE:-required}" = "separate-main-owned-job" ]; then
+  if [ "${GITHUB_ACTIONS:-false}" != "true" ]; then
+    echo "Refusing to defer the security receipt outside GitHub Actions." >&2
+    EXIT_CODE=1
+    FAILED_CHECKS="${FAILED_CHECKS} github-security-alerts"
+  else
+    echo "Protected security receipt is verified in its separate Main-owned job."
+  fi
+elif [ ! -f "$SECURITY_READER" ] || [ ! -x "$SECURITY_READER" ]; then
   echo "Required GitHub security reader is missing or not executable." >&2
   EXIT_CODE=1
   FAILED_CHECKS="${FAILED_CHECKS} github-security-alerts"

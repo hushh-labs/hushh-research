@@ -3,6 +3,7 @@
 """Current application selection must not inherit historical workflow success."""
 
 import importlib
+import json
 import subprocess
 import sys
 from copy import deepcopy
@@ -67,6 +68,114 @@ def test_truncated_or_malformed_receipt_inventory_is_refused(inventory):
     responses["runs/20/artifacts?per_page=100"] = inventory
     with pytest.raises(module.Refused, match="Artifact inventory"):
         acceptance.attempt_pins("uat", 20)
+
+
+def test_durable_uat_attempt_tag_replaces_an_expired_acceptance_artifact(monkeypatch):
+    module, _, acceptance, responses, _ = fixture(monkeypatch)
+    monkeypatch.setitem(
+        acceptance._durable_receipt.__func__.__globals__,
+        "verify_durable_attempt_attestation",
+        lambda *_args, **_kwargs: None,
+    )
+    responses["runs/20/artifacts?per_page=100"]["artifacts"][0]["expired"] = True
+    receipt = _acceptance_fixture()[2]["uat"]
+    writer = importlib.import_module("uat_attempt_receipt")
+    tag_name = "deployed/uat-attempt/20-2"
+    tag_sha = "d" * 40
+    message = writer.build_tag_message(
+        kind="full",
+        run_id=20,
+        attempt=2,
+        repository=module.REPOSITORY,
+        workflow=".github/workflows/deploy-uat.yml",
+        target_sha=receipt["release"]["sha"],
+        raw=json.dumps(receipt, sort_keys=True).encode(),
+    )
+
+    def read_repository(path):
+        if path == "git/matching-refs/tags/deployed/uat-attempt/20-":
+            return [{"ref": f"refs/tags/{tag_name}", "object": {"type": "tag", "sha": tag_sha}}]
+        if path == f"git/ref/tags/{tag_name}":
+            return {"ref": f"refs/tags/{tag_name}", "object": {"type": "tag", "sha": tag_sha}}
+        if path == f"git/tags/{tag_sha}":
+            return {
+                "tag": tag_name,
+                "object": {"type": "commit", "sha": receipt["release"]["sha"]},
+                "message": message,
+            }
+        raise AssertionError("unexpected repository lookup: " + path)
+
+    acceptance.read_repository = read_repository
+    pins = acceptance.attempt_pins("uat", 20)
+
+    assert pins == [{"run_id": 20, "run_attempt": 2, "durable_tag": tag_name}]
+    accepted = acceptance.accepted_application(pins[0], "uat")
+    assert accepted["sha"] == receipt["release"]["sha"]
+    assert set(accepted["services"]) == {"backend", "frontend"}
+
+
+@pytest.mark.parametrize(("environment", "run_id"), [("dev", 10), ("uat", 20)])
+def test_production_admission_does_not_accept_artifact_only_history(environment, run_id):
+    _, acceptance, _, _, _ = _acceptance_fixture()
+
+    def artifact_read(path, **kwargs):
+        raise AssertionError("durable production admission must not depend on artifacts")
+
+    acceptance.read = artifact_read
+
+    assert acceptance.attempt_pins(environment, run_id, require_durable=True) == []
+
+
+def test_shared_dev_attempt_tag_is_validated_and_used_for_production_admission(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "scripts/ci"))
+    writer = importlib.import_module("uat_attempt_receipt")
+    module, acceptance, receipts, responses, _ = _acceptance_fixture()
+    monkeypatch.setattr(
+        module, "verify_durable_attempt_attestation", lambda *_args, **_kwargs: None
+    )
+    run_id, attempt, environment = 10, 2, "dev"
+    receipt = receipts[environment]
+    tag_name = "deployed/dev-attempt/10-2"
+    tag_sha = "d" * 40
+    message = writer.build_tag_message(
+        kind="full",
+        run_id=run_id,
+        attempt=attempt,
+        repository=module.REPOSITORY,
+        workflow=".github/workflows/deploy-dev.yml",
+        target_sha=SHA,
+        raw=json.dumps(receipt, sort_keys=True).encode(),
+        environment=environment,
+    )
+    responses[f"runs/{run_id}/artifacts?per_page=100"] = {
+        "total_count": 1,
+        "artifacts": [responses[f"artifacts/{run_id + 1}"]],
+    }
+
+    def read_repository(path):
+        if path == "git/matching-refs/tags/deployed/dev-attempt/10-":
+            return [{"ref": f"refs/tags/{tag_name}", "object": {"type": "tag", "sha": tag_sha}}]
+        if path == f"git/ref/tags/{tag_name}":
+            return {"ref": f"refs/tags/{tag_name}", "object": {"type": "tag", "sha": tag_sha}}
+        if path == f"git/tags/{tag_sha}":
+            return {
+                "tag": tag_name,
+                "object": {"type": "commit", "sha": SHA},
+                "message": message,
+            }
+        raise AssertionError("unexpected repository lookup: " + path)
+
+    acceptance.read_repository = read_repository
+    pins = acceptance.attempt_pins(environment, run_id, require_durable=True)
+
+    assert pins == [
+        {
+            "run_id": run_id,
+            "run_attempt": attempt,
+            "durable_tag": tag_name,
+        }
+    ]
+    assert acceptance.accepted_application(pins[0], environment)["sha"] == SHA
 
 
 @pytest.mark.parametrize(

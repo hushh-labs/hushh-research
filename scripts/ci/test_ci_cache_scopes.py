@@ -2,20 +2,22 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hushh
 
-"""PR Validation restores the large build caches; only main saves them.
+"""Main owns reusable build caches; candidate PR-target jobs cannot use them.
 
-GitHub scopes an Actions cache to the ref that saved it. A pull_request run
-saves under refs/pull/<N>/merge, which no other pull request can restore, and
-every pull request can restore main's entries. All entries share one 10GB
+GitHub scopes an Actions cache to the ref that saved it. A pull_request_target run
+uses refs/pull/<N>/merge. Earlier PR-scoped saves could not be restored by other
+pull requests, while Main cache entries were available to all PRs. Only Main-ref
+push and dispatch runs now read reusable entries. All entries share one 10GB
 budget. PR-scoped saves of the Swift package clone (~4.5GB each) evicted the
 npm cache until that cache was removed on 2026-09-27, and at 20:00Z on
 2026-10-14 PR-scoped Next.js entries were 5.50GB of a 10.65GB budget.
 
-So PR Validation restores these two caches and never saves them, and one
-main-scoped workflow saves each. Both ways this breaks are silent, so this
-test checks them:
+Only a Main-ref push or Main-ref dispatch may restore caches; candidate PR
+checkouts and branch dispatches cannot observe or write shared cache entries.
+Main-scoped workflows save reusable entries.
+This checks both sides of that boundary:
 
-* a PR lane saves again (``actions/cache@`` instead of
+* a PR-target lane saves again (``actions/cache@`` instead of
   ``actions/cache/restore@``), which brings the eviction back;
 * a restore stops looking up what its saver writes (path, key, restore-keys,
   or a step or env value the key is built from), which makes every restore a
@@ -33,12 +35,13 @@ CI = ".github/workflows/ci.yml"
 SMOKE = ".github/workflows/main-post-merge-smoke.yml"
 SPM_SAVER = ".github/workflows/ios-swift-package-cache.yml"
 
-# (cache path, the PR Validation job that restores it, the workflow that saves it)
+# (cache path, the workflow job that restores it for trusted/manual runs, the saver)
 CACHES = (
     ("hushh-webapp/.next/cache", "web-core-check", SMOKE),
     ("${{ runner.temp }}/spm", "ios-native-check", SPM_SAVER),
 )
 MAIN_ONLY = "github.ref == 'refs/heads/main'"
+CACHE_TRUSTED = "(github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'"
 # The Xcode version in the Swift package key must be the Xcode that resolved.
 XCODE_FROM_KEY = "xcode-version: ${{ env.XCODE_VERSION }}"
 
@@ -87,7 +90,7 @@ def cache_scope_errors(read: Callable[[str], str] = _read) -> list[str]:
         for step in ci_cache_steps:
             if step.get("path") == cache_path and not step["uses"].startswith("actions/cache/restore@"):
                 errors.append(
-                    f"{CI}: {cache_path} must use actions/cache/restore; a pull_request "
+                    f"{CI}: {cache_path} must use actions/cache/restore; a pull_request_target "
                     f"save is PR-scoped and only spends the shared 10GB budget"
                 )
 
@@ -129,10 +132,33 @@ def cache_scope_errors(read: Callable[[str], str] = _read) -> list[str]:
                 )
             if name == "XCODE_VERSION" and not (XCODE_FROM_KEY in block and XCODE_FROM_KEY in saver):
                 errors.append(f"{cache_path}: both jobs must select Xcode with `{XCODE_FROM_KEY}`")
+    errors.extend(candidate_cache_errors(read))
     return errors
 
 
-def test_build_caches_are_saved_on_main_and_only_restored_by_prs() -> None:
+def candidate_cache_errors(read: Callable[[str], str] = _read) -> list[str]:
+    """Candidate code must not restore or save shared caches in base scope."""
+    ci = read(CI)
+    jobs = (
+        "ui-contracts", "web-core-check", "web-targeted-check", "web-editor-performance-check",
+        "web-full-suite-check", "ios-native-check", "android-native-check", "protocol-check",
+        "protocol-database-check", "mcp-package-check", "integration-check",
+    )
+    errors: list[str] = []
+    for job in jobs:
+        block = _job(ci, job)
+        for step in _steps(block):
+            uses = step.get("uses", "")
+            if uses.startswith("actions/cache") and CACHE_TRUSTED not in step.get("if", ""):
+                errors.append(f"{CI} {job}: cache action is not restricted to trusted Main-ref runs")
+            if uses.startswith("actions/setup-node"):
+                cache = re.search(r"^\s+cache: (.+)$", step["text"], re.M)
+                if cache and CACHE_TRUSTED not in cache.group(1):
+                    errors.append(f"{CI} {job}: setup-node cache is not restricted to trusted Main-ref runs")
+    return errors
+
+
+def test_build_caches_are_saved_on_main_and_disabled_for_candidate_prs() -> None:
     errors = cache_scope_errors()
     assert errors == [], "\n".join(errors)
 
@@ -152,6 +178,13 @@ def test_guard_rejects_a_pr_save_and_a_drifted_key() -> None:
     errors = errors_after(CI, spm_restore, spm_restore.replace("cache/restore@", "cache@"))
     assert any("must use actions/cache/restore" in error for error in errors), errors
 
+    errors = errors_after(
+        CI,
+        "if: matrix.part == 'browser' && " + CACHE_TRUSTED,
+        "if: matrix.part == 'browser'",
+    )
+    assert any("cache action is not restricted" in error for error in errors), errors
+
     errors = errors_after(SPM_SAVER, 'XCODE_VERSION: "26.3"', 'XCODE_VERSION: "26.4"')
     assert any("XCODE_VERSION, part of the key" in error for error in errors), errors
 
@@ -164,7 +197,7 @@ def test_guard_rejects_a_pr_save_and_a_drifted_key() -> None:
 
 def main() -> int:
     tests = (
-        test_build_caches_are_saved_on_main_and_only_restored_by_prs,
+        test_build_caches_are_saved_on_main_and_disabled_for_candidate_prs,
         test_guard_rejects_a_pr_save_and_a_drifted_key,
     )
     for test in tests:

@@ -39,7 +39,7 @@ USAGE:
 After --apply, verify both `main` and `integration/pr-train` branch protection.
 
 Requires: gh CLI authenticated with org admin (to edit team membership) and
-repo admin (to edit branch protection).
+repo admin (to edit branch and tag rulesets).
 """
 
 from __future__ import annotations
@@ -47,7 +47,6 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 REPO = "hushh-labs/hushh-research"
@@ -329,6 +328,30 @@ def sync_managed_teams(policy: dict, *, apply: bool) -> bool:
     return changed
 
 
+def sync_attempt_receipt_ruleset(policy: dict, *, apply: bool) -> bool:
+    """Reconcile immutable attempt receipts without changing unrelated refs."""
+    from attempt_tag_ruleset import LIST_ENDPOINT, reconcile
+
+    def read(endpoint: str):
+        args = ["api"]
+        if endpoint == LIST_ENDPOINT:
+            args.extend(["--paginate", "--slurp"])
+        args.append(endpoint)
+        return gh_json(args)
+
+    def write(method: str, endpoint: str, payload: dict) -> None:
+        proc = subprocess.run(
+            ["gh", "api", "--method", method, endpoint, "--input", "-"],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise SystemExit(f"Failed to reconcile attempt receipt tag ruleset:\n{proc.stderr.strip()}")
+
+    return reconcile(policy, read=read, write=write, apply=apply)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -336,7 +359,12 @@ def main() -> int:
                     help="Push changes to GitHub. Without this, runs dry (plan only).")
     ap.add_argument("--branch", action="append", choices=("dev", "uat"),
                     help="Reconcile only this prepared branch; repeat for both. Does not create refs or deploy.")
+    ap.add_argument("--attempt-tags", action="store_true",
+                    help="Reconcile only the Dev/UAT immutable attempt receipt tag ruleset.")
     args = ap.parse_args()
+
+    if args.attempt_tags and args.branch:
+        raise SystemExit("--attempt-tags cannot be combined with --branch")
 
     if not POLICY_PATH.exists():
         raise SystemExit(f"Policy file not found: {POLICY_PATH}")
@@ -344,6 +372,15 @@ def main() -> int:
 
     mode = "APPLY" if args.apply else "DRY-RUN (no changes — pass --apply to push)"
     print(f"=== apply-governance [{mode}] — source: config/ci-governance.json ===\n")
+
+    if args.attempt_tags:
+        changed = sync_attempt_receipt_ruleset(policy, apply=args.apply)
+        if not args.apply:
+            print("Plan has changes. Re-run with --attempt-tags --apply to push them to GitHub."
+                  if changed else "Plan has no changes.")
+        else:
+            print("✅ Attempt receipt tag ruleset reconciled. Verify with verify-attempt-tag-ruleset.py.")
+        return 0
 
     if args.branch:
         from prepared_branch_governance import reconcile
@@ -355,8 +392,11 @@ def main() -> int:
     print("1. repository settings")
     changed_repo = apply_repository_settings(policy, apply=args.apply)
 
+    print("\n2. immutable deployment attempt receipt tags")
+    changed_attempt_tags = sync_attempt_receipt_ruleset(policy, apply=args.apply)
+
     train_branch = policy["branch_flow"]["train_branch"]
-    print("\n2. governed branch protection review_bypass_users")
+    print("\n3. governed branch protection review_bypass_users")
     changed_main = apply_review_bypass(
         "main", desired_review_bypass(policy, "main"),
         team_slug=policy["main"].get("review_bypass_team_slug"), apply=args.apply
@@ -366,11 +406,11 @@ def main() -> int:
         team_slug=policy["pr_train"].get("review_bypass_team_slug"), apply=args.apply
     )
 
-    print("\n3. org team membership, mirrored from config/ci-governance.json")
+    print("\n4. org team membership, mirrored from config/ci-governance.json")
     changed_b = sync_managed_teams(policy, apply=args.apply)
 
     print()
-    if not args.apply and (changed_repo or changed_main or changed_train or changed_b):
+    if not args.apply and (changed_repo or changed_attempt_tags or changed_main or changed_train or changed_b):
         print("Plan has changes. Re-run with --apply to push them to GitHub.")
         return 0
     if args.apply:

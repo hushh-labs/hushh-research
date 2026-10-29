@@ -176,6 +176,28 @@ if {case!r}!='success': time.sleep(60)
 
 
 class SecurityReceiptTest(unittest.TestCase):
+    def test_pull_request_target_receipt_binds_pr_head_not_base_sha(self):
+        consumer, api, _, _, _, _, _, _, responses = receipt_fixture()
+        path = f"repos/{consumer.REPOSITORY}/actions/runs/20"
+        # Observed on PR #8545 and Actions run #40598204935: the run API's
+        # head_sha matched the PR head while the PR base was a different SHA.
+        # The run API has no synthetic base_sha field; compare head_sha with
+        # the exact PR-head value passed by the protected controller.
+        pr_base_sha = "6267f321c821b0ff2e1995dcd50d4eff8b045dc9"
+        pr_head_sha = "ccbaf02d3881948787a1c8c16efd2a7d5552e484"
+        self.assertNotEqual(pr_base_sha, pr_head_sha)
+        responses[path].update(event="pull_request_target", head_sha=pr_head_sha)
+        expected = {"run_id": 20, "attempt": 2, "head_sha": pr_head_sha}
+
+        verified = authority.verify_source(api.read, consumer.REPOSITORY, expected)
+        self.assertEqual(verified["head_sha"], pr_head_sha)
+        with self.assertRaisesRegex(authority.Refused, "SHA mismatch"):
+            authority.verify_source(
+                api.read,
+                consumer.REPOSITORY,
+                {**expected, "head_sha": pr_base_sha},
+            )
+
     def test_ancestry_accepts_metadata_without_file_patches_or_commit_inventory(self):
         consumer, api, source, run, workflow, _, _, _, responses = receipt_fixture()
         path = f"repos/{consumer.REPOSITORY}/compare/{run['head_sha']}...main?per_page=1&page=2"
@@ -421,16 +443,20 @@ class SecurityRerunGateTest(unittest.TestCase):
 
     def test_final_gate_rejects_previous_attempt_or_failed_current_worker(self):
         root = Path(__file__).resolve().parents[2]
-        workflow = (root / ".github/workflows/ci.yml").read_text().split("\n  ci-status:\n", 1)[1]
-        self.assertIn("actions: read", workflow)
+        workflow = (root / ".github/workflows/ci.yml").read_text()
+        security_job = workflow.split("\n  protected-security-receipt:\n", 1)[1].split("\n  dco-check:\n", 1)[0]
+        self.assertIn("actions: read", security_job)
         self.assertRegex(
-            workflow,
-            r"if: github.run_attempt > 1\n\s+run: python3 scripts/ci/github_security_receipt.py",
+            security_job,
+            r"run: python3 scripts/ci/github_security_receipt.py\n\s+env:\n\s+GH_TOKEN: \$\{\{ github\.token \}\}",
         )
+        self.assertIn("- protected-security-receipt", workflow.split("\n  preflight-gate:\n", 1)[1].split("\n  ui-contracts:\n", 1)[0])
+        self.assertIn("pull_request_target:", workflow.split("\njobs:\n", 1)[0])
         self.assertIn(
             "CI_SECURITY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
             workflow,
         )
+        self.assertIn("permissions:\n  contents: read", workflow.split("\njobs:\n", 1)[0])
         worker = (root / ".github/workflows/ci-security.yml").read_text()
         self.assertIn("types: [requested]", worker)
         self.assertNotIn("types: [in_progress]", worker)

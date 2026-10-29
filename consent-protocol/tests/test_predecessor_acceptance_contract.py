@@ -120,6 +120,57 @@ def test_predecessor_requires_exact_application_sha_and_pinned_dev_chain():
         client.accept(pins["uat"], "uat", SHA, "backend")
 
 
+def test_durable_attempt_receipt_requires_exact_main_workflow_attestation(monkeypatch):
+    module, *_ = _acceptance_fixture()
+    receipt_bytes = b'{"run_id":123,"run_attempt":2}\n'
+    invocation = "https://github.com/hushh-labs/hushh-research/actions/runs/123/attempts/2"
+    statement = {
+        "predicateType": "https://slsa.dev/provenance/v1",
+        "subject": [
+            {
+                "name": "acceptance.json",
+                "digest": {"sha256": hashlib.sha256(receipt_bytes).hexdigest()},
+            }
+        ],
+        "predicate": {"runDetails": {"metadata": {"invocationId": invocation}}},
+    }
+    output = [json.dumps([{"verificationResult": {"statement": statement}}]).encode()]
+    commands = []
+
+    def verify(command, timeout):
+        commands.append((command, timeout))
+        return output[0]
+
+    monkeypatch.setattr(module, "_bounded_process_read", verify)
+    module.verify_durable_attempt_attestation(
+        receipt_bytes, environment="dev", run_id=123, attempt=2
+    )
+    command, timeout = commands[0]
+    assert timeout == 45
+    assert "--cert-identity" in command
+    assert (
+        "https://github.com/hushh-labs/hushh-research/.github/workflows/deploy-dev.yml@refs/heads/main"
+        in command
+    )
+    assert "--source-ref" in command and "refs/heads/main" in command
+    assert "--signer-workflow" not in command
+
+    statement["predicate"]["runDetails"]["metadata"]["invocationId"] = invocation + "-wrong"
+    output[0] = json.dumps([{"verificationResult": {"statement": statement}}]).encode()
+    with pytest.raises(module.InvalidAttemptReceipt, match="exact workflow run attempt"):
+        module.verify_durable_attempt_attestation(
+            receipt_bytes, environment="dev", run_id=123, attempt=2
+        )
+
+    statement["predicate"]["runDetails"]["metadata"]["invocationId"] = invocation
+    statement["subject"][0]["digest"]["sha256"] = "0" * 64
+    output[0] = json.dumps([{"verificationResult": {"statement": statement}}]).encode()
+    with pytest.raises(module.InvalidAttemptReceipt, match="different receipt bytes"):
+        module.verify_durable_attempt_attestation(
+            receipt_bytes, environment="dev", run_id=123, attempt=2
+        )
+
+
 @pytest.mark.parametrize(
     "case",
     [
@@ -184,8 +235,25 @@ def test_backend_image_is_bound_to_the_selected_accepted_attempt(case, tmp_path,
         assert accepted.get("image_reference") == (image if case == "valid" else None)
 
 
-def test_discovery_keeps_qualified_attempt_after_a_failed_rerun():
-    module, client, _, responses, pins = _acceptance_fixture()
+def test_discovery_keeps_qualified_attempt_after_a_failed_rerun(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+    module, client, receipts, responses, pins = _acceptance_fixture()
+    monkeypatch.setattr(
+        module, "verify_durable_attempt_attestation", lambda *_args, **_kwargs: None
+    )
+    writer = importlib.import_module("uat_attempt_receipt")
+    tag_name = "deployed/dev-attempt/10-2"
+    tag_sha = "d" * 40
+    message = writer.build_tag_message(
+        kind="full",
+        run_id=10,
+        attempt=2,
+        repository=module.REPOSITORY,
+        workflow=".github/workflows/deploy-dev.yml",
+        target_sha=SHA,
+        raw=json.dumps(receipts["dev"], sort_keys=True).encode(),
+        environment="dev",
+    )
     query = "workflows/deploy-dev.yml/runs?branch=main&event=workflow_dispatch&per_page=50&page=1"
     responses[query] = {
         "workflow_runs": [{"id": 10, "run_attempt": 3, "conclusion": "failure"}],
@@ -202,12 +270,28 @@ def test_discovery_keeps_qualified_attempt_after_a_failed_rerun():
         "run_attempt": 3,
         "conclusion": "failure",
     }
+
+    def read_repository(path):
+        if path == "git/matching-refs/tags/deployed/dev-attempt/10-":
+            return [{"ref": f"refs/tags/{tag_name}", "object": {"type": "tag", "sha": tag_sha}}]
+        if path == f"git/ref/tags/{tag_name}":
+            return {"ref": f"refs/tags/{tag_name}", "object": {"type": "tag", "sha": tag_sha}}
+        if path == f"git/tags/{tag_sha}":
+            return {
+                "tag": tag_name,
+                "object": {"type": "commit", "sha": SHA},
+                "message": message,
+            }
+        raise AssertionError("unexpected repository lookup: " + path)
+
+    client.read_repository = read_repository
     result = client.find("dev", SHA, "all")
     assert result["status"] == "accepted"
     assert set(result["services"]) == {"backend", "frontend"}
     assert all(
         pin["run_attempt"] == pins["dev"]["run_attempt"] for pin in result["services"].values()
     )
+    assert all(pin["durable_tag"] == tag_name for pin in result["services"].values())
     responses["runs/10/attempts/2"]["conclusion"] = "failure"
     with pytest.raises(module.Refused, match="No complete healthy predecessor"):
         client.find("dev", SHA, "all")
@@ -227,6 +311,73 @@ def test_predecessor_preserves_classified_advisory_without_waiving_required_fail
     semantic["blocking_failures"] = ["frontend_login"]
     with pytest.raises(module.Refused, match="verification"):
         module.validate(receipt, environment="dev", sha=SHA, service="backend")
+
+
+def test_shared_dev_attempt_tag_has_an_exact_main_owned_writer():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    deploy = workflow["jobs"]["deploy"]
+    writer = workflow["jobs"]["persist-shared-dev-attempt"]
+    assert deploy["outputs"]["target_sha"] == "${{ steps.resolve-sha.outputs.sha }}"
+    assert writer["needs"] == "deploy"
+    assert "inputs.target == 'shared-dev'" in writer["if"]
+    assert writer["permissions"] == {
+        "contents": "write",
+        "actions": "read",
+        "attestations": "write",
+        "id-token": "write",
+    }
+    checkout = next(
+        step for step in writer["steps"] if step.get("uses", "").startswith("actions/checkout@")
+    )
+    assert checkout["with"]["ref"] == "refs/heads/main"
+    download = next(
+        step
+        for step in writer["steps"]
+        if step.get("name") == "Download the exact attempt acceptance receipt"
+    )
+    assert "${GITHUB_RUN_ATTEMPT}" in download["run"]
+    persist = next(
+        step
+        for step in writer["steps"]
+        if step.get("name") == "Persist immutable exact-attempt receipt"
+    )
+    assert "--kind full --environment dev" in persist["run"]
+    assert "continue-on-error" not in persist
+    attestation = next(
+        step
+        for step in writer["steps"]
+        if step.get("name") == "Attest the exact Dev acceptance receipt"
+    )
+    assert attestation["uses"] == "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"
+    assert (
+        attestation["with"]["subject-path"] == "${{ runner.temp }}/dev-acceptance/acceptance.json"
+    )
+
+
+def test_uat_attempt_tags_are_required_outputs_of_healthy_deployments():
+    for workflow_path, writer_name, kind, environment in (
+        ("deploy-uat.yml", "persist-uat-attempt", "full", "uat"),
+        ("deploy-uat-one-chat.yml", "persist-uat-one-chat-attempt", "one-chat", "uat"),
+    ):
+        workflow = yaml.safe_load((ROOT / ".github/workflows" / workflow_path).read_text())
+        writer = workflow["jobs"][writer_name]
+        assert "deploy" in writer["needs"]
+        assert writer["permissions"] == {
+            "contents": "write",
+            "actions": "read",
+            "attestations": "write",
+            "id-token": "write",
+        }
+        persist = next(
+            item
+            for item in writer["steps"]
+            if item.get("name") == "Persist immutable exact-attempt receipt"
+        )
+        assert f"--kind {kind} --environment {environment}" in persist["run"]
+        attestation = next(
+            item for item in writer["steps"] if item.get("uses", "").startswith("actions/attest@")
+        )
+        assert attestation["uses"] == "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"
 
 
 @pytest.mark.parametrize(

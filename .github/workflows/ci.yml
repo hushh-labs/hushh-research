@@ -1,8 +1,10 @@
 name: "PR Validation"
 
 on:
-  pull_request:
-    branches: ["**"]
+  # Only protected release branches may own this privileged controller.
+  # Candidate source and tests run on the merge ref with read-only checkout authority.
+  pull_request_target:
+    branches: ["main", "dev", "uat", "integration/pr-train"]
   workflow_dispatch:
     inputs:
       # `auto` runs the lanes the dispatched branch's changes against the
@@ -25,11 +27,9 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
-  security-events: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -38,18 +38,18 @@ env:
   CI_NATIVE_PARITY_REQUIRED: "0"
   CI_DOCS_PARITY_REQUIRED: "0"
   GITLEAKS_VERSION: "8.24.2"
+  CI_TEST_REF: ${{ github.event_name == 'pull_request_target' && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.sha }}
 
 jobs:
   secret-scan:
     name: "Secret Scan"
-    permissions:
-      contents: read
-      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
           fetch-depth: 0
       - name: Install gitleaks OSS CLI (license-free)
         run: |
@@ -73,7 +73,7 @@ jobs:
             fi
           }
 
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
             LOG_OPTS="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
           elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
             if git rev-parse "${{ github.event.before }}" >/dev/null 2>&1 && git merge-base --is-ancestor "${{ github.event.before }}" "${{ github.sha }}"; then
@@ -100,7 +100,7 @@ jobs:
             # fall through to the bare-SHA case below, which walks all history
             # (~3400 commits) and fails on findings that predate the branch by
             # years. That made the manual lane useless exactly when it is
-            # needed most: when the pull_request event does not fire and this
+            # needed most: when PR validation must be dispatched manually and this
             # is the only way to validate a change.
             LOG_OPTS="$(resolve_from_default_branch)"
           else
@@ -111,6 +111,23 @@ jobs:
         run: bash scripts/ci/orchestrate.sh secret
         env:
           GITLEAKS_LOG_OPTS: ${{ steps.scan-range.outputs.log_opts }}
+          CI_SECURITY_RECEIPT_MODE: separate-main-owned-job
+
+  protected-security-receipt:
+    name: "Protected Security Receipt"
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+      - name: Verify exact protected security receipt
+        run: python3 scripts/ci/github_security_receipt.py
+        env:
           GH_TOKEN: ${{ github.token }}
           CI_SECURITY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
@@ -120,12 +137,14 @@ jobs:
     # the gate requires DCO on both events. Without a PR range,
     # check-dco-signoff.sh checks merge-base(origin/<default branch>)..HEAD,
     # the branch's own commits.
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request_target' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Validate DCO signoff
@@ -136,11 +155,14 @@ jobs:
 
   pr-base-policy:
     name: "PR Base Policy"
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
 
       # Through env, not inline: a head ref is chosen by whoever opens the PR,
       # and an inline expression is pasted into the script before bash parses it.
@@ -157,10 +179,16 @@ jobs:
 
   repo-governance:
     name: "Governance"
+    permissions:
+      contents: read
+      pull-requests: read
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -179,7 +207,7 @@ jobs:
           # Required so verify-protected-pipeline-edits.py can resolve the PR's
           # changed-file list from the GitHub API. Without a token the guard
           # silently resolves zero files and passes (fails open). The job
-          # already declares `pull-requests: read`, which is sufficient.
+          # The trusted Main-owned governance job has only pull-requests:read.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ============================================================================
@@ -189,6 +217,9 @@ jobs:
     name: "Path filters"
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       frontend: ${{ steps.resolve.outputs.frontend }}
       backend: ${{ steps.resolve.outputs.backend }}
@@ -197,6 +228,9 @@ jobs:
       editor: ${{ steps.resolve.outputs.editor }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
 
       # A dispatch with scope `auto` runs these same filters. paths-filter v4
       # has no pull request to ask the API about then, so it diffs `ref`
@@ -204,15 +238,16 @@ jobs:
       # shallow clone until it finds one. `ref` is the dispatched commit, not
       # the branch name, so a branch that moves mid-run cannot select lanes for
       # a commit this run does not test. Both are passed only on dispatch,
-      # because v4 ignores them on a pull_request event and warns on every run.
+      # because v4 ignores them on pull_request_target and warns on every run.
       # The default branch has no branch diff, so `auto` there runs `all`.
       - uses: dorny/paths-filter@v4
         id: filter
         if: >-
-          github.event_name == 'pull_request' || github.event_name == 'push' ||
+          github.event_name == 'pull_request_target' || github.event_name == 'push' ||
           (github.event_name == 'workflow_dispatch' && inputs.scope == 'auto' &&
           github.ref_name != github.event.repository.default_branch)
         with:
+          token: ${{ github.token }}
           base: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.default_branch || '' }}
           ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}
           # A leading '!' pattern removes files from its own filter only; the
@@ -479,6 +514,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
           fetch-depth: 2
       - name: Resolve UI review base from the checked-out merge
         id: ui-base
@@ -488,7 +525,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && 'npm' || '' }}
           cache-dependency-path: hushh-webapp/scripts/architecture/ui-contract-tools/package-lock.json
       - run: npm ci --ignore-scripts --no-audit --progress=false
         working-directory: hushh-webapp/scripts/architecture/ui-contract-tools
@@ -502,6 +539,7 @@ jobs:
     needs:
       - ui-contracts
       - secret-scan
+      - protected-security-receipt
       - dco-check
       - pr-base-policy
       - repo-governance
@@ -521,6 +559,7 @@ jobs:
         shell: bash
         run: |
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
+          SECURITY_RECEIPT="${{ needs['protected-security-receipt'].result }}"
           DCO="${{ needs['dco-check'].result }}"
           PR_BASE_POLICY="${{ needs['pr-base-policy'].result }}"
           REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
@@ -528,6 +567,7 @@ jobs:
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
+          printf 'protected-security-receipt=%s\n' "$SECURITY_RECEIPT"
           printf 'dco-check=%s\n' "$DCO"
           printf 'pr-base-policy=%s\n' "$PR_BASE_POLICY"
           printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
@@ -539,7 +579,7 @@ jobs:
             echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
             fail=1
           fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$MAIN_FRESHNESS"; do
+          for result in "$SECRET_SCAN" "$SECURITY_RECEIPT" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
@@ -567,16 +607,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
           fetch-depth: 2
 
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && 'npm' || '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       # Restore-only; Main Post-Merge Smoke is the one saver. A cache saved by
-      # a pull_request run is scoped to that PR's merge ref, so no other PR can
+      # a pull_request_target run is scoped to that PR's merge ref, so no other PR can
       # restore it, yet every save counted against the repository's 10GB
       # budget. At 20:00Z on 2026-10-14 the budget held 10.65GB, 13 PR-scoped
       # Next.js entries (379-461MB each) were 5.50GB of it, and no Next.js
@@ -590,6 +632,7 @@ jobs:
         run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Next.js build cache
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         uses: actions/cache/restore@v5
         with:
           path: hushh-webapp/.next/cache
@@ -654,12 +697,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
           fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && 'npm' || '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       # The One Voice verification includes the checked-in CapabilityGraphV1
@@ -678,7 +723,7 @@ jobs:
       # PR restores them instead of re-downloading ~400MB per run.
       - name: Cache Playwright browsers
         id: playwright-cache
-        if: matrix.part == 'browser'
+        if: matrix.part == 'browser' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
@@ -804,11 +849,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && 'npm' || '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Install web dependencies and browsers
@@ -870,6 +918,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
           # verify:one-voice runs the capability graph check, which diffs
           # against the PR base ref and fails closed when a shallow clone
           # does not carry it.
@@ -878,7 +928,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && 'npm' || '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       # The CapabilityGraphV1 compiler behind verify:one-voice is Python; use
@@ -935,6 +985,9 @@ jobs:
       NEXT_PUBLIC_FIREBASE_VAPID_KEY: test-vapid-key
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
 
       - name: Select release-parity Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -945,7 +998,7 @@ jobs:
         with:
           # Keep native preparation on the same Node major as TestFlight.
           node-version: "22"
-          cache: npm
+          cache: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && 'npm' || '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Verify native proof build contract
@@ -1052,6 +1105,7 @@ jobs:
       # next daily save.
       - name: Restore Swift packages resolved on main
         id: spm-cache
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/spm
@@ -1175,6 +1229,9 @@ jobs:
       CAPACITOR_PLATFORM: android
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
 
       - uses: actions/setup-java@v4
         with:
@@ -1194,7 +1251,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
-          cache: npm
+          cache: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && 'npm' || '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Install web and Capacitor dependencies
@@ -1253,6 +1310,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
           # The capability graph check diffs against the PR base ref, which a
           # shallow clone does not carry.
           fetch-depth: 0
@@ -1268,6 +1327,7 @@ jobs:
       # version or options differ and rechecks every module whose source hash
       # changed. The key follows the locked toolchain and the mypy config.
       - name: Cache mypy incremental state
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         uses: actions/cache@v5
         with:
           path: consent-protocol/.mypy_cache
@@ -1312,8 +1372,6 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2]
-    permissions:
-      contents: read
     services:
       command-postgres:
         # Separate runner/database: preserve catalog isolation while phases overlap.
@@ -1332,6 +1390,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
           fetch-depth: 0
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
@@ -1373,11 +1433,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && 'npm' || '' }}
           cache-dependency-path: packages/hushh-mcp/package-lock.json
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
@@ -1402,12 +1465,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
           fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && 'npm' || '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
@@ -1420,7 +1485,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
             base_sha="${{ github.event.pull_request.base.sha }}"
             target_sha="${{ github.event.pull_request.head.sha }}"
           else
@@ -1453,29 +1518,33 @@ jobs:
 
   main-freshness-gate:
     name: "Base Freshness Gate"
-    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
+    if: github.event_name == 'pull_request_target' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.CI_TEST_REF }}
+          persist-credentials: false
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
 
-      # Every lane checks out github.sha, GitHub's refs/pull/N/merge commit: this
-      # head merged onto the base as of the push. Its first parent is the base
-      # those lanes tested. The head-only checkout above lacks it, so fetch it by
-      # SHA. Trusted only when its second parent is this head; otherwise the
-      # output stays empty and the check falls back to the merge-base.
+      # Every selected lane checks out refs/pull/N/merge, the head merged onto
+      # the base as of the push. Its first parent is the base those lanes tested.
+      # Accept it only when its second parent is this PR head; otherwise fall
+      # back to the independently resolved merge-base.
+      - name: Resolve merge ref SHA used by the selected test lanes
+        id: tested-merge
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Resolve the base the PR checks tested
         id: tested-base
         if: github.base_ref == 'main'
         env:
-          TESTED_MERGE_SHA: ${{ github.sha }}
+          TESTED_MERGE_SHA: ${{ steps.tested-merge.outputs.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           tested_base=""
-          if git fetch --no-tags --quiet origin "$TESTED_MERGE_SHA" \
+          if git cat-file -e "$TESTED_MERGE_SHA^{commit}" 2>/dev/null \
             && [ "$(git rev-parse --verify --quiet "$TESTED_MERGE_SHA^2" || true)" = "$PR_HEAD_SHA" ]; then
             tested_base="$(git rev-parse --verify --quiet "$TESTED_MERGE_SHA^1" || true)"
           fi
@@ -1500,7 +1569,7 @@ jobs:
           # did it keep stale bases out: 64% of merges still landed behind
           # main, and Main Post-Merge Smoke was 324/0 green.
           #
-          # Every lane already tests refs/pull/N/merge (github.sha), this head
+          # Every lane already tests refs/pull/N/merge, this head
           # merged onto the base as of the push. bounded passes a head that is
           # behind, with a warning and a step summary, unless the gap is one
           # those lanes could not cover:
@@ -1517,13 +1586,13 @@ jobs:
           MAIN_SYNC_MODE: ${{ github.base_ref == 'main' && 'bounded' || 'block' }}
           MAIN_SYNC_TESTED_BASE_SHA: ${{ steps.tested-base.outputs.sha }}
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
-          # Read the script from github.sha, the tree this workflow definition
+          # Read the script from github.workflow_sha, the tree this workflow definition
           # comes from, not from the head checkout above, so the mode set here
           # and the script that reads it always match. A head cut before the
           # script learned a mode runs its own older copy: on 2026-10-15 every
           # PR branched before bounded mode landed (ae479af9f1) failed here
           # with "Unsupported MAIN_SYNC_MODE 'bounded'" (run 38659836145).
-          MAIN_SYNC_SCRIPT_SHA: ${{ github.sha }}
+          MAIN_SYNC_SCRIPT_SHA: ${{ github.workflow_sha }}
         run: |
           if ! git cat-file -e "$MAIN_SYNC_SCRIPT_SHA^{commit}" 2>/dev/null \
             && ! git fetch --no-tags --quiet origin "$MAIN_SYNC_SCRIPT_SHA"; then
@@ -1552,22 +1621,22 @@ jobs:
   # `intentional-revert` label plus a `Merge-Regression-Ack:` line.
   merge-fidelity-gate:
     name: "Merge Fidelity Gate (advisory)"
-    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
+    if: github.event_name == 'pull_request_target' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     continue-on-error: true
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 0
 
       - name: Check this PR still has what the base already landed
         env:
           MERGE_REGRESSION_MODE: warn
           MERGE_FIDELITY_BASE_REF: "origin/${{ github.base_ref }}"
           MERGE_FIDELITY_PR_NUMBER: ${{ github.event.pull_request.number }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/ci/check-merge-fidelity.sh
 
   # The one required check. GitHub counts a skipped or neutral required check
@@ -1578,12 +1647,10 @@ jobs:
   # cancelled run leave this check skipped, which GitHub reads as a pass.
   ci-status:
     name: ${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || 'CI Status Gate' }}
-    permissions:
-      contents: read
-      actions: read
     needs:
       - ui-contracts
       - secret-scan
+      - protected-security-receipt
       - dco-check
       - pr-base-policy
       - repo-governance
@@ -1611,6 +1678,7 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
+          SECURITY_RECEIPT="${{ needs['protected-security-receipt'].result }}"
           DCO="${{ needs['dco-check'].result }}"
           PR_BASE_POLICY="${{ needs['pr-base-policy'].result }}"
           REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
@@ -1629,6 +1697,7 @@ jobs:
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
+          printf 'protected-security-receipt=%s\n' "$SECURITY_RECEIPT"
           printf 'dco-check=%s\n' "$DCO"
           printf 'pr-base-policy=%s\n' "$PR_BASE_POLICY"
           printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
@@ -1709,13 +1778,13 @@ jobs:
           # These run on every event with no path filter, so skipped is never
           # legitimate. DCO runs on dispatch too: a dispatched gate lands on a
           # branch head just as a pull request's does.
-          for check in "secret-scan=$SECRET_SCAN" "repo-governance=$REPO_GOVERNANCE" "paths=$PATHS" "preflight-gate=$PREFLIGHT" "dco-check=$DCO"; do
+          for check in "secret-scan=$SECRET_SCAN" "protected-security-receipt=$SECURITY_RECEIPT" "repo-governance=$REPO_GOVERNANCE" "paths=$PATHS" "preflight-gate=$PREFLIGHT" "dco-check=$DCO"; do
             if [ "${check#*=}" != "success" ]; then
               echo "${check%%=*} must succeed on every run; it reported ${check#*=}."
               fail=1
             fi
           done
-          if [ "$EVENT_NAME" = "pull_request" ]; then
+          if [ "$EVENT_NAME" = "pull_request_target" ]; then
             if [ "$PR_BASE_POLICY" != "success" ]; then
               echo "A pull request requires a successful PR Base Policy check."
               fail=1
@@ -1726,7 +1795,7 @@ jobs:
               fail=1
             fi
           elif [ "$EVENT_NAME" != "workflow_dispatch" ]; then
-            echo "This gate knows pull_request and workflow_dispatch; ${EVENT_NAME} fails closed."
+            echo "This gate knows pull_request_target and workflow_dispatch; ${EVENT_NAME} fails closed."
             fail=1
           fi
           for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_EDITOR_PERF" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$PROTOCOL_DATABASE" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
@@ -1763,14 +1832,3 @@ jobs:
               ;;
           esac
           echo "Branch validation scope ${SCOPE} ran every selected lane; this is not a PR merge verdict."
-
-      - uses: actions/checkout@v6
-        if: github.run_attempt > 1
-        with:
-          persist-credentials: false
-      - name: Verify the current rerun's protected security receipt
-        if: github.run_attempt > 1
-        run: python3 scripts/ci/github_security_receipt.py
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CI_SECURITY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

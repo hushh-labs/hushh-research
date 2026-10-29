@@ -48,6 +48,51 @@ def test_backend_cloud_build_uses_valid_secret_flag_combinations():
                 assert "--clear-secrets" not in argument, step.get("id")
 
 
+def test_uat_predecessor_is_rechecked_inside_the_deployment_lock():
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    selector = workflow["jobs"]["select-target"]
+    assert selector["permissions"]["attestations"] == "read"
+    assert selector["outputs"]["uat_baseline"] == "${{ steps.uat-baseline.outputs.snapshot }}"
+    capture = next(step for step in selector["steps"] if step.get("id") == "uat-baseline")
+    assert "--capture-uat-baseline" in capture["run"]
+    resolve_index = next(
+        index for index, step in enumerate(selector["steps"]) if step.get("id") == "resolve-sha"
+    )
+    capture_index = next(index for index, step in enumerate(selector["steps"]) if step is capture)
+    assert capture_index < resolve_index
+    forward_index = next(
+        index
+        for index, step in enumerate(selector["steps"])
+        if step.get("name") == "Verify selected SHA advances from serving UAT"
+    )
+    assert resolve_index < forward_index
+    assert "--assert-forward-from-uat" in selector["steps"][forward_index]["run"]
+
+    deploy = workflow["jobs"]["deploy"]
+    assert deploy["concurrency"]["group"] == "deploy-uat"
+    assert deploy["permissions"]["deployments"] == "read"
+    steps = deploy["steps"]
+    checkout_index = next(
+        index for index, step in enumerate(steps) if step.get("name") == "Checkout code"
+    )
+    recheck_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Recheck UAT predecessor identity under the deployment lock"
+    )
+    mutation_guard_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Require reconciled maintenance mutations under deployment lock"
+    )
+    assert checkout_index < recheck_index < mutation_guard_index
+    assert "--check-uat-baseline" in steps[recheck_index]["run"]
+    assert (
+        "${{ needs.select-target.outputs.uat_baseline }}"
+        in steps[recheck_index]["env"]["EXPECTED_UAT_BASELINE"]
+    )
+
+
 @pytest.mark.parametrize(
     ("repeat", "fail_at", "expected_calls", "completed"),
     [(False, 0, 1, 1), (True, 0, 2, 2), (True, 1, 1, 0), (True, 2, 2, 1)],
@@ -651,6 +696,7 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
         "checks": "read",
         "deployments": "read",
         "actions": "read",
+        "attestations": "read",
     }
     assert wait["needs"] == "select-target"
     assert wait["if"] == "needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'"

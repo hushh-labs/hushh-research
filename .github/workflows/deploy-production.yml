@@ -167,6 +167,12 @@ jobs:
   deploy:
     name: ${{ (inputs.phone_phase == 'activate' || inputs.restoration_activation_run_id != '') && 'Ordinary production deploy (not selected)' || 'Deploy Production Scope' }}
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      checks: read
+      actions: read
+      attestations: read
+      id-token: write
     if: github.event_name == 'workflow_dispatch' && inputs.phone_phase != 'worker' && inputs.phone_phase != 'activate' && inputs.restoration_activation_run_id == ''
     environment: production
 
@@ -304,6 +310,7 @@ jobs:
             consent-protocol/api/routes/document_delivery.py \
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/uat_attempt_receipt.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp config/ci-governance.json "${RUNNER_TEMP}/release-tools/ci-governance.json"
           cp scripts/ci/production_emergency.py "${RUNNER_TEMP}/release-tools/"
@@ -415,7 +422,7 @@ jobs:
           mkdir -p deploy/phone deploy/sso
           cp "${RUNNER_TEMP}/release-tools/phone/"*.py deploy/phone/
           cp "${RUNNER_TEMP}/release-tools/sso/"* deploy/sso/
-          for tool in verify-predecessor-acceptance.py release_acceptance_provenance.py; do
+          for tool in verify-predecessor-acceptance.py uat_attempt_receipt.py release_acceptance_provenance.py; do
             cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ci/$tool"
           done
           cp "${RUNNER_TEMP}/release-tools/verify-cloudrun-revision-provenance.py" scripts/ci/
@@ -466,6 +473,7 @@ jobs:
           mkdir -p deploy/account-deletion
           cp "${RUNNER_TEMP}/release-tools/account-deletion/"* deploy/account-deletion/
           cp "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/uat_attempt_receipt.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/release_acceptance_provenance.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/ci-governance.json" config/ci-governance.json
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json" \

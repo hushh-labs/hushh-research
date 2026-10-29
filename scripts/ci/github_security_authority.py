@@ -142,11 +142,12 @@ def verify_source(read: Read, repository: str, expected: Document) -> Document:
         or positive(source.get("run_attempt"), "observed source attempt")
         != expected["attempt"]
         or source.get("head_sha") != expected["head_sha"]
-        or source.get("event") not in {"pull_request", "workflow_dispatch"}
+        or source.get("event") not in {"pull_request", "pull_request_target", "workflow_dispatch"}
         or source.get("status") not in {"pending", "queued", "in_progress", "completed"}
     ):
         raise Refused("Source repository, workflow, run, attempt or SHA mismatch")
-    # Fork code is never read or executed: the canonical base repository owns CI.
+    # The protected worker reads only Main-owned workflow-run metadata here;
+    # it never downloads or executes candidate code or artifacts.
     return {
         **expected,
         "repository": repository,

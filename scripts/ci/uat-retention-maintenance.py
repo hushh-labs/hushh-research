@@ -695,12 +695,24 @@ def load_one_chat_release(
 ) -> dict | None:
     """Compose a trusted backend-only receipt with its earlier frontend owner."""
     run_id = run["id"]
-    if not artifact_exists(repository, run_id, ONE_CHAT_ARTIFACT):
+    attempt = run.get("run_attempt")
+    attempt_artifact = (
+        f"{ONE_CHAT_ARTIFACT}-{attempt}"
+        if type(attempt) is int and attempt > 0
+        else None
+    )
+    if attempt_artifact and artifact_exists(repository, run_id, attempt_artifact):
+        artifact_name = attempt_artifact
+    elif attempt in (None, 1) and artifact_exists(repository, run_id, ONE_CHAT_ARTIFACT):
+        # Before exact-attempt names were introduced, attempt 1 used this name.
+        # Never let that legacy artifact stand in for a rerun.
+        artifact_name = ONE_CHAT_ARTIFACT
+    else:
         return None
     source = directory / f"one-chat-{run_id}"
     receipt = source / "uat-one-chat-release.json"
     if not receipt.exists():
-        download(repository, run_id, ONE_CHAT_ARTIFACT, source)
+        download(repository, run_id, artifact_name, source)
     if not receipt.is_file() or receipt.is_symlink():
         raise retention.UnsafeState("One chat release receipt is missing or unsafe")
     report = json.loads(receipt.read_text())
@@ -716,6 +728,16 @@ def load_one_chat_release(
         or report.get("region") != REGION
         or report.get("service") != "consent-protocol"
         or report.get("run_id") != str(run_id)
+        or (
+            type(attempt) is int
+            and report.get("attempt") is not None
+            and report.get("attempt") != attempt
+        )
+        or (
+            attempt_artifact is not None
+            and artifact_name == attempt_artifact
+            and report.get("attempt") != attempt
+        )
         or not re.fullmatch(r"[a-f0-9]{40}", str(sha))
         or not re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(candidate))
         or not re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(old))

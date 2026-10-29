@@ -65,6 +65,9 @@ ALLOWED_PATHS = frozenset(
         "deploy/README.md",
         "hushh-webapp/scripts/ci/select-uat-target.mjs",
         "hushh-webapp/__tests__/services/uat-target-selection.test.ts",
+        "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ci/uat_attempt_receipt.py",
+        "scripts/ci/uat-retention-maintenance.py",
         "scripts/ci/uat_one_chat_backend_release.py",
     }
 )
@@ -91,7 +94,10 @@ def backend_release_input(path: str) -> bool:
         return not relative.endswith(".md") or relative.startswith("hushh_mcp/agents/")
     return (
         path.startswith("contracts/")
-        or path.startswith("scripts/ci/")
+        or (
+            path.startswith("scripts/ci/")
+            and not path.removeprefix("scripts/ci/").startswith("test_")
+        )
         or path
         in {
             ".gcloudignore",
@@ -763,6 +769,7 @@ def main() -> int:
         "service": SERVICE,
         "target_sha": target_sha,
         "run_id": run_id,
+        "attempt": int(attempt) if attempt.isdecimal() else attempt,
         "status": "blocked",
     }
     old_revision = ""

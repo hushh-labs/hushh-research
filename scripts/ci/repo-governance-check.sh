@@ -24,6 +24,8 @@ python3 scripts/ci/live-memory-source-gate.py --self-test
 python3 scripts/ci/test_live_memory_pr_context.py
 python3 scripts/ci/test_github_security_authority.py
 python3 scripts/ci/test_github_security_receipt.py
+python3 scripts/ci/test_ci_trust_boundary.py
+python3 scripts/ci/test_ci_trust_boundary.py --self-test
 python3 scripts/ci/verify-pr-base-policy.py --self-test
 python3 scripts/ci/verify-queue-entry-reuses-pr-validation.py --self-test
 python3 scripts/ci/verify-branch-governance-doc-consistency.py
@@ -37,6 +39,8 @@ python3 scripts/ci/test_release_cadence_checkpoint.py
 bash scripts/ci/verify-protocol-ci-parity.sh --self-test
 python3 scripts/ci/test_protocol_manifest_transport.py
 python3 scripts/ci/test_apply_governance_teams.py
+python3 scripts/ci/test_attempt_tag_ruleset.py
+python3 scripts/ci/verify-attempt-tag-ruleset.py --self-test
 python3 scripts/ci/test_resolve_deploy_scope.py
 python3 scripts/ci/test_cloudrun_retention.py
 python3 scripts/ci/test_uat_per_revision_drain.py

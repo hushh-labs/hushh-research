@@ -95,6 +95,55 @@ class OneChatRetentionTest(unittest.TestCase):
             },
         )
 
+    def test_rerun_uses_only_its_exact_attempt_artifact(self):
+        self.run["run_attempt"] = 2
+        report = copy.deepcopy(self.report)
+        report["attempt"] = 2
+        expected_name = f"{maintenance.ONE_CHAT_ARTIFACT}-2"
+        looked_up = []
+        downloaded = []
+        with tempfile.TemporaryDirectory() as temporary:
+            def exists(_repository, _run_id, name):
+                looked_up.append(name)
+                return name == expected_name
+
+            def download(_repository, _run_id, name, directory):
+                downloaded.append(name)
+                directory.mkdir(parents=True)
+                (directory / "uat-one-chat-release.json").write_text(json.dumps(report))
+
+            with (
+                mock.patch.object(maintenance, "artifact_exists", side_effect=exists),
+                mock.patch.object(maintenance, "download", side_effect=download),
+                mock.patch.object(
+                    maintenance,
+                    "prior_healthy_uat_release",
+                    return_value=(200, self.owner),
+                ),
+            ):
+                release = maintenance.load_one_chat_release(
+                    "org/repo", self.run, pathlib.Path(temporary)
+                )
+        self.assertEqual(looked_up, [expected_name])
+        self.assertEqual(downloaded, [expected_name])
+        self.assertEqual(release["final"]["backend_revision"], self.backend)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            with mock.patch.object(
+                maintenance,
+                "artifact_exists",
+                side_effect=lambda _repository, _run_id, name: name == maintenance.ONE_CHAT_ARTIFACT,
+            ), mock.patch.object(
+                maintenance,
+                "download",
+                side_effect=AssertionError("a rerun must not fall back to the legacy artifact"),
+            ):
+                self.assertIsNone(
+                    maintenance.load_one_chat_release(
+                        "org/repo", {**self.run, "run_attempt": 3}, pathlib.Path(temporary)
+                    )
+                )
+
     def test_bad_receipts_do_not_authorize_cleanup(self):
         changes = (
             ("run_id", "301"),

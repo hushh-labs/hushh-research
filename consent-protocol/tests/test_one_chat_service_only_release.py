@@ -69,6 +69,19 @@ def test_service_only_preflight_accepts_only_the_cutover_delta(
     assert len(module.release_paths("a" * 40, "b" * 40)) == 3
 
 
+def test_receipt_and_retention_tools_are_allowed_but_their_tests_are_not_backend_inputs():
+    module = load_release_script()
+    governed_tools = (
+        "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ci/uat_attempt_receipt.py",
+        "scripts/ci/uat-retention-maintenance.py",
+    )
+    assert all(module.backend_release_input(path) for path in governed_tools)
+    assert all(path in module.ALLOWED_PATHS for path in governed_tools)
+    assert not module.backend_release_input("scripts/ci/test_uat_attempt_receipt.py")
+    assert not module.backend_release_input("scripts/ci/test_one_chat_retention.py")
+
+
 def test_service_only_preflight_rejects_packaged_agent_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -213,7 +226,12 @@ def test_service_only_workflow_keeps_main_gate_and_full_uat_baseline() -> None:
     assert "steps.deploy-backend.outcome != 'success'" in workflow
     assert "--recover-interrupted" in workflow
     assert 'String(run?.path || "").split("@", 1)[0]' in selector
-    assert "workflowFile(run) === CHAT_ONLY_WORKFLOW" in selector
+    assert "workflow === CHAT_ONLY_WORKFLOW" in selector
+    assert "oneChatReleaseReceipt(runId, run.run_attempt, run)" in selector
+    assert "fullUatReleaseAcceptance(runId, run.run_attempt, run)" in selector
+    assert "verifyUatAttemptAttestation(raw, kind, runId, runAttempt)" in selector
+    assert '"verify-attestation"' in selector
+    assert "serviceHeads" in selector
 
 
 def test_candidate_tag_cleanup_preserves_primary_traffic(monkeypatch: pytest.MonkeyPatch) -> None:
