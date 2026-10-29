@@ -205,7 +205,7 @@ describe("Agent Chat email draft layout contract", () => {
     expect(source).not.toContain(
       "current.filter((message) => message.id !== assistantMessageId)",
     );
-    expect(source).toContain("setQueuedHandoffPrompt(emailDraftInstruction);");
+    expect(source).toContain("setQueuedHandoffPrompt({ text: emailDraftInstruction });");
     expect(source).not.toContain('aria-label="Draft an email"');
     expect(source).not.toContain(
       'className="shrink-0 border-t border-border/70 bg-background px-3 pt-3 sm:px-5"',

@@ -1,3 +1,4 @@
+import { browserTimeZone, chatTurnTimeZone } from "@/lib/agent/chat-turn-time-zone";
 import { browserTaskProgress, privateToolProgressArgs } from "@/lib/computer-use/chat-progress";
 import { queuedInputPorts } from "@/lib/agent/queued-input-ports";
 import { createAgentStreamLiveness } from "./agent-chat-liveness";
@@ -1059,17 +1060,6 @@ export function formatAgentChatErrorMessage(message: string, code?: string): str
   return GENERIC_AGENT_CHAT_ERROR;
 }
 
-function resolveBrowserTimeZone(): string | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
-  }
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 async function readError(response: Response): Promise<string> {
   const payload = (await response.json().catch(() => null)) as unknown;
   const record = asRecord(payload);
@@ -1176,6 +1166,8 @@ export async function streamAgentChat(input: {
   /** Pasted text sent as separate document parts, never folded into `message`. */
   attachments?: readonly AgentTextAttachment[];
   conversationId?: string | null;
+  /** Selected Calendar zone for this turn; falls back to the device zone if invalid. */
+  timeZoneOverride?: string;
   vaultOwnerToken: string;
   /** Unlocked vault key. Only the chat key derived from it is sent. */
   vaultKey: string;
@@ -1241,7 +1233,7 @@ export async function streamAgentChat(input: {
     // Fixed names only: no prompt, owner, conversation, key or connector detail.
     performance.mark(`hushh:agent-chat:${phase}`);
   };
-  const timezone = resolveBrowserTimeZone();
+  const timezone = chatTurnTimeZone(input.timeZoneOverride);
   // Closed to the server's schema here, so a stale branch never refuses the turn.
   const communicationPreferences = ownerStyleRequestField(input.communicationPreferences);
   const threadId = input.conversationId || crypto.randomUUID();
@@ -2290,7 +2282,7 @@ export async function streamAgentIntro(input: {
     await agent.runAgent({
       tools: [],
       context: [],
-      forwardedProps: { screenContext: input.screenContext, timezone: resolveBrowserTimeZone() },
+      forwardedProps: { screenContext: input.screenContext, timezone: browserTimeZone() },
     }, subscriber);
   } finally {
     liveness.stop();
