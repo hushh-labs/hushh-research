@@ -16,7 +16,7 @@ current behavior, including gaps; it does not propose a redesign.
 ```mermaid
 flowchart TD
   connect["Connect → My connections / People / circle member"] --> page["/people/personRef?from=return"]
-  page --> hero["Identity, relationship, Request, Share"]
+  page --> hero["Identity, relationship, Browse, Share"]
   hero --> relationship["Connect / Cancel request / Remove connection"]
   hero --> files["Request files → dates, quote, Google identity → Send"]
   hero --> drive["Ask about files → question → Send"]
@@ -119,8 +119,8 @@ task column    = (I - (columns - 1) × gap) / columns
 
 The task grid has no separate 560px cap. Missing gated controls compact its
 normal grid placement. No fixed empty slots or extra desktop panel is added.
-The catalog's existing below 640px trailing-content behavior and each request
-form's own presentation breakpoints remain unchanged.
+Catalog selection controls remain right aligned on phones; labels wrap within
+the available space. Each request form keeps its own presentation breakpoints.
 
 Sources: [AppPageShell](../../components/app-ui/app-page-shell.tsx),
 [profile CSS](../../components/connections/person-profile-page.module.css),
@@ -137,10 +137,11 @@ Sources: [AppPageShell](../../components/app-ui/app-page-shell.tsx),
 | Cover | Height 94 / 120; top corners 19 / 23; separate phone/wide SVG canvases preserve shapes. |
 | Hero body | Padding `0 16px 6px` / `0 24px 10px`. |
 | Avatar | 64 / 76 square, border 4 / 5, overlaps cover 24 / 30. Canonical verified badge/photo/referrer/fallback retained; initials 22 / 24px, weight 600. |
+| Connection control | 44px target below the cover; at least 4px clearance on phones. Avatar overlap does not pull the control into the cover. |
 | Identity | Left aligned; name/actions margin top 10 / 13, bottom 16 / 22. Below 1024px actions follow identity with a 14px gap. |
-| Request / Share / profile options | 44px targets; primary gap 8. Share border 1; shared primary button grammar. |
+| Browse / Share / profile options | 44px targets; primary gap 8. Share border 1; shared primary button grammar. |
 | Task cards | Minimum 60, border 1, radius 14; icon 17 inside 28×30 / 30×32 well. Gap 8 / 9; trailing chevron 12 hidden on phone. Inner label may wrap. |
-| Footer | Wrapping row with border above, margin-top 14, padding-top 4, minimum 44px controls; Manage access is quiet/intrinsic. |
+| Footer | Wrapping row without a divider; margin-top 14 and minimum 44px controls. Manage access is quiet/intrinsic. |
 | Empty shared/history rows | Minimum 62 / 68, radius 16, horizontal icon/text; padding 13 / `16px 18px`; glyph 18 in padded well. |
 | Nested category row | Existing shared compact row, minimum 48, padding `8px 16px`, category icon 24 and chevron 16. |
 | Search/filter | Existing shared 44px capsule; icon 16, text inset 36. Filter retains its shared owner/minimum. |
@@ -184,10 +185,10 @@ authored gap; labels and server-returned rows may grow.
 ```text
 ┌──────────── full-bleed decorative cover ─────────────┐
 │ avatar overlaps                     status  options │
-│ name / role / contacts         Request / Share (*)  │
+│ name / role / contacts          Browse / Share (*)  │
 │ Request files | Ask about files | Ask a question |   │
 │ Request a card                                      │
-│ ───── Manage access / packets / relationship ──────  │
+│       Manage access / packets / relationship          │
 └─────────────────────────────────────────────────────┘
   Available packets, when eligible
   Shared with you
@@ -207,14 +208,14 @@ contains primary actions, task controls and footer, excluding profile options.
 | Three-dot trigger | In identity status row,44×44 | Connected-only, no network on open. Opens DropdownMenu Portal. |
 | Three-dot menu | `align="end"`, default bottom side, side offset4; nominal right edge follows trigger right edge | Radix collision can shift/flip it. Min width128, padding4, border1, `max-height` available space, internal Y scroll; `--z-transient=10100`. |
 | Remove menu item | Inside portal padding, item padding6px vertical/8px horizontal, flex gap8 | Single destructive action; selecting calls removal immediately. Escape/outside closes menu with no removal. No Yes/No confirmation exists here. |
-| Request / Share | Beside identity from 1024px, below it otherwise; equal phone columns | Request scrolls; Share clipboard call. Guest Share fills its row. |
+| Browse / Share | Beside identity from 1024px, below it otherwise; equal phone columns | Browse scrolls to available information; Share copies the profile link. Guest Share fills its row. |
 | Feature action cards | Full hero inner width; four columns from 1024px, two below; mounted order files, Drive question, scope question, card request | Horizontal icon well, wrapping label and trailing chevron; no action authority change. |
 | Available packets shortcut | Wrapping hero footer when enabled | Scrolls to independent following packet catalog; no route or create call. |
 | Manage access | Quiet intrinsic footer control; leading icon, label, chevron | Route navigation; no person filter automatically sent. |
 | Relationship action | Intrinsic-width control in wrapping footer | Connect/Cancel performs exact relationship mutation; pending incoming has no action here. |
 | Catalog search | Flex1 left; search icon left12 and vertically centered; input text left36 | Input changes local query only. Search width shrinks around filter button and gap12. |
 | Filter button/menu | Search row right; 44px requested width; menu end-aligned4px from trigger | Same transient Portal/collision owner; choosing filter changes local domain/path only. |
-| Category row | Icon24 on leading track; title middle; count/checkbox/chevron trailing | Whole row enters branch; trailing checkbox stops propagation. Below 640px leaf trailing control stacks. |
+| Category row | Icon24 on leading track; title middle; count/checkbox/chevron trailing | Whole row enters branch; trailing checkbox stops propagation. Leaf checkboxes stay right aligned on phones. |
 | History row | Text and actions share a wrapping row from 768px; phone text occupies its own row above the controls, gap 12 | Actions wrap without squeezing the title; details take full row width and scroll after 160px. |
 | Centered request dialogs | Viewport-centered, `left:50%`, `top:50%`, translated half own width/height | Content801. Information review/files/scope explicitly modal→scrim800. Ask about files/cards omit modal (defaultfalse)→**no Radix scrim**. Feature sizes below; keyboard/native reservation may reposition. |
 | File form below 640px | Left0, bottom keyboard inset, full viewport width | Still Dialog overlay/content800/801; bottom presentation is CSS, not a Sheet component. |
@@ -268,7 +269,7 @@ Sources: [global typography](../../app/globals.css),
 | --- | --- | --- |
 | Avatar/name/role | Public identity loaded | Display only. Photo fallback uses initials. |
 | Email / phone | Connected, with valid server-returned value; phone must pass E.164-style validation | `mailto:` / `tel:` OS handler. No contact editor here. |
-| **Request** | Authenticated viewer loaded | Scrolls Available to request. Does not open a dialog or send. |
+| **Browse** | Authenticated viewer loaded | Scrolls Available to request. Does not open a dialog or send. |
 | **Share**, accessible “Share profile” | Public profile loaded | Calls clipboard write for the complete current URL, including queries, then immediately toasts “Profile link copied.” No Web Share chooser or clipboard failure recovery is implemented. |
 | **Request files** | Connected + authenticated + unlocked vault + connector overview `drive_document_sharing` enabled | Opens the existing file-request form; details below. |
 | **Ask about files** | Same file-sharing gate | Opens Drive question form; details below. |
@@ -337,11 +338,11 @@ Sources: [nested list](../../components/consent/consent-scope-nested-list.tsx),
 | Individual row / checkbox | Toggles opaque scope reference. Already granted scopes are disabled. Selection alone performs no request. |
 | **Select all in CATEGORY** | Appears inside a category, not on root category rows. Selects loaded eligible descendants; deeper branch bulk choices are also available. |
 | Wildcard selection | Authored broad scopes cover descendants in their server-supplied domain/hierarchy. Final request removes covered duplicate children; deselecting a child removes the covering wildcard. |
-| Nothing published | “This person has nothing available to ask for.” |
+| Nothing published | “Nothing available yet.” |
 | Search no match | “Nothing matches that.” |
 | Stale local branch | “This is no longer here. Go back and open it again.” |
-| More pages | Shows loaded/total count and “Search checks loaded information.” |
-| **Load more information** | Reads the next viewer catalog page with page/revision, one flight at a time. **Loading more…** while busy; **Try loading more again** after failure; prior items remain. |
+| More pages | Shows loaded/total count and “Search covers loaded items.” |
+| **Load more** | Reads the next viewer catalog page with page/revision, one flight at a time. **Loading more…** while busy; **Try again** after failure; prior items remain. |
 | Catalog revision changes | Replaces outdated catalog, clears selection/review. Late results from another person/viewer/generation are ignored. |
 | **Review request (N)** | Below Request history; rendered only with some scopes and disabled with no eligible choices. Requires unlocked, ready vault; otherwise toasts guidance without automatically opening unlock. |
 
@@ -355,7 +356,7 @@ This differs from the **Ask a question** entry, whose existing dialog title is
 | Field / CTA | Validation and outcome |
 | --- | --- |
 | Title | “Request information from NAME”; human labels, sensitivity pills, and broad/wildcard warning. No selection editor inside review. |
-| **Access duration** | 1 / 3 / 7 / 30 days; default **7 days**. |
+| **Access duration** | 1 / 3 / 7 / 30 days; default **7 days**. Four visible single-choice options form a 2×2 grid on phones and one row from 640px. |
 | **Purpose** | Required, 8–500 trimmed characters; textarea maxLength 500. |
 | Scope set | 1–50 eligible scope references; deduplicated and sorted before create. |
 | **Cancel** / X / dismissal | Closes review without clearing choices, purpose, or duration. Current page does not block dismissal while sending; closing does not abort the request. |
@@ -541,10 +542,10 @@ Owners: [catalog](../../components/consent/drive-packet-catalog.tsx),
 | Status | Waiting / Shared / Declined / Stopped / Expired / Withdrawn; unknown “Check status”; mixed “N of M shared.” |
 | **Details / Loading…** | Fetches exact bundle with vault-owner token; verifies person and bundle ID; caches in person/viewer memory. Failure toasts and allows retry. Missing token currently returns without opening unlock or showing a dedicated error. |
 | Details shown | Inline scrolling text, maximum height 160; individual labels/statuses, duration and withdrawn state. Button disappears; no collapse control or details dialog. |
-| **Withdraw pending / Withdrawing…** | Only known pending items. Missing vault authority toasts unlock guidance. Explicit server cancel; acknowledgement invalidates consent/detail cache and refreshes profile/history. Failure toasts and allows same CTA retry. |
+| **Withdraw request / Withdrawing…** | Only known pending items. Missing vault authority toasts unlock guidance. Explicit server cancel; acknowledgement invalidates consent/detail cache and refreshes profile/history. Failure toasts and allows same CTA retry. |
 | **Previous / Next** | Cursor navigation; previous disabled first page; next disabled without another page. Fallback uses local recent groups. |
 | Empty | “No requests yet.” |
-| History read failure | “Older requests could not be loaded. Showing recent activity only.” No dedicated history Retry button. Remount/viewer refresh can reload. |
+| History read failure | “Couldn’t load older requests. Showing recent ones.” No dedicated history Retry button. Remount/viewer refresh can reload. |
 
 ## Dialog and bottom-sheet component contract
 
@@ -660,7 +661,7 @@ and [nested list](../../components/consent/consent-scope-nested-list.tsx).
 | --- | --- |
 | Public loading / unavailable | `Loading profile…` / `This profile is unavailable.` |
 | Relationship | `Connected` / `Request pending` / `Not connected` |
-| Hero actions | `Request`; `Share`; `Available packets`; `Manage access`; `Connect`; `Cancel request` |
+| Hero actions | `Browse`; `Share`; `Available packets`; `Manage access`; `Connect`; `Cancel request` |
 | Overflow action | `Remove connection` |
 | Guest title | `Connect through Hussh` |
 | Guest explanation | `Sign in to see requestable information and consented access.` |
@@ -674,20 +675,20 @@ and [nested list](../../components/consent/consent-scope-nested-list.tsx).
 | Category counts | `{childCount}` / `{selectedCount}/{childCount}` |
 | No match | `Nothing matches that.` |
 | Missing branch title / help | `This is no longer here` / `Go back and open it again.` |
-| Catalog empty | `This person has nothing available to ask for.` |
-| Pagination disclosure | `{loadedCount} of {totalCount} loaded. Search checks loaded information.` |
-| Catalog paging CTA | `Load more information` / `Loading more…` / `Try loading more again` |
+| Catalog empty | `Nothing available yet.` |
+| Pagination disclosure | `{loadedCount} of {totalCount} loaded. Search covers loaded items.` |
+| Catalog paging CTA | `Load more` / `Loading more…` / `Try again` |
 | History title | `Request history` |
-| History read failure | `Older requests could not be loaded. Showing recent activity only.` |
+| History read failure | `Couldn’t load older requests. Showing recent ones.` |
 | History empty | `No requests yet` |
 | History fallback label/title | `Shared information`; `{count} item` / `{count} items` |
 | History status | `Waiting`; `Shared`; `Declined`; `Stopped`; `Expired`; `Withdrawn`; `Check status` |
 | Mixed history status | `{grantedCount} of {itemCount} shared` |
-| History actions | `Details` / `Loading…`; `Withdraw pending` / `Withdrawing…` |
+| History actions | `Details` / `Loading…`; `Withdraw request` / `Withdrawing…` |
 | Loaded history details | `{itemLabel} ({lowercaseStatus})`, joined with `, `; optional ` · {duration}` and ` · withdrawn` |
 | History pagination | `Previous`; `Next`; `Page {page}` / `{page} of {pageCount}` |
 | Bottom CTA | `Review request` / `Review request ({count})` |
-| Viewer read error | `We couldn’t load your connection with {displayName} right now.` |
+| Viewer read error | `Couldn’t load your connection with {displayName}.` |
 | Viewer retry | `Try again` |
 | Share toast | `Profile link copied` |
 | Relationship success toasts | `Connection request sent` / `Connection request cancelled` / `Connection removed` |
@@ -699,7 +700,7 @@ and [nested list](../../components/consent/consent-scope-nested-list.tsx).
 | Details mismatch / failure fallback | `Request details did not match this person.` / `Request details are unavailable right now.` |
 | Withdrawal locked / success / failure fallback | `Unlock your vault to cancel this request.` / `Information request cancelled` / `The request could not be cancelled. Try again.` |
 | Query-triggered unlock title | `Unlock your vault` |
-| Query-triggered unlock explanation | `Unlock your private agent to reveal information shared with you.` |
+| Query-triggered unlock explanation | `To view what they shared with you.` |
 | Icon/checkbox accessible names | `Share profile`; `Profile options`; `Filter categories`; `Everything in {category}` |
 
 Core relationship/details/withdrawal errors can show `{safe server error}`
@@ -719,16 +720,17 @@ Sources: [review fields](../../components/consent/information-request-review-fie
 | Placement / state | Exact English copy |
 | --- | --- |
 | Title | `Request information from {displayName}` |
-| Description | `They will see exactly what you asked for, why, and for how long.` |
-| Selection section | `What you are asking for` |
+| Description | `They’ll see what you request, why, and for how long.` |
+| Selection section | `Requested information` |
 | Missing selected label / sensitivity | `Selected information` / `Standard` |
-| Broad-scope help | `This includes all available information in this area, not just one detail.` |
+| Broad-scope help | `Includes all available information in this area.` |
 | Too many fields | `Choose up to 50 fields for one request.` |
+| Review and price | `They’ll review your request. If sharing has a price, you’ll confirm the exact amount before access. Sending this request won’t charge you.` |
 | Duration label | `Access duration` |
 | Duration options | `1 day`; `3 days`; `7 days`; `30 days` |
 | Purpose label | `Purpose` |
-| Purpose placeholder | `Explain why you need these and how you will use them.` |
-| Purpose helper | `Add at least 8 characters so the recipient can make an informed decision.` |
+| Purpose placeholder | `Why do you need it, and how will you use it?` |
+| Purpose helper | `At least 8 characters.` |
 | Footer CTAs | `Cancel`; `Send request` / `Sending…` |
 | Locked error | `Unlock your vault before requesting information.` |
 | Invalid submission | `Choose up to 50 fields, explain why you need them, and select an access duration.` |
@@ -1101,7 +1103,7 @@ Source: [page handlers](../../components/connections/person-profile-page.tsx),
 | Initial/refresh history | GET `U/request-history?limit=8[&cursor=<cursor>]`, F, no body | HP; failure falls back to recent H grouped eight/page. No separate history Retry. |
 | Previous / Next | Same history GET with stored/next cursor | Local page/cursor transition only; fallback pages H locally without a new endpoint. |
 | Details | GET `I/<bundleId>`, V, no body/query | B exact person+bundle check; person/viewer memory cache; inline expansion. Missing token currently returns silently. Failure toast, same action retry. |
-| Withdraw pending | POST `I/<bundleId>/cancel`, V, **no body** | B returned but caller uses acknowledged success to invalidate consent/details and reread viewer/HP. Only current unexpired REQUESTED items cancelled; existing granted items unaffected. Already-cancelled retry returns B; no pending items409. No confirmation. |
+| Withdraw request | POST `I/<bundleId>/cancel`, V, **no body** | B returned but caller uses acknowledged success to invalidate consent/details and reread viewer/HP. Only current unexpired REQUESTED items cancelled; existing granted items unaffected. Already-cancelled retry returns B; no pending items409. No confirmation. |
 
 Connection removal is **not** merely hiding a social row. Backend transaction
 locks the pair, cancels pending pair requests, revokes proposal-bound capability
@@ -1399,6 +1401,8 @@ Profile/Hub person entrypoints; it does not add a PKM marketplace checkout.
 Only a generic title, period, nullable search/sale count, completion and availability,
 $5 one-time price, and viewer action cross this metadata boundary. Unknown counts
 are not displayed as zero, and search matches are not verified financial records.
+Requestable summary rows show “Request” beside the one-time price; the opened
+action states “Request for $5” before proceeding.
 
 Connect to request sends the existing social request. Pending connections cannot
 resend from the summary. Accepted people unlock before the existing private buyer

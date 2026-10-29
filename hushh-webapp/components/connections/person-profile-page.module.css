@@ -52,8 +52,8 @@
 .coverYellow { fill: var(--profile-cover-yellow); }
 .coverMint { fill: var(--profile-cover-mint); }
 .heroBody { padding: 0 24px 10px; }
-.identityTop { position: relative; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-top: -30px; }
-.avatar { width: 76px; height: 76px; border: 5px solid var(--app-card-surface-default-solid); }
+.identityTop { position: relative; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.avatar { width: 76px; height: 76px; margin-top: -30px; align-self: flex-start; border: 5px solid var(--app-card-surface-default-solid); }
 .avatar .avatarFallback { background: var(--muted); color: var(--foreground); font-size: 24px !important; font-weight: 600 !important; line-height: 1; }
 .identityStatus { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 .status { --type-helper-text-size: 11px; --type-helper-text-line: 17px; padding: 4px 9px; }
@@ -96,7 +96,7 @@
 /* Task-row labels may wrap; primary text-button labels retain the shared grammar. */
 .actionLabel { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .actionCardContent .actionArrow { width: 12px; height: 12px; margin-inline-start: auto; flex-shrink: 0; color: var(--muted-foreground); }
-.heroFooter { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin-top: 14px; padding-top: 4px; border-top: 1px solid var(--border); }
+.heroFooter { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin-top: 14px; }
 .heroFooter button { min-height: 44px; }
 .manage { --type-compact-button-label-size: 12px; --type-compact-button-label-line: 18px; padding: 8px 0; background: transparent; color: var(--muted-foreground); }
 .manage svg { width: 16px; height: 16px; }
@@ -143,8 +143,8 @@
   .cover .coverWide { display: none; }
   .cover .coverPhone { display: block; }
   .heroBody { padding: 0 16px 6px; }
-  .identityTop { margin-top: -24px; }
-  .avatar { width: 64px; height: 64px; border-width: 4px; }
+  .avatar { width: 64px; height: 64px; margin-top: -24px; border-width: 4px; }
+  .identityStatus { margin-top: 4px; }
   .avatar .avatarFallback { font-size: 22px !important; }
   .status { --type-helper-text-size: 10px; padding: 3px 7px; }
   .nameActions { margin-top: 10px; margin-bottom: 16px; }
