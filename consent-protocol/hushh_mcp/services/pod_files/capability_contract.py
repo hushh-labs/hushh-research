@@ -43,6 +43,50 @@ async def schema_ready(repo, version: int) -> bool:
     return check is not None and await check(version)
 
 
+async def hosted_schema_ready(repo) -> bool:
+    """Fail closed until hosted Files and interrupted erasure share a reviewed contract.
+
+    A late provider receipt does not by itself prove that every upgrade executor
+    has drained.  The custody family must include an independently qualified
+    settlement predicate and the erasure functions that enforce it before this
+    capability can be offered or applied.
+    """
+    from db.hosted_custody_adoption import QUALIFIED
+
+    if not await schema_ready(repo, 1):
+        return False
+    signatures = (
+        "private_gcp_coordinates(jsonb)",
+        "valid_erasure_gcp_files_upgrade_observation(jsonb,jsonb)",
+        "hosted_pod_upgrade_admitted(text,text,jsonb,boolean)",
+        "hosted_files_queue_erasure_settled(jsonb)",
+        "valid_erasure_memory_binding(jsonb,jsonb)",
+        "valid_erasure_substrate_inventory(jsonb,jsonb)",
+        "personal_agent_erasure_complete(text)",
+    )
+    if any(signature not in QUALIFIED for signature in signatures):
+        return False
+    values = ",".join(f"(:signature{i},:digest{i})" for i in range(len(signatures)))
+    params = {
+        key: value
+        for i, signature in enumerate(signatures)
+        for key, value in (
+            (f"signature{i}", "public." + signature),
+            (f"digest{i}", QUALIFIED[signature]),
+        )
+    }
+    query = (
+        "SELECT COALESCE(bool_and(to_regprocedure(signature) IS NOT NULL AND "
+        "encode(sha256(convert_to(pg_get_functiondef(to_regprocedure(signature)), 'UTF8')), 'hex') "
+        "= digest), false) AS ready FROM (VALUES " + values + ") AS required(signature, digest)"
+    )
+    try:
+        result = await asyncio.to_thread(repo._db().execute_raw, query, params)
+    except Exception:
+        return False
+    return bool(result.data and result.data[0].get("ready") is True)
+
+
 async def provider_schema_ready(client, version: int) -> bool:
     if version != 2:
         return False

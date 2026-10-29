@@ -23,9 +23,16 @@ class HostedGcpAuthority:
 
     installed_image: str | None = None
     operation_id: str | None = None
+    files_work_check: Callable[[], None] | None = field(default=None, repr=False, compare=False)
 
     def __call__(self) -> None:
         self.check()
+
+    def require_files_work(self) -> None:
+        """Do not treat read-only recovery authority as permission to mutate Files."""
+        if self.operation != "upgrade" or not callable(self.files_work_check):
+            raise ValueError("Files mutation authority is unavailable")
+        self.files_work_check()
 
     def validate_execution(self) -> None:
         self.deployment.validate(frozen=self.operation in {"cleanup", "inspect"})

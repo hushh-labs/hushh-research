@@ -15,6 +15,15 @@ from hushh_mcp.services.private_gcp_deployment import PrivateGcpDeployment
 from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
 
 
+async def _files_current(current, registry: Any) -> None:
+    # Inspection of an unresolved lease remains separate from new mutations.
+    from hushh_mcp.services.pod_files.capability_contract import hosted_schema_ready
+
+    await current()
+    if not await hosted_schema_ready(registry):
+        raise ProvisionReconciliationRequired("Managed Files recovery schema is not ready")
+
+
 async def bind_managed_upgrade(
     spec: PodSpec, row: dict, *, registry: Any, lease: str | None
 ) -> PodSpec:
@@ -71,15 +80,21 @@ async def bind_managed_upgrade(
         ):
             raise ProvisionReconciliationRequired("Managed update authority changed")
 
+    loop, owner_thread = asyncio.get_running_loop(), threading.get_ident()
     authority = HostedGcpAuthority(
         deployment,
         source,
         placement.bootstrap_sa,
-        _worker_guard(current, asyncio.get_running_loop(), threading.get_ident()),
+        _worker_guard(current, loop, owner_thread),
         operation="inspect" if inspecting else "upgrade",
         execute=True,
         installed_image=metadata.get("image"),
         operation_id=approval["operationId"],
+        files_work_check=_worker_guard(
+            lambda: _files_current(current, registry), loop, owner_thread
+        )
+        if spec.files_upgrade_plan is not None and not inspecting
+        else None,
     )
     authority.validate_execution()
     return replace(spec, private_gcp_deployment=deployment, hosted_admission_guard=authority)

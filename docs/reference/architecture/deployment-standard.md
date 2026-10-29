@@ -66,6 +66,11 @@ the existing GCP lifecycle with a typed, retained admission binding, a separatel
 frozen publication source and the assigned bootstrap identity. Bootstrap resumes
 only its durably observed prefix; uncertain outcomes refuse further mutation.
 Cleanup requires its own fresh erasure authority before borrowing credentials.
+Inspection and cleanup use the retained, validated assignment even if its old
+model profile is retired. New provisioning and updates still require current
+admission. An interrupted Files update is not settled merely because its lease
+expires or a late provider receipt arrives; cleanup also needs evidence that
+the executor exited and all provider effects were reconciled.
 The general hosted tier remains disabled while project preparation, complete
 cleanup and live qualification are unfinished. Successful rendering or a
 shared-model response cannot qualify the tier. The

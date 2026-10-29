@@ -1653,6 +1653,13 @@ class PersonalAgentProvisioningService:
         if resume_files_queue_operation is not None:
             if held is None or set_by_newer_hub(row) or current_image != spec.upgrade_target_image:
                 raise ValueError("Files continuation requires its current held operation")
+            if row.get("deployment_target") == "gcp":
+                from hushh_mcp.services.pod_files.capability_contract import hosted_schema_ready
+
+                if not await hosted_schema_ready(self._registry):
+                    raise PersonalAgentUpgradeUnsupportedError(
+                        "Managed Files recovery schema is not ready"
+                    )
             from hushh_mcp.services.pod_files.queue_recovery import claim_queue_retry
 
             row, prefix = await claim_queue_retry(

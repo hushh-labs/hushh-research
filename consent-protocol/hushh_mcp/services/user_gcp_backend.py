@@ -90,6 +90,15 @@ def _bare_service_account(value: Optional[str]) -> str:
     return text[len("serviceAccount:") :].strip() if text.startswith("serviceAccount:") else text
 
 
+def _hosted_files_handoff_options(spec: PodSpec) -> dict[str, Any]:
+    if spec.deployment_target != "gcp" or spec.files_upgrade_plan is None:
+        return {}
+    guard = getattr(spec.hosted_admission_guard, "require_files_work", None)
+    if not callable(guard):
+        raise RuntimeError("Managed Files mutation authority is unavailable")
+    return {"guard": guard}
+
+
 def _digest_from_service(service: Optional[dict[str, Any]]) -> Optional[str]:
     """The ``sha256:`` digest a running Cloud Run service is pinned to, if any.
 
@@ -436,11 +445,18 @@ class UserGcpBackend:
         never a fresh resolution of the mutable source tag -- so a heal can never silently
         roll the pod's image forward. Only a FIRST provision resolves the tag.
         """
+        files_guard = None
         if self._private_deployment is not None:
             self._validate_private_spec(spec)
             if self._require_private_admission is None:
                 raise RuntimeError("Managed private lifecycle admission is unavailable")
-            self._require_private_admission()
+            if spec.deployment_target == "gcp" and spec.files_upgrade_plan is not None:
+                files_guard = getattr(self._require_private_admission, "require_files_work", None)
+                if not callable(files_guard):
+                    raise RuntimeError("Managed Files mutation authority is unavailable")
+                files_guard()
+            else:
+                self._require_private_admission()
         if getattr(self._require_private_admission, "operation", None) == "inspect":
             raise RuntimeError("Update recovery cannot copy or publish an image")
         from hushh_mcp.services import pod_image_copy  # noqa: PLC0415
@@ -469,8 +485,18 @@ class UserGcpBackend:
         ):
             raise RuntimeError("Managed private image differs from its admitted digest")
         dest_ref = f"{dest_base}@{digest}"
-        if not pod_image_copy.image_exists(dest_ref, token):
-            pod_image_copy.copy_image(source, dest_ref, token)
+        if files_guard is None:
+            if not pod_image_copy.image_exists(dest_ref, token):
+                pod_image_copy.copy_image(source, dest_ref, token)
+        else:
+            import requests
+
+            from hushh_mcp.services.hosted_project_gcp_operator import GuardedOperatorSession
+
+            session = GuardedOperatorSession(requests, files_guard)
+            if not pod_image_copy.image_exists(dest_ref, token, session=session):
+                files_guard()
+                pod_image_copy.copy_image(source, dest_ref, token, session=session)
         return digest
 
     def render_bootstrap_plan(self, spec: PodSpec) -> dict[str, Any]:
@@ -1669,7 +1695,7 @@ class UserGcpBackend:
                 expected_uid=plan.serviceUid,
                 attempt_id=spec.upgrade_attempt_id,
             )
-            plan.require_installed(observed)
+            plan.require_installed(observed, hosted=spec.private_gcp_deployment is not None)
         except (RuntimeError, ValueError):
             return None
         if receipt["image"].rsplit("@", 1)[-1] != plan.targetImage.rsplit("@", 1)[-1]:
@@ -1787,6 +1813,7 @@ class UserGcpBackend:
                     handoff.prepare_and_wait,
                     operation_id=spec.upgrade_operation_id,
                     incarnation=handoff_incarnation,
+                    **_hosted_files_handoff_options(spec),
                 )
                 if spec.on_upgrade_idle is not None:
                     await asyncio.to_thread(spec.on_upgrade_idle, idle_receipt)

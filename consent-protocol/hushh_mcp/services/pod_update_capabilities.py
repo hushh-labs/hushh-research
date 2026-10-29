@@ -52,9 +52,17 @@ async def admit_capabilities(
             "Files activation requires its exact owner approval"
         )
     if files_capability is not None and held is None:
-        from hushh_mcp.services.pod_files.capability_contract import admission_ready
+        from hushh_mcp.services.pod_files.capability_contract import (
+            admission_ready,
+            hosted_schema_ready,
+        )
 
-        if not await admission_ready(registry, files_capability):
+        ready = (
+            await hosted_schema_ready(registry)
+            if row.get("deployment_target") == "gcp"
+            else await admission_ready(registry, files_capability)
+        )
+        if not ready:
             raise PersonalAgentUpgradeUnsupportedError("Files upgrade recovery schema is not ready")
     browser_capability = (
         approved_browser_plan(approval_metadata) if isinstance(approval_metadata, dict) else None
