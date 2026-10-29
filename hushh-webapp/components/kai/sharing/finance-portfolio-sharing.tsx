@@ -11,7 +11,7 @@ import { FinanceAdvisorAction } from "./finance-advisor-action";
 import { FinanceShareFlow } from "./finance-share-flow";
 import { FinanceSharingHistoryAction } from "./finance-sharing-history-action";
 
-export function FinancePortfolioSharing({ model, source }: { model: DashboardViewModel; source: FinanceSource }) {
+export function FinancePortfolioSharing({ model, source }: { model?: DashboardViewModel; source?: FinanceSource }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const params = useSearchParams();
@@ -20,10 +20,11 @@ export function FinancePortfolioSharing({ model, source }: { model: DashboardVie
   return <SurfaceCard><SurfaceCardContent className="space-y-3 p-5 sm:p-6">
     <SectionLabel role="heading" aria-level={2}>Sharing</SectionLabel>
     <div className="flex flex-wrap gap-2">
-      <FinanceAdvisorAction model={model} source={source} />
-      <ShellActionSurface variant="pill" className="min-h-11" onClick={() => setOpen(true)}>Share portfolio</ShellActionSurface>
-      <FinanceSharingHistoryAction label="Manage sharing" />
+      {model && source ? <FinanceAdvisorAction model={model} source={source} /> : <ShellActionSurface variant="pill" className="min-h-11" disabled>Ask an advisor</ShellActionSurface>}
+      <ShellActionSurface variant="pill" className="min-h-11" disabled={!model || !source} onClick={() => setOpen(true)}>Share portfolio</ShellActionSurface>
+      <FinanceSharingHistoryAction label="Manage sharing" hasPortfolio={Boolean(model && source)} />
     </div>
-    <FinanceShareFlow open={open && active} onOpenChange={setOpen} model={model} source={source} />
+    {!model || !source ? <p className="text-xs text-muted-foreground">Add a portfolio to share.</p> : null}
+    {model && source ? <FinanceShareFlow open={open && active} onOpenChange={setOpen} model={model} source={source} /> : null}
   </SurfaceCardContent></SurfaceCard>;
 }
