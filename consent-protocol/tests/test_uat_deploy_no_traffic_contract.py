@@ -32,6 +32,7 @@ _BACKEND_RELEASE_TOOL_FIXTURES = (
     "scripts/deploy/verify-managed-vertex-runtime.sh",
     "scripts/deploy/commerce-preview-bindings.sh",
     "scripts/deploy/backend-model-settings.sh",
+    "scripts/deploy/backend-drive-search-settings.sh",
     "scripts/deploy/backend-drive-secret-settings.sh",
     "scripts/deploy/scope-commerce-secrets.sh",
     "deploy/email-auth/bind_secrets.sh",

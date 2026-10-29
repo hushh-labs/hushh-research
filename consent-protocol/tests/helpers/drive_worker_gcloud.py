@@ -156,6 +156,10 @@ elif args[:3] == ["run", "revisions", "describe"]:
                       "value": state.get("deployed_drain_enabled", "true")},
                      {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER",
                       "value": state["deployed_semantic_model_provider"]},
+                     {"name": "DRIVE_REQUEST_ACTIVITY_UNION_ENABLED",
+                      "value": state["deployed_activity_union_enabled"]},
+                     {"name": "DRIVE_REQUEST_ACTIVITY_UNION_PAUSED",
+                      "value": state["deployed_activity_union_paused"]},
                      {"name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER",
                       "value": state["deployed_managed_text_provider"]},
                      {"name": "HUSHH_UAT_MANAGED_AI_PROVIDER",
@@ -169,6 +173,8 @@ elif args[:2] == ["run", "deploy"]:
     state["deployed_managed_ai_provider"] = flag("--set-env-vars").split("HUSHH_UAT_MANAGED_AI_PROVIDER=", 1)[1].split("|", 1)[0]
     state["deployed_drain_enabled"] = flag("--set-env-vars").split("DRIVE_WORK_DRAIN_ENABLED=", 1)[1].split("|", 1)[0]
     state["deployed_semantic_model_provider"] = flag("--set-env-vars").split("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=", 1)[1].split("|", 1)[0]
+    state["deployed_activity_union_enabled"] = flag("--set-env-vars").split("DRIVE_REQUEST_ACTIVITY_UNION_ENABLED=", 1)[1].split("|", 1)[0]
+    state["deployed_activity_union_paused"] = flag("--set-env-vars").split("DRIVE_REQUEST_ACTIVITY_UNION_PAUSED=", 1)[1].split("|", 1)[0]
     state["deployed_scaling"] = {
         name: flag(name)
         for name in ("--concurrency", "--max-instances", "--min-instances", "--max", "--min")

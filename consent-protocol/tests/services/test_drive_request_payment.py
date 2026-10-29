@@ -3720,6 +3720,11 @@ async def test_withdraw_and_decline_refuse_a_paid_or_shared_request(sharing, mon
     # A grant Google may already have applied is never withdrawable.
     with sharing.db.engine.begin() as connection:
         connection.execute(
+            text("""INSERT INTO drive_share_file_claims(file_lock_hmac,bulk_share_id,bulk_position,bulk_recipient_user_id)
+              VALUES (:lock,:share,1,'recipient')"""),
+            {"lock": sharing.sharing_cipher.file_lock("standup-file-1"), "share": share_id},
+        )
+        connection.execute(
             text("""UPDATE drive_bulk_share_effects SET state='dispatching'
               WHERE share_id=:share AND position=1"""),
             {"share": share_id},

@@ -32110,7 +32110,7 @@
       "kind": "module_size",
       "path": "consent-protocol/tests/test_drive_v1_worker_lane.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 552,
+      "value": 554,
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/tests/test_drive_v1_worker_lane.py||module exceeds the advisory operon budget"
@@ -87090,5 +87090,14 @@
         "review": "Existing erasure transaction orders connector/share locks before adopting uncertain sealed sources through the bounded file-claim helper; anonymous uncertain fences survive erasure."
       }
     ]
+  },
+  "drive_worker_activity_fixture_review_20261029": {
+    "scope": "Exactly one test-module ceiling, 552 to 554 lines; no production growth, scanner change, new finding or budget change.",
+    "reviewer": "Parent source review under the requested independent Karma execution; no additional agent review claimed.",
+    "review": "The existing V1 revision fixture now includes the two required activity enrollment/pause environment values. Real release-helper success/rollback tests otherwise fail at the newly enforced candidate attestation. Existing invalid-candidate and paused-scheduler negative controls remain unchanged; 238 release/packaging contracts passed. Keeping these two literal fixture fields beside its existing runtime environment avoids a second revision source of truth. Future growth remains rejected.",
+    "source_sha256": "598cb45f0fc965b25f3aa6af6fb39f5b417c37cfef15cc051d4dafb5c33bedcd",
+    "key": "module_size|consent-protocol/tests/test_drive_v1_worker_lane.py||module exceeds the advisory operon budget",
+    "before": 552,
+    "after": 554
   }
 }

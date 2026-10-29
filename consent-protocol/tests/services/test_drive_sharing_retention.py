@@ -327,7 +327,15 @@ async def test_owner_erasure_keeps_only_ownerless_uncertain_file_fence(
         assert rows(store, table) == []
     fence = rows(store, "drive_share_file_claims")[0]
     assert fence["operation_id"] is None and fence["erased_at"] is not None
-    assert set(fence) == {"file_lock_hmac", "operation_id", "erased_at", "created_at"}
+    identity_columns = {
+        "operation_id",
+        "bulk_share_id",
+        "bulk_position",
+        "bulk_recipient_user_id",
+        "removal_id",
+    }
+    assert set(fence) == {"file_lock_hmac", "erased_at", "created_at"} | identity_columns
+    assert all(fence[column] is None for column in identity_columns)
     with pytest.raises(DriveSharingError, match="request_unavailable"):
         await store.settle(
             job,
