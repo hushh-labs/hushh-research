@@ -4,6 +4,7 @@ import { act, renderHook } from "@testing-library/react";
 
 import { useOneConversationSession, useOneComposerDraft } from "@/lib/agent/one-conversation-session";
 import { createPendingTextAttachment } from "@/lib/agent/large-text-attachment";
+import { canJoinAgentTurn, editQueuedAgentPrompt } from "@/lib/agent/agent-chat-prompt-queue";
 
 describe("One conversation session entry welcome", () => {
   beforeEach(() => {
@@ -92,6 +93,13 @@ describe("One conversation session entry welcome", () => {
     expect(useOneConversationSession.getState().composerDraft).toBeNull();
     view.unmount();
   });
+});
+
+it("does not join a Calendar zone handoff or retain its zone after an edit", () => {
+  const prompt = { id: "calendar-day", text: "Find another time", createdAtMs: 1, joinable: true, timeZoneOverride: "America/New_York" };
+  expect(canJoinAgentTurn(prompt)).toBe(false);
+  const edited = editQueuedAgentPrompt([prompt], prompt.id, "Different request")[0]!;
+  expect(edited.timeZoneOverride).toBeUndefined();
 });
 
 import { earliestCalendarSlot, calendarSlotInstruction, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";

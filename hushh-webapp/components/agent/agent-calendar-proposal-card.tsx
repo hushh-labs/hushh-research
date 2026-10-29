@@ -12,6 +12,7 @@ import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import calendarPresentation from "@/components/calendar/calendar-presentation.module.css";
+import { calendarTimeZoneOffset, calendarTimeZoneOffsetRange } from "@/lib/calendar/calendar-time-zone";
 
 export type CalendarProposalAction = "create" | "reschedule" | "cancel";
 
@@ -122,7 +123,8 @@ export function AgentCalendarProposalCard({
   catch { displayZone = undefined; }
   const seconds = startAt && endAt ? Math.round((Date.parse(endAt) - Date.parse(startAt)) / 1000) : 0;
   const duration = seconds > 0 ? `${Math.floor(seconds / 60)} min${seconds % 60 ? ` ${seconds % 60} sec` : ""}` : "";
-  const range = [formatRange(startAt, endAt, displayZone), displayZone, duration].filter(Boolean).join(" · ");
+  const offset = displayZone && startAt ? endAt ? calendarTimeZoneOffsetRange(displayZone, startAt, endAt) : calendarTimeZoneOffset(displayZone, startAt) : undefined;
+  const range = [formatRange(startAt, endAt, displayZone), offset, duration].filter(Boolean).join(" · ");
   const attendeeText = attendeeSummary(attendees);
 
   return (
