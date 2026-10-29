@@ -54,8 +54,10 @@ export class UserLocalStateService {
     // receipts. Purge also fences old writes and removes pending PKM jobs.
     const { clearMarkdownMemory } = await import("@/lib/pkm/markdown-memory");
     const { clearCachedGmailReceipts } = await import("@/lib/profile/gmail-receipts-cache");
+    const { clearLiveActivity, clearLiveActivityNotice } = await import("@/lib/pkm/live-activity/live-activity-journal");
     clearMarkdownMemory(userId);
     clearCachedGmailReceipts(userId);
+    clearLiveActivity(userId);
     const { SecureDurableResourceService } = await import("./secure-durable-resource-service");
     let receiptPurgeError: unknown;
     if (options.deleteDurableReceipts) {
@@ -63,6 +65,8 @@ export class UserLocalStateService {
       // The account's Feed is gone on the server too. Sign-out keeps the sound
       // choice and any device-only clear not yet copied to the server.
       forgetFeedDeviceState(userId);
+      // The deleted owner's id must not stay on the device; sign-out keeps the seen notice.
+      clearLiveActivityNotice(userId);
     }
 
     OneSetupCompletionHintService.clear(userId);
