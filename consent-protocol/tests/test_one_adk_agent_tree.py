@@ -420,12 +420,11 @@ class TestAgentTreeShape:
         assert "Deterministic policy may validate" in ONE_IDENTITY_INSTRUCTION
         assert "Gmail information requests" in ONE_IDENTITY_INSTRUCTION
         assert "retired KYC route" in ONE_IDENTITY_INSTRUCTION
-        assert "Gmail receipt sync is not part of One's chat read lane" in ONE_IDENTITY_INSTRUCTION
-        assert "MAIL READ ADMISSION below explicitly enables it" in ONE_IDENTITY_INSTRUCTION
         assert (
-            "Otherwise do not claim inbox access or call ask_email_agent"
+            "Reading or triaging Gmail uses ask_email_agent only when MAIL READ ADMISSION"
             in ONE_IDENTITY_INSTRUCTION
         )
+        assert "never the platform Email specialist" not in ONE_IDENTITY_INSTRUCTION
         assert "named CRM" in ONE_IDENTITY_INSTRUCTION
         # One names that it summons specialists rather than doing their work
         # itself (the roster line from build_specialist_capability_catalog).
@@ -1226,7 +1225,7 @@ class TestOpenScreen:
 
 class TestGmailEmailDraftDirective:
     def test_gmail_receipt_pause_does_not_disable_personal_drafts(self):
-        assert "This does not limit the open_gmail_email_draft tool" in ONE_IDENTITY_INSTRUCTION
+        assert "writing or sending uses open_gmail_email_draft" in ONE_IDENTITY_INSTRUCTION
 
     def test_selected_gmail_request_is_turn_context_for_one(self):
         instruction = _one_runtime_instruction(
@@ -6379,100 +6378,49 @@ def _receipts_result(continuation=None, directive=None, status="ok"):
 
 
 @pytest.mark.asyncio
-async def test_the_receipts_list_position_is_kept_for_show_more_and_cleared_at_the_end():
+async def test_a_receipts_handback_points_one_to_its_receipt_functions_and_runs_nothing():
+    from dataclasses import replace
+
     context = _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"})
+    handback = _receipts_result(status="receipt_functions_required")
     with (
         patch.object(
             _tree, "resolve_specialist_availability", return_value=_ready_email_availability()
         ),
         patch.object(_tree, "_task_from_context", new=AsyncMock(return_value=object())),
+        patch.object(_tree, "dispatch", new=AsyncMock(return_value=handback)),
     ):
-        with patch.object(
-            _tree,
-            "dispatch",
-            new=AsyncMock(return_value=_receipts_result({"action": "set", "value": '{"next":10}'})),
-        ):
-            first = await _tree._specialist_turn("agent_email", "show my receipts", context)
-        assert context.state[_tree.STATE_RECEIPT_CURSOR] == '{"next":10}'
-        assert "exactly as written" in first["next_step"]
-        assert "call ask_email_agent again" in first["next_step"]
+        response = await _tree._specialist_turn("agent_email", "what did I spend", context)
+    assert response["status"] == "receipt_functions_required"
+    assert "receipt functions" in response["next_step"]
+    assert "mail_brief" not in response
+    assert not any(key.startswith(_STATE_PENDING_DIRECTIVE) for key in context.state)
 
-        with patch.object(
-            _tree,
-            "dispatch",
-            new=AsyncMock(return_value=_receipts_result({"action": "clear", "value": None})),
-        ):
-            last = await _tree._specialist_turn("agent_email", "show more", context)
-        assert context.state[_tree.STATE_RECEIPT_CURSOR] == ""
-        assert "exactly as written" in last["next_step"]
-        assert "call ask_email_agent again" not in last["next_step"]
-
-        # An ambiguous follow-up changes nothing about where the list stopped.
-        context.state[_tree.STATE_RECEIPT_CURSOR] = '{"next":10}'
-        with patch.object(
-            _tree,
-            "dispatch",
-            new=AsyncMock(return_value=_receipts_result({"action": "keep", "value": None})),
-        ):
-            await _tree._specialist_turn("agent_email", "show more paid ones", context)
-        assert context.state[_tree.STATE_RECEIPT_CURSOR] == '{"next":10}'
-
-
-@pytest.mark.asyncio
-async def test_other_specialists_never_write_the_receipts_cursor():
-    context = _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"})
-    result = _receipts_result({"action": "set", "value": "x"})
-    with (
-        patch.object(_tree, "_task_from_context", new=AsyncMock(return_value=object())),
-        patch.object(_tree, "dispatch", new=AsyncMock(return_value=result)),
-    ):
-        await _tree._specialist_turn("agent_documents", "find a file", context)
-    assert _tree.STATE_RECEIPT_CURSOR not in context.state
-
-
-@pytest.mark.asyncio
-async def test_not_ready_receipts_park_the_generated_open_receipts_action_and_nothing_else():
-    context = _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"})
-    proposal = A2ADirective(
-        kind="action",
-        payload={
-            "type": "receipts_open_proposal",
-            "actionId": "route.profile_receipts",
-            "slots": {},
-        },
-    )
-    result = _receipts_result({"action": "clear", "value": None}, proposal, "input_required")
+    brief = {"schema_version": "mail_brief.v1", "counts_by_category": {"action_items": 2}}
     with (
         patch.object(
             _tree, "resolve_specialist_availability", return_value=_ready_email_availability()
         ),
         patch.object(_tree, "_task_from_context", new=AsyncMock(return_value=object())),
-        patch.object(_tree, "dispatch", new=AsyncMock(return_value=result)),
+        patch.object(
+            _tree,
+            "dispatch",
+            new=AsyncMock(
+                return_value=replace(
+                    handback, structured=_receipts_result().structured, mail_brief=brief
+                )
+            ),
+        ),
     ):
-        # The real governed path, not a stand-in: it parks the exact generated
-        # directive the browser validates against the Action Gateway.
-        response = await _tree._specialist_turn("agent_email", "show my receipts", context)
-    assert response["status"] == "input_required"
-    assert response["open_receipts"] == {"status": "ready_to_run"}
-    assert "directive" not in response and "proposed_action" not in response
-    assert context.state[f"{_STATE_PENDING_DIRECTIVE}:route.profile_receipts"] == {
-        "kind": "action",
-        "payload": {
-            "actionId": "route.profile_receipts",
-            "slots": {},
-            "needsConfirmation": False,
-            "trustedActivationRequired": False,
-        },
-    }
-    # The specialist's own directive channel is never used for this proposal.
-    assert not any(key.endswith("agent_email_specialist") for key in context.state)
-    assert "do not call it yourself" in response["next_step"]
+        response = await _tree._specialist_turn("agent_email", "anything important?", context)
+    assert response["mail_brief"] == brief
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "payload",
     [
+        {"type": "receipts_open_proposal", "actionId": "route.profile_receipts", "slots": {}},
         {"type": "receipts_open_proposal", "actionId": "route.one_location", "slots": {}},
         {"type": "receipts_open_proposal", "actionId": "route.profile_receipts", "slots": {"a": 1}},
         {"type": "receipts_open_proposal", "actionId": "route.profile_receipts"},
@@ -6484,7 +6432,7 @@ async def test_not_ready_receipts_park_the_generated_open_receipts_action_and_no
         },
     ],
 )
-async def test_an_email_proposal_for_any_other_action_is_refused_and_not_executed(payload):
+async def test_every_email_proposal_is_refused_and_never_executed(payload):
     context = _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"})
     result = _receipts_result(None, A2ADirective(kind="action", payload=payload))
     with (
@@ -6513,9 +6461,9 @@ def test_one_routes_receipt_analysis_to_dedicated_functions_and_keeps_inbox_sear
     )
     assert "MAIL READ ADMISSION: enabled" in enabled
     assert "list_recent_receipts" in enabled and "receipt_spending" in enabled
-    assert "Never calculate money from memory" in enabled
-    assert "never inbox fallback" in enabled
-    assert "Explicit requests to find emails mentioning receipts" in enabled
+    assert "never ask_email_agent, an inbox search or memory arithmetic" in enabled
+    assert "State the coverage and limits the result gives" in enabled
+    assert "A request for emails that mention a receipt is an inbox search" in enabled
     assert "never receipts or attachments" not in enabled
     # With Mail chat reads off (voice, signed out), nothing about receipts is promised.
     disabled = _one_runtime_instruction(
@@ -6523,4 +6471,4 @@ def test_one_routes_receipt_analysis_to_dedicated_functions_and_keeps_inbox_sear
     )
     assert "MAIL READ ADMISSION: disabled" in disabled
     assert "saved receipt memory" not in disabled
-    assert "dedicated owner-authorized receipt functions" in _tree.ask_email_agent.__doc__
+    assert "One's receipt functions, never this tool" in _tree.ask_email_agent.__doc__

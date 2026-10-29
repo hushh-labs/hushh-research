@@ -76,6 +76,8 @@ from scripts.eval_one_first_tool_context import (  # noqa: E402
     compose_instruction,
     instruction_fingerprints,
     instruction_overrides,
+    receipt_declarations,
+    surface_declarations,
 )
 from scripts.eval_one_first_tool_context import (  # noqa: E402
     _EmptyReadonlyContext as _EmptyReadonlyContext,
@@ -217,12 +219,17 @@ def _canonical_roster() -> list[Any]:
     agent = _agent_tree().build_one_text_agent(
         model="eval-first-tool-dummy-model", allow_workspace_tools=True
     )
+    from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+
     roster: list[Any] = []
     for entry in agent.tools:
         if isinstance(entry, BaseToolset):
             # Connector toolsets resolve their tools per turn against the
             # authenticated owner's connections; they have no static
-            # declarations for an offline first-tool eval to score.
+            # declarations for an offline first-tool eval to score. Typed
+            # chat's device receipt toolset is the exception: it is static.
+            if set(getattr(entry, "tool_filter", None) or ()) & RECEIPT_TOOL_NAMES:
+                roster.append(entry)
             continue
         if isinstance(entry, BaseTool):
             roster.append(entry)
@@ -240,6 +247,9 @@ def build_roster_declarations() -> list[Any]:
 
     declarations = []
     for tool in _canonical_roster():
+        if not hasattr(tool, "_get_declaration"):
+            declarations.extend(receipt_declarations(tool.tool_filter, types))
+            continue
         declared = tool._get_declaration()
         if declared is None:
             continue
@@ -482,10 +492,11 @@ def make_live_first_tool(
     client = ManagedGeminiRuntimeBinding.from_environment().build_direct_client(
         location="global", http_options=types.HttpOptions(timeout=60_000)
     )
-    tool = types.Tool(function_declarations=build_roster_declarations())
+    declarations = build_roster_declarations()
     thinking_config = thinking_config_for(model, thinking_level, types)
 
     def _call(instruction: str, prompt: str, _screen: str | None) -> str | None:
+        tool = types.Tool(function_declarations=surface_declarations(declarations, instruction))
         config = build_generate_content_config(
             types,
             model,

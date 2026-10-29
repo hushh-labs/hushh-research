@@ -182,6 +182,20 @@ describe("connectGmailInPlace (web)", () => {
     await expect(start.result).resolves.toBe("not_connected");
   });
 
+  // A switched-off send still reads as connected with the send scope, so the
+  // status cannot tell a refused consent from a granted one.
+  it.each([
+    ["cancelled", "not_connected"],
+    ["failed", "not_connected"],
+    ["succeeded", "connected"],
+  ] as const)("reports a %s send consent as %s when status already shows the send scope", async (outcome, expected) => {
+    mocks.gmailGetStatus.mockResolvedValue({ connected: true, send_permission_granted: true });
+    const start = connectGmailInPlace({ owner, purpose: "send" });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    post(gmailSettlement(attemptIn(popup, GMAIL_ATTEMPT_KEY).attemptId, outcome), popup);
+    await expect(start.result).resolves.toBe(expected);
+  });
+
   it("verifies the modify grant for mailbox changes and settles through storage when the opener is severed", async () => {
     mocks.gmailGetStatus.mockResolvedValue({ connected: true, modify_permission_granted: true });
     const start = connectGmailInPlace({ owner, purpose: "modify" });

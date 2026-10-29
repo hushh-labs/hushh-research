@@ -176,6 +176,15 @@ failures offer Retry. Existing list identity, focus and reading position survive
 refreshes, and refreshed rows do not repeat entrance motion. Display snapshots and
 opaque routing locators never authorize live reads or submissions.
 
+One's chat welcome Mail stack is a read-only consumer of this resource. It
+subscribes to `MailReceiptResourceService`, hydrates from memory or the
+encrypted device copy only after unlock with Gmail connected, and never starts
+provider work. Its Remind me later / Mark as done choices are device-local per
+owner and are cleared by Reset and account deletion, not by sign-out. Each
+choice re-reads the stored record before writing, and open tabs follow another
+tab's change through storage events, so one tab never overwrites another's
+choice or resurrects a Reset.
+
 Provider semantics: [Gmail synchronization](https://developers.google.com/workspace/gmail/api/guides/sync)
 and [history.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list).
 

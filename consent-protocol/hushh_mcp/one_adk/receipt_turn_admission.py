@@ -17,13 +17,15 @@ from hushh_mcp.one_adk.receipt_client_tools import (
     read_receipt_continuation_session,
     receipt_tool_declaration,
 )
+from hushh_mcp.one_adk.receipt_result_contract import admitted_receipt_parameters
 
 
 def admit_receipt_tool(tool: Tool) -> bool:
     if tool.name not in RECEIPT_TOOL_NAMES:
         return False
     declaration = receipt_tool_declaration(tool.name)
-    if tool.parameters != declaration["parameters"]:
+    # Installed older apps keep the list schema without attention; both stay exact.
+    if tool.parameters not in admitted_receipt_parameters(tool.name):
         raise ValueError("Receipt tool contract is invalid.")
     tool.description = declaration["description"]
     return True

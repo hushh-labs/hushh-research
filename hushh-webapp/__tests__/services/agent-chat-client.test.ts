@@ -894,6 +894,26 @@ describe("AG-UI Agent One client", () => {
   });
 
   it.each([
+    // Negative control: while the brief card rendered, this row read "Mail could not complete that read."
+    { status: "ok", cards: ["one.mail_brief.v1"], expected: "Mail read finished.", mail_brief: { schema_version: "mail_brief.v1",
+      checked_at: "2026-10-29T06:00:00Z", requested: ["meetings"], failed: [], counts_by_category: { meetings: 0 }, items: [], coverage: {} } },
+    { status: "receipt_functions_required", cards: [], expected: "Handed to your receipts; no mail was read." },
+  ])("reports the Mail read's own $status live and after reload, whichever card renders", async ({ status, cards, expected, ...extra }) => {
+    const [onToolResult, onStructuredExperience] = [vi.fn(), vi.fn()];
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "mail-call", toolCallName: "ask_email_agent" } });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "mail-call", content: JSON.stringify({ status, ...extra,
+        structured: { schema_version: "specialist_read.v1", connector: "mail", status, sources: [], truncated: false, metadata_only: true } }) } });
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Brief me", vaultOwnerToken: "fixture",
+      handlers: { onToolResult, onStructuredExperience } });
+    expect(onToolResult.mock.calls[0][0].message).toBe(expected);
+    expect(onStructuredExperience.mock.calls.filter(([, id]) => id === "mail-call").map(([card]) => card.type)).toEqual(cards);
+    expect(parseRestoredTurnActivity({ activityType: "one.turn_activity.v1", content: { steps: [
+      { id: "mail-call", tool: "ask_email_agent", status: "done", readStatus: status }] } })[0]?.message).toBe(expected);
+  });
+
+  it.each([
     [{ status: "shown", suggestions: ["Find a free hour after 2pm", "Move standup to 9:30"] },
       ["Find a free hour after 2pm", "Move standup to 9:30"]],
     // Negative controls: only a valid server-shown result becomes chips.
@@ -1233,12 +1253,10 @@ describe("AG-UI Agent One client", () => {
     await streamAgentChat({ ...turn, message: "Add priya@example.com to cc", pendingEmailDraft });
     await streamAgentChat({ ...turn, message: "What is on my calendar?", pendingEmailDraft: null });
 
-    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.pendingEmailDraft).toEqual(
-      pendingEmailDraft,
-    );
-    expect(mockTransport.runAgent.mock.calls[1]?.[0].forwardedProps).not.toHaveProperty(
-      "pendingEmailDraft",
-    );
+    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.pendingEmailDraft).toEqual(pendingEmailDraft);
+    expect(mockTransport.runAgent.mock.calls[1]?.[0].forwardedProps).not.toHaveProperty("pendingEmailDraft");
+    // Every typed turn names the draft card version it reads, with or without a draft on screen.
+    expect(mockTransport.runAgent.mock.calls.map(([run]) => run.forwardedProps.emailDraftContract)).toEqual([2, 2]);
   });
 
   it("never forwards a legacy receipt index, including receipt questions", async () => {
