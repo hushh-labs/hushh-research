@@ -98,6 +98,8 @@
 		C4A7B9010000000000000002 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000001; };
         C4A7B9010000000000000003 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000001; };
         C4A7B9010000000000000005 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000004; };
+        51A1A4000000000000000002 = {isa = PBXBuildFile; fileRef = 51A1A4000000000000000001; };
+        51A1A4000000000000000003 = {isa = PBXBuildFile; fileRef = 51A1A4000000000000000001; };
         C4A7B9010000000000000007 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000006; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		FA82B4AC0000000000000002 /* NativeWalletWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA82B4AC0000000000000001 /* NativeWalletWorkspace.swift */; };
 		FA82B4AC0000000000000004 /* NativeWalletPanelPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA82B4AC0000000000000003 /* NativeWalletPanelPresentation.swift */; };
@@ -219,6 +221,7 @@
 		FACADE000000000000000001 /* HushhAccountPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhAccountPlugin.swift; path = Plugins/HushhAccountPlugin.swift; sourceTree = "<group>"; };
 		FACADE000000000000000004 /* HushhNotificationsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNotificationsPlugin.swift; path = Plugins/HushhNotificationsPlugin.swift; sourceTree = "<group>"; };
         C4A7B9010000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatPreviewKeys.swift; path = App/Plugins/ChatPreviewKeys.swift; sourceTree = SOURCE_ROOT; };
+        51A1A4000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EmergencySmsSystemAlarm.swift; path = App/Plugins/EmergencySmsSystemAlarm.swift; sourceTree = SOURCE_ROOT; };
         C4A7B9010000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
         C4A7B9010000000000000006 = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = ChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FA82B4AC0000000000000001 /* NativeWalletWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeWalletWorkspace.swift; path = Plugins/NativeWalletWorkspace.swift; sourceTree = "<group>"; };
@@ -305,6 +308,7 @@
 			isa = PBXGroup;
 			children = (
                 C4A7B9010000000000000001,
+                51A1A4000000000000000001,
 				A280438C2F21B1FC005B42F3 /* App.entitlements */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
@@ -617,6 +621,7 @@
 			buildActionMask = 2147483647;
 			files = (
                 C4A7B9010000000000000002,
+                51A1A4000000000000000002,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A11C0A730000000000000011 /* OneVoiceAppIntent.swift in Sources */,
 				5CE2E0D1A0C0000000000002 /* SceneDelegate.swift in Sources */,
@@ -702,7 +707,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-        C4A7B901000000000000000A = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (C4A7B9010000000000000003, C4A7B9010000000000000005, ); runOnlyForDeploymentPostprocessing = 0; };
+        C4A7B901000000000000000A = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (C4A7B9010000000000000003, C4A7B9010000000000000005, 51A1A4000000000000000003, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */

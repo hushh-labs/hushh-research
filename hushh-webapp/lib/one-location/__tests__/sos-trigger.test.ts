@@ -467,6 +467,24 @@ describe("runSosPanic", () => {
     expect(publish).toHaveBeenNthCalledWith(2, grantB, rB, point);
   });
 
+  it("does not block the Circle behind one slow contact and bounds delivery fan-out", async () => {
+    const recipients = Array.from({ length: 5 }, (_, i) => makeRecipient(`fast-${i}`));
+    const releases = new Map<string, () => void>();
+    createGrantMock.mockImplementation(async ({ recipientUserId }) => makeGrant(`g-${recipientUserId}`, recipientUserId));
+    const publish = vi.fn((_grant, recipient: ReturnType<typeof makeRecipient>) => new Promise<void>((resolve) => {
+      releases.set(recipient.userId, resolve);
+    }));
+    const result = runSosPanic({ vaultOwnerToken: "tok", recipients, point: makePoint(), publish });
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(3));
+    // Contact 0 stays stalled; completing contact 1 admits contact 3 immediately.
+    releases.get("fast-1")!();
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(4));
+    releases.get("fast-2")!();
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(5));
+    for (const release of releases.values()) release();
+    expect((await result).delivery.map((outcome) => outcome.userId)).toEqual(recipients.map((recipient) => recipient.userId));
+  });
+
   it("attempts all eight contacts after create and publish failures, retaining every created grant for Stop", async () => {
     const recipients = Array.from({ length: 8 }, (_, i) => makeRecipient(`user${i}`));
     createGrantMock.mockImplementation(async ({ recipientUserId }) => {

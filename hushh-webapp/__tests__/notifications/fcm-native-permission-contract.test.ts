@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   addListener: vi.fn(),
   registerPushToken: vi.fn(),
   getNotificationSettings: vi.fn(),
+  requestAlarm: vi.fn(),
   listeners: new Map<string, (event: { token: string }) => Promise<void>>(),
   currentUser: { uid: "user-1", getIdToken: vi.fn() },
 }));
@@ -36,7 +37,7 @@ vi.mock("@/lib/services/api-service", () => ({
   },
 }));
 
-vi.mock("@/lib/capacitor", () => ({ HushhNotifications: { deletePushToken: mocks.deletePushToken, getNotificationSettings: mocks.getNotificationSettings } }));
+vi.mock("@/lib/capacitor", () => ({ HushhNotifications: { deletePushToken: mocks.deletePushToken, getNotificationSettings: mocks.getNotificationSettings, requestEmergencySmsAlarmPermission: mocks.requestAlarm } }));
 vi.mock("@/lib/firebase/config", () => ({ auth: { get currentUser() { return mocks.currentUser; } } }));
 
 import { initializeFCM, deleteFCMToken } from "@/lib/notifications/fcm-service";
@@ -53,6 +54,7 @@ describe("native FCM permission ownership", () => {
     mocks.requestPermissions.mockResolvedValue({ receive: "granted" });
     mocks.getToken.mockResolvedValue({ token: "test-token" });
     mocks.getNotificationSettings.mockResolvedValue({ alertsEnabled: true, soundsEnabled: true, emergencySoundEnabled: true });
+    mocks.requestAlarm.mockResolvedValue({ supported: true, authorized: true });
     mocks.registerPushToken.mockResolvedValue({
       ok: true,
       clone: () => ({ json: vi.fn().mockResolvedValue({ registered: true }) }),
@@ -67,6 +69,7 @@ describe("native FCM permission ownership", () => {
 
     expect(mocks.checkPermissions).toHaveBeenCalledOnce();
     expect(mocks.requestPermissions).not.toHaveBeenCalled();
+    expect(mocks.requestAlarm).not.toHaveBeenCalled();
     expect(mocks.getToken).not.toHaveBeenCalled();
   });
 
@@ -76,6 +79,7 @@ describe("native FCM permission ownership", () => {
     ).resolves.toEqual({ status: "push_active" });
 
     expect(mocks.requestPermissions).toHaveBeenCalledOnce();
+    expect(mocks.requestAlarm).toHaveBeenCalledOnce();
     expect(mocks.getToken).toHaveBeenCalledOnce();
     expect(mocks.registerPushToken).toHaveBeenCalledWith(
       "user-1",

@@ -1,8 +1,7 @@
 """Circle chat authority, retry and lifecycle contracts on isolated PostgreSQL.
 
-The CI PostgreSQL role must be able to create a disposable database. No live
-tables or credentials are used. ONE_COMMAND_TEST_DATABASE_URL is the existing
-protocol CI service; local runs may point it at a disposable PostgreSQL server.
+The PostgreSQL role must create disposable databases; no live tables or credentials
+are used. ONE_COMMAND_TEST_DATABASE_URL selects the CI or local test service.
 """
 
 from __future__ import annotations
@@ -76,6 +75,7 @@ def chat_db():
                     (ROOT / "db/migrations/266_circle_chat_presentation.sql").read_text()
                 )
                 cursor.execute((ROOT / "db/migrations/290_chat_push_delivery.sql").read_text())
+                cursor.execute((ROOT / "db/migrations/441_sms_alarm_capability.sql").read_text())
                 cursor.execute(
                     (ROOT / "db/migrations/296_circle_chat_reactions_events.sql").read_text()
                 )

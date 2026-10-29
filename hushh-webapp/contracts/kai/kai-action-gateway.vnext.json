@@ -5797,7 +5797,7 @@
         "SMS",
         "push"
       ],
-      "meaning": "Review Location alerts.",
+      "meaning": "Review Location alerts and explicitly allow persistent SMS alarms on supported iOS devices.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -5834,7 +5834,8 @@
       ],
       "state_exposure": [
         "device notification registration",
-        "device alert and sound settings"
+        "device alert and sound settings",
+        "SMS system alarm permission"
       ],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"
