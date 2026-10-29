@@ -70,10 +70,10 @@ export function SessionVerificationRecovery({
     : localErasureConfirmationRequired
       ? "Confirm your earlier deletion request to finish cleanup."
       : !runsWithoutYou
-        ? "Your private agent stays paused until this step is done."
+        ? "Agent One stays paused until this step is done."
       : delayed
         ? "Your information stays hidden. Deletion is queued on our side and finishes without you. You can sign out and check back later."
-        : "Your private agent is paused while we erase your information. You can close this window or sign out; deletion keeps going.";
+        : "Agent One is paused while we erase your information. You can close this window or sign out; deletion keeps going.";
 
   async function continueCleanup() {
     const owner = snapshotAuthSessionGeneration();

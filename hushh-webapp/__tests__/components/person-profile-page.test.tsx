@@ -1694,7 +1694,7 @@ describe("PersonProfilePage request catalog tools", () => {
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
     await screen.findByRole("heading", { name: "Shared with you" });
     await waitFor(() => expect(scrolled).toHaveBeenCalled());
-    expect(await screen.findByText("Unlock your private agent to reveal information shared with you.")).toBeInTheDocument();
+    expect(await screen.findByText("Unlock Agent One to reveal information shared with you.")).toBeInTheDocument();
     vi.mocked(window.HTMLElement.prototype.scrollIntoView).mockRestore();
   });
 });

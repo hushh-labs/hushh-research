@@ -201,7 +201,7 @@ function statusCopy(input: {
       ? {
           kind: "outage",
           title: "Public search is paused right now",
-          body: `Your private agent can’t reach its research service. ${line}`,
+          body: `Agent One can’t reach its research service. ${line}`,
         }
       : { kind: "outage", title: "Research is taking a short break", body: line };
   }
@@ -228,7 +228,7 @@ function statusCopy(input: {
     return {
       kind: "off",
       title: "Public research is off",
-      body: "Turn it on and your private agent will look for public pages about you.",
+      body: "Turn it on and Agent One will look for public pages about you.",
     };
   // Before the app-level reader attaches, or before its first read lands.
   if (!input.mounted || !result)

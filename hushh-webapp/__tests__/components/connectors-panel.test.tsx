@@ -1267,7 +1267,7 @@ describe("supported connector catalog", () => {
 
     expect(
       await within(calendar).findByText(
-        "Your private agent can help schedule meetings. You approve every change.",
+        "Agent One can help schedule meetings. You approve every change.",
       ),
     ).toBeInTheDocument();
     expect(within(calendar).getByText("Connected")).toBeInTheDocument();
@@ -1288,7 +1288,7 @@ describe("supported connector catalog", () => {
 
     expect(
       await within(calendar).findByText(
-        "Your private agent can check your availability.",
+        "Agent One can check your availability.",
       ),
     ).toBeInTheDocument();
   });

@@ -167,7 +167,7 @@ describe("private Puppy relay", () => {
     render(<PrivatePuppyInferencePanel />);
     await ask();
 
-    await waitFor(() => expect(screen.getByText("Unlock your private agent to chat with Puppy.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Unlock Agent One to chat with Puppy.")).toBeInTheDocument());
     expect(mocks.streamPuppyPodTurn).not.toHaveBeenCalled();
   });
 
@@ -252,7 +252,7 @@ describe("private Puppy relay", () => {
 
       await act(async () => { await vi.advanceTimersByTimeAsync(205_000); });
       // Still confirming the agent and device: the Mac never had the question.
-      expect(screen.getByText("Hussh took too long to check your private agent. Try again in a moment.")).toBeInTheDocument();
+      expect(screen.getByText("Hussh took too long to check Agent One. Try again in a moment.")).toBeInTheDocument();
       expect(mocks.streamPuppyPodTurn).not.toHaveBeenCalled();
 
       await act(async () => { finishLink({ state: "quiet", device: { id: "device-1" } }); });
@@ -419,7 +419,7 @@ describe("private Puppy relay", () => {
     mocks.streamPuppyPodTurn.mockRejectedValueOnce(new Error("POD_DIRECT_UNAVAILABLE:unknown"));
     render(<PrivatePuppyInferencePanel />);
     await ask();
-    expect(await screen.findByText("Your private agent couldn't take this message. Try again in a moment.")).toBeInTheDocument();
+    expect(await screen.findByText("Agent One couldn't take this message. Try again in a moment.")).toBeInTheDocument();
     expect(screen.queryByText(/Your Mac/)).not.toBeInTheDocument();
   });
 

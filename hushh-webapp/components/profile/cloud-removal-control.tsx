@@ -54,7 +54,7 @@ export function useCloudRemovalControl({ menuOpen, provider }: { menuOpen?: bool
       <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
         <AlertDialogHeader>
           <AlertDialogTitle>Remove cloud, keep account?</AlertDialogTitle>
-          <AlertDialogDescription>Review your private agent’s resources before removing them.</AlertDialogDescription>
+          <AlertDialogDescription>Review Agent One’s resources before removing them.</AlertDialogDescription>
         </AlertDialogHeader>
         {open && selected ? <AccountCloudCleanup key={`${ownerId}:${selected}`} userId={ownerId} token={vaultOwnerToken ?? null}
           purpose="remove_cloud" provider={selected}

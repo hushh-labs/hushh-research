@@ -14,7 +14,7 @@ import { ComputerUseSessions } from "./computer-use-sessions";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 
 const PHASE_COPY: Record<ComputerUsePhase, string> = {
-  unavailable: "Browser unavailable on this private agent.",
+  unavailable: "Browser unavailable on this Agent One.",
   running: "Working in the browser.",
   needs_owner: "Waiting for you.",
   outcome_uncertain: "An action may have completed. Review it before continuing.",

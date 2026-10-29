@@ -96,22 +96,22 @@ function machineRefusals(machine: string): Record<string, string> {
   };
 }
 
-const AGENT_DID_NOT_TAKE = "Your private agent couldn't take this message. Try again in a moment.";
-const AGENT_REFUSED = "Your private agent didn't accept this request. Unlock it again, then try again.";
-const AGENT_UNREADABLE = "Your private agent sent back something the app couldn't read. Try again.";
+const AGENT_DID_NOT_TAKE = "Agent One couldn't take this message. Try again in a moment.";
+const AGENT_REFUSED = "Agent One didn't accept this request. Unlock it again, then try again.";
+const AGENT_UNREADABLE = "Agent One sent back something the app couldn't read. Try again.";
 
 /** Refusals from your private agent, or the link between this app and it. */
 const AGENT_REFUSALS: Readonly<Record<string, string>> = {
-  PRIVATE_AGENT_UNLOCK_REQUIRED: "Unlock your private agent to chat with Puppy.",
-  PRIVATE_AGENT_UNAVAILABLE: "Your private agent isn't running right now. Open Hosting in Settings to check it.",
-  PUPPY_REQUIRES_BYOC_POD: "Puppy needs your own private agent and a linked computer. Shared agents don't run Puppy.",
-  PUPPY_DIRECT_BYOC_REQUIRED: "Puppy needs your own private agent and a linked computer. Shared agents don't run Puppy.",
-  AGENT_UNREACHABLE: "Your private agent didn't respond. Try again in a moment.",
+  PRIVATE_AGENT_UNLOCK_REQUIRED: "Unlock Agent One to chat with Puppy.",
+  PRIVATE_AGENT_UNAVAILABLE: "Agent One isn't running right now. Open Hosting in Settings to check it.",
+  PUPPY_REQUIRES_BYOC_POD: "Puppy needs your own Agent One and a linked computer. Shared agents don't run Puppy.",
+  PUPPY_DIRECT_BYOC_REQUIRED: "Puppy needs your own Agent One and a linked computer. Shared agents don't run Puppy.",
+  AGENT_UNREACHABLE: "Agent One didn't respond. Try again in a moment.",
   AGENT_NOT_YOURS: AGENT_REFUSED,
   PUPPY_ACCESS_REFUSED: AGENT_REFUSED,
   POD_DIRECT_UNAVAILABLE: AGENT_DID_NOT_TAKE,
   POD_OWNER_CHANGED: "You switched accounts while Puppy was answering. Open the chat again to continue.",
-  PUPPY_STREAM_INTERRUPTED: "The connection to your private agent dropped before the answer finished. Try again.",
+  PUPPY_STREAM_INTERRUPTED: "The connection to Agent One dropped before the answer finished. Try again.",
   PUPPY_STREAM_INVALID: AGENT_UNREADABLE,
   PUPPY_STREAM_TOO_LARGE: AGENT_UNREADABLE,
   PUPPY_STREAM_FAILED: AGENT_UNREADABLE,
@@ -121,7 +121,7 @@ const AGENT_REFUSALS: Readonly<Record<string, string>> = {
 function hubRefusals(machine: string): Record<string, string> {
   return {
     PUPPY_ACTIVATION_UNAVAILABLE: `Hussh couldn't ask ${machine} to wake up. Try again in a moment.`,
-    PUPPY_ACTIVATION_REQUIRES_UNLOCK: "Unlock your private agent to chat with Puppy.",
+    PUPPY_ACTIVATION_REQUIRES_UNLOCK: "Unlock Agent One to chat with Puppy.",
   };
 }
 
@@ -129,12 +129,12 @@ const NEUTRAL = "Puppy couldn't finish this answer. Nothing was sent anywhere el
 
 /** The browser's own text for a request that never got a response (Chrome, Safari, Firefox). */
 const BROWSER_NETWORK_FAILURES = new Set(["Failed to fetch", "Load failed", "NetworkError when attempting to fetch resource."]);
-const NETWORK_FAILURE = "Couldn't reach your private agent. Check your internet connection, then try again.";
+const NETWORK_FAILURE = "Couldn't reach Agent One. Check your internet connection, then try again.";
 
 function timeoutMessage(phase: PuppyTurnPhase, machine: string): string {
   if (phase === "dispatched") return `${capitalized(machine)} took too long to answer. Check that it's awake, then try again.`;
-  if (phase === "waking") return `Your private agent and ${machine} took too long to wake up. Try again in a minute.`;
-  return "Hussh took too long to check your private agent. Try again in a moment.";
+  if (phase === "waking") return `Agent One and ${machine} took too long to wake up. Try again in a minute.`;
+  return "Hussh took too long to check Agent One. Try again in a moment.";
 }
 
 /** Plain words for a failed turn, naming the side that failed. Never claims a fallback: none happens. */
@@ -188,7 +188,7 @@ export function puppyCatalogMessage(problem: PuppyCatalogProblem, machine: strin
     "not-shared": remembered ? `${Machine} hasn't shared a fresh list yet.` : `${Machine} hasn't shared its models yet. Send a message to wake it.`,
     machine: `${Machine} isn't answering right now.`,
     hub: `Hussh couldn't ask ${machine} for its list.`,
-    agent: "Couldn't reach your private agent for the list.",
+    agent: "Couldn't reach Agent One for the list.",
   };
   if (remembered) return `${lead[problem]} These are the models ${machine} had last time.`;
   return problem === "waking" || problem === "not-shared" ? lead[problem] : `${lead[problem]} Try again in a moment.`;

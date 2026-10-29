@@ -18,7 +18,7 @@ describe("direct-path turn errors", () => {
     expect(formatAgentChatErrorMessage("x", "POD_ASSIGNMENT_CHANGED")).toMatch(/Open Hosting in Settings/);
     expect(formatAgentChatErrorMessage("POD_CHAT_AUTHORITY_UNAVAILABLE:409:POD_ASSIGNMENT_CHANGED")).toMatch(/^Your private agent moved/);
     expect(formatAgentChatErrorMessage("POD_WAKE_TIMEOUT", "POD_WAKE_TIMEOUT"))
-      .toBe("Your private agent did not wake up in time, so your message was not sent. Try again in a minute.");
+      .toBe("Agent One did not wake up in time, so your message was not sent. Try again in a minute.");
     expect(formatAgentChatErrorMessage("POD_NOT_REACHED", "POD_NOT_REACHED")).toMatch(/could not be reached, so your message was not sent/);
     expect(formatAgentChatErrorMessage("POD_CHAT_AUTHORITY_UNAVAILABLE:403")).toMatch(/^Hussh could not confirm this chat/);
     expect(formatAgentChatErrorMessage("Failed to fetch")).toBe("One could not be reached. Check your internet connection, then try again.");
@@ -28,7 +28,7 @@ describe("direct-path turn errors", () => {
   it("never calls a hub 409 a move unless the hub said the agent moved", () => {
     const code = (hubCode: string) => `POD_CHAT_AUTHORITY_UNAVAILABLE:409:${hubCode}`;
     expect(formatAgentChatErrorMessage(code("AGENT_NOT_READY"), code("AGENT_NOT_READY")))
-      .toBe("Your private agent isn't ready to chat yet. Try again in a moment. If this keeps happening, open Hosting in Settings.");
+      .toBe("Agent One isn't ready to chat yet. Try again in a moment. If this keeps happening, open Hosting in Settings.");
     const hubSentence = "Your agent is moving to your cloud. This takes a minute or two.";
     expect(formatAgentChatErrorMessage(hubSentence, code("AGENT_MIGRATING"))).toBe(hubSentence);
     expect(formatAgentChatErrorMessage("Moving \u2014 see https://x.example", code("AGENT_MIGRATING"))).toBe(hubSentence);
@@ -49,9 +49,9 @@ describe("direct-path turn errors", () => {
     expect(formatAgentChatErrorMessage("ENDPOINT_VERSION_REGRESSION")).toMatch(/could not be established/);
     expect(formatAgentChatErrorMessage("x", "POD_CHAT_BUSY")).toMatch(/finishing active work/);
     expect(formatAgentChatErrorMessage("private provider details", "POD_CHAT_UPDATING"))
-      .toBe("Your private agent is updating. Check Software updates in Settings before trying again.");
+      .toBe("Agent One is updating. Check Software updates in Settings before trying again.");
     expect(formatAgentChatErrorMessage("private provider details", "POD_RECEIPT_UPDATE_REQUIRED"))
-      .toBe("Update your private agent in Settings before resuming this receipt request.");
+      .toBe("Update Agent One in Settings before resuming this receipt request.");
     expect(formatAgentChatErrorMessage("private provider details", "POD_CHAT_CAPABILITIES_INVALID"))
       .toMatch(/supported features could not be verified/);
     // Negative controls: a marker inside other text, or unknown text, stays generic.

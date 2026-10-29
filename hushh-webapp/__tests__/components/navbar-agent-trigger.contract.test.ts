@@ -98,7 +98,7 @@ describe("Navbar bottom chrome contract", () => {
     expect(bottomShell).toContain("items-center gap-1.5");
     expect(agentBar).toContain('data-agent-dock="one-agent-dock"');
     expect(agentBar).toContain('role="group"');
-    expect(agentBar).toContain('aria-label="One private agent"');
+    expect(agentBar).toContain('aria-label="One Agent One"');
     // Shared presentation is used by both text and voice, without taking authority.
     const dockSurface = read("components/agent/agent-bar-surface.tsx");
     expect(agentBar).toContain("<AgentBarSurface");

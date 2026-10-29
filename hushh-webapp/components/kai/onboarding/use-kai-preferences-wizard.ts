@@ -136,6 +136,7 @@ export function useKaiPreferencesWizard(props: KaiPreferencesWizardOptions) {
     void props.onAnswersChange?.(answers);
   };
   return { ...value, total, activeQuestion, activeValue: value.answers[activeQuestion.id], isSubmitting: busy,
+    selectAnswer: select, submit: complete, canSubmit: Object.values(value.answers).every(Boolean),
     isLast, canContinue, questions: KAI_PREFERENCE_QUESTIONS, handlePrimary, handleBack, applyHorizon,
     handleSelect: (entry: string) => select(activeQuestion.id, entry),
     setHorizonDialogOpen: (open: boolean) => write(state => ({ ...state, horizonDialogOpen: open, ...(!open ? { pendingHorizon: null } : {}) })),

@@ -2603,7 +2603,7 @@ describe("exact-file document review", () => {
     });
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
     expect(
-      await screen.findByText("Access exists outside your private agent"),
+      await screen.findByText("Access exists outside Agent One"),
     ).toBeVisible();
     expect(
       screen.getByText(

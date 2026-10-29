@@ -30,9 +30,9 @@ export function PortfolioBriefing({ model, portfolio, onOpen, advisorAction }: {
   const cash = model ? overviewFacts(model, portfolio).cash : null;
   const cashShare = cash !== null && model && model.hero.totalValue > 0 ? cash / model.hero.totalValue * 100 : null;
   const ringReady = largest && Number.isFinite(largest.weightPct) && largest.weightPct <= 100;
-  return <SurfaceCard className={styles.insightShell} data-testid="portfolio-briefing">
+  return <SurfaceCard className={`${styles.insightShell} ${!model ? styles.importEntry : ""}`} data-testid="portfolio-briefing">
     <SurfaceCardContent className={`${styles.insightCard} space-y-0`}>
-      <SectionLabel role="heading" aria-level={2}>One’s briefing</SectionLabel>
+      <SectionLabel role="heading" aria-level={2}>Agent One’s briefing</SectionLabel>
       {largest ? <div className={styles.concentrationSummary}>
         <div className={ringReady ? styles.concentrationRing : styles.concentrationValue}
           style={ringReady ? { "--holding-share": `${largest.weightPct * 3.6}deg` } as CSSProperties : undefined}

@@ -138,7 +138,7 @@ describe("@feature_drive_packets @trace_loop owner packet words", () => {
   });
   // The owner's packets as the server sends them: a version that isn't ready is never "current".
   const owned: DrivePacket = { ...packet, listingRevision: 0, listingEnabled: false, canList: true, canRequest: false };
-  const CHECKING = "The private agent is checking current evidence.";
+  const CHECKING = "Agent One is checking current evidence.";
   const notCurrent = { ...owned, freshness: "stale" as const, canList: false, gaps: [CHECKING] };
 
   it("does not turn zero shareable results or unfinished discovery into a claim about search matches", () => {

@@ -74,8 +74,8 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
         if (hosting.hostingMode !== "byoc" && hosting.hostingMode !== "hussh_pods") {
           setStatus(null);
           setPlacementMessage(hosting.hostingMode === "shared"
-            ? "Scheduled tasks need a private agent."
-            : "Finish setting up your private agent to schedule work.");
+            ? "Scheduled tasks need Agent One."
+            : "Finish setting up Agent One to schedule work.");
           return null;
         }
         return client.status(request.signal);
@@ -187,7 +187,7 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
         <DialogHeader>
           <DialogTitle>Scheduled tasks</DialogTitle>
           <DialogDescription>
-            Your private agent wakes for approved work.
+            Agent One wakes for approved work.
           </DialogDescription>
         </DialogHeader>
         {message && (

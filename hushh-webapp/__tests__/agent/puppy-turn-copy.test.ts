@@ -77,7 +77,7 @@ describe("Puppy turn copy", () => {
   it("blames a timeout on the side the turn was waiting for", () => {
     const timedOut = (phase: "checking" | "waking" | "dispatched") =>
       puppyFailureMessage("x", { timedOut: true, cancelled: false, phase }, "your Mac");
-    expect(timedOut("checking")).toBe("Hussh took too long to check your private agent. Try again in a moment.");
+    expect(timedOut("checking")).toBe("Hussh took too long to check Agent One. Try again in a moment.");
     expect(timedOut("waking")).toBe("Your private agent and your Mac took too long to wake up. Try again in a minute.");
     expect(timedOut("dispatched")).toBe("Your Mac took too long to answer. Check that it's awake, then try again.");
   });
@@ -95,7 +95,7 @@ describe("Puppy turn copy", () => {
   it("names the agent, not One, for a bare browser network failure", () => {
     for (const text of ["Failed to fetch", "Load failed"]) {
       const sentence = puppyFailureMessage(text, { timedOut: false, cancelled: false }, "your Mac");
-      expect(sentence).toBe("Couldn't reach your private agent. Check your internet connection, then try again.");
+      expect(sentence).toBe("Couldn't reach Agent One. Check your internet connection, then try again.");
     }
   });
 

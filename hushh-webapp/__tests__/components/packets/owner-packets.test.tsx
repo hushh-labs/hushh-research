@@ -30,7 +30,7 @@ const listed = { ...base, packetId: id(2), title: "Example Utility bills", cover
   listingEnabled: true, listingRevision: 1, priceCents: 900, documentCount: 2 };
 // The server's stand-in while a packet is rechecked.
 const checking = { ...base, packetId: id(3), title: "Packet being checked", description: "Current source evidence is being checked.",
-  state: "incomplete", coverageSummary: "Coverage is being checked.", gaps: ["The private agent is checking current evidence."],
+  state: "incomplete", coverageSummary: "Coverage is being checked.", gaps: ["Agent One is checking current evidence."],
   documentCount: 1, verifiedAt: null, freshness: "stale", canList: false };
 // A version that isn't ready is never current on the server, so it arrives as "stale" with its reasons.
 const missing = { ...base, packetId: id(4), title: "Example Payslips", state: "incomplete", freshness: "stale",

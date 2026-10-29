@@ -1,6 +1,6 @@
 .layout { display: grid; gap: 24px; min-width: 0; }
 .group { border: 1px solid var(--border); border-radius: 18px; background: var(--card); padding: 18px; min-width: 0; }
-.heading { font-size: 16px; line-height: 22px; font-weight: 600; letter-spacing: -.025em; }
+.heading { font-size: 14px; line-height: 22px; font-weight: 600; letter-spacing: -.025em; }
 .caption { color: var(--muted-foreground); font-size: 12px; line-height: 18px; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 14px; min-height: 48px; font-size: 14px; line-height: 21px; border-bottom: 1px solid var(--border); }
 .row:last-child { border-bottom: 0; }
@@ -50,36 +50,23 @@
   .choice:has(input:checked):hover::before { opacity: .1; }
 }
 
-/* Keep the connection roster and both option cards within the same desktop frame. */
-.editLayout { display: grid; gap: 16px; min-width: 0; }
-.peopleGroup { display: flex; flex-direction: column; min-height: 0; }
-.recipientList { min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin-top: 12px; }
-.optionsColumn { display: grid; gap: 16px; min-height: 0; min-width: 0; }
-.optionGroup { display: flex; flex-direction: column; min-height: 0; }
-.optionBody { min-height: 0; margin-top: 12px; }
+/* One task frame: only each step's content scrolls; the footer stays put. */
+.flowSurface.flowSurface { width: min(100%, 728px); margin-inline: auto; height: min(720px, calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px))) !important; max-height: calc(100dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important; --foundation-title3-size: 17px; --foundation-title3-line: 22px; }
+@media (min-width: 640px) { .flowSurface:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) { top: 10px; } }
+.flowBody.flowBody { display: flex; flex-direction: column; overflow: hidden; }
+.editLayout { display: flex; flex: 1; flex-direction: column; gap: 16px; min-height: 0; min-width: 0; }
+.pager { flex: 1; }
+.pager > div { height: 100%; }
+.editLayout .group { height: 100%; border: 0; border-radius: 0; padding: 0; background: transparent; }
+.peopleGroup, .optionGroup { display: flex; flex-direction: column; min-height: 0; }
+.recipientList, .optionBody { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.recipientList { margin-top: 12px; }
+.optionBody { margin-top: 12px; }
 .optionBody .privacy { margin-top: 12px; padding: 0; background: transparent; }
-.peopleGroup[hidden], .optionsColumn[hidden] { display: none; }
+.reviewPanel { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .toolbar > span > button { min-height: 44px; }
 .forward { margin-inline-start: auto; }
 .primaryAction { background: var(--app-accent) !important; border-color: transparent !important; color: var(--app-accent-fg) !important; box-shadow: none !important; }
 .primaryAction:hover { background: var(--app-accent-hover) !important; }
-@media (min-width: 768px) {
-  .editLayout { grid-template-columns: minmax(0,1fr) minmax(0,1fr); height: min(640px, calc(85dvh - 180px)); }
-  .peopleGroup { height: 100%; }
-  .recipientList { flex: 1; }
-  .optionsColumn { grid-template-rows: minmax(0,1fr) minmax(0,1.15fr); }
-  .optionBody { overflow-y: auto; overscroll-behavior: contain; }
-}
-@media (max-width: 767px) {
-  .recipientList { max-height: 48dvh; }
-}
-
-@media (min-width: 768px) {
-  .optionBody .choice { align-items: center; min-height: 44px; padding-block: 8px; }
-  .optionBody .choice input { margin-top: 0; }
-  .optionBody .choice > span { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
-  .optionBody .choice small { margin-top: 0; }
-}
-.recipientList, .optionBody { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 .recipientList::-webkit-scrollbar, .optionBody::-webkit-scrollbar { width: 6px; }
 .recipientList::-webkit-scrollbar-thumb, .optionBody::-webkit-scrollbar-thumb { border-radius: 3px; background: var(--border); }

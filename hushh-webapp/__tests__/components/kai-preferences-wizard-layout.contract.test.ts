@@ -1,6 +1,8 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { createElement } from "react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useKaiPreferencesWizard } from "@/components/kai/onboarding/use-kai-preferences-wizard";
+import { KaiPreferencesWizard } from "@/components/kai/onboarding/KaiPreferencesWizard";
 import { useProfileFinancePreferences } from "@/components/profile/use-profile-finance-preferences";
 import { projectNativeFinancePreferences } from "@/components/profile/native-finance-preferences";
 import { validNativeFinancePath } from "@/lib/capacitor/native-drawers";
@@ -10,9 +12,25 @@ import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-acti
 
 const answers = { investment_horizon: "short_term", drawdown_response: "stay", volatility_preference: "moderate" } as const;
 const profile = { preferences: answers } as KaiProfileV2;
-afterEach(() => { vi.restoreAllMocks(); publishValidatedAuthSessionOwner(null); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); publishValidatedAuthSessionOwner(null); });
 
 describe("Finance preferences shared web/native operation contracts", () => {
+  it("collects all preferences in one form and submits the exact answers only once", async () => {
+    let finish!: () => void;
+    const save = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    render(createElement(KaiPreferencesWizard, { mode: "onboarding", onComplete: save }));
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(3);
+    const submit = screen.getByRole("button", { name: "Continue", exact: true });
+    expect(submit).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Less than 3 years" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Stay invested and review the situation" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Moderate ups and downs for better returns" }));
+    expect(submit).toBeEnabled();
+    act(() => { fireEvent.click(submit); fireEvent.submit(submit.closest("form")!); });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith({ ...answers, horizonAnchorChoice: undefined });
+    await act(async () => { finish(); });
+  });
   it("keeps the active question when onboarding echoes its asynchronously saved initial answers", async () => {
     const { result, rerender } = renderHook(({ initial }) => useKaiPreferencesWizard({ mode: "onboarding",
       initialAnswers: initial, onComplete: vi.fn() }), { initialProps: { initial: { ...answers, investment_horizon: "short_term" as "short_term" | "long_term" } } });

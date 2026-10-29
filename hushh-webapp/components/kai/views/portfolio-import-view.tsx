@@ -11,6 +11,7 @@ import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
+import finance from "@/components/kai/shared/finance-workspace.module.css";
 
 const PlaidIcon = ({ className, ...props }: React.SVGProps<SVGSVGElement>) => (
   <svg
@@ -160,18 +161,19 @@ export function PortfolioImportView({
           testId="portfolio-import-source-options"
         >
         <SettingsRow
+          className={finance.bankEntry}
           icon={PlaidIcon as any}
           iconTone="blue"
           title={
             plaidConfigured
               ? isConnectingPlaid
                 ? "Opening Plaid connection"
-                : "Bank account (via Plaid)"
+                : "Connect a bank or brokerage"
               : "Bank connection unavailable"
           }
           description={
             plaidConfigured
-              ? "Read-only account sync"
+              ? "Read-only sync via Plaid"
               : "Use a statement instead"
           }
           onClick={handleConnectPlaid}
@@ -212,9 +214,9 @@ export function PortfolioImportView({
             title={
               isPreloadingSchema
                 ? "Loading sample brokerage"
-                : "Load sample brokerage"
+                : "Try a sample portfolio"
             }
-            description="Explore Finance with sample holdings"
+            description="Explore with demo holdings"
             onClick={handlePreloadSchema}
             disabled={isBusy}
             chevron={!isPreloadingSchema}

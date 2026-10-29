@@ -85,9 +85,9 @@
 .concentrationRing { position: relative; isolation: isolate; border-radius: 50%; background: conic-gradient(var(--app-accent-deep) var(--holding-share), var(--muted) 0); }
 .concentrationRing::before { content: ""; position: absolute; inset: 7px; border-radius: inherit; background: var(--app-card-surface-default-solid); z-index: -1; }
 .concentrationRing strong, .concentrationValue strong { display: block; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
-.concentrationRing > span > span, .concentrationValue > span > span { display: block; color: var(--muted-foreground); font-size: 11px; line-height: 16px; }
+.concentrationRing > span > span, .concentrationValue > span > span { display: block; color: var(--muted-foreground); font-size: 12px; line-height: 18px; }
 .concentrationLabel { min-width: 0; }
-.insightEyebrow { font-size: 11px; line-height: 17px; color: var(--muted-foreground); }
+.insightEyebrow { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .insightHoldingName { margin-block: 5px 3px; font-size: 14px; line-height: 20px; font-weight: 550; overflow-wrap: anywhere; }
 .insightFacts { margin: 0; }
 .insightFacts > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 12px; border-top: 1px solid var(--border); font-size: 12px; line-height: 18px; }
@@ -105,3 +105,6 @@
   .insightShell .insightCard { flex: 1; height: auto; }
   .insightCard > .cardFooter { margin-block-start: auto; }
 }
+
+.importEntry { background: var(--app-accent-surface) !important; border-color: var(--app-accent-border) !important; }
+.bankEntry { background: var(--app-accent-surface); border-radius: var(--app-input-radius); }
