@@ -120,7 +120,7 @@ function SummarySession({ personRef, ownerName, refreshKey, onConnect, onUnlock,
       {value.packets.map(packet => <SettingsRow key={packet.packetId}
         icon={PACKET_TONE_ICONS[packet.availability === "ready" ? "ready" : "waiting"]} iconTone="capability"
         title={periodLabel({ start: packet.periodStart, end: packet.periodEnd }) ?? packet.title}
-        description={`${financialSummaryCount(packet)} · ${labels[packet.viewerAction]}`} textOverflow="wrap" chevron
+        description={`${financialSummaryCount(packet)} · ${packet.viewerAction === "request" ? "Request" : labels[packet.viewerAction]}`} textOverflow="wrap" chevron
         trailing={<span className="shrink-0 whitespace-nowrap text-right tabular-nums">$5 <span className="block text-xs text-muted-foreground">one-time</span></span>}
         onClick={() => {
           opener.remember(); setOpened(packet);
