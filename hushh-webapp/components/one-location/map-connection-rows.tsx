@@ -102,6 +102,6 @@ export function MapSharingPersonRow({ person, hasPin, compact, onOpen }: {
     <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]" aria-hidden="true" />
     <span data-location-type-role="row-title" className="min-w-0 flex-1 truncate">{person.label}</span>
     {!compact && hasPin ? <span data-location-type-role="helper" className="shrink-0 text-[11px] font-medium text-muted-foreground" aria-hidden="true">On your map</span> : null}
-    {person.userId ? <PersonProfileButton userId={person.userId} label={person.label} className="grid size-11 shrink-0 place-items-center rounded-full text-muted-foreground"><User className="size-4" aria-hidden="true" /></PersonProfileButton> : null}
+    {person.userId ? <PersonProfileButton userId={person.userId} label={person.label} className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground"><User className="size-4" aria-hidden="true" /></PersonProfileButton> : null}
   </PersonSelectionSurface>;
 }
