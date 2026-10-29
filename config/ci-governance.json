@@ -149,8 +149,7 @@
       "anoushkauoc",
       "Roopmann30",
       "imsharukhan"
-    ],
-    "automatic_release_workflow": "release-cadence.yml"
+    ]
   },
   "production": {
     "required_post_merge_check": "Main Post-Merge Smoke Gate",
@@ -166,7 +165,6 @@
       "DamriaNeelesh",
       "imsharukhan"
     ],
-    "owner_environment": "production",
-    "automatic_release_workflow": "release-cadence.yml"
+    "owner_environment": "production"
   }
 }

@@ -94,12 +94,12 @@ class CheckpointMonitoringTest(unittest.TestCase):
                 checkpoint.unlink()
                 self.assertFalse(monitor.checkpoint_healthy(REPOSITORY, policy, state, False))
 
-    def test_workflow_uploads_existing_recovery_checkpoint_even_after_failure(self):
-        workflow = (Path(__file__).parents[2] / ".github/workflows/release-cadence.yml").read_text()
-        self.assertIn("if: always() && steps.checkpoint-presence.outcome == 'success' && "
-                      "steps.checkpoint-presence.outputs.present == 'true'", workflow)
-        self.assertIn("if-no-files-found: error", workflow)
-        self.assertIn("CHECKPOINT_PRESENCE_OUTCOME: ${{ steps.checkpoint-presence.outcome }}", workflow)
+    def test_retired_workflow_has_no_active_accounting_producer(self):
+        root = Path(__file__).parents[2]
+        self.assertFalse((root / ".github/workflows/release-cadence.yml").exists())
+        policy = json.loads((root / "config/ci-governance.json").read_text())
+        for surface in ("uat", "production"):
+            self.assertNotIn("automatic_release_workflow", policy[surface])
 
 
 if __name__ == "__main__":
