@@ -113,6 +113,7 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
 
     vertex = managed.build_managed_text_model(scope="one_text_chat", require_current=AsyncMock())
     assert vertex.model == native.model and vertex.allow_fallback is False
+    assert vertex.primary_seconds == 30
     sessions = InMemorySessionService()
     session = await sessions.create_session(
         app_name="provider_switch", user_id="synthetic", session_id="conversation"

@@ -41,6 +41,21 @@ _REASONS = {
         ValueError,
         ("Root structured, media or streaming round trip failed",),
     ): "root.roundtrip_failed",
+    (
+        "public_search",
+        ValueError,
+        ("The actual Search child returned no received citations",),
+    ): "search.no_citations",
+    (
+        "compact_public_search",
+        ValueError,
+        ("The actual Search child returned no received citations",),
+    ): "search.no_citations",
+    (
+        "compact_public_search",
+        ValueError,
+        ("Compact Search failed a requested synthetic public fact",),
+    ): "search.fact_mismatch",
 }
 FAILURE_REASONS = frozenset({"unlisted", *_REASONS.values()})
 

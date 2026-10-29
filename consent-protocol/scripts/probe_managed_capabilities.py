@@ -10,6 +10,7 @@ import asyncio
 import base64
 import io
 import json
+import re
 import secrets
 import time
 import wave
@@ -86,6 +87,7 @@ async def _probe_public_search(*, compact: bool = False):
     # provider/tool pairing while this readiness probe stayed green.
     root = build_one_text_agent()
     agent = _synthetic_public_search_agent(root, compact=compact)
+    native_compact = compact and getattr(agent.model, "primary_provider", None) == "vertex"
 
     async def observe(callback_context, llm_response):
         if not llm_response.partial and llm_response.grounding_metadata:
@@ -102,7 +104,13 @@ async def _probe_public_search(*, compact: bool = False):
         user_id="synthetic-public-reader",
         consent_token="",
         message=(
-            "Search IANA's example domains documentation. Name both example.net and example.org, "
+            "Search IANA's official public documentation about example.com, example.net and "
+            "example.org. Are example.net and example.org available for registration? "
+            "Put only registration_available=true or registration_available=false on the first line. "
+            "On subsequent lines give a short cited explanation naming both domains. "
+            "Do not use JSON."
+            if native_compact
+            else "Search IANA's example domains documentation. Name both example.net and example.org, "
             "state whether they are available for registration, and cite IANA. "
             "Return one JSON object with domains (an array of those two names), "
             "registration_available (a boolean), and explanation (a short string with the citation). "
@@ -119,9 +127,27 @@ async def _probe_public_search(*, compact: bool = False):
         raise ValueError("The actual Search child returned no received citations")
     proof = {"cited_sources": len(set(received)), "fresh_page_retrieval_claimed": False}
     if compact:
+        _verify_compact_search_fact(result.final_text, native=native_compact)
+        proof["synthetic_content_verified"] = True
+    return proof
+
+
+def _verify_compact_search_fact(text: str, *, native: bool) -> None:
+    if native:
+        # Native Search publishes cited text. A fixed answer field retains the
+        # same known-fact negative control without demanding a JSON response.
+        answer, _, explanation = text.strip().partition("\n")
+        domains = set(re.findall(r"(?<![\w.-])example\.(?:net|org)(?![\w-]|\.[\w-])", explanation))
+        valid = answer == "registration_available=false" and domains == {
+            "example.net",
+            "example.org",
+        }
+        if not valid:
+            raise ValueError("Compact Search failed a requested synthetic public fact")
+    else:
         # This is a fixed public known-answer evaluation, never product routing.
         # Mentioning both entities alone must not admit the opposite factual answer.
-        answer = json.loads(result.final_text)
+        answer = json.loads(text)
         if (
             not isinstance(answer, dict)
             or set(answer) != {"domains", "registration_available", "explanation"}
@@ -135,8 +161,6 @@ async def _probe_public_search(*, compact: bool = False):
             or not answer["explanation"].strip()
         ):
             raise ValueError("Compact Search failed a requested synthetic public fact")
-        proof["synthetic_content_verified"] = True
-    return proof
 
 
 async def probe_managed_capabilities(provider: str, *, deadline: float | None = None) -> dict:

@@ -164,7 +164,17 @@ async def probe_one_text_root() -> dict:
             LlmRequest(model=model.model, contents=contents, config=config), stream=True
         )
     ]
-    final = next((r for r in reversed(chunks) if not r.partial and r.turn_complete), None)
+    final = next(
+        (
+            r
+            for r in reversed(chunks)
+            if r.partial is not True
+            and not r.error_code
+            and r.interrupted is not True
+            and r.finish_reason == types.FinishReason.STOP
+        ),
+        None,
+    )
     deltas = "".join(
         p.text or ""
         for r in chunks
