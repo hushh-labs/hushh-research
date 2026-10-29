@@ -617,7 +617,7 @@ The canonical blocker for that broader surface is:
 1. [scripts/ci/pkm-upgrade-gate.sh](../../../scripts/ci/pkm-upgrade-gate.sh)
 2. [scripts/ci/resolve-uat-verification-plan.py](../../../scripts/ci/resolve-uat-verification-plan.py) is the single changed-SHA selector used by PR, queue, post-merge, dev and UAT lanes
 3. `integration-check.sh` runs the PKM gate only when that selector finds a PKM upgrade, stored-shape, migration, or fixture change; selector-policy changes are covered by always-on classifier contract tests. Ordinary UI, consent, MCP, RIA, and provider changes keep their own focused checks without repeating the PKM cycle
-4. a missing or unproven comparison base fails closed to the deterministic PKM/reviewer plan, never to implicit paid model calls
+4. a missing or unproven comparison base fails closed to the deterministic PKM/reviewer plan, never to implicit paid model calls; UAT treats a serving SHA as proven only once its exact-SHA UAT acceptance covers that service, so a candidate still serving after its acceptance failed is unproven (Dev does not apply this check yet)
 5. when `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` is set for a selected PKM release, the same gate also runs the live Playwright investor / RIA / PKM audits against that runtime
 
 Every selected plan is written as a `*-verification-plan` workflow artifact and
