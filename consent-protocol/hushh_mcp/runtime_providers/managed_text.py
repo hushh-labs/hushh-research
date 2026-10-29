@@ -318,7 +318,9 @@ def build_managed_text_model(
         # The outer first-output budget is independent of the SDK's read-idle
         # budget after output starts. Never kill a healthy stream at 10 seconds.
         timeout_seconds=60 if chat else 30,
-        primary_seconds=10 if chat else 30,
+        # Native Gemini may complete a unary tool-selection call before its
+        # first event; give it the same bounded window as native Search.
+        primary_seconds=10 if azure_chat else 30,
         fallback_seconds=8 if chat else 20,
         default_reasoning_effort="minimal" if chat else None,
     )
