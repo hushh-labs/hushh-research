@@ -3034,6 +3034,24 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testNativeBottomScrollMovesTheStandardReleaseTabBarWithoutACompositor() {
+        let tabBar = UITabBar(frame: CGRect(x: 0, y: 760, width: 390, height: 84))
+        XCTAssertTrue(HushhNativeNavigationScrollSurface.apply(offset: 52, navigationOffset: 86,
+            compositor: nil, tabBar: tabBar))
+        XCTAssertEqual(tabBar.transform.ty, 86, accuracy: 0.001)
+
+        XCTAssertFalse(HushhNativeNavigationScrollSurface.apply(offset: 0, navigationOffset: 161,
+            compositor: nil, tabBar: tabBar), "Out-of-range scroll cannot move native navigation")
+        XCTAssertEqual(tabBar.transform.ty, 86, accuracy: 0.001)
+        XCTAssertFalse(HushhNativeNavigationScrollSurface.apply(offset: 10, navigationOffset: 10,
+            compositor: nil, tabBar: nil), "A missing native surface cannot acknowledge scroll")
+
+        XCTAssertTrue(HushhNativeNavigationScrollSurface.apply(offset: 0, navigationOffset: 0,
+            compositor: nil, tabBar: tabBar), "Authoritative settlement restores the resting position")
+        XCTAssertTrue(tabBar.transform.isIdentity)
+    }
+
+    @MainActor
     func testDockFollowsKeyboardLayoutWithoutAnotherApplyAndVoiceReleasesTheLift() {
         let parent = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let window = UIWindow(frame: parent.bounds)

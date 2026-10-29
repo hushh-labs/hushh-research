@@ -783,7 +783,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
 
 /// Observes a native press without consuming it or moving its target. The
 /// complete touch lifetime quarantines scroll updates, not normal actions.
-private final class NativeBottomChromePressObserver: UIGestureRecognizer {
+final class NativeBottomChromePressObserver: UIGestureRecognizer {
     private let changed: (Bool) -> Void
     private var held = false
     private var touches = Set<UITouch>()

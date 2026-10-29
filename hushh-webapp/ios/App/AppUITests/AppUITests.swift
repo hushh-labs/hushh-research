@@ -2182,10 +2182,13 @@ final class AppUITests: XCTestCase {
             if close.exists && close.isHittable { close.tap() }
         }
         perfTapNav(app, label: "Chat")
-        let editor = app.textViews["native-dock-editor"].firstMatch
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        let nativeEditor = app.textViews["native-dock-editor"].firstMatch
+        let nativeDockActive = nativeEditor.exists
+        let editor = nativeDockActive ? nativeEditor : web.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
         guard waitForAdmittedControl(editor) else { XCTFail("NATIVE_BOTTOM_SCROLL_CHAT_NOT_ADMITTED"); return }
         let initialDraft = editor.value as? String // Process-only, never an artifact.
-        let web = app.webViews.matching(identifier: "native-webview").firstMatch
         let webFrame = web.frame
         var returnedToChat = false
         // Register recovery before the first route change. Feed admission can
@@ -2209,17 +2212,30 @@ final class AppUITests: XCTestCase {
         // Voice readiness can replace the idle label while retaining the same
         // dock. This check measures its geometry, not provider availability.
         let voiceLabel = NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@ OR label BEGINSWITH %@", "Talk to One", "Checking voice connection", "Voice unavailable")
-        let dock = app.buttons.matching(voiceLabel).firstMatch
+        let dock = nativeDockActive
+            ? app.buttons.matching(voiceLabel).firstMatch
+            : web.buttons.matching(voiceLabel).firstMatch
         let barReady = waitForAdmittedControl(bar)
-        let dockReady = waitForAdmittedControl(dock)
+        // A visible “Voice unavailable” dock is intentionally disabled; this
+        // regression measures its placement, so require presence and hit-area
+        // exposure without requiring an enabled voice action.
+        let dockVisible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            dock.exists && dock.isHittable
+        }, object: dock)
+        let dockReady = XCTWaiter.wait(for: [dockVisible], timeout: 10) == .completed
         guard barReady, dockReady else {
             print("NATIVE_BOTTOM_SCROLL_ADMISSION bar_exists=\(bar.exists) bar_hittable=\(bar.exists && bar.isHittable) dock_exists=\(dock.exists) dock_hittable=\(dock.exists && dock.isHittable)")
             reportNativeDockAdmission(app)
             XCTFail("NATIVE_BOTTOM_SCROLL_FEED_NOT_ADMITTED"); return
         }
         let webDock = app.webViews.buttons.matching(voiceLabel).firstMatch
-        guard !webDock.exists || !webDock.isHittable else {
-            XCTFail("NATIVE_BOTTOM_SCROLL_WEB_DOCK_INTERACTIVE"); return
+        if nativeDockActive {
+            guard !webDock.exists || !webDock.isHittable else {
+                XCTFail("NATIVE_BOTTOM_SCROLL_WEB_DOCK_INTERACTIVE"); return
+            }
+        } else {
+            XCTAssertTrue(webDock.exists && webDock.isHittable,
+                "The ordinary renderer must keep its single React dock interactive")
         }
         let layout = app.buttons["native-vault-layout"].firstMatch
         if layout.exists {
@@ -2256,10 +2272,10 @@ final class AppUITests: XCTestCase {
                 reportNativeDockAdmission(app)
                 XCTFail("NATIVE_BOTTOM_SCROLL_DID_NOT_CLEAR_VIEWPORT"); return
             }
-            XCTAssertGreaterThan(dock.frame.minY, dockBaseline + 6,
-                "NATIVE_BOTTOM_SCROLL_DOCK_DID_NOT_FOLLOW")
-            XCTAssertLessThan(dock.frame.maxY, app.frame.maxY - 1,
-                "NATIVE_BOTTOM_SCROLL_DOCK_CLIPPED_BY_VIEWPORT")
+            let dockTravel = dock.frame.minY - dockBaseline
+            XCTAssertGreaterThan(dockTravel, 6, "NATIVE_BOTTOM_SCROLL_DOCK_DID_NOT_FOLLOW")
+            XCTAssertLessThanOrEqual(dockTravel, 160,
+                "NATIVE_BOTTOM_SCROLL_DOCK_EXCEEDED_THE_SHARED_TRAVEL_BOUND")
             XCTAssertEqual(web.frame, webFrame, "NATIVE_BOTTOM_SCROLL_RESIZED_WEBVIEW")
             // Touch-tracking freeze has native unit coverage. Do not combine
             // a selection (which deliberately snaps the chrome) with reversal.
@@ -2282,7 +2298,7 @@ final class AppUITests: XCTestCase {
         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
         XCTAssertFalse(web.buttons["Unlock"].exists)
         returnedToChat = true
-        print("NATIVE_BOTTOM_SCROLL_CONTINUITY cycles=3 pair=true keyboard=true draft=true single_host=true")
+        print("NATIVE_BOTTOM_SCROLL_CONTINUITY cycles=3 native_dock=\(nativeDockActive) keyboard=true draft=true single_host=true")
     }
 
     func testLocalSessionNativeBackRetiresUnderProfileAndReturnsToOne() throws {

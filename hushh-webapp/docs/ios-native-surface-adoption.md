@@ -76,7 +76,7 @@ experience](https://github.com/hushh-labs/hushh-research/issues/7824).
 
 | Surface | Current boundary | Evidence and next step |
 | --- | --- | --- |
-| Bottom navigation | UIKit `UITabBar`; existing navigation owner retains route selection | Native on supported iOS. Verify scroll, keyboard and overlay behavior on the exact candidate. |
+| Bottom navigation | UIKit `UITabBar`; existing navigation owner retains route selection | On iOS 26+ phones, follows the shared scroll-progress owner in both the standard Capacitor host and the optional native compositor. Keyboard, privacy and overlays still pause movement. Verify the exact Release candidate for visual and physical acceptance. |
 | Chat, Agent Dock and History | React owns drafts, voice, actions and routes; the qualification shell supplies retained native presentation | Earlier warm journeys are historical evidence. Complete overlapping drawer and editor qualification before enabling by default. |
 | Profile and nested settings | Typed native scenes where admitted; existing React feature owners and fallback elsewhere | Earlier read-only journeys covered several entries, not full-family acceptance. Verify every destination and its nested states on the candidate. |
 | Wallet, menus and sheets | Existing feature owners; bounded native presentations where capability and ownership are admitted | Local `fced42dbbc` includes focused Wallet sharing and early workspace-choice regressions. Payment mutations and the combined candidate remain unqualified on device. Rich or unsupported content retains its complete React handoff. |
