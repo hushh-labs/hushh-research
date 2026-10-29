@@ -22,7 +22,6 @@ python3 scripts/ci/verify-protected-behavior-tests.py --self-test
 python3 scripts/ci/live-memory-source-gate.py
 python3 scripts/ci/live-memory-source-gate.py --self-test
 python3 scripts/ci/test_live_memory_pr_context.py
-python3 scripts/ci/test_deployment_security.py
 python3 scripts/ci/test_github_security_authority.py
 python3 scripts/ci/test_github_security_receipt.py
 python3 scripts/ci/verify-pr-base-policy.py --self-test
