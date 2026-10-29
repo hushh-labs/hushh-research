@@ -54,7 +54,8 @@ export function AdaptiveWalletCardForm({ open, ownerId, onReturnFocus, ...props 
     title="Add card" headerTextOverflow="wrap" desktopMaxWidth="560px" desktopMaxWidthClassName="sm:!max-w-[560px]"
     surfaceClassName={`${workspaceStyles.addPanel} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} bodyClassName={workspaceStyles.addBody}
     onCloseAutoFocus={event => { event.preventDefault(); onReturnFocus(); }} footer={<div ref={setFooter} className={workspaceStyles.addFooter} />}>
-    <SecureCardAddFormView {...props} active={open} owner={form} footerHost={footer} />
+    {/* Keep the panel's exit and focus lifecycle, but retire protected fields as soon as it closes. */}
+    {open ? <SecureCardAddFormView {...props} active={open} owner={form} footerHost={footer} /> : null}
   </SettingsDetailPanel>;
 }
 

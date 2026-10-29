@@ -532,7 +532,7 @@ for (const width of [320, 1440]) {
     await form.getByLabel("Name on card", { exact: true }).fill("SYNTHETIC SAVE REVIEW");
     await form.getByLabel("Expiry (MM/YY)", { exact: true }).fill("12/30");
     await page.getByTestId("secure-card-save").click();
-    await expect(form).toBeHidden({ timeout: 1000 });
+    await expect(form).toHaveCount(0, { timeout: 1000 });
     const pending = page.getByTestId("wallet-pending-save");
     await expect(pending).toContainText("Saving card…");
     await expect(pending.locator("button")).toHaveCount(0);
