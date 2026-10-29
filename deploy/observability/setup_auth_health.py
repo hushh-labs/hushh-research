@@ -33,7 +33,7 @@ def _transport(project: str, *, build_only: bool = False):
     import requests
     from google.auth.transport.requests import AuthorizedSession, Request
 
-    credentials, _ = google.auth.default()
+    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
     credentials.refresh(Request())
     expected = ("github-actions-uat-deployer@hushh-pda-uat.iam.gserviceaccount.com"
                 if build_only and project == "hushh-pda-uat" else "kushal@hushh.ai")

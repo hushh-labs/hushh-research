@@ -539,7 +539,10 @@ def test_shared_files_pilot_bindings_do_not_enable_existing_or_other_lane_revisi
         "HUSSH_SHARED_FILES_BUCKET=HUSSH_SHARED_FILES_BUCKET",
     ]
     expected = {
-        "dev": [*shared_files, "EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY"],
+        "dev": [
+            *shared_files,
+            "EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY",
+        ],
         "uat": shared_files,
         "production": [],
     }
