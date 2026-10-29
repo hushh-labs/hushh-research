@@ -206,7 +206,7 @@ function OwnerRuntimeConfigurationPage({
             ? "one_setup_connections"
             : "one_connections_settings",
           title: setupMode ? "AI access setup" : "AI settings",
-          purpose: "Choose and verify the private agent’s AI connection.",
+          purpose: "Choose and verify Agent One’s AI connection.",
           actions:
             setupMode && canContinue && !finishing
               ? [

@@ -81,6 +81,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable : Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        if ["location_share_revoked", "location_share_expired"].contains(userInfo["type"] as? String ?? ""),
+           let user = userInfo["user_id"] as? String, let grant = userInfo["grant_id"] as? String,
+           ChatPreviewKeys.recipientKey(userInfo) != nil {
+            try? SmsAlarmLedger.markEnded(user: user, grant: grant)
+        }
         if ["direct_message_read", "location_circle_chat_read"].contains(userInfo["type"] as? String ?? "") {
             let bridgeCompletion: (UIBackgroundFetchResult) -> Void = { _ in }
             NotificationCenter.default.post(name: Notification.Name("didReceiveRemoteNotification"), object: bridgeCompletion, userInfo: userInfo)

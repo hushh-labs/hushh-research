@@ -394,11 +394,11 @@ export function useGeminiRuntimeSettingsModel({
       // started (audit finding, 2026-08-21). "host already ..." is the one
       // positive not-scheduled state: the agent exists or is mid-build.
       const agentLine = selection.agentScheduled
-        ? "Your private agent is being built."
+        ? "Agent One is being built."
         : selection.agentReason.startsWith("host already")
-          ? "Your private agent is already set up."
+          ? "Agent One is already set up."
           : selection.agentReason
-            ? `Your private agent was not started: ${selection.agentReason}.`
+            ? `Agent One was not started: ${selection.agentReason}.`
             : "";
       // Keep the full outcome on the screen: toast descriptions are clamped and
       // disappear. This preserves the agent-start explanation without exceeding
@@ -437,7 +437,7 @@ export function useGeminiRuntimeSettingsModel({
           : cloudRefusal
           ? cloudRefusal
           : error instanceof Error && error.message === "AGENT_UNREACHABLE"
-          ? "Your private agent could not be reached. Try again."
+          ? "Agent One could not be reached. Try again."
           : error instanceof Error && error.message === "PKM_CONFLICT"
             ? "This setting changed on another device. Refresh and try again."
             : error instanceof Error &&
@@ -595,7 +595,7 @@ export function useGeminiRuntimeSettingsModel({
           vertexLocation: transport === "vertex_api_key" ? vertexLocation.trim() : null });
         if (!ownerIsCurrent()) return false;
         if (!outcome.ok) {
-          setCredentialValidation({ status: "error", message: aiSelectionRefusalMessage(outcome.code, "Gemini") ?? "Your private agent could not check this connection." });
+          setCredentialValidation({ status: "error", message: aiSelectionRefusalMessage(outcome.code, "Gemini") ?? "Agent One could not check this connection." });
           return false;
         }
         agentAccepted = true;

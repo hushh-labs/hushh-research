@@ -24,7 +24,7 @@ Platform = Literal["web", "ios", "android"]
 
 
 def _device_fields(body: dict) -> dict:
-    fields = {}
+    fields: dict[str, str | int] = {}
     for key in ("device_id", "preview_key_id"):
         if body.get(key) is not None:
             try:
@@ -52,6 +52,19 @@ def _device_fields(body: dict) -> dict:
         except (ValueError, TypeError):
             raise HTTPException(400, "Invalid notification preview key") from None
         fields["preview_public_key"] = public
+    alarm_version = body.get("sms_alarm_version", 0)
+    if type(alarm_version) is not int or alarm_version not in (0, 1):
+        raise HTTPException(400, "Invalid SMS alarm capability")
+    if alarm_version:
+        if (
+            body.get("platform", "web") != "android"
+            or not fields.get("device_id")
+            or not fields.get("preview_key_id")
+        ):
+            raise HTTPException(
+                400, "SMS alarm capability requires an Android installation identity"
+            )
+        fields["sms_alarm_version"] = alarm_version
     return fields
 
 

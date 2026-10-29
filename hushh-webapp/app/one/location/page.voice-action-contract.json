@@ -22,7 +22,7 @@
     {
       "action_id": "location.review_notifications",
       "label": "Check Location notification settings",
-      "meaning": "Review Location alerts.",
+      "meaning": "Review Location alerts and explicitly allow persistent SMS alarms on supported iOS devices.",
       "aliases": ["location notifications", "SMS alert sound", "Save My Soul notifications"],
       "search_keywords": ["notifications", "sound", "alerts", "SMS", "push"],
       "reachability": {"routes": ["/one/location"], "screens": ["one_location"], "hidden_navigable": false, "navigation_prerequisites": []},
@@ -33,7 +33,7 @@
       "siri_requires_vault": false,
       "execution_target": {"status": "wired", "path": "route", "target": "/one/location?action=settings"},
       "control_ids": ["one-location-notification-recovery"],
-      "state_exposure": ["device notification registration", "device alert and sound settings"]
+      "state_exposure": ["device notification registration", "device alert and sound settings", "SMS system alarm permission"]
     },
     {
       "action_id": "location.open_now",

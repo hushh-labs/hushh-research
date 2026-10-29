@@ -133,7 +133,7 @@ const OUTCOME_LABELS: Record<string, string> = {
   unknown: "Checking the outcome",
   succeeded: "Shared",
   preexisting: "Access already existed",
-  present_unattributed: "Access exists outside your private agent",
+  present_unattributed: "Access exists outside Agent One",
   rejected: "Could not share",
   not_dispatched: "Not shared",
   needs_review: "Review needed",
@@ -174,7 +174,7 @@ const STAGE_LABELS: Record<PrepareStage, string> = {
   checking: "Checking coverage…",
 };
 const TRUST_DESCRIPTION =
-  "Your private agent shares any Drive file they request, including future files, without asking. This can happen while you’re away if background preparation is on. You can stop future sharing anytime.";
+  "Agent One shares any Drive file they request, including future files, without asking. This can happen while you’re away if background preparation is on. You can stop future sharing anytime.";
 const CHECKBOX_CLASS = "size-5 border-2 border-foreground/40";
 // A decision-grade success action needs a darker fill so white label text stays
 // legible in both colour schemes. The general success token is intentionally
@@ -1634,7 +1634,7 @@ function UnlockedDocumentReview({
           periodEnd={review.purpose.periodEnd}
           periodNote={ownerPeriodNote}
           paymentRequired={review.paymentRequired === true}
-          description={review.paymentRequired ? "Allow this exact package at your chosen price. Files are shared after the requester pays." : "Allow your private agent to share this exact package."}
+          description={review.paymentRequired ? "Allow this exact package at your chosen price. Files are shared after the requester pays." : "Allow Agent One to share this exact package."}
           oneCopyRequested={review.oneCopyRequested === true}
           estimateCents={review.estimateCents ?? null}
           initialAmountCents={agentPackage.suggestedPriceCents ?? review.priceCents ?? null}

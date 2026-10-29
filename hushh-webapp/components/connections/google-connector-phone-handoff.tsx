@@ -14,7 +14,7 @@ export function GoogleConnectorPhoneHandoff({ handoff }: { handoff: PhoneHandoff
       viewBox={`0 0 ${matrix.size + 8} ${matrix.size + 8}`} shapeRendering="crispEdges">
       <rect width="100%" height="100%" fill="white" /><path d={path} fill="black" />
     </svg>
-    <p className="text-sm text-muted-foreground">Scan with your phone, then sign in and unlock the Hussh app. Your phone connects to your own private agent.</p>
+    <p className="text-sm text-muted-foreground">Scan with your phone, then sign in and unlock the Hussh app. Your phone connects to your own Agent One.</p>
     <a className="flex min-h-11 items-center justify-center text-sm underline" href={handoff.deepLink}>Open in the Hussh app</a>
   </div>;
 }
