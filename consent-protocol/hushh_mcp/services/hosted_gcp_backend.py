@@ -158,6 +158,16 @@ class HostedGcpBackend(UserGcpBackend):
             raise HostedTierNotPermittedError(
                 "Managed update requires its owner-approved update lease"
             )
+        if spec.files_upgrade_plan is not None:
+            # Refuse before image copy, handoff or credentials, not only at the
+            # first Files resource write.
+            if spec.hosted_admission_guard is not self._authority:
+                raise HostedTierNotPermittedError(
+                    "Managed Files authority differs from its backend"
+                )
+            from hushh_mcp.services.pod_files.managed_worker import upgrade_thread
+
+            await upgrade_thread(spec, self._authority.require_files_work)
         return await super().upgrade(spec)
 
     async def deprovision(self, external_agent_id: str) -> None:

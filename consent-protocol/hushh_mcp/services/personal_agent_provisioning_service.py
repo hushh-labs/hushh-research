@@ -1596,6 +1596,8 @@ class PersonalAgentProvisioningService:
         from hushh_mcp.services.pod_update_capabilities import (
             admit_capabilities,
             approved_update_browser_qualification,
+            await_update_publication,
+            retain_late_update,
         )
 
         files_capability, browser_capability = await admit_capabilities(
@@ -1653,6 +1655,13 @@ class PersonalAgentProvisioningService:
         if resume_files_queue_operation is not None:
             if held is None or set_by_newer_hub(row) or current_image != spec.upgrade_target_image:
                 raise ValueError("Files continuation requires its current held operation")
+            if row.get("deployment_target") == "gcp":
+                from hushh_mcp.services.pod_files.capability_contract import hosted_schema_ready
+
+                if not await hosted_schema_ready(self._registry):
+                    raise PersonalAgentUpgradeUnsupportedError(
+                        "Managed Files recovery schema is not ready"
+                    )
             from hushh_mcp.services.pod_files.queue_recovery import claim_queue_retry
 
             row, prefix = await claim_queue_retry(
@@ -1871,9 +1880,9 @@ class PersonalAgentProvisioningService:
                 )
 
             async def retain_files(checkpoint: dict) -> None:
-                retain = getattr(self._registry, "retain_erasure_files_upgrade_observation", None)
-                if retain is not None:
-                    await retain(user_id=user_id, lease=lease, observation=checkpoint)
+                await retain_late_update(
+                    self._registry, spec, user_id, lease, checkpoint, files=True
+                )
 
             spec = replace(
                 spec,
@@ -1882,6 +1891,7 @@ class PersonalAgentProvisioningService:
                     owner_loop=owner_loop,
                     publish=publish_files,
                     retain_late=retain_files,
+                    join_on_timeout=spec.deployment_target == "gcp",
                 ),
             )
 
@@ -1912,8 +1922,7 @@ class PersonalAgentProvisioningService:
                     retain_lease=True,
                 )
 
-            future = asyncio.run_coroutine_threadsafe(persist(), owner_loop)
-            future.result(timeout=30)
+            await_update_publication(persist(), owner_loop, spec)
 
         if approval_operation_id:
             spec = replace(spec, on_upgrade_idle=persist_handoff_idle)
@@ -1955,15 +1964,13 @@ class PersonalAgentProvisioningService:
                     )
                     persisted_acknowledgement = dict(bound)
                 except RuntimeError:
-                    retain = getattr(self._registry, "retain_erasure_upgrade_ack", None)
-                    if retain is not None and await retain(
-                        user_id=user_id, lease=lease, receipt=bound
+                    if await retain_late_update(
+                        self._registry, spec, user_id, lease, bound, files=False
                     ):
                         raise RuntimeError("upgrade acknowledgement retained for erasure") from None
                     raise
 
-            future = asyncio.run_coroutine_threadsafe(persist(), owner_loop)
-            future.result(timeout=30)
+            await_update_publication(persist(), owner_loop, spec)
 
         spec = replace(spec, on_upgrade_ack=persist_acknowledgement)
         old_meta = dict(row.get("backend_metadata") or {})

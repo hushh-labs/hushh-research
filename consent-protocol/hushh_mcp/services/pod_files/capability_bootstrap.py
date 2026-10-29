@@ -159,6 +159,50 @@ class FilesCapabilityBootstrap(UserGcpBootstrap):
         raise BootstrapError("Files queue permissions are not effective yet")
 
 
+def _hosted_files_guard(
+    capability: FilesCapabilityPlan, spec: PodSpec, *, bootstrap_sa: str, service_name: str
+) -> Callable[[], None] | None:
+    """Bind each Files resource write to the current approved hosted update."""
+    authority = spec.hosted_admission_guard
+    deployment = spec.private_gcp_deployment
+    if spec.deployment_target != "gcp":
+        if authority is not None or deployment is not None:
+            raise ValueError("Files authority does not match its pod hosting mode")
+        return None
+
+    from hushh_mcp.services.gcp_backend import _service_name
+    from hushh_mcp.services.hosted_gcp_authority import HostedGcpAuthority
+
+    if (
+        not isinstance(authority, HostedGcpAuthority)
+        or not authority.execute
+        or authority.operation != "upgrade"
+        or deployment is None
+        or authority.deployment != deployment
+        or authority.operation_id != spec.upgrade_operation_id
+        or not spec.upgrade_operation_id
+        or not spec.upgrade_attempt_id
+        or not callable(spec.on_files_upgrade_checkpoint)
+        or spec.files_upgrade_plan != capability.model_dump()
+        or capability.targetImage != spec.upgrade_target_image
+        or capability.targetImage != authority.source_image
+        or capability.hushhId != deployment.owner
+        or capability.serviceUid != deployment.service_uid
+        or capability.project != deployment.project
+        or capability.region != deployment.region
+        or capability.runtimeAccount != deployment.runtime_principal
+        or capability.bootstrapAccount != authority.bootstrap_sa
+        or bootstrap_sa != authority.bootstrap_sa
+        or capability.service != _service_name(deployment.owner)
+        or service_name != capability.service
+    ):
+        raise ValueError("Files activation needs its approved hosted update authority")
+    deployment.require_hosted_spec(spec)
+    authority.validate_execution()
+    authority.require_files_work()
+    return authority.require_files_work
+
+
 def apply_upgrade_configuration(
     capability: FilesCapabilityPlan,
     client: Any,
@@ -172,8 +216,18 @@ def apply_upgrade_configuration(
     """Apply the approved delta, checkpoint it, then re-observe before replacement."""
     from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
+    guard = _hosted_files_guard(
+        capability, spec, bootstrap_sa=bootstrap_sa, service_name=service_name
+    )
     token = mint_bootstrap_token(bootstrap_sa=bootstrap_sa)
-    bootstrap = FilesCapabilityBootstrap(capability=capability, token=token)
+    session = None
+    if guard is not None:
+        import requests
+
+        from hushh_mcp.services.hosted_project_gcp_operator import GuardedOperatorSession
+
+        session = GuardedOperatorSession(requests, guard)
+    bootstrap = FilesCapabilityBootstrap(capability=capability, token=token, session=session)
     bootstrap.apply_delta(
         checkpoint=spec.on_files_upgrade_checkpoint,
         completed_prefix=spec.files_upgrade_completed_steps,

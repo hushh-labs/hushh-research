@@ -70,7 +70,7 @@ def verified_capabilities(
         from hushh_mcp.services.pod_files.capability_update import FilesCapabilityPlan
 
         plan = FilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
-        plan.require_installed(service)
+        plan.require_installed(service, hosted=spec.private_gcp_deployment is not None)
         capability_metadata = {"filesCapability": {"planDigest": plan.digest, "status": "enabled"}}
     if spec.browser_upgrade_plan is not None:
         import json

@@ -29,6 +29,13 @@ class AzureOrganizationBinding:
         )
 
 
+def hosted_files_analysis_disabled() -> bool:
+    """The current managed-pod marker is reserved for the Dev pilot."""
+    from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV
+
+    return HOSTING_ENV in os.environ
+
+
 def organization_model_binding() -> ManagedGeminiRuntimeBinding | AzureOrganizationBinding:
     """Never infer queue ownership from the model's billing project.
 
@@ -36,6 +43,10 @@ def organization_model_binding() -> ManagedGeminiRuntimeBinding | AzureOrganizat
     capability plan. A generic Gemini project override does not authorize it.
     Credentials remain with the attached runtime identity and ADC.
     """
+    if hosted_files_analysis_disabled():
+        # This marker currently identifies managed Dev pods. Fail closed even
+        # if it is malformed or the model later becomes project-local.
+        raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)
     if workload_platform() == "azure":
         from hushh_mcp.runtime_providers.azure_openai import azure_openai_topology
 

@@ -174,6 +174,12 @@ async def update_settings(body: AnalysisSettings, owner: Owner):
     try:
         async with operation(mutation=True) as library:
             if body.analysis and body.automatic:
+                from hushh_mcp.services.pod_files.model_binding import (
+                    hosted_files_analysis_disabled,
+                )
+
+                if hosted_files_analysis_disabled():
+                    raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)
                 current = await library.settings()
                 # Withdrawing access must work even after provider loss. Keeping
                 # automatic analysis may only preserve or tighten an existing grant.
