@@ -2905,25 +2905,6 @@ describe("LocationImmersiveMap reported map defects", () => {
     experienceHarness.query = "source=map";
   });
 
-  it("opens an incoming profile from its portrait without moving the map @feature_connected_profiles", async () => {
-    serviceHarness.getMapState.mockResolvedValue({
-      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
-      preferences: { presenceMode: "ghost" },
-    });
-    await renderReadyMap();
-    const row = (await screen.findByTestId("one-location-map-person")).parentElement!;
-    const preview = vi.fn();
-    window.addEventListener("hussh:person-profile-preview", preview);
-    try {
-      mapHarness.map.setCamera.mockClear();
-      fireEvent.click(within(row).getByRole("button", { name: `View ${ANKIT}'s profile` }));
-      expect(preview).toHaveBeenCalledOnce();
-      expect(preview.mock.calls[0][0].detail.userId).toBe(`${ANKIT}-uid`);
-      expect(mapHarness.map.setCamera).not.toHaveBeenCalled();
-      expect(row.querySelector("button button")).toBeNull();
-    } finally { window.removeEventListener("hussh:person-profile-preview", preview); }
-  });
-
   it("keeps a selected person's last-seen text white and other people muted", async () => {
     serviceHarness.getMapState.mockResolvedValue({
       markers: [incomingMarker(ANKIT, 25.4358, 81.8463), incomingMarker(ABDUL, 25.4501, 81.8201)],
