@@ -363,6 +363,7 @@ jobs:
             consent-protocol/api/routes/document_delivery.py \
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/release_acceptance_contract.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/uat_attempt_receipt.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"

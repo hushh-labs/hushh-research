@@ -106,6 +106,7 @@ jobs:
           cp config/runtime-capacity.json "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json"
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py"
+          cp scripts/ci/release_acceptance_contract.py "${RUNNER_TEMP}/release-tools/release_acceptance_contract.py"
           cp scripts/ci/uat_attempt_receipt.py "${RUNNER_TEMP}/release-tools/uat_attempt_receipt.py"
           cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"

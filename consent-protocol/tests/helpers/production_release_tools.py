@@ -59,6 +59,8 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "config/ci-governance.json",
         "config/release-cadence.json",
         "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ci/uat_attempt_receipt.py",
+        "scripts/ci/release_acceptance_contract.py",
         "scripts/ci/release_acceptance_provenance.py",
         "scripts/ci/resolve-deploy-scope.py",
         "scripts/ci/production_emergency.py",

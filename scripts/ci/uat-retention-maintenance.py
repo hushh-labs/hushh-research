@@ -690,6 +690,53 @@ def one_chat_vertex_projects() -> frozenset[str]:
     return RETIRED_UAT_VERTEX_PROJECTS | {profile["environments"]["uat"]["project"]}
 
 
+def validate_one_chat_release_report(
+    report: dict,
+    run_id: int,
+    attempt: int | None,
+    artifact_name: str,
+    attempt_artifact: str | None,
+    *,
+    project: str,
+    region: str,
+    vertex_projects,
+    unsafe_state,
+) -> tuple[str, str, str]:
+    candidate = report.get("candidate_revision")
+    old = report.get("old_revision")
+    sha = report.get("target_sha")
+    probe = report.get("probe")
+    if (
+        report.get("status") != "success"
+        or report.get("project") != project
+        or report.get("region") != region
+        or report.get("service") != "consent-protocol"
+        or report.get("run_id") != str(run_id)
+        or (
+            type(attempt) is int
+            and report.get("attempt") is not None
+            and report.get("attempt") != attempt
+        )
+        or (
+            attempt_artifact is not None
+            and artifact_name == attempt_artifact
+            and report.get("attempt") != attempt
+        )
+        or not re.fullmatch(r"[a-f0-9]{40}", str(sha))
+        or not re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(candidate))
+        or not re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(old))
+        or old == candidate
+        or report.get("final_serving_revision") != candidate
+        or report.get("final_traffic") != {candidate: 100}
+        or report.get("temporary_probe_job_deleted") is not True
+        or not isinstance(probe, dict)
+        or probe.get("one_chat_probe_ok") is not True
+        or probe.get("one_chat_project") not in vertex_projects()
+    ):
+        raise unsafe_state("One chat receipt does not prove a healthy backend promotion")
+    return str(candidate), str(old), str(sha)
+
+
 def load_one_chat_release(
     repository: str, run: dict, directory: Path
 ) -> dict | None:
@@ -718,38 +765,17 @@ def load_one_chat_release(
     report = json.loads(receipt.read_text())
     if not isinstance(report, dict):
         raise retention.UnsafeState("One chat release receipt is invalid")
-    candidate = report.get("candidate_revision")
-    old = report.get("old_revision")
-    sha = report.get("target_sha")
-    probe = report.get("probe")
-    if (
-        report.get("status") != "success"
-        or report.get("project") != LANES["uat"]["project"]
-        or report.get("region") != REGION
-        or report.get("service") != "consent-protocol"
-        or report.get("run_id") != str(run_id)
-        or (
-            type(attempt) is int
-            and report.get("attempt") is not None
-            and report.get("attempt") != attempt
-        )
-        or (
-            attempt_artifact is not None
-            and artifact_name == attempt_artifact
-            and report.get("attempt") != attempt
-        )
-        or not re.fullmatch(r"[a-f0-9]{40}", str(sha))
-        or not re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(candidate))
-        or not re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(old))
-        or old == candidate
-        or report.get("final_serving_revision") != candidate
-        or report.get("final_traffic") != {candidate: 100}
-        or report.get("temporary_probe_job_deleted") is not True
-        or not isinstance(probe, dict)
-        or probe.get("one_chat_probe_ok") is not True
-        or probe.get("one_chat_project") not in one_chat_vertex_projects()
-    ):
-        raise retention.UnsafeState("One chat receipt does not prove a healthy backend promotion")
+    candidate, old, sha = validate_one_chat_release_report(
+        report,
+        run_id,
+        attempt,
+        artifact_name,
+        attempt_artifact,
+        project=LANES["uat"]["project"],
+        region=REGION,
+        vertex_projects=one_chat_vertex_projects,
+        unsafe_state=retention.UnsafeState,
+    )
     owner_run_id, owner = prior_healthy_uat_release(
         repository, run, directory, frontend_owner=True
     )

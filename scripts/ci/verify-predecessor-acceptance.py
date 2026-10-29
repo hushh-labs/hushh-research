@@ -1,25 +1,17 @@
 #!/usr/bin/env python3
-"""Exact application-SHA acceptance between governed deployment environments.
-
-GitHub supplies workflow/attempt and artifact integrity. Existing release and
-live-traffic provenance receipts supply application identity and health. A later
-deployment does not invalidate historical acceptance, but a different merge SHA
-always needs its own acceptance. This helper never changes cloud resources.
-"""
+"""Exact-SHA acceptance between governed release environments."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib.util
 import json
 import os
 import re
 import subprocess
 import time
-from io import BytesIO
 from pathlib import Path
-from zipfile import BadZipFile, ZipFile
+from zipfile import BadZipFile
 
 REPOSITORY = "hushh-labs/hushh-research"
 LANES = {"dev": "hushh-pda-dev", "uat": "hushh-pda-uat"}
@@ -59,6 +51,13 @@ decode_tag_message = _attempt_receipt.decode_tag_message
 decode_tag_message_with_bytes = _attempt_receipt.decode_tag_message_with_bytes
 attempt_tag_prefix = _attempt_receipt.attempt_tag_prefix
 
+_CONTRACT_SPEC = importlib.util.spec_from_file_location(
+    "release_acceptance_contract", Path(__file__).with_name("release_acceptance_contract.py")
+)
+require(_CONTRACT_SPEC and _CONTRACT_SPEC.loader, "Acceptance contract reader is unavailable")
+_contract = importlib.util.module_from_spec(_CONTRACT_SPEC)
+_CONTRACT_SPEC.loader.exec_module(_contract)
+
 
 class MissingAcceptance(Refused):
     """No retained healthy receipts cover the requested services yet."""
@@ -83,107 +82,25 @@ def verify_durable_attempt_attestation(
 
 
 def selected(scope: str) -> set[str]:
-    require(scope in {"all", "backend", "frontend"}, "Resolved deployment scope is required")
-    return set(SERVICES) if scope == "all" else {scope}
+    return _contract.selected(scope, services=SERVICES, require=require)
 
 
 def validate(receipt: dict, *, environment: str, sha: str, service: str) -> str | None:
-    """Validate one service without treating another scoped service as accepted."""
-    require(
-        re.fullmatch(r"[a-f0-9]{40}", sha) is not None,
-        "A full application SHA is required",
-    )
-    require(
-        receipt.get("schema_version") == 1
-        and receipt.get("environment") == environment
-        and receipt.get("repository") == REPOSITORY
-        and receipt.get("workflow") == f".github/workflows/deploy-{environment}.yml"
-        and receipt.get("target") == ("shared-dev" if environment == "dev" else "uat"),
-        "Acceptance identity is invalid",
-    )
-    status = receipt.get("release", {})
-    require(
-        status.get("status") == "healthy" and status.get("sha") == sha,
-        "Release is not healthy for this SHA",
-    )
-    require(service in receipt.get("resolved_services", []), "Service was not accepted")
-    final = status.get("final", {})
-    revision = final.get(f"{service}_revision")
-    require(
-        bool(revision)
-        and revision == status.get("current", {}).get(f"{service}_candidate_revision")
-        and final.get(f"{service}_sha") == sha,
-        "Final serving revision does not match the candidate",
-    )
-    verification = status.get("verification", {})
-    classification = receipt.get("classification", {})
-    semantic = classification.get("semantic", {})
-    require(
-        classification.get("release_failed") is False
-        and classification.get("status") == "healthy"
-        and classification.get("blocking_classifications") == []
-        and type(semantic.get("success")) is bool
-        and (semantic["success"] or semantic.get("report_present") is True)
-        and semantic.get("blocking_failures") == []
-        and verification.get("semantic_success") == str(semantic["success"]).lower()
-        and all(verification.get(key) == "true" for key in ("parity_success", "provenance_success"))
-        and verification.get(f"{service}_provenance") == "success",
-        "Required release verification did not pass",
-    )
-    if service == "backend":
-        require(
-            verification.get("db_contract") == "success",
-            "Schema verification did not pass",
-        )
-    checks = receipt.get("required_checks", {})
-    require(
-        set(checks) == {"pkm", "reviewer"},
-        "Required verification declarations are missing",
-    )
-    for check in checks.values():
-        require(
-            isinstance(check, dict)
-            and type(check.get("required")) is bool
-            and (not check["required"] or check.get("outcome") == "success"),
-            "A required preservation or reviewer check did not pass",
-        )
-    return _validate_serving_provenance(
-        receipt, environment=environment, sha=sha, service=service, revision=revision
-    )
-
-
-def _validate_serving_provenance(
-    receipt: dict, *, environment: str, sha: str, service: str, revision: str
-) -> str | None:
-    return _provenance.validate_serving_provenance(
+    return _contract.validate(
         receipt,
         environment=environment,
         sha=sha,
         service=service,
-        revision=revision,
-        project=LANES[environment],
-        service_name=SERVICES[service],
+        repository=REPOSITORY,
+        lanes=LANES,
+        services=SERVICES,
+        require=require,
+        validate_serving_provenance=_provenance.validate_serving_provenance,
     )
 
 
 def unpack(archive: bytes, digest: str) -> dict:
-    require(len(archive) <= MAX_BYTES, "Acceptance artifact exceeds its bound")
-    require(
-        digest == "sha256:" + hashlib.sha256(archive).hexdigest(),
-        "Artifact digest mismatch",
-    )
-    with ZipFile(BytesIO(archive)) as bundle:
-        entries = bundle.infolist()
-        require(
-            len(entries) == 1
-            and entries[0].filename == "acceptance.json"
-            and entries[0].file_size <= MAX_BYTES
-            and not entries[0].is_dir(),
-            "Acceptance artifact shape is invalid",
-        )
-        result = json.loads(bundle.read(entries[0]))
-    require(isinstance(result, dict), "Acceptance must be an object")
-    return result
+    return _contract.unpack(archive, digest, max_bytes=MAX_BYTES, require=require)
 
 
 class GitHub:
@@ -216,42 +133,15 @@ class GitHub:
         return value
 
     def _durable_receipt(self, pin: dict, environment: str) -> tuple[dict, str]:
-        run_id, attempt, tag_name = (
-            pin.get(key) for key in ("run_id", "run_attempt", "durable_tag")
-        )
-        ref = self.read_repository(f"git/ref/tags/{tag_name}")
-        require(
-            ref.get("ref") == f"refs/tags/{tag_name}"
-            and ref.get("object", {}).get("type") == "tag"
-            and re.fullmatch(r"[a-f0-9]{40}", str(ref.get("object", {}).get("sha", "")))
-            is not None,
-            "Durable UAT attempt reference is invalid",
-        )
-        tag = self.read_repository(f"git/tags/{ref['object']['sha']}")
-        require(
-            tag.get("tag") == tag_name
-            and tag.get("object", {}).get("type") == "commit"
-            and re.fullmatch(r"[a-f0-9]{40}", str(tag.get("object", {}).get("sha", "")))
-            is not None,
-            "Durable UAT attempt tag is invalid",
-        )
-        receipt, digest, receipt_bytes = decode_tag_message_with_bytes(
-            str(tag.get("message", "")),
-            tag_name=tag_name,
-            tag_target_sha=tag["object"]["sha"],
-            run_id=run_id,
-            attempt=attempt,
+        return _contract.durable_receipt(
+            pin,
+            environment,
+            read_repository=self.read_repository,
             repository=REPOSITORY,
-            kind="full",
-            environment=environment,
+            require=require,
+            decode_tag_message_with_bytes=decode_tag_message_with_bytes,
+            verify_durable_attempt_attestation=verify_durable_attempt_attestation,
         )
-        verify_durable_attempt_attestation(
-            receipt_bytes,
-            environment=environment,
-            run_id=run_id,
-            attempt=attempt,
-        )
-        return receipt, digest
 
     def _receipt(self, pin: dict, environment: str) -> tuple[dict, dict, dict]:
         run_id, attempt, artifact_id = (

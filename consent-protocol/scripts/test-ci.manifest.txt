@@ -487,6 +487,7 @@ tests/test_frontend_prebuilt_image_contract.py
 tests/test_production_image_promotion_contract.py
 tests/test_uat_backend_image_promotion.py
 tests/test_predecessor_acceptance_contract.py
+tests/test_predecessor_acceptance_attempts.py
 tests/test_uat_application_selection.py
 tests/test_production_emergency.py
 
@@ -1431,6 +1432,7 @@ tests/test_world_model_contracts.py
 tests/test_world_model_invitations.py
 
 tests/test_one_chat_service_only_release.py
+tests/test_one_chat_release_failure.py
 
 tests/services/test_drive_packet_intelligence.py
 
