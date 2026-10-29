@@ -5903,18 +5903,14 @@ export function OneLocationAgentPageContent({
         if (sosOwnerRef.current !== owner) return;
         setSosIncident(incident);
         const skipped = totalSelected - readyRecipients.length;
-        // Name who could not be reached rather than reporting a flat count. A
-        // contact with notifications off, or who reinstalled and lost their push
-        // token, previously looked identical to one whose phone lit up — the
-        // worst way for an emergency alert to fail.
+        // Report per-contact outcomes so missing alerts are visible.
         const unreachable = incident.delivery
           .filter((outcome) => outcome.alerted === false)
           .map((outcome) => outcome.displayName);
         const reached = incident.delivery.filter((outcome) => outcome.alerted === true).length;
         const shared = incident.delivery.filter((outcome) => !outcome.failed).length;
 
-        // Primary publication is complete. Email is a secondary delivery leg;
-        // it must not hold Stop or make a delivered alert look still sending.
+        // Publication is complete; release Stop before awaiting email.
         if (sosOperations.current.finish(owner, operation)) {
           setBusy((current) => current === "sos" ? null : current);
         }
@@ -5926,32 +5922,21 @@ export function OneLocationAgentPageContent({
           }
         }
 
-        // Second channel. A push reaches nobody when notifications are off, so
-        // the same alert goes out by email — the one place a closed app cannot
-        // swallow it. Awaited (not fired and forgotten) so the message below
-        // can tell the sender what actually happened, which is the whole point
-        // of having a fallback. It never throws.
+        // Await the independent email outcome for telemetry; Stop stays available.
         const mail = await OneLocationService.sendSosEmails({
           vaultOwnerToken,
           grantIds: incident.grantIds,
           latitude: point.latitude,
           longitude: point.longitude,
           accuracyM: point.accuracyM ?? null,
-          // Save my Soul sends the last known position rather than nothing
-          // when the device will not produce a new one — the right call in an
-          // emergency, but only if the person reading it is told how old it
-          // is. The email stamps anything older than a couple of minutes.
+          // Preserve capture time so fallback emails disclose stale positions.
           capturedAt: point.capturedAt,
           note,
           emergencyNumber: sosEmergency?.number ?? null,
         });
         if (sosOwnerRef.current !== owner) return;
 
-        // Emitted after the email fallback so it reports the alert's real
-        // outcome rather than the push channel's. An SOS where every push
-        // failed but two inboxes received it is not an alert that reached
-        // nobody, and recording it as one would point the investigation at
-        // exactly the wrong thing.
+        // Telemetry includes publication and email outcomes.
         trackSosTriggered({
           selectedCount: totalSelected,
           reachedCount: reached,
@@ -5975,17 +5960,11 @@ export function OneLocationAgentPageContent({
         void refresh().catch(() => null);
       } catch (error) {
         if (sosOwnerRef.current !== owner) return;
-        // Recover from memory — SosPanicError carries any partial incident
-        // in-process, so the SOS banner stays up even if localStorage failed.
+        // Keep partial grants stoppable even when local storage failed.
         if (error instanceof SosPanicError && error.partialIncident) {
           setSosIncident(error.partialIncident);
         }
-        // Reported as reaching nobody, because on this path we genuinely cannot
-        // tell. `SosPanicError.partialIncident` carries only grant ids, not
-        // per-recipient delivery, so some contacts may in fact have been
-        // alerted before the throw. Biasing an unobservable emergency outcome
-        // toward failure is the right way round: it surfaces for investigation
-        // rather than being averaged away, which a guessed number would do.
+        // Report unknown delivery as failure; never invent confirmation.
         trackSosTriggered({
           selectedCount: totalSelected,
           reachedCount: 0,

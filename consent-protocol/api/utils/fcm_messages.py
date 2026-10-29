@@ -75,6 +75,39 @@ def _is_one_location_feed_only_transport(
     return normalized_type in ONE_LOCATION_FEED_ONLY_TRANSPORT_TYPES
 
 
+def _presentation_data(
+    data: dict[str, str],
+    *,
+    platform: str,
+    sms_created: bool,
+    show_alert: bool,
+    alarm_version: int,
+    title: str,
+    body: str,
+    feed_only: bool,
+) -> tuple[dict[str, str], bool]:
+    if feed_only:
+        data = {
+            key: value
+            for key, value in data.items()
+            if key.strip().lower() not in ALERT_PRESENTATION_DATA_KEYS
+        }
+    # Presentation is part of the transport contract, not something a client
+    # should infer from missing title/body fields. In particular, consent
+    # bookkeeping events are intentionally data-only and must never be turned
+    # into a generic browser notification by a background service worker.
+    message_data = {
+        **data,
+        "notification_presentation": "alert" if show_alert else "silent",
+    }
+    native_sms_alarm = platform == "android" and sms_created and show_alert and alarm_version == 1
+    if native_sms_alarm:
+        message_data.update(
+            {"sms_alarm_version": "1", "notification_title": title, "notification_body": body}
+        )
+    return message_data, native_sms_alarm
+
+
 def build_push_message(
     messaging: Any,
     *,
@@ -121,30 +154,16 @@ def build_push_message(
         normalized_type,
     )
     show_alert = bool(show_alert) and not force_feed_only_transport and not sms_expired
-    if force_feed_only_transport:
-        data = {
-            key: value
-            for key, value in data.items()
-            if key.strip().lower() not in ALERT_PRESENTATION_DATA_KEYS
-        }
-    # Presentation is part of the transport contract, not something a client
-    # should infer from missing title/body fields. In particular, consent
-    # bookkeeping events are intentionally data-only and must never be turned
-    # into a generic browser notification by a background service worker.
-    message_data = {
-        **data,
-        "notification_presentation": "alert" if show_alert else "silent",
-    }
-    native_sms_alarm = (
-        normalized_platform == "android"
-        and is_sms_created
-        and show_alert
-        and sms_alarm_version == 1
+    message_data, native_sms_alarm = _presentation_data(
+        data,
+        platform=normalized_platform,
+        sms_created=is_sms_created,
+        show_alert=show_alert,
+        alarm_version=sms_alarm_version,
+        title=title,
+        body=body,
+        feed_only=force_feed_only_transport,
     )
-    if native_sms_alarm:
-        message_data.update(
-            {"sms_alarm_version": "1", "notification_title": title, "notification_body": body}
-        )
     notification = messaging.Notification(title=title, body=body) if show_alert else None
     if native_sms_alarm:
         notification = None

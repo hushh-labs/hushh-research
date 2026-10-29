@@ -152,7 +152,6 @@ async def _assert_blocked_erasure_rolls_back(database_url, deletion_conn, writer
 async def test_provider_cleanup_retains_custody_through_failure_and_migration_replay(
     database_url, monkeypatch
 ):
-    """The real schema cannot erase retry authority before qualified cleanup."""
     import asyncpg
 
     conn = await asyncpg.connect(database_url)

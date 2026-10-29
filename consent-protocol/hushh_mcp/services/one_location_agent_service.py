@@ -1717,15 +1717,10 @@ class OneLocationAgentService:
             )
             if receipt is not None:
                 return receipt > 0
-            rows = (
-                get_db()
-                .execute_raw(
-                    PUSH_SMS_DEVICES_FOR_USER_SQL,
-                    {"user_id": user_id},
-                )
-                .data
-                or []
+            registrations = get_db().execute_raw(
+                PUSH_SMS_DEVICES_FOR_USER_SQL, {"user_id": user_id}
             )
+            rows = registrations.data or []
             if not rows:
                 return False
             configured, _ = ensure_firebase_admin()

@@ -1,17 +1,6 @@
 import { snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { clearCurrentNotificationDevice, notificationDeviceId } from "@/lib/notifications/preview-keys";
-/**
- * Unified FCM Service
- * ============= *
- * Single FCM implementation that works on BOTH web and native platforms.
- * Replaces the hybrid SSE+FCM approach with FCM-only architecture.
- *
- * Features:
- * - Platform detection (web vs native)
- * - Token management (get, register, delete)
- * - Message listeners (foreground + background)
- * - Unified event dispatching
- */
+/** Unified registration and foreground/background delivery for web and native. */
 
 import { Capacitor } from "@capacitor/core";
 import { circleChatNotificationTarget } from "@/lib/circle-chat/routes";
@@ -44,11 +33,9 @@ import {
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import {
   buildOneLocationWorkflowHref,
-  isOneLocationSmsEmergencyAlert,
-  markOneLocationGrantOpened,
   resolveOneLocationNotificationHref,
 } from "@/lib/one-location/notifications";
-import { acknowledgeSmsAlarm } from "@/lib/one-location/sms-alarm-state";
+import { smsAlarmAcknowledgements } from "@/lib/notifications/sms-alarm-acknowledgements";
 
 // Event name for FCM messages (both web and native dispatch this)
 // The app bridge resolves only after native Firebase has removed its cached
@@ -349,24 +336,6 @@ let lastKnownSession: { userId: string; firebaseUid: string; idToken: string; ge
 let notificationSessionGeneration = 0;
 const pushCleanupControllers = new Set<AbortController>();
 let pendingChatTaps: Array<Record<string, unknown>> = [];
-let pendingSmsTaps: Array<Record<string, unknown>> = [];
-function acknowledgeSmsTap(data: Record<string, unknown> | undefined) {
-  if (data?.type !== "location_share_created" || !isOneLocationSmsEmergencyAlert({
-    shareKind: typeof data.share_kind === "string" ? data.share_kind : undefined,
-    notificationProfile: typeof data.notification_profile === "string" ? data.notification_profile : undefined,
-  })) return;
-  if (!lastKnownSession) { pendingSmsTaps = [...pendingSmsTaps.slice(-15), data]; return; }
-  const userId = lastKnownSession.userId;
-  if (data.user_id && data.user_id !== userId) return;
-  const grantId = typeof data.grant_id === "string" ? data.grant_id.trim() : "";
-  if (!grantId) return;
-  acknowledgeSmsAlarm(userId, grantId);
-  markOneLocationGrantOpened(userId, grantId);
-  if (Capacitor.isNativePlatform()) {
-    void import("@/lib/capacitor").then(({ HushhNotifications }) =>
-      HushhNotifications.stopEmergencySmsCue({ userId, grantId })).catch(() => undefined);
-  }
-}
 async function routeChatTap(data: Record<string, unknown>) {
   const { activeNotificationKeyId } = await import("@/lib/notifications/preview-keys");
   const key = activeNotificationKeyId(lastKnownSession?.userId);
@@ -378,11 +347,6 @@ async function routeChatTap(data: Record<string, unknown>) {
   if (Number(data.chat_expires_at || 0) && Number(data.chat_expires_at) < Date.now() / 1000) return;
   dispatchFeedStateChanged("action");
   requestInternalAppNavigation({ href: buildNotificationTapTarget(data), scroll: false });
-}
-function flushSmsTaps() {
-  const smsTaps = pendingSmsTaps;
-  pendingSmsTaps = [];
-  for (const data of smsTaps) acknowledgeSmsTap(data);
 }
 async function flushChatTaps() {
   if (!pendingChatTaps.length) return;
@@ -704,7 +668,7 @@ export async function initializeFCM(
   lastKnownSession = { userId, firebaseUid, idToken, ...(options.getIdToken ? { getIdToken: options.getIdToken } : {}) };
   // A system-notification tap acknowledges independently of whether push can
   // register now (web permission, service-worker startup or offline recovery).
-  flushSmsTaps();
+  smsAlarmAcknowledgements.flush(lastKnownSession?.userId);
   notificationSessionGeneration++;
 
   if (isNative) {
@@ -753,7 +717,7 @@ function setupWebServiceWorkerBridge(): void {
       return;
     }
     if (message?.type === "hushh:fcm_notification_clicked") {
-      acknowledgeSmsTap(message.data);
+      smsAlarmAcknowledgements.acknowledge(message.data, lastKnownSession?.userId);
       dispatchFeedStateChanged("action");
       requestInternalAppNavigation({
         href: resolveNotificationClickTarget(message.url, message.data),
@@ -1322,7 +1286,7 @@ function setupNativeListeners(): Promise<void> {
             if (actionId === "dismiss") {
               return;
             }
-            acknowledgeSmsTap(data);
+            smsAlarmAcknowledgements.acknowledge(data, lastKnownSession?.userId);
 
             if ((data?.recipient_key_id || data?.user_id) && ["direct_message", "location_circle_message"].includes(String(data?.type))) {
               void routeChatTap(data).catch(() => { /* Wait for a later initialization if key storage is unavailable. */ });
@@ -1602,7 +1566,7 @@ export async function clearLocalChatNotificationState(userId?: string): Promise<
   const departingOwner = departingSessionOwner(userId);
   if (departingOwner === null) return null;
   lastKnownSession = null;
-  pendingSmsTaps = [];
+  smsAlarmAcknowledgements.clear();
   notificationSessionGeneration++;
   pendingChatTaps = [];
   await clearCurrentNotificationDevice(departingOwner);
