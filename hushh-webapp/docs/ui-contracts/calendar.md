@@ -452,7 +452,7 @@ Owners: [workspace](../../components/calendar/calendar-connected-workspace.tsx),
 | More than3 windows | **Showing 3 of {full_count} available windows.** No mounted Load more control; count and returned window cap are different. |
 | Every successful/preview list | **Availability can change. These times aren't reserved.** |
 | Helper card | **Need a different time?**; **Just ask One to find time, schedule a meeting or reschedule for you.** |
-| Helper click | Memory prompt **Help me find a different time on {date} in {city and selected-day UTC offset} for a {duration}-minute meeting. Check the full selected local day.** → existing conversation; the exact IANA zone travels as a one-turn machine field, clears if the queued prompt is edited, and never appears in visible copy. No mutation. |
+| Helper click | Chat prompt **Calendar request: Help me find a different time on {date} in {city and selected-day UTC offset} for a {duration}-minute meeting. Check the full selected local day.** → existing conversation; the exact IANA zone travels as a one-turn machine field, clears if the queued prompt is edited, and never appears in visible copy. A retry of this Calendar request returns to Calendar because restored history lacks its zone. No mutation. |
 
 ### Read refresh, failure and retry
 

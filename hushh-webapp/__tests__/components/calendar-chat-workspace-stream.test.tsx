@@ -950,6 +950,20 @@ it("does not retry a restored Calendar day search in the device time zone", asyn
   expect(stream).not.toHaveBeenCalled();
 }, 15_000);
 
+it("preserves retry for an ordinary chat request with similar words", async () => {
+  const request = calendarDaySearchRequest("2026-11-01", "America/New_York", 30)
+    .replace(/^Calendar request: /, "");
+  const stream = vi.spyOn(ApiService, "apiFetchStream")
+    .mockRejectedValueOnce(new Error("Network failure"))
+    .mockImplementation(async () => sse("tool"));
+  workspace();
+  const composer = await screen.findByRole("textbox", { name: "Message One" });
+  fireEvent.change(composer, { target: { value: request } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  fireEvent.click((await screen.findAllByRole("button", { name: "Try again" })).at(-1)!);
+  await waitFor(() => expect(stream).toHaveBeenCalledTimes(2));
+});
+
 it("does not borrow an active Mail reply workflow for a meeting turn", async () => {
   const { CalendarInsightsService } = await import("@/lib/services/calendar-insights-service");
   vi.spyOn(CalendarInsightsService, "read").mockResolvedValue({ title: "Review", sources: [{ title: "Notes", url: "https://docs.google.com/document/d/f", text: "Verified notes" }] });

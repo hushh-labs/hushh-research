@@ -31,6 +31,7 @@ describe("Calendar booking time", () => {
     expect(request).toContain("New York (UTC-04:00 → UTC-05:00)");
     expect(request).not.toContain("America/New_York");
     expect(isCalendarDaySearchRequest(request)).toBe(true);
+    expect(isCalendarDaySearchRequest(request.replace(/^Calendar request: /, ""))).toBe(false);
     expect(isCalendarDaySearchRequest("Find another time on November 1 in New York.")).toBe(false);
   });
   it("uses one hour within a long opening and a shorter supported duration near midnight", () => {
