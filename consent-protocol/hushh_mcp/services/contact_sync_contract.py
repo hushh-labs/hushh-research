@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from datetime import datetime
+from typing import Any
+
 # This value is part of the wire contract. A client must send it when enabling
 # contact sync so an older findability-only UI cannot silently grant the newer
 # relationship-creation authority.
@@ -59,6 +63,33 @@ def contact_sync_preference_state(
     return CONTACT_SYNC_PREFERENCE_INVALID
 
 
+def resolve_revoked_contact_match(
+    existing: Mapping[str, Any],
+    *,
+    requester_id: str,
+    sync_started_at: datetime | None,
+    allow_reconnect: bool,
+) -> tuple[str, datetime | None]:
+    """Recover legacy matches without inferring consent from missing history."""
+    revoked_at = existing.get("revoked_at")
+    if (
+        allow_reconnect
+        and existing.get("revoked_by_user_id") == requester_id
+        and isinstance(revoked_at, datetime)
+        and revoked_at.tzinfo is not None
+        and existing.get("revoked_by_at") == revoked_at
+        and sync_started_at is not None
+        and revoked_at < sync_started_at
+    ):
+        return "auto_connected", revoked_at
+    if existing.get("revoked_by_user_id") is None and existing.get("revoked_by_at") is None:
+        # A legacy revoked aggregate may have lost its last Circle origin.
+        # Missing history authorizes neither silent restoration nor attribution
+        # of a deliberate disconnect. Require a new bilateral request instead.
+        return "request_required", None
+    return "suppressed", None
+
+
 __all__ = [
     "CONTACT_SYNC_CONSENT_CONTRACT_VERSION",
     "CONTACT_SYNC_MATCH_POLICY_VERSION",
@@ -68,4 +99,5 @@ __all__ = [
     "CONTACT_SYNC_PREFERENCE_ENABLED",
     "CONTACT_SYNC_PREFERENCE_INVALID",
     "contact_sync_preference_state",
+    "resolve_revoked_contact_match",
 ]
