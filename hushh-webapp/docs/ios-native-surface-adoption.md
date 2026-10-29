@@ -41,6 +41,8 @@ physical iPhone 16e and the iPhone 16e simulator in Debug (iOS 27.1 SDK); the
 Finance Back regression passed 10/10, and the combined UI-contract gate passed.
 These results verify the current rollback and route contracts only. They do not
 qualify all Profile destinations, visual transitions or Release performance.
+The tested source snapshot is `81d2078580`; the later main sync at
+`214808d067` changes phone-restoration workflows, not iOS sources.
 
 Every main-frame document receives a random identity at document start. Native
 presentation and privacy actions stay disabled while navigation is pending,

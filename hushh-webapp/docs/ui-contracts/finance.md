@@ -67,6 +67,8 @@ manufactured trend. `Holdings`, `Allocation`, `Performance`, and `Portfolio sour
 retain their existing destinations. Share PDF, source selection, statement
 import/review, statement editing, Save/Cancel/Delete/Restore, and read-only
 brokerage restrictions retain their current handlers and vault admission.
+Visible dashboard CTAs keep those destinations and expose the matching voice
+control IDs; graph reachability changes deprecate older revisions fail-closed.
 The holding drawer uses a flat definition list and the existing public price-history
 read. Opening it performs no holding mutation; entry controls retain the draft/save flow.
 At 1024px and wider, the holding sheet is centered with a 1120px maximum width:
