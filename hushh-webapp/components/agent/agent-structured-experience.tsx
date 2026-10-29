@@ -30,10 +30,8 @@ import { InformationRequestReviewFields } from "@/components/consent/information
 import { DEFAULT_REQUEST_DURATION_HOURS, requestDurationLabel } from "@/lib/agent/action-directive-summary";
 import { PersonProfileService, mergePersonScopePage, type InformationRequestBundle, type RequestablePersonScope, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
-import {
-  ConnectorReadReceipt,
-  WorkspaceConnectorSetupCard,
-} from "@/components/agent/connector-read-receipt";
+import { ConnectorReadReceipt, WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
+import { MailChatCard } from "@/components/agent/mail-chat-card";
 import { CustomConnectorProbeCard } from "@/components/agent/custom-connector-probe-card";
 import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
 import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
@@ -141,6 +139,7 @@ export function AgentStructuredExperienceView({
         driveCompilation={driveCompilation} />;
     case "one.workspace_connector_setup.v1":
       return <WorkspaceConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
+    case "one.mail_brief.v1": case "one.receipt_setup.v1": return <MailChatCard experience={experience} />;
     case "one.custom_connector_probe.v1":
       return <CustomConnectorProbeCard experience={experience} onOpenConnections={onOpenConnections} />;
     case "one.person_selection.v1":

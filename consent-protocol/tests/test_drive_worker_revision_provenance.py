@@ -76,6 +76,39 @@ def test_accepts_pinned_index_when_cloud_run_does_not_resolve_it() -> None:
     _verify(revision)
 
 
+@pytest.mark.parametrize(
+    "tamper", [None, "app", "scanner", "repository", "env", "resources", "missing", "duplicate"]
+)
+def test_template_comparison_only_normalizes_the_reviewed_scanner(tamper):
+    observed = _deployed_revision()["spec"]
+    desired = deepcopy(observed)
+    desired["containers"][1]["image"] = f"clamav/clamav@{SCANNER_INDEX_DIGEST}"
+    if tamper == "app":
+        observed["containers"][0]["image"] = APP_IMAGE[:-1] + "0"
+    elif tamper == "scanner":
+        observed["containers"][1]["image"] = "clamav/clamav@sha256:" + "0" * 64
+    elif tamper == "repository":
+        observed["containers"][1]["image"] = f"unreviewed/clamav@{SCANNER_AMD64_DIGEST}"
+    elif tamper == "env":
+        observed["containers"][0]["env"] = [{"name": "DB_POOL_MAX_SIZE", "value": "99"}]
+    elif tamper == "resources":
+        observed["containers"][1]["resources"] = {"limits": {"memory": "8Gi"}}
+    elif tamper == "missing":
+        observed["containers"].pop()
+    elif tamper == "duplicate":
+        observed["containers"].append(deepcopy(observed["containers"][1]))
+    before = deepcopy((desired, observed))
+    assert MODULE.same_worker_spec(desired, observed) is (tamper is None)
+    assert (desired, observed) == before
+
+
+@pytest.mark.parametrize("digest", [SCANNER_INDEX_DIGEST, SCANNER_AMD64_DIGEST])
+def test_template_comparison_preserves_already_identical_scanner_forms(digest):
+    spec = _deployed_revision()["spec"]
+    spec["containers"][1]["image"] = "clamav/clamav@" + digest
+    assert MODULE.same_worker_spec(spec, deepcopy(spec))
+
+
 @pytest.mark.parametrize("actual", ["false", "true", None])
 def test_paused_release_requires_disabled_worker_in_fresh_revision(actual: str | None) -> None:
     revision = _deployed_revision()

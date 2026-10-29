@@ -103,14 +103,8 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
     if any(message.role == "system" for message in input.messages):
         raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
     forwarded = input.forwarded_props if isinstance(input.forwarded_props, dict) else {}
-    if input.context or any(
-        forwarded.get(key)
-        for key in (
-            "driveSearchSelection",
-            "pendingEmailDraft",
-            "gmailInformationRequestWorkflowId",
-        )
-    ):
+    hub_only = ("driveSearchSelection", "pendingEmailDraft", "gmailInformationRequestWorkflowId")
+    if input.context or any(forwarded.get(key) for key in hub_only):
         raise HTTPException(409, detail={"code": "POD_CHAT_AUTHORITY_UNAVAILABLE"})
     for tool in input.tools:
         try:
@@ -163,6 +157,8 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         "temp:hussh:requested_person_selection": str(forwarded.get("personSelectionHandle") or "")[
             :128
         ],
+        # As on the hub: only a draft-contract-2 app fills the card from the envelope.
+        "temp:hussh:email_draft_envelope": forwarded.get("emailDraftContract") == 2,
         "temp:one_execution_surface": "typed_chat",
         "temp:hussh:workspace_chat_admission": False,
         "hussh:user_id": owner.owner,

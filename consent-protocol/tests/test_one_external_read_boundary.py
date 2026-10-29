@@ -293,9 +293,8 @@ async def test_actual_one_runner_allows_only_reviewable_draft_after_read():
             "status": "blocked",
             "reason": "connector_read_complete",
             "message": (
-                "A connector read already ran in this chat turn. Answer from that result, "
-                "or ask the owner for a new message if another read is needed. "
-                "This blocked call did not reach the provider."
+                "Answer from what this chat turn already returned, or ask the owner for a "
+                "new message. This blocked call did not reach the provider."
             ),
         }
     finally:
@@ -1361,28 +1360,18 @@ def test_probe_result_is_untrusted_so_first_party_actions_stop_for_the_turn():
     assert before_external_read_tool(probe, {}, context)["reason"] == "connector_read_complete"
 
 
-async def test_receipt_questions_run_the_real_one_email_path_from_saved_memory_never_gmail(
-    monkeypatch,
-):
-    """Real One agent, real Runner, real tool and A2A hop; only the models are scripted.
-
-    A receipts question reads the owner's saved memory and nothing else: the
-    mailbox transport is a trap that fails on any request, the planner is the
-    only model asked, "show more" continues from the position kept in session
-    state, and a missing memory answers "not ready" with the generated action.
-    """
+async def test_receipt_questions_run_the_real_one_email_path_and_never_read_gmail(monkeypatch):
+    """Real One runner and A2A hop, scripted planner: a receipts question is handed
+    back to One's receipt functions; Gmail is a trap and nothing is proposed."""
     import json
-    from datetime import UTC, datetime, timedelta
 
     import httpx
 
     from hushh_mcp.adk_bridge import email_agent
     from hushh_mcp.hushh_adk import single_turn
-    from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
-    from hushh_mcp.one_adk.receipt_memory_turn import STATE_RECEIPT_MEMORY, admit_receipt_memory
     from hushh_mcp.services import gmail_metadata_reader
     from hushh_mcp.services.email_chat_service import EmailChatService
-    from hushh_mcp.services.receipt_memory_read import NOT_READY_TEXT
+    from hushh_mcp.services.email_delegated_read import RECEIPT_FUNCTIONS_TEXT
 
     mailbox_requests = []
 
@@ -1394,67 +1383,41 @@ async def test_receipt_questions_run_the_real_one_email_path_from_saved_memory_n
         def __init__(self, **kwargs):
             super().__init__(**{**kwargs, "transport": httpx.MockTransport(trap)})
 
-    now = datetime.now(UTC)
-    index = {
-        "schema": "receipt_canonical_index.v1",
-        "generated_at": (now - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "total_transactions": 12,
-        "truncated": False,
-        "transactions": [
-            {
-                "ref": f"txn_{n:016x}",
-                "merchant": f"Shop {n}",
-                "amount": 10 + n,
-                "currency": "USD",
-                "category": None,
-                "status": "paid",
-                "transaction_date": (now - timedelta(days=13 - n)).strftime("%Y-%m-%d"),
-                "identifiers": [{"kind": "order", "value": f"PRIVATEORDER{n}"}],
-                "detail": None,
-            }
-            for n in range(1, 13)
-        ],
-    }
-
-    def planner(**fields):
-        return _Model([[types.Part(text=json.dumps({"operation": "read_receipts", **fields}))]])
-
-    genes = [planner(), planner(receipt_more=True), planner()]
+    genes = [_Model([[types.Part(text=json.dumps({"operation": "use_receipt_functions"}))]])]
     service = EmailChatService(
         chat_store=object(), gmail_service=object(), model_call=AsyncMock(), genai_types=types
     )
-    monkeypatch.setattr(
-        agent_tree,
-        "validate_first_party_owner_token",
-        AsyncMock(return_value=SimpleNamespace(expires_at=9999999999999)),
-    )
-    monkeypatch.setattr(
-        email_agent,
-        "validate_first_party_owner_token",
-        AsyncMock(return_value=SimpleNamespace(user_id="owner")),
-    )
+    owner = AsyncMock(return_value=SimpleNamespace(expires_at=9999999999999, user_id="owner"))
+    monkeypatch.setattr(agent_tree, "validate_first_party_owner_token", owner)
+    monkeypatch.setattr(email_agent, "validate_first_party_owner_token", owner)
     monkeypatch.setattr(email_agent, "_singleton", email_agent.EmailAgentA2A(service=service))
     monkeypatch.setattr(
         single_turn, "build_managed_regional_gemini_adk_model", lambda _: genes.pop(0)
     )
     monkeypatch.setattr(gmail_metadata_reader.httpx, "AsyncClient", TrappedClient)
-
-    def ask(request):
-        return types.Part(
-            function_call=types.FunctionCall(name="ask_email_agent", args={"request": request})
-        )
-
-    async def turn(runner, sessions, session_id, text, *, memory=True):
-        delta = {STATE_EXECUTION_SURFACE: "typed_chat"}
-        if memory:
-            delta[STATE_RECEIPT_MEMORY] = admit_receipt_memory({"receiptMemory": dict(index)})
+    request = "what did I spend last month"
+    ask = types.FunctionCall(name="ask_email_agent", args={"request": request})
+    model = _Model([[types.Part(function_call=ask)], [types.Part(text="Checking receipts.")]])
+    root = agent_tree.build_one_text_agent(model=model)
+    root.tools = [agent_tree.ask_email_agent]  # Real registered dispatch, not a tool double.
+    sessions = InMemorySessionService()
+    owner_state = {
+        STATE_USER_ID: "owner",
+        STATE_CONSENT_TOKEN: "synthetic-owner-token",
+        agent_tree.STATE_CONVERSATION_ID: "receipts-thread",
+    }
+    await sessions.create_session(
+        app_name="one", user_id="owner", session_id="receipts-thread", state=owner_state
+    )
+    runner = Runner(agent=root, app_name="one", session_service=sessions)
+    try:
         events = [
             event
             async for event in runner.run_async(
                 user_id="owner",
-                session_id=session_id,
-                new_message=types.Content(role="user", parts=[types.Part(text=text)]),
-                state_delta=delta,
+                session_id="receipts-thread",
+                new_message=types.Content(role="user", parts=[types.Part(text=request)]),
+                state_delta={STATE_EXECUTION_SURFACE: "typed_chat"},
             )
         ]
         result = next(
@@ -1463,78 +1426,15 @@ async def test_receipt_questions_run_the_real_one_email_path_from_saved_memory_n
             for response in event.get_function_responses()
             if response.name == "ask_email_agent"
         )
-        session = await sessions.get_session(app_name="one", user_id="owner", session_id=session_id)
-        return result, session
-
-    owner_state = {
-        STATE_USER_ID: "owner",
-        STATE_CONSENT_TOKEN: "synthetic-owner-token",
-        agent_tree.STATE_CONVERSATION_ID: "receipts-thread",
-    }
-    model = _Model(
-        [
-            [ask("show my receipts")],
-            [types.Part(text="Here they are.")],
-            [ask("show more")],
-            [types.Part(text="And the rest.")],
-        ]
-    )
-    root = agent_tree.build_one_text_agent(model=model)
-    root.tools = [agent_tree.ask_email_agent]  # Real registered dispatch, not a tool double.
-    sessions = InMemorySessionService()
-    await sessions.create_session(
-        app_name="one", user_id="owner", session_id="receipts-thread", state=dict(owner_state)
-    )
-    runner = Runner(agent=root, app_name="one", session_service=sessions)
-    try:
-        first, session = await turn(runner, sessions, "receipts-thread", "show my receipts")
-        assert first["status"] == "ok"
-        assert first["text"].startswith("Found 12 receipts. Here are the newest 10:")
-        assert first["text"].count("- **") == 10
-        assert "**Shop 12**" in first["text"] and "**Shop 3**" in first["text"]
-        assert "**Shop 2**" not in first["text"]
-        assert "exactly as written" in first["next_step"]
-        assert "call ask_email_agent again" in first["next_step"]
-        assert json.loads(session.state[agent_tree.STATE_RECEIPT_CURSOR])["next"] == 10
-
-        second, session = await turn(runner, sessions, "receipts-thread", "show more")
-        assert second["status"] == "ok"
-        assert second["text"].startswith("Showing 11–12 of 12 receipts:")
-        assert "**Shop 2**" in second["text"] and "**Shop 1**" in second["text"]
-        assert "**Shop 3**" not in second["text"]
-        assert session.state[agent_tree.STATE_RECEIPT_CURSOR] == ""
-
-        # Only the planner was asked, twice; the interpreter never ran.
-        assert len(genes) == 1
-        # The mailbox was never contacted.
-        assert mailbox_requests == []
-        # Nothing the owner saved is written to the durable conversation.
-        durable = durable_external_read_projection(session).model_dump_json()
-        for private in ("Shop 12", "PRIVATEORDER", "txn_0000"):
-            assert private not in durable
-    finally:
-        await runner.close()
-
-    # No saved memory on the device: not ready, with the generated action parked.
-    model = _Model([[ask("show my receipts")], [types.Part(text="Open Receipts to sync.")]])
-    root = agent_tree.build_one_text_agent(model=model)
-    root.tools = [agent_tree.ask_email_agent]
-    sessions = InMemorySessionService()
-    await sessions.create_session(
-        app_name="one", user_id="owner", session_id="no-memory", state=dict(owner_state)
-    )
-    runner = Runner(agent=root, app_name="one", session_service=sessions)
-    try:
-        result, session = await turn(
-            runner, sessions, "no-memory", "show my receipts", memory=False
+        session = await sessions.get_session(
+            app_name="one", user_id="owner", session_id="receipts-thread"
         )
-        assert result["text"] == NOT_READY_TEXT
-        assert result["status"] == "input_required"
-        assert result["open_receipts"] == {"status": "ready_to_run"}
-        parked = session.state["hussh:pending_directive:route.profile_receipts"]
-        assert parked["kind"] == "action"
-        assert parked["payload"]["actionId"] == "route.profile_receipts"
-        assert mailbox_requests == [] and len(genes) == 0
+        assert result["status"] == "receipt_functions_required"
+        assert result["text"] == RECEIPT_FUNCTIONS_TEXT
+        assert "open_receipts" not in result
+        assert "exactly as written" not in str(result.get("next_step") or "")
+        assert not any(str(key).startswith("hussh:pending_directive") for key in session.state)
+        assert mailbox_requests == [] and genes == []
     finally:
         await runner.close()
 
