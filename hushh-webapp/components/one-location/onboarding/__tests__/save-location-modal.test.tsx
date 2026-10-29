@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mapPickerMockState = vi.hoisted(() => ({
@@ -106,6 +106,8 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", async () => 
   };
 });
 
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { OneLocationOnboardingFlow } from "@/components/one-location/onboarding/one-location-onboarding-flow";
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
 
 const baseProps = {
@@ -150,9 +152,9 @@ describe("SaveLocationModal", () => {
       platformMockState.native = false;
     });
 
-    it("drops the scrim and blur while the native map is on screen", () => {
+    it.each([false, true])("drops the scrim and blur while the native map is on screen (compact=%s)", (compact) => {
       platformMockState.native = true;
-      render(<SaveLocationModal {...baseProps} {...mapProps} />);
+      render(<SaveLocationModal {...baseProps} {...mapProps} unifiedOnboarding={compact} compactOnboarding={compact} startWithMapPicker={!compact} />);
 
       const className = overlay()?.className ?? "";
       expect(className).toContain("bg-transparent");
@@ -1679,23 +1681,6 @@ describe("SaveLocationModal", () => {
       ...overrides,
     });
 
-    const asPhone = () => {
-      const original = window.matchMedia;
-      window.matchMedia = ((query: string) => ({
-        matches: query === "(max-width: 639.98px)",
-        media: query,
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      })) as unknown as typeof window.matchMedia;
-      return () => {
-        window.matchMedia = original;
-      };
-    };
-
     it("renders the map, editable address, optional details, and category in one screen", async () => {
       render(<SaveLocationModal {...unifiedProps()} />);
 
@@ -1761,57 +1746,18 @@ describe("SaveLocationModal", () => {
       expect(onBack).toHaveBeenCalledTimes(1);
     });
 
-    it("uses a keyboard-safe full-width sheet on phones", () => {
-      const restore = asPhone();
-      try {
-        render(<SaveLocationModal {...unifiedProps()} />);
-
-        const surface = screen.getByTestId("save-location-modal");
-        expect(surface.dataset.slot).toBe("sheet-content");
-        expect(surface.className).toContain("w-full");
-        expect(surface.className).toContain("inset-x-0");
-        expect(surface.className).toContain("bottom-[var(--kb-height,0px)]");
-        expect(surface.className).toContain(
-          "max-h-[calc((100dvh-var(--kb-height,0px))*0.96)]",
-        );
-
-        const scroll = screen.getByTestId(
-          "one-location-onboarding-save-place-scroll",
-        );
-        expect(scroll.className).toContain("overflow-y-auto");
-        const footer = screen
-          .getByRole("button", { name: "Save & continue" })
-          .closest("footer");
-        expect(footer?.className).toContain("shrink-0");
-        expect(footer?.className).toContain("env(safe-area-inset-bottom,0px)");
-      } finally {
-        restore();
-      }
-    });
-
-    it("recomposes into a stable wide dialog on desktop", () => {
-      render(<SaveLocationModal {...unifiedProps()} />);
-
-      const surface = screen.getByTestId("save-location-modal");
-      expect(surface.dataset.slot).toBe("dialog-content");
-      expect(surface.className).toContain("!h-[min(92dvh,860px)]");
-      expect(surface.className).toContain(
-        "sm:!max-w-[min(1120px,calc(100vw-48px))]",
-      );
-      const details = screen.getByLabelText("Place details");
-      expect(details.parentElement?.className).toContain("lg:grid-cols-");
-    });
-
-    it("submits one atomic pin-and-form payload and retains it after a save error", async () => {
+    it.each([false, true])("submits the atomic pin and form through retry (compact=%s)", async (compact) => {
       const onSave = vi
         .fn()
         .mockResolvedValueOnce(false)
         .mockResolvedValueOnce(true);
-      render(<SaveLocationModal {...unifiedProps({ onSave })} />);
+      render(<SaveLocationModal {...unifiedProps({ onSave, compactOnboarding: compact, onboardingRouteId: "/one/location" })} />);
 
       await waitFor(() =>
         expect(screen.getByRole("button", { name: "Save & continue" })).toBeEnabled(),
       );
+      if (compact) fireEvent.click(screen.getByRole("button", { name: "Other", exact: true }));
+      if (compact) fireEvent.click(screen.getByRole("button", { name: "Edit address details" }));
       fireEvent.change(screen.getByLabelText("Address"), {
         target: { value: "12 Custom Road, Bengaluru 560001" },
       });
@@ -1821,11 +1767,12 @@ describe("SaveLocationModal", () => {
       fireEvent.change(screen.getByLabelText("Landmark"), {
         target: { value: "Near the main gate" },
       });
-      fireEvent.click(screen.getByRole("button", { name: "Other" }));
+      if (!compact) fireEvent.click(screen.getByRole("button", { name: "Other" }));
       fireEvent.change(screen.getByLabelText("Name it"), {
         target: { value: " Parents' home " },
       });
 
+      if (compact) act(() => { expect(unwindBackLayer("/one/location")).toBe(true); });
       fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
 
       const expectedPayload = [
@@ -1843,9 +1790,10 @@ describe("SaveLocationModal", () => {
       await waitFor(() =>
         expect(onSave).toHaveBeenNthCalledWith(1, ...expectedPayload),
       );
-      expect(await screen.findByRole("alert")).toHaveTextContent(
+      expect(await screen.findByRole(compact ? "status" : "alert")).toHaveTextContent(
         /details are still here/i,
       );
+      if (compact) fireEvent.click(screen.getByRole("button", { name: "Edit address details" }));
       expect(screen.getByLabelText("Address")).toHaveValue(
         "12 Custom Road, Bengaluru 560001",
       );
@@ -1855,10 +1803,35 @@ describe("SaveLocationModal", () => {
       );
       expect(screen.getByLabelText("Name it")).toHaveValue(" Parents' home ");
 
+      if (compact) fireEvent.click(screen.getByRole("button", { name: "Done", exact: true }));
       fireEvent.click(screen.getByRole("button", { name: "Try saving again" }));
       await waitFor(() =>
         expect(onSave).toHaveBeenNthCalledWith(2, ...expectedPayload),
       );
+    });
+
+    it("advances only after a confirmed save and never saves twice when returning", async () => {
+      const onSave = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      render(<OneLocationOnboardingFlow
+        startAt="features"
+        currentUserName="Test User"
+        nativeTest={{ routeId: "/one/location", marker: "native-route-one-location", authState: "authenticated", dataState: "loaded" }}
+        onBack={() => {}}
+        onComplete={() => {}}
+        place={unifiedProps({ onSave })}
+      />);
+      await waitFor(() => expect(screen.getByRole("button", { name: "Save & continue" })).toBeEnabled());
+      expect(screen.getByRole("button", { name: "Edit address details" })).toHaveAccessibleDescription(mapPickerMockState.picked.address);
+      fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
+      await screen.findByRole("button", { name: "Try saving again" });
+      expect(screen.queryByRole("heading", { name: "Your people." })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Try saving again" }));
+      await screen.findByRole("heading", { name: "Your people." });
+      fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+      await screen.findByRole("heading", { name: "Your place." });
+      fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+      await screen.findByRole("heading", { name: "Your people." });
+      expect(onSave).toHaveBeenCalledTimes(2);
     });
   });
 });

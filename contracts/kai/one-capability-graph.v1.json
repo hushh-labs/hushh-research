@@ -50925,7 +50925,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "a03e2e176e660632bdea842be40f4bf138824a6bbbacd66c6db7dc46243fea5c",
+      "projection_digest": "d9b9dee2353578c9a7033a9bcec3b9b8e631cc5936d9bdad4dcac26fac202b31",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50935,7 +50935,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "9dad7319e007a20b0471831f38d20754f8b6a0fc26c3793c907a0208b7e83054",
+        "capability_graph_evolution": "87bcf2c878e6c12a06e34924eea3ce42a2d43b3cf4acd27972afcd419e97ace5",
         "capability_runtime_compiler": "3a6f397a78dfc495a31a7f47db05f3ce255a06975c24cd5aa27d701a9a0d415b",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "5d5a0b62be9924c6aaf3bd61d0f7753e9f2cc8aee748a48cf20550cf17c59261",
@@ -50944,7 +50944,7 @@
         "location_workflow_api_contract": "e8b5f1471a8ff3a3c44313dd7c8347d4dd3d3fec40c54f72a65743b02c0fb8a9",
         "service_knowledge_packages": "c168f496fff4ca3feaa5d9fa93cf64b6493ffbf10da1c6d86c8694a070f455b6"
       },
-      "source_revision": "6211b0f6552f51b8",
+      "source_revision": "39d8e753e5e6ff24",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -52462,7 +52462,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "6211b0f6552f51b8",
+    "source_revision": "39d8e753e5e6ff24",
     "web": {
       "actions": [
         {
@@ -52505,7 +52505,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "8ddb525b6b7b070dcfda911394049cd23f4a4c5078227cca068a905917c536a8",
+      "projection_digest": "9fff787cd5d5a9c7159d2270f54d614619dd120c954da7e67ae0e14e583e20da",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52515,7 +52515,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "9dad7319e007a20b0471831f38d20754f8b6a0fc26c3793c907a0208b7e83054",
+        "capability_graph_evolution": "87bcf2c878e6c12a06e34924eea3ce42a2d43b3cf4acd27972afcd419e97ace5",
         "capability_runtime_compiler": "3a6f397a78dfc495a31a7f47db05f3ce255a06975c24cd5aa27d701a9a0d415b",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "5d5a0b62be9924c6aaf3bd61d0f7753e9f2cc8aee748a48cf20550cf17c59261",
@@ -52524,7 +52524,7 @@
         "location_workflow_api_contract": "e8b5f1471a8ff3a3c44313dd7c8347d4dd3d3fec40c54f72a65743b02c0fb8a9",
         "service_knowledge_packages": "c168f496fff4ca3feaa5d9fa93cf64b6493ffbf10da1c6d86c8694a070f455b6"
       },
-      "source_revision": "6211b0f6552f51b8",
+      "source_revision": "39d8e753e5e6ff24",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -54081,7 +54081,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "6211b0f6552f51b8",
+  "revision": "39d8e753e5e6ff24",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -58394,7 +58394,7 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "9dad7319e007a20b0471831f38d20754f8b6a0fc26c3793c907a0208b7e83054",
+    "capability_graph_evolution": "87bcf2c878e6c12a06e34924eea3ce42a2d43b3cf4acd27972afcd419e97ace5",
     "capability_runtime_compiler": "3a6f397a78dfc495a31a7f47db05f3ce255a06975c24cd5aa27d701a9a0d415b",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
     "kai_action_gateway": "85408f13022251d6b03de195ef5a084c908614e9e53b603d7b14cf439bb03bce",
@@ -58403,12 +58403,12 @@
     "location_onboarding_runtime": "30805326977c008fe5a1455e039cc8f2807b4522a7b35c35e85bff7e23434d35",
     "location_workflow_api_contract": "e8b5f1471a8ff3a3c44313dd7c8347d4dd3d3fec40c54f72a65743b02c0fb8a9",
     "product_agent_registry": "eb54fa0b9cf9ab9a643eec222893c64d17eb5f07c1c26642f15f717b2051fd20",
-    "route_orchestration_index": "33962bfacc382ed67ca1ca41cab12096f16abe9c9d60807083e2b9713121c68e",
+    "route_orchestration_index": "058d91664714cf06c959c3d4d5c49948abcf8c31d675abfca500d082fba09337",
     "service_knowledge_packages": "c168f496fff4ca3feaa5d9fa93cf64b6493ffbf10da1c6d86c8694a070f455b6"
   },
-  "source_revision": "6211b0f6552f51b8",
+  "source_revision": "39d8e753e5e6ff24",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "6211b0f6552f51b8",
+    "current_graph_revision": "39d8e753e5e6ff24",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -58520,6 +58520,7 @@
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
           "60f9c47270b215a8",
+          "6211b0f6552f51b8",
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
@@ -58800,6 +58801,7 @@
           "57ed1be834d905e3",
           "5996287e8a4d4b35",
           "5e3f5578cbabd453",
+          "6211b0f6552f51b8",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
           "685be55b649cd9fc",
@@ -58899,6 +58901,7 @@
           "57ed1be834d905e3",
           "5996287e8a4d4b35",
           "5e3f5578cbabd453",
+          "6211b0f6552f51b8",
           "63a45baaa90e4e2f",
           "685be55b649cd9fc",
           "6889f5062bd36428",
@@ -59273,6 +59276,7 @@
           "5dd05b725c815199",
           "5e3f5578cbabd453",
           "60f052ad508244d1",
+          "6211b0f6552f51b8",
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
@@ -59644,6 +59648,7 @@
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
           "60f9c47270b215a8",
+          "6211b0f6552f51b8",
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
@@ -59999,6 +60004,7 @@
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
           "60f9c47270b215a8",
+          "6211b0f6552f51b8",
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
@@ -60354,6 +60360,7 @@
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
           "60f9c47270b215a8",
+          "6211b0f6552f51b8",
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
@@ -60707,6 +60714,7 @@
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
           "60f9c47270b215a8",
+          "6211b0f6552f51b8",
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",

@@ -6321,7 +6321,7 @@
           "callback_error": "Use the verified current route and its generated actions only.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "The Location introduction finishes when its completion marker is saved and the setup hub settles. Device location access is requested later from the Location workspace.",
+        "completion_boundary": "The two-screen Location introduction finishes when its completion marker is saved and the setup hub settles. Your place requests foreground access only on a tap, saves through the existing transaction, or advances with Set up later. Denial never blocks completion. Optional details, contacts and join tasks use sheets; no sharing starts implicitly.",
         "next_route": "/one/setup",
         "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
