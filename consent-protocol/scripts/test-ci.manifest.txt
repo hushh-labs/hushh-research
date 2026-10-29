@@ -313,6 +313,10 @@ tests/services/test_pkm_source_quote.py
 tests/services/test_context_transfer_is_kept.py
 tests/test_ria_claim_flow.py
 tests/test_ria_iam_service_architecture.py
+# Only verified advisors reach RIA Picks and investor data: the shared gate
+# refuses everyone else (403) before any service runs.
+tests/test_ria_verification_hardening.py
+tests/test_ria_picks_routes.py
 tests/test_kai_optimize_realtime_contract.py
 tests/test_portfolio_stream_quality_rules.py
 tests/test_portfolio_import_gene_runtime.py

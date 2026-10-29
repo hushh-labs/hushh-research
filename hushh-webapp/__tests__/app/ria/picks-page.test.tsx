@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => {
     useVault: vi.fn(),
     usePersonaState: vi.fn(),
     useStaleResource: vi.fn(),
+    gate: { locked: false },
+    publishVoiceSurface: vi.fn(),
     refresh: vi.fn(),
     tickerUniverse: {
       preloadTickerUniverse: vi.fn(),
@@ -59,6 +61,10 @@ vi.mock("@/hooks/use-mobile", () => ({
 
 vi.mock("@/lib/persona/persona-context", () => ({
   usePersonaState: mocks.usePersonaState,
+}));
+
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
+  usePublishVoiceSurfaceMetadata: mocks.publishVoiceSurface,
 }));
 
 vi.mock("@/lib/cache/use-stale-resource", () => ({
@@ -176,7 +182,8 @@ vi.mock("@/components/profile/settings-ui", () => ({
 
 vi.mock("@/components/ria/ria-page-shell", () => ({
   RiaPageShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  RiaVerificationGate: ({ children }: { children: React.ReactNode }) => children,
+  RiaVerificationGate: ({ children }: { children: React.ReactNode }) =>
+    mocks.gate.locked ? <div data-testid="ria-verify-gate" /> : children,
   RiaCompatibilityState: ({
     title,
     description,
@@ -376,6 +383,7 @@ function buildResource(overrides?: Record<string, unknown>) {
 describe("RiaPicksPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.gate.locked = false;
     mocks.useAuth.mockReturnValue({
       user: {
         uid: "ria-user-1",
@@ -452,6 +460,48 @@ describe("RiaPicksPage", () => {
         active_share_count: 1,
       },
     });
+  });
+
+  it("keeps the editor behind the verification gate and does not request picks for a known unverified advisor", () => {
+    mocks.gate.locked = true;
+    mocks.usePersonaState.mockReturnValue({
+      riaCapability: "switch",
+      riaOnboardingStatus: { advisory_status: "submitted", verification_status: "submitted" },
+      loading: false,
+      refreshing: false,
+    });
+
+    render(<RiaPicksPage />);
+
+    expect(screen.getByTestId("ria-verify-gate")).toBeTruthy();
+    expect(screen.queryByTestId("ria-picks-primary")).toBeNull();
+    expect(mocks.useStaleResource).toHaveBeenCalledWith(
+      expect.objectContaining({ cacheKey: "ria_picks_ria-user-1", enabled: false }),
+    );
+    // One is told why the editor is not on screen, and where verification lives.
+    expect(mocks.publishVoiceSurface).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        deadEnd: expect.objectContaining({ remedyActionId: "route.ria_onboarding" }),
+      }),
+    );
+  });
+
+  it("still requests picks for a verified advisor", () => {
+    mocks.usePersonaState.mockReturnValue({
+      riaCapability: "switch",
+      riaOnboardingStatus: { advisory_status: "finra_verified", verification_status: "verified" },
+      loading: false,
+      refreshing: false,
+    });
+
+    render(<RiaPicksPage />);
+
+    expect(mocks.useStaleResource).toHaveBeenCalledWith(
+      expect.objectContaining({ cacheKey: "ria_picks_ria-user-1", enabled: true }),
+    );
+    expect(mocks.publishVoiceSurface).toHaveBeenLastCalledWith(
+      expect.objectContaining({ deadEnd: null }),
+    );
   });
 
   it("keeps upload and template actions out of the suggested list and exposes them in My list", async () => {
