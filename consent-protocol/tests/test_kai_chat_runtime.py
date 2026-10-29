@@ -2,9 +2,147 @@
 
 from __future__ import annotations
 
+import json
+from unittest.mock import Mock
+
 import pytest
 
 from hushh_mcp.agents.kai import runtime
+
+_AZURE_RESULTS = {
+    "fundamental": {
+        "business_moat": "Synthetic moat",
+        "financial_resilience": "Synthetic cash flow",
+        "growth_efficiency": "Synthetic growth",
+        "bull_case": "Synthetic strength",
+        "bear_case": "Synthetic risk",
+        "summary": "Supplied facts only",
+        "confidence": 0.5,
+        "recommendation": "hold",
+    },
+    "sentiment": {
+        "summary": "Supplied news only",
+        "sentiment_score": 0.0,
+        "key_catalysts": ["Synthetic filing"],
+        "news_highlights": [{"title": "Synthetic filing", "source": "fixture"}],
+        "momentum_signal": "neutral",
+        "confidence": 0.5,
+        "recommendation": "neutral",
+    },
+    "valuation": {
+        "summary": "Supplied valuation only",
+        "valuation_verdict": "fair",
+        "valuation_metrics": {"pe_ratio": 12.0},
+        "peer_ranking": "middle",
+        "peer_comparison": {"sector_median": 14.0},
+        "price_targets": {"base_case": 100.0},
+        "upside_downside": {"base_pct": 0.0},
+        "confidence": 0.5,
+        "recommendation": "fair",
+    },
+    "debate": {"statement": "Synthetic debate from supplied evidence."},
+    "synthesis": {
+        "thesis": "Synthetic conclusion",
+        "key_drivers": ["Supplied fact"],
+        "key_risks": ["Supplied risk"],
+        "action_plan": ["Review supplied evidence"],
+        "watchlist_triggers": ["A new filing"],
+        "horizon_fit": "Synthetic horizon",
+    },
+}
+
+
+def _azure_stock_transport(monkeypatch, outputs):
+    import openai
+
+    from hushh_mcp.runtime_providers import managed_azure
+    from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
+    from tests.services.test_azure_adk import Client
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    for key in ("HUSHH_UAT_MANAGED_AI_PROVIDER", "HUSHH_UAT_MANAGED_TEXT_PROVIDER"):
+        monkeypatch.delenv(key, raising=False)
+    token = Mock(return_value="synthetic-bearer")
+    monkeypatch.setattr(managed_azure, "_credential_supplier", lambda *_args: token)
+    client = Client(outputs)
+    factory = Mock(return_value=client)
+    monkeypatch.setattr(openai, "AsyncOpenAI", factory)
+    vertex = Mock(side_effect=AssertionError("UAT Azure stock analysis reached Vertex"))
+    monkeypatch.setattr(ManagedGeminiRuntimeBinding, "from_environment", vertex)
+    return client, factory, token, vertex
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", list(_AZURE_RESULTS))
+async def test_uat_stock_stages_use_azure_without_vertex_and_preserve_outputs(monkeypatch, stage):
+    from hushh_mcp.managed_ai_config import load_pwm_policy
+    from hushh_mcp.runtime_providers.json_schema import current_validated_output_schema
+    from tests.services.test_azure_adk import message, response
+
+    payload = _AZURE_RESULTS[stage]
+    client, factory, token, vertex = _azure_stock_transport(
+        monkeypatch, [response(message(json.dumps(payload)))]
+    )
+    kwargs = dict(
+        prompt="Synthetic approved market facts; no real owner holdings.",
+        user_id="synthetic-owner",
+        consent_token="synthetic-owner-token",  # noqa: S106 - inert fixture
+    )
+    if stage == "debate":
+        result = await runtime.run_kai_debate_turn(**kwargs)
+        assert result == payload["statement"]
+    elif stage == "synthesis":
+        assert await runtime.run_kai_synthesis_turn(**kwargs) == payload
+    else:
+        assert await runtime.run_kai_analyst_turn(gene_id=f"agent_kai_{stage}", **kwargs) == payload
+    vertex.assert_not_called()
+    token.assert_called_once()
+    assert len(client.requests) == client.closed == 1
+    wire = client.requests[0]
+    assert (
+        wire["model"]
+        == load_pwm_policy(environment="uat", provider="azure_openai")["azure"][
+            "primary_deployment"
+        ]
+    )
+    assert wire["store"] is False
+    assert factory.call_args.kwargs["max_retries"] == 0
+    assert wire["reasoning"]["effort"] == ("high" if stage == "synthesis" else "low")
+    assert wire["text"]["format"]["type"] == (
+        "json_object" if stage in {"sentiment", "valuation"} else "json_schema"
+    )
+    assert current_validated_output_schema() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["invalid_output", "provider_failure"])
+async def test_uat_stock_failure_never_switches_to_vertex(monkeypatch, failure):
+    from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
+    from hushh_mcp.runtime_providers.json_schema import current_validated_output_schema
+    from tests.services.test_azure_adk import message, response
+
+    client, _factory, _token, vertex = _azure_stock_transport(
+        monkeypatch, [response(message('{"summary":"Missing required analysis"}'))]
+    )
+    if failure == "provider_failure":
+
+        async def unavailable(**kwargs):
+            client.requests.append(kwargs)
+            raise RuntimeError("Synthetic Azure transport failure")
+
+        client.create = unavailable
+    expected = SpecialistAdkTurnError if failure == "provider_failure" else ValueError
+    reason = "Specialist turn failed" if failure == "provider_failure" else "output schema"
+    with pytest.raises(expected, match=reason):
+        await runtime.run_kai_analyst_turn(
+            gene_id="agent_kai_valuation",
+            prompt="Synthetic approved facts.",
+            user_id="synthetic-owner",
+            consent_token="synthetic-owner-token",  # noqa: S106 - inert fixture
+        )
+    vertex.assert_not_called()
+    assert len(client.requests) == client.closed == 1
+    assert current_validated_output_schema() is None
 
 
 def test_chat_gene_loads_from_kai_manifest() -> None:
