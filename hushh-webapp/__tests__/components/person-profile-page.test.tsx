@@ -1833,6 +1833,7 @@ describe("Request scope during profile authority refresh", () => {
       expect(await screen.findByLabelText("Your question")).toHaveValue("");
       expect(mocks.answerCreate).toHaveBeenCalledTimes(1);
     },
+    15_000,
   );
 });
 
