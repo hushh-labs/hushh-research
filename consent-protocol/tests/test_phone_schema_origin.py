@@ -328,6 +328,8 @@ def restoration_history(submission, monkeypatch):
         "missing_source",
         "older_active",
         "older_queued",
+        "raw_skipped",
+        "raw_older",
     ],
 )
 def test_schema_history_reuses_restoration_absence_without_hiding_producers(
@@ -367,6 +369,16 @@ def test_schema_history_reuses_restoration_absence_without_hiding_producers(
     elif change in {"older_active", "older_queued"}:
         state = "in_progress" if change == "older_active" else "queued"
         case.attempts[(300, 1)]["status"] = case.jobs[(300, 1)]["jobs"][0]["status"] = state
+    elif change in {"raw_skipped", "raw_older"}:
+        from production_phone_job_name_cases import RAW_PRIMARY_NAME
+
+        latest.update(name=RAW_PRIMARY_NAME, status="completed", conclusion="skipped", steps=[])
+        if change == "raw_older":
+            next(
+                step
+                for step in case.jobs[(300, 1)]["jobs"][0]["steps"]
+                if step["name"] == history.DEPLOY
+            )["conclusion"] = "failure"
     elif change == "missing_source":
 
         def unavailable(command):
@@ -377,7 +389,7 @@ def test_schema_history_reuses_restoration_absence_without_hiding_producers(
         monkeypatch.setattr(importlib.import_module("qualify_image"), "run", unavailable)
     elif change == "attempt":
         latest["run_attempt"] = 1
-    if change in {None, "failed", "cancelled"}:
+    if change in {None, "failed", "cancelled", "raw_skipped"}:
         result = module.closed_submissions(
             {"run_id": "99", "run_attempt": 1}, start="2026-10-20T12:00:00Z", source_anchor="c" * 40
         )
@@ -388,6 +400,7 @@ def test_schema_history_reuses_restoration_absence_without_hiding_producers(
         message = {
             "build": "prior_producer_history_incomplete",
             "older": "submission_unacknowledged",
+            "raw_older": "submission_unacknowledged",
             "older_active": "prior_producer_unfinished",
             "older_queued": "prior_producer_unfinished",
         }.get(change)

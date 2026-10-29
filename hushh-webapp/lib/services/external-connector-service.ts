@@ -44,29 +44,38 @@ function authHeaders(vaultOwnerToken: string): HeadersInit {
   return ApiService.getAuthHeaders(vaultOwnerToken);
 }
 
+/** Native Drive callbacks may use a registered public API origin even when
+ * ordinary native API traffic uses the Cloud Run service URL. */
+function nativeDriveCallbackUri(path: string, unavailableMessage: string): string {
+  let callbackOrigin: URL;
+  try {
+    callbackOrigin = new URL(process.env.NEXT_PUBLIC_DRIVE_NATIVE_CALLBACK_ORIGIN || BACKEND_URL);
+  } catch {
+    throw new Error(unavailableMessage);
+  }
+  if (
+    callbackOrigin.protocol !== "https:" ||
+    callbackOrigin.username ||
+    callbackOrigin.password ||
+    callbackOrigin.pathname !== "/" ||
+    callbackOrigin.search ||
+    callbackOrigin.hash
+  ) {
+    throw new Error(unavailableMessage);
+  }
+  return new URL(path, callbackOrigin).toString();
+}
+
 /**
  * Native Google OAuth must return to the registered HTTPS backend callback.
  * It must never use the Capacitor origin or the web proxy, which would follow
  * the backend's custom-scheme handoff and turn it into a JSON response.
  */
 export function nativeDriveOAuthCallbackUri(): string {
-  let backend: URL;
-  try {
-    backend = new URL(BACKEND_URL);
-  } catch {
-    throw new Error("Native Drive connection is unavailable in this build.");
-  }
-  if (
-    backend.protocol !== "https:" ||
-    backend.username ||
-    backend.password ||
-    backend.pathname !== "/" ||
-    backend.search ||
-    backend.hash
-  ) {
-    throw new Error("Native Drive connection is unavailable in this build.");
-  }
-  return new URL("/api/connectors/oauth/native/callback", backend).toString();
+  return nativeDriveCallbackUri(
+    "/api/connectors/oauth/native/callback",
+    "Native Drive connection is unavailable in this build.",
+  );
 }
 
 /**
@@ -75,26 +84,10 @@ export function nativeDriveOAuthCallbackUri(): string {
  * metadata, then hands the app an opaque custom-scheme result.
  */
 export function nativeDrivePickerCallbackUri(): string {
-  let backend: URL;
-  try {
-    backend = new URL(BACKEND_URL);
-  } catch {
-    throw new Error("Native Drive file selection is unavailable in this build.");
-  }
-  if (
-    backend.protocol !== "https:" ||
-    backend.username ||
-    backend.password ||
-    backend.pathname !== "/" ||
-    backend.search ||
-    backend.hash
-  ) {
-    throw new Error("Native Drive file selection is unavailable in this build.");
-  }
-  return new URL(
+  return nativeDriveCallbackUri(
     "/api/connectors/google_drive/picker/native/callback",
-    backend,
-  ).toString();
+    "Native Drive file selection is unavailable in this build.",
+  );
 }
 
 async function readJsonOrThrow<T>(response: Response): Promise<T> {
