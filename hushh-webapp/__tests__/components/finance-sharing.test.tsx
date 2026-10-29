@@ -1,8 +1,8 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
-const mocks = vi.hoisted(() => ({ mobile: false, capture: vi.fn(), recipients: vi.fn(), prepare: vi.fn(), publish: vi.fn(), history: vi.fn(), view: vi.fn(), decrypt: vi.fn(), review: vi.fn(), saved: vi.fn() }));
+const mocks = vi.hoisted(() => ({ mobile: false, capture: vi.fn(), recipients: vi.fn(), prepare: vi.fn(), publish: vi.fn(), history: vi.fn(), stop: vi.fn(), view: vi.fn(), decrypt: vi.fn(), review: vi.fn(), saved: vi.fn() }));
 const context = { userId: "owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-consent", getIdToken: async () => "synthetic-token", isCurrent: () => true };
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => mocks.mobile }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/one/kai", useSearchParams: () => new URLSearchParams("tab=portfolio") }));
@@ -35,6 +35,39 @@ beforeEach(() => {
   mocks.review.mockResolvedValue("derived-review-sentinel");
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+it("allows a recipient without a portfolio to manage received access but not create shares", async () => {
+  mocks.history.mockImplementation(async (_context, direction) => ({ items: direction === "received" ? [grant] : [], nextCursor: null }));
+  render(<FinancePortfolioSharing />);
+  expect(screen.getByRole("button", { name: "Ask an advisor" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Share portfolio" })).toBeDisabled();
+  expect(screen.getByText("Add a portfolio to share.")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Manage sharing" }));
+  expect(await screen.findByText("Owner")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Shared by you" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "View", exact: true }));
+  expect(await screen.findByText(/decrypted-sentinel/)).toBeVisible();
+  expect(mocks.recipients).not.toHaveBeenCalled();
+  expect(mocks.prepare).not.toHaveBeenCalled();
+});
+
+it("keeps existing outgoing access revocable after its portfolio is removed", async () => {
+  const outgoing = { ...grant, direction: "outgoing" };
+  mocks.history.mockImplementation(async (_context, direction) => ({ items: direction === "outgoing" ? [outgoing] : [], nextCursor: null }));
+  mocks.stop.mockResolvedValue({});
+  const view = render(<FinanceSharingManager open onOpenChange={vi.fn()} />);
+  await screen.findByText("Recipient");
+  view.rerender(<FinanceSharingManager open hasPortfolio={false} onOpenChange={vi.fn()} />);
+  await waitFor(() => expect(screen.queryByText("Recipient")).toBeNull());
+  const byYou = screen.getByRole("button", { name: "Shared by you" });
+  await waitFor(() => expect(byYou).not.toBeDisabled());
+  fireEvent.click(byYou);
+  await screen.findByText("Recipient");
+  fireEvent.click(screen.getByRole("button", { name: "Stop sharing", exact: true }));
+  const confirmation = screen.getByRole("dialog", { name: "Stop sharing with Recipient?" });
+  fireEvent.click(within(confirmation).getByRole("button", { name: "Stop sharing", exact: true }));
+  await waitFor(() => expect(mocks.stop).toHaveBeenCalledWith(context, "grant"));
+});
 
 it("opens the existing advisor, sharing and access-management flows from Portfolio", async () => {
   const view = () => render(<FinancePortfolioSharing model={model} source={source} />);

@@ -73,6 +73,11 @@ export function registerFinanceScreenChecks(
           .toBe(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--font-app-body").trim()));
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
         await expect(overview.getByText("Balance snapshot · This source hasn’t supplied dated balance history.")).toBeVisible();
+        await expect(overview.getByRole("img", { name: "Sample Company: 91.9% of portfolio" })).toBeVisible();
+        await expect(overview.getByText("Cash share").locator("..")).toContainText("8.1%");
+        const performance = overview.getByTestId("portfolio-performance");
+        await expect(performance.getByText("$680.42", { exact: true })).toBeVisible();
+        await expect(performance.getByText("Investment return", { exact: true }).locator("..")).toContainText("Unavailable");
         if (width >= 1024) {
           // The workspace should use the available content width rather than
           // introducing a second, narrower reading measure below the tabs.
