@@ -109,6 +109,7 @@ def submission(monkeypatch):
             "_GITHUB_RUN_ID": "42",
             "_GITHUB_RUN_ATTEMPT": "2",
             "_DEPLOY_SHA": PRIMARY,
+            "_IMAGE_REFERENCE": IMAGE,
             "_PHONE_DEPLOY_PHASE": "cold",
             "_PHONE_ROLLBACK_SHA": FALLBACK,
             "_PHONE_ROLLBACK_IMAGE_REFERENCE": IMAGE,
@@ -163,6 +164,8 @@ def test_only_exact_acknowledged_terminal_attempt_can_close_a_submission(submiss
             "build_id": build["id"],
             "source": FALLBACK,
             "image": IMAGE,
+            "probe_source": PRIMARY,
+            "probe_image": IMAGE,
         }
 
 
@@ -309,7 +312,7 @@ def restoration_history(submission, monkeypatch):
     builds = [build]
     monkeypatch.setenv("GITHUB_SHA", "e" * 40)
     monkeypatch.setattr(module, "_builds", lambda _start: builds)
-    monkeypatch.setattr(module, "_api", lambda endpoint: case.api(module.REPOSITORY, endpoint))
+    monkeypatch.setattr(module._authorities(), "uncached_api", case.api)
     monkeypatch.setattr(importlib.import_module("qualify_image"), "run", case.source)
     return module, case, builds
 
