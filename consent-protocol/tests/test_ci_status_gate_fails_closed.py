@@ -22,7 +22,6 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import sys
 from dataclasses import dataclass, field, replace
 from functools import cache
 from pathlib import Path
@@ -69,7 +68,7 @@ ALL_JOBS = sorted(
 
 EXPRESSION_RE = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 NEEDS_RESULT_RE = re.compile(r"needs(?:\['([\w-]+)'\]|\.([\w-]+))\.result")
-PATHS_OUTPUT_RE = re.compile(r"needs\.paths\.outputs\.(\w+)")
+PATHS_OUTPUT_RE = re.compile(r"needs(?:\.paths|\['preflight-gate'\])\.outputs\.(\w+)")
 
 
 @dataclass(frozen=True)
@@ -301,34 +300,20 @@ def test_negative_control_a_green_run_passes(name: str, run: Run, tmp_path: Path
     )
 
 
-@pytest.mark.parametrize("receipt_exit", [0, 1])
-def test_retry_requires_its_receipt_after_job_outcomes(
-    receipt_exit: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    execute = _run_step
-    calls: list[str] = []
-
-    def execute_with_receipt(step: dict, run: Run, directory: Path):
-        if step.get("uses") == "actions/checkout@v6":
-            assert step["with"]["persist-credentials"] is False
-            calls.append("checkout")
-            return subprocess.CompletedProcess([], 0, "", "")
-        if step.get("run") == "python3 scripts/ci/github_security_receipt.py":
-            calls.append("receipt")
-            return subprocess.CompletedProcess([], receipt_exit, "", "")
-        return execute(step, run, directory)
-
-    monkeypatch.setattr(sys.modules[__name__], "_run_step", execute_with_receipt)
-    passed, _ = _verdict(replace(EVERYTHING, attempt=2), tmp_path)
-    assert calls == ["checkout", "receipt"]
-    assert passed is (receipt_exit == 0)
+def test_retry_preserves_job_outcomes_without_a_standalone_worker(tmp_path: Path) -> None:
+    assert all("github_security_receipt.py" not in step.get("run", "") for step in _gate()["steps"])
+    retry = replace(EVERYTHING, attempt=2)
+    passed, output = _verdict(retry, tmp_path)
+    assert passed, output
+    passed, _ = _verdict(retry.with_result("protocol-check", "cancelled"), tmp_path)
+    assert not passed
 
 
 def test_manual_branch_verdict_cannot_satisfy_pr_protection() -> None:
     # This is a branch-protection identity boundary, not an outcome shortcut.
     # The guarded branch names are deliberately absent from the dispatch name.
     assert _gate()["name"] == (
-        "${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || 'CI Status Gate' }}"
+        "${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || (github.event.pull_request.draft && 'Draft Safety Gate' || 'CI Status Gate') }}"
     )
 
 

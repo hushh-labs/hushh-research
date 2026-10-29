@@ -663,10 +663,10 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
         "deployments": "read",
         "actions": "read",
     }
-    assert wait["needs"] == "select-target"
+    assert wait["needs"] == ["select-target", "deployment-security"]
     assert wait["if"] == "needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'"
     assert wait["environment"] == {"name": "uat", "deployment": False}
-    assert deploy["needs"] == ["select-target", "wait-capacity"]
+    assert deploy["needs"] == ["select-target", "wait-capacity", "deployment-security"]
     assert deploy["if"] == "needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'"
     assert deploy["environment"] == "uat"
 

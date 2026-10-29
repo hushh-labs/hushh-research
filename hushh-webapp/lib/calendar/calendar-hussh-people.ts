@@ -67,3 +67,13 @@ export function calendarHusshPeople({
 export function calendarHusshPerson(people: CalendarHusshPeople, email: string | null | undefined): CalendarHusshPerson | null {
   return people.get(exactEmail(email) || "") ?? null;
 }
+
+export function verifiedCalendarAccountPhoto(
+  account: { google_email?: string | null; google_email_verified?: boolean } | undefined,
+  displayedEmail: string,
+  people: CalendarHusshPeople,
+): string | null {
+  return account?.google_email_verified === true && account.google_email?.trim().toLowerCase() === displayedEmail.trim().toLowerCase()
+    ? calendarHusshPerson(people, displayedEmail)?.photoUrl ?? null
+    : null;
+}
