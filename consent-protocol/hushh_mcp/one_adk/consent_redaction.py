@@ -494,7 +494,9 @@ def consent_answer_fast_path(callback_context: Any, llm_request: Any, *, model: 
 
     from hushh_mcp.runtime_providers.gemini_config import thinking_config_for
 
-    resolved = thinking_config_for(model, "minimal", genai_types)
+    # LOW is supported by both text adapters. Gemini's MINIMAL normalization
+    # does not apply to Azure deployment names, which reject that effort.
+    resolved = thinking_config_for(model, "low", genai_types)
     config.thinking_config = genai_types.ThinkingConfig(
         include_thoughts=False,
         thinking_level=getattr(resolved, "thinking_level", None),

@@ -53,6 +53,9 @@ with a positive revision of at most nine digits. Malformed references return
 existing owner binding and current recipient processing permission.
 Existing shared-context tool blocking, request-secret lifetime and history/model
 redaction apply. Authority is checked again around model generation.
+The consent reply uses LOW reasoning, accepted by both managed text adapters,
+with thoughts disabled and function calling set to NONE. Provider selection and
+the current sharing authority remain unchanged.
 
 Migration 433 qualifies the grant/request tables and terminal disconnect/block
 guards. Rollback is code-only and preserves issued encrypted objects. Expired
