@@ -8,16 +8,14 @@ import android.content.Context
 import android.graphics.Color
 import android.media.AudioAttributes
 import android.media.RingtoneManager
-import android.media.Ringtone
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.VibrationEffect
-import android.os.Vibrator
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
 import com.getcapacitor.JSObject
+import com.getcapacitor.JSArray
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
@@ -30,6 +28,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.lang.ref.WeakReference
 
 /**
  * HushhNotificationsPlugin - Push token registration (Capacitor 8)
@@ -47,6 +46,27 @@ import java.util.concurrent.TimeUnit
 class HushhNotificationsPlugin : Plugin() {
 
     private val TAG = "HushhNotifications"
+    @PluginMethod
+    fun requestEmergencySmsAlarmPermission(call: PluginCall) {
+        // Android uses the admitted foreground service and notification permission.
+        call.resolve(JSObject().put("supported", false).put("authorized", false))
+    }
+    @PluginMethod
+    fun getPendingEmergencySmsAlarms(call: PluginCall) {
+        val user = call.getString("userId")
+        if (user.isNullOrBlank() || FirebaseAuth.getInstance().currentUser == null || ChatPreviewKeys.legacyKey(context, user).isNullOrBlank()) {
+            call.resolve(JSObject().put("grantIds", JSArray()).put("acknowledgedGrantIds", JSArray()))
+            return
+        }
+        val requested = call.getArray("grantIds") ?: JSArray()
+        val acknowledged = JSArray()
+        for (index in 0 until minOf(requested.length(), 512)) {
+            val grant = requested.optString(index)
+            if (EmergencySmsAlarmService.acknowledged(context, user, grant)) acknowledged.put(grant)
+        }
+        call.resolve(JSObject().put("grantIds", JSArray(EmergencySmsAlarmService.pending(context, user)))
+            .put("acknowledgedGrantIds", acknowledged))
+    }
     @PluginMethod
     fun getNotificationSettings(call: PluginCall) {
         ChatMessagingService.ensureChannel(context)
@@ -68,44 +88,17 @@ class HushhNotificationsPlugin : Plugin() {
             .put("emergencySoundEnabled", audible(EMERGENCY_SMS_CHANNEL_ID)))
     }
     private val emergencyHandler = Handler(Looper.getMainLooper())
-    private var emergencyRingtone: Ringtone? = null
-    private var emergencyGrantId: String? = null
-    private var emergencyGeneration = 0
-    private var emergencyPulse: Runnable? = null
-    private var emergencyVibrator: Vibrator? = null
-    private val cancelledEmergencyGrants = linkedSetOf<String>()
-
-    private fun stopEmergencyCue(grantId: String? = null) {
-        if (grantId != null && grantId != emergencyGrantId) return
-        emergencyGeneration += 1
-        emergencyPulse?.let { emergencyHandler.removeCallbacks(it) }
-        emergencyPulse = null
-        emergencyVibrator?.cancel()
-        emergencyVibrator = null
-        emergencyRingtone?.stop()
-        emergencyRingtone = null
-        emergencyGrantId = null
-    }
-
-    override fun handleOnPause() {
-        stopEmergencyCue()
-        super.handleOnPause()
-    }
-
     override fun handleOnDestroy() {
-        stopEmergencyCue()
+        // Activity recreation must not acknowledge an admitted alarm. The service
+        // owns Home/lock; auth/key disposal owns account teardown.
+        if (emergencyPlugin?.get() === this) emergencyPlugin = null
         super.handleOnDestroy()
     }
 
     @PluginMethod
     fun stopEmergencySmsCue(call: PluginCall) {
         emergencyHandler.post {
-            val grantId = call.getString("grantId")
-            if (!grantId.isNullOrBlank()) {
-                cancelledEmergencyGrants.add(grantId)
-                if (cancelledEmergencyGrants.size > 128) cancelledEmergencyGrants.remove(cancelledEmergencyGrants.first())
-            }
-            stopEmergencyCue(grantId)
+            EmergencySmsAlarmService.stop(context, call.getString("userId"), call.getString("grantId"))
             call.resolve()
         }
     }
@@ -117,65 +110,20 @@ class HushhNotificationsPlugin : Plugin() {
             val userId = call.getString("userId")
             val grantId = call.getString("grantId")
             val deadline = call.getDouble("expiresAt")
-            val alarmDeadline = call.getDouble("alarmExpiresAt")
-            if (!activityActive || userId.isNullOrBlank() || grantId.isNullOrBlank() ||
-                cancelledEmergencyGrants.contains(grantId) ||
-                FirebaseAuth.getInstance().currentUser?.uid != userId ||
-                deadline == null || !deadline.isFinite() || deadline <= now || deadline > now + 2000 ||
-                (alarmDeadline != null && (!alarmDeadline.isFinite() || alarmDeadline <= now))) {
+            if (userId.isNullOrBlank() || grantId.isNullOrBlank() ||
+                FirebaseAuth.getInstance().currentUser == null ||
+                ChatPreviewKeys.legacyKey(context, userId).isNullOrBlank() ||
+                deadline == null || !deadline.isFinite() || deadline <= now || deadline > now + 2000) {
                 call.resolve(JSObject().put("played", false))
                 return@post
             }
-            if (emergencyGrantId == grantId) {
-                call.resolve(JSObject().put("played", emergencyRingtone?.isPlaying == true))
+            if (EmergencySmsAlarmService.acknowledged(context, userId, grantId)) {
+                call.resolve(JSObject().put("played", false).put("acknowledged", true))
                 return@post
             }
-            stopEmergencyCue()
-            try {
-                val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                val ringtone = RingtoneManager.getRingtone(context, uri)
-                    ?: run { call.resolve(JSObject().put("played", false)); return@post }
-                ringtone.audioAttributes = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) ringtone.isLooping = true
-                emergencyRingtone = ringtone
-                emergencyGrantId = grantId
-                ringtone.play()
-                val generation = emergencyGeneration
-                emergencyVibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                val pulse = object : Runnable {
-                    override fun run() {
-                        if (emergencyGeneration != generation) return
-                        if (!activityActive || FirebaseAuth.getInstance().currentUser?.uid != userId ||
-                            (alarmDeadline != null && alarmDeadline <= System.currentTimeMillis())) {
-                            stopEmergencyCue(grantId)
-                            return
-                        }
-                        try {
-                            if (!ringtone.isPlaying) ringtone.play()
-                            val pattern = longArrayOf(0, 240, 120, 240, 120, 520)
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                emergencyVibrator?.vibrate(VibrationEffect.createWaveform(pattern, -1))
-                            } else {
-                                @Suppress("DEPRECATION")
-                                emergencyVibrator?.vibrate(pattern, -1)
-                            }
-                        } catch (_: Exception) {
-                            stopEmergencyCue(grantId)
-                            return
-                        }
-                        emergencyHandler.postDelayed(this, 1500)
-                    }
-                }
-                emergencyPulse = pulse
-                pulse.run()
-                call.resolve(JSObject().put("played", ringtone.isPlaying))
-            } catch (_: Exception) {
-                stopEmergencyCue()
-                call.resolve(JSObject().put("played", false))
-            }
+            val started = EmergencySmsAlarmService.start(context, userId, grantId, deadline.toLong())
+            if (!started) EmergencySmsAlarmService.showFallback(context, userId, grantId)
+            call.resolve(JSObject().put("played", started))
         }
     }
 
@@ -189,6 +137,7 @@ class HushhNotificationsPlugin : Plugin() {
 
     override fun load() {
         super.load()
+        emergencyPlugin = WeakReference(this)
         ensureActivityChannel(context)
         ensureEmergencySmsChannel(context)
         ChatMessagingService.ensureChannel(context)
@@ -253,6 +202,14 @@ class HushhNotificationsPlugin : Plugin() {
         .build()
 
     companion object {
+        private var emergencyPlugin: WeakReference<HushhNotificationsPlugin>? = null
+        fun emergencyAcknowledged(user: String, grant: String) {
+            emergencyPlugin?.get()?.let { plugin ->
+                plugin.emergencyHandler.post {
+                    plugin.notifyListeners("emergencySmsAcknowledged", JSObject().put("userId", user).put("grantId", grant))
+                }
+            }
+        }
         const val ACTIVITY_CHANNEL_ID = "hushh_activity_alerts_v1"
         const val EMERGENCY_SMS_CHANNEL_ID = "one_location_sms_emergency_v1"
         @Volatile var activityActive = false
@@ -285,8 +242,15 @@ class HushhNotificationsPlugin : Plugin() {
     @PluginMethod
     fun clearNotificationKey(call: PluginCall) {
         val user = call.getString("userId") ?: run { call.reject("Notification identity required"); return }
-        try { ChatPreviewKeys.clear(context, user); activeChatTag = ""; activeChatKey = ""; call.resolve() }
-        catch (_: Exception) { call.reject("Notification cleanup unavailable") }
+        emergencyHandler.post {
+            try {
+                EmergencySmsAlarmService.stop(context, user)
+                ChatPreviewKeys.clear(context, user)
+                if (call.getBoolean("deleteAlarmReceipts", false) == true) EmergencySmsAlarmService.forget(context, user)
+                activeChatTag = ""; activeChatKey = ""; call.resolve()
+            }
+            catch (_: Exception) { call.reject("Notification cleanup unavailable") }
+        }
     }
 
     @PluginMethod
@@ -321,6 +285,7 @@ class HushhNotificationsPlugin : Plugin() {
                     .put("platform", platform)
                     .put("device_id", call.getString("deviceId"))
                     .put("preview_key_id", call.getString("previewKeyId"))
+                    .put("sms_alarm_version", if (call.getString("previewKeyId").isNullOrBlank()) 0 else 1)
                     .put("preview_public_key", call.getString("previewPublicKey"))
                     .toString()
 

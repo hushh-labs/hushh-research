@@ -376,9 +376,10 @@
     "437_account_legacy_generation_settlement.sql",
     "439_drive_rest_owner_admission.sql",
     "440_drive_permission_file_claim_lanes.sql",
-    "441_calendar_mail_read_grant.sql",
-    "442_calendar_email_followups.sql",
-    "443_calendar_email_followup_delivery.sql"
+    "441_sms_alarm_capability.sql",
+    "442_calendar_mail_read_grant.sql",
+    "443_calendar_email_followups.sql",
+    "444_calendar_email_followup_delivery.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -801,8 +802,9 @@
     "438_uat_legacy_generation_settlement.sql": "rollback/438_uat_legacy_generation_settlement.rollback.sql",
     "439_drive_rest_owner_admission.sql": "rollback/439_drive_rest_owner_admission.rollback.sql",
     "440_drive_permission_file_claim_lanes.sql": "rollback/440_drive_permission_file_claim_lanes.rollback.sql",
-    "441_calendar_mail_read_grant.sql": "rollback/441_calendar_mail_read_grant.rollback.sql",
-    "442_calendar_email_followups.sql": "rollback/442_calendar_email_followups.rollback.sql",
-    "443_calendar_email_followup_delivery.sql": "rollback/443_calendar_email_followup_delivery.rollback.sql"
+    "441_sms_alarm_capability.sql": "rollback/441_sms_alarm_capability.rollback.sql",
+    "442_calendar_mail_read_grant.sql": "rollback/442_calendar_mail_read_grant.rollback.sql",
+    "443_calendar_email_followups.sql": "rollback/443_calendar_email_followups.rollback.sql",
+    "444_calendar_email_followup_delivery.sql": "rollback/444_calendar_email_followup_delivery.rollback.sql"
   }
 }

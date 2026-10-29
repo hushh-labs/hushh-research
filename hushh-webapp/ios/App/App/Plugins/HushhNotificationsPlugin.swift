@@ -27,6 +27,8 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "HushhNotifications"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getNotificationSettings", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestEmergencySmsAlarmPermission", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getPendingEmergencySmsAlarms", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "playEmergencySmsCue", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopEmergencySmsCue", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deletePushToken", returnType: CAPPluginReturnPromise),
@@ -41,12 +43,34 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     private let TAG = "HushhNotifications"
     @objc func getNotificationSettings(_ call: CAPPluginCall) {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
-            call.resolve([
+            Task { @MainActor in
+              var result: [String: Any] = [
                 "alertsEnabled": settings.alertSetting == .enabled,
                 "soundsEnabled": settings.soundSetting == .enabled,
                 "emergencySoundEnabled": settings.soundSetting == .enabled
-            ])
+              ]
+              if #available(iOS 26.0, *) {
+                  result["emergencyAlarmSupported"] = true
+                  result["emergencyAlarmAuthorized"] = EmergencySmsSystemAlarm.authorized
+              }
+              call.resolve(result)
+            }
         }
+    }
+    @objc func requestEmergencySmsAlarmPermission(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            guard #available(iOS 26.0, *) else { call.resolve(["supported": false, "authorized": false]); return }
+            let authorized = await EmergencySmsSystemAlarm.requestAuthorization()
+            call.resolve(["supported": true, "authorized": authorized])
+        }
+    }
+    @objc func getPendingEmergencySmsAlarms(_ call: CAPPluginCall) {
+        guard let user = call.getString("userId"), FirebaseApp.app() != nil,
+              Auth.auth().currentUser != nil, ChatPreviewKeys.recipientKey(["user_id": user]) != nil
+        else { call.resolve(["grantIds": [], "acknowledgedGrantIds": []]); return }
+        let requested = Array((call.getArray("grantIds", String.self) ?? []).prefix(512))
+        call.resolve(["grantIds": SmsAlarmLedger.pending(user: user),
+            "acknowledgedGrantIds": requested.filter { SmsAlarmLedger.acknowledged(user: user, grant: $0) }])
     }
     private var chatHandler: ChatNotificationHandler?
     private let chatLock = NSLock()
@@ -54,95 +78,199 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     private var activeChatKey = ""
     private var emergencyPlayer: AVAudioPlayer?
     private var emergencyGrantId: String?
+    private var emergencyGrants = Set<String>()
+    private var emergencyOwner: String?
+    private var emergencyFirebaseUid: String?
+    private var emergencyInterrupted = false
+    private var emergencyAuthObserver: AuthStateDidChangeListenerHandle?
     private var emergencyGeneration = 0
     private var emergencyPulse: Timer?
-    private var cancelledEmergencyGrants: [String] = []
+    private var systemAlarmOwners: [String: String] = [:]
     private var emergencyObservers: [NSObjectProtocol] = []
 
     override public func load() {
         super.load()
         installChatHandler()
-        for name in [UIApplication.willResignActiveNotification, AVAudioSession.interruptionNotification] {
-            emergencyObservers.append(NotificationCenter.default.addObserver(
-                forName: name, object: nil, queue: .main
-            ) { [weak self] _ in self?.stopEmergencyCue() })
+        emergencyObservers.append(NotificationCenter.default.addObserver(
+            forName: Notification.Name("HushhSmsAlarmAcknowledged"), object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let self, let user = notification.userInfo?["userId"] as? String,
+                  let grant = notification.userInfo?["grantId"] as? String,
+                  ChatPreviewKeys.recipientKey(["user_id": user]) != nil else { return }
+            if user == self.emergencyOwner { self.stopEmergencyCue(grantId: grant) }
+            self.notifyListeners("emergencySmsAcknowledged", data: ["userId": user, "grantId": grant])
+        })
+        emergencyObservers.append(NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+            self.emergencyInterrupted = type == .began
+            if self.emergencyInterrupted { self.emergencyPlayer?.pause() }
+            else { self.resumeEmergencyCue() }
+        })
+        emergencyObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.resumeEmergencyCue() })
+        if FirebaseApp.app() != nil {
+            emergencyAuthObserver = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if #available(iOS 26.0, *) {
+                        for owner in SmsAlarmLedger.owners() {
+                            if user == nil || ChatPreviewKeys.recipientKey(["user_id": owner]) == nil ||
+                                self.systemAlarmOwners[owner].map({ $0 != user?.uid }) == true {
+                                EmergencySmsSystemAlarm.cancelOwner(owner)
+                                self.systemAlarmOwners.removeValue(forKey: owner)
+                            }
+                        }
+                    }
+                    if let owner = self.emergencyOwner,
+                       user?.uid != self.emergencyFirebaseUid || ChatPreviewKeys.recipientKey(["user_id": owner]) == nil {
+                        self.stopEmergencyCue()
+                    }
+                }
+            }
         }
     }
 
     deinit {
         emergencyObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        if let observer = emergencyAuthObserver, FirebaseApp.app() != nil {
+            Auth.auth().removeStateDidChangeListener(observer)
+        }
         emergencyPlayer?.stop()
         emergencyPulse?.invalidate()
     }
 
     private func stopEmergencyCue(grantId: String? = nil) {
-        if let grantId, grantId != emergencyGrantId { return }
+        if let grantId {
+            emergencyGrants.remove(grantId)
+            if !emergencyGrants.isEmpty { return }
+        }
         emergencyGeneration += 1
         emergencyPulse?.invalidate()
         emergencyPulse = nil
         emergencyPlayer?.stop()
         emergencyPlayer = nil
         emergencyGrantId = nil
+        emergencyGrants.removeAll()
+        emergencyOwner = nil
+        emergencyFirebaseUid = nil
+        // One Voice shares the audio session. Never deactivate or restore a
+        // stale category over another feature's current ownership.
+    }
+
+    private func resumeEmergencyCue() {
+        guard !emergencyInterrupted, !emergencyGrants.isEmpty,
+              FirebaseApp.app() != nil,
+              Auth.auth().currentUser?.uid == emergencyFirebaseUid,
+              let owner = emergencyOwner,
+              ChatPreviewKeys.recipientKey(["user_id": owner]) != nil else { return }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            if session.category == .record {
+                try session.setCategory(.playAndRecord, mode: session.mode, options: session.categoryOptions.union(.defaultToSpeaker))
+            } else if session.category != .playAndRecord {
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            }
+            try session.setActive(true)
+            emergencyPlayer?.play()
+        } catch { /* Retain pending alerts through system audio interruptions. */ }
     }
 
     @objc func stopEmergencySmsCue(_ call: CAPPluginCall) {
-        DispatchQueue.main.async { [weak self] in
-            if let self {
-                if let grantId = call.getString("grantId"), !grantId.isEmpty,
-                   !self.cancelledEmergencyGrants.contains(grantId) {
-                    self.cancelledEmergencyGrants.append(grantId)
-                    if self.cancelledEmergencyGrants.count > 128 { self.cancelledEmergencyGrants.removeFirst() }
-                }
-                self.stopEmergencyCue(grantId: call.getString("grantId"))
+        Task { @MainActor [weak self] in
+            guard let self else { call.resolve(); return }
+            let user = call.getString("userId") ?? self.emergencyOwner
+            if let user, let grant = call.getString("grantId"), !grant.isEmpty {
+                try? SmsAlarmLedger.acknowledge(user: user, grant: grant)
+                // Cancellation is always retryable, even after the ACK exists.
+                if #available(iOS 26.0, *) { EmergencySmsSystemAlarm.cancel(user: user, grant: grant) }
+                if user == self.emergencyOwner { self.stopEmergencyCue(grantId: grant) }
+            } else if let user {
+                if #available(iOS 26.0, *) { EmergencySmsSystemAlarm.cancelOwner(user) }
+                self.systemAlarmOwners.removeValue(forKey: user)
+                if user == self.emergencyOwner { self.stopEmergencyCue() }
             }
             call.resolve()
         }
     }
 
     @objc func playEmergencySmsCue(_ call: CAPPluginCall) {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             let now = Date().timeIntervalSince1970 * 1000
-            guard let self, UIApplication.shared.applicationState == .active,
-                  FirebaseApp.app() != nil,
-                  let userId = call.getString("userId"), !userId.isEmpty,
-                  Auth.auth().currentUser?.uid == userId,
-                  let grantId = call.getString("grantId"), !grantId.isEmpty,
-                  !self.cancelledEmergencyGrants.contains(grantId),
+            guard let self, FirebaseApp.app() != nil,
+                  let uid = Auth.auth().currentUser?.uid,
+                  let user = call.getString("userId"), let grant = call.getString("grantId"),
+                  let key = ChatPreviewKeys.recipientKey(["user_id": user]),
                   let deadline = call.getDouble("expiresAt"), deadline.isFinite,
-                  deadline > now, deadline <= now + 2000,
+                  deadline > now, deadline <= now + 2000 else { call.resolve(["played": false]); return }
+            if SmsAlarmLedger.acknowledged(user: user, grant: grant) {
+                call.resolve(["played": false, "acknowledged": true]); return
+            }
+            if SmsAlarmLedger.endedBeforeAdmission(user: user, grant: grant) { call.resolve(["played": false]); return }
+            if #available(iOS 26.0, *), EmergencySmsSystemAlarm.authorized {
+                let scheduled = await EmergencySmsSystemAlarm.schedule(user: user, grant: grant)
+                guard Auth.auth().currentUser?.uid == uid,
+                      ChatPreviewKeys.recipientKey(["user_id": user]) == key else {
+                    EmergencySmsSystemAlarm.cancel(user: user, grant: grant)
+                    call.resolve(["played": false]); return
+                }
+                if scheduled { self.systemAlarmOwners[user] = uid; call.resolve(["played": true]); return }
+            }
+            self.playForegroundEmergencySmsCue(call)
+        }
+    }
+
+    private func playForegroundEmergencySmsCue(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  FirebaseApp.app() != nil,
+                  let firebaseUid = Auth.auth().currentUser?.uid,
+                  let userId = call.getString("userId"), !userId.isEmpty,
+                  ChatPreviewKeys.recipientKey(["user_id": userId]) != nil,
+                  let grantId = call.getString("grantId"), !grantId.isEmpty,
                   let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
             else { call.resolve(["played": false]); return }
-            if self.emergencyGrantId == grantId {
+            if SmsAlarmLedger.acknowledged(user: userId, grant: grantId) {
+                call.resolve(["played": false, "acknowledged": true]); return
+            }
+            if self.emergencyOwner != nil && self.emergencyOwner != userId { self.stopEmergencyCue() }
+            self.emergencyOwner = userId
+            self.emergencyFirebaseUid = firebaseUid
+            do { try SmsAlarmLedger.remember(user: userId, grant: grantId) }
+            catch { call.resolve(["played": false]); return }
+            self.emergencyGrants.insert(grantId)
+            if self.emergencyPlayer != nil {
                 call.resolve(["played": self.emergencyPlayer?.isPlaying ?? false]); return
             }
-            let alarmDeadline = call.getDouble("alarmExpiresAt")
-            if let alarmDeadline, !alarmDeadline.isFinite || alarmDeadline <= now {
-                call.resolve(["played": false]); return
-            }
-            self.stopEmergencyCue()
             do {
                 // AppDelegate prepares this same sound for background APNs alerts.
                 let url = library.appendingPathComponent("Sounds/one_location_sms_alarm.wav")
                 let player = try AVAudioPlayer(contentsOf: url)
                 player.numberOfLoops = -1
                 player.prepareToPlay()
-                guard player.play() else { call.resolve(["played": false]); return }
                 self.emergencyPlayer = player
                 self.emergencyGrantId = grantId
+                self.resumeEmergencyCue()
                 AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
                 let generation = self.emergencyGeneration
                 let pulse = Timer(timeInterval: 1.5, repeats: true) { [weak self] timer in
                     guard let self else { timer.invalidate(); return }
                     guard self.emergencyGeneration == generation else { timer.invalidate(); return }
-                    guard UIApplication.shared.applicationState == .active,
-                          Auth.auth().currentUser?.uid == userId,
-                          alarmDeadline.map({ $0 > Date().timeIntervalSince1970 * 1000 }) ?? true
-                    else { self.stopEmergencyCue(grantId: grantId); return }
-                    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                    guard Auth.auth().currentUser?.uid == firebaseUid,
+                          ChatPreviewKeys.recipientKey(["user_id": userId]) != nil
+                    else { self.stopEmergencyCue(); return }
+                    if !self.emergencyInterrupted {
+                        if self.emergencyPlayer?.isPlaying != true { self.resumeEmergencyCue() }
+                        AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                    }
                 }
                 self.emergencyPulse = pulse
                 RunLoop.main.add(pulse, forMode: .common)
-                call.resolve(["played": true])
+                call.resolve(["played": self.emergencyPlayer?.isPlaying ?? false])
             } catch {
                 call.resolve(["played": false])
             }
@@ -368,8 +496,19 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let user = call.getString("userId") else { call.reject("Notification identity required"); return }
         do {
             _ = try ChatPreviewKeys.clear(userId: user)
+            Task { @MainActor [weak self] in
+                var cancelled = true
+                if #available(iOS 26.0, *) { cancelled = EmergencySmsSystemAlarm.cancelOwner(user) }
+                if let self, self.emergencyOwner == user { self.stopEmergencyCue() }
+                do {
+                    if call.getBool("deleteAlarmReceipts") == true {
+                        guard cancelled else { call.reject("Notification alarm cleanup unavailable"); return }
+                        try SmsAlarmLedger.forget(user: user)
+                    }
+                    call.resolve()
+                } catch { call.reject("Notification receipt cleanup unavailable") }
+            }
             chatLock.lock(); activeChatTag = ""; activeChatKey = ""; chatLock.unlock()
-            call.resolve()
         } catch { call.reject("Notification cleanup unavailable") }
     }
 }
@@ -388,5 +527,18 @@ private final class ChatNotificationHandler: NSObject, NotificationHandlerProtoc
         if owner.quietChat(info) { return inherited.subtracting([.alert, .banner, .list, .sound]) }
         return inherited.union([.banner, .list, .sound])
     }
-    func didReceive(response: UNNotificationResponse) { forwarded.didReceive(response: response) }
+    func didReceive(response: UNNotificationResponse) {
+        let info = response.notification.request.content.userInfo
+        if info["type"] as? String == "location_share_created",
+           info["share_kind"] as? String == "sos",
+           response.actionIdentifier != UNNotificationDismissActionIdentifier,
+           let user = info["user_id"] as? String, let grant = info["grant_id"] as? String,
+           ChatPreviewKeys.recipientKey(info) != nil {
+            try? SmsAlarmLedger.acknowledge(user: user, grant: grant)
+            if #available(iOS 26.0, *) {
+                Task { @MainActor in EmergencySmsSystemAlarm.cancel(user: user, grant: grant) }
+            }
+        }
+        forwarded.didReceive(response: response)
+    }
 }

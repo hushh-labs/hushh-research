@@ -87,6 +87,7 @@ Non-owned surfaces:
      runner and the gate in agreement; the divergence is what let the local one
      lie.
 4. Apply the smallest safe remediation for the highest-signal blocking class first.
+   For provider failures, use the Admin SOP's [execution-bound diagnosis](../repo-operations/references/managed-provider-readiness.md).
 5. Run the smallest affected authoritative check after remediation, including a negative control for a real security regression. Reuse unchanged exact evidence. Run the final core mirror once; do not repeat a full local suite while hosted validation runs. Repeat only to investigate a concrete regression or after an environment repair.
 6. Do not call the RCA task complete while a relevant core run for the touched SHA is still `queued`, `in_progress`, or `requested`; keep monitoring until GitHub reaches a terminal state.
 7. Stop only when the blocking classifications are empty and the relevant core run chain is terminal green, or a real permissions/product boundary is explicit.

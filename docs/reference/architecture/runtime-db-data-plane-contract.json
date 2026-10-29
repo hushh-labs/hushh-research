@@ -16,6 +16,9 @@
     "pkm_domain_revisions",
     "pkm_domain_commits",
     "kai_gmail_sync_runs",
+    "calendar_email_followup_requests",
+    "calendar_email_followup_scanned_messages",
+    "calendar_email_followup_mutations",
     "google_oauth_attempts",
     "google_calendar_action_proposals",
     "gmail_mailbox_action_proposals",
@@ -598,6 +601,25 @@
       "trust_boundary": "Legacy provider-derived receipt summaries and preview artifacts are read-only. Trigger 265 blocks INSERT and UPDATE on the receipt and artifact tables, while API gates prevent new server-side Gmail receipt reads and summary creation.",
       "plaintext_posture": "legacy_sensitive_derived_cache_read_only_no_new_writes",
       "expected_row_growth": "frozen_pending_device_owned_reader"
+    },
+    {
+      "id": "calendar_email_followup_operational_state",
+      "owner": "backend-runtime-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "calendar_email_followup_monitors",
+        "calendar_email_followup_conversations",
+        "calendar_email_followup_requests",
+        "calendar_email_followup_scanned_messages",
+        "calendar_email_followup_mutations"
+      ],
+      "primary_access_path": "Selected-account Calendar Follow-ups APIs and bounded scan/reminder workers require a current per-account Gmail read grant, explicit monitor opt-in, and owner-scoped service access. Feed and push hold source-linked metadata projections, not email bodies.",
+      "retention_policy": "The monitor retains a sealed scan checkpoint while opted in. Conversations retain sealed subject and sender; requests retain sealed short title, exact source quote, due wording and provider references, with HMACs and timestamps. Full message bodies are never stored. Scanned-message digests and mutation keys persist while the monitor exists. Current code has no scheduled terminal-row compaction; done or cancelled rows remain until opt-out, disconnect, identity replacement or account deletion removes the monitor.",
+      "deletion_behavior": "Opt-out, Mail disconnect, identity replacement and owner deletion remove the monitor and cascade to its conversations, requests, scanned-message receipts and mutation keys. Source revision and grant checks suppress pending Feed and push delivery when authority or item state changes.",
+      "trust_boundary": "Dedicated authenticated encryption binds readable excerpts and provider references to owner, account and row. The backend stores no complete email body, OAuth token, vault key or PKM record in these tables. Email text is untrusted extraction input and cannot itself execute tools, send mail, book a meeting or write PKM.",
+      "plaintext_posture": "minimal_owner_account_status_timestamps_and_hmacs_with_purpose_sealed_excerpts_and_provider_references",
+      "expected_row_growth": "one_scanned_receipt_per_processed_message_plus_source_requests_and_mutation_keys_until_monitor_removal"
     },
     {
       "id": "gmail_owner_approved_delivery",

@@ -92,9 +92,9 @@ def followup_pg(connector_postgres_url, monkeypatch):  # noqa: F811 - imported p
         ON feed_events(user_id,source_domain,event_type,source_row_id)
         WHERE source_row_id IS NOT NULL""")
         for name in (
-            "441_calendar_mail_read_grant.sql",
-            "442_calendar_email_followups.sql",
-            "443_calendar_email_followup_delivery.sql",
+            "442_calendar_mail_read_grant.sql",
+            "443_calendar_email_followups.sql",
+            "444_calendar_email_followup_delivery.sql",
         ):
             sql = (MIGRATIONS / name).read_text().replace("BEGIN;", "").replace("COMMIT;", "")
             sql = sql.replace("SELECT install_account_deletion_write_guards();", "")
@@ -171,6 +171,32 @@ async def _connect_mail(service: GoogleConnectionService, account_id: str, subje
         ),
         firebase_uid=OWNER,
     )
+
+
+def test_followup_migrations_roll_back_without_live_state(followup_pg):
+    _, _, engine = followup_pg
+    with engine.begin() as connection:
+        for name in (
+            "444_calendar_email_followup_delivery.rollback.sql",
+            "443_calendar_email_followups.rollback.sql",
+            "442_calendar_mail_read_grant.rollback.sql",
+        ):
+            sql = (MIGRATIONS / "rollback" / name).read_text()
+            connection.exec_driver_sql(sql.replace("BEGIN;", "").replace("COMMIT;", ""))
+        assert (
+            connection.execute(
+                text("SELECT to_regclass('calendar_email_followup_monitors')")
+            ).scalar()
+            is None
+        )
+        assert (
+            connection.execute(
+                text("""SELECT 1 FROM information_schema.columns
+            WHERE table_name='google_calendar_additional_accounts'
+              AND column_name='gmail_read_enabled'""")
+            ).scalar()
+            is None
+        )
 
 
 @pytest.mark.asyncio

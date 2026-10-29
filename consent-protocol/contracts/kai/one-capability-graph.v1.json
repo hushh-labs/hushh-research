@@ -5473,7 +5473,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Review Location alerts.",
+      "description": "Review Location alerts and explicitly allow persistent SMS alarms on supported iOS devices.",
       "execution": {
         "binding_ref": "route:/one/location?action=settings",
         "executor": {
@@ -50925,7 +50925,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "b41165160ffe92a1201be8e177c0972eb42a2e66ba8d31c5cd84593342de89b7",
+      "projection_digest": "1b3d7afeceb53aa160fbb11dbbfa0cd5914618d15dd950da040ca56ad5ab2600",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50935,7 +50935,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "71d4b20d76e9ffc3b09cbad3fd72af83da7274aad456ba101f4e32c9ab8ca18e",
+        "capability_graph_evolution": "6261ae4c5f6e72a49fca27cde2556c7d6f69522cce93827f9da973781a7374e2",
         "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -50944,7 +50944,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "d78e76d96ad43d9e",
+      "source_revision": "a3401ab3147c4d60",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -52462,7 +52462,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "d78e76d96ad43d9e",
+    "source_revision": "a3401ab3147c4d60",
     "web": {
       "actions": [
         {
@@ -52505,7 +52505,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "6576cd156745a3d26c722f16faac2d6ea16fe3111885329ee2ee402f551d5e57",
+      "projection_digest": "f482e851afdd3253189f2270a46a58b4a4e94040ef16f57ad57435b3f3f84de7",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52515,7 +52515,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "71d4b20d76e9ffc3b09cbad3fd72af83da7274aad456ba101f4e32c9ab8ca18e",
+        "capability_graph_evolution": "6261ae4c5f6e72a49fca27cde2556c7d6f69522cce93827f9da973781a7374e2",
         "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -52524,7 +52524,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "d78e76d96ad43d9e",
+      "source_revision": "a3401ab3147c4d60",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -54081,7 +54081,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "d78e76d96ad43d9e",
+  "revision": "a3401ab3147c4d60",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -56076,9 +56076,13 @@
   "semantic_diff": {
     "added": [],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "actions:location.review_notifications"
+    ],
     "compatible": [],
-    "deprecated": [],
+    "deprecated": [
+      "actions:location.review_notifications"
+    ],
     "from_revision": "09508ecac56d001c",
     "migrated": [],
     "removed": []
@@ -58385,10 +58389,10 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "71d4b20d76e9ffc3b09cbad3fd72af83da7274aad456ba101f4e32c9ab8ca18e",
+    "capability_graph_evolution": "6261ae4c5f6e72a49fca27cde2556c7d6f69522cce93827f9da973781a7374e2",
     "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "eca5b20202df56cb08e43928cf214de8c5745549a78a1cf2f4869270440efeeb",
+    "kai_action_gateway": "85408f13022251d6b03de195ef5a084c908614e9e53b603d7b14cf439bb03bce",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -58397,9 +58401,9 @@
     "route_orchestration_index": "b8477a96c018d4a4b37b349e4ea6755a751e913fce2d79ab16f5849497bdf3b2",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "d78e76d96ad43d9e",
+  "source_revision": "a3401ab3147c4d60",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "d78e76d96ad43d9e",
+    "current_graph_revision": "a3401ab3147c4d60",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
