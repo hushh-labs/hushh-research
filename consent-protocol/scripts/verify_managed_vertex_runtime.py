@@ -374,6 +374,17 @@ async def main() -> dict[str, object]:
         raise RuntimeError("Managed Vertex probe mode is invalid")
     binding, chat_project, chat_binding = _readiness_bindings()
     models = _managed_manifest_models()
+    if os.getenv("ENVIRONMENT") == "uat":
+        from scripts.managed_vertex_readiness import probe_uat_runtime
+
+        return await probe_uat_runtime(
+            binding,
+            chat_project,
+            chat_binding,
+            models,
+            deadline=deadline,
+            probe_adk_response=_probe_adk_response,
+        )
 
     def binding_for(location: str) -> ManagedGeminiRuntimeBinding:
         return ManagedGeminiRuntimeBinding(
