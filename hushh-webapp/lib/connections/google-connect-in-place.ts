@@ -188,7 +188,7 @@ function gmailSettlementMatcher(attemptId: string) {
 export function connectGmailInPlace(
   request: ConnectControls & {
     owner: InPlaceConnectOwner;
-    purpose: "send" | "modify";
+    purpose: "read" | "send" | "modify";
   },
 ): InPlaceConnectStart {
   const input = bindConnectOwner(request);
@@ -196,13 +196,16 @@ export function connectGmailInPlace(
   const { owner, purpose } = input;
   const granted = (status: {
     connected?: boolean;
+    scope_csv?: string;
     send_permission_granted?: boolean;
     modify_permission_granted?: boolean;
   }) =>
     status.connected === true &&
-    (purpose === "send"
-      ? status.send_permission_granted === true
-      : status.modify_permission_granted === true);
+    (purpose === "read"
+      ? typeof status.scope_csv === "string" &&
+        status.scope_csv.replaceAll(",", " ").split(/\s+/).includes("https://www.googleapis.com/auth/gmail.readonly")
+      : purpose === "send" ? status.send_permission_granted === true
+        : status.modify_permission_granted === true);
 
   if (Capacitor.isNativePlatform()) {
     return started("native", () =>
@@ -229,7 +232,7 @@ export function connectGmailInPlace(
         const start = await GmailReceiptsService.startNativeConnect({
           idToken,
           userId: input.applicationOwnerId,
-          purpose: "send",
+          purpose,
         });
         if (!current()) return "stale";
         if (!start.configured) return "failed";
@@ -307,7 +310,7 @@ export function connectGmailInPlace(
         });
         if (!current()) return "stale";
         if (input.cancelSignal?.aborted) return "not_connected";
-        if (purpose === "send" && settlement.cancelledOrFailed()) return "not_connected";
+        if (settlement.cancelledOrFailed()) return "not_connected";
         const status = await GmailReceiptsService.getStatus({
           idToken: await owner.getIdToken(),
           userId: input.applicationOwnerId,

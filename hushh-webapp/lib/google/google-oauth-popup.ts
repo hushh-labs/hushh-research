@@ -23,7 +23,7 @@ export function hasCalendarMeetingFileGrant(status: GoogleCalendarStatus, accoun
   return MEETING_SCOPES.every(scope => granted.has(scope));
 }
 
-export type GoogleOAuthPopupService = "gmail_send" | "calendar";
+export type GoogleOAuthPopupService = "gmail_send" | "gmail_read" | "calendar";
 export type GoogleOAuthPopupAttempt = {
   version: 1;
   attemptId: string;
@@ -166,7 +166,7 @@ export function readGoogleOAuthPopupAttempt(): GoogleOAuthPopupAttempt | null {
     ) as Partial<GoogleOAuthPopupAttempt>;
     if (
       parsed.version === 1 &&
-      (parsed.service === "gmail_send" ||
+      (parsed.service === "gmail_send" || parsed.service === "gmail_read" ||
         parsed.service === "calendar") &&
       validId(parsed.attemptId) &&
       typeof parsed.ownerId === "string" &&
@@ -208,7 +208,7 @@ export function isGoogleOAuthPopupSettlement(
   return (
     item.schemaVersion === 1 &&
     item.type === "google_oauth_settlement" &&
-    (item.service === "gmail_send" ||
+    (item.service === "gmail_send" || item.service === "gmail_read" ||
       item.service === "calendar") &&
     validId(item.attemptId) &&
     ["succeeded", "cancelled", "failed"].includes(String(item.outcome))
