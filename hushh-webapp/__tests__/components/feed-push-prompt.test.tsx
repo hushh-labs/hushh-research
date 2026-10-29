@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   deliveryDetail: null as string | null,
   retry: vi.fn(),
   openSettings: vi.fn(),
+  requestAlarm: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -29,6 +30,7 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 }));
 
 vi.mock("@/lib/services/notification-settings-service", () => ({ NotificationSettingsService: { open: state.openSettings } }));
+vi.mock("@/lib/capacitor", () => ({ HushhNotifications: { requestEmergencySmsAlarmPermission: state.requestAlarm } }));
 
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 
@@ -48,6 +50,7 @@ describe("FeedPushPrompt", () => {
     state.deliveryDetail = null;
     state.retry.mockReset();
     state.openSettings.mockReset();
+    state.requestAlarm.mockReset().mockResolvedValue({ supported: true, authorized: true });
   });
   afterEach(() => {
     Reflect.deleteProperty(window, "Notification");
@@ -105,6 +108,17 @@ describe("FeedPushPrompt", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
     await waitFor(() => expect(state.openSettings).toHaveBeenCalled());
     expect(state.retry).not.toHaveBeenCalled();
+  });
+
+  it("offers SMS alarm permission separately when ordinary push already works", async () => {
+    state.native = true;
+    state.deliveryMode = "push_active";
+    state.deliveryDetail = "native_emergency_alarm_not_authorized";
+    render(<FeedPushPrompt context="location" />);
+    expect(state.requestAlarm).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "Allow alarms" }));
+    await waitFor(() => expect(state.requestAlarm).toHaveBeenCalledOnce());
+    expect(state.retry).toHaveBeenCalledOnce();
   });
 
   it.each(["native_chat_alerts_disabled", "native_chat_sound_disabled"])(

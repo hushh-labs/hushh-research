@@ -234,7 +234,7 @@ export async function runSosPanic(
   const startedAt = new Date().toISOString();
   const owner = String(params.ownerUserId ?? "").trim();
   const grantIds: string[] = [];
-  const delivery: SosDeliveryOutcome[] = [];
+  const delivery: SosDeliveryOutcome[] = new Array(recipients.length);
   const incidentSoFar = (): SosIncident => ({
     grantIds: [...grantIds],
     startedAt,
@@ -242,7 +242,10 @@ export async function runSosPanic(
   });
 
   let firstError: unknown;
-  for (const recipient of recipients) {
+  // A slow device/push for one contact must not hold up the rest of the Circle.
+  // Bound fan-out while retaining each grant before its first publication.
+  let nextRecipient = 0;
+  const deliver = async (recipient: SosShareReadyRecipient, index: number) => {
     try {
       const grant = await OneLocationService.createGrant({
         vaultOwnerToken,
@@ -258,21 +261,28 @@ export async function runSosPanic(
       grantIds.push(grant.id);
       saveSosIncident(incidentSoFar());
       const alerted = await publish(grant, recipient, point);
-      delivery.push({
+      delivery[index] = {
         userId: recipient.userId,
         displayName: recipient.displayName,
         alerted: typeof alerted === "boolean" ? alerted : null,
-      });
+      };
     } catch (error) {
       firstError ??= error;
-      delivery.push({
+      delivery[index] = {
         userId: recipient.userId,
         displayName: recipient.displayName,
         alerted: false,
         failed: true,
-      });
+      };
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, recipients.length) }, async () => {
+    while (nextRecipient < recipients.length) {
+      const index = nextRecipient++;
+      const recipient = recipients[index];
+      if (recipient) await deliver(recipient, index);
+    }
+  }));
   if (firstError !== undefined) {
     throw new SosPanicError(
       firstError instanceof Error ? firstError.message : "Could not send SMS alert.",

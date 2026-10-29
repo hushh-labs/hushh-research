@@ -13,6 +13,30 @@
   "deprecations": [
     {
       "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:location.review_notifications",
+      "from_revision": "09508ecac56d001c",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:location.review_notifications",
+      "from_revision": "da71e0a6ad9e3e1d",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:location.review_notifications",
+      "from_revision": "fd8802940355dd20",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "workflows:workflow.setup.connections",
       "from_revision": "b883582b09e1be66",
       "from_version": 1,

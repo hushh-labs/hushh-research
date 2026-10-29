@@ -11,8 +11,9 @@ flowchart LR
 
 This checklist covers Circle creation, grouped Circle/direct Feed rows and
 notification presentation across web, iOS and Android. It extends the existing
-multi-installation push registry and migration 290 delivery pipeline. No new
-schema migration is required; use the current canonical release manifest and schema contracts.
+multi-installation push registry and migration 290 delivery pipeline. SMS alarm
+capability negotiation adds migration 441; use the canonical release manifest
+and schema contracts, including its rollback after application rollback.
 
 ## Release sequence
 
@@ -69,18 +70,26 @@ OS, environment, permission and channel/sound state for each result.
 
 | Event or recovery | Foreground | Background, locked, normally terminated |
 | --- | --- | --- |
-| SMS / Save My Soul | One red emergency popup and one alarm cue; no duplicate after SSE/FCM replay | Visible emergency OS alert and sound when permitted; tap opens the authorized Location surface |
+| SMS / Save My Soul | One red emergency popup and one repeating alarm until recipient acknowledgement; expiry/revocation never acknowledge it; no replay after acknowledgement | Android capability v1 owns one persistent alarm service, with a visible local fallback if admission/audio fails. iOS 26+ uses authorized AlarmKit through the notification extension; older iOS retains finite OS push sound. Tap opens the authorized Location surface |
 | Location share and location request | Feed and current Location state refresh | Visible OS alert with the normal notification sound |
 | Circle add and connection request | Feed and relationship state refresh | Visible OS alert with normal sound; no alert from silent roster synchronization |
 | Temporary provider outage or backend restart | Committed source retains the intent | Only devices without accepted delivery retry; a successful device is not replayed for another device's failure |
 | SMS capture/encryption fails | No location alert before the first encrypted envelope commits | No premature system alarm |
 | Revoke/expiry while retry waits | Reconcile current source; never resurrect a stopped SMS popup | Suppress stale alerts on retry |
+| Share expires or sender stops after recipient alarm starts | Alarm and explicit acknowledgement remain available | Admitted alarm continues until recipient acknowledgement |
+| Multiple SMS grants; acknowledge one | One siren continues for remaining grants | One native audible owner; each alert retains its own acknowledgement |
+| Reload or offline restart with pending SMS | Restore pending receipts without requiring network registration | Restore through native identity/key admission; acknowledged receipts never replay |
+| iOS 26 alarm permission denied, then explicitly allowed | Separate Allow alarms action; ordinary notification permission remains independent | Finite APNs fallback on denial, extension failure or timeout; authorized AlarmKit requires physical locked-device qualification |
 | Notification/sound disabled, then enabled in Settings | Location exposes explicit setup/settings recovery; resume repairs registration without another permission prompt | Re-test new events after enabling; OS controls remain authoritative |
 | Token rotates, logout, or account changes | Register through the active native auth session; reject stale callbacks | Never send an old account's alert to the transferred installation |
 
 Local PostgreSQL/provider mocks establish queue, replay, authority and retry
-behavior. They do not establish APNs/FCM physical receipt. The user will verify
-fresh TestFlight and Android builds on physical devices before acceptance.
+behavior. They do not establish APNs/FCM physical receipt. Record fresh signed
+TestFlight and Android physical-device results before native acceptance.
+
+Simulator Keychain tests use an ad-hoc signed App host and assert a real write
+to its configured shared group. Unexpected fence-read OSStatus values refuse
+admission and must preserve committed acknowledgements and first-event records.
 
 ## Platform boundaries
 
@@ -97,5 +106,7 @@ content, but a quiet read-status card may remain until normal reconciliation.
 Do not confuse provider acceptance with exactly-once sound or device receipt.
 Force-stop/explicit force-quit are separate OS cases from ordinary background.
 
-The user's iPhone acceptance is pending the next TestFlight build. This PR does
-not publish a release, change OS notification settings or merge itself.
+Physical iPhone acceptance requires a fresh TestFlight build. AlarmKit system
+Stop, including supported hardware controls, acknowledges its alarm. Browser
+autoplay/suspension and OS force-stop remain platform boundaries; no release
+receipt can replace the two-account locked-device checks above.
