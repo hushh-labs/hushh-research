@@ -61,7 +61,7 @@ export function ByocCloudCard({ onProjectNamed, busy = false, testId }: ByocClou
     <SettingsGroup testId={testId ?? "connections-byoc-cloud"}>
       <div className="flex flex-col gap-4 p-4">
         <p className="text-sm text-muted-foreground">
-          Sign in to Google to set up your private agent. Your cloud pays for its usage.
+          Sign in to Google to set up Agent One. Your cloud pays for its usage.
         </p>
         {advanced ? (
           <div className="space-y-1.5">

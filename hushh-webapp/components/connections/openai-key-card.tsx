@@ -290,7 +290,7 @@ function OwnerOpenAiKeyCard({
         if (ownerIsCurrent())
           setNotice({
             tone: "error",
-            text: "Your private agent could not be reached, so it may still use this key. Try again.",
+            text: "Agent One could not be reached, so it may still use this key. Try again.",
           });
         return;
       }
@@ -368,7 +368,7 @@ function OwnerOpenAiKeyCard({
         description={
           inUse
             ? `Using ${providerName} on your agent${selection?.model ? ` (${selection.model})` : ""}.`
-            : ungrouped ? "Use your own key." : "Your key stays locked to you and runs on your private agent."
+            : ungrouped ? "Use your own key." : "Your key stays locked to you and runs on Agent One."
         }
         trailing={inUse ? <Badge variant="secondary">In use</Badge> : ungrouped ? <CaretDownIcon aria-hidden className="h-4 w-4" /> : null}
         testId={`profile-${provider}-key-row`}

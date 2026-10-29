@@ -655,7 +655,7 @@ export function PkmNaturalPanelBody({
               <label className="flex items-start gap-3 text-sm text-muted-foreground">
                 <input type="checkbox" checked={identifierProcessingApproved()} disabled={captureLoading || captureSaving}
                   onChange={(event) => setIdentifierProcessingApproval(event.target.checked)} />
-                <span>Allow my private agent’s configured model to process personal identifiers in this note, including SSN, to prepare Memory. Sharing requires a separate approval.</span>
+                <span>Allow Agent One’s configured model to process personal identifiers in this note, including SSN, to prepare Memory. Sharing requires a separate approval.</span>
               </label>
               <Button
                 className="w-full justify-center"

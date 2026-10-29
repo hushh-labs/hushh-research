@@ -1463,7 +1463,7 @@ describe("AG-UI Agent One client", () => {
     mockTransport.failWith = Object.assign(new Error("private transport detail"), {
       code: "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY",
     });
-    const expected = "Your private agent connection is not ready. Open Hosting in Settings to reconnect, then try again.";
+    const expected = "Agent One connection is not ready. Open Hosting in Settings to reconnect, then try again.";
     try {
       await expect(streamAgentChat({
         vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
