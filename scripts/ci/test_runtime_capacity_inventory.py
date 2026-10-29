@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -238,6 +240,12 @@ class RuntimeCapacityCollectionTest(unittest.TestCase):
 class ReviewedMonitoringCapacityTest(unittest.TestCase):
     def setUp(self):
         self.health = inventory._health_module()
+        self.source_verifier = self.health.reviewed_source.__wrapped__
+        # Captured cloud metadata is independent of the caller's Git checkout.
+        # Exercise the real Git boundary separately in a self-contained repo.
+        source = mock.patch.object(self.health, "reviewed_source")
+        source.start()
+        self.addCleanup(source.stop)
         fixture = (
             MODULE_PATH.parents[2]
             / "consent-protocol/tests/fixtures/protected_configuration_job.json"
@@ -257,6 +265,63 @@ class ReviewedMonitoringCapacityTest(unittest.TestCase):
         )
         self.current["jobs"][self.health.NAME] = self.native["job"]
         self.active = []
+
+    def test_reviewed_source_requires_protected_ancestry_and_exact_git_body(self):
+        env = os.environ.copy()
+        for name in (
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_COMMON_DIR",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        ):
+            env.pop(name, None)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", *args],
+                    cwd=root,
+                    env=env,
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                ).strip()
+
+            git("init", "--quiet")
+            git("config", "user.name", "Synthetic contract")
+            git("config", "user.email", "fixture@example.test")
+            git("config", "commit.gpgsign", "false")
+            git("config", "core.hooksPath", "/dev/null")
+            body = b"reviewed monitoring body\n"
+            (root / "monitor.py").write_bytes(body)
+            git("add", "monitor.py")
+            git("commit", "--quiet", "-m", "Synthetic reviewed source")
+            source = git("rev-parse", "HEAD")
+            git("update-ref", "refs/remotes/origin/main", source)
+            bodies = [("monitor.py", hashlib.sha256(body).hexdigest())]
+            with (
+                mock.patch.dict(os.environ, env, clear=True),
+                mock.patch.object(self.health, "ROOT", root),
+                mock.patch.object(self.health, "SOURCE", source),
+                mock.patch.object(self.health, "BODIES", bodies),
+            ):
+                self.source_verifier()
+                with mock.patch.object(
+                    self.health, "BODIES", [("monitor.py", "0" * 64)]
+                ):
+                    with self.assertRaises(ValueError):
+                        self.source_verifier()
+                unrelated = git(
+                    "commit-tree",
+                    git("rev-parse", "HEAD^{tree}"),
+                    "-m",
+                    "Unrelated source",
+                )
+                git("update-ref", "refs/remotes/origin/main", unrelated)
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.source_verifier()
 
     def read(self, *args):
         if args[:2] == ("builds", "describe"):

@@ -16,11 +16,13 @@ history = shared_history
 
 @pytest.mark.parametrize("changed", [None, "birth", "override", "outcome", "unknown"])
 def test_native_monitor_history_retains_failed_outcomes_without_admitting_sql_issuers(
-    history, changed
+    history, changed, monkeypatch
 ):
     module, _producer, _events_unused, proof = history
     budget = importlib.import_module("runtime-capacity-budget")
     health = budget._inventory._health_module()
+    # This fixture tests native history, not the caller's Git fetch depth.
+    monkeypatch.setattr(health, "reviewed_source", lambda: None)
     fixture = json.loads(
         (ROOT / "consent-protocol/tests/fixtures/protected_configuration_job.json")
         .read_text()
