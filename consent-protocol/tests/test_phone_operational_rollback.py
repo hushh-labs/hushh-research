@@ -26,6 +26,9 @@ def test_operational_maintenance_prepares_locked_database_runtime_before_budget(
         if step.get("uses") == "./consent-protocol/.github/actions/setup-python-uv"
     )
     select = next(step for step in steps if step.get("name") == "Select maintenance Python runtime")
+    proxy = next(
+        step for step in steps if step.get("name") == "Install operational Cloud SQL Auth Proxy"
+    )
     budget = next(
         step for step in steps if step.get("name") == "Start the five-minute cleanup budget"
     )
@@ -34,14 +37,32 @@ def test_operational_maintenance_prepares_locked_database_runtime_before_budget(
         for step in steps
         if "production_backend_successor_control.py apply" in step.get("run", "")
     )
-    assert setup["if"] == select["if"] == "inputs.operational_backend_proof_run_id != ''"
+    assert (
+        setup["if"]
+        == select["if"]
+        == proxy["if"]
+        == "inputs.operational_backend_proof_run_id != ''"
+    )
     assert setup["with"] == {
         "python-version": "3.13",
         "protocol-dir": "./consent-protocol",
         "sync-dev-group": "false",
     }
     assert 'echo "$GITHUB_WORKSPACE/consent-protocol/.venv/bin" >> "$GITHUB_PATH"' in select["run"]
-    assert steps.index(setup) < steps.index(select) < steps.index(budget) < steps.index(publish)
+    deploy = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    original = next(
+        step
+        for step in deploy["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Install Cloud SQL Auth Proxy"
+    )
+    assert proxy["run"] == original["run"]
+    assert (
+        steps.index(setup)
+        < steps.index(select)
+        < steps.index(proxy)
+        < steps.index(budget)
+        < steps.index(publish)
+    )
     assert "python3 scripts/ci/production_backend_successor_control.py apply" in publish["run"]
 
 

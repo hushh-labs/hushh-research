@@ -319,6 +319,15 @@ jobs:
       - name: Select maintenance Python runtime
         if: inputs.operational_backend_proof_run_id != ''
         run: echo "$GITHUB_WORKSPACE/consent-protocol/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install operational Cloud SQL Auth Proxy
+        if: inputs.operational_backend_proof_run_id != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+            -o /usr/local/bin/cloud-sql-proxy
+          chmod +x /usr/local/bin/cloud-sql-proxy
       - name: Start the five-minute cleanup budget
         run: |
           python3 - <<'PYCODE'

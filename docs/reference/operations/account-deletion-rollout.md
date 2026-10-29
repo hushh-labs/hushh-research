@@ -1135,9 +1135,11 @@ uploaded before CAS, and uncertain Git/cloud mutations require readback. Later
 passes reuse the same reference rather than republishing or renewing it.
 Operational publication revalidates the installed database through the existing
 read-only owner. Its maintenance job prepares the frozen protocol Python runtime
-before starting the five-minute cleanup budget, and uses that interpreter for
-publication and cleanup. System Python alone does not supply the declared
-database driver. This setup changes no credential, lock, proof or drain authority.
+and the production lane's pinned Cloud SQL Auth Proxy before starting the
+five-minute cleanup budget, and uses that interpreter for publication and cleanup.
+System Python alone does not supply the declared database driver, and the Cloud
+SDK does not install this proxy. This setup changes no credential, lock, proof
+or drain authority.
 
 The `worker` phase prepares and immutably publishes the existing private worker
 intent, then stages exactly one zero-traffic revision. It preserves IAM, service
