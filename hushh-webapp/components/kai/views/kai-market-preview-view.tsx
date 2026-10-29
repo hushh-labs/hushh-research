@@ -28,6 +28,7 @@ import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-ct
 import { SectorRotationChart, getMarketSectorPeriodVoiceInventory } from "@/components/kai/cards/sector-rotation-chart";
 export { SectorRotationChart, getMarketSectorPeriodVoiceInventory, sectorRowsForPeriod } from "@/components/kai/cards/sector-rotation-chart";
 import { OneMarketNewsBriefing } from "@/components/kai/cards/market-news-briefing";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 export { OneMarketNewsBriefing, OneMarketNewsCover, marketNewsImageUrl, shouldShowNewsCompanyLogo } from "@/components/kai/cards/market-news-briefing";
 import {
   SymbolAvatar,
@@ -305,8 +306,9 @@ function OneMarketSectionHeader({
       className={cn(marketBriefingStyles.sectionHeader, "[&_[data-slot=section-header-row]]:flex-row [&_[data-slot=section-header-row]]:items-center [&_[data-slot=section-header-actions]]:w-auto")}
       actions={actions ?? (actionLabel && actionHref ? (
         <button type="button" onClick={() => openOneMarketHref(actionHref)}
-          className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-1 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+          className="relative isolate inline-flex min-h-11 items-center gap-1.5 overflow-hidden rounded-md px-1 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
           {actionLabel}<ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          <MaterialRipple variant="none" effect="fade" className="z-10" />
         </button>
       ) : undefined)}
     />
@@ -338,7 +340,7 @@ export function OneMarketIndexStrip({
         <button key={metric.id || metric.label} type="button"
           onClick={() => onMetricSelect(metric)}
           aria-label={`${[`${metric.label}: ${metric.value}`, metric.delta, metric.quoteStatus].filter(Boolean).join(", ")}. Open details`}
-          className="grid min-h-[76px] min-w-0 grid-cols-[minmax(0,1fr)_40px_minmax(6rem,auto)] items-center gap-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:flex sm:flex-col sm:items-stretch sm:gap-0 sm:px-4 sm:first:pl-0 sm:last:pr-0">
+          className="relative isolate grid min-h-[76px] min-w-0 grid-cols-[minmax(0,1fr)_40px_minmax(6rem,auto)] items-center gap-3 overflow-hidden rounded-sm py-3 text-left focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:flex sm:flex-col sm:items-stretch sm:gap-0 sm:px-4 sm:first:pl-0 sm:last:pr-0">
           <span className="min-w-0">
             <span className={cn("block text-foreground", marketBriefingStyles.indexLabel)}>{metric.label}</span>
             <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
@@ -354,6 +356,7 @@ export function OneMarketIndexStrip({
             <span className={cn("text-xs font-medium tabular-nums",
               metric.tone === "positive" ? "text-[color:var(--one-up)]" : metric.tone === "negative" ? "text-[color:var(--one-down)]" : "text-muted-foreground")}>{metric.delta}</span>
           </span>
+          <MaterialRipple variant="none" effect="fade" className="z-10" />
         </button>
       ))}
     </div>
@@ -386,7 +389,7 @@ export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, 
                 className="flex min-h-12 items-center py-3 text-sm text-muted-foreground">Quote unavailable</p>;
               return <button key={`${key}:${row.symbol}`} type="button" aria-describedby={`${id}-${key}`}
                 onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol }))}
-                className="flex min-h-12 min-w-0 w-full flex-col items-stretch gap-1 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                className="relative isolate flex min-h-12 min-w-0 w-full flex-col items-stretch gap-1 overflow-hidden rounded-sm py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                 <span className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-1 gap-y-1">
                   <span className="min-w-0 break-words text-sm font-semibold text-foreground">{row.symbol}</span>
                   <span className={cn("shrink-0 text-right text-sm font-semibold tabular-nums", key === "gain" ? "text-[color:var(--one-up)]" : "text-[color:var(--one-down)]")}>{formatOneMarketPercent(row.changePct)}</span>
@@ -396,6 +399,7 @@ export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, 
                   {row.companyName}
                 </span>
                 {!sharedTime && row.asOf && Number.isFinite(Date.parse(row.asOf)) ? <time dateTime={row.asOf} className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{formatMarketQuoteTime(row.asOf)}</time> : null}
+                <MaterialRipple variant="none" effect="fade" className="z-10" />
               </button>;
             })}
           </div>
