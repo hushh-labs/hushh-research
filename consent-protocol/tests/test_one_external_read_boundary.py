@@ -317,6 +317,40 @@ def test_gmail_todo_read_starts_the_same_external_content_barrier():
     assert blocked["reason"] == "connector_read_complete"
 
 
+def test_mail_call_without_its_request_reads_nothing_and_keeps_tools_for_a_retry():
+    # UAT 2026-10-29: ask_email_agent({}) armed the barrier, so One could not retry.
+    mail = FunctionTool(agent_tree.ask_email_agent)
+    context = SimpleNamespace(
+        invocation_id="turn", state={STATE_EXECUTION_SURFACE: "typed_chat"}, user_id="owner"
+    )
+    assert before_external_read_tool(mail, {}, context)["reason"] == "missing_argument"
+    assert STATE_EXTERNAL_READ not in context.state
+    assert before_external_read_tool(mail, {"request": "anything important?"}, context) is None
+    assert context.state[STATE_EXTERNAL_READ] == "turn"
+    # One retry per turn: a second empty call closes the tools like a read, so no loop.
+    context.invocation_id, context.state = "next", {STATE_EXECUTION_SURFACE: "typed_chat"}
+    for args in ({}, {"request": "  "}):
+        refused = before_external_read_tool(mail, args, context)
+    assert refused["reason"] == "missing_argument" and context.state[STATE_EXTERNAL_READ] == "next"
+
+
+def test_a_drive_call_without_its_request_records_no_outcome_so_the_retry_counts(monkeypatch):
+    from hushh_mcp.one_adk import external_read_boundary as boundary
+
+    monkeypatch.setattr(boundary, "connector_feature_enabled", lambda *_: True)
+    drive = FunctionTool(agent_tree.ask_documents_agent)
+    context = SimpleNamespace(
+        invocation_id="turn", state={STATE_EXECUTION_SURFACE: "typed_chat"}, user_id="owner"
+    )
+    refused = before_external_read_tool(drive, {}, context)
+    boundary.after_external_read_tool(drive, {}, context, refused)
+    assert boundary.STATE_DRIVE_READ_OUTCOME not in context.state  # was recorded "failed"
+    asked = {"request": "my CV"}
+    assert before_external_read_tool(drive, asked, context) is None
+    boundary.after_external_read_tool(drive, asked, context, {"status": "ok"})
+    assert context.state[boundary.STATE_DRIVE_READ_OUTCOME]["outcome"] == "ok"
+
+
 def test_draft_cannot_run_in_parallel_with_read_or_by_name_spoofing():
     draft = FunctionTool(agent_tree.open_gmail_email_draft)
     context = SimpleNamespace(

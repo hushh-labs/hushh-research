@@ -444,3 +444,55 @@ def test_function_parts_and_text_are_never_dropped():
     )
     assert drop_empty_history_parts(request) == 0
     assert len(request.contents) == 2
+
+
+def test_stored_tool_placeholders_are_not_replayed_to_the_model():
+    # UAT 2026-10-29: One copied the stored ask_email_agent({}) for every later
+    # mail request, and one unanswered receipt call broke each later Azure turn.
+    from hushh_mcp.one_adk.output_privacy import drop_replayed_tool_placeholders
+    from hushh_mcp.one_adk.receipt_client_tools import PRIVATE_RECEIPT_ANSWER
+    from hushh_mcp.runtime_providers.azure_adk import _history
+
+    def turn(role, part):
+        return types.Content(role=role, parts=[part])
+
+    def call(name, id_, args=None):
+        part = types.Part.from_function_call(name=name, args=args or {})
+        part.function_call.id = id_
+        return turn("model", part)
+
+    def reply(name, id_, response):
+        part = types.Part.from_function_response(name=name, response=response)
+        part.function_response.id = id_
+        return turn("user", part)
+
+    contents = [
+        turn("user", types.Part(text="who mailed me today")),
+        call("ask_email_agent", "c1"),
+        reply("ask_email_agent", "c1", {"content_redacted": True, "status": "ok"}),
+        turn("model", types.Part(text="Jay Combs mailed you.")),
+        turn("user", types.Part(text="what did I spend")),
+        call("receipt_spending", "c2"),
+        reply("receipt_spending", "c2", {"content_redacted": True}),
+        turn("model", types.Part(text=PRIVATE_RECEIPT_ANSWER)),
+        call("receipt_spending", "c3"),  # the device never answered this one
+        turn("user", types.Part(text="anything important today?")),
+        call("ask_email_agent", "c4", {"request": "anything important today?"}),
+        reply("ask_email_agent", "c4", {"status": "ok", "text": "Two need you."}),
+    ]
+    reasoning = b'azure-responses-v1:{"type":"reasoning","summary":[]}'
+    for stored in (contents[7], contents[8]):  # Azure stores reasoning beside an answer or call.
+        stored.parts.insert(0, types.Part(thought=True, thought_signature=reasoning))
+    request = SimpleNamespace(contents=contents)
+    with pytest.raises(ValueError, match="complete tool results"):
+        _history(request.contents)  # negative control: the history as stored
+    assert drop_replayed_tool_placeholders(request) == 8
+    wire = _history(request.contents)
+    assert [item.get("type") for item in wire if item.get("type") == "reasoning"] == []
+    assert [item["call_id"] for item in wire if item.get("type") == "function_call"] == ["c4"]
+    assert [item["content"] for item in wire if "role" in item] == [
+        "who mailed me today",
+        "Jay Combs mailed you.",
+        "what did I spend",
+        "anything important today?",
+    ]

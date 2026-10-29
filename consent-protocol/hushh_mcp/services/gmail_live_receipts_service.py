@@ -103,12 +103,18 @@ _EXTRACTOR_CONCURRENCY = _MAX_PER_PAGE
 _DEADLINE_SECONDS = 55.0
 _EXTRACTOR_TIMEOUT_SECONDS = 15.0
 _EXTRACTOR_RETRIES = 1
-# Only transient model failures are retried. Invalid or unverifiable extraction
-# is a permanent validation failure for this scan, and fails the page typed.
+# Transient model failures and unverifiable answers are asked once more. After
+# that, a transient failure fails the page typed so the device retries it, and
+# an invalid result fails it too. A well-formed answer whose evidence still
+# doesn't verify against its own message is not a verified receipt: it is
+# counted with extractor_not_receipt instead of failing every other receipt on
+# the page. One such message used to block an owner's whole sync (UAT, Oct 22-29).
+_UNVERIFIED = "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED"
 _RETRYABLE_EXTRACTION_CODES = frozenset(
     {
         "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
         "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE",
+        _UNVERIFIED,
     }
 )
 _EXTRACTOR_RETRY_DELAY_SECONDS = 1.0
@@ -1628,9 +1634,7 @@ class GmailLiveReceiptsService:
                 "verified_merchant": evidence["verified_merchant"],
                 "receipt_signals": evidence["receipt_signals"],
                 "order_candidates": evidence["order_candidates"],
-                # The validator already defines the only admissible final total.
-                # Do not ask the receipt agent to choose among subtotal/tax/fee or
-                # conflicting peer values that the API would reject anyway.
+                # Only the validator's admissible final total; never subtotal/tax/fee peers.
                 "total_candidates": [preferred_total] if preferred_total else [],
                 "event_candidates": evidence["event_candidates"],
             }
@@ -1640,6 +1644,8 @@ class GmailLiveReceiptsService:
                         item = await extract(message, evidence, model_input)
                         break
                     except GmailApiError as exc:
+                        if exc.code == _UNVERIFIED and attempt >= _EXTRACTOR_RETRIES:
+                            return None, evidence, "extractor_not_receipt"  # Not verified.
                         if (
                             exc.code not in _RETRYABLE_EXTRACTION_CODES
                             or attempt >= _EXTRACTOR_RETRIES
