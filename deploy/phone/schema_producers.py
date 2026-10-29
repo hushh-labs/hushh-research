@@ -412,7 +412,7 @@ class Runtime:
             or result.get("sso_activation_qualified") is not False
         ):
             raise ValueError("phone_schema_workos_not_closed")
-        return {"qualification": "passed", "digest": fingerprint(result)}
+        return {"qualification": "passed", "digest": fingerprint(result), "receipt": result}
 
     def reference(self) -> dict:
         with tempfile.TemporaryDirectory(prefix="phone-schema-serving-") as temporary:

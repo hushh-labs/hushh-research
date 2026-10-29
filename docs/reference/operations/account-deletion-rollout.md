@@ -1006,6 +1006,27 @@ blocks this initial rollout; it does not authorize SSO activation or an older
 reader. Release artifacts retain the plan, exact image probe, selected revision
 and these aggregate checks without phone numbers, OTPs or owner identifiers.
 
+The removed restoration revision `consent-protocol-00305-zuy` retains one direct
+closure observation from successful production run `40475676949`, attempt 2.
+The WorkOS qualifier authenticates that exact immutable archive through the
+existing restoration receipt owner and checks its pinned original member digest.
+Only audit requests within that observation's original horizon may use it.
+Later same-name events, changed source or creation identity, reappearance and
+contrary completion evidence refuse observation reuse. The carried observation stays
+separate from current inventory; fresh complete history, empty authority and
+stable live inventory remain required. This evidence grants no retained-reader
+or SSO activation authority and cannot be recursively carried from a new receipt.
+
+The final cold installed-schema proof also seals its complete WorkOS receipt
+beside the existing digest. Once lifecycle maintenance removes restoration
+revision `consent-protocol-00309-nir`, that original live observation can preserve
+its closure through the cold audit horizon. The operational reference or fully
+authenticated healthy activation/ordinary archive identifies the exact cold
+proof; its original upload, schema snapshot UID and receipt digest are checked.
+Fresh receipts preserve that original pointer separately from their live rows.
+They cannot turn a carried row into a new direct observation, cover a later
+same-name event, or qualify another retired issuer.
+
 The exact reviewed production restoration may appear in serving state or retained
 history without belonging to main ancestry. Its canonical source proof classifies
 it as pre-phone only after checking that the new phone authority writers are
