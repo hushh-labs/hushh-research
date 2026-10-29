@@ -39,6 +39,8 @@ jobs:
   deployment-security:
     if: inputs.security_attempt == ''
     uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
     with:
       application_ref: ${{ inputs.sha || 'main' }}
       environment_name: native
