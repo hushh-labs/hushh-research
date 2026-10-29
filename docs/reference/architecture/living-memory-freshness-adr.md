@@ -1,7 +1,7 @@
 # ADR: Continuous living memory and an owner-controlled always-on runtime
 
-Status: **V1 chat memory, an open, unlocked source projection and one shared Live Mirror are implemented; lossless history and locked or closed-app operation are not.**
-Updated: 2026-10-17.
+Status: **V1 chat memory, an open, unlocked source projection, one shared Live Mirror and an open, unlocked in-app activity journal (encrypted device log plus consolidation into chat memory) are implemented; lossless source history and locked or closed-app operation are not.**
+Updated: 2026-10-29.
 
 ## Visual Map
 
@@ -14,12 +14,14 @@ flowchart LR
   Sources[Profile, Consent, connections, curated OAuth, document earnings, PKM domains] -->|verified snapshots while unlocked| Client
   Client --> Living[Derived one_living_sources inventory and Profile memory.md]
   Living --> Mirror[In-memory Live Mirror for Profile, profile sheet and private agent]
+  Client -->|in-app actions while unlocked| Activity[Encrypted device activity log, 7 days]
+  Activity -->|consolidation digest| ChatMemory
   Client -->|AES-GCM encrypted write| Backend[Backend stores ciphertext only]
-  Journal[Proposed encrypted event journal] -. replay and snapshot repair .-> Device[Proposed owner-operated always-on device]
+  Journal[Proposed encrypted source event journal] -. replay and snapshot repair .-> Device[Proposed owner-operated always-on device]
   Device -. reviewed local key control .-> Living
 ```
 
-Solid arrows describe the implemented unlocked flow. The dotted journal and device paths are proposals requiring separate owner review and implementation. The existing PKM encryption and optimistic-write coordinator remain the persistence boundary; V1 does not introduce a second cryptosystem. The derived Profile document is not the chat document or another authority.
+Solid arrows describe the implemented unlocked flow, including the in-app activity log. The dotted source journal and device paths are proposals requiring separate owner review and implementation. The existing PKM encryption and optimistic-write coordinator remain the persistence boundary; V1 does not introduce a second cryptosystem. The derived Profile document is not the chat document or another authority.
 
 ## Current boundary
 
@@ -39,8 +41,10 @@ beside the answer and can finish after navigation to Memory or another chat in
 the same unlocked owner session. Lock, owner changes, token replacement, expired
 access and unavailable authentication still fence effects, including after the
 chat component unmounts. Only the originating mounted chat receives UI updates.
-Incomplete preparation refuses automatic writes and reports failure while that
-chat remains visible; a valid assessment with no durable facts remains quiet.
+Incomplete preparation refuses automatic writes. An explicit save reports
+failure while that chat remains visible. An ambient capture failure is a quiet
+pending state that telemetry records and that never interrupts chat; a valid
+assessment with no durable facts remains quiet.
 RAM publication precedes encrypted cloud sync, whose status is shown in Memory.
 
 Target references exist only in the preparation snapshot and encrypted recovery envelope, never as paths or IDs inside Soul.md. Stale, duplicate or unoffered targets fail closed. Automatic replacement refuses masked targets; multiline/nested owner-authored bullets need the editor rather than partial mutation. Unrelated text and fenced examples remain unchanged. Encrypted recovery envelopes carry their staging order, so interrupted dependent corrections replay FIFO even when device keys or encryption finish out of order. If any envelope cannot be read, recovery waits rather than replaying a later correction first.
@@ -69,15 +73,21 @@ A mirrored inventory is derived, encrypted and owner-only. It cannot create gran
 
 The [Live Memory source admission contract](./live-memory-source-contract.md) declares each inventory source's authority, owner isolation, post-commit signal, authoritative snapshot, allowed and excluded fields, revision and tombstone rules, incomplete-read behavior, exposure, retention, capacity and focused evidence. `scripts/ci/live-memory-source-gate.py` runs from the repository governance check. It rejects a mismatch between declared source kinds, the runtime type union and emitted adapters; every kind requires bounded capacity. It also requires the SQL and web journal kinds to match, and keeps Live Memory modules out of paid exact-scope retrieval. This is a static admission ratchet for inventory source kinds, not proof that every product feature emits an event or that every historical change was captured. Review and runtime evidence must establish the declared semantics.
 
-## Proposed encrypted event journal
+## Implemented in-app activity journal
 
-The current bridge retains the latest source-linked records and tombstones plus a bounded observed history with explicit gap markers, not an append-only history of every user action. Active and retained-history caps fail incomplete rather than silently trim Consent, connection, curated OAuth or earnings records. `pkm_events` carries coarse control metadata, not decrypted values or a complete feature activity log. Neither source snapshots nor the admission gate can reconstruct an intermediate change that happened while every owner client was closed. Requester payments, individual receipts, document handoffs, contact-list entries and location traces need their own reviewed source contracts before any coverage claim.
+Founder decision, 2026-10-29. While the owner is signed in with the vault unlocked, the client records allowlisted actions in One (the closed kinds in `hushh-webapp/lib/pkm/live-activity/live-activity-types.ts`) into an encrypted, owner-scoped log on this device. Capture is constant-time, never awaits, coalesces exact repeats and stops on lock, sign-out, owner change or when the owner's stored automatic-memory choice is off (no owner-facing control writes that choice today; recorded gap); nothing is buffered while locked. Events carry an authored kind, an allowlisted subject id, for place kinds a place label (the owner's own name for a saved place, up to 40 characters of their text, or a Google venue's public name for a check-in or a place saved from one; a label that repeats the place's own street address is dropped on a best-effort basis), a bounded count and timestamps, never message, mail or file contents, coordinates, counterpart identity, URLs or tokens. The log keeps at most 7 days and 2,048 events per owner, enforced when it is next opened on the device, and is purged with the account.
+
+The log is not PKM and not a source inventory kind. Its only PKM effect is consolidation: each cycle sends a dated, first-person digest of one local day's not-yet-consolidated events (a day can arrive in several cycles) through the existing `/api/pkm/memory/proposals` preparation with `soul_markdown_v1`, and the private agent's existing memory agents decide which facts are durable; consolidation never removes a memory. Usable facts are staged into `one_memory.markdown` through the existing writer, at most one commit per cycle, under the same fail-closed rule as ambient chat capture. A failed cycle writes nothing and stays a quiet pending state that never interrupts chat; every cycle that reaches a decision is recorded through `live_activity_consolidation_completed`. Each chat turn also receives a short recent-activity packet; Profile > Memory > History shows today's activity. This covers only actions in One on one device while the app is open and unlocked; it is not a log of every user action.
+
+## Proposed encrypted source event journal
+
+The source inventory bridge retains the latest source-linked records and tombstones plus a bounded observed history with explicit gap markers, not an append-only history of every user action; the in-app activity journal above does not change that. Active and retained-history caps fail incomplete rather than silently trim Consent, connection, curated OAuth or earnings records. `pkm_events` carries coarse control metadata, not decrypted values or a complete feature activity log. Neither source snapshots nor the admission gate can reconstruct an intermediate change that happened while every owner client was closed. Requester payments, individual receipts, document handoffs, contact-list entries and location traces need their own reviewed source contracts before any coverage claim.
 
 A future journal would have each source owner publish an event **after its authoritative commit**, ideally through a transactional outbox bound to that commit. Each owner-scoped event would carry an opaque event ID and cursor, source kind and stable source ID, source revision, operation (`upsert` or `delete`), schema version, source time, and an encrypted minimal change or snapshot reference. The owner-visible fields and values stay in ciphertext; server routing, telemetry and retry logs retain no plaintext payload, token, coordinate or document body. The event ID and `(source kind, source ID, source revision)` make replay idempotent; a later revision dominates an older one, and deletion is a durable revisioned tombstone. An event does not authorize sharing, model processing or payment.
 
 An owner-controlled consumer would resume from an encrypted checkpoint, verify event continuity and source revisions, then read authoritative snapshots to repair gaps, out-of-order delivery and schema upgrades. It would advance its checkpoint only after the existing encrypted PKM compare-and-swap commit and readback succeed. Bounded queues, backoff and source-specific retention must surface backlog and failure instead of silently dropping changes. The owner can inspect source freshness and delete both journal payloads and derived projections under the account-erasure contract. This journal, outbox, replay worker, retention policy and cross-device cursor do **not** exist in the current implementation.
 
-### Standards used for the proposed journal
+### Standards used for the proposed source journal
 
 The proposed event identity and versioned envelope follow the interoperable
 [CloudEvents specification](https://github.com/cloudevents/spec/blob/main/cloudevents/spec.md).

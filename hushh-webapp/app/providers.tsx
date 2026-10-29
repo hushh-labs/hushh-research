@@ -1,6 +1,7 @@
 "use client";
 
 import { LivingMemoryBridge } from "@/components/profile/living-memory-bridge";
+import { LiveActivityBridge } from "@/components/profile/live-activity-bridge";
 
 /**
  * Unified Client Providers
@@ -840,6 +841,7 @@ function AppShellFrame({ children }: ProvidersProps) {
               <AccountLifecycleStepBridge />
               <NativePrivateGoogleConnectorHandoff />
               <LivingMemoryBridge />
+              <LiveActivityBridge />
             </AgentRuntimeStateProvider>
           </OneLocationInteractionSurfaceProvider>
         </VaultProvider>

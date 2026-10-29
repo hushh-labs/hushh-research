@@ -1224,3 +1224,80 @@ never become content verification, sharing permission or a purchase decision.
 
 See [the owning packet contract](./drive-continuous-packets.md)
 for enrollment, migration, recovery and privacy boundaries.
+
+### Declared: in-app activity digest
+
+Founder decision, 2026-10-29. One's in-app activity log reaches memory only
+through the existing Soul.md memory pipeline. No new route, model profile or
+agent is added.
+
+- Owning agents: the existing `agent_memory_segmentation`, `agent_memory_intent`,
+  `agent_memory_merge` and `agent_pkm_structure` decide which activity is a
+  durable fact, where it belongs and whether it creates, extends or corrects a
+  memory, or is a no-op. Manifests under `consent-protocol/hushh_mcp/agents/`.
+- Structured output: the existing `POST /api/pkm/memory/proposals` preview cards
+  under `memoryProfile: "soul_markdown_v1"` and `currentDomains: ["one_memory"]`,
+  prepared through `prepareNaturalLanguagePkm` with the client-log label
+  `app_activity_digest`. The proposal request carries no source, so the memory
+  agents receive the digest as first-person text, and each cycle offers the
+  current memory.md bullets as reconciliation candidates, as ambient chat
+  capture does. Only the write record `app_activity_product_default_auto_save`
+  identifies activity. Usable facts are staged with `stageMarkdownMemoryFacts`.
+- Host policy (`hushh-webapp/lib/pkm/live-activity/`) enforces form and
+  authority only. It renders allowlisted events into dated first-person lines
+  (`liveActivityStatements`), enforces the field allowlist in
+  `live-activity-types.ts` and coalesces exact repeats. It never decides that an
+  activity is durable, never adds or rewrites a fact, and never writes when
+  preparation is incomplete, degraded or a fallback.
+- Authority: activity never removes a memory. A delete decision, or a
+  correction whose replacement would save as nothing or as another existing
+  bullet, fails the whole cycle closed, because a delete can pair with a create
+  to express a move and half of it is never applied. It is reported as
+  `failed`. Other corrections and extensions stay within this writer's declared
+  authority.
+- Declared input filters, applied before the model and recorded here:
+  - Within one cycle's events, opposing pairs (connect/disconnect per service,
+    save/remove per place, link created/revoked) collapse to the latest
+    observed state. A day can arrive in several cycles, and the counts in a
+    line cover only that cycle.
+  - Visits to the One home section are not a usage statement.
+  - Memory saves, consent decisions, profile updates and successful connector
+    syncs are never sent, because they are already saved by their own owners or
+    carry no durable meaning. They still show in Today and in the per-turn
+    packet. A failed sync is not recorded at all: it is not an owner action and
+    offers no fix there.
+  - Place labels are third-party or free text (a Google venue's public name,
+    from a check-in or a place saved from one, or the owner's own place name), so the digest and the per-turn packet render
+    them as quoted names. A label that repeats the place's own street address
+    is dropped, best effort.
+  - An event that can still absorb repeats (seen within the 10-minute coalesce
+    window) waits for a later cycle, so a repeat never merges into an event
+    already sent.
+- Each cycle covers the not-yet-consolidated events of one local day, so no
+  statement is truncated. Each run reads memory.md from the server first and
+  does not run while a local memory save is still pending (`saving` is
+  cancelled, `retryable` is `failed`), so a device whose cached copy predates a
+  Reset on another device never writes that old document back. The outcome is recorded as enums through the dedicated
+  `live_activity_consolidation_completed` event:
+  - `saved`;
+  - `nothing_durable`: the model kept nothing new, or only facts memory.md
+    already holds;
+  - `host_skipped`: only kinds the digest never describes, settled without
+    asking the model, so a host decision is never counted as a model answer;
+  - `failed`: a counted failure (degraded output, a refused removal, a rejected
+    write, a model timeout), or a run that could not read memory.md or found a
+    local memory save stuck, which keeps its attempt;
+  - `memory_full`: memory.md is near its ceilings or the staged facts would
+    overflow it. The events are kept.
+
+  `busy`, `skipped` and `cancelled` runs (stale, aborted or offline) reached no
+  decision and are not reported.
+- Scheduling: a failed consolidation writes nothing and stays a quiet pending
+  state. Runs never start as the app hides, and a run cut off by hiding is
+  cancelled. Every run waits at least five minutes after the last. A `failed`
+  or `memory_full` run waits for new activity or the next unlock rather than a
+  timer; a cancelled run, or one that left a later day queued, retries after the
+  gap. After two counted failures a day is settled without a write, so it never
+  retries forever.
+- Live eval before promotion: mocked contract tests for the host policy only.
+  Durable-fact quality on real owner activity is unmeasured.
