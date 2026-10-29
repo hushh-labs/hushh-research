@@ -397,7 +397,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   if (sessionVerificationRequired) {
     return renderSessionGate(
       <SessionVerificationRecovery
-        onRetry={() => void retrySessionVerification()}
+        onRetry={retrySessionVerification}
         onSignOut={() => void signOut({ skipFcmCleanup: true })}
       />
     );
