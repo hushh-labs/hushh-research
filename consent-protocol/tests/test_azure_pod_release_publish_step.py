@@ -328,7 +328,9 @@ def test_workflow_publication_uses_real_protocol_project_before_cloud_authentica
         "Verify metadata reuse with Main-owned source guard",
     ):
         assert next(i for i, step in enumerate(steps) if step.get("name") == required) < auth
-    assert steps[0]["with"]["ref"] == "${{ github.sha }}"
+    assert steps[0]["name"] == "Require current-attempt deployment security"
+    checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
+    assert checkout["with"]["ref"] == "${{ github.sha }}"
     assert "pod-publication" in workflow["jobs"]["deploy"]["if"]
     assert "pod-publication" not in workflow["concurrency"]["group"]
 

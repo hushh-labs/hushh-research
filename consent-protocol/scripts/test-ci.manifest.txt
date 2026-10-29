@@ -1603,3 +1603,6 @@ tests/services/test_document_delivery_owner_allow.py
 tests/services/test_managed_chat_provider_switch.py
 tests/services/test_one_vertex_search_contract.py
 tests/test_vertex_capability_probe.py
+
+# Protected Main release clearance and current-attempt consumer boundaries.
+tests/test_deployment_security.py

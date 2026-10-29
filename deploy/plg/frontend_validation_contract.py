@@ -34,7 +34,11 @@ CHECKS = [
     "source-recheck",
 ]
 JOB_STEPS = {
+    "Deployment security / Verify repository secret clearance": {
+        "Read protected repository inventory",
+    },
     "Admit PLG frontend source": {
+        "Require current-attempt deployment security",
         "Require Main workflow dispatch",
         "Checkout Main authority",
         "Require governed production actors",
@@ -47,6 +51,7 @@ JOB_STEPS = {
         "Upload admission receipt",
     },
     "Verify frontend candidate": {
+        "Require current-attempt deployment security",
         "Checkout pinned frontend source",
         "Verify source checkout",
         "Set up Node 24",
@@ -59,6 +64,7 @@ JOB_STEPS = {
         "Upload frontend test report",
     },
     GATE: {
+        "Require current-attempt deployment security",
         "Checkout Main authority",
         "Require successful predecessors",
         "Fetch pinned frontend source",

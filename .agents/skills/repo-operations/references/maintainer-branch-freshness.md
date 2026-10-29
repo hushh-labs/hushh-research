@@ -56,3 +56,8 @@ validation refuses a missing or unsupported base instead of falling back to Main
 These branches are being prepared; follow the active intake/deployment rules in
 [branch governance](../../../../docs/reference/operations/branch-governance.md#dev--uat-branch-preparation)
 until the promotion transition is activated.
+
+Stable fixes propagate through manual reviewed sync PRs from Main to UAT/Dev and
+from UAT to Dev. There is no sync bot or automatic deployment. Record unresolved
+downstream sync obligations in the existing release record. Main receives reviewed
+operations/hotfix deltas or separately approved UAT-qualified product changes.
