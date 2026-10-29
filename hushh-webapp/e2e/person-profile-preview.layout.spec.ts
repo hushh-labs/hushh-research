@@ -28,9 +28,14 @@ for (const width of [393, 1280]) {
     await expect(page.locator("button button, a button")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
     await page.screenshot({ path: testInfo.outputPath("connected-profile-open.png") });
-    await profile.getByRole("button", { name: "Back to previous screen" }).click();
+    await profile.getByRole("button", { name: "Back to previous screen" }).evaluate(element => {
+      // Both taps arrive before the asynchronous history pop completes.
+      (element as HTMLButtonElement).click();
+      (element as HTMLButtonElement).click();
+    });
     await expect(profile).toHaveCount(0);
     await expect(source).toBeVisible();
+    await expect(page).toHaveURL("http://localhost:41839/one/location?action=share&step=people");
     await expect(source.getByRole("textbox", { name: "Search connections" })).toHaveValue("Aar");
     await expect(source.getByRole("button", { name: "Select Aarav for circle" })).toHaveAttribute("aria-pressed", "true");
     expect(await source.boundingBox()).toEqual(before);

@@ -28,18 +28,24 @@ export function PersonProfilePreview() {
   const [resolved, setResolved] = useState<{ key: number; personRef: string | null } | null>(null);
   const nextKey = useRef(0);
   const opening = useRef(false);
+  const closing = useRef(false);
   const returnFocus = useRef<HTMLElement | undefined>(undefined);
   const route = `${pathname}?${search}`;
   const active = entry && entry.owner === user?.uid && entry.generation === getAuthSessionGeneration() && entry.route === route ? entry : null;
 
   const close = useCallback(() => {
-    if (entry && closePersonPreviewHistory(entry.key)) return;
+    if (closing.current) return;
+    if (entry) {
+      closing.current = true;
+      if (closePersonPreviewHistory(entry.key)) return;
+      closing.current = false;
+    }
     setEntry(null);
   }, [entry]);
 
   useLayoutEffect(() => {
     opening.current = Boolean(active);
-    if (!active) return;
+    if (!active) { closing.current = false; return; }
     // Onboarding is an existing fullscreen takeover. Lift the standard dialog
     // layer only while viewing a person there, including nested request dialogs.
     const takeover = document.querySelector<HTMLElement>('[data-one-onboarding-design="location-agent-v3"]');

@@ -69,6 +69,26 @@ describe("person profile return memory @feature_connected_profiles @trace_loop",
     expect(avatar).toHaveFocus();
   });
 
+  it("coalesces rapid profile Back taps into one owned traversal", async () => {
+    const originState = window.history.state;
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    try {
+      render(<Source />);
+      fireEvent.click(screen.getByRole("button", { name: "Select Aarav" }));
+      fireEvent.click(screen.getByRole("button", { name: "View Aarav's profile" }));
+      await screen.findByRole("heading", { name: "Profile public-peer" });
+      const close = screen.getByRole("button", { name: "Back to previous screen" });
+      fireEvent.click(close); fireEvent.click(close);
+      expect(back).toHaveBeenCalledOnce();
+      act(() => {
+        window.history.replaceState(originState, "");
+        window.dispatchEvent(new PopStateEvent("popstate", { state: originState }));
+      });
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(screen.getByRole("button", { name: "Select Aarav" })).toHaveAttribute("aria-pressed", "true");
+    } finally { back.mockRestore(); }
+  });
+
   it("ignores a late identity response after closing or changing the account", async () => {
     let finish!: (value: unknown) => void;
     state.resolve.mockReturnValue(new Promise(resolve => { finish = resolve; }));
