@@ -2154,13 +2154,6 @@ export default function ConnectPageClient() {
   // advisor, instead of becoming one by sitting under the advisor tab.
   const connectionSearch = useConnectionSearch({ ownerId: userId, query: debouncedConnectionsQuery, audience: connectionAudience, loadPage: loadConnectionsPage, revision: connections });
   const sortedConnections = connectionSearch.active ? connectionSearch.items : connections;
-  const connectionGroups = useMemo(() => {
-    if (isAdvisorTab) return [{ key: "advisors", label: null, items: sortedConnections }];
-    return [
-      { key: "contacts", label: "From contacts", items: sortedConnections.filter(connection => connection.connectedFromContacts === true) },
-      { key: "other", label: "Other connections", items: sortedConnections.filter(connection => connection.connectedFromContacts !== true) },
-    ].filter(group => group.items.length > 0);
-  }, [isAdvisorTab, sortedConnections]);
   const pendingRemoveConnection = pendingRemoveTarget?.ownerId === userId && pendingRemoveTarget?.generation === batchDraftGenerationRef.current ? pendingRemoveTarget.connection : null;
 
   // Voice surface for Connect. Until this existed the route derived the
@@ -3761,92 +3754,78 @@ export default function ConnectPageClient() {
                                 disabled
                               />
                             ) : (
-                              connectionGroups.map((group) => (
-                                <section key={group.key} aria-label={group.label ?? connectionsHeadingLabel} data-testid={`connection-source-${group.key}`}>
-                                  {group.label ? (
-                                    <div
-                                      role="heading"
-                                      aria-level={3}
-                                      data-slot="settings-group-heading"
-                                      className="flex min-h-8 items-center gap-2 pb-0.5 pt-3"
-                                    >
-                                      <ContactsBookIcon aria-hidden="true" className="size-4" />
-                                      {group.label}
-                                    </div>
-                                  ) : null}
-                                  {group.items.map((connection) => {
-                                    const connectionName = connectPersonName(connection);
-                                    return (
-                                    <ConnectPersonRow
-                                      key={connection.connectionId}
-                                      leading={
-                                        <ConnectionPersonAvatar
-                                          size="compact"
-                                          className="!size-9 max-[350px]:!size-8"
-                                          fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
-                                          photoUrl={connection.photoUrl ?? null}
-                                          label={connectionName}
-                                          verified={Boolean(connection.isRia)}
-                                        />
-                                      }
-                                      title={connectionName}
-                                      description={
-                                        connection.createdAt &&
-                                        !Number.isNaN(
-                                          Date.parse(connection.createdAt),
-                                        )
-                                          ? `Connected ${formatConnectedDate(new Date(connection.createdAt))}`
-                                          : "Connected"
-                                      }
-                                      voiceLabel={connectionName}
-                                      openLabel={`Open ${connectionName}'s profile`}
-                                      onOpen={
-                                        connection.publicPersonRef
-                                          ? () =>
-                                              router.push(
-                                                buildPersonProfileRoute(
-                                                  connection.publicPersonRef!,
-                                                  { from: ROUTES.CONNECT },
-                                                ),
-                                              )
-                                          : undefined
-                                      }
-                                      trailing={
-                                        <span className="flex shrink-0 items-center justify-end gap-0 whitespace-nowrap">
-                                          {connection.publicPersonRef ? (
-                                            <Button
-                                              type="button"
-                                              variant="none"
-                                              effect="fade"
-                                              size="compact"
-                                              aria-label={`Message ${connectionName}`}
-                                              className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
-                                              onClick={() => {
-                                                void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
-                                              }}
-                                            >
-                                              <ProfilePaneMessageIcon size={22} strokeWidth={1.65} className="translate-x-1.5" />
-                                            </Button>
-                                          ) : <span className="size-11 shrink-0" aria-hidden="true" />}
+                              sortedConnections.map((connection) => {
+                                const connectionName = connectPersonName(connection);
+                                return (
+                                  <ConnectPersonRow
+                                    key={connection.connectionId}
+                                    leading={
+                                      <ConnectionPersonAvatar
+                                        size="compact"
+                                        className="!size-9 max-[350px]:!size-8"
+                                        fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
+                                        photoUrl={connection.photoUrl ?? null}
+                                        label={connectionName}
+                                        verified={Boolean(connection.isRia)}
+                                        fromContacts={connection.connectedFromContacts === true}
+                                      />
+                                    }
+                                    title={connectionName}
+                                    description={
+                                      connection.createdAt &&
+                                      !Number.isNaN(
+                                        Date.parse(connection.createdAt),
+                                      )
+                                        ? `Connected ${formatConnectedDate(new Date(connection.createdAt))}`
+                                        : "Connected"
+                                    }
+                                    voiceLabel={connectionName}
+                                    openLabel={`Open ${connectionName}'s profile`}
+                                    onOpen={
+                                      connection.publicPersonRef
+                                        ? () =>
+                                            router.push(
+                                              buildPersonProfileRoute(
+                                                connection.publicPersonRef!,
+                                                { from: ROUTES.CONNECT },
+                                              ),
+                                            )
+                                        : undefined
+                                    }
+                                    trailing={
+                                      <span className="flex shrink-0 items-center justify-end gap-0 whitespace-nowrap">
+                                        {connection.publicPersonRef ? (
                                           <Button
                                             type="button"
                                             variant="none"
                                             effect="fade"
                                             size="compact"
-                                            aria-label={`Options for ${connectionName}`}
-                                            aria-haspopup="dialog"
+                                            aria-label={`Message ${connectionName}`}
                                             className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
-                                            onClick={() => setPendingRemoveTarget(userId ? { ownerId: userId, generation: batchDraftGenerationRef.current, connection } : null)}
+                                            onClick={() => {
+                                              void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
+                                            }}
                                           >
-                                            <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
+                                            <ProfilePaneMessageIcon size={22} strokeWidth={1.65} className="translate-x-1.5" />
                                           </Button>
-                                        </span>
-                                      }
-                                    />
-                                    );
-                                  })}
-                                </section>
-                              ))
+                                        ) : <span className="size-11 shrink-0" aria-hidden="true" />}
+                                        <Button
+                                          type="button"
+                                          variant="none"
+                                          effect="fade"
+                                          size="compact"
+                                          aria-label={`Options for ${connectionName}`}
+                                          aria-haspopup="dialog"
+                                          className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
+                                          onClick={() => setPendingRemoveTarget(userId ? { ownerId: userId, generation: batchDraftGenerationRef.current, connection } : null)}
+                                        >
+                                          <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
+                                        </Button>
+                                      </span>
+                                    }
+                                  />
+                                );
+                              })
                             )}
                           </SettingsGroup>
 

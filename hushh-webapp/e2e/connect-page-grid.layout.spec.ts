@@ -191,8 +191,10 @@ for (const dark of [false, true]) {
       await page.getByRole("tab", { name: /My connections/ }).click();
       const connectionGroup = page.getByTestId("connect-my-connections-group");
       const contactsHeading = connectionGroup.getByRole("heading", { name: "From contacts", exact: true });
-      await expect(contactsHeading).toHaveCount(1);
-      const contactIcon = await contactsHeading.locator("svg").evaluate((icon) => {
+      await expect(contactsHeading).toHaveCount(0);
+      const contactBadge = connectionGroup.getByLabel("Connected from your contacts");
+      await expect(contactBadge).toHaveCount(1);
+      const contactIcon = await contactBadge.locator("svg").evaluate((icon) => {
         const box = icon.getBoundingClientRect();
         const reference = document.createElement("span");
         icon.parentElement!.appendChild(reference);
@@ -205,15 +207,22 @@ for (const dark of [false, true]) {
           fill: getComputedStyle(icon.querySelector("g[fill]")!).fill,
           stroke: getComputedStyle(icon.querySelector("g[stroke]")!).stroke };
       });
-      expect(contactIcon.width).toBe(16);
-      expect(contactIcon.height).toBe(16);
+      expect(contactIcon.width).toBe(12);
+      expect(contactIcon.height).toBe(12);
       expect(contactIcon.fill).toBe(contactIcon.accent);
       expect(contactIcon.stroke).toBe(contactIcon.outline);
       expect(contactIcon.fill).not.toBe(contactIcon.stroke);
-      await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(1);
-      await expect(connectionGroup.getByLabel("Connected from your contacts")).toHaveCount(0);
-      await expect(page.getByTestId("connection-source-contacts").getByText("Jordan Lee", { exact: true })).toHaveCount(1);
-      await expect(page.getByTestId("connection-source-other").getByText("Alex Chen", { exact: true })).toHaveCount(1);
+      await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(0);
+      const connectionRows = connectionGroup.getByTestId("connect-person-row");
+      await expect(connectionRows.filter({ hasText: "Jordan Lee" }).getByLabel("Connected from your contacts")).toHaveCount(1);
+      await expect(connectionRows.filter({ hasText: "Alex Chen" }).getByLabel("Connected from your contacts")).toHaveCount(0);
+      const badgeGeometry = await contactBadge.evaluate(badge => {
+        const badgeBox = badge.getBoundingClientRect();
+        const avatarBox = badge.closest('[data-avatar-size="compact"]')!.getBoundingClientRect();
+        return { rightOffset: badgeBox.right - avatarBox.right, bottomOffset: badgeBox.bottom - avatarBox.bottom };
+      });
+      expect(badgeGeometry.rightOffset).toBe(2);
+      expect(badgeGeometry.bottomOffset).toBe(2);
       const rowGeometry = await connectionGroup.locator('[data-testid="connect-person-row"]').evaluateAll(rows => rows.map(row => {
         const rect = row.getBoundingClientRect();
         const avatar = row.querySelector('[data-avatar-size="compact"]')!.getBoundingClientRect();
