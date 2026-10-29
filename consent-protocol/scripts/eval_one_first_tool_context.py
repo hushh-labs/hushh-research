@@ -7,7 +7,7 @@ supply an authenticated owner's information or connector access.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -83,6 +83,27 @@ def instruction_overrides(
     return {
         case.id: compose(case.runtime_context) for case in cases if case.runtime_context != "empty"
     }
+
+
+def receipt_declarations(names: Iterable[str], types: Any) -> list[Any]:
+    """Typed chat's device receipt tools, with the schema the hub admits."""
+    from hushh_mcp.one_adk.receipt_client_tools import receipt_tool_declaration
+
+    declarations = []
+    for spec in map(receipt_tool_declaration, sorted(names)):
+        params = {"parameters_json_schema": spec.pop("parameters")}
+        declarations.append(types.FunctionDeclaration(**spec, **params))
+    return declarations
+
+
+def surface_declarations(declarations: Sequence[Any], instruction: str) -> list[Any]:
+    """Only typed chat declares the device receipt tools; other surfaces never see them."""
+    from hushh_mcp.one_adk.follow_up_suggestions import FOLLOW_UP_INSTRUCTION
+    from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+
+    if FOLLOW_UP_INSTRUCTION in instruction:
+        return list(declarations)
+    return [item for item in declarations if item.name not in RECEIPT_TOOL_NAMES]
 
 
 def admitted_instructions(

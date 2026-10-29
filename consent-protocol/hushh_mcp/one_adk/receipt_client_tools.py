@@ -14,6 +14,12 @@ from zoneinfo import ZoneInfo
 
 from google.genai import types
 
+from hushh_mcp.one_adk.receipt_result_contract import (
+    RECEIPT_ATTENTION,
+    RECEIPT_FUNCTION_DESCRIPTIONS,
+    is_unavailable_receipt_result,
+    receipt_parameters,
+)
 from hushh_mcp.one_adk.request_secrets import (
     consume_request_secret,
     resolve_request_secret,
@@ -35,26 +41,10 @@ PRIVATE_RECEIPT_ANSWER = "Receipt analysis was shown for that turn. Ask again fo
 
 
 def receipt_tool_declaration(name: str) -> dict:
-    grouped = name in {"receipt_spending", "highest_receipt_spend"}
     return {
         "name": name,
-        "description": f"{name}: owner-authorized canonical receipt snapshot read. Money is computed on device; currencies separate. Products unsupported until structured evidence exists.",
-        "parameters": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["from_date", "to_date", "timezone"] + (["group_by"] if grouped else []),
-            "properties": {
-                "from_date": {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
-                "to_date": {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
-                "timezone": {"type": "string", "maxLength": 80},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 25},
-                **(
-                    {"group_by": {"type": "string", "enum": ["merchant", "category", "product"]}}
-                    if grouped
-                    else {}
-                ),
-            },
-        },
+        "description": RECEIPT_FUNCTION_DESCRIPTIONS[name],
+        "parameters": receipt_parameters(name),
     }
 
 
@@ -63,7 +53,7 @@ def validate_request(name: str, value: Any) -> dict:
         not isinstance(name, str)
         or name not in RECEIPT_TOOL_NAMES
         or not isinstance(value, dict)
-        or set(value) - {"from_date", "to_date", "timezone", "group_by", "limit"}
+        or set(value) - {"from_date", "to_date", "timezone", "group_by", "limit", "attention"}
     ):
         raise ValueError("Invalid receipt request.")
     result = dict(value)
@@ -90,6 +80,10 @@ def validate_request(name: str, value: Any) -> dict:
         )
     ) or (not grouped and "group_by" in result):
         raise ValueError("Invalid receipt grouping.")
+    if "attention" in result and (
+        name != "list_recent_receipts" or result["attention"] not in RECEIPT_ATTENTION
+    ):
+        raise ValueError("Invalid receipt attention.")
     return result
 
 
@@ -139,37 +133,8 @@ def validate_result(name: str, request: dict, value: Any) -> dict:
         raise ValueError("Invalid receipt result shape.")
     if len(json.dumps(value, allow_nan=False).encode()) > 65536:
         raise ValueError("Receipt result too large.")
-    if value == {
-        "schema": "receipt_analysis.v1",
-        "operation": name,
-        "status": "unavailable",
-        "code": "receipt_snapshot_unavailable",
-        "requested_range": {
-            "from": request["from_date"],
-            "to": request["to_date"],
-            "end_exclusive": True,
-            "timezone": request["timezone"],
-        },
-        "source_freshness": None,
-        "snapshot_revision": None,
-        "canonical_transaction_count": None,
-        "matched_count": None,
-        "included_count": None,
-        "coverage": None,
-        "truncated": False,
-        "dedupe_policy": "Mail canonical groups; one transaction per saved group",
-        "refund_handling": {
-            "record_count": None,
-            "amount": None,
-            "net": None,
-            "policy": "Refund evidence unavailable.",
-        },
-        "cancellation_handling": "Unpaid, failed, cancelled and trial records are excluded from paid totals.",
-        "limitations": [
-            "The owner receipt snapshot could not be read. Sync Mail Receipts and ask again."
-        ],
-        "results": [],
-    }:
+    # Unavailable is one closed code paired with its exact sentence, never prose.
+    if is_unavailable_receipt_result(name, request, value):
         return value
     base = {
         "schema",

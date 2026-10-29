@@ -62,8 +62,8 @@ import { managedChatRunErrorMessage, MODEL_CAPACITY_MESSAGE } from "@/lib/agent/
 import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
 import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
-import { RECEIPT_FUNCTIONS, RECEIPT_TOOL_DECLARATIONS, parseReceiptAnalysisRequest, unavailableReceiptAnalysis, type ReceiptFunction } from "@/lib/mail/receipt-analysis";
-import { runReceiptFunction } from "@/lib/mail/receipt-store";
+import { RECEIPT_FUNCTIONS, RECEIPT_TOOL_DECLARATIONS, type ReceiptAnalysisRequest, type ReceiptFunction } from "@/lib/mail/receipt-analysis";
+import { receiptCallRequest, receiptCallRunner, type ReceiptSetupState } from "./agent-chat-receipt-calls";
 
 export type AgentChatMessage = {
   id: string;
@@ -229,6 +229,8 @@ export type AgentChatStreamHandlers = {
   onBrowserTaskCreated?: () => void;
   /** Receipt detail/answer is current-turn only, excluded from replay and PKM. */
   onReceiptPrivate?: () => void;
+  /** At most once per turn: receipts need Gmail connected, or a sync on this device. */
+  onReceiptSetupNeeded?: (state: ReceiptSetupState) => void;
   /** Ephemeral native review: never append its references or receipt to history/debug events. */
   onMcpReview?: (review: {
     reference: McpCallReviewReference;
@@ -1444,10 +1446,12 @@ export async function streamAgentChat(input: {
     agent.abortRun();
   };
   const toolNames = new Map<string, string>();
-  const receiptCalls = new Map<string, Promise<{ toolCallId: string; toolName: ReceiptFunction; request: ReturnType<typeof parseReceiptAnalysisRequest>; result: unknown }>>();
+  const receiptCalls = new Map<string, Promise<{ toolCallId: string; toolName: ReceiptFunction; request: ReceiptAnalysisRequest; result: unknown }>>();
   let receiptPrivate = false;
   let receiptReset = false;
   const receiptSessionCurrent = () => !receiptReset && mcpSessionCurrent();
+  const runReceiptCall = receiptCallRunner({ userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken: input.vaultOwnerToken,
+    isCurrent: receiptSessionCurrent }, state => handlers.onReceiptSetupNeeded?.(state));
   let reactionShown = false;
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
@@ -1535,22 +1539,14 @@ export async function streamAgentChat(input: {
     if (receiptCalls.has(toolCallId)) return;
     receiptPrivate = true;
     handlers.onReceiptPrivate?.();
-    let request;
-    try {
-      const streamed = receiptArgs.get(toolCallId);
-      receiptArgs.delete(toolCallId);
-      request = parseReceiptAnalysisRequest(operation, streamed ? JSON.parse(streamed) : args);
-      if (request.timezone !== timezone || !receiptSessionCurrent() || receiptCalls.size >= 4)
-        throw new Error("Invalid receipt authority.");
-    } catch {
+    const request = receiptCallRequest(operation, receiptArgs.get(toolCallId), args, timezone, receiptSessionCurrent() && receiptCalls.size < 4);
+    receiptArgs.delete(toolCallId);
+    if (!request) {
       failure = new Error("Receipt request doesn't match this owner turn. Ask again.");
       handlers.onError?.(failure.message);
       agent.abortRun(); finishTerminalRun(); return;
     }
-    receiptCalls.set(toolCallId, runReceiptFunction({ userId: input.userId, vaultKey: input.vaultKey,
-      vaultOwnerToken: input.vaultOwnerToken, isCurrent: receiptSessionCurrent }, operation, request)
-      .catch(() => unavailableReceiptAnalysis(operation, request))
-      .then(result => ({ toolCallId, toolName: operation, request, result })));
+    receiptCalls.set(toolCallId, runReceiptCall(operation, request).then(result => ({ toolCallId, toolName: operation, request, result })));
   };
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,

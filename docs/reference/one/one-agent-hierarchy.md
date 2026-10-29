@@ -342,15 +342,13 @@ INBOX page, "my last N emails"), `list_needs_reply`, `search_inbox`, and the bod
 reads `read_message` / `read_thread` (size-capped text seen only by the tool-less
 interpreter), each scoped to `inbox`, `sent` or `anywhere` and returning an `unread`
 flag. High-level receipt and purchase trends use the aggregate observations in
-the supplied Soul.md, not the Email receipt-list tool. New Radar scans save only
-these observations, never individual transactions. The retained `read_receipts`
-compatibility tool can filter/page a bounded legacy canonical index when an
-older admitted client supplies one; current One Chat does not attach that second
-memory channel. An individual-record lookup without an admitted index answers
-"not ready" with the generated Open Receipts action. The receipt list remains
-available in Radar, and a request to find emails that mention receipts stays
-`search_inbox`. See
-the "Email receipts read from saved receipt memory" declaration in
+the supplied Soul.md. New Radar scans save only these observations, never
+individual transactions. Receipt lists, spending totals and overdue or due
+payments use One's on-device receipt functions; a receipts request that reaches
+the Email agent returns `receipt_functions_required` without reading mail, and
+One answers with those functions in the same turn. A request to find emails
+that mention receipts stays `search_inbox`. See the "Email receipt requests
+handed back to One's receipt functions" declaration in
 [Backend Semantic Boundary](../../../consent-protocol/docs/reference/backend-semantic-boundary.md).
 Reviewed mailbox changes (archive, labels, read state, Trash) go through One's
 `propose_gmail_mailbox_change` card, never through this read path. After a read, only exact-call-reviewed MCP tools, One's

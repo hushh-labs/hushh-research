@@ -178,15 +178,28 @@ Current evidence does not verify refund amounts/allocation, so refund amounts
 and net with observed refunds remain unknown. Products always return
 `unsupported: product_data_unavailable` until structured line/quantity evidence
 exists. A function result is at most 64 KiB; group limits apply per currency.
-Unavailable results keep the requested range/timezone and policy/limitations,
-with unknown freshness, counts and coverage explicitly null.
+Each row's analysis day is its ISO `transaction_date` in the owner's timezone,
+else its primary event's ISO email date, else undated (counted in
+`coverage.undated_count`). Printed dates are never parsed, and list rows carry
+that day as `transaction_date`. Limitations add deterministic coverage facts: a
+range that starts before `coverage.window_from`, a partial sync, and freshness
+older than 7 days. The hub also admits an optional list filter `attention:
+needs_attention | coming_up` over the snapshot's own `attention_state`; clients
+keep declaring the pre-attention list schema until every hub and owner pod
+admits it, so overdue or due items come from each row's status for now.
+Unavailable results carry one closed `code` with its exact sentence:
+`gmail_not_connected`, `receipts_not_synced` or `receipt_snapshot_unavailable`.
+They keep the requested range/timezone and policy, with unknown freshness, counts
+and coverage explicitly null. The chat shows the in-chat Connect card or an Open
+receipts control under such an answer, at most once per turn.
 
 Only the authorized continuation's model request receives detailed results.
 Native tool messages, encrypted session history and restored answers contain
 value-free receipts. Receipt-result invocations cannot execute further tools.
 Private answers expire or disappear on a new turn, conversation/owner change,
 vault transition or Reset. One explains deterministic function output; it never
-computes totals from memory rows. Finance remains the bank-spending authority.
+computes totals from memory rows. Bank or card cash flow comes only from the
+consented memory packet's precomputed summaries; Finance has no spending tool.
 
 ### PKM table map
 

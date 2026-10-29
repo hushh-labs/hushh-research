@@ -218,6 +218,16 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
     successful first result. This state contains no provider text or file IDs.
     """
     name = getattr(tool, "name", "")
+    if (
+        name == "ask_email_agent"
+        and tool_response.get("status") == "receipt_functions_required"
+        and tool_context.state.get(STATE_EXTERNAL_READ)
+        == getattr(tool_context, "invocation_id", None)
+    ):
+        # The Email specialist read no mail for a receipts request, so no provider
+        # text entered this turn and One keeps its receipt functions for it.
+        tool_context.state[STATE_EXTERNAL_READ] = None
+        return
     if name not in {"ask_documents_agent", "read_selected_drive_search_result"} and not (
         name == "read_workspace_tool" and args.get("provider") == "drive"
     ):

@@ -158,12 +158,13 @@ describe("UserLocalStateService", () => {
     expect(mocks.forgetLocationMemory).toHaveBeenCalledTimes(2);
   });
 
-  it("removes the deleted account's Feed keys only, and keeps them on sign-out", async () => {
+  it("removes the deleted account's Feed and Mail nudge keys only, and keeps them on sign-out", async () => {
     const feedKeys = (uid: string) => [
       `hushh:feed-sms-dismissed:${uid}`,
       `hushh:feed-cleared-through-id:${uid}`,
       `hushh:feed-cleared-at:${uid}`,
       `hushh:feed-sound-enabled:${uid}`,
+      `hushh.mail_attention.v1.${uid}`,
     ];
     for (const key of [...feedKeys("uid-a"), ...feedKeys("uid-b")]) {
       window.localStorage.setItem(key, "1");

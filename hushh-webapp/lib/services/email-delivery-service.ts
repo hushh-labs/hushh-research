@@ -132,10 +132,7 @@ export function forgetPendingEmailSendAction(ownerId: string, actionId: string):
 
 /** These codes come from Gmail's connector, not the owner's vault credentials. */
 function gmailAuthorizationFailed(code: string | null, status: number): boolean {
-  return (
-    (code === "GMAIL_NOT_READY" || code === "GMAIL_SEND_NOT_READY") &&
-    (status === 401 || status === 403)
-  );
+  return (code === "GMAIL_NOT_READY" || code === "GMAIL_SEND_NOT_READY") && (status === 401 || status === 403);
 }
 
 export class EmailDeliveryError extends Error {
@@ -151,7 +148,7 @@ export class EmailDeliveryError extends Error {
 
   get needsGmailReconnect(): boolean {
     return (
-      this.code === "GMAIL_SEND_PERMISSION_REQUIRED" ||
+      this.code === "GMAIL_SEND_PERMISSION_REQUIRED" || this.code === "GMAIL_REAUTH_REQUIRED" ||
       // A reply re-reads its original email, which needs the read grant.
       this.code === "GMAIL_READ_PERMISSION_REQUIRED" ||
       gmailAuthorizationFailed(this.code, this.status)
@@ -215,14 +212,17 @@ function safeErrorMessage(code: string | null, status: number): string {
   if (code === "GMAIL_SEND_PERMISSION_REQUIRED") {
     return "Reconnect Mail to grant mail sending permission.";
   }
-  if (code === "GMAIL_SEND_DISABLED") {
+  if (code === "GMAIL_SEND_DISABLED" || code === "GMAIL_REAUTH_REQUIRED") {
     return "Reconnect Mail to continue. Your draft is still here.";
   }
   if (code === "GMAIL_COMPOSE_PERMISSION_REQUIRED") {
     return "Enable Gmail drafts in Connectors, then review this draft again.";
   }
   if (code === "GMAIL_NOT_CONNECTED") {
-    return "Connect Mail before you draft or send mail.";
+    return "Connect Gmail to send. Your draft is still here.";
+  }
+  if (code === "MISSING_RECIPIENT" || code === "INVALID_RECIPIENTS") {
+    return code === "MISSING_RECIPIENT" ? "Add a recipient before sending." : "Use a full email address for each recipient.";
   }
   if (code === "DRAFT_INVALID") {
     return "One could not make a usable draft. Try drafting again or edit it yourself.";

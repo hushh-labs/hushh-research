@@ -712,6 +712,8 @@ projection bounds, not editor/server validation limits.
 | Recipient read | Ordinary editable mode calls `ConnectionsService.listConnections`; failure permits typing. Bound replies do not load connections. No per-suggestion API. |
 | Generation | `autoDraft` once per mount → draft API; busy status **Drafting your mail.** / **One is preparing your mail draft...**; editor replaced by skeleton. Existing recipient/subject and explicit edits survive gap fill. |
 | Missing fields | **One still needs: {labels joined comma-space}.** This warning alone does not disable Send. |
+| Named recipients | One passes a person named without an address as `recipient_names`/`cc_names`; the server matches the owner's active connections and returns the resolved `envelope`, which prefills To/Cc/Bcc. An ambiguous name, unknown name or connection without an address opens no card: One asks one question in chat. Masked or guessed addresses are never filled. |
+| Send readiness | `EmailDraftGmailNotice` above Send: **Connect Gmail to send this.** + **Connect Gmail**, or **Allow One to send from Gmail.** + **Allow sending**; busy **Waiting for Google…**. The live connector status decides once known; the server's draft-time `gmail_send` hint covers a switched-off send until a connect finishes from the card. Status is re-read once on open when Send looks blocked and again when Google's window closes. Unknown shows nothing; the server still checks every Send. |
 | Generation error | **Try drafting again** only ordinary `autoDraft` mode; repeats generation, never sends. |
 | First-connect recovery | **Connect Gmail** opens existing connections drawer when callback provided, otherwise `/one/gmail`. |
 | Send-grant recovery | **Reconnect Mail** links `/one/gmail`; connection itself does not retry Send. |
@@ -801,7 +803,7 @@ code without a mapping falls through to the ordinary safe fallback.
 | Condition/code family | Exact mapped copy |
 | --- | --- |
 | Send permission required | **Reconnect Mail to grant mail sending permission.** |
-| Send disabled | **Reconnect Mail to continue. Your draft is still here.** |
+| Send disabled, or Google grant revoked/expired (`GMAIL_REAUTH_REQUIRED`) | **Reconnect Mail to continue. Your draft is still here.** Activity offers **Reconnect Mail**. |
 | Compose permission required | **Enable Gmail drafts in Connectors, then review this draft again.** |
 | Not connected | **Connect Mail before you draft or send mail.** |
 | Draft invalid | **One could not make a usable draft. Try drafting again or edit it yourself.** |
@@ -1290,6 +1292,44 @@ The exact compatibility copied request is:
 
 The shared intake and relay/connector preparation API side effects are listed
 below; they do not revive the retired automatic-response preference.
+
+### Chat welcome Mail stack and in-chat Mail cards
+
+`MailAttentionStack` mounts under One's chat welcome (not on the Puppy
+surface) after vault unlock with Gmail connected. It reads the Mail Receipts
+resource (memory, then the encrypted device copy; it never starts a mailbox
+scan) and the existing information-request list, and renders nothing unless an
+item qualifies: a receipt from the last 30 days whose stated status is overdue,
+payment failed, suspended or renewal due, or a detected request for the
+owner's details. Nothing is predicted or inferred from mail text.
+
+| Element/control | Exact copy, reads, action and branches |
+| --- | --- |
+| Header | Group label **Mail**; count summary such as **1 overdue payment · 2 requests for your details**. |
+| **Brief me** | Accessible **Brief me on my mail**; sends the fixed prompt **Brief me on my mail** to One, never item text. |
+| Collapsed stack | Top card plus up to two decorative peeks. Card shows subtitle and relative time, then title; tapping the text opens Mail Receipts for a receipt or Mail KYC for a request. |
+| **Remind me later** / **Mark as done** | Per item, accessible **Remind me later: {title}** / **Mark as done: {title}**. Later hides for 24 hours; done hides until the item's state changes. Toast **Hidden for 24 hours** / **Marked as done** with **Undo**. Focus stays in the stack. |
+| **Show all** / **Hide** | Only with two or more items; expanded rows show a local date. The expanded state registers a Back layer that collapses it. |
+| Choices storage | Device-local per owner (`hushh.mail_attention.v1.<ownerId>`); Mail itself is unchanged. Cleared on Reset or account deletion, kept across sign-out. |
+| Refresh | Mount, focus, visible return, Feed changes and a visible-only 2-minute task, coalesced at least 15 seconds apart and vault-epoch fenced. Loading or failure shows nothing. |
+
+In a One turn, an `ask_email_agent` result carrying the Email specialist's
+`mail_brief` renders as the **Mail brief** card (`one.mail_brief.v1`): open
+items first; category labels **Needs you**, **Asks for your details**,
+**Payment due**, **Security**, **Meeting**; a count summary such as
+**2 need you · 1 payment due** (empty: **Nothing needs you in the mail
+checked.**); **Show all {n}** / **Hide**; and **Only recent mail was checked.**
+when more mail sat outside the page. Durable history redacts the brief. A
+receipt function the device cannot answer becomes the existing Gmail connector
+card when Gmail is not connected, or **Receipts aren't synced on this device
+yet.** with **Open receipts** (`one.receipt_setup.v1`) when it is.
+
+Sources: [attention stack](../../components/agent/mail-attention-stack.tsx),
+[attention read model](../../lib/agent/use-mail-attention.ts),
+[device choices](../../lib/agent/mail-attention-dismissals.ts),
+[brief and receipt cards](../../components/agent/mail-chat-card.tsx),
+[experience parsing](../../lib/agent/mail-chat-experiences.ts),
+[draft readiness notice](../../components/agent/email-draft-gmail-readiness.tsx).
 
 ### Unmounted inline Mail assistant and nudges
 

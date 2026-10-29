@@ -1477,26 +1477,15 @@ that exact message and payload shape (`400`). The row's Feed projection is held
 as a 10-minute in-memory request secret for the turn; no tool runs in it; the
 history restores the message as a `selection` chip.
 
-**Saved receipts in chat.** A typed turn from an unlocked owner may carry
-`forwardedProps.receiptMemory`: the bounded canonical receipt index that the
-owner's device decrypted from `shopping.receipts_memory._canonical_index`
-(schema `receipt_canonical_index.v1`, at most 100 transactions and 96 KB). The
-server never holds the vault key, so this is the only way the Email specialist
-can read saved receipts. `POST /api/one/agent-chat` pops the field before the
-bridge can copy it, validates it against a closed schema (`extra=forbid`; no
-subject, preview, body, sender address, provider id, signed source handle or
-link can ride along; text is made single-line and markdown-inert, and a
-link-bearing field is dropped whole), and keeps it only as an expiring request
-secret for that turn; an invalid index is treated as absent, never repaired, and
-a locked or anonymous turn keeps nothing. It is never written to conversation
-state, logged, or shown to a model. A receipts question (`read_receipts`) filters,
-pages and formats it in code, newest first, ten at a time, with dates in the
-owner's timezone and any unavailable amount omitted. "Show more" continues a
-server-held position (`hussh:receipt_cursor`, filters and offset only, thirty
-minutes, void after a new save). A missing, malformed, empty or older-than-seven-day
-index answers `Your receipt memory is not ready yet. Sync and save your receipts
-in Mail.` with the generated `route.profile_receipts` action, and is never
-reported as an empty mailbox. The index is written only through writer
+**Saved receipts in chat.** Receipt lists, spending totals and overdue or due
+payments in typed chat come from One's receipt functions, which the owner's
+device runs over its encrypted receipt snapshot; the hub validates their closed
+requests and results (`receipt_client_tools.py`, `receipt_result_contract.py`)
+and never holds the vault key. `POST /api/one/agent-chat` still pops a legacy
+`forwardedProps.receiptMemory` from older clients before the bridge can copy it,
+and keeps nothing: the Email specialist no longer reads a saved receipt index. A
+receipts question that reaches it returns `receipt_functions_required` without
+reading mail, and One answers with its receipt functions in the same turn. The index is written only through writer
 `gmail_receipt_memory_save_button`: once, automatically, after each sync the
 owner starts on Mail > Receipts (the product default, set by
 `RECEIPT_MEMORY_AUTO_SAVE_DEFAULT`). The page shows no save control. Opening the
