@@ -9,6 +9,43 @@ enum NativeWebSafeArea {
     }
 }
 
+enum HushhNativeDocumentAuthorityState: Equatable {
+    case pending
+    case committed(String)
+
+    func authorizes(_ requested: String) -> Bool {
+        guard case let .committed(document) = self else { return false }
+        return document == requested
+    }
+}
+
+/// Observes committed main-frame navigations without replacing Capacitor's
+/// navigation handler. Unimplemented optional methods forward to the original
+/// handler through Objective-C message forwarding.
+final class HushhMainFrameNavigationDelegate: NSObject, WKNavigationDelegate {
+    private weak var target: WKNavigationDelegate?
+    private let didCommitMainFrame: (WKWebView) -> Void
+
+    init(target: WKNavigationDelegate?, didCommitMainFrame: @escaping (WKWebView) -> Void) {
+        self.target = target
+        self.didCommitMainFrame = didCommitMainFrame
+    }
+
+    override func responds(to selector: Selector!) -> Bool {
+        super.responds(to: selector) || target?.responds(to: selector) == true
+    }
+
+    override func forwardingTarget(for selector: Selector!) -> Any? {
+        if target?.responds(to: selector) == true { return target }
+        return super.forwardingTarget(for: selector)
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        target?.webView?(webView, didCommit: navigation)
+        didCommitMainFrame(webView)
+    }
+}
+
 struct HushhNativeRouter: Router {
     private static let nativeStaticPersonProfileRef = "00000000-0000-4000-8000-000000000001"
     private static let personProfileRoutePrefix = "/people/"
@@ -106,6 +143,10 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     private var lastPublishedSafeAreaTop: CGFloat?
     private static let launchCoverSafetyTimeout: TimeInterval = 4
     private static let launchCoverFadeDuration: TimeInterval = 0.12
+    private var navigationDelegateForwarder: HushhMainFrameNavigationDelegate?
+    private var committedDocumentReadGeneration: UInt64 = 0
+    private(set) var committedNativeDocumentId: String?
+    private(set) var documentAuthorityState: HushhNativeDocumentAuthorityState = .pending
 
     override open func router() -> Router {
         HushhNativeRouter()
@@ -120,7 +161,28 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         // hook. Install against the final controller before WK creates the
         // document. This selects rendering, never operation/information authority.
         configuration.userContentController.addUserScript(WKUserScript(
-            source: "Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value:Object.freeze({contractVersion:1,enabled:\(eligible ? "true" : "false"),coherentShell:\(eligible && NativeDrawerQualificationPolicy.coherentShell ? "true" : "false"),ownedChoices:\(eligible && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? "true" : "false"),walletCardForms:\(eligible && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? "true" : "false")})});",
+            source: """
+                const __hushhCrypto = globalThis.crypto;
+                let __hushhNativeDocumentId = __hushhCrypto?.randomUUID?.();
+                if (!__hushhNativeDocumentId && __hushhCrypto?.getRandomValues) {
+                  const __hushhBytes = __hushhCrypto.getRandomValues(new Uint8Array(16));
+                  __hushhBytes[6] = (__hushhBytes[6] & 0x0f) | 0x40;
+                  __hushhBytes[8] = (__hushhBytes[8] & 0x3f) | 0x80;
+                  const __hushhHex = Array.from(__hushhBytes, value => value.toString(16).padStart(2, '0')).join('');
+                  __hushhNativeDocumentId = `${__hushhHex.slice(0, 8)}-${__hushhHex.slice(8, 12)}-${__hushhHex.slice(12, 16)}-${__hushhHex.slice(16, 20)}-${__hushhHex.slice(20)}`;
+                }
+                if (__hushhNativeDocumentId) {
+                  Object.defineProperty(window, '__HUSHH_NATIVE_DOCUMENT_ID__', {value: __hushhNativeDocumentId});
+                }
+                Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value: Object.freeze({
+                  contractVersion: 1,
+                  documentId: __hushhNativeDocumentId,
+                  enabled: \(eligible ? "true" : "false"),
+                  coherentShell: \(eligible && NativeDrawerQualificationPolicy.coherentShell ? "true" : "false"),
+                  ownedChoices: \(eligible && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? "true" : "false"),
+                  walletCardForms: \(eligible && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? "true" : "false")
+                })});
+                """,
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
         return super.webView(with: frame, configuration: configuration)
     }
@@ -164,6 +226,11 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         super.viewDidLoad()
 
         if let webView = self.webView {
+            let forwarder = HushhMainFrameNavigationDelegate(target: webView.navigationDelegate) { [weak self] webView in
+                self?.readCommittedDocumentIdentity(from: webView)
+            }
+            navigationDelegateForwarder = forwarder
+            webView.navigationDelegate = forwarder
             installLaunchCover(over: webView)
             safeAreaObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
                 guard !webView.isLoading else { return }
@@ -217,6 +284,32 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             }
             #endif
         }
+    }
+
+    private func readCommittedDocumentIdentity(from webView: WKWebView) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        committedDocumentReadGeneration &+= 1
+        let generation = committedDocumentReadGeneration
+        committedNativeDocumentId = nil
+        documentAuthorityState = .pending
+        (bridge?.plugin(withName: "HushhNativeChrome") as? HushhNativeChromePlugin)?.mainFrameDocumentCommitPendingIdentity()
+        webView.evaluateJavaScript("window.__HUSHH_NATIVE_DOCUMENT_ID__") { [weak self, weak webView] value, error in
+            DispatchQueue.main.async {
+                guard let self, let webView, webView === self.webView,
+                      self.committedDocumentReadGeneration == generation else { return }
+                guard let document = value as? String, !document.isEmpty, document.utf16.count <= 128, error == nil else { return }
+                self.committedNativeDocumentId = document
+                self.documentAuthorityState = .committed(document)
+                HushhSessionPrivacyShield.shared.commitDocument(document)
+                (self.bridge?.plugin(withName: "HushhNativeChrome") as? HushhNativeChromePlugin)?
+                    .mainFrameDocumentDidCommit(document)
+            }
+        }
+    }
+
+    func authorizesNativeDocument(_ requested: String) -> Bool {
+        documentAuthorityState.authorizes(requested) &&
+            HushhSessionPrivacyShield.shared.isCommittedDocument(requested)
     }
     
     /// Cold-launch continuity. iOS dismisses LaunchScreen.storyboard when this

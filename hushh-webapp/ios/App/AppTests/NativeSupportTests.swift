@@ -17,6 +17,28 @@ private final class ZeroSafeAreaView: UIView {
 @MainActor private final class EditorDelegateLifetimeProbe: NSObject, UITextFieldDelegate {}
 
 final class NativeSupportTests: XCTestCase {
+
+    func testCommittedNavigationForwarderPreservesCapacitorDelegateCallbacks() {
+        final class DelegateProbe: NSObject, WKNavigationDelegate {
+            var didStart = false
+            var didCommit = false
+            func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+                didStart = true
+            }
+            func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+                didCommit = true
+            }
+        }
+        let webView = WKWebView(frame: .zero)
+        let target = DelegateProbe()
+        let committed = expectation(description: "committed page observed")
+        let forwarder = HushhMainFrameNavigationDelegate(target: target) { _ in committed.fulfill() }
+        webView.navigationDelegate = forwarder
+        webView.loadHTMLString("<html><body>public fixture</body></html>", baseURL: nil)
+        wait(for: [committed], timeout: 5)
+        XCTAssertTrue(target.didStart)
+        XCTAssertTrue(target.didCommit)
+    }
     @MainActor
     func testEditorMenuKeepsItsDelegateUntilDismissalCompletes() {
         let lifetime = NativeEditorMenuLifetime(), field = UITextField()
@@ -4480,6 +4502,31 @@ final class NativeSupportTests: XCTestCase {
         documents.restart()
         documents.observe("new-document")
         XCTAssertFalse(documents.accepts("new-document"))
+    }
+
+    func testCommittedReplacementRetiresPreviousWebDocumentAuthority() {
+        var documents = HushhSessionPrivacyDocumentState()
+        documents.commit("document-a")
+        XCTAssertTrue(documents.isCommitted("document-a"))
+        documents.observe("document-b")
+        XCTAssertFalse(documents.isCommitted("document-b"))
+        documents.commit("document-b")
+        XCTAssertTrue(documents.isCommitted("document-b"))
+        XCTAssertFalse(documents.accepts("document-a"))
+        documents.commit("document-c")
+        XCTAssertTrue(documents.isCommitted("document-c"))
+        XCTAssertFalse(documents.isCommitted("document-b"))
+        documents.restart()
+        XCTAssertFalse(documents.isCommitted("document-c"))
+        XCTAssertFalse(documents.accepts("document-c"))
+        documents.commit("document-d")
+        XCTAssertTrue(documents.isCommitted("document-d"))
+    }
+
+    func testNativeDocumentAuthorityFailsClosedUntilExactIdentityCommits() {
+        XCTAssertFalse(HushhNativeDocumentAuthorityState.pending.authorizes("document-a"))
+        XCTAssertTrue(HushhNativeDocumentAuthorityState.committed("document-a").authorizes("document-a"))
+        XCTAssertFalse(HushhNativeDocumentAuthorityState.committed("document-a").authorizes("document-b"))
     }
 
     func testKaiStreamLifecycleClassifierAcceptsOnlyMatchingTypedStatuses() {

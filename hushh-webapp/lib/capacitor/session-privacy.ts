@@ -58,7 +58,15 @@ function sessionPrivacy(): HushhSessionPrivacyPlugin {
 // remounted AuthProvider in the old document must not satisfy Restart session.
 let documentId: string | undefined;
 function privacyDocumentId(): string {
-  return documentId ??= crypto.randomUUID();
+  if (documentId) return documentId;
+  const injected = typeof window === "undefined"
+    ? undefined
+    : (window as Window & { __HUSHH_NATIVE_DRAWER_BOOTSTRAP__?: { documentId?: unknown } })
+      .__HUSHH_NATIVE_DRAWER_BOOTSTRAP__?.documentId;
+  documentId = typeof injected === "string" && injected.length > 0 && injected.length <= 128
+    ? injected
+    : crypto.randomUUID();
+  return documentId;
 }
 // Share non-secret document metadata without changing the privacy acknowledgement entrypoints.
 export { privacyDocumentId as nativeDocumentId };
