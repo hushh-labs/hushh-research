@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -194,6 +194,27 @@ def update_connect_voice_preferences(
         raise _handle(exc) from exc
 
 
+def _log_contact_sync_result(
+    result: dict[str, Any], lookup_count: int, candidate_count: int
+) -> None:
+    # Metadata-only runtime evidence. Never log a uid, lookup id, digest,
+    # trailing digits, contact name, or response item from this boundary.
+    logger.info(
+        "contact_sync.completed lookup_count=%s candidate_count=%s "
+        "matched_count=%s auto_connected_count=%s "
+        "already_connected_count=%s request_required_count=%s suppressed_count=%s "
+        "indeterminate_count=%s",
+        lookup_count,
+        candidate_count,
+        int(result.get("matchedCount") or 0),
+        int(result.get("autoConnectedCount") or 0),
+        int(result.get("alreadyConnectedCount") or 0),
+        int(result.get("requestRequiredCount") or 0),
+        int(result.get("suppressedCount") or 0),
+        len(result.get("indeterminateLookupIds") or []),
+    )
+
+
 @router.post("/connections/contact-sync")
 @limiter.limit(RateLimits.CONTACT_DISCOVERY_MATCH_DAILY)
 @limiter.limit(RateLimits.CONTACT_DISCOVERY_MATCH)
@@ -252,21 +273,7 @@ async def sync_contacts(
                 **requester_verification,
             )
         )
-        # Metadata-only runtime evidence. Never log a uid, lookup id, digest,
-        # trailing digits, contact name, or response item from this boundary.
-        logger.info(
-            "contact_sync.completed lookup_count=%s candidate_count=%s "
-            "matched_count=%s auto_connected_count=%s "
-            "already_connected_count=%s suppressed_count=%s "
-            "indeterminate_count=%s",
-            len(lookups),
-            len(matches),
-            int(result.get("matchedCount") or 0),
-            int(result.get("autoConnectedCount") or 0),
-            int(result.get("alreadyConnectedCount") or 0),
-            int(result.get("suppressedCount") or 0),
-            len(result.get("indeterminateLookupIds") or []),
-        )
+        _log_contact_sync_result(result, len(lookups), len(matches))
         return result
     except IAMSchemaNotReadyError as exc:
         raise HTTPException(
