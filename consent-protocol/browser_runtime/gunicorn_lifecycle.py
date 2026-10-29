@@ -5,6 +5,8 @@ import re
 import ssl
 
 _TLS = "/run/hussh-tls"
+# Docker.pod owns this 0700 directory for UID10001; HOME remains root's at exec.
+control_socket = "/app/.gunicorn/gunicorn.ctl"
 # Only the root-owned VM host mount selects direct TLS. Managed ingress on the
 # existing service substrates continues to terminate TLS outside the worker.
 if os.path.exists("/run/hussh-host/pod.json"):

@@ -23,6 +23,7 @@ import { HistoryConnectorsPage } from "@/components/agent/history-connectors-pag
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { agentPkmCaptureJobKey, aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, resumedAgentPkmCaptureMessageId, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
+import { deferAgentPkmCapture, takeDeferredAgentPkmCaptures } from "@/lib/agent/agent-pkm-deferred-capture";
 import {
   applyOwnerConfirmedSave,
   describeOwnerMemoryReview,
@@ -895,6 +896,8 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   totalAttributes: 0,
   updatedAt: null,
 };
+// Sent to One when memory.md could not be read, so it never claims nothing is saved.
+const MEMORY_UNAVAILABLE_FOR_TURN = "memory.md status: could not be read for this turn; its contents are unknown, not empty.";
 
 function toPkmFactCountBucket(
   count: number,
@@ -904,6 +907,14 @@ function toPkmFactCountBucket(
   if (count < 50) return "10_49";
   if (count < 250) return "50_249";
   return "250_plus";
+}
+
+/** Ambient capture is silent in chat; its failures stay countable here. */
+function trackAmbientPkmCaptureFailure(): void {
+  trackEvent("agent_pkm_save_confirmation_completed", {
+    route_id: "agent", result: "error", saved_count_bucket: toPkmFactCountBucket(0),
+    failed_count_bucket: toPkmFactCountBucket(1), has_active_recipients: false,
+  });
 }
 
 function isSilentMemoryToolEvent(event: AgentChatToolEvent): boolean {
@@ -5693,14 +5704,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         controller.abort();
       }, explicitRequest ? AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS : AGENT_PKM_CAPTURE_DEADLINE_MS);
       const settle = (status: AgentPkmCaptureStatus) => {
-        // Ambient memory never narrates an ordinary answer. Explicit outcomes
-        // survive token expiry only in their originating owner/conversation.
-        if (!userRequestedSave) {
-          if (status.phase === "failed" && guard.isCurrent() && mayUpdateWorkspace()) {
-            toast.error("One couldn't update memory.md. Your message is still in chat; try saving it again.");
-          }
-          return status;
-        }
+        // Ambient memory is background work: it never narrates progress or
+        // failure in chat. Explicit outcomes survive token expiry only in
+        // their originating owner/conversation.
+        if (!userRequestedSave) return status;
         if (!shouldPublishAgentPkmCapture(status, guard.isCurrent(), scopeIsCurrent())) return status;
         if (!shouldPresentAgentPkmCapture(status, userRequestedSave)) return status;
         const receipts = pkmCaptureReceiptsRef.current.get(params.assistantMessageId) || new Map<string, AgentPkmCaptureStatus>();
@@ -5784,6 +5791,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           if (prepared.sourceCoverage?.some(isUnresolvedSourceBlock) ||
               prepared.cards.some(card => card.preparation_requires_review || card.preview_degraded || card.drift_flags?.fallback_used) ||
               prepared.previews?.some(preview => preview.used_fallback || preview.error)) {
+            if (!userRequestedSave) trackAmbientPkmCaptureFailure();
             return settle({ phase: "failed", saved: 0 });
           }
           // The V1 Markdown document has no review queue. The semantic agents
@@ -5830,6 +5838,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             kind: timedOut ? "timeout" : guard.isCurrent() ? "capture_failed" : "session_changed",
             requested_by_owner: userRequestedSave,
           });
+          if (!userRequestedSave && (timedOut || guard.isCurrent())) trackAmbientPkmCaptureFailure();
           if (timedOut) return settle({ phase: "failed", saved: 0, reason: "timeout" });
           return settle({ phase: guard.isCurrent() ? "failed" : "canceled", saved: 0 });
         } finally {
@@ -6635,6 +6644,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
     try {
       let agentPkmContext = EMPTY_PKM_CONTEXT;
+      let memoryUnavailable = false;
       try {
         agentPkmContext = await loadTurnPkmContext();
         performance.mark("hushh:agent-chat:pkm-prepare-end");
@@ -6686,24 +6696,35 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               ? error.message
               : "Failed to load private PKM context.",
         });
-        updateMessage(assistantMessageId, (message) => ({
-          ...message,
-          text: "One couldn't load your private memory for this turn. Keep your vault unlocked and try again.",
-          status: "error",
-          streamEvents: [],
-        }));
-        setIsChatLoading(false);
-        setIsStreaming(false);
-        return;
+        // A locked vault blocks, and an owner-confirmed write never runs
+        // against unknown memory. Otherwise the answer continues degraded.
+        if (!vaultKey || options.kycInformationSaveConfirmed) {
+          updateMessage(assistantMessageId, (message) => ({
+            ...message,
+            text: "One couldn't load your private memory for this turn. Keep your vault unlocked and try again.",
+            status: "error",
+            streamEvents: [],
+          }));
+          setIsChatLoading(false);
+          setIsStreaming(false);
+          return;
+        }
+        if (streamAbortController.signal.aborted) {
+          finishCanceledTurn();
+          return;
+        }
+        memoryUnavailable = true;
+        agentPkmContext = { ...EMPTY_PKM_CONTEXT, text: MEMORY_UNAVAILABLE_FOR_TURN };
       }
 
       // Assess only the owner's typed information alongside answer generation.
-      // Capture publishes to RAM; encrypted saving has its own session queue.
+      // Capture reconciles against memory.md: a turn that could not read it
+      // waits for the next successful read instead of dropping a correction.
       if (options.source === "typed" && !nameTurn && !options.kycInformationSaveConfirmed && !options.calendarMeeting) {
-        void captureEligiblePkmFactsInBackground({
-          turnId: debugTurnId, assistantMessageId, sourceMessage: turnSourceText,
-          currentDomains: agentPkmContext.domains,
-        });
+        const capture = { turnId: debugTurnId, assistantMessageId, sourceMessage: turnSourceText };
+        if (memoryUnavailable) deferAgentPkmCapture(capture);
+        else for (const turn of [...takeDeferredAgentPkmCaptures(userId), capture])
+          void captureEligiblePkmFactsInBackground({ ...turn, currentDomains: agentPkmContext.domains });
       }
       if (options.kycInformationSaveConfirmed) {
         // Use the owner-confirmed private Soul update before drafting.
@@ -6732,12 +6753,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }
       }
 
-      if (!options.deferPkmContext) {
+      if (memoryUnavailable || !options.deferPkmContext) {
         upsertTurnStreamEvent({
           id: PRIVATE_MEMORY_PREPARATION_EVENT_ID,
           label: "Private memory",
-          message: "Private memory ready.",
-          status: "done",
+          message: memoryUnavailable ? "Private memory could not load." : "Private memory ready.",
+          status: memoryUnavailable ? "error" : "done",
           createdAtMs: Date.now(),
         });
       }
@@ -9917,7 +9938,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}
             nativeReady={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}
             modelControl={modelPreference?.source === "owner_pod" && !isPuppySurface && !hasInlineModelPicker
-              ? <OneModelConnection connection={modelPreference} />
+              ? <OneModelConnection connection={modelPreference} fullWidth />
               : canPickOneModel && modelPreference && !isPuppySurface && !hasInlineModelPicker ? (
               <Select value={modelPreference.effective_model} disabled={modelPreferenceSaving} onValueChange={handleOneModelChange}>
                 <SelectTrigger aria-label="One's model" aria-busy={modelPreferenceSaving || undefined} className="h-11 w-full">

@@ -83,95 +83,7 @@ async def _prepare_schema(
             await connection.execute(f'CREATE SCHEMA "{schema}"')
         await connection.execute(f'SET search_path TO "{schema}", public')
         await connection.execute(
-            """
-            CREATE TABLE actor_profiles (
-              user_id TEXT PRIMARY KEY,
-              contact_discoverable BOOLEAN NOT NULL DEFAULT FALSE,
-              contact_sync_consent_enabled_at TIMESTAMPTZ,
-              contact_sync_consent_rule_version BIGINT NOT NULL DEFAULT 0,
-              contact_sync_consent_contract_version TEXT,
-              updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            CREATE TABLE marketplace_public_profiles (
-              user_id TEXT PRIMARY KEY REFERENCES actor_profiles(user_id) ON DELETE CASCADE,
-              display_name TEXT NOT NULL,
-              is_discoverable BOOLEAN NOT NULL DEFAULT FALSE
-            );
-            CREATE TABLE actor_identity_cache (
-              user_id TEXT PRIMARY KEY REFERENCES actor_profiles(user_id) ON DELETE CASCADE,
-              display_name TEXT,
-              email TEXT,
-              phone_number TEXT,
-              phone_verified BOOLEAN NOT NULL DEFAULT FALSE,
-              photo_url TEXT,
-              custom_photo_url TEXT
-            );
-            CREATE TABLE connections (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              user_a_id TEXT NOT NULL,
-              user_b_id TEXT NOT NULL,
-              status TEXT NOT NULL DEFAULT 'active'
-                CHECK (status IN ('active', 'revoked')),
-              source TEXT NOT NULL DEFAULT 'request'
-                CHECK (source IN ('request', 'circle_invite', 'import', 'named_circle')),
-              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-              updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-              revoked_at TIMESTAMPTZ,
-              CONSTRAINT connections_pair_unique UNIQUE (user_a_id, user_b_id),
-              CONSTRAINT connections_canonical_order CHECK (user_a_id < user_b_id)
-            );
-            CREATE TABLE connection_requests (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              requester_user_id TEXT NOT NULL,
-              addressee_user_id TEXT NOT NULL,
-              status TEXT NOT NULL DEFAULT 'pending',
-              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-              updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-              responded_at TIMESTAMPTZ,
-              metadata JSONB NOT NULL DEFAULT '{}'::jsonb
-            );
-            CREATE TABLE connection_scope_proposals (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              connection_request_id UUID NOT NULL REFERENCES connection_requests(id),
-              status TEXT NOT NULL DEFAULT 'pending',
-              expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '90 days'),
-              resolved_at TIMESTAMPTZ
-            );
-            CREATE TABLE connection_scope_proposal_events (
-              id BIGSERIAL PRIMARY KEY,
-              connection_scope_proposal_id UUID NOT NULL
-                REFERENCES connection_scope_proposals(id),
-              event_type TEXT NOT NULL,
-              actor_user_id TEXT,
-              reason TEXT
-            );
-            CREATE TABLE connection_origins (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              connection_id UUID NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
-              origin_kind TEXT NOT NULL,
-              origin_key TEXT NOT NULL,
-              source_circle_id UUID,
-              source_ref TEXT,
-              status TEXT NOT NULL DEFAULT 'active',
-              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-              updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-              revoked_at TIMESTAMPTZ,
-              metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-              CONSTRAINT connection_origins_key_unique UNIQUE (connection_id, origin_key)
-            );
-            CREATE TABLE trusted_connections (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              owner_user_id TEXT NOT NULL,
-              trusted_user_id TEXT NOT NULL,
-              status TEXT NOT NULL DEFAULT 'active',
-              source TEXT NOT NULL DEFAULT 'agent_one',
-              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-              updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-              revoked_at TIMESTAMPTZ,
-              CONSTRAINT trusted_connections_edge_unique
-                UNIQUE (owner_user_id, trusted_user_id)
-            );
-            """
+            (ROOT / "tests/fixtures/contact_sync_schema.sql").read_text(encoding="utf-8")
         )
         migration = (ROOT / "db/migrations/200_contact_sync_directory_policy_lock.sql").read_text(
             encoding="utf-8"
@@ -189,6 +101,9 @@ async def _prepare_schema(
             # Directory-policy/lock tests deliberately isolate migration 200
             # from account-deletion locking. The full resync test below applies
             # both complete migrations in public, without this scoped exclusion.
+            await connection.execute(
+                "CREATE TABLE account_deletion_tombstones (user_id_hash TEXT PRIMARY KEY, cleanup_intent_kind TEXT NOT NULL)"
+            )
             actor_migration = actor_migration.replace(
                 "SELECT install_account_deletion_write_guards();", ""
             )
@@ -274,9 +189,12 @@ async def _match(schema: str, lookups: list[dict[str, str]]) -> list[dict[str, o
         POSTGRES_URL,
         server_settings={"search_path": f'"{schema}", public'},
     )
-    return await _LiveMatcher(connection).match_one_network_contact_lookups_exact(
-        "owner", phone_lookups=lookups
-    )
+    try:
+        return await _LiveMatcher(connection).match_one_network_contact_lookups_exact(
+            "owner", phone_lookups=lookups
+        )
+    finally:
+        await connection.close()
 
 
 async def _drop_schema(schema: str) -> None:
@@ -578,13 +496,13 @@ def test_signup_phone_survives_ria_deletion_and_passive_provider_conflict(monkey
                         )
                         == 1
                     )
-                # Explicit OTP claims retain the established owner-transfer path.
-                claimed = await identity.claim_verified_phone(
-                    user_id="phone-session",
-                    phone_number="+919000000001",
-                )
-                assert claimed["phone_verified"] is True
-                assert (await identity.get_many(["owner"]))["owner"]["phone_verified"] is False
+                # An OTP cannot transfer a live number; the confirmed-transfer flow owns it.
+                with pytest.raises(ActorIdentityPhoneClaimConflictError):
+                    await identity.claim_verified_phone(
+                        user_id="phone-session",
+                        phone_number="+919000000001",
+                    )
+                assert (await identity.get_many(["owner"]))["owner"]["phone_verified"] is True
         finally:
             if not conn.is_closed():
                 await conn.close()
@@ -954,6 +872,76 @@ def test_legacy_disconnect_actor_schema_replays_into_owner_resync_on_postgres() 
         admin_engine.dispose()
 
 
+def _assert_legacy_request_recovery(connection, service, sync, edge) -> None:
+    # Legacy rows cannot prove who disconnected. A fresh sync
+    # offers recovery, but never activates the graph or sends a
+    # request until the person chooses it and the peer accepts.
+    legacy_id = edge("kushal")["id"]
+    connection.execute(
+        text(
+            "UPDATE connection_origins SET status='revoked', revoked_at=NOW() WHERE connection_id=:id"
+        ),
+        {"id": legacy_id},
+    )
+    connection.execute(
+        text(
+            "UPDATE connections SET status='revoked', revoked_at=NOW(), revoked_by_side=NULL, revoked_by_at=NULL WHERE id=:id"
+        ),
+        {"id": legacy_id},
+    )
+    legacy_result = sync()
+    assert legacy_result["requestRequiredCount"] == 1
+    assert legacy_result["alreadyConnectedCount"] == 2
+    assert legacy_result["autoConnectedCount"] == 0
+    assert edge("kushal")["status"] == "revoked"
+    assert connection.execute(text("SELECT COUNT(*) FROM connection_requests")).scalar_one() == 0
+    # This fixture does not install the separate capability
+    # catalog; the real no-scope request and acceptance still run.
+    with (
+        patch.object(service, "_notify_new_request"),
+        patch.object(service, "_notify_request_resolved"),
+        patch.object(service, "_proposal_items", return_value=[]),
+        patch.object(service, "_expire_pending_scope_proposals", return_value=0),
+        patch.object(service, "_reviewable_scope_proposals", return_value=[]),
+    ):
+        connection.execute(
+            text("CREATE TABLE one_location_circles (id UUID PRIMARY KEY, name TEXT)")
+        )
+        request = service.create_request("owner", addressee_user_id="kushal")
+        assert edge("kushal")["status"] == "revoked"
+        with pytest.raises(ConnectionsError) as forbidden:
+            service.accept_request("owner", request["id"])
+        assert forbidden.value.code == "CONNECTION_NOT_ADDRESSEE"
+        assert edge("kushal")["status"] == "revoked"
+        assert service.accept_request("kushal", request["id"])["status"] == "accepted"
+    assert edge("kushal")["status"] == "active"
+    assert sync()["alreadyConnectedCount"] == 3
+
+
+def _assert_immutable_connection_pair(connection, connection_id) -> None:
+    guard_args = (
+        connection.execute(
+            text("""
+        SELECT encode(tgargs, 'escape') FROM pg_trigger
+        WHERE tgrelid='connections'::regclass AND NOT tgisinternal
+          AND tgname LIKE 'trg_reject_deleted_account_%'
+    """)
+        )
+        .scalars()
+        .all()
+    )
+    assert guard_args and all(
+        "user_a_id" in args and "user_b_id" in args and "revoked_by" not in args
+        for args in guard_args
+    )
+    with pytest.raises(IntegrityError, match="account identity reference is immutable"):
+        with connection.begin_nested():
+            connection.execute(
+                text("UPDATE connections SET user_a_id='a_reparented' WHERE id=:id"),
+                {"id": connection_id},
+            )
+
+
 @pytest.mark.db
 @pytest.mark.skipif(
     not POSTGRES_URL,
@@ -1039,32 +1027,10 @@ def test_explicit_resync_disconnect_episodes_and_backfill_on_postgres() -> None:
                 patch.object(service, "_end_one_location_circle_memberships") as teardown,
             ):
                 assert sync()["matchedCount"] == 3
-                guard_args = (
-                    connection.execute(
-                        text("""
-                    SELECT encode(tgargs, 'escape') FROM pg_trigger
-                    WHERE tgrelid='connections'::regclass AND NOT tgisinternal
-                      AND tgname LIKE 'trg_reject_deleted_account_%'
-                """)
-                    )
-                    .scalars()
-                    .all()
-                )
-                assert guard_args and all(
-                    "user_a_id" in args and "user_b_id" in args and "revoked_by" not in args
-                    for args in guard_args
-                )
-                with pytest.raises(IntegrityError, match="account identity reference is immutable"):
-                    with connection.begin_nested():
-                        connection.execute(
-                            text("UPDATE connections SET user_a_id='a_reparented' WHERE id=:id"),
-                            {"id": edge("manish")["id"]},
-                        )
+                _assert_legacy_request_recovery(connection, service, sync, edge)
+                _assert_immutable_connection_pair(connection, edge("manish")["id"])
                 removed_id = str(edge("manish")["id"])
                 circle_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
-                connection.execute(
-                    text("CREATE TABLE one_location_circles (id UUID PRIMARY KEY, name TEXT)")
-                )
                 for circle_id in circle_ids:
                     connection.execute(
                         text("INSERT INTO one_location_circles VALUES (:id, 'Test Circle')"),
@@ -1084,9 +1050,22 @@ def test_explicit_resync_disconnect_episodes_and_backfill_on_postgres() -> None:
                 def clean_named_origins(**_):
                     revoke_circle_origins(connection, circle_id=circle_ids[0])
                     assert edge("manish")["status"] == "active"
+                    # Removing the Circle must preserve another member's
+                    # independent contact-sync relationship with the owner.
+                    assert edge("parth")["status"] == "active"
                     revoke_circle_origins(connection, circle_id=circle_ids[1])
                     assert edge("manish")["revoked_by_at"] != edge("manish")["revoked_at"]
 
+                connection.execute(
+                    text("""INSERT INTO connection_origins
+                    (connection_id, origin_kind, origin_key, source_circle_id)
+                    VALUES (:connection, 'named_circle', :key, :circle)"""),
+                    {
+                        "connection": edge("parth")["id"],
+                        "key": f"named_circle:{circle_ids[0]}",
+                        "circle": circle_ids[0],
+                    },
+                )
                 teardown.side_effect = clean_named_origins
                 assert service.remove_connection("owner", removed_id)["removed"] == 1
                 teardown.side_effect = None
@@ -1113,7 +1092,7 @@ def test_explicit_resync_disconnect_episodes_and_backfill_on_postgres() -> None:
                     connection.execute(
                         text("SELECT COUNT(*) FROM connection_origins WHERE status='active'")
                     ).scalar_one()
-                    == 3
+                    == 4  # Three contact origins plus the accepted recovery request.
                 )
                 assert (
                     connection.execute(

@@ -10,6 +10,7 @@ import {
   shouldPresentAgentPkmCapture,
   shouldPublishAgentPkmCapture,
 } from "../agent-pkm-capture-runtime";
+import { deferAgentPkmCapture, takeDeferredAgentPkmCaptures } from "../agent-pkm-deferred-capture";
 
 describe("Memory capture session boundary", () => {
   it("keeps a resumed receipt bound to its actual bubble in the displayed conversation", () => {
@@ -139,5 +140,30 @@ describe("Memory capture session boundary", () => {
     expect(shouldPresentAgentPkmCapture({ phase: "failed", saved: 0 }, false)).toBe(false);
     expect(shouldPresentAgentPkmCapture({ phase: "saved", saved: 1 }, false)).toBe(true);
     expect(shouldPresentAgentPkmCapture({ phase: "failed", saved: 0 }, true)).toBe(true);
+  });
+});
+
+describe("Deferred ambient capture after an unreadable memory.md", () => {
+  const turn = (id: string) => ({ turnId: id, assistantMessageId: `answer-${id}`, sourceMessage: `Synthetic correction ${id}` });
+  beforeEach(() => {
+    publishValidatedAuthSessionOwner("owner-a");
+    takeDeferredAgentPkmCaptures("owner-a");
+  });
+
+  it("captures a deferred correction on the next read, at most five and only once", () => {
+    for (const id of ["1", "2", "3", "4", "5", "6"]) deferAgentPkmCapture(turn(id));
+    expect(takeDeferredAgentPkmCaptures("owner-a").map(capture => capture.turnId)).toEqual(["2", "3", "4", "5", "6"]);
+    expect(takeDeferredAgentPkmCaptures("owner-a")).toEqual([]);
+  });
+
+  it("never hands one owner's text to another owner or a new vault session", () => {
+    deferAgentPkmCapture(turn("1"));
+    publishValidatedAuthSessionOwner("owner-b");
+    expect(takeDeferredAgentPkmCaptures("owner-b")).toEqual([]);
+    publishValidatedAuthSessionOwner("owner-a");
+    expect(takeDeferredAgentPkmCaptures("owner-a")).toEqual([]);
+    deferAgentPkmCapture(turn("2"));
+    advanceVaultSessionEpoch();
+    expect(takeDeferredAgentPkmCaptures("owner-a")).toEqual([]);
   });
 });

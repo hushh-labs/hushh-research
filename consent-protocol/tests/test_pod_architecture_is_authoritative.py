@@ -92,8 +92,14 @@ _MARKERS: list[tuple[str, str, str, bool]] = [
         # errored. The marker is now the resolved-service check, which embeds the
         # flags and adds "the memory actually built".
         "pod agent memory stays pod-conditional",
-        "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
+        "consent-protocol/hushh_mcp/one_adk/memory_tool_schema.py",
         "resolve_pod_memory_service() is not None",
+        True,
+    ),
+    (
+        "One keeps the resolved memory tool composition",
+        "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
+        "memory_tools = memory_recall_tools(memory_available)",
         True,
     ),
     (
