@@ -186,6 +186,7 @@ model bytes are removed or never uploaded.
 | --- | --- |
 | No connected iPhone / missing timing result | If `require_hardware: true`, restore the dedicated runner or permission bootstrap and rerun. If physical evidence is not needed, rerun with `require_hardware: false` after the mandatory simulator and native gates pass. |
 | UAT backend provenance differs from source SHA | Deploy that exact reviewed SHA to UAT, then restart the release workflow. |
+| Connect Drive fails before Google sign-in opens | Confirm `ios:prepare:uat` bundled `NEXT_PUBLIC_DRIVE_NATIVE_CALLBACK_ORIGIN=https://api.uat.hushh.ai`; the OAuth and Picker callbacks must match the UAT Drive registry. Keep native API traffic on its configured backend host and rebuild the app. |
 | Transcription or semantic model access fails | Restore the configured non-Live provider access and verify it against the matching backend; local model packs are retired. |
 | Missing group, contact, notes, or privacy attestation | Configure the protected UAT release material; the workflow intentionally will not upload. |
 | External beta review `NOT_SUBMITTED` / `READY_FOR_BETA_SUBMISSION` | Group assignment is not submission. Use a separately authorized beta-review submission; do not claim Apple is reviewing it. |

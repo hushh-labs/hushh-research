@@ -11,10 +11,15 @@ vi.mock("@/lib/services/api-service", () => ({
     getAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
   },
 }));
+vi.mock("@/lib/config", () => ({
+  BACKEND_URL: "https://consent-protocol-f2gsa4kfsq-uc.a.run.app",
+}));
 
 import {
   CONNECTOR_OAUTH_START_TIMEOUT_MS,
   ExternalConnectorService,
+  nativeDriveOAuthCallbackUri,
+  nativeDrivePickerCallbackUri,
 } from "@/lib/services/external-connector-service";
 
 describe("ExternalConnectorService source reads", () => {
@@ -45,7 +50,19 @@ describe("ExternalConnectorService source reads", () => {
 
 describe("ExternalConnectorService native Drive OAuth", () => {
   beforeEach(() => { placement.mockResolvedValue(false); apiFetch.mockReset(); });
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
+
+  it("uses the registered callback origin while native API traffic uses Cloud Run", () => {
+    vi.stubEnv("NEXT_PUBLIC_DRIVE_NATIVE_CALLBACK_ORIGIN", "https://api.uat.hushh.ai");
+    expect(nativeDriveOAuthCallbackUri()).toBe(
+      "https://api.uat.hushh.ai/api/connectors/oauth/native/callback",
+    );
+    expect(nativeDrivePickerCallbackUri()).toBe(
+      "https://api.uat.hushh.ai/api/connectors/google_drive/picker/native/callback",
+    );
+    vi.stubEnv("NEXT_PUBLIC_DRIVE_NATIVE_CALLBACK_ORIGIN", "https://api.uat.hushh.ai/unregistered");
+    expect(nativeDriveOAuthCallbackUri).toThrow("Native Drive connection is unavailable in this build.");
+  });
 
   it('blocks legacy Drive credentials and picker grants after private placement before any hub request', async () => {
     placement.mockResolvedValue(true);
@@ -114,6 +131,7 @@ describe("ExternalConnectorService native Drive OAuth", () => {
   });
 
   it("starts a native attempt with the exact flow and effect guard", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DRIVE_NATIVE_CALLBACK_ORIGIN", "https://api.uat.hushh.ai");
     const isEffectCurrent = vi.fn(() => true);
     apiFetch.mockResolvedValue(
       Response.json({
@@ -129,8 +147,7 @@ describe("ExternalConnectorService native Drive OAuth", () => {
       ExternalConnectorService.startOAuthConnect({
         vaultOwnerToken: "owner-token",
         connectorId: "google_drive",
-        redirectUri:
-          "https://api.uat.hushh.ai/api/connectors/oauth/native/callback",
+        redirectUri: nativeDriveOAuthCallbackUri(),
         flow: "native",
         isEffectCurrent,
       }),
@@ -250,6 +267,7 @@ describe("ExternalConnectorService native Drive OAuth", () => {
   });
 
   it("keeps native Picker candidates server-staged until the owner confirms", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DRIVE_NATIVE_CALLBACK_ORIGIN", "https://api.uat.hushh.ai");
     const isEffectCurrent = vi.fn(() => true);
     apiFetch
       .mockResolvedValueOnce(
@@ -281,8 +299,7 @@ describe("ExternalConnectorService native Drive OAuth", () => {
     await expect(
       ExternalConnectorService.startNativePicker({
         vaultOwnerToken: "owner-token",
-        redirectUri:
-          "https://api.uat.hushh.ai/api/connectors/google_drive/picker/native/callback",
+        redirectUri: nativeDrivePickerCallbackUri(),
         isEffectCurrent,
       }),
     ).resolves.toMatchObject({ attemptId: "picker_1234567890123" });
