@@ -2466,7 +2466,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.connect",
-      "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue.",
+      "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue. Multiple mutual connections open a paginated list on the mutuals query; a single mutual opens its profile directly. Profile Back returns to the same list, and list Back restores Find people.",
       "screen": "connect",
       "entryCue": "",
       "proactivity": "ambient",
@@ -2526,6 +2526,14 @@
             "href": "/one",
             "mode": "push",
             "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/connect?tab=all&q=Kushal&mutuals=sample",
+          "expected": {
+            "href": "/one/connect?tab=all&q=Kushal",
+            "mode": "replace",
+            "transitionMode": "contextual"
           }
         }
       ],
@@ -7669,6 +7677,14 @@
           "href": "/people/sample?from=%2Fone%2Fmessages",
           "expected": {
             "href": "/one/messages",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/people/sample?from=%2Fone%2Fconnect%3Ftab%3Dall%26mutuals%3Dtarget",
+          "expected": {
+            "href": "/one/connect?tab=all&mutuals=target",
             "mode": "push",
             "transitionMode": "full"
           }

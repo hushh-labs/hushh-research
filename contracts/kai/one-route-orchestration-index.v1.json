@@ -1614,7 +1614,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.connect",
-        "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue.",
+        "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue. Multiple mutual connections open a paginated list on the mutuals query; a single mutual opens its profile directly. Profile Back returns to the same list, and list Back restores Find people.",
         "screen": "connect",
         "entry_cue": "",
         "proactivity": "ambient",

@@ -177,6 +177,37 @@ async function settle(page: Page, _width: number) {
     .toBe(0);
 }
 
+for (const width of [393, 1440]) {
+  test(`mutual list keeps paged people and retraces profile and directory at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+    await open(page, width, false, { connectionsMs: 0, circlesMs: 0, directoryMs: 0 });
+    await expect(page).toHaveTitle("Connect layout fixture");
+    await page.getByRole("button", { name: "View all 2 mutual connections with Avery Stone" }).click();
+    await expect(page.getByTestId("mutual-connections-list")).toBeVisible();
+    await expect(page.getByText("20 of 25 shown")).toBeVisible();
+    if (process.env.MUTUAL_EVIDENCE_DIR) await page.screenshot({ path: path.join(process.env.MUTUAL_EVIDENCE_DIR, `mutual-list-top-${width}.png`) });
+    await page.getByRole("button", { name: "Load more mutual connections" }).click();
+    const last = page.getByRole("button", { name: "Open Mutual Person 25's profile" });
+    await last.scrollIntoViewIfNeeded();
+    const scrollTop = await page.locator('[data-app-scroll-root="true"]').evaluate((root) => root.scrollTop);
+    expect(scrollTop).toBeGreaterThan(0);
+    await last.click();
+    await expect(page.getByTestId("fixture-person-profile")).toBeVisible();
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(page.getByTestId("mutual-connections-list")).toBeVisible();
+    await expect(last).toBeVisible();
+    await expect.poll(() => page.locator('[data-app-scroll-root="true"]').evaluate((root) => root.scrollTop)).toBe(scrollTop);
+    expect(await page.getByTestId("mutual-connections-list").getByRole("button", { name: /Open Mutual Person/ }).count()).toBe(25);
+    if (process.env.MUTUAL_EVIDENCE_DIR) await page.screenshot({ path: path.join(process.env.MUTUAL_EVIDENCE_DIR, `mutual-list-${width}.png`) });
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(page.getByLabel("Search people", { exact: true })).toBeVisible();
+    expect(errors).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
 for (const dark of [false, true]) {
   for (const width of WIDTHS) {
     test(`Stitch Connect cards preserve actions at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {

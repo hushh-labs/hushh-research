@@ -39,6 +39,7 @@ from hushh_mcp.operons.location.policy import (
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services import finance_advisor_directory as finance_directory
+from hushh_mcp.services.connection_mutuals import MUTUAL_DIRECTORY_FILTER_SQL
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
 from hushh_mcp.services.directory_identity_service import (
     DirectoryIdentityUnavailableError,
@@ -4711,6 +4712,7 @@ class OneLocationAgentService:
         candidate_user_ids: list[str] | None = None,
         audience: str = "all",
         name_only: bool = False,
+        mutual_target_user_id: str | None = None,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
 
@@ -4945,6 +4947,7 @@ class OneLocationAgentService:
                 ON marketplace.user_id = profile.user_id
               LEFT JOIN ria_profiles ria ON ria.user_id = profile.user_id
               WHERE profile.user_id <> :owner_user_id
+                AND ({MUTUAL_DIRECTORY_FILTER_SQL if mutual_target_user_id else "TRUE"})
                 AND profile.public_profile_status = 'active'
                 AND (
                   profile.directory_listed = TRUE
@@ -5045,6 +5048,7 @@ class OneLocationAgentService:
             "owner_user_id": owner_user_id,
             "candidate_user_id": target,
             "candidate_user_ids": targets,
+            "mutual_target_user_id": mutual_target_user_id,
             "contact_sync_contract_version": CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
             "technical_uuid_pattern": UUID_LIKE_LABEL_PATTERN,
             "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
