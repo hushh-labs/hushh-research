@@ -173,12 +173,15 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
       if (final) { edits.delete(event.destinationId); if (!active && !edits.size) releaseFinal(); }
     };
     const choose = async (choice: NativeWorkspaceChoice) => {
-      if (!port || !applied || !isCurrent() || !sameNativeWorkspace(choice, identity) || choice.privacyGeneration !== generation ||
-        !Number.isSafeInteger(choice.sequence) || choice.sequence <= consumed) return;
+      if (!port || !sameNativeWorkspace(choice, identity) || !Number.isSafeInteger(choice.sequence) || choice.sequence <= consumed) return;
       consumed = choice.sequence;
-      const state = applied;
-      const isolationGeneration = nativeDrawerIsolation().generation;
       try {
+        // Native may emit immediately after presenting, before the apply
+        // receipt reaches JavaScript. Never execute such a choice, but do
+        // settle its exact lease so the retained workspace remains usable.
+        if (!applied || !isCurrent() || choice.privacyGeneration !== generation) return;
+        const state = applied;
+        const isolationGeneration = nativeDrawerIsolation().generation;
         const admission = await nativeDrawerAcknowledged(port.confirmWorkspaceChoice(choice));
         const terminalDismissal = choice.dismissed === true && choice.domain === "wallet-detail" && choice.rowId === state.wallet?.closeId &&
           choice.detailVisitId === state.wallet?.detailVisitId && desired?.wallet?.detailVisitId === choice.detailVisitId && live.current.content.wallet?.detailVisitId === choice.detailVisitId;

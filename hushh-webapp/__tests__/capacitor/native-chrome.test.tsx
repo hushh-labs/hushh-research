@@ -200,6 +200,49 @@ describe("private route-body presentation boundary", () => {
       else Reflect.deleteProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
     }
   });
+  it("settles a workspace choice arriving before its admission receipt without executing it", async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
+    publishValidatedAuthSessionOwner("synthetic-workspace-owner");
+    bridge.documentId = crypto.randomUUID();
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    const seat = document.createElement("div"); seat.dataset.nativeWorkspaceSeat = "true"; document.body.append(seat);
+    vi.spyOn(seat, "getBoundingClientRect").mockReturnValue({ x: 0, y: 100, width: window.innerWidth, height: 400 } as DOMRect);
+    const originalObserver = globalThis.ResizeObserver;
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true, routeWorkspaces: ["referrals"], ...nativeDrawerIsolation() });
+    const admission = deferred<NativeWorkspaceProjection & { layoutRevision: number; phase: "active"; settled: boolean }>();
+    drawerBridge.applyWorkspace.mockImplementation(() => admission.promise);
+    drawerBridge.retireWorkspace.mockImplementation(async state => ({ ...state, updateSequence: 0, privacyGeneration: 0, layoutRevision: 0, phase: "retired", settled: true }));
+    drawerBridge.confirmWorkspaceChoice.mockResolvedValue({ valid: true });
+    drawerBridge.settleWorkspaceChoice.mockResolvedValue({ valid: true });
+    const action = vi.fn();
+    function Workspace() {
+      const phase = useNativeWorkspace({ owner: "synthetic-workspace-owner", current: () => true, back: () => {},
+        content: { workspace: "referrals", page: "overview", title: "Synthetic workspace", enabled: true, backEnabled: false,
+          sections: [{ id: "public-section", rows: [{ id: "public-action", label: "Action", enabled: true }] }] },
+        actions: new Map([["public-action", action]]) });
+      return <output>{phase}</output>;
+    }
+    const view = render(<Workspace />);
+    try {
+      await waitFor(() => expect(drawerBridge.applyWorkspace).toHaveBeenCalledOnce());
+      const state = drawerBridge.applyWorkspace.mock.calls[0][0];
+      const choice = { documentId: state.documentId, ownerEpoch: state.ownerEpoch, ownerGeneration: state.ownerGeneration,
+        revision: state.revision, workspace: state.workspace, updateSequence: state.updateSequence, privacyGeneration: state.privacyGeneration,
+        sequence: 1, action: "row" as const, rowId: "public-action" };
+      act(() => drawerBridge.listeners.get("workspaceChoice")?.forEach(callback => callback({ ...choice, ownerEpoch: "other-owner" })));
+      expect(drawerBridge.settleWorkspaceChoice).not.toHaveBeenCalled();
+      act(() => drawerBridge.listeners.get("workspaceChoice")?.forEach(callback => callback(choice)));
+      await waitFor(() => expect(drawerBridge.settleWorkspaceChoice).toHaveBeenCalledOnce());
+      expect(drawerBridge.confirmWorkspaceChoice).not.toHaveBeenCalled();
+      expect(action).not.toHaveBeenCalled();
+      await act(async () => { admission.resolve({ ...state, layoutRevision: state.frame.layoutRevision, phase: "active", settled: true }); await admission.promise; });
+      await waitFor(() => expect(view.getByText("native")).toBeInTheDocument());
+      act(() => drawerBridge.listeners.get("workspaceChoice")?.forEach(callback => callback({ ...choice, sequence: 2 })));
+      await waitFor(() => expect(action).toHaveBeenCalledOnce());
+    } finally { view.unmount(); seat.remove(); vi.stubGlobal("ResizeObserver", originalObserver); }
+  });
   it("rejects a delayed confirmation after content changes and consumes the new choice once", async () => {
     publishValidatedAuthSessionOwner("synthetic-workspace-owner");
     bridge.documentId = crypto.randomUUID();
@@ -234,6 +277,8 @@ describe("private route-body presentation boundary", () => {
       const before = drawerBridge.applyWorkspace.mock.calls.at(-1)![0];
       emit(before, 1);
       await waitFor(() => expect(drawerBridge.confirmWorkspaceChoice).toHaveBeenCalledOnce());
+      emit(before, 1);
+      expect(drawerBridge.settleWorkspaceChoice).not.toHaveBeenCalled();
       fireEvent.click(view.getByRole("button", { name: "Change content" }));
       await waitFor(() => expect(drawerBridge.applyWorkspace.mock.calls.at(-1)![0].updateSequence).toBeGreaterThan(before.updateSequence));
       await act(async () => { confirm({ valid: true }); });
