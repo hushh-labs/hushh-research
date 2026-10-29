@@ -259,12 +259,18 @@ async def _discover(
 
     async def meet_pages(path, field, params=None, *, page_size=100):
         nonlocal token, refreshed
+
+        def discovery_state(state):
+            return "meet_discovery_denied" if state == "resource_denied" else state
+
         try:
             return await service._meet_pages(token, path, field, params, page_size=page_size)
         except ArtifactUnavailable as error:
             if error.state != "token_rejected" or refreshed:
                 raise ArtifactUnavailable(
-                    "temporarily_unavailable" if error.state == "token_rejected" else error.state
+                    "temporarily_unavailable"
+                    if error.state == "token_rejected"
+                    else discovery_state(error.state)
                 ) from None
         refreshed = True
         token = await calendar.connections.access_token(
@@ -274,7 +280,9 @@ async def _discover(
             scopes = await inspect_token(token, grant.provider_subject)
         except ArtifactUnavailable as error:
             raise ArtifactUnavailable(
-                "temporarily_unavailable" if error.state == "token_rejected" else error.state
+                "temporarily_unavailable"
+                if error.state == "token_rejected"
+                else discovery_state(error.state)
             ) from None
         await check()
         if not scopes & meet_scopes:

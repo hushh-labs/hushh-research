@@ -17,6 +17,8 @@ function meetingStatus(meeting: Meeting): string {
 }
 
 export function focusedStatus(meeting: Meeting, filter: "all" | "recording" | "notes"): string {
+  if (meeting.discovery === "meet_discovery_denied" && !meeting.artifact_kinds.length)
+    return "Meet discovery was denied; file existence is unknown. Ask the organizer.";
   if (filter !== "all" && meeting.artifact_kinds.length && !meeting.artifact_kinds.includes(filter)) {
     const available = meeting.artifact_kinds.includes("notes") ? "Notes" : "Recording";
     return `${filter === "recording" ? "Recording" : "Notes"} access is not verified. ${available} remain available.`;

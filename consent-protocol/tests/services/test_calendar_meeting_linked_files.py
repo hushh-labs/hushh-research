@@ -111,8 +111,11 @@ def test_meet_and_recording_denials_do_not_hide_an_independently_linked_note(mon
         ("recording", "resource_denied"),
         ("notes", "available"),
     ]
-    assert result["discovery"] == "resource_denied" and result["complete"] is False
-    assert result["artifacts"][1]["pdf_export_url"].endswith("format=pdf")
+    assert result["discovery"] == "meet_discovery_denied" and result["complete"] is False
+    assert result["artifacts"][1]["url"].endswith("/edit")
+    assert result["artifacts"][1]["can_download"] is False
+    assert result["artifacts"][1]["download_reason"] == "app_permission"
+    assert result["artifacts"][1]["pdf_export_url"] is None
 
 
 def test_calendar_shortcut_uses_exact_target_resource_key_for_full_provider_links(monkeypatch):

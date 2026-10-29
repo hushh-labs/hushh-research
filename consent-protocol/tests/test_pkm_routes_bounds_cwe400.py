@@ -281,9 +281,38 @@ class TestDomainManifestPayload:
         assert dm.manifest_version == 1
 
     def test_manifest_version_bounds(self):
-        """Manifest version bounded 1-1000."""
-        with pytest.raises(ValidationError):
-            DomainManifestPayload(manifest_version=1001)
+        """A stored revision crosses 1000 without changing contract versions."""
+        for revision in (999, 1000, 1001):
+            assert DomainManifestPayload(manifest_version=revision).manifest_version == revision
+            assert (
+                DomainManifestResponse(
+                    user_id="owner", domain="financial", manifest_version=revision
+                ).manifest_version
+                == revision
+            )
+            assert (
+                ScopeExposureRequest(
+                    user_id="owner", expected_manifest_version=revision
+                ).expected_manifest_version
+                == revision
+            )
+            assert (
+                ScopeExposureResponse(success=True, manifest_version=revision).manifest_version
+                == revision
+            )
+            projection = PublicProfileProjectionRequest(
+                user_id="owner",
+                top_level_scope_path="$.financial",
+                manifest_version=revision,
+                source_manifest_revision=revision,
+            )
+            assert projection.manifest_version == projection.source_manifest_revision == revision
+        for model, fields in (
+            (DomainManifestPayload, {"manifest_version": 1_000_001}),
+            (ScopeExposureRequest, {"user_id": "owner", "expected_manifest_version": 1_000_001}),
+        ):
+            with pytest.raises(ValidationError):
+                model(**fields)
 
     def test_paths_list_max_length(self):
         """Paths list bounded to 10000 items."""

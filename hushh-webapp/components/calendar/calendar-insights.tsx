@@ -18,7 +18,9 @@ import type { GoogleCalendarAccount } from "@/lib/services/google-calendar-servi
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
 import { CalendarCompactAction } from "./calendar-compact-action";
-import { CalendarLoading } from "./calendar-loading";
+import { coalescedInsightsRead, insightsResourceKey, insightsSnapshot, invalidateInsightsSnapshots, storeInsightsSnapshot } from "@/lib/calendar/calendar-insights-resource";
+import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
+import { CacheService } from "@/lib/services/cache-service";
 import { focusedStatus, meetingTime } from "./calendar-insights-presentation";
 import { FEED_STATE_CHANGED_EVENT, feedStateChangeReason } from "@/lib/feed/feed-events";
 import { buildInviteToOneUrl } from "@/lib/connect/invite-to-one";
@@ -31,7 +33,8 @@ const noVaultToken = () => null;
 type SourcedArtifact = MeetingArtifact & { source?: MeetingSource };
 const limitationText: Record<string, string> = {
   permission_required: "Allow recording and notes access for this Google account.",
-  resource_denied: "Google denied access to one or more meeting files. Check file sharing or organization access.",
+  resource_denied: "Google denied access to an exact linked file. Check its sharing or organization policy.",
+  meet_discovery_denied: "Google denied the Meet discovery check. Whether a recording or notes exist is unknown.",
   account_mismatch: "The selected Google account no longer matches this meeting grant. Refresh the account.",
   provider_configuration: "Google's meeting-file service is not available for this connection. Check the provider configuration.",
   provider_policy: "Your Google organization does not allow this meeting-file check.",
@@ -62,7 +65,7 @@ function Artifact({ item, onOpen, onDownload }: { item: MeetingArtifact; onOpen:
     {item.provenance === "calendar_linked" ? <span className={styles.muted}>Linked from this Calendar event</span> : item.provenance === "approved_request" ? <span className={styles.muted}>Shared after the organizer approved your request</span> : null}
     <div className="flex flex-wrap items-center gap-3">
       {link ? <Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => onOpen(item)}>Open<ExternalLink className="size-3" /></Button> : <span className={styles.muted}>Google did not provide an opening link.</span>}
-      {item.can_download ? <Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => onDownload(item)}>Download</Button> : <span className={styles.muted}>The file owner does not allow downloads.</span>}
+      {item.can_download ? <Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => onDownload(item)}>Download</Button> : <span className={styles.muted}>{item.download_reason === "app_permission" ? "Open in Google to use any download your account permits." : item.download_reason === "link_unavailable" ? "Google did not provide a download link." : "The file owner does not allow downloads."}</span>}
     </div>
     <NotePreview item={item} />
     {item.truncated ? <p className={styles.muted}>Preview shortened. Open or download the full note.</p> : null}
@@ -113,13 +116,14 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     previousToday.current = today;
   }, [today, day]);
   const [query, setQuery] = useState(initialLibrary?.query || "");
+  const [queryInput, setQueryInput] = useState(initialLibrary?.query || "");
   const [filter, setFilter] = useState<"all" | "recording" | "notes">(initialLibrary?.filter || "all");
   const [selected, setSelected] = useState<Meeting | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [overview, setOverview] = useState<Overview | null>(null);
+  const [overviewState, setOverviewState] = useState<{ key: string; value: Overview } | null>(null);
   const [libraryState, setLibraryState] = useState<{ key: string; value: MeetingLibrary } | null>(null);
-  const [detail, setDetail] = useState<(MeetingDetail & { artifacts: SourcedArtifact[] }) | null>(null);
-  const [outcomes, setOutcomes] = useState<Record<string, MeetingRequestOutcome>>({});
+  const [detailState, setDetailState] = useState<{ key: string; value: MeetingDetail & { artifacts: SourcedArtifact[] } } | null>(null);
+  const [outcomesState, setOutcomesState] = useState<{ key: string; value: Record<string, MeetingRequestOutcome> } | null>(null);
   const [requestChoice, setRequestChoice] = useState<("recording" | "notes")[]>([]);
   const [requestStep, setRequestStep] = useState<"closed" | "choose" | "confirm">("closed");
   const [requestBusy, setRequestBusy] = useState(false);
@@ -143,14 +147,38 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const epoch = snapshotVaultSessionEpoch();
   const owner = snapshotValidatedAuthSessionOwner();
   const context = [userId, account.account_id, account.grant_generation || "", account.provider_subject_sha256 || "", day, zone, epoch, owner?.generation || "", connectionRevision || 0].join(":");
-  const libraryKey = [context, query, filter].join("|");
-  const library = libraryState?.key === libraryKey ? libraryState.value : null;
+  const overviewKey = insightsResourceKey(userId, ["overview", context]);
+  const libraryKey = insightsResourceKey(userId, ["library", context, query, filter]);
+  const searchPending = queryInput !== query;
+  const overview = overviewState?.key === overviewKey ? overviewState.value : insightsSnapshot<Overview>(overviewKey);
+  const library = searchPending ? null : libraryState?.key === libraryKey ? libraryState.value : insightsSnapshot<MeetingLibrary>(libraryKey);
+  const actionContext = context + ":" + (selected?.occurrence_id || "");
+  const detail = detailState?.key === actionContext ? detailState.value : null;
+  const outcomes = outcomesState?.key === context ? outcomesState.value : {};
+  const setDetail = useCallback((next: (MeetingDetail & { artifacts: SourcedArtifact[] }) | null | ((previous: (MeetingDetail & { artifacts: SourcedArtifact[] }) | null) => (MeetingDetail & { artifacts: SourcedArtifact[] }) | null)) =>
+    setDetailState(previous => {
+      const current = previous?.key === actionContext ? previous.value : null;
+      const value = typeof next === "function" ? next(current) : next;
+      return value ? { key: actionContext, value } : null;
+    }), [actionContext]);
+  const setOutcomes = useCallback((next: Record<string, MeetingRequestOutcome> | ((previous: Record<string, MeetingRequestOutcome>) => Record<string, MeetingRequestOutcome>)) =>
+    setOutcomesState(previous => ({ key: context, value: typeof next === "function" ? next(previous?.key === context ? previous.value : {}) : next })), [context]);
   const libraryRef = useRef<MeetingLibrary | null>(library); libraryRef.current = library;
   const viewRef = useRef(view); viewRef.current = view;
   const requestKey = [context, view, query, filter, cursor || "", selected?.id || "", revision].join("|");
   const current = useRef(requestKey); current.current = requestKey;
-  const actionContext = context + ":" + (selected?.occurrence_id || "");
   const currentActionContext = useRef(actionContext); currentActionContext.current = actionContext;
+  useEffect(() => {
+    if (!searchPending) return;
+    const timer = window.setTimeout(() => {
+      setQuery(queryInput);
+      setCursor(null);
+      loadedPageCount.current = 0;
+      refreshTarget.current = 0;
+      autoAdvance.current = 0;
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [queryInput, searchPending]);
   useEffect(() => { setRequestStep("closed"); setRequestChoice([]); setRequestNotice(""); setOfferCopyFallback(false); }, [actionContext]);
   useEffect(() => () => { action.current?.controller.abort(); action.current?.popup.close(); action.current = null; }, [actionContext]);
   const entryRef = useRef<HTMLButtonElement>(null);
@@ -209,6 +237,9 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     window.addEventListener(FEED_STATE_CHANGED_EVENT, onFeed);
     return () => window.removeEventListener(FEED_STATE_CHANGED_EVENT, onFeed);
   }, [refresh]);
+  useEffect(() => CacheService.getInstance().subscribe(event => {
+    if (event.type === "set" && event.key === calendarRefreshKey(userId)) refresh();
+  }), [userId, refresh]);
 
   const back = useCallback(() => {
     if (view === "overview") return false;
@@ -237,18 +268,22 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
         const idToken = await getToken.current();
         if (!valid()) return;
         if (view === "overview") {
-          const value = await CalendarInsightsService.read<Overview>("insights",
-            { date: day, time_zone: zone, account_id: account.account_id }, idToken, controller.signal);
-          if (valid()) setOverview(value);
+          const value = await coalescedInsightsRead(overviewKey, controller.signal, signal =>
+            CalendarInsightsService.read<Overview>("insights",
+              { date: day, time_zone: zone, account_id: account.account_id }, idToken, signal));
+          if (valid()) {
+            setOverviewState({ key: overviewKey, value });
+            storeInsightsSnapshot(overviewKey, value);
+          }
         } else if (view === "library") {
-          const value = await CalendarInsightsService.read<MeetingLibrary>("meetings",
-            { date: day, time_zone: zone, account_id: account.account_id, cursor, query, kind: filter },
-            idToken, controller.signal);
+          const value = await coalescedInsightsRead(libraryKey + ":" + (cursor || "first"), controller.signal, signal =>
+            CalendarInsightsService.read<MeetingLibrary>("meetings",
+              { date: day, time_zone: zone, account_id: account.account_id, cursor, query, kind: filter },
+              idToken, signal));
           if (!valid()) return;
           if (value.date !== day || value.time_zone !== zone || value.account_id !== account.account_id) {
             throw new Error("Meeting page changed. Refresh this day.");
           }
-          if (!cursor) setOutcomes({});
           if (refreshTarget.current) {
             refreshStage.current = mergeLibrary(refreshStage.current, value);
             refreshChecked.current += 1;
@@ -257,11 +292,14 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
               return;
             }
             setLibraryState({ key: libraryKey, value: refreshStage.current });
+            storeInsightsSnapshot(libraryKey, refreshStage.current);
             loadedPageCount.current = refreshChecked.current;
             refreshTarget.current = 0;
             refreshStage.current = null;
           } else {
-            setLibraryState(previous => ({ key: libraryKey, value: cursor && previous?.key === libraryKey ? mergeLibrary(previous.value, value) : value }));
+            const next = cursor && libraryRef.current ? mergeLibrary(libraryRef.current, value) : value;
+            setLibraryState({ key: libraryKey, value: next });
+            storeInsightsSnapshot(libraryKey, next);
             loadedPageCount.current = cursor ? loadedPageCount.current + 1 : 1;
           }
           if (value.next_cursor && !value.meetings.length && autoAdvance.current < 4) {
@@ -276,12 +314,24 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
               expected_grant: meeting.grant_id, date: day, time_zone: zone,
             }));
             try {
+              const replacements: MeetingRequestOutcome[] = [];
               for (let index = 0; index < selections.length; index += 20) {
                 const page = await CalendarInsightsService.requestStatuses(selections.slice(index, index + 20), idToken, vaultToken, controller.signal);
                 if (!valid()) return;
-                setOutcomes(previous => Object.fromEntries([...Object.entries(previous), ...page.map(item => [item.occurrence_id, item] as const)]));
+                replacements.push(...page);
               }
-            } catch { /* Calendar rows stay visible when request status cannot be verified. */ }
+              setOutcomes(previous => ({ ...previous, ...Object.fromEntries(replacements.map(item => [item.occurrence_id, item] as const)) }));
+            } catch {
+              if (valid()) setOutcomes(previous => ({ ...previous, ...Object.fromEntries(selections.map(item => [item.occurrence_id, {
+                occurrence_id: item.occurrence_id, status: "unverified" as const, requests: [], artifacts: [],
+              }] as const)) }));
+            }
+          } else if (value.meetings.length) {
+            setOutcomes(previous => {
+              const next = { ...previous };
+              for (const meeting of value.meetings) delete next[meeting.occurrence_id];
+              return next;
+            });
           }
         } else if (selected) {
           const sources = selected.sources.length ? selected.sources : [{ calendar_id: selected.calendar_id, event_id: selected.id }];
@@ -321,10 +371,15 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       } catch (failure) {
         if (valid()) {
           setError(failure instanceof Error ? failure.message : "Calendar could not be checked.");
-          if (view === "overview") setOverview(null);
+          if (view === "overview" && failure instanceof CalendarInsightsRequestError && [401, 403, 409].includes(failure.status)) {
+            setOverviewState(null);
+            CacheService.getInstance().invalidate(overviewKey);
+          }
           if (failure instanceof CalendarInsightsRequestError && [401, 403, 409].includes(failure.status)) {
             if (view === "library") setLibraryState(null);
             if (view === "meeting") setDetail(null);
+            setOutcomesState(null);
+            invalidateInsightsSnapshots(userId);
           }
         }
       } finally {
@@ -333,14 +388,14 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     };
     void load();
     return () => controller.abort();
-  }, [requestKey, canRefresh, view, selected, day, zone, account.account_id, cursor, query, filter, epoch, libraryKey, getVaultOwnerToken]);
+  }, [requestKey, canRefresh, view, selected, day, zone, account.account_id, cursor, query, filter, epoch, libraryKey, overviewKey, getVaultOwnerToken, setDetail, setOutcomes, userId]);
 
   const changeDay = (next: string) => {
     setDay(next); setSelected(null); setDetail(null); setCursor(null);
     loadedPageCount.current = 0; refreshTarget.current = 0;
     setLibraryState(null); setError(""); autoAdvance.current = 0;
   };
-  const changeQuery = (next: string) => { setQuery(next.slice(0, 120)); setCursor(null); setError(""); loadedPageCount.current = 0; refreshTarget.current = 0; autoAdvance.current = 0; };
+  const changeQuery = (next: string) => { setQueryInput(next.slice(0, 120)); setError(""); };
   const changeFilter = (next: string) => {
     setFilter(next as typeof filter); setCursor(null); setError(""); loadedPageCount.current = 0; refreshTarget.current = 0; autoAdvance.current = 0;
   };
@@ -377,6 +432,10 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
         setDetail(previous => previous ? { ...previous, artifacts: previous.artifacts.map(file =>
           file.file_id === item.file_id ? { ...file, state: "unavailable" } : file) } : previous);
         setError(failure instanceof Error ? failure.message : "Google file access could not be checked.");
+        if (failure instanceof CalendarInsightsRequestError && [401, 403, 409].includes(failure.status)) {
+          invalidateInsightsSnapshots(userId);
+          setLibraryState(null);
+        }
       });
   };
   const visibleArtifacts = (detail?.artifacts || []).filter(item =>
@@ -463,7 +522,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       <span className={styles.muted}>{requestStatus(meeting) || focusedStatus(meeting, filter)}</span>
     </span><ChevronRight className="size-4" />
   </button>;
-  const firstLoading = canRefresh && loading && (view === "overview" ? !overview : view === "library" ? !library : !detail);
+  const errorCard = error ? <SectionCard><p role="alert">{error}</p><CalendarCompactAction onClick={refresh}>Try again</CalendarCompactAction></SectionCard> : null;
 
   return <div className={styles.insights} data-view={view} aria-busy={loading}>
     {refreshControl === "inline" ? <div className="flex justify-end"><Button variant="ghost" size="compact" className={presentationStyles.utility}
@@ -472,15 +531,15 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon-touch"
       aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}>
       <ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : "Meeting library"}</div> : null}
-    {error ? <SectionCard><p role="alert">{error}</p><CalendarCompactAction onClick={refresh}>Try again</CalendarCompactAction></SectionCard> : null}
-    {firstLoading ? <CalendarLoading label="Insights loading" /> : null}
     {view === "overview" ? <>
       <p className={styles.muted}>Understand your time. Make room for what matters.</p>
+      {loading && !overview ? <p role="status" className={styles.muted}>Checking Insights…</p> : null}
+      {errorCard}
       <SectionCard title="Executive snapshot" description="This week · scheduled time, not attendance statistics">
-        {overview ? <><div className={styles.metrics}><div><strong>{overview.meeting_count}</strong><span>Scheduled events</span></div><div><strong>{hours(overview.meeting_minutes)}</strong><span>Scheduled time</span></div><div><strong>{hours(overview.recurring.reduce((sum, row) => sum + row.minutes, 0))}</strong><span>Recurring time</span></div></div>{!overview.complete ? <p className={styles.muted}>Partial calendar coverage. Totals include only loaded events.</p> : null}</> : <Skeleton aria-label="Snapshot loading" className="h-16 w-full" />}
+        {overview ? <><div className={styles.metrics}><div><strong>{overview.meeting_count}</strong><span>Scheduled events</span></div><div><strong>{hours(overview.meeting_minutes)}</strong><span>Scheduled time</span></div><div><strong>{hours(overview.recurring.reduce((sum, row) => sum + row.minutes, 0))}</strong><span>Recurring time</span></div></div>{!overview.complete ? <p className={styles.muted}>Partial calendar coverage. Totals include only loaded events.</p> : null}</> : error ? <p className={styles.muted}>Snapshot unavailable.</p> : <Skeleton aria-label="Snapshot loading" className="h-16 w-full" />}
       </SectionCard>
       <SectionCard title="Your week at a glance">
-        {overview ? <ChartContainer className="h-40 w-full" config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={overview.days}><XAxis dataKey="date" tickFormatter={value => new Date(String(value) + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} content={<ChartTooltipContent />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : <Skeleton className="h-40 w-full" />}
+        {overview ? <ChartContainer className="h-40 w-full" config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={overview.days}><XAxis dataKey="date" tickFormatter={value => new Date(String(value) + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} content={<ChartTooltipContent />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : error ? <p className={styles.muted}>Weekly chart unavailable.</p> : <Skeleton className="h-40 w-full" />}
       </SectionCard>
       <SectionCard title="Schedule risks"><p>{overview ? String(overview.overlaps) + " overlapping pairs · " + String(overview.back_to_back) + " back-to-back pairs" : "Schedule risks have not been checked."}</p><p className={styles.muted}>Based on scheduled, timed events in calendars you can read.</p></SectionCard>
       <SectionCard title="Recurring commitments">{overview?.recurring.length ? overview.recurring.map((row, index) => <div className={styles.row} key={index}><span className={styles.copy}>{row.title}</span><span className={styles.muted}>{hours(row.minutes)}/week</span></div>) : <p className={styles.muted}>No recurring commitments in the loaded events.</p>}</SectionCard>
@@ -491,10 +550,12 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     </> : view === "library" ? <>
       <div><h2 className={styles.heading}>Recordings &amp; Notes</h2><p className={styles.muted}>Every timed meeting on this day, with file access checked separately.</p></div>
       <CalendarDateNavigation date={day} today={today} onChange={changeDay} label="Recording and notes date" />
-      <label className="relative"><Search aria-hidden className="absolute left-3 top-3 size-4 text-muted-foreground" /><Input className="pl-10" type="search" aria-label="Search meetings on this day" placeholder="Search meetings on this day" maxLength={120} value={query} onChange={event => changeQuery(event.target.value)} /></label>
+      <label className="relative"><Search aria-hidden className="absolute left-3 top-3 size-4 text-muted-foreground" /><Input className="pl-10" type="search" aria-label="Search meetings on this day" placeholder="Search meetings on this day" maxLength={120} value={queryInput} onChange={event => changeQuery(event.target.value)} /></label>
       <SegmentedTabs variant="filter" ariaLabel="Recording and notes filters" value={filter} onValueChange={changeFilter} options={[{ value: "all", label: "All" }, { value: "recording", label: "Recordings" }, { value: "notes", label: "Notes" }]} />
       {filter !== "all" ? <p className={styles.muted}>All meetings remain listed. The {filter === "recording" ? "recording" : "notes"} filter focuses the file detail.</p> : null}
+      {searchPending ? <p role="status" className={styles.muted}>Searching meetings…</p> : !library && !error && canRefresh ? <p role="status" className={styles.muted}>Checking meetings…</p> : null}
       {loading && library ? <p role="status" className={styles.muted}>Checking for updates…</p> : null}
+      {errorCard}
       {library?.limitations.length ? <div role="status" className={styles.muted}><p>{limitationText[library.limitations[0] || ""] || "Some meeting files could not be checked."}</p>{library.meeting_file_access === "missing" && onAllowMeetingFiles ? <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, { accountId: account.account_id, day, timeZone: zone, filter, query })}>Allow recording and notes access</CalendarCompactAction> : null}</div> : library && !library.complete && !library.next_cursor ? <p role="status" className={styles.muted}>This check is incomplete. Refresh to try again.</p> : null}
       {library ? <p role="status" className={styles.muted}>
         {query ? "Search results: " : ""}{library.meetings.length} meetings loaded · {availableMeetings.length} Available · {unavailableMeetings.length} Not available yet.
@@ -508,6 +569,8 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       {library?.next_cursor ? <p className={styles.muted}>More Calendar pages remain. Continue this day for complete totals.</p> : null}
     </> : <>
       <h2 className={styles.heading}>{detail?.event?.title || selected?.title}</h2>
+      {!detail && !error && canRefresh ? <p role="status" className={styles.muted}>Checking meeting files…</p> : null}
+      {errorCard}
       {detail && !detail.complete ? <p role="status" className={styles.muted}>{limitationText[detail.discovery] || "Some files could not be checked. Refresh later."}</p> : null}
       {!visibleArtifacts.length && selectedDisplayed ? <SectionCard><p>{requestStatus(selectedDisplayed) || focusedStatus(selectedDisplayed, filter)}</p></SectionCard> : null}
       {detail ? <div className={styles.details}>{visibleArtifacts.some(item => item.kind === "recording") ? <SectionCard title="Recordings">{visibleArtifacts.filter(item => item.kind === "recording").map(item => <Artifact key={item.file_id} item={item} onOpen={file => fileAction(file, "open")} onDownload={file => fileAction(file, "download")} />)}</SectionCard> : null}

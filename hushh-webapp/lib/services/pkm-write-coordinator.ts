@@ -38,6 +38,7 @@ import type {
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { PkmUpgradeService } from "@/lib/services/pkm-upgrade-service";
+import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-location-onboarding-run-client";
 
 const MAX_CONFLICT_RETRIES = 2;
@@ -109,6 +110,8 @@ export type PkmWriteCoordinatorResult = {
   idempotentReplay?: boolean;
   conflict?: boolean;
   message?: string;
+  /** Status only; callers may stop replaying a terminal server rejection. */
+  httpStatus?: number;
   dataVersion?: number;
   updatedAt?: string;
   syncCheckpoint?: PkmSyncCheckpointMetadata;
@@ -244,10 +247,10 @@ function pkmWriteFailureResult(
   // way a "Backend returned failure on store" report is diagnosable without
   // pulling server logs.
   console.error("[PkmWriteCoordinator] PKM write failed:", rawMessage);
-  return emptyResult(
+  return { ...emptyResult(
     "failed",
     "We couldn't save this to your vault. Try again, or make sure your vault is set up.",
-  );
+  ), ...(error instanceof PkmStoreDomainError ? { httpStatus: error.status } : {}) };
 }
 
 let reservedWouldRefuseShadowCount = 0;

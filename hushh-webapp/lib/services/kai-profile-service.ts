@@ -4,6 +4,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 
 const FINANCIAL_DOMAIN = "financial";
@@ -895,6 +896,7 @@ export class KaiProfileService {
     });
 
     if (!result.success) {
+      if (result.httpStatus) throw new PkmStoreDomainError(result.httpStatus, result.message || "Vault sync failed.");
       throw new Error("Failed to persist combined financial.profile sync state");
     }
 

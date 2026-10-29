@@ -141,7 +141,9 @@ class CalendarMeetingArtifacts:
         # separately verified Drive connector authority.
         self.oauth = oauth or get_external_connector_oauth_service().drive()
 
-    async def _selected_token(self, user_id, grant, *, force_refresh=False, approved=False):
+    async def _selected_token(
+        self, user_id, grant, *, force_refresh=False, approved=False, with_scopes=False
+    ):
         """Verify the selected account's live scopes, refreshing one rejected bearer."""
         await self.insights.calendar._check_read_binding(user_id, grant.binding)
         token = await self.insights.calendar.connections.access_token(
@@ -181,7 +183,7 @@ class CalendarMeetingArtifacts:
             )
         ):
             raise ArtifactUnavailable("permission_required")
-        return token
+        return (token, scopes) if with_scopes else token
 
     async def _meet(self, token, path, params=None):
         return await meet_request(token, path, params)
@@ -291,7 +293,9 @@ class CalendarMeetingArtifacts:
 
             await check()
             approved = ref.get("provenance") == "approved_request"
-            token = await self._selected_token(user_id, grant, approved=approved)
+            token, scopes = await self._selected_token(
+                user_id, grant, approved=approved, with_scopes=True
+            )
             await check()
             try:
                 (
@@ -314,8 +318,12 @@ class CalendarMeetingArtifacts:
                 elif str(error) != "reconnect_required":
                     raise
                 else:
-                    token = await self._selected_token(
-                        user_id, grant, force_refresh=True, approved=approved
+                    token, scopes = await self._selected_token(
+                        user_id,
+                        grant,
+                        force_refresh=True,
+                        approved=approved,
+                        with_scopes=True,
                     )
                     (
                         source_facts,
@@ -337,19 +345,41 @@ class CalendarMeetingArtifacts:
                 raise ArtifactUnavailable("unsupported_format")
             file_resource_key = target_kwargs.get("resource_key") or facts.get("resourceKey")
             link = source_url(facts.get("viewUrl"), file_resource_key)
-            can_download = (facts.get("capabilities") or {}).get("canDownload") is True
+            provider_can_download = (facts.get("capabilities") or {}).get("canDownload") is True
+            content_read_allowed = bool(
+                scopes
+                & {
+                    "https://www.googleapis.com/auth/drive.readonly",
+                    "https://www.googleapis.com/auth/drive",
+                }
+            ) or (
+                CALENDAR_MEET_DRIVE_READ_SCOPE in scopes
+                and not approved
+                and ref.get("provenance") != "calendar_linked"
+            )
+            download_url = source_url(facts.get("downloadUrl"), file_resource_key)
+            pdf_export_url = source_url(facts.get("pdfExportUrl"), file_resource_key)
+            has_download_link = bool(
+                pdf_export_url if mime == "application/vnd.google-apps.document" else download_url
+            )
+            can_download = provider_can_download and content_read_allowed and has_download_link
             result.update(
                 state="available",
                 title=facts["title"],
                 url=link,
                 mime_type=mime,
                 can_download=can_download,
-                download_url=source_url(facts.get("downloadUrl"), file_resource_key)
-                if can_download
-                else None,
-                pdf_export_url=source_url(facts.get("pdfExportUrl"), file_resource_key)
-                if can_download
-                else None,
+                download_reason=(
+                    "owner_restricted"
+                    if not provider_can_download
+                    else "app_permission"
+                    if not content_read_allowed
+                    else "link_unavailable"
+                    if not has_download_link
+                    else None
+                ),
+                download_url=download_url if can_download else None,
+                pdf_export_url=pdf_export_url if can_download else None,
             )
             if content and not approved and ref["kind"] == "notes" and can_download:
                 await self._preview_browse_note(ref, token, check, result, shortcut_source)
