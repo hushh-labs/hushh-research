@@ -99,6 +99,19 @@ async def register_push_token(request: Request):
         )
 
     device_fields = _device_fields(body)
+    alarm_version = body.get("sms_alarm_version", 0)
+    if type(alarm_version) is not int or alarm_version not in (0, 1):
+        raise HTTPException(400, "Invalid SMS alarm capability")
+    if alarm_version:
+        if (
+            platform != "android"
+            or not device_fields.get("device_id")
+            or not device_fields.get("preview_key_id")
+        ):
+            raise HTTPException(
+                400, "SMS alarm capability requires an Android installation identity"
+            )
+        device_fields["sms_alarm_version"] = alarm_version
     try:
         service = PushTokensService()
         token_id = await run_in_threadpool(

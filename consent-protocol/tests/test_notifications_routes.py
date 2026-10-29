@@ -17,6 +17,68 @@ def _build_app() -> FastAPI:
     return app
 
 
+@pytest.mark.parametrize("version", [True, -1, 2, "1"])
+def test_sms_alarm_capability_rejects_invalid_versions(monkeypatch, version):
+    monkeypatch.setattr(notifications, "verify_firebase_bearer", lambda _header: "owner")
+    response = TestClient(_build_app()).post(
+        "/api/notifications/register",
+        json={
+            "user_id": "owner",
+            "token": "token",
+            "platform": "android",
+            "sms_alarm_version": version,
+        },
+        headers={"Authorization": "Bearer fixture"},
+    )
+    assert response.status_code == 400
+
+
+def test_sms_alarm_capability_is_bound_to_a_ready_android_installation(monkeypatch):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from hushh_mcp.services.chat_push_delivery import b64
+
+    monkeypatch.setattr(notifications, "verify_firebase_bearer", lambda _header: "owner")
+    public = (
+        ec.generate_private_key(ec.SECP256R1())
+        .public_key()
+        .public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    )
+    body = {
+        "user_id": "owner",
+        "token": "token",
+        "platform": "android",
+        "sms_alarm_version": 1,
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "preview_key_id": "22222222-2222-4222-8222-222222222222",
+        "preview_public_key": b64(public),
+    }
+    upsert = MagicMock(return_value=1)
+    monkeypatch.setattr(
+        notifications, "PushTokensService", lambda: SimpleNamespace(upsert_user_push_token=upsert)
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.chat_push_delivery.retry_registered_chat_pushes", lambda _user: False
+    )
+    client = TestClient(_build_app())
+    assert (
+        client.post(
+            "/api/notifications/register", json=body, headers={"Authorization": "Bearer fixture"}
+        ).status_code
+        == 200
+    )
+    assert upsert.call_args.kwargs["sms_alarm_version"] == 1
+    assert (
+        client.post(
+            "/api/notifications/register",
+            json={**body, "platform": "ios"},
+            headers={"Authorization": "Bearer fixture"},
+        ).status_code
+        == 400
+    )
+
+
 @pytest.mark.asyncio
 async def test_registration_keeps_auth_db_and_chat_recovery_off_the_serving_loop(monkeypatch):
     from cryptography.hazmat.primitives import serialization

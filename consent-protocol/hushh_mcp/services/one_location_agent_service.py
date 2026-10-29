@@ -66,7 +66,10 @@ from hushh_mcp.services.people_search_sql import (
     mask_directory_phone,
     people_query_match_params,
 )
-from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
+from hushh_mcp.services.push_tokens_service import (
+    PUSH_SMS_DEVICES_FOR_USER_SQL,
+    remove_stale_push_token,
+)
 from hushh_mcp.services.requester_identity import (
     OPAQUE_LABEL_MIN_LENGTH,
     UUID_LIKE_LABEL_PATTERN,
@@ -1717,7 +1720,7 @@ class OneLocationAgentService:
             rows = (
                 get_db()
                 .execute_raw(
-                    PUSH_TOKENS_FOR_USER_SQL,
+                    PUSH_SMS_DEVICES_FOR_USER_SQL,
                     {"user_id": user_id},
                 )
                 .data
@@ -1764,6 +1767,7 @@ class OneLocationAgentService:
                     request_url=request_url,
                     notification_tag=notification_tag,
                     show_alert=show_alert,
+                    sms_alarm_version=int(row.get("sms_alarm_version") or 0),
                 )
                 queued = _submit_notification_send(
                     messaging=messaging,

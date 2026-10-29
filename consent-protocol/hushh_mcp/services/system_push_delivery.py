@@ -359,6 +359,7 @@ def _deliver(db, event: dict) -> str:
                 request_url=payload["request_url"],
                 notification_tag=payload["notification_tag"],
                 show_alert=True,
+                sms_alarm_version=int(row.get("sms_alarm_version") or 0),
             )
             try:
                 messaging.send(message)

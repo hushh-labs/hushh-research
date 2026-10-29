@@ -76,6 +76,7 @@ def chat_db():
                     (ROOT / "db/migrations/266_circle_chat_presentation.sql").read_text()
                 )
                 cursor.execute((ROOT / "db/migrations/290_chat_push_delivery.sql").read_text())
+                cursor.execute((ROOT / "db/migrations/441_sms_alarm_capability.sql").read_text())
                 cursor.execute(
                     (ROOT / "db/migrations/296_circle_chat_reactions_events.sql").read_text()
                 )
@@ -1395,6 +1396,62 @@ def test_registration_recovery_preserves_initial_grace_leases_and_retry_budget(c
             assert rows[(family, ids[index])]["push_status"] == status
             assert rows[(family, ids[index])]["push_attempts"] == attempts
             assert rows[(family, ids[index])]["due"] == (index == 1)
+
+
+def test_sms_alarm_registration_downgrade_replay_and_rollback(chat_db, monkeypatch):
+    from hushh_mcp.services import push_tokens_service as registry
+
+    _seed(chat_db)
+    monkeypatch.setattr(registry, "get_db", lambda: chat_db)
+    service = registry.PushTokensService()
+    device, key = str(uuid.uuid4()), str(uuid.uuid4())
+
+    def version():
+        return chat_db.execute_raw(registry.PUSH_SMS_DEVICES_FOR_USER_SQL, {"user_id": "bob"}).data[
+            0
+        ]["sms_alarm_version"]
+
+    def register(value):
+        service.upsert_user_push_token(
+            "bob",
+            "sms-device",
+            "android",
+            device_id=device,
+            preview_key_id=key,
+            sms_alarm_version=value,
+        )
+
+    register(1)
+    assert version() == 1
+    # Old modern-backend UPDATE cannot preserve an unreported capability.
+    with chat_db.engine.begin() as conn:
+        conn.execute(
+            text("UPDATE user_push_installations SET updated_at=now() WHERE token='sms-device'")
+        )
+    assert version() == 0
+    register(1)
+    # Omission by an older binary is an explicit downgrade on a new backend too.
+    service.upsert_user_push_token(
+        "bob", "sms-device", "android", device_id=device, preview_key_id=key
+    )
+    assert version() == 0
+    register(1)
+    raw = chat_db.engine.raw_connection()
+    try:
+        raw.autocommit = True
+        with raw.cursor() as cursor:
+            cursor.execute((ROOT / "db/migrations/441_sms_alarm_capability.sql").read_text())
+            assert version() == 1
+            cursor.execute(
+                (ROOT / "db/migrations/rollback/441_sms_alarm_capability.rollback.sql").read_text()
+            )
+            cursor.execute(
+                "UPDATE user_push_installations SET updated_at=now() WHERE token='sms-device'"
+            )
+            cursor.execute((ROOT / "db/migrations/441_sms_alarm_capability.sql").read_text())
+    finally:
+        raw.close()
+    assert version() == 0
 
 
 def test_push_registry_preserves_old_handlers_devices_and_rollback(chat_db, monkeypatch):

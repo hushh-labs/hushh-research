@@ -425,6 +425,7 @@ def projection_db():
                     "282_direct_message_actions.sql",
                     "284_direct_message_multiple_reactions.sql",
                     "290_chat_push_delivery.sql",
+                    "441_sms_alarm_capability.sql",
                     "295_direct_message_attachments.sql",
                     "327_direct_message_delivery_receipts.sql",
                 ]

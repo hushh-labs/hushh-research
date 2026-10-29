@@ -71,7 +71,7 @@ def _is_one_location_sms_emergency(data: dict[str, str]) -> bool:
 def _is_one_location_feed_only_transport(
     normalized_type: str,
 ) -> bool:
-    # Ending an SOS stops the recipient alarm; it must never sound a new one.
+    # Ending location access must never create or acknowledge a recipient alarm.
     return normalized_type in ONE_LOCATION_FEED_ONLY_TRANSPORT_TYPES
 
 
@@ -86,6 +86,7 @@ def build_push_message(
     request_url: str,
     notification_tag: str,
     show_alert: bool,
+    sms_alarm_version: int = 0,
 ):
     normalized_platform = str(platform or "").strip().lower()
     normalized_type = str(data.get("type") or "").strip().lower()
@@ -134,7 +135,19 @@ def build_push_message(
         **data,
         "notification_presentation": "alert" if show_alert else "silent",
     }
+    native_sms_alarm = (
+        normalized_platform == "android"
+        and is_sms_created
+        and show_alert
+        and sms_alarm_version == 1
+    )
+    if native_sms_alarm:
+        message_data.update(
+            {"sms_alarm_version": "1", "notification_title": title, "notification_body": body}
+        )
     notification = messaging.Notification(title=title, body=body) if show_alert else None
+    if native_sms_alarm:
+        notification = None
     # Android chat is rendered by the native MessagingStyle service; automatic
     # FCM notification payloads bypass that service while the app is closed.
     if is_chat and (
@@ -195,7 +208,7 @@ def build_push_message(
                 visibility="public" if is_sms_emergency else None,
                 vibrate_timings_millis=([0, 240, 120, 240, 120, 520] if is_sms_emergency else None),
             )
-            if show_alert
+            if show_alert and not native_sms_alarm
             else None,
         )
 
@@ -222,7 +235,7 @@ def build_push_message(
                     alert=messaging.ApsAlert(title=title, body=body),
                     sound=(ONE_LOCATION_SMS_EMERGENCY_IOS_SOUND if is_sms_emergency else "default"),
                     badge=chat_badge if is_chat else 1,
-                    mutable_content=True if is_chat else None,
+                    mutable_content=True if is_chat or is_sms_created else None,
                     category=(
                         ONE_LOCATION_SMS_EMERGENCY_CATEGORY
                         if is_sms_emergency
