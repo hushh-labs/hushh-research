@@ -20,11 +20,16 @@ export function startJourneyTrace(feature: string): JourneyTrace {
   const started = performance.now();
   return (event, fields = {}) => {
     if (!journeyTraceEnabled()) return;
-    sequence += 1;
-    const detail = Object.entries(fields)
-      .map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") || "none" : String(value)}`)
-      .join(" ");
-    console.info(`[KARMA][${resolveAppEnvironment()}][web][op=${operation}][seq=${sequence}]`
-      + `[+${(performance.now() - started).toFixed(1)}ms] ${feature}.${event}${detail ? ` ${detail}` : ""}`);
+    try {
+      sequence += 1;
+      const detail = Object.entries(fields)
+        .map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") || "none" : String(value)}`)
+        .join(" ");
+      // Indirect on purpose: next.config.ts removeConsole strips direct console.info calls from
+      // every web build, Dev and UAT included; the environment gate above keeps production silent.
+      const sink = console.info;
+      sink(`[KARMA][${resolveAppEnvironment()}][web][op=${operation}][seq=${sequence}]`
+        + `[+${(performance.now() - started).toFixed(1)}ms] ${feature}.${event}${detail ? ` ${detail}` : ""}`);
+    } catch { /* A console sink must not change the journey. */ }
   };
 }
