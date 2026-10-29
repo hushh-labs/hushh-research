@@ -4476,7 +4476,7 @@ class OneLocationAgentService:
               {id_filter}
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
             LIMIT :limit
-            """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL and id_filter are static/param-only.
+            """,  # nosec B608 # RIA_VERIFIED_STATUS_SQL and id_filter are static/param-only.
             {
                 "owner_user_id": owner_user_id,
                 "limit": max(1, min(int(limit), 100)),
@@ -4643,7 +4643,7 @@ class OneLocationAgentService:
             ) recipient_key ON TRUE
             ORDER BY page_rows.match_rank, page_rows.normalized_name,
                      page_rows.user_id
-            """,  # nosec B608 - directory SQL fragments are static; values are bound.
+            """,  # nosec B608 # directory SQL fragments are static; values are bound.
             {
                 "owner_user_id": owner_user_id,
                 "query": normalized_query,
@@ -4860,7 +4860,7 @@ class OneLocationAgentService:
         all_tokens_match_sql = f"""NOT EXISTS (
             SELECT 1 FROM unnest(CAST(:token_prefixes AS TEXT[])) AS query_token(pattern)
             WHERE (' ' || {_DIRECTORY_SEPARATOR_SQL}) NOT LIKE query_token.pattern ESCAPE '!'
-        )"""  # nosec B608 - static SQL fragments only; every value is a bound parameter.
+        )"""  # nosec B608 # static SQL fragments only; every value is a bound parameter.
 
         # Use the same technical-label contract as the projection. A legacy
         # raw UID/UUID must not hide a usable marketplace or adviser name.
@@ -4875,7 +4875,7 @@ class OneLocationAgentService:
                   OR STRPOS(BTRIM({column}), ' ') > 0
                   OR LENGTH(BTRIM({column})) < :opaque_label_min_length
                 )
-                THEN BTRIM({column}) END"""  # nosec B608 - literal column names only.
+                THEN BTRIM({column}) END"""  # nosec B608 # literal column names only.
 
         directory_sql = f"""
             SELECT
@@ -5040,7 +5040,7 @@ class OneLocationAgentService:
               LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
               a.user_id
             LIMIT :fetch_limit OFFSET :offset
-            """  # nosec B608 - static SQL fragments only; every value is a bound parameter.
+            """  # nosec B608 # static SQL fragments only; every value is a bound parameter.
         params: dict[str, Any] = {
             "owner_user_id": owner_user_id,
             "candidate_user_id": target,
@@ -6043,7 +6043,7 @@ class OneLocationAgentService:
                       AND recipient_user_id = :recipient_user_id
                       AND status = 'active'
                       AND (expires_at IS NULL OR expires_at > NOW())
-                    """  # nosec B608 - the appended lane predicate is a
+                    """  # nosec B608 # the appended lane predicate is a
                     # module-level constant of static SQL and every value,
                     # including the lane flag, remains a bound parameter.
                     + _share_lane_match_sql()
@@ -6122,7 +6122,7 @@ class OneLocationAgentService:
                         SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                         WHERE owner_user_id = :owner_user_id
                           AND recipient_user_id = :recipient_user_id
-                          AND status = 'active'"""  # nosec B608 - the lane predicate
+                          AND status = 'active'"""  # nosec B608 # the lane predicate
                         # below is a module-level constant of static SQL text and the
                         # lane itself is BOUND as `:is_sos_lane`; nothing
                         # caller-supplied reaches this statement.
@@ -6373,7 +6373,7 @@ class OneLocationAgentService:
                 SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                 WHERE owner_user_id = :owner_user_id
                   AND recipient_user_id = :recipient_user_id
-                  AND status = 'active'"""  # nosec B608 - the lane predicate below
+                  AND status = 'active'"""  # nosec B608 # the lane predicate below
                 # is a module-level constant of static SQL text and the lane itself is
                 # BOUND as `:is_sos_lane`; nothing caller-supplied reaches this
                 # statement.
@@ -6796,7 +6796,7 @@ class OneLocationAgentService:
               SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
               WHERE g.owner_user_id = :owner_user_id
                 AND g.recipient_user_id = :recipient_user_id
-                AND g.status = 'active'"""  # nosec B608 - the lane predicate below
+                AND g.status = 'active'"""  # nosec B608 # the lane predicate below
             # is a module-level constant of static SQL text with a fixed alias
             # substituted, and the lane itself is BOUND as `:is_sos_lane`; nothing
             # caller-supplied reaches this statement.

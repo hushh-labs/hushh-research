@@ -847,12 +847,6 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 elif defect == "uat":
                     run["path"] = ".github/workflows/deploy-uat.yml"
 
-                def download(_repo, _run, _name, directory):
-                    directory.mkdir(parents=True)
-                    (directory / "prod-release-status.json").write_text(
-                        json.dumps(release)
-                    )
-
                 with (
                     mock.patch.object(
                         MAINTENANCE,
@@ -861,10 +855,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                             jobs if "/jobs?" in endpoint else run
                         ),
                     ),
-                    mock.patch.object(
-                        MAINTENANCE, "artifact_exists", return_value=True
-                    ),
-                    mock.patch.object(MAINTENANCE, "download", side_effect=download),
+                    mock.patch.object(MAINTENANCE, "load_release", return_value=release),
                     mock.patch.object(
                         MAINTENANCE.retention,
                         "service_state",
@@ -2284,7 +2275,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                             {
                                 "GITHUB_REPOSITORY": "org/repo",
                                 "GITHUB_OUTPUT": str(output),
-                            },
+                            }, clear=True,
                         ),
                         mock.patch.object(
                             sys,
@@ -2783,21 +2774,9 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
         ):
             with self.subTest(run=run), tempfile.TemporaryDirectory() as temporary:
 
-                def download(_repo, _run, name, directory):
-                    self.assertEqual(name, "prod-release-123")
-                    directory.mkdir(parents=True)
-                    (directory / "prod-release-status.json").write_text(
-                        json.dumps(healthy)
-                    )
-
                 with (
                     mock.patch.object(MAINTENANCE, "api", return_value=run),
-                    mock.patch.object(
-                        MAINTENANCE, "artifact_exists", return_value=True
-                    ),
-                    mock.patch.object(
-                        MAINTENANCE, "download", side_effect=download
-                    ) as fetch,
+                    mock.patch.object(MAINTENANCE, "load_release", return_value=healthy) as fetch,
                 ):
                     if run != good:
                         with self.assertRaises(MAINTENANCE.retention.UnsafeState):

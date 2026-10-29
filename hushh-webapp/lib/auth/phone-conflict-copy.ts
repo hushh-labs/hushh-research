@@ -7,7 +7,8 @@ export function resolvePhoneFailureMessage(error: unknown, fallback: string, bac
   const code = String(backendCode ?? (error as { code?: unknown })?.code ?? "").replace(/^auth\//, "");
   if (code === "PHONE_TRANSFER_CONFIRMATION_REQUIRED" || code === "PHONE_SESSION_ACCOUNT_CONFLICT") return "This number is linked to another account. Choose how to continue.";
   if (code === "PHONE_TRANSFER_IN_PROGRESS") return "Finishing phone transfer. Check progress again.";
-  if (code === "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE") return "Phone transfer is unavailable in this environment. Recover your previous account or use another number.";
+  // Nonproduction lanes on the shared production sign-in can never move a number; recovery needs that account's sign-in.
+  if (code === "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE") return "Moving a number isn't available in this environment. Delete your previous account or use a different number.";
   if (code === "PHONE_TRANSFER_REAL_SMS_REQUIRED") return "A shared test code cannot transfer a number. Use fresh real SMS verification.";
   if (code === "PHONE_ALREADY_VERIFIED" || code === "PHONE_TEST_NUMBER_IN_USE") return "This phone number is verified for another account. Sign in to that account or use a different number.";
   if (code === "PHONE_VERIFICATION_CHANGED" || code === "phone-verification-required") return "Request a new verification code before trying again.";
