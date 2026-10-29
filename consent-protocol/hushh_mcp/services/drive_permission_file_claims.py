@@ -15,20 +15,21 @@ def _owner(*, operation=None, share=None, position=None, recipient=None, removal
     }
 
 
-def claim_file(connection, lock, *, reconcile=False, **owner):
-    params = {"lock": lock, **_owner(**owner)}
-    # Upgrade fence: old uncertain writes must adopt a keyed claim through GET-only
-    # reconciliation before any fresh writer can overtake their missing claim.
-    if (
-        not reconcile
-        and connection.execute(
-            text("""SELECT EXISTS(
+def has_unclaimed_uncertainty(connection):
+    return connection.execute(
+        text("""SELECT EXISTS(
         SELECT 1 FROM drive_bulk_share_effects e WHERE (e.state IN ('dispatching','unknown') OR (e.state='failed' AND e.safe_error_code='permission_outcome_unknown'))
           AND NOT EXISTS(SELECT 1 FROM drive_share_file_claims c WHERE c.bulk_share_id=e.share_id AND c.bulk_position=e.position AND c.bulk_recipient_user_id=e.recipient_user_id)
         UNION ALL SELECT 1 FROM drive_request_bulk_removals r WHERE r.state IN ('dispatching','unknown')
           AND NOT EXISTS(SELECT 1 FROM drive_share_file_claims c WHERE c.removal_id=r.removal_id))""")
-        ).scalar_one()
-    ):
+    ).scalar_one()
+
+
+def claim_file(connection, lock, *, reconcile=False, **owner):
+    params = {"lock": lock, **_owner(**owner)}
+    # Upgrade fence: old uncertain writes must adopt a keyed claim through GET-only
+    # reconciliation before any fresh writer can overtake their missing claim.
+    if not reconcile and has_unclaimed_uncertainty(connection):
         return False
     result = connection.execute(
         text("""INSERT INTO drive_share_file_claims AS c

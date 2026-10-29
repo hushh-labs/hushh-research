@@ -176,6 +176,7 @@ tests/services/test_drive_sharing_center.py
 tests/services/test_drive_feed_projection.py
 tests/services/test_google_drive_mcp_service.py
 tests/services/test_drive_bulk_share_postgres.py
+tests/test_drive_claim_adoption_postgres.py
 tests/services/test_drive_bulk_share_service.py
 tests/services/test_drive_bulk_share_worker.py
 tests/services/test_drive_provider_delivery.py
