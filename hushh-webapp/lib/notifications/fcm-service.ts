@@ -5,9 +5,7 @@ import { clearCurrentNotificationDevice, notificationDeviceId } from "@/lib/noti
 import { Capacitor } from "@capacitor/core";
 import { circleChatNotificationTarget } from "@/lib/circle-chat/routes";
 import { ApiService } from "@/lib/services/api-service";
-import {
-  ROUTES,
-} from "@/lib/navigation/routes";
+import { ROUTES } from "@/lib/navigation/routes";
 import { isAgentConversationId } from "@/lib/agent/agent-chat-turn-watch";
 import { feedAttentionTapTarget } from "@/lib/agent/feed-attention";
 import {
@@ -37,7 +35,6 @@ import {
 } from "@/lib/one-location/notifications";
 import { smsAlarmAcknowledgements } from "@/lib/notifications/sms-alarm-acknowledgements";
 
-// Event name for FCM messages (both web and native dispatch this)
 // The app bridge resolves only after native Firebase has removed its cached
 // token. A subsequent account must wait before retrieving that installation's token.
 let nativeTokenDeletion: Promise<void> = Promise.resolve();
@@ -666,8 +663,6 @@ export async function initializeFCM(
   const principal = snapshotValidatedAuthSessionPrincipal();
   const firebaseUid = principal?.ownerId === userId ? principal.firebaseUid : userId;
   lastKnownSession = { userId, firebaseUid, idToken, ...(options.getIdToken ? { getIdToken: options.getIdToken } : {}) };
-  // A system-notification tap acknowledges independently of whether push can
-  // register now (web permission, service-worker startup or offline recovery).
   smsAlarmAcknowledgements.flush(lastKnownSession?.userId);
   notificationSessionGeneration++;
 

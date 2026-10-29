@@ -1,8 +1,7 @@
 """Circle chat authority, retry and lifecycle contracts on isolated PostgreSQL.
 
-The CI PostgreSQL role must be able to create a disposable database. No live
-tables or credentials are used. ONE_COMMAND_TEST_DATABASE_URL is the existing
-protocol CI service; local runs may point it at a disposable PostgreSQL server.
+The PostgreSQL role must create disposable databases; no live tables or credentials
+are used. ONE_COMMAND_TEST_DATABASE_URL selects the CI or local test service.
 """
 
 from __future__ import annotations

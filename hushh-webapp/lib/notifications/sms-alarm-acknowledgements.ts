@@ -22,6 +22,7 @@ export const smsAlarmAcknowledgements = {
     }
   },
   flush(userId?: string | null) {
+    // Taps acknowledge independently of push permission, startup or network.
     const queued = pending;
     pending = [];
     for (const data of queued) this.acknowledge(data, userId);
