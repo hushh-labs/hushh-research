@@ -39,6 +39,14 @@ failures. PDF preview uses the existing bounded canvas and a request-reference
 watermark; original downloads remain unchanged. Unsupported previews retain
 Download and Open Drive.
 
+The protected reader is the single document screen for Preview, Download and
+the owner's Access controls (Activity and manual Stop One access). PDF page
+navigation reuses the parsed document; closing or ending access destroys it.
+Only the selected file action shows loading. No additional account enablement,
+copy mode picker, owner upload or preparation step is introduced. Existing and
+new accounts use the same request path; historical requests retain their actual
+consent rather than acquiring hosting permission retrospectively.
+
 `/one/documents/open?ref=<request-uuid>&delivery=background` is an authenticated
 locator, never a bearer grant or public object URL. Every content read checks
 the original paid entitlement, owner placement and connection generation,

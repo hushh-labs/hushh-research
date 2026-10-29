@@ -34,6 +34,13 @@ const COPY_FIELDS = new Set(["id", "name", "mime", "identity", "size", "modified
 const seen = new Map<string, { fingerprint: string; at: number }>();
 const TTL_MS = 10 * 60_000;
 type Fields = Record<string, string | boolean | number>;
+function enabled(): boolean {
+  const environment = process.env.NEXT_PUBLIC_APP_ENV?.trim().toLowerCase();
+  if (!["development", "dev", "uat"].includes(environment ?? "")) return false;
+  // Never let a debug toggle or fallback relabel a production/unknown build.
+  return ![process.env.NEXT_PUBLIC_OBSERVABILITY_ENV, process.env.NEXT_PUBLIC_ENVIRONMENT_MODE]
+    .some(value => value && !["development", "dev", "uat", "staging"].includes(value.trim().toLowerCase()));
+}
 function object(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown> : {};
@@ -48,6 +55,10 @@ function route(path: string, method = "GET"): { action: string; identifier: stri
   const request = REQUEST.exec(path);
   if (request) {
     const suffix = request[2] || "status";
+    if (new RegExp(`^one-copy/files/${UUID}/content$`, "i").test(suffix)) {
+      const disposition = /\?disposition=(preview|download)$/.exec(path)?.[1];
+      return disposition ? { action: `one_copy_${disposition}`, identifier: request[1]!.toLowerCase() } : null;
+    }
     if (suffix === "payment" || suffix === "payment/checkout")
       return { action: suffix === "payment" ? "payment" : "checkout", identifier: request[1]!.toLowerCase() };
     if (suffix !== "status" && !ACTIONS.has(suffix)) return null;
@@ -151,6 +162,7 @@ function emit(action: string, fields: Fields, dedupe: boolean) {
   if (!environment) return;
   // Logging is never a prerequisite for consent, payment, or delivery.
   try {
+    if (!enabled()) return;
     const now = Date.now();
     const key = `${fields.drive_op}:${action}:${fields.outcome === "observed" ? "state" : "transport"}`;
     const state = { ...fields };
@@ -175,7 +187,8 @@ export async function traceDriveRequest<T>(
   terms?: unknown,
 ): Promise<T> {
   const target = route(path, method);
-  if (!target) return perform({}, () => {});
+  if (!target || !enabled()) return perform({}, () => {});
+  const coalesce = method === "GET" && !["one_copy_preview", "one_copy_download"].includes(target.action);
   const requestId = createRequestId();
   if (!diagnosticEnvironment()) return perform({ [REQUEST_ID_HEADER]: requestId }, () => {});
   const tags = Promise.all([tag(target.identifier), tag(requestId)]).then(([operation, trace]) => ({ drive_op: operation!, request_tag: trace! } as Fields));
@@ -191,7 +204,7 @@ export async function traceDriveRequest<T>(
   };
   const log = (fields: Fields) => {
     const snapshot = { ...common, ...fields };
-    void tags.then(correlation => emit(target.action, { ...correlation, ...snapshot }, method === "GET")).catch(() => {});
+    void tags.then(correlation => emit(target.action, { ...correlation, ...snapshot }, coalesce)).catch(() => {});
   };
   if (method !== "GET") log({ outcome: "started", ...projection(null, terms) });
   try {
@@ -214,7 +227,7 @@ export function observeDriveRequestState(path: string, payload: unknown, guard: 
   try {
   if (!diagnosticEnvironment()) return;
   const target = route(path);
-  if (!target) return;
+  if (!target || !enabled()) return;
   const state = projection(payload, null, true);
   void tag(target.identifier).then(operation => {
     guard();
