@@ -410,7 +410,6 @@ env_vars=(
   "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
   "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
 )
-configure_backend_process_bounds
 if [[ "${_DEPLOY_ENV}" == "uat" ]]; then
   # Validate the packaged config before any deployment mutation. Readiness still
   # qualifies the candidate; these two values pin the same file-owned default.
@@ -418,6 +417,7 @@ if [[ "${_DEPLOY_ENV}" == "uat" ]]; then
   managed_provider="$(python3 scripts/ops/managed_ai_config.py --environment uat --format provider)"
   env_vars+=("HUSHH_UAT_MANAGED_TEXT_PROVIDER=${managed_provider}" "HUSHH_UAT_MANAGED_AI_PROVIDER=${managed_provider}")
 fi
+configure_backend_process_bounds
 env_vars+=("WEB_CONCURRENCY=${worker_count}")
 append_optional_env() {
   local env_name="$1"
