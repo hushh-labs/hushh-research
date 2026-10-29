@@ -54,7 +54,7 @@ def head_supports_web_search(model: Any) -> bool:
 
 
 def search_model_for_text_head(model: Any, selected: Any | None) -> Any | None:
-    """Enable native search on the managed Azure processor when none is supplied."""
+    """Enable Search on the selected managed processor when none is supplied."""
     from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
 
     if selected is not None or not isinstance(model, ManagedPrimaryTextModel):
