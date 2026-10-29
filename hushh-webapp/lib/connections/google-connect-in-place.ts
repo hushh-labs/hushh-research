@@ -24,6 +24,7 @@ import {
   navigateGmailOAuthPopup,
   openGmailOAuthPopup,
   readGmailOAuthPopupSettlementFallback,
+  type GmailOAuthPopupSettlement,
 } from "@/lib/profile/gmail-oauth-popup";
 import { waitForOAuthPopup } from "@/lib/profile/drive-oauth-popup";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
@@ -39,9 +40,9 @@ import type { GoogleConnectorConnectOptions } from '@/lib/one/google-native-conn
  * SYNCHRONOUSLY when the start function is called, so call it directly inside
  * the click handler, before any await. The existing callback page settles to
  * this window, and the shared handler accepts only the exact origin, window
- * and attempt before expiry. That settlement is a hint: the outcome is decided
- * by an owner-authenticated status read. Native uses the platform Google
- * sign-in sheet, which never reloads the WebView.
+ * and attempt before expiry. That settlement is a hint: only an
+ * owner-authenticated status read confirms a connection. Native uses the
+ * platform Google sign-in sheet, which never reloads the WebView.
  */
 export type InPlaceConnectOutcome =
   /** The server confirms the requested permission. */
@@ -162,6 +163,24 @@ async function connectPrivate(connector: 'gmail' | 'calendar', current: () => bo
 }
 
 /**
+ * Matches one Gmail attempt's callback and keeps the outcome it reported.
+ * Status cannot see a switched-off send: that row already reads as connected
+ * with the send scope, so only the callback says a send consent was
+ * cancelled or failed.
+ */
+function gmailSettlementMatcher(attemptId: string) {
+  let outcome: GmailOAuthPopupSettlement["outcome"] | null = null;
+  return {
+    matches: (value: unknown) => {
+      if (!isGmailOAuthPopupSettlement(value) || value.attemptId !== attemptId) return false;
+      outcome = value.outcome;
+      return true;
+    },
+    cancelledOrFailed: () => outcome === "cancelled" || outcome === "failed",
+  };
+}
+
+/**
  * Gmail sending (`send`) or mailbox organisation (`modify`) on top of the
  * existing grant. Shared uses the existing provider flow. Private native connections use
  * public-client PKCE and request management access for drafts and sending.
@@ -274,6 +293,7 @@ export function connectGmailInPlace(
         if (!start.configured || !isGoogleAuthorizeUrl(start.authorize_url))
           return "failed";
         navigateGmailOAuthPopup(popup, start.authorize_url);
+        const settlement = gmailSettlementMatcher(attempt.attemptId);
         await waitForOAuthPopup({
           popup,
           signal: input.signal ?? new AbortController().signal,
@@ -282,13 +302,12 @@ export function connectGmailInPlace(
             Date.parse(start.expires_at),
             attempt.startedAt + WINDOW_WAIT_LIMIT_MS,
           ),
-          matches: (value) =>
-            isGmailOAuthPopupSettlement(value) &&
-            value.attemptId === attempt.attemptId,
+          matches: settlement.matches,
           storageValue: readGmailOAuthPopupSettlementFallback,
         });
         if (!current()) return "stale";
         if (input.cancelSignal?.aborted) return "not_connected";
+        if (purpose === "send" && settlement.cancelledOrFailed()) return "not_connected";
         const status = await GmailReceiptsService.getStatus({
           idToken: await owner.getIdToken(),
           userId: input.applicationOwnerId,

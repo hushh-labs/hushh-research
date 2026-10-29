@@ -724,9 +724,8 @@ def test_workspace_read_blocks_followup_mutation_and_redacts_stored_payload():
         "status": "blocked",
         "reason": "connector_read_complete",
         "message": (
-            "A connector read already ran in this chat turn. Answer from that result, "
-            "or ask the owner for a new message if another read is needed. "
-            "This blocked call did not reach the provider."
+            "Answer from what this chat turn already returned, or ask the owner for a "
+            "new message. This blocked call did not reach the provider."
         ),
     }
     serialized = json.dumps(

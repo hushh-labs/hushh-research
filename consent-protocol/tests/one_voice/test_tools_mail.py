@@ -247,7 +247,7 @@ async def test_mail_failure_speech_identifies_actual_stage(monkeypatch, stage, e
 @pytest.mark.parametrize(
     "categories,expected",
     [
-        (["action_items"], ["action-item analysis"]),
+        (["payments_due", "security_alerts"], ["payment analysis", "security alert analysis"]),
         (["action_items", "meetings"], ["action-item analysis", "meeting analysis"]),
     ],
 )
