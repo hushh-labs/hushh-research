@@ -13,6 +13,7 @@ from sqlalchemy import text
 from hushh_mcp.services.google_calendar_meeting_grant import (
     CALENDAR_MEET_DRIVE_READ_SCOPE,
     CALENDAR_MEET_READ_SCOPE,
+    CALENDAR_SHARED_DRIVE_METADATA_SCOPE,
 )
 from hushh_mcp.services.google_connection_contract import (
     CALENDAR_GUEST_PHOTO_SCOPE,
@@ -141,7 +142,11 @@ def _requested_scopes(
             else ()
         ),
         *(
-            (CALENDAR_MEET_READ_SCOPE, CALENDAR_MEET_DRIVE_READ_SCOPE)
+            (
+                CALENDAR_MEET_READ_SCOPE,
+                CALENDAR_MEET_DRIVE_READ_SCOPE,
+                CALENDAR_SHARED_DRIVE_METADATA_SCOPE,
+            )
             if service == "calendar" and include_meeting_files
             else ()
         ),

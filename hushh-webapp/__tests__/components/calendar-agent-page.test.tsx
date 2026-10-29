@@ -480,7 +480,7 @@ describe("CalendarAgentPage", () => {
   });
 
   it("ignores an older account upgrade status after another account finishes", async () => {
-    const meetScopes = "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly";
+    const meetScopes = "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly https://www.googleapis.com/auth/drive.metadata.readonly";
     const account = (accountId: string, generation: string, scopeCsv = "") => ({
       account_id: accountId, connected: true, status: "connected" as const,
       access_level: "read" as const, calendar_list_access: true,

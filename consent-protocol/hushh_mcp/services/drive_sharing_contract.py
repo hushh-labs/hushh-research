@@ -66,7 +66,9 @@ class VerifiedGoogleRecipient:
     subject: str = field(repr=False)
     email: str = field(repr=False)
     verified_at: datetime
-    kind: Literal["google_provider", "verified_email"] = "google_provider"
+    kind: Literal["google_provider", "verified_email", "calendar_grant"] = "google_provider"
+    account_id: str | None = None
+    grant_id: str | None = None
 
 
 def recipient_from_verified_firebase_claims(
@@ -172,6 +174,41 @@ class ShareRequestPurpose(BaseModel):
         return self
 
 
+class CalendarExactFileRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    file_id: str = Field(pattern=r"^[A-Za-z0-9_-]{10,255}$")
+    kind: Literal["recording", "notes"]
+
+
+class CalendarShareOrigin(BaseModel):
+    """Server-observed meeting terms, never a browser-authored organizer binding."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    account_id: str = Field(min_length=1, max_length=128)
+    grant_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    occurrence_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    calendar_id: str = Field(min_length=1, max_length=1024)
+    event_id: str = Field(min_length=1, max_length=2048)
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    time_zone: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=512)
+    start_at: str = Field(min_length=1, max_length=64)
+    end_at: str = Field(min_length=1, max_length=64)
+    organizer_email: str = Field(min_length=3, max_length=254)
+    requested_types: tuple[Literal["recording", "notes"], ...] = Field(min_length=1, max_length=2)
+    exact_refs: tuple[CalendarExactFileRef, ...] = Field(default=(), max_length=8)
+
+    @model_validator(mode="after")
+    def exact_types(self):
+        if len(set(self.requested_types)) != len(self.requested_types):
+            raise ValueError("Duplicate meeting file type")
+        if len({item.file_id for item in self.exact_refs}) != len(self.exact_refs) or any(
+            item.kind not in self.requested_types for item in self.exact_refs
+        ):
+            raise ValueError("Invalid meeting file reference")
+        return self
+
+
 class ReviewedSource(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     document_id: UUID
@@ -192,6 +229,18 @@ class LiveReviewedSource(BaseModel):
     connection_generation: int = Field(ge=1)
 
 
+class CalendarReviewedSource(BaseModel):
+    """An exact, organizer-selected recording or note in a manual review."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    kind: Literal["calendar"] = "calendar"
+    document_id: UUID
+    source_version: str = Field(pattern=r"^[0-9]{1,30}$")
+    provider_file_binding: str = Field(pattern=r"^[0-9a-f]{64}$")
+    connection_generation: int = Field(ge=1)
+    artifact_kind: Literal["recording", "notes"]
+
+
 class SharingApproval(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     request_id: UUID
@@ -200,7 +249,7 @@ class SharingApproval(BaseModel):
     recipient_user_id: str = Field(min_length=1, max_length=128)
     recipient_binding: str = Field(pattern=r"^[0-9a-f]{64}$")
     connection_generation: int = Field(ge=1)
-    sources: tuple[ReviewedSource | LiveReviewedSource, ...] = Field(
+    sources: tuple[ReviewedSource | LiveReviewedSource | CalendarReviewedSource, ...] = Field(
         min_length=1, max_length=MAX_FILES
     )
     role: Literal["reader"] = "reader"
@@ -277,7 +326,36 @@ class DriveSharingCipher:
             self._key(), self._json(["drive-sharing-v1", purpose, value]), hashlib.sha256
         ).hexdigest()
 
+    def calendar_client_id(
+        self,
+        user_id: str,
+        account_id: str,
+        occurrence_id: str,
+        requested_types: list[str] | tuple[str, ...],
+    ) -> UUID:
+        """Indexed lookup for one occurrence without scanning unrelated Drive rows."""
+        return UUID(
+            hex=self.digest(
+                "calendar-client-v2",
+                [user_id, account_id, occurrence_id, sorted(requested_types)],
+            )[:32]
+        )
+
     def recipient_binding(self, recipient: VerifiedGoogleRecipient) -> str:
+        if recipient.kind == "calendar_grant":
+            if not recipient.account_id or not recipient.grant_id:
+                raise DriveSharingError("recipient_changed")
+            return self.digest(
+                "recipient",
+                [
+                    recipient.kind,
+                    recipient.user_id,
+                    recipient.subject,
+                    recipient.email,
+                    recipient.account_id,
+                    recipient.grant_id,
+                ],
+            )
         if recipient.kind == "verified_email":
             return self.digest(
                 "recipient", [recipient.kind, recipient.user_id, recipient.subject, recipient.email]
