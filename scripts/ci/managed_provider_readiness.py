@@ -22,7 +22,16 @@ from uuid import UUID, uuid5
 ROOT = Path(__file__).resolve().parents[2]
 SCOPES = {"one_text_chat", "drive_document_requests"}
 PROVIDERS = {"azure_openai", "vertex"}
-PROVIDER_SCOPES = {"azure_openai": SCOPES, "vertex": {"drive_document_requests"}}
+PROVIDER_SCOPES = {provider: SCOPES for provider in PROVIDERS}
+
+
+def configured_provider(document):
+    """Use the runtime's pure configuration contract, never a second selector."""
+    path = ROOT / "consent-protocol/hushh_mcp/managed_ai_config.py"
+    spec = importlib.util.spec_from_file_location("managed_ai_contract", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.configured_managed_provider("uat", document=document)
 
 
 @cache
@@ -396,9 +405,13 @@ def collect(provider, expected, step_exit, job):
     return result
 
 
-def evaluate(envelopes, expected):
-    document = json.loads(
-        (ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text()
+def evaluate(envelopes, expected, *, document=None):
+    document = (
+        document
+        if document is not None
+        else json.loads(
+            (ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text()
+        )
     )
     accepted = {}
     diagnostics = {}
@@ -438,13 +451,11 @@ def evaluate(envelopes, expected):
             and str(value.get("execution", "")).startswith(
                 prefix + expected["build_id"] + "-"
             )
-            and value.get("execution_terminal") in {"True", "False"}
+            and value.get("execution_terminal") == "True"
+            and value.get("step_exit") == 0
             and valid_core(value.get("core"), provider, expected, document)
-            and (
-                provider == "vertex"
-                or valid_capabilities(
-                    value.get("capability_proof"), provider, expected, document
-                )
+            and valid_capabilities(
+                value.get("capability_proof"), provider, expected, document
             )
             and (
                 provider != "azure_openai"
@@ -457,7 +468,8 @@ def evaluate(envelopes, expected):
         diagnostics[provider] = _capability_proof().readiness_diagnostics(
             value, provider=provider, valid=valid, ready=accepted[provider]
         )
-    selected = "azure_openai" if accepted["azure_openai"] else None
+    configured = configured_provider(document)
+    selected = configured if accepted[configured] else None
     return {
         "schema": "managed_provider_readiness.v1",
         "ready": selected is not None and not trust_failed,
@@ -563,11 +575,14 @@ def candidate(service, expected, tag):
 
 
 def select(result, expected, folder):
-    if (
-        result.get("ready") is not True
-        or result.get("selected_provider") != "azure_openai"
+    if result.get("ready") is not True or result.get(
+        "selected_provider"
+    ) != configured_provider(
+        json.loads(
+            (ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text()
+        )
     ):
-        raise ValueError("One UAT requires qualified Azure processing")
+        raise ValueError("One UAT requires the qualified configured processor")
     service = os.environ["READINESS_SERVICE"]
     tag = os.environ["READINESS_TAG"]
     if (

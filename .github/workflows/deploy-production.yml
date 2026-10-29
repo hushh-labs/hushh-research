@@ -642,6 +642,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$PHONE_DEPLOY_PHASE" == cold ]]; then
+            [[ "${{ github.event.inputs.scope }}" == backend ]] || exit 1
+            # Select qualification work; the later standard release still runs
+            # the ordinary account-lifecycle atomicity gate below.
+            printf '%s\n' scope=backend deploy_backend=true deploy_frontend=false \
+              reason=cold:qualification >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           python3 "${RUNNER_TEMP}/release-tools/resolve-deploy-scope.py" \
             --requested-scope "${{ github.event.inputs.scope }}" \
             --target-sha "${{ github.event.inputs.sha }}" \
@@ -948,6 +956,7 @@ jobs:
       - name: Qualify WorkOS non-activation before production mutation
         if: steps.scope.outputs.deploy_backend == 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           RESTORATION_SOURCE: ${{ inputs.restoration_validation_run != '' && inputs.sha || '' }}
         run: |
           set -euo pipefail
@@ -3351,9 +3360,16 @@ jobs:
         run: |
           set -euo pipefail
           uat_image="gcr.io/hushh-pda-uat/consent-protocol@${IMAGE_REFERENCE#*@}"
-          gcloud container images add-tag --quiet "$uat_image"             "gcr.io/hushh-pda/consent-protocol:prod-$DEPLOY_SHA"
-          docker buildx imagetools inspect "$IMAGE_REFERENCE" --raw             > "$RUNNER_TEMP/worker-stage/image-manifest.json"
-          resolved="$(python3 scripts/ci/resolve-cloud-run-image.py             --image-reference "$IMAGE_REFERENCE"             --manifest-json "$RUNNER_TEMP/worker-stage/image-manifest.json"             --sha "$DEPLOY_SHA")"
+          gcloud container images add-tag --quiet "$uat_image" \
+            "gcr.io/hushh-pda/consent-protocol:prod-$DEPLOY_SHA"
+          gcloud auth configure-docker gcr.io --quiet
+          docker buildx imagetools inspect "$IMAGE_REFERENCE" --raw \
+            > "$RUNNER_TEMP/worker-stage/image-manifest.json"
+          resolved="$(python3 scripts/ci/resolve-cloud-run-image.py \
+            --image-reference "$IMAGE_REFERENCE" \
+            --manifest-json "$RUNNER_TEMP/worker-stage/image-manifest.json" \
+            --json-output "$RUNNER_TEMP/worker-stage/image.json" \
+            --sha "$DEPLOY_SHA")"
           [[ "$resolved" == "$IMAGE_REFERENCE" ]] || exit 1
 
       - name: Sync isolated production Drive candidate configuration

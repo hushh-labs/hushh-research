@@ -614,7 +614,7 @@ Sources: [price sheet](../../components/consent/document-request-price-sheet.tsx
 | --- | --- |
 | Price title/explanation | `Allow request`; `Set price`; `{requester} pays this once matching files are found. Nothing is shared before payment.` (fallback `The requester`); `Your private agent finds the matching files and shares them.` |
 | Terms | `Loading request…`; `Share with`; `Period`; `Access`; `Viewer, until removed`; `The note says {span}. We used the picked dates: {dates}.` / `We used the picked dates: {dates}.` |
-| One copy terms | `Allow also lets Hussh keep encrypted copies of these files for this requester. Hussh can open them for delivery. You can stop One access and see its activity. Files the requester saved can’t be recalled.` |
+| One copy terms | `Allow includes encrypted One copies. Hussh can read them for delivery. Stop One access anytime; saved downloads remain.` |
 | Price controls | `Price`; `Requester saw an estimate of {price}`; `$10`; `$20`; `$30`; `Custom`; `Custom price`; `$`; placeholder `Amount in USD` / `Whole dollars` |
 | Validation | `Choose a price from $0.50 to $500.`; `Choose a whole-dollar price from $1 to $500.` |
 | Footer/earnings | `Allow`; `Allow · {price}`; `Save`; `Save · {price}`; `Cancel`; `Your net earnings are calculated after delivery, minus Hushh's 3% commission and the actual Stripe fee. Undelivered files are refunded to the requester.` |

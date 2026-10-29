@@ -491,9 +491,6 @@ def test_sync_revalidates_every_match_and_writes_inside_one_transaction() -> Non
     assert "activation_required_target_ids" in source
     assert "create_grant" not in source
     assert "scope_proposal" not in source
-    assert 'outcome = "request_required"' not in source
-    for outcome in ("auto_connected", "already_connected", "suppressed"):
-        assert outcome in source
 
     graph_source = inspect.getsource(ConnectionGraphService.activate_contact_sync_pairs)
     assert "FROM connection_scope_proposals proposal" in graph_source
@@ -739,7 +736,7 @@ def test_behavior_two_existing_connections_and_one_directory_default_match_all_t
     )
 
 
-def test_behavior_removed_directory_matches_remain_visible_but_suppressed() -> None:
+def test_behavior_legacy_removed_matches_offer_requests_without_restoring_the_graph() -> None:
     service = _ContactSyncService(
         explicit_consent=False,
         existing_status_by_user={
@@ -752,12 +749,13 @@ def test_behavior_removed_directory_matches_remain_visible_but_suppressed() -> N
     result = _behavior_sync(service, count=3)
 
     assert [(item["userId"], item["outcome"]) for item in result["items"]] == [
-        ("target_0001", "suppressed"),
-        ("target_0002", "suppressed"),
+        ("target_0001", "request_required"),
+        ("target_0002", "request_required"),
         ("target_0003", "already_connected"),
     ]
     assert result["matchedCount"] == 3
-    assert result["suppressedCount"] == 2
+    assert result["requestRequiredCount"] == 2
+    assert result["suppressedCount"] == 0
     assert result["alreadyConnectedCount"] == 1
     assert [activation["target_user_id"] for activation in service.writes[0][2]] == ["target_0003"]
 
@@ -794,11 +792,13 @@ def test_behavior_stale_consent_contract_writes_nothing() -> None:
     assert service.writes == []
 
 
-def test_behavior_revoked_pair_is_suppressed_and_not_resurrected() -> None:
+def test_behavior_legacy_revoked_pair_requires_acceptance_and_is_not_resurrected() -> None:
     service = _ContactSyncService(existing_status="revoked")
     result = _behavior_sync(service)
 
-    assert result["items"][0]["outcome"] == "suppressed"
+    assert result["items"][0]["outcome"] == "request_required"
+    assert result["requestRequiredCount"] == 1
+    assert result["autoConnectedCount"] == 0
     assert service.writes == []
 
 

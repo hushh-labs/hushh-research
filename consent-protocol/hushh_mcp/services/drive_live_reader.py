@@ -862,7 +862,11 @@ class DriveLiveReader:
                     truncated = True
                     continue
                 raise
-            if metadata.name != name or metadata.mime_type == "application/vnd.google-apps.folder":
+            if (
+                metadata.name != name
+                or metadata.mime_type == "application/vnd.google-apps.folder"
+                or match.get("mime_type") != metadata.mime_type
+            ):
                 truncated = True
                 continue
             if not self._in_time_bounds(
@@ -889,6 +893,7 @@ class DriveLiveReader:
                     "document_id": document_id,
                     "file_id": metadata.file_id,
                     "name": metadata.name,
+                    "mime_type": metadata.mime_type,
                     "source_version": metadata.version,
                     "content_fingerprint": None,
                     "connection_generation": self._generation,
