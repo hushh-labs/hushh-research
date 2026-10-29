@@ -5,7 +5,7 @@ import { customNativePresentationEnabled } from "@/lib/capacitor/native-presenta
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { NativeChromeLease, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, chromeLifecycleEventApplies, chromeInvalidationApplies, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { useVoiceSurfaceMetadata, getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
@@ -80,6 +80,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     void (async () => {
       try {
         const capability = await getNativeChromeCapabilities();
+        if (nativeDocumentId() !== recoveryDocument) { cancelled = true; return; }
         if (cancelled || !capability || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION ||
             capability.independentControls !== true || !capability.families.includes("back")) {
           if (!cancelled) setHidden(hasOutstandingNativeChrome());
@@ -92,8 +93,17 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
             isCurrentNativeControlAppearance(active.projection) &&
             !nativeShellOverlayBlocked() && !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
             document.visibilityState !== "hidden", () => callback.current()).catch(() => undefined);
-        })), retain(nativeChrome.addListener("invalidated", invalidate)),
-        retain(nativeChrome.addListener("readmissionRequested", readmit)), retain(subscribeNativeSessionPrivacy(invalidate))]);
+        })), retain(nativeChrome.addListener("invalidated", event => {
+          if (chromeInvalidationApplies(event, recoveryDocument, capability.documentScopedLifecycleEvents === true,
+              capability.leaseScopedInvalidationEvents === true, lease.current?.projection)) invalidate();
+        })),
+        retain(nativeChrome.addListener("readmissionRequested", event => {
+          if (chromeLifecycleEventApplies(event, recoveryDocument, capability.documentScopedLifecycleEvents === true)) readmit();
+        })), retain(subscribeNativeSessionPrivacy(invalidate))]);
+        if (!cancelled && nativeDocumentId() !== recoveryDocument) {
+          cancelled = true;
+          handles.splice(0).forEach(handle => { void handle.remove(); });
+        }
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
           setBackReplacement(capability.backReplacement === true);

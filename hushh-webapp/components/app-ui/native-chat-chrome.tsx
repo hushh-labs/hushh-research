@@ -11,7 +11,7 @@ import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { ShellActionSurfaceBase as ShellActionSurface } from "./shell-action-surface-base";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref, type RefObject } from "react";
-import { NativeChromeLease, chromeControlId, chromeOwnerEpoch, currentChromeInstallation, canResumeNativeChrome, suspendOwnedNativeChrome, peekNativeChromeCapabilities, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry, type ChromeChoice, type ChromeChoiceOutcome, type ChromeControl } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, chromeControlId, chromeOwnerEpoch, chromeLifecycleEventApplies, chromeInvalidationApplies, currentChromeInstallation, canResumeNativeChrome, suspendOwnedNativeChrome, peekNativeChromeCapabilities, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry, type ChromeChoice, type ChromeChoiceOutcome, type ChromeControl } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { nativeDocumentId, nativePrivacyCanInteract, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -354,6 +354,7 @@ export function NativeChatChrome(props: Props) {
     void (async () => {
       try {
         const capability = await getNativeChromeCapabilities();
+        if (nativeDocumentId() !== recoveryDocument) { cancelled = true; return; }
         if (cancelled || !capability || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION ||
             capability.independentControls !== true || !capability.families.includes(kind) ||
             current.current.props.kind === "accent" && current.current.props.fullTrigger && !capability.fullAccentTrigger) {
@@ -381,11 +382,20 @@ export function NativeChatChrome(props: Props) {
           }).then(outcome => {
             if (outcome && lease.current === active) reportChoice(outcome);
           }).catch(() => { if (lease.current === active) reportChoice("uncertain"); });
-        })), retain(nativeChrome.addListener("invalidated", invalidateRemoved)),
-        retain(nativeChrome.addListener("readmissionRequested", readmit)), retain(subscribeNativeSessionPrivacy(state => {
+        })), retain(nativeChrome.addListener("invalidated", event => {
+          if (chromeInvalidationApplies(event, recoveryDocument, capability.documentScopedLifecycleEvents === true,
+              capability.leaseScopedInvalidationEvents === true, lease.current?.projection)) invalidateRemoved();
+        })),
+        retain(nativeChrome.addListener("readmissionRequested", event => {
+          if (chromeLifecycleEventApplies(event, recoveryDocument, capability.documentScopedLifecycleEvents === true)) readmit();
+        })), retain(subscribeNativeSessionPrivacy(state => {
           if (!state.appIsActive || state.shielded) invalidateRemoved();
           else readmit();
         }))]);
+        if (!cancelled && nativeDocumentId() !== recoveryDocument) {
+          cancelled = true;
+          handles.splice(0).forEach(handle => { void handle.remove(); });
+        }
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
           setRetainedControls(capability.retainedControls === true);

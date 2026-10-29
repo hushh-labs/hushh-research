@@ -42,6 +42,13 @@ rejected receipt through native readback, or prove predecessor dismissal across
 document replacement. These changes have focused test evidence only; they do
 not qualify a new device candidate.
 
+Native Chrome lifecycle notifications now identify their document and affected
+control revisions when the wrapper advertises that capability. Older wrappers
+retain the previous behavior. This prevents a delayed notification from
+invalidating a replacement control; it does not prove presenter dismissal.
+An invalidation during listener installation still requires an acknowledged
+state reconciliation before a retained host can be trusted.
+
 Other known gaps include the native hard Vault, complete AI-provider ownership,
 full route and nested-state coverage, and physical visual, accessibility and
 performance acceptance. Cross-device phone-claim ordering and reconciliation of

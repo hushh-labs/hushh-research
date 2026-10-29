@@ -475,7 +475,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                         for slot in self.slots.values { slot.state.invalidateChoices(through: slot.sequence) }
                         // Retain hosts/materials. Isolation only withdraws choices.
                         if self.compositor?.interactionIsolated == false {
-                            self.notifyListeners("readmissionRequested", data: [:], retainUntilConsumed: false)
+                            self.notifyDocumentLifecycle("readmissionRequested")
                         }
                         return
                     }
@@ -717,6 +717,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                           "coherentPresentation": self?.compositor?.wholeNativeDrawers == true && NativeDrawerQualificationPolicy.coherentShell,
                           "ownedContentPane": self?.compositor?.wholeNativeDrawers == true && self?.chatControlsAdmitted == true,
                           "contentPanePreparation": self?.compositor?.wholeNativeDrawers == true && self?.chatControlsAdmitted == true,
+                          "documentScopedLifecycleEvents": true,
+                          "leaseScopedInvalidationEvents": true,
                           "reservedPresentationRegions": legacyRegions,
                           "fullWindowOverlays": legacyRegions,
                           "drawerClipping": self?.compositor?.drawerClipping == true,
@@ -1648,12 +1650,23 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         presentationInvalidations += 1
         #endif
         if conceal { compositor?.conceal() }
+        let controls: [[String: Any]] = slots.values.compactMap { slot in
+            guard let identity = slot.state.identity else { return nil }
+            return ["documentId": identity.document, "ownerEpoch": identity.ownerEpoch,
+                    "controlId": identity.controlId, "revision": identity.revision]
+        }
         for slot in slots.values {
             slot.state.invalidate()
             removeHosting(slot)
             slot.presenter?.retire {}
         }
-        notifyListeners("invalidated", data: [:])
+        notifyDocumentLifecycle("invalidated", controls: controls)
+    }
+    private func notifyDocumentLifecycle(_ name: String, controls: [[String: Any]]? = nil) {
+        guard let document else { return }
+        var event: [String: Any] = ["documentId": document]
+        if let controls { event["controls"] = controls }
+        notifyListeners(name, data: event, retainUntilConsumed: false)
     }
     private func reconcileKeyboardInteraction() {
         for (id, slot) in slots {

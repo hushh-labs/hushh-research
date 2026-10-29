@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRef, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { NativeChromeLease, chromeOwnerEpoch, canResumeNativeChrome, suspendOwnedNativeChrome, getNativeChromeCapabilities, peekNativeChromeCapabilities, hasOutstandingNativeChrome, retireNativeChrome, retireOwnedNativeChrome, syncNativeCanvasAppearance, type ChromeAcknowledgement, type ChromeProjection, type ChromeUpdateAcknowledgement } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, chromeOwnerEpoch, chromeLifecycleEventApplies, chromeInvalidationApplies, canResumeNativeChrome, suspendOwnedNativeChrome, getNativeChromeCapabilities, peekNativeChromeCapabilities, hasOutstandingNativeChrome, retireNativeChrome, retireOwnedNativeChrome, syncNativeCanvasAppearance, type ChromeAcknowledgement, type ChromeProjection, type ChromeUpdateAcknowledgement } from "@/lib/capacitor/native-chrome";
 import { NativeShellBack } from "@/components/app-ui/native-shell-back";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { projectNativeLegalDocument } from "@/lib/capacitor/native-profile-legal";
@@ -2610,6 +2610,74 @@ describe("native chrome presentation lease", () => {
   function admitChat() {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back", "history", "agent-surface"], independentControls: true });
   }
+  it("rejects obsolete events and recovers malformed current-document events", () => {
+    const current = bridge.documentId;
+    const identity = { documentId: current, ownerEpoch: "owner", controlId: "chat-history-toggle" as const, revision: 2 };
+    expect(chromeLifecycleEventApplies({ documentId: current }, current, true)).toBe(true);
+    expect(chromeLifecycleEventApplies({ documentId: "old-document" }, current, true)).toBe(false);
+    expect(chromeLifecycleEventApplies(undefined, current, true)).toBe(false);
+    expect(chromeLifecycleEventApplies(undefined, current, false)).toBe(true);
+    expect(chromeInvalidationApplies({ documentId: current, controls: [identity] }, current, true, true, identity)).toBe(true);
+    expect(chromeInvalidationApplies({ documentId: current, controls: [{ ...identity, revision: 1 }] }, current, true, true, identity)).toBe(false);
+    expect(chromeInvalidationApplies({ documentId: current }, current, true, true, identity)).toBe(true);
+    expect(chromeInvalidationApplies({ documentId: current, controls: [null as unknown as typeof identity] }, current, true, true, identity)).toBe(true);
+    expect(chromeInvalidationApplies({ documentId: current, controls: [{ ...identity, documentId: "other" }] }, current, true, true, identity)).toBe(true);
+    expect(chromeInvalidationApplies({ documentId: current, controls: [{ ...identity, ownerEpoch: "" }] }, current, true, true, identity)).toBe(true);
+    expect(chromeInvalidationApplies({ documentId: current, controls: [{ ...identity, revision: -1 }] }, current, true, true, identity)).toBe(true);
+    expect(chromeInvalidationApplies({ documentId: current, controls: [{ ...identity, controlId: "map-close" }] }, current, true, true, identity)).toBe(true);
+    expect(chromeInvalidationApplies(undefined, current, false, false, identity)).toBe(true);
+    bridge.documentId = "replacement-document";
+    expect(chromeLifecycleEventApplies({ documentId: current }, current, true)).toBe(false);
+    expect(chromeLifecycleEventApplies(undefined, current, false)).toBe(false);
+    bridge.documentId = current;
+  });
+  it("does not retire or readmit chat chrome for another document's lifecycle event", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true,
+      retainedControls: true, inPlaceUpdates: true, documentScopedLifecycleEvents: true, leaseScopedInvalidationEvents: true });
+    const view = render(<ChatHarness />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const retirements = bridge.retire.mock.calls.length;
+    const updates = bridge.update.mock.calls.length;
+    const current = bridge.prepare.mock.calls.at(-1)![0];
+    act(() => {
+      bridge.callbacks.get("invalidated")?.({ documentId: "old-document" });
+      bridge.callbacks.get("invalidated")?.({});
+      bridge.callbacks.get("invalidated")?.({ documentId: bridge.documentId, controls: [{ ...current, revision: current.revision - 1 }] });
+      bridge.callbacks.get("readmissionRequested")?.({ documentId: "old-document" });
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.retire).toHaveBeenCalledTimes(retirements);
+    expect(bridge.update).toHaveBeenCalledTimes(updates);
+    act(() => bridge.callbacks.get("invalidated")?.({ documentId: bridge.documentId, controls: [current] }));
+    await waitFor(() => expect(bridge.retire.mock.calls.length).toBeGreaterThan(retirements));
+    view.unmount();
+  });
+  it("retires current chat chrome when its scoped invalidation is malformed", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true,
+      documentScopedLifecycleEvents: true, leaseScopedInvalidationEvents: true });
+    const view = render(<ChatHarness />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const retirements = bridge.retire.mock.calls.length;
+    act(() => bridge.callbacks.get("invalidated")?.({ documentId: bridge.documentId }));
+    await waitFor(() => expect(bridge.retire.mock.calls.length).toBeGreaterThan(retirements));
+    view.unmount();
+  });
+  it("does not enable subscriptions that finish after their document is replaced", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true,
+      documentScopedLifecycleEvents: true, leaseScopedInvalidationEvents: true });
+    const subscribing = deferred<void>();
+    bridge.subscribe.mockReturnValue(subscribing.promise);
+    const view = render(<ChatHarness />);
+    await waitFor(() => expect(bridge.subscribe).toHaveBeenCalled());
+    bridge.documentId = "new-document";
+    await act(async () => { subscribing.resolve(undefined); await subscribing.promise; });
+    await waitFor(() => expect(bridge.listeners.get("invalidated")?.size ?? 0).toBe(0));
+    expect(bridge.prepare).not.toHaveBeenCalled();
+    view.unmount();
+  });
   it.each([true, false])("does not paint a cold web control before native capability discovery (supported=%s)", async (supported) => {
     measureSlot();
     const receipt = deferred<{ contractVersion: number; families: readonly string[]; independentControls: boolean }>();
@@ -3268,6 +3336,26 @@ describe("native chrome presentation lease", () => {
       x: 2, y: 60, width: 44, height: 44, top: 60, left: 2, right: 46, bottom: 104, toJSON: () => ({}),
     });
   }
+  it("keeps shell Back bound to its own lifecycle event and lease", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true,
+      retainedControls: true, inPlaceUpdates: true, documentScopedLifecycleEvents: true, leaseScopedInvalidationEvents: true });
+    const view = render(<Harness />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const current = bridge.prepare.mock.calls.at(-1)![0];
+    const retired = bridge.retire.mock.calls.length;
+    const updates = bridge.update.mock.calls.length;
+    act(() => {
+      bridge.callbacks.get("invalidated")?.({ documentId: bridge.documentId, controls: [{ ...current, ownerEpoch: "old-owner" }] });
+      bridge.callbacks.get("readmissionRequested")?.({ documentId: "old-document" });
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.retire).toHaveBeenCalledTimes(retired);
+    expect(bridge.update).toHaveBeenCalledTimes(updates);
+    act(() => bridge.callbacks.get("invalidated")?.({ documentId: bridge.documentId, controls: [current] }));
+    await waitFor(() => expect(bridge.retire.mock.calls.length).toBeGreaterThan(retired));
+    view.unmount();
+  });
 
   function ProfileBackControl({ context, action, owner, suppressed, eligible }: {
     context: string; action: () => void; owner: string; suppressed: boolean; eligible: boolean;
