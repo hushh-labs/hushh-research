@@ -111,6 +111,77 @@ for (const width of [320, 393, 768, 1024, 1440]) {
   }
 }
 
+for (const width of [320, 393]) {
+  test(`catalog checkbox stays beside its label at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    await page.getByRole("button", { name: "Open Professional" }).click();
+    const row = page.getByTestId("consent-scope-row-synthetic-Professional");
+    const title = row.locator('[data-slot="settings-row-title"]');
+    const checkbox = row.getByRole("checkbox", { name: "Professional details" });
+    await expect(checkbox).toBeVisible();
+    await title.evaluate((node) => { node.textContent = "Professional details with a much longer description"; });
+    const geometry = await row.evaluate((node) => {
+      const rect = (element: Element) => {
+        const { left, right, top, bottom } = element.getBoundingClientRect();
+        return { left, right, top, bottom };
+      };
+      return {
+        row: rect(node),
+        title: rect(node.querySelector('[data-slot="settings-row-title"]')!),
+        checkbox: rect(node.querySelector('input[type="checkbox"]')!),
+      };
+    });
+    expect(geometry.title.right).toBeLessThan(geometry.checkbox.left);
+    expect(Math.abs((geometry.title.top + geometry.title.bottom) / 2 - (geometry.checkbox.top + geometry.checkbox.bottom) / 2)).toBeLessThan(2);
+    expect(geometry.checkbox.right).toBeLessThan(geometry.row.right);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  });
+}
+
+for (const [width, height] of [[320, 568], [390, 844]]) {
+  test(`information review choices and long labels fit ${width}x${height}`, async ({ page }) => {
+    await openFixture(page, width);
+    await page.setViewportSize({ width, height });
+    await page.locator('[data-id="review"]').click();
+    const dialog = page.getByRole("dialog", { name: "Request information from Aarav Sharma" });
+    await expect(dialog).toBeVisible();
+    await expect.poll(() => dialog.evaluate((node) => node.getBoundingClientRect().width / node.offsetWidth)).toBeGreaterThan(0.999);
+    await expect(dialog.getByRole("group", { name: "Access duration" })).toBeVisible();
+    const selected = dialog.getByRole("radio", { name: "7 days" });
+    await expect(selected).toBeChecked();
+    const optionBoxes = await dialog.locator('[data-testid^="person-profile-duration-"]:not([data-testid="person-profile-duration-options"])').evaluateAll((inputs) => inputs.map((input) => {
+      const { left, right, top, bottom, height } = input.parentElement!.getBoundingClientRect();
+      return { left, right, top, bottom, height };
+    }));
+    expect(optionBoxes).toHaveLength(4);
+    expect(optionBoxes[0]!.height).toBeGreaterThanOrEqual(44);
+    expect(optionBoxes[0]!.top).toBeCloseTo(optionBoxes[1]!.top, 0);
+    expect(optionBoxes[2]!.top).toBeGreaterThanOrEqual(optionBoxes[0]!.bottom);
+    const geometry = await dialog.evaluate((node) => {
+      const dialogBox = node.getBoundingClientRect();
+      const row = node.querySelector('[data-testid="person-profile-scope-row-synthetic-wallet-summary"]')!;
+      const rowBox = row.getBoundingClientRect();
+      const label = row.firstElementChild!.getBoundingClientRect();
+      const pill = row.lastElementChild!.getBoundingClientRect();
+      return {
+        dialogLeft: dialogBox.left, dialogRight: dialogBox.right, dialogBottom: dialogBox.bottom,
+        labelLeft: label.left, labelRight: label.right, pillLeft: pill.left, pillRight: pill.right,
+        rowLeft: rowBox.left, rowRight: rowBox.right, rowOverflow: row.scrollWidth - row.clientWidth,
+      };
+    });
+    expect(geometry.dialogLeft).toBeGreaterThanOrEqual(0);
+    expect(geometry.dialogRight).toBeLessThanOrEqual(width);
+    expect(geometry.dialogBottom).toBeLessThanOrEqual(height);
+    expect(geometry.labelLeft).toBeGreaterThanOrEqual(geometry.rowLeft);
+    expect(geometry.labelRight).toBeLessThanOrEqual(geometry.pillLeft);
+    expect(geometry.pillRight).toBeLessThanOrEqual(geometry.rowRight);
+    expect(geometry.rowOverflow).toBeLessThanOrEqual(0);
+    await dialog.getByTestId("person-profile-duration-24").locator("xpath=..").click();
+    await expect(dialog.getByRole("radio", { name: "1 day" })).toBeChecked();
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeInViewport();
+  });
+}
+
 test("long mixed-direction details, sparse actions and focus remain usable at 320px", async ({ page, browserName }) => {
   await openFixture(page, 320);
   await page.locator("h1").evaluate(el => { el.textContent = "Alexandria-Rose Sharma — عائشة الأحمد"; });
