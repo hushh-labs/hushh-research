@@ -20,7 +20,7 @@ describe("Agent command handoff contract", () => {
       "skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad",
     );
     expect(userRequestedBranch).toContain("handleCreateNewChat()");
-    expect(userRequestedBranch).toContain("setQueuedHandoffPrompt(transcript)");
+    expect(userRequestedBranch).toContain("setQueuedHandoffPrompt({ text: transcript })");
     expect(source).toContain("const restoreEpoch = historyRestoreEpochRef.current");
     // Restoration now shares a positive authority guard across both cached
     // publication and background refresh; handoff still invalidates its epoch.

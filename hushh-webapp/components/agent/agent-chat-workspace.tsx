@@ -307,6 +307,7 @@ import {
 import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import { calendarSlotInstruction, calendarSlotProposalError, calendarSlotStarts, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
+import { isCalendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
 import { rememberInAppChat, selectedInAppChat } from "@/lib/agent/in-app-chat-selection";
 import {
   AGENT_TURN_DETACH_REASON,
@@ -833,6 +834,7 @@ type AgentTurnSource = "typed";
 type AgentRunTurnOptions = {
   source: AgentTurnSource;
   calendarMeeting?: MeetingSelection;
+  timeZoneOverride?: string;
   personSelectionHandle?: string;
   gmailInformationRequestWorkflowId?: string;
   driveSearchSelection?: { jobId: string; position: number };
@@ -2755,7 +2757,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }), [applicationOwnerId, clearReceiptAnswers]);
   const compiledDriveMarkdownRef = useRef(new Map<string, string>());
   const driveCompilationAbortRef = useRef<AbortController | null>(null);
-  const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(
+  const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<{ text: string; timeZoneOverride?: string } | null>(
     null,
   );
   const pendingSessionHandoff = useOneConversationSession(
@@ -3066,7 +3068,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const calendarActionIdsRef = useRef<Set<string>>(new Set());
   const queuedMeetingRef = useRef<MeetingSelection | undefined>(undefined);
   const handoffPromptSubmitRef = useRef<
-    ((prompt: string, meeting?: MeetingSelection) => Promise<void>) | null
+    ((prompt: string, meeting?: MeetingSelection, timeZoneOverride?: string) => Promise<void>) | null
   >(null);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const pkmCaptureJobsRef = useRef(new Map<string, Promise<AgentPkmCaptureStatus>>());
@@ -4394,7 +4396,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setPendingSpecialistDirective(null);
       setCalendarInvitationContext(null);
       queuedMeetingRef.current = handoff.calendarRequest.meeting;
-      setQueuedHandoffPrompt(handoff.calendarRequest.request);
+      setQueuedHandoffPrompt({ text: handoff.calendarRequest.request, timeZoneOverride: handoff.calendarRequest.timeZone });
       consumeHandoff(handoff.id);
       return;
     }
@@ -4425,7 +4427,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (invitation.request) {
         setPendingSpecialistDirective(null);
         setCalendarInvitationContext({ selection: invitation, conversationId: conversationIdRef.current, needsContext: true });
-        setQueuedHandoffPrompt(invitation.request);
+        setQueuedHandoffPrompt({ text: invitation.request });
         consumeHandoff(handoff.id);
         return;
       }
@@ -4495,7 +4497,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const shouldSkipInitialHistoryLoad = historyLoadKeyRef.current === null;
       handleCreateNewChat();
       skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad;
-      setQueuedHandoffPrompt(emailDraftInstruction);
+      setQueuedHandoffPrompt({ text: emailDraftInstruction });
       consumeHandoff(handoff.id);
       return;
     }
@@ -4503,7 +4505,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const shouldSkipInitialHistoryLoad = historyLoadKeyRef.current === null;
       handleCreateNewChat();
       skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad;
-      setQueuedHandoffPrompt(transcript);
+      setQueuedHandoffPrompt({ text: transcript });
       consumeHandoff(handoff.id);
       return;
     }
@@ -6771,6 +6773,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const streamResult = await streamAgentChat({
         userId,
         message: text,
+        timeZoneOverride: options.timeZoneOverride,
         attachments,
         messageId: options.queuedPrompts?.[0]?.id,
         conversationId: conversationIdRef.current,
@@ -7829,7 +7832,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     personSelectionHandle?: string,
     options: Pick<
       AgentRunTurnOptions,
-      "deferPkmContext" | "driveSearchSelection" | "attachments" | "calendarMeeting"
+      "deferPkmContext" | "driveSearchSelection" | "attachments" | "calendarMeeting" | "timeZoneOverride"
     > = {},
   ) => {
     const chatEpoch = chatSessionRef.current.value;
@@ -7845,6 +7848,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       createdAtMs: Date.now(),
       deferPkmContext: options.deferPkmContext,
       driveSearchSelection: options.driveSearchSelection,
+      timeZoneOverride: options.timeZoneOverride,
       gmailInformationRequestWorkflowId: gmailKycReplyRequest?.workflow_id,
       // A reply supplies owner facts for Soul, not structured identity writes.
       // Once a draft is on screen, a follow-up revises that draft
@@ -7852,7 +7856,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       kycInformationSaveConfirmed:
         Boolean(gmailKycReplyRequest?.workflow_id) && !emailDraftOpen,
       // Plain typed text only; a picker choice carries its own authority.
-      joinable: hasChatAccess && !personSelectionHandle && !options.calendarMeeting,
+      joinable: hasChatAccess && !personSelectionHandle && !options.calendarMeeting && !options.timeZoneOverride,
       placement: "waiting",
     };
     const operation: QueuedWorkspaceOperation = {
@@ -7891,6 +7895,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             attachments: current.attachments,
             deferPkmContext: current.deferPkmContext,
             driveSearchSelection: current.driveSearchSelection,
+            timeZoneOverride: current.timeZoneOverride,
             gmailInformationRequestWorkflowId: options.calendarMeeting ? undefined : current.gmailInformationRequestWorkflowId,
             kycInformationSaveConfirmed: options.calendarMeeting ? false : current.kycInformationSaveConfirmed,
           });
@@ -7996,6 +8001,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 text,
                 // As editQueuedAgentPrompt: a revised intent re-picks its file.
                 driveSearchSelection: undefined,
+                timeZoneOverride: undefined,
                 placement: "waiting" as const,
               },
             }
@@ -8741,17 +8747,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setComposerExpanded(false);
   };
 
-  handoffPromptSubmitRef.current = async (prompt: string, meeting?: MeetingSelection) => {
-    enqueuePrompt(prompt, undefined, { calendarMeeting: meeting });
+  handoffPromptSubmitRef.current = async (prompt: string, meeting?: MeetingSelection, timeZoneOverride?: string) => {
+    enqueuePrompt(prompt, undefined, { calendarMeeting: meeting, timeZoneOverride });
   };
 
   useEffect(() => {
-    const prompt = queuedHandoffPrompt?.trim();
+    const prompt = queuedHandoffPrompt?.text.trim();
     if (!prompt) return;
+    const timeZoneOverride = queuedHandoffPrompt?.timeZoneOverride;
     setQueuedHandoffPrompt(null);
     const meeting = queuedMeetingRef.current;
     queuedMeetingRef.current = undefined;
-    void handoffPromptSubmitRef.current?.(prompt, meeting);
+    void handoffPromptSubmitRef.current?.(prompt, meeting, timeZoneOverride);
   }, [queuedHandoffPrompt, setQueuedHandoffPrompt]);
 
   // Agent Chat never owns audio. Its microphone affordance delegates to the
@@ -9054,6 +9061,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       : previousAttachments;
     if (!previousUserMessage) {
       toast.error("No previous message found to retry.");
+      return;
+    }
+    // History restores the visible request but not the selected IANA zone.
+    // A retry in the device zone could search the wrong civil day at DST.
+    if (isCalendarDaySearchRequest(retryText)) {
+      toast.info("Open Calendar and choose the day again.");
       return;
     }
     // A failed answer after someone shared retries as that continuation. Sent

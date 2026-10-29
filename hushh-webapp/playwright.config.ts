@@ -218,6 +218,7 @@ export default defineConfig({
         /one-voice-mail-open\.layout\.spec\.ts/,
         /mail-overview\.layout\.spec\.ts/,
         /calendar-connected-workspace\.layout\.spec\.ts/,
+        /calendar-booking-join\.layout\.spec\.ts/,
         // receipt-sync-hero: the receipt hero and compact table are shipped
         // inside the iOS WKWebView and the fixture is self-contained.
         /receipt-sync-hero\.layout\.spec\.ts/,
