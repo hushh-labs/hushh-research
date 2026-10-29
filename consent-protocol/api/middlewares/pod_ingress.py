@@ -137,13 +137,16 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
         # The owner's sealed "Bring your own AI" (api/routes/one/pod_ai_selection.py):
-        # PUT, GET, DELETE and body-free verified-default PATCH on one path. The point of sealing the key to the pod is
+        # PUT, GET, DELETE and body-free verified-default PATCH on one path;
+        # the separate conditional-clear door only accepts non-secret metadata.
+        # The point of sealing the key to the pod is
         # that the hub never holds it, so the owner's app must reach this door directly.
         # Same trade as the memory doors: the route's own admission is the whole
         # defence (a hub-verified owner consent, or an app-role session with
         # `pod.config` to change it and `pod.status` to read it), and the envelope is
         # opened only after that admission, by a key that never leaves this process.
         "/api/one/pod/ai-selection",
+        "/api/one/pod/ai-selection/clear-if-current",
     }
 )
 APP_SURFACE_PREFIXES: tuple[str, ...] = (

@@ -1248,6 +1248,7 @@ tests/test_circle_chat.py
 # on exactly that selection with typed refusals, and the agent advert plus the catalog.
 tests/test_pod_ai_selection_seal.py
 tests/test_pod_ai_selection_doors.py
+tests/test_pod_ai_conditional_clear.py
 tests/test_pod_ai_default_authority.py
 tests/test_pod_ai_selection_turns.py
 tests/test_pod_ai_selection_voice.py

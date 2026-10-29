@@ -7,8 +7,10 @@ exact-head Admin PR landing or environment dispatch sequence.
 
 ## Visual Map
 
-The UAT branch and its default selector remain staged until their historical
-baseline is reconciled and the transition is separately authorized.
+The diagram shows the intended selective promotion flow. Today the UAT default
+still selects Main, and a selected Main or protected-UAT revision needs matching
+Dev acceptance. The UAT branch default remains staged until its historical
+baseline and release authority are qualified.
 
 ```mermaid
 flowchart LR

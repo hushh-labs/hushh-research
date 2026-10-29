@@ -266,6 +266,9 @@ async def test_scheduled_model_uses_sealed_identity_across_cache_restart(
     from hushh_mcp.services.pod_scheduled_contracts import ScheduleRefused
     from hushh_mcp.services.pod_scheduled_model import resolve_scheduled_model
 
+    async def allow_fixture_snapshot(_records):
+        return None
+
     task = admitted_task
     monkeypatch.setattr(pod_owner_cloud, "owner_cloud_agent", lambda: True)
     opened = OpenedSelection(
@@ -280,7 +283,11 @@ async def test_scheduled_model_uses_sealed_identity_across_cache_restart(
     )
     try:
         await selections.record_ai_selection(
-            task.world.log, hushh_id=OWNER, opened=opened, checked_at_ms=1
+            task.world.log,
+            hushh_id=OWNER,
+            opened=opened,
+            checked_at_ms=1,
+            authorize=allow_fixture_snapshot,
         )
         model = await resolve_scheduled_model(task.world.log, pod_id=OWNER, check=task.lease.check)
         assert model.binding.model == "synthetic-model" and model.binding.selection_revision == 1
@@ -290,7 +297,9 @@ async def test_scheduled_model_uses_sealed_identity_across_cache_restart(
             task.world.log, pod_id=OWNER, check=task.lease.check, expected=model.binding
         )
         assert again.binding == model.binding
-        await selections.clear_ai_selection(task.world.log, hushh_id=OWNER)
+        await selections.clear_ai_selection(
+            task.world.log, hushh_id=OWNER, authorize=allow_fixture_snapshot
+        )
         with pytest.raises(ScheduleRefused, match="SCHEDULE_MODEL_CHANGED"):
             await resolve_scheduled_model(
                 task.world.log, pod_id=OWNER, check=task.lease.check, expected=model.binding

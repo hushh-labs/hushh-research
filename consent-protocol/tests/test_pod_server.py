@@ -433,6 +433,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/session/revoke",
         # Memory and the AI selection: two-door admission; APP_SURFACE_EXACT owns reach.
         "/api/one/pod/ai-selection",
+        "/api/one/pod/ai-selection/clear-if-current",
         "/api/one/pod/conversation/{conversation_id}/close",
         "/api/one/pod/memory/status",
         "/api/one/pod/memory/revoke",

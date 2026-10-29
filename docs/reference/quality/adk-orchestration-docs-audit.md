@@ -17,7 +17,7 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 27 October 2026
+## Current decision — 29 October 2026
 
 **Production recovery is verified. Release-system activation and installed-owner
 Browser acceptance remain open.** The compatible pre-pod Shared application
@@ -28,17 +28,21 @@ rollout is part of this workstream.
 
 | Boundary | Verified | Remaining |
 |---|---|---|
-| Release controls | Dev/UAT refs and protection; historical UAT ancestry preserved; [#8520](https://github.com/hushh-labs/hushh-research/pull/8520) implements application/Main-approval mapping, current-attempt refusal and manual incident admission | Exact-head CI, Admin landing, qualified branch-default activation and one Dev-to-UAT acceptance |
-| CI security | Protected Main-owned worker remains active; compatible patches target 19 of 22 current dependency alerts; 151 affected Python and 27 mail checks pass | Prove the temporary target-event/cache boundary, activate one trusted workflow and retire standalone worker entries; verify alert closure on Main |
-| Maintenance | Production maintenance passed; duplicate monitor discovery resolved | UAT candidate `00892-pax` times out during embedding startup; prior worker `00889-tof` remains Ready at 100% traffic; cleanup checkpoint is retained |
-| Installed pods | Latest retained owner receipts show Dev 30, digest `6e57f251…eeac423`; new exact-predecessor synthetic seeds on both clouds preserve memory, revocation and 245,763 file bytes | Final-image recovery, exact owner-approved updates and installed Browser/core journeys |
+| Release controls | Dev, UAT and Main are protected; [#8581](https://github.com/hushh-labs/hushh-research/pull/8581), [#8588](https://github.com/hushh-labs/hushh-research/pull/8588) and [#8591](https://github.com/hushh-labs/hushh-research/pull/8591) landed with Main smoke. The [Dev release](https://github.com/hushh-labs/hushh-research/actions/runs/40803260975) completed at 02:26 UTC with `042ab64697` at 100% on both application services. | Reconcile newer Main and peer changes into Dev. Direct UAT after exact CI is approved in direction but not active; no UAT or production rollout is authorized in this pass. |
+| CI security | The protected Main-owned worker remains active. GitHub reports three open dependency records across two advisories after the LangGraph fix. | Qualify a quieter trusted workflow without weakening exact-attempt evidence. Zod and OpenTelemetry remain constrained by their upstream dependencies. |
+| Maintenance | The historical production receipt exists; [#8591](https://github.com/hushh-labs/hushh-research/pull/8591) added a provenance-checked reader for its older archive path. | The reader is default-off, so live capacity monitoring still refuses that path. Its receipt reports a blocked release and cannot authorize cleanup. |
+| Installed pods | Retained owner receipts show Dev 30, digest `6e57f251…eeac423`; synthetic predecessor recovery on both clouds preserved memory, revocation and file bytes. | Qualify the final image and predecessor separately for each cloud, then obtain exact owner approval and prove installed Browser/core journeys. Source and component tests are not installed acceptance. |
 
-The three older dependency alerts remain constrained by upstream OpenTelemetry
+The remaining dependency records are constrained by upstream OpenTelemetry
 and nested Zod dependencies; mitigation and exposure remain explicit. A source
 patch does not prove deployment of the separate mail service. Scope sharing,
 general scheduling, coding execution and managed-hosting expansion are outside
 this execution lane. The dated evidence below remains historical qualification,
 not current installed-owner acceptance.
+
+The current release descriptor has no eligible predecessor, so it does not offer
+an owner-pod update. Cloud-specific publication evidence and a lease-bound host
+identity for recovery are still needed before enabling the next offer.
 
 ## Accepted checkpoint — 26 October 2026, 09:25 UTC
 

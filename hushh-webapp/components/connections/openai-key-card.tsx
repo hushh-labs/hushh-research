@@ -32,6 +32,7 @@ import {
 } from "@/lib/one/agent-update-approval";
 import {
   aiSelectionRefusalMessage,
+  aiSelectionClearFailureMessage,
   clearAgentAiSelectionFor,
   loadAgentAiState,
   sendAiSelectionToAgent,
@@ -286,11 +287,12 @@ function OwnerOpenAiKeyCard({
     setNotice(null);
     try {
       // Stop the agent first; a key it may still be using is never reported removed.
-      if ((await clearAgentAiSelectionFor(provider)) === "failed") {
+      const clearResult = await clearAgentAiSelectionFor(provider);
+      if (clearResult !== "cleared" && clearResult !== "not_needed") {
         if (ownerIsCurrent())
           setNotice({
             tone: "error",
-            text: "Your private agent could not be reached, so it may still use this key. Try again.",
+            text: aiSelectionClearFailureMessage(clearResult),
           });
         return;
       }

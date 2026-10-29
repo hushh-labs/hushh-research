@@ -115,6 +115,25 @@ it("requires owner app authority for scheduled work and permits only exact read/
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it("sends only bounded conditional-clear metadata through the owner app door", async () => {
+  const fetch = vi.fn(async () => Response.json({ status: "cleared" }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const connection = { endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic", role: "app", scopes: ["pod.config"] } };
+  pod.currentPodConnection.mockResolvedValue(connection);
+  const path = "ai-selection/clear-if-current";
+  const body = JSON.stringify({ expectedProvider: "gemini", expectedSelectionRevision: 2 });
+  await ownerPodRequest(path, { method: "POST", body }, ports);
+  expect(fetch).toHaveBeenCalledOnce();
+  fetch.mockClear();
+  await expect(ownerPodRequest(path, { method: "POST", body: JSON.stringify({
+    expectedProvider: "gemini", expectedSelectionRevision: 2, apiKey: "fixture",
+  }) }, ports)).rejects.toThrow("POD_AI_SELECTION_INVALID");
+  connection.session.scopes = ["pod.status"];
+  await expect(ownerPodRequest(path, { method: "POST", body }, ports)).rejects.toThrow("POD_AI_SELECTION_INVALID");
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("refuses a retired Stop before hosting dispatch and after deferred pod admission", async () => {
   let current = true;
   const fetch = vi.fn(async () => Response.json({ stopped: true }));

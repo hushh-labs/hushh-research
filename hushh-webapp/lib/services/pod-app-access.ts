@@ -57,6 +57,7 @@ const OWNER_POD_ROUTES = new Set([
   "turn/cancel",
   "puppy/models",
   "ai-selection",
+  "ai-selection/clear-if-current",
   "actions/gmail/proposals",
   "browser/capability",
   "browser/tasks",
@@ -260,6 +261,19 @@ export async function ownerPodRequest(
     });
     if (!podOwnerIsCurrent(admittedOwner))
       throw new Error("POD_OWNER_CHANGED");
+  }
+  if (route === "ai-selection/clear-if-current") {
+    let condition: Record<string, unknown> | null = null;
+    try {
+      if (typeof body === "string" && body.length <= 512) condition = JSON.parse(body);
+    } catch { /* Refuse malformed metadata before it leaves the device. */ }
+    if (method !== "POST" || session.role !== "app" || !session.scopes.includes("pod.config") ||
+      !condition || typeof condition !== "object" || Array.isArray(condition) ||
+      Object.keys(condition).sort().join(",") !== "expectedProvider,expectedSelectionRevision" ||
+      typeof condition.expectedProvider !== "string" ||
+      !["gemini", "openai", "azure_openai"].includes(condition.expectedProvider) ||
+      !Number.isSafeInteger(condition.expectedSelectionRevision) || Number(condition.expectedSelectionRevision) < 1)
+      throw new Error("POD_AI_SELECTION_INVALID");
   }
   refuseCancelled();
   refuseRetiredOwner(ports.isCurrent);

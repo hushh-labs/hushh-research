@@ -326,6 +326,19 @@ describe("OpenAiKeyCard", () => {
     expect(mocks.remove).not.toHaveBeenCalled();
   });
 
+  it.each(["recovery_pending", "outcome_unknown"])(
+    "keeps the saved key while the agent reports %s",
+    async (result) => {
+      mocks.loadAgentAiState.mockResolvedValue(IN_USE);
+      mocks.hasSavedKey.mockResolvedValue(true);
+      mocks.clearFor.mockResolvedValue(result);
+      renderCard();
+      fireEvent.click(await screen.findByRole("button", { name: "Remove key" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("key stays in your vault");
+      expect(mocks.remove).not.toHaveBeenCalled();
+    },
+  );
+
   it("asks for the vault before any key is taken", async () => {
     const props = renderCard({ vaultKey: null, needsUnlock: true });
     fireEvent.click(
