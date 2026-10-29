@@ -17,6 +17,34 @@ from tests.test_phone_rollback_release import release_plan as release_plan
 pytestmark = pytest.mark.feature_auth_reliability
 
 
+def test_operational_maintenance_prepares_locked_database_runtime_before_budget():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/capacity-maintenance.yml").read_text())
+    steps = workflow["jobs"]["cleanup"]["steps"]
+    setup = next(
+        step
+        for step in steps
+        if step.get("uses") == "./consent-protocol/.github/actions/setup-python-uv"
+    )
+    select = next(step for step in steps if step.get("name") == "Select maintenance Python runtime")
+    budget = next(
+        step for step in steps if step.get("name") == "Start the five-minute cleanup budget"
+    )
+    publish = next(
+        step
+        for step in steps
+        if "production_backend_successor_control.py apply" in step.get("run", "")
+    )
+    assert setup["if"] == select["if"] == "inputs.operational_backend_proof_run_id != ''"
+    assert setup["with"] == {
+        "python-version": "3.13",
+        "protocol-dir": "./consent-protocol",
+        "sync-dev-group": "false",
+    }
+    assert 'echo "$GITHUB_WORKSPACE/consent-protocol/.venv/bin" >> "$GITHUB_PATH"' in select["run"]
+    assert steps.index(setup) < steps.index(select) < steps.index(budget) < steps.index(publish)
+    assert "python3 scripts/ci/production_backend_successor_control.py apply" in publish["run"]
+
+
 @pytest.fixture
 def operational_plan(release_plan, monkeypatch):
     import operational_reference
