@@ -6,6 +6,7 @@ from hushh_mcp.services.drive_permission_executor import (
     DrivePermissionExecutor,
     verified_issuer,
 )
+from hushh_mcp.services.drive_rest_admission import scoped_job
 from hushh_mcp.services.drive_revocation_store import DriveRevocationStore
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -49,6 +50,11 @@ class DriveRevocationExecutor(DrivePermissionExecutor):
         job = await self.store.claim_revoke(user_id=user_id, operation_id=operation_id)
         if job is None:
             return "not_claimed"
+        return await self._revoke_job(job)
+
+    @scoped_job()
+    async def _revoke_job(self, job):
+        user_id = job["user_id"]
         dispatched = provider_succeeded = False
         try:
             async with asyncio.timeout(75):

@@ -7,7 +7,7 @@ import json
 import os
 import sys
 
-from verify_worker_revision import verify_revision
+from verify_worker_revision import verify_activity_controls, verify_revision
 
 
 def verify_v1_revision(
@@ -53,8 +53,9 @@ def verify_v1_revision(
 
 def main() -> int:
     try:
+        revision = json.load(sys.stdin)
         verify_v1_revision(
-            json.load(sys.stdin),
+            revision,
             sha=os.environ["EXPECTED_SHA"],
             image=os.environ["EXPECTED_APP_IMAGE"],
             scanner_index=os.environ["EXPECTED_SCANNER_INDEX_DIGEST"],
@@ -62,6 +63,11 @@ def main() -> int:
             drain_enabled=os.environ.get("EXPECTED_DRAIN_ENABLED", "true"),
             semantic_model_provider=os.environ.get("EXPECTED_SEMANTIC_MODEL_PROVIDER"),
             managed_text_provider=os.environ.get("EXPECTED_MANAGED_TEXT_PROVIDER"),
+        )
+        verify_activity_controls(
+            revision,
+            enabled=os.environ.get("EXPECTED_ACTIVITY_UNION_ENABLED"),
+            paused=os.environ.get("EXPECTED_ACTIVITY_UNION_PAUSED"),
         )
     except (
         KeyError,

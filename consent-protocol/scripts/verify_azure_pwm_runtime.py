@@ -400,6 +400,10 @@ async def _probe_managed_text() -> None:
     from scripts.probe_managed_text import probe_managed_text
 
     receipt = await probe_managed_text("azure_openai")
+    from scripts.probe_drive_activity_planner import probe_drive_activity_planner
+
+    planner_receipt = await probe_drive_activity_planner()
+    print(json.dumps({"drive_activity_planner_probe": planner_receipt}), flush=True)
     print(json.dumps({"managed_text_provider_probe": receipt}), flush=True)
     print(
         json.dumps({"azure_managed_text_contract": "ok", "scopes": len(receipt["scopes"])}),

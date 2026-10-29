@@ -26,6 +26,7 @@ from hushh_mcp.services.drive_permission_executor import (
     require_recipient_identity,
     verified_issuer,
 )
+from hushh_mcp.services.drive_rest_admission import scoped_job
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_telemetry import drive_logger
 from hushh_mcp.services.drive_work_wake import wake_drive_work
@@ -205,6 +206,7 @@ class DriveBulkShareWorker:
                     raise
                 await asyncio.sleep(0.2 * (2**attempt))
 
+    @scoped_job(background=False)
     async def _reconcile(self, job):
         try:
             credentials = await self._credential(job, reconcile=True)
@@ -290,6 +292,7 @@ class DriveBulkShareWorker:
         )
         return state
 
+    @scoped_job(background=False)
     async def _grant(self, job):
         require_current = hub_content_check(
             job["user_id"], partial(self.store.require_current, job)
@@ -319,14 +322,16 @@ class DriveBulkShareWorker:
             evidence = file.get("discoveryEvidence")
             from hushh_mcp.services.drive_request_discovery import DISCOVERY_PROVIDER_RESULTS_POLICY
 
-            await self.adapter.inspect_shareable(
+            inspection = await self.adapter.inspect_shareable(
                 **args,
                 metadata_period=(
                     {**evidence["period"], "date_basis": evidence["date_basis"]}
                     if evidence is not None
-                    and evidence.get("policy") != DISCOVERY_PROVIDER_RESULTS_POLICY
+                    and evidence.get("policy")
+                    not in {DISCOVERY_PROVIDER_RESULTS_POLICY, "drive_activity_union_v1"}
                     else None
                 ),
+                include_permissions=True,
                 expected_version=file.get("sourceVersion", "1"),
                 require_app_authorized=False,
                 require_genai_eligibility=False,
@@ -337,7 +342,13 @@ class DriveBulkShareWorker:
                 end_time="9999-12-31T23:59:59Z",
             )
             stage = "permissions"
-            before = await self.adapter.list_permissions(**args)
+            from hushh_mcp.services.google_drive_permission_adapter import PermissionSnapshot
+
+            before = (
+                inspection
+                if isinstance(inspection, PermissionSnapshot)
+                else await self.adapter.list_permissions(**args)
+            )
             stage = "recipient"
             await self.verify_recipient(recipient)
             existing = existing_individual_permission(before, email=recipient["email"])
@@ -356,15 +367,18 @@ class DriveBulkShareWorker:
                 return "preexisting"
             # No network await between durable dispatch marker and POST.
             stage = "dispatch"
-            expiration_time = await self.store.mark_dispatching(job)
-            dispatched = True
-            stage = "create"
-            created = await self.adapter.create_reader(
-                **args,
-                verified_email=recipient["email"],
-                send_notification_email=False,
-                **({"expiration_time": expiration_time} if expiration_time is not None else {}),
-            )
+            from hushh_mcp.services.drive_rest_admission import rest_admission
+
+            async with rest_admission(require_current):
+                expiration_time = await self.store.mark_dispatching(job)
+                dispatched = True
+                stage = "create"
+                created = await self.adapter.create_reader(
+                    **args,
+                    verified_email=recipient["email"],
+                    send_notification_email=False,
+                    **({"expiration_time": expiration_time} if expiration_time is not None else {}),
+                )
             provider_succeeded = True
             stage = "receipt"
             await self._settle_receipt(
@@ -445,6 +459,11 @@ class DriveBulkShareWorker:
                 error=safe,
                 retryable=retryable and not uncertain,
                 uncertain=uncertain,
+                **(
+                    {"deferred_until": error.deferred_until}
+                    if getattr(error, "deferred_until", None) is not None
+                    else {}
+                ),
                 **({"pending": pending} if pending is not None else {}),
             )
 
@@ -524,7 +543,7 @@ class DriveBulkShareWorker:
             job, delivered=type(attempted) is int and attempted > 0
         )
 
-    async def run(self, *, max_jobs=400, deadline_seconds=80, v1_only=False):
+    async def run(self, *, max_jobs=250, deadline_seconds=80, v1_only=False):
         if (
             type(max_jobs) is not int
             or not 1 <= max_jobs <= MAX_EFFECTS_PER_SLICE
