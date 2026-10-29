@@ -48,6 +48,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
         const hero = root.firstElementChild!;
         const cover = hero.firstElementChild!;
         const avatar = hero.querySelector('[data-slot="avatar"]')!;
+        const footer = hero.querySelector('[class*="heroFooter"]')!;
         const title = root.querySelector("h1")!;
         const section = root.querySelector("h2")!;
         const empty = [...root.querySelectorAll("section")].find(node => node.textContent === "Nothing shared yet")!;
@@ -60,6 +61,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
           return { left, width, height, top, bottom };
         };
         return { title: style(title), section: style(section), hero: style(hero), cover: rect(cover), avatar: rect(avatar),
+          footerBorder: getComputedStyle(footer).borderTopWidth,
           empty: rect(empty), shell: rect(root.parentElement!), heroBox: rect(hero), titleBox: rect(title),
           historyTitle: rect(root.querySelector('[class*="historyTitle"]')!),
           pagination: style(root.querySelector('[class*="pagination"] > span')!),
@@ -72,6 +74,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
       expect(geometry.cover.height).toBe(width < 768 ? 94 : 120);
       expect(geometry.avatar.width).toBe(width < 768 ? 64 : 76);
       expect(geometry.cover.bottom - geometry.avatar.top).toBe(width < 768 ? 24 : 30);
+      expect(geometry.footerBorder).toBe("0px");
       expect(geometry.titleBox.left - geometry.heroBox.left).toBe(width < 768 ? 17 : 25);
       expect(geometry.empty.height).toBe(width < 768 ? 62 : 68);
       expect(geometry.historyTitle.width).toBeGreaterThanOrEqual(160);
@@ -79,6 +82,9 @@ for (const width of [320, 393, 768, 1024, 1440]) {
       expect(geometry.pagination).toMatchObject({ size: "12px", line: "18px" });
       expect(geometry.shell.width).toBeLessThanOrEqual(880);
       const rect = await boxes(page);
+      expect(rect.connected.height).toBeGreaterThanOrEqual(44);
+      expect(rect.connected.top).toBeGreaterThanOrEqual(geometry.cover.bottom);
+      expect(rect.connected.right).toBeLessThanOrEqual(geometry.heroBox.left + geometry.heroBox.width);
       expect(rect.request.height).toBe(44);
       expect(rect.share.height).toBe(44);
       expect(Math.abs(rect.request.top - rect.share.top)).toBeLessThan(1);
@@ -97,7 +103,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
       expect(Math.abs(rect[taskIds[0]].top - rect[taskIds[1]].top)).toBeLessThan(1);
       if (width >= 1024) expect(Math.abs(rect[taskIds[0]].top - rect[taskIds[3]].top)).toBeLessThan(1);
       else expect(rect[taskIds[2]].top).toBeGreaterThanOrEqual(rect[taskIds[0]].bottom);
-      expect(rect.manage.top).toBeGreaterThanOrEqual(rect[taskIds[3]].bottom);
+      expect(rect.manage.top - rect[taskIds[3]].bottom).toBeGreaterThanOrEqual(12);
       expect(rect.manage.height).toBeGreaterThanOrEqual(44);
       expect(rect.review.height).toBe(44);
       expect(rect.review.width).toBeLessThan(250);
@@ -109,6 +115,17 @@ for (const width of [320, 393, 768, 1024, 1440]) {
       if (width === 393 && theme === "light") await page.screenshot({ path: testInfo.outputPath("profile-v16-lower.png") });
     });
   }
+}
+
+for (const width of [320, 1024]) {
+  test(`Connected menu stays usable below the cover at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    const trigger = page.getByRole("button", { name: "Connected, connection options" });
+    await trigger.click();
+    await expect(page.getByRole("menuitem", { name: "Remove connection" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+  });
 }
 
 for (const width of [320, 393]) {

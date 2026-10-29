@@ -116,10 +116,11 @@ Sources: [AppPageShell](../../components/app-ui/app-page-shell.tsx),
 | Cover | Height 94 / 120; top corners 19 / 23; separate phone/wide SVG canvases preserve shapes. |
 | Hero body | Padding `0 16px 6px` / `0 24px 10px`. |
 | Avatar | 64 / 76 square, border 4 / 5, overlaps cover 24 / 30. Canonical verified badge/photo/referrer/fallback retained; initials 22 / 24px, weight 600. |
+| Connection control | 44px target below the cover; at least 4px clearance on phones. Avatar overlap does not pull the control into the cover. |
 | Identity | Left aligned; name/actions margin top 10 / 13, bottom 16 / 22. Below 1024px actions follow identity with a 14px gap. |
 | Browse / Share / profile options | 44px targets; primary gap 8. Share border 1; shared primary button grammar. |
 | Task cards | Minimum 60, border 1, radius 14; icon 17 inside 28×30 / 30×32 well. Gap 8 / 9; trailing chevron 12 hidden on phone. Inner label may wrap. |
-| Footer | Wrapping row with border above, margin-top 14, padding-top 4, minimum 44px controls; Manage access is quiet/intrinsic. |
+| Footer | Wrapping row without a divider; margin-top 14 and minimum 44px controls. Manage access is quiet/intrinsic. |
 | Empty shared/history rows | Minimum 62 / 68, radius 16, horizontal icon/text; padding 13 / `16px 18px`; glyph 18 in padded well. |
 | Nested category row | Existing shared compact row, minimum 48, padding `8px 16px`, category icon 24 and chevron 16. |
 | Search/filter | Existing shared 44px capsule; icon 16, text inset 36. Filter retains its shared owner/minimum. |
@@ -166,7 +167,7 @@ authored gap; labels and server-returned rows may grow.
 │ name / role / contacts          Browse / Share (*)  │
 │ Request files | Ask about files | Ask a question |   │
 │ Request a card                                      │
-│ ───── Manage access / packets / relationship ──────  │
+│       Manage access / packets / relationship          │
 └─────────────────────────────────────────────────────┘
   Available packets, when eligible
   Shared with you

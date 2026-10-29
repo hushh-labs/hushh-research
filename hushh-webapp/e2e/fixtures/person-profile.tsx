@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { HelperText, RowLabel } from "@/components/app-ui/typography";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { PersonProfileHero, PersonProfileTaskContent, PersonProfileEmptyState } from "@/components/connections/person-profile-hero";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { FileText, MessageCircle, ShieldCheck, CreditCard, Share2, Settings, ChevronRight, LockKeyhole, Mail, Phone, MoreHorizontal } from "@/components/icons";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { FileText, MessageCircle, ShieldCheck, CreditCard, Share2, Settings, ChevronRight, ChevronDown, LockKeyhole, Mail, Phone } from "@/components/icons";
 import { Button } from "@/lib/morphy-ux/button";
 import { SectionCard, StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import type { ConsentScopeItem } from "@/lib/consent/consent-scope-items";
@@ -37,8 +39,17 @@ function Fixture() {
     <div className={styles.page} data-profile-fixture>
       <PersonProfileHero
         profile={{ displayName: "Aarav Sharma", verifiedRole: "Verified professional" }}
-        status={<StatusPill className={styles.status} tone="ready">Connected</StatusPill>}
-        options={<Button size="icon-touch" variant="none" effect="fade" className={styles.overflow} aria-label="Profile options"><MoreHorizontal /></Button>}
+        status={<DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <ShellActionSurface variant="pill" className={styles.connectionMenu} data-profile-role="action" aria-label="Connected, connection options" data-id="connected">
+              Connected
+              <ChevronDown className="h-3 w-3" aria-hidden="true" />
+            </ShellActionSurface>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem variant="destructive">Remove connection</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>}
         contacts={<><a href="mailto:aarav@example.test"><Mail aria-hidden="true" /><span dir="auto">aarav@example.test</span></a><a href="tel:+14155550100"><Phone aria-hidden="true" /><span dir="auto">+14155550100</span></a></>}
         primaryActions={<><Button size="compact" data-id="request"><FileText aria-hidden="true" />Browse</Button><Button size="compact" variant="none" effect="fade" className={styles.share} aria-label="Share profile" data-id="share"><Share2 aria-hidden="true" />Share</Button></>}
         tasks={<>{[
