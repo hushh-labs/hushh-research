@@ -899,7 +899,7 @@ readiness or model calls caused by an explicitly exercised product journey.
 
 | Trigger | Branches | Behavior |
 |--------|-----------|----------|
-| Pull request | All branches (`**`) | `PR Validation` medium-depth CI (path-filtered) |
+| Pull request | `main`, `dev`, `uat`, `integration/pr-train` | `PR Validation` (`pull_request_target`) medium-depth CI (path-filtered) |
 | Merge queue | `main`, `integration/pr-train`, `dev`, `uat` | `Queue Validation` pass-through: reports `CI Status Gate` on the merge group only when its tree equals the PR head's tree and PR Validation passed on that head; plus `Base Freshness Gate` |
 | Push | `main` | `Main Post-Merge Smoke` compact deploy-authority smoke |
 | Manual | Any | `PR Validation` `workflow_dispatch` with scope `auto` (default) \| `all` \| `frontend` \| `backend`; see [Dispatched runs](#dispatched-runs) |
@@ -963,7 +963,7 @@ file to the `editor` filter in the same change.
 
 ### Duplicate-Run Policy
 
-Feature and hotfix branches intentionally rely on `pull_request` CI only. `Base Freshness Gate` blocks a PR whose merge-base is over 24 h old, or whose files `main` changed after the base its checks tested (see below), and `main` then runs a smaller smoke bundle (`Main Post-Merge Smoke`) on the real landed SHA.
+Feature and hotfix branches use the Main-owned `pull_request_target` controller for protected release bases. It checks out the exact synthetic PR merge ref for tests, gives candidate jobs read-only checkout authority, and keeps security and repository-governance work on separate Main-owned jobs. Candidate jobs receive no protected secrets or OIDC authority, and shared caches are unavailable to PR-target runs. `Base Freshness Gate` blocks a PR whose merge-base is over 24 h old, or whose files `main` changed after the base its checks tested (see below), and `main` then runs a smaller smoke bundle (`Main Post-Merge Smoke`) on the real landed SHA.
 
 ### Base freshness on pull requests
 
@@ -976,7 +976,7 @@ Feature and hotfix branches intentionally rely on `pull_request` CI only. `Base 
    `MAIN_SYNC_MAX_AGE_HOURS` (24) old, or when, after the base the PR's checks
    tested, `main` changed a file the PR also changes. The log and the step
    summary list up to 20 such paths. The tested base is the first parent of the
-   `refs/pull/N/merge` commit (`github.sha`) that every lane checks out. When it
+   `refs/pull/N/merge` commit that every candidate lane checks out. When it
    cannot be resolved, the merge-base stands in, which counts every `main`
    change the branch lacks.
 3. Otherwise it passes with a warning and a step summary: how many commits
@@ -1311,8 +1311,8 @@ Tests follow the same economy: add a test only for a real regression, a trust bo
 ## Branch Lanes
 
 1. **Dev intake** is the default for new development. Preserve existing `integration/pr-train` work and protection. Governed maintainers retain direct Main operations/hotfix authority under Admin SOP.
-2. Release workflows run from Main. Dev accepts an exact CI-green branch SHA through the [Dev Fast Lane](./dev-fast-lane.md).
-3. UAT deploys by explicit manual dispatch through `.github/workflows/deploy-uat.yml`. The application can be a qualified Main or protected UAT SHA; current admission requires exact Dev acceptance for each selected service. A Main application also requires its landed Main smoke.
+2. Release workflows run from Main. Dev accepts an exact CI-green branch SHA through the [Dev Fast Lane](./dev-fast-lane.md). A healthy Shared Dev release writes an annotated receipt to `deployed/dev-attempt/<run-id>-<attempt>`; full UAT and One Chat use `deployed/uat-attempt/<run-id>-<attempt>`. Each tag carries the sanitized receipt, exact application SHA, workflow identity, attempt number, and receipt digest. The required `immutable deployment attempt receipts` ruleset is defined in `config/ci-governance.json`; when active, it blocks tag updates and deletions without bypass actors. Verify that the live ruleset is active before relying on the refs as immutable, with `python3 scripts/ci/verify-attempt-tag-ruleset.py`, and reconcile it with `python3 scripts/ci/apply-governance.py --attempt-tags --apply`. Each writer signs the exact sanitized receipt bytes with GitHub artifact provenance, and readers verify the Main workflow identity, source ref, subject digest, and run attempt before accepting the tag. Production predecessor admission reads full UAT and Shared Dev tags and does not depend on Actions artifact retention.
+3. UAT deploys by explicit manual dispatch through `.github/workflows/deploy-uat.yml`. The application can be a qualified Main or protected UAT SHA; current admission requires exact Dev acceptance for each selected service. A Main application also requires its landed Main smoke. The workflow snapshots the serving predecessor before resolving either an automatic or exact-SHA target, and both target modes must advance from that predecessor. After the deploy job acquires its mutation lock, it rechecks the captured identity (excluding only its own exact pending attempt) before starting release work. One Chat and rollback deployments participate in the mutation baseline; read-only UAT environment records do not. Unknown or unhealthy predecessors block selection. A changed or unreadable predecessor blocks the queued attempt so it must be selected again against current evidence.
 4. Manual UAT dispatch is limited to the current
    `uat.manual_dispatch_users` cohort in `config/ci-governance.json`; do not
    transcribe actor names into this document.
@@ -1323,13 +1323,15 @@ Tests follow the same economy: add a test only for a real regression, a trust bo
 Deploy to UAT is expected to behave as a closed-loop release lane:
 
 1. start from an explicitly chosen, qualified application SHA and its required Dev acceptance
-2. sync canonical secrets
-3. capture last healthy revisions
-4. deploy changed surfaces
-5. verify runtime mounts and semantic behavior
-6. retry once on transient readiness
-7. roll back only the failing changed surface
-8. publish release artifacts with revisions, reports, and final status
+2. capture the UAT mutation baseline before resolving that SHA, then recheck the same baseline under the deployment lock
+3. require the selected SHA to descend from each serving service source; One Chat releases use their exact successful run-attempt receipt tag and verify its GitHub attestation. Artifact fallback is allowed only for attempts whose job history predates the durable receipt writer.
+4. sync canonical secrets
+5. capture last healthy revisions
+6. deploy changed surfaces
+7. verify runtime mounts and semantic behavior
+8. retry once on transient readiness
+9. roll back only the failing changed surface
+10. publish release artifacts with revisions, reports, and final status
 
 UAT text recovery starts one exact-image execution and observes its identity to
 terminal state before removing the temporary Job. Its 420-second controller
@@ -1451,17 +1453,17 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 
 ## Build Caches
 
-GitHub scopes an Actions cache to the ref that saved it. An entry saved by a
-`pull_request` run lives under `refs/pull/<N>/merge`, and no other pull request
-can restore it. An entry saved on `main` can be restored by every pull request.
+GitHub scopes an Actions cache to the ref that saved it. A PR-target run checks
+out `refs/pull/<N>/merge`, but candidate jobs neither restore nor write shared
+caches. Only Main-ref push and Main-ref dispatch runs may use the shared entries.
 All entries share the repository's 10 GB budget. GitHub evicts an entry that
 nobody restores for 7 days, and over 10 GB it evicts the least recently used
 entries first. At 20:00Z on 2026-10-14 the budget held 10.65 GB, and
 pull-request Next.js entries that no other pull request could restore were
 5.50 GB of it.
 
-The two large build caches are therefore saved on `main` only, and only when
-the key is new. `PR Validation` restores them with `actions/cache/restore`:
+The two large build caches are saved on `main` only, and only when the key is
+new. `PR Validation` uses them only for a Main-ref push or Main-ref dispatch:
 
 | Cache | Saved by | Restored by | Key |
 |---|---|---|---|

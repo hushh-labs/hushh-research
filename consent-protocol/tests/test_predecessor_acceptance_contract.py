@@ -1,6 +1,5 @@
 """Exact-SHA predecessor acceptance across the dev, UAT and production lanes."""
 
-import hashlib
 import importlib
 import json
 import os
@@ -8,11 +7,9 @@ import re
 import shutil
 import subprocess
 import sys
-from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
-from zipfile import ZipFile
 
 import pytest
 import yaml
@@ -120,72 +117,25 @@ def test_predecessor_requires_exact_application_sha_and_pinned_dev_chain():
         client.accept(pins["uat"], "uat", SHA, "backend")
 
 
-@pytest.mark.parametrize(
-    "case",
-    [
-        "valid",
-        "historical",
-        "frontend_only",
-        "repository",
-        "digest",
-        "unverified",
-        "partial",
-        "pin",
-        "failed_attempt",
-    ],
-)
-def test_backend_image_is_bound_to_the_selected_accepted_attempt(case, tmp_path, monkeypatch):
+def test_discovery_keeps_qualified_attempt_after_a_failed_rerun(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
     module, client, receipts, responses, pins = _acceptance_fixture()
-    observed = receipts["dev"]["provenance"]["backend"]["checked_revisions"][0]
-    image = "gcr.io/hushh-pda-dev/consent-protocol@sha256:" + "a" * 64
-    proof = {"image_reference": image, "image_digest": "sha256:" + "a" * 64, "image_verified": True}
-    if case == "frontend_only":
-        receipts["dev"]["provenance"]["frontend"]["checked_revisions"][0].update(proof)
-    elif case != "historical":
-        observed.update(proof)
-    if case == "repository":
-        observed["image_reference"] = image.replace("hushh-pda-dev", "hushh-pda-uat")
-    elif case == "digest":
-        observed["image_digest"] = "sha256:" + "b" * 64
-    elif case == "unverified":
-        observed["image_verified"] = False
-    elif case == "partial":
-        observed.pop("image_reference")
-    elif case == "pin":
-        pins["dev"]["image_reference"] = image.replace("a" * 64, "b" * 64)
-    elif case == "failed_attempt":
-        responses["runs/10/attempts/2"]["conclusion"] = "failure"
-    archive = BytesIO()
-    with ZipFile(archive, "w") as bundle:
-        bundle.writestr("acceptance.json", json.dumps(receipts["dev"]))
-    digest = "sha256:" + hashlib.sha256(archive.getvalue()).hexdigest()
-    responses["artifacts/11/zip"] = archive.getvalue()
-    responses["artifacts/11"].update(digest=digest, size_in_bytes=len(archive.getvalue()))
-    pins["dev"]["artifact_digest"] = digest
-    predecessor = tmp_path / "predecessor.json"
-    predecessor.write_text(
-        json.dumps(
-            {
-                "status": "accepted",
-                "environment": "dev",
-                "sha": SHA,
-                "services": {"backend": pins["dev"]},
-            }
-        )
+    monkeypatch.setattr(
+        module, "verify_durable_attempt_attestation", lambda *_args, **_kwargs: None
     )
-    monkeypatch.setattr(module, "GitHub", lambda: client)
-    args = SimpleNamespace(environment="dev", sha=SHA, predecessor=predecessor)
-    if case not in {"valid", "historical", "frontend_only"}:
-        with pytest.raises(module.Refused):
-            module.pinned_backend_image(args)
-    else:
-        accepted = module.pinned_backend_image(args)
-        assert accepted["run_attempt"] == 2 and accepted["artifact_id"] == 11
-        assert accepted.get("image_reference") == (image if case == "valid" else None)
-
-
-def test_discovery_keeps_qualified_attempt_after_a_failed_rerun():
-    module, client, _, responses, pins = _acceptance_fixture()
+    writer = importlib.import_module("uat_attempt_receipt")
+    tag_name = "deployed/dev-attempt/10-2"
+    tag_sha = "d" * 40
+    message = writer.build_tag_message(
+        kind="full",
+        run_id=10,
+        attempt=2,
+        repository=module.REPOSITORY,
+        workflow=".github/workflows/deploy-dev.yml",
+        target_sha=SHA,
+        raw=json.dumps(receipts["dev"], sort_keys=True).encode(),
+        environment="dev",
+    )
     query = "workflows/deploy-dev.yml/runs?branch=main&event=workflow_dispatch&per_page=50&page=1"
     responses[query] = {
         "workflow_runs": [{"id": 10, "run_attempt": 3, "conclusion": "failure"}],
@@ -202,12 +152,28 @@ def test_discovery_keeps_qualified_attempt_after_a_failed_rerun():
         "run_attempt": 3,
         "conclusion": "failure",
     }
+
+    def read_repository(path):
+        if path == "git/matching-refs/tags/deployed/dev-attempt/10-":
+            return [{"ref": f"refs/tags/{tag_name}", "object": {"type": "tag", "sha": tag_sha}}]
+        if path == f"git/ref/tags/{tag_name}":
+            return {"ref": f"refs/tags/{tag_name}", "object": {"type": "tag", "sha": tag_sha}}
+        if path == f"git/tags/{tag_sha}":
+            return {
+                "tag": tag_name,
+                "object": {"type": "commit", "sha": SHA},
+                "message": message,
+            }
+        raise AssertionError("unexpected repository lookup: " + path)
+
+    client.read_repository = read_repository
     result = client.find("dev", SHA, "all")
     assert result["status"] == "accepted"
     assert set(result["services"]) == {"backend", "frontend"}
     assert all(
         pin["run_attempt"] == pins["dev"]["run_attempt"] for pin in result["services"].values()
     )
+    assert all(pin["durable_tag"] == tag_name for pin in result["services"].values())
     responses["runs/10/attempts/2"]["conclusion"] = "failure"
     with pytest.raises(module.Refused, match="No complete healthy predecessor"):
         client.find("dev", SHA, "all")

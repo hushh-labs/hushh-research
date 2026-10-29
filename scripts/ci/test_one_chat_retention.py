@@ -13,7 +13,7 @@ from unittest import mock
 maintenance = importlib.import_module("uat-retention-maintenance")
 
 
-class OneChatRetentionTest(unittest.TestCase):
+class OneChatRetentionFixture:
     def setUp(self) -> None:
         self.backend = "consent-protocol-02121-abc"
         self.old_backend = "consent-protocol-02118-yed"
@@ -57,6 +57,7 @@ class OneChatRetentionTest(unittest.TestCase):
 
     def load(self, report: dict) -> dict:
         with tempfile.TemporaryDirectory() as temporary:
+
             def download(_repo, _run_id, _name, directory):
                 directory.mkdir(parents=True)
                 (directory / "uat-one-chat-release.json").write_text(json.dumps(report))
@@ -78,7 +79,11 @@ class OneChatRetentionTest(unittest.TestCase):
                 )
                 return release
 
-    def test_replayed_release_composes_independent_backend_and_frontend_provenance(self):
+
+class OneChatReceiptRetentionTest(OneChatRetentionFixture, unittest.TestCase):
+    def test_replayed_release_composes_independent_backend_and_frontend_provenance(
+        self,
+    ):
         release = self.load(self.report)
         self.assertEqual(release["final"]["backend_revision"], self.backend)
         self.assertEqual(release["final"]["frontend_revision"], self.frontend)
@@ -95,6 +100,65 @@ class OneChatRetentionTest(unittest.TestCase):
             },
         )
 
+    def test_rerun_uses_only_its_exact_attempt_artifact(self):
+        self.run["run_attempt"] = 2
+        report = copy.deepcopy(self.report)
+        report["attempt"] = 2
+        expected_name = f"{maintenance.ONE_CHAT_ARTIFACT}-2"
+        looked_up = []
+        downloaded = []
+        with tempfile.TemporaryDirectory() as temporary:
+
+            def exists(_repository, _run_id, name):
+                looked_up.append(name)
+                return name == expected_name
+
+            def download(_repository, _run_id, name, directory):
+                downloaded.append(name)
+                directory.mkdir(parents=True)
+                (directory / "uat-one-chat-release.json").write_text(json.dumps(report))
+
+            with (
+                mock.patch.object(maintenance, "artifact_exists", side_effect=exists),
+                mock.patch.object(maintenance, "download", side_effect=download),
+                mock.patch.object(
+                    maintenance,
+                    "prior_healthy_uat_release",
+                    return_value=(200, self.owner),
+                ),
+            ):
+                release = maintenance.load_one_chat_release(
+                    "org/repo", self.run, pathlib.Path(temporary)
+                )
+        self.assertEqual(looked_up, [expected_name])
+        self.assertEqual(downloaded, [expected_name])
+        self.assertEqual(release["final"]["backend_revision"], self.backend)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            with (
+                mock.patch.object(
+                    maintenance,
+                    "artifact_exists",
+                    side_effect=lambda _repository, _run_id, name: (
+                        name == maintenance.ONE_CHAT_ARTIFACT
+                    ),
+                ),
+                mock.patch.object(
+                    maintenance,
+                    "download",
+                    side_effect=AssertionError(
+                        "a rerun must not fall back to the legacy artifact"
+                    ),
+                ),
+            ):
+                self.assertIsNone(
+                    maintenance.load_one_chat_release(
+                        "org/repo",
+                        {**self.run, "run_attempt": 3},
+                        pathlib.Path(temporary),
+                    )
+                )
+
     def test_bad_receipts_do_not_authorize_cleanup(self):
         changes = (
             ("run_id", "301"),
@@ -103,7 +167,10 @@ class OneChatRetentionTest(unittest.TestCase):
             ("final_traffic", {self.old_backend: 100}),
             ("temporary_probe_job_deleted", False),
             ("probe", {"one_chat_probe_ok": False}),
-            ("probe", {"one_chat_probe_ok": True, "one_chat_project": "unrelated-project"}),
+            (
+                "probe",
+                {"one_chat_probe_ok": True, "one_chat_project": "unrelated-project"},
+            ),
         )
         for field, value in changes:
             with self.subTest(field=field):
@@ -118,7 +185,9 @@ class OneChatRetentionTest(unittest.TestCase):
             with self.subTest(project=project):
                 report = copy.deepcopy(self.report)
                 report["probe"]["one_chat_project"] = project
-                self.assertEqual(self.load(report)["final"]["backend_revision"], self.backend)
+                self.assertEqual(
+                    self.load(report)["final"]["backend_revision"], self.backend
+                )
 
     def test_receipt_project_follows_the_profile_when_it_moves(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -137,11 +206,15 @@ class OneChatRetentionTest(unittest.TestCase):
                         report["probe"]["one_chat_project"] = project
                         if trusted:
                             release = self.load(report)
-                            self.assertEqual(release["final"]["backend_revision"], self.backend)
+                            self.assertEqual(
+                                release["final"]["backend_revision"], self.backend
+                            )
                         else:
                             with self.assertRaises(maintenance.retention.UnsafeState):
                                 self.load(report)
 
+
+class OneChatHistoryRetentionTest(OneChatRetentionFixture, unittest.TestCase):
     def test_latest_one_chat_source_wins_over_older_standard_release(self):
         standard = {
             **self.run,
@@ -159,11 +232,17 @@ class OneChatRetentionTest(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as temporary,
             mock.patch.object(maintenance, "api", side_effect=api),
-            mock.patch.object(maintenance, "load_one_chat_release", return_value=self.load(self.report)),
+            mock.patch.object(
+                maintenance,
+                "load_one_chat_release",
+                return_value=self.load(self.report),
+            ),
             mock.patch.object(
                 maintenance.retention,
                 "service_state",
-                side_effect=AssertionError("pre-auth source selection cannot access Cloud Run"),
+                side_effect=AssertionError(
+                    "pre-auth source selection cannot access Cloud Run"
+                ),
             ),
         ):
             source = maintenance.find_release(
@@ -230,7 +309,9 @@ class OneChatRetentionTest(unittest.TestCase):
                     mock.patch.object(
                         maintenance,
                         "live_release_matches",
-                        side_effect=lambda release, live=live, **_kwargs: live and release is live_release,
+                        side_effect=lambda release, live=live, **_kwargs: (
+                            live and release is live_release
+                        ),
                     ),
                 ):
                     found = maintenance.find_release(
@@ -262,28 +343,48 @@ class OneChatRetentionTest(unittest.TestCase):
             provenance = release["_maintenance_lane_provenance"][
                 "backend" if backend else "frontend"
             ]
-            return [{
-                "metadata": {
-                    "name": self.backend if backend else self.frontend,
-                    "labels": {
-                        "deploy-sha": provenance["sha"],
-                        "github-run-id": str(provenance["run_id"]),
-                        "deploy-source": "deploy-uat-one-chat" if backend else "deploy-uat",
+            return [
+                {
+                    "metadata": {
+                        "name": self.backend if backend else self.frontend,
+                        "labels": {
+                            "deploy-sha": provenance["sha"],
+                            "github-run-id": str(provenance["run_id"]),
+                            "deploy-source": "deploy-uat-one-chat"
+                            if backend
+                            else "deploy-uat",
+                        },
                     },
-                },
-                "spec": {"containers": [{
-                    "image": "gcr.io/hushh-pda-uat/app@sha256:" + "a" * 64,
-                    "env": [
-                        {"name": "HUSHH_DEPLOY_SHA", "value": provenance["sha"]},
-                        {"name": "HUSHH_DEPLOY_SOURCE", "value": "deploy-uat-one-chat" if backend else "deploy-uat"},
-                    ],
-                }]},
-                "status": {"conditions": [{"type": "Ready", "status": "True"}]},
-            }]
+                    "spec": {
+                        "containers": [
+                            {
+                                "image": "gcr.io/hushh-pda-uat/app@sha256:" + "a" * 64,
+                                "env": [
+                                    {
+                                        "name": "HUSHH_DEPLOY_SHA",
+                                        "value": provenance["sha"],
+                                    },
+                                    {
+                                        "name": "HUSHH_DEPLOY_SOURCE",
+                                        "value": "deploy-uat-one-chat"
+                                        if backend
+                                        else "deploy-uat",
+                                    },
+                                ],
+                            }
+                        ]
+                    },
+                    "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+                }
+            ]
 
         with (
-            mock.patch.object(maintenance.retention, "service_state", side_effect=state),
-            mock.patch.object(maintenance.retention, "revision_state", side_effect=revision_state),
+            mock.patch.object(
+                maintenance.retention, "service_state", side_effect=state
+            ),
+            mock.patch.object(
+                maintenance.retention, "revision_state", side_effect=revision_state
+            ),
         ):
             self.assertTrue(maintenance.live_release_matches(release))
             forged = copy.deepcopy(release)

@@ -60,6 +60,12 @@ jobs:
     name: Deploy only consent-protocol
     needs: wait-capacity
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+      attestations: read
+      id-token: write
     concurrency:
       group: deploy-uat
       cancel-in-progress: false
@@ -100,6 +106,8 @@ jobs:
           cp config/runtime-capacity.json "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json"
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py"
+          cp scripts/ci/release_acceptance_contract.py "${RUNNER_TEMP}/release-tools/release_acceptance_contract.py"
+          cp scripts/ci/uat_attempt_receipt.py "${RUNNER_TEMP}/release-tools/uat_attempt_receipt.py"
           cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
 
@@ -186,6 +194,46 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: uat-one-chat-backend-release
+          name: uat-one-chat-backend-release-${{ github.run_attempt }}
           path: ${{ runner.temp }}/uat-one-chat-*.json
           if-no-files-found: error
+
+
+  persist-uat-one-chat-attempt:
+    name: Persist and attest exact One Chat UAT attempt receipt
+    needs: deploy
+    if: needs.deploy.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: write
+      actions: read
+      attestations: write
+      id-token: write
+    steps:
+      - name: Checkout protected Main receipt tooling
+        uses: actions/checkout@v6
+        with:
+          ref: refs/heads/main
+          persist-credentials: true
+      - name: Download exact One Chat UAT attempt receipt
+        uses: actions/download-artifact@v4
+        with:
+          name: uat-one-chat-backend-release-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/one-chat-release
+      - name: Persist immutable exact-attempt receipt
+        env:
+          TARGET_SHA: ${{ inputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$TARGET_SHA"
+          python3 scripts/ci/uat_attempt_receipt.py tag \
+            --kind one-chat --environment uat \
+            --receipt "${RUNNER_TEMP}/one-chat-release/uat-one-chat-release.json"
+      - name: Attest exact One Chat UAT receipt
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/one-chat-release/uat-one-chat-release.json
+          create-storage-record: false
+          show-summary: false

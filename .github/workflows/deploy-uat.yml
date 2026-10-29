@@ -116,9 +116,11 @@ jobs:
       checks: read
       deployments: read
       actions: read
+      attestations: read
     outputs:
       sha: ${{ steps.resolve-sha.outputs.sha }}
       decision: ${{ steps.resolve-sha.outputs.decision }}
+      uat_baseline: ${{ steps.uat-baseline.outputs.snapshot }}
     steps:
       - name: Assert manual dispatch originates from main
         shell: bash
@@ -138,14 +140,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          # Explicit selection does not read history. Automatic selection and
-          # the later admission job retain full history for ancestry/deltas.
-          fetch-depth: ${{ inputs.sha != '' && 1 || 0 }}
+          # Automatic and exact-SHA selection both prove descent from serving UAT.
+          fetch-depth: 0
           ref: main
 
 
       - name: Assert manual UAT dispatch actor policy
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${{ github.actor }}"
+
+      - name: Capture exact UAT predecessor identity
+        id: uat-baseline
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node hushh-webapp/scripts/ci/select-uat-target.mjs --capture-uat-baseline --github-output
 
       - name: Resolve deployment SHA
         id: resolve-sha
@@ -165,6 +172,13 @@ jobs:
             exit 0
           fi
           node hushh-webapp/scripts/ci/select-uat-target.mjs --limit 20 --github-output --allow-no-op
+
+      - name: Verify selected SHA advances from serving UAT
+        if: steps.resolve-sha.outputs.decision == 'DEPLOY_EXACT_SHA'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
+        run: node hushh-webapp/scripts/ci/select-uat-target.mjs --assert-forward-from-uat "$APPLICATION_SHA"
 
       - name: Validate one-time Vertex probe exception
         if: inputs.skip_managed_vertex_probe_once
@@ -251,6 +265,13 @@ jobs:
       group: deploy-uat
       cancel-in-progress: false
       queue: max
+    permissions:
+      contents: write
+      checks: read
+      actions: read
+      deployments: read
+      attestations: read
+      id-token: write
     environment: uat
     env:
       UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
@@ -270,6 +291,15 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
+
+      - name: Recheck UAT predecessor identity under the deployment lock
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_UAT_BASELINE: ${{ needs.select-target.outputs.uat_baseline }}
+        run: |
+          set -euo pipefail
+          node hushh-webapp/scripts/ci/select-uat-target.mjs \
+            --check-uat-baseline "$EXPECTED_UAT_BASELINE"
 
       - name: Require reconciled maintenance mutations under deployment lock
         env:
@@ -333,6 +363,8 @@ jobs:
             consent-protocol/api/routes/document_delivery.py \
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/release_acceptance_contract.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/uat_attempt_receipt.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
@@ -3890,3 +3922,42 @@ jobs:
             echo "UAT release finished with status: $STATUS"
             exit 1
           fi
+
+  persist-uat-attempt:
+    name: Persist and attest exact UAT attempt receipt
+    needs: [select-target, deploy]
+    if: needs.deploy.result == 'success' && needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: write
+      actions: read
+      attestations: write
+      id-token: write
+    steps:
+      - name: Checkout protected Main receipt tooling
+        uses: actions/checkout@v6
+        with:
+          ref: refs/heads/main
+          persist-credentials: true
+      - name: Download exact UAT attempt receipt
+        uses: actions/download-artifact@v4
+        with:
+          name: release-acceptance-uat-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/uat-acceptance
+      - name: Persist immutable exact-attempt receipt
+        env:
+          TARGET_SHA: ${{ needs.select-target.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$TARGET_SHA"
+          python3 scripts/ci/uat_attempt_receipt.py tag \
+            --kind full --environment uat \
+            --receipt "${RUNNER_TEMP}/uat-acceptance/acceptance.json"
+      - name: Attest exact UAT acceptance receipt
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/uat-acceptance/acceptance.json
+          create-storage-record: false
+          show-summary: false

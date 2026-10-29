@@ -29,6 +29,15 @@ _CONFIG = importlib.util.module_from_spec(_CONFIG_SPEC)
 _CONFIG_SPEC.loader.exec_module(_CONFIG)
 _MANAGED_PROFILE = _CONFIG.load_profile("uat")
 CHAT_PROJECT = _MANAGED_PROFILE["project"]
+_FAILURE_SPEC = importlib.util.spec_from_file_location(
+    "uat_one_chat_release_failure",
+    Path(__file__).with_name("uat_one_chat_release_failure.py"),
+)
+if not _FAILURE_SPEC or not _FAILURE_SPEC.loader:
+    raise RuntimeError("One Chat release failure handler is unavailable")
+_FAILURE = importlib.util.module_from_spec(_FAILURE_SPEC)
+_FAILURE_SPEC.loader.exec_module(_FAILURE)
+handle_failed_release = _FAILURE.handle_failed_release
 SOURCE = "deploy-uat-one-chat"
 PROBE_RUNTIME_ENV = {
     "HUSHH_GENAI_AUTH_MODE": "vertex_adc",
@@ -64,7 +73,17 @@ ALLOWED_PATHS = frozenset(
         "deploy/backend.cloudbuild.yaml",
         "deploy/README.md",
         "hushh-webapp/scripts/ci/select-uat-target.mjs",
-        "hushh-webapp/__tests__/services/uat-target-selection.test.ts",
+        "hushh-webapp/__tests__/services/uat-target-selection-cli-fixture.ts",
+        "hushh-webapp/__tests__/services/uat-target-selection-cli-baseline.test.ts",
+        "hushh-webapp/__tests__/services/uat-target-selection-cli-history.test.ts",
+        "hushh-webapp/__tests__/services/uat-target-selection-cli-candidate.test.ts",
+        "hushh-webapp/__tests__/services/uat-target-selection-policy.test.ts",
+        "hushh-webapp/scripts/ci/uat-release-receipts.mjs",
+        "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ci/release_acceptance_contract.py",
+        "scripts/ci/uat_attempt_receipt.py",
+        "scripts/ci/uat_one_chat_release_failure.py",
+        "scripts/ci/uat-retention-maintenance.py",
         "scripts/ci/uat_one_chat_backend_release.py",
     }
 )
@@ -91,7 +110,10 @@ def backend_release_input(path: str) -> bool:
         return not relative.endswith(".md") or relative.startswith("hushh_mcp/agents/")
     return (
         path.startswith("contracts/")
-        or path.startswith("scripts/ci/")
+        or (
+            path.startswith("scripts/ci/")
+            and not path.removeprefix("scripts/ci/").startswith("test_")
+        )
         or path
         in {
             ".gcloudignore",
@@ -763,6 +785,7 @@ def main() -> int:
         "service": SERVICE,
         "target_sha": target_sha,
         "run_id": run_id,
+        "attempt": int(attempt) if attempt.isdecimal() else attempt,
         "status": "blocked",
     }
     old_revision = ""
@@ -800,57 +823,20 @@ def main() -> int:
         report["status"] = "success"
         return 0
     except Exception as exc:  # noqa: BLE001 - preserve release evidence and rollback
-        report["error"] = f"{type(exc).__name__}: {exc}"
-        print(report["error"], file=sys.stderr)
-        if old_revision:
-            try:
-                service = service_state()
-                tagged = [
-                    entry
-                    for entry in (service.get("status") or {}).get("traffic") or []
-                    if entry.get("tag") == tag
-                ]
-                if tagged and not candidate:
-                    candidate = str(tagged[0].get("revisionName") or "")
-                    if candidate:
-                        report["candidate_revision"] = candidate
-                report["candidate_tag_removed"] = remove_candidate_tag(tag)
-            except Exception as cleanup_error:  # noqa: BLE001 - retain rollback attempt
-                report["candidate_tag_cleanup_error"] = str(cleanup_error)
-        if old_revision and candidate:
-            try:
-                traffic = live_traffic()
-                if set(traffic) - {old_revision, candidate}:
-                    raise RuntimeError(
-                        "Unknown revision receives backend traffic; refusing rollback"
-                    )
-                if traffic.get(candidate, 0) > 0:
-                    command(
-                        "gcloud",
-                        "run",
-                        "services",
-                        "update-traffic",
-                        SERVICE,
-                        f"--project={PROJECT}",
-                        f"--region={REGION}",
-                        f"--to-revisions={old_revision}=100",
-                        "--quiet",
-                    )
-                    if live_traffic() != {old_revision: 100}:
-                        raise RuntimeError(
-                            "Rollback did not restore 100% old backend traffic"
-                        )
-                    report["rollback"] = True
-                    report["status"] = "rolled_back"
-            except Exception as rollback_error:  # noqa: BLE001 - include failure in receipt
-                report["rollback_error"] = str(rollback_error)
-                report["status"] = "rollback_failed"
-        if (
-            "candidate_tag_cleanup_error" in report
-            and report["status"] != "rollback_failed"
-        ):
-            report["status"] = "cleanup_failed"
-        return 1
+        return handle_failed_release(
+            report,
+            old_revision,
+            candidate,
+            tag,
+            exc,
+            service_state=service_state,
+            remove_candidate_tag=remove_candidate_tag,
+            live_traffic=live_traffic,
+            command=command,
+            service=SERVICE,
+            project=PROJECT,
+            region=REGION,
+        )
     finally:
         if "final_traffic" not in report or report["status"] != "success":
             try:

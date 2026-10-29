@@ -466,6 +466,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     )
     for companion in (
         "resolve-deploy-scope.py",
+        "release_acceptance_contract.py",
         "release_acceptance_provenance.py",
         "production_emergency.py",
         "require-deploy-sha-on-main.sh",
@@ -482,6 +483,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
                 "resolve-cloud-run-deploy-revision.py",
                 "resolve-uat-verified-image.py",
                 "verify-predecessor-acceptance.py",
+                "release_acceptance_contract.py",
                 "release_acceptance_provenance.py",
                 "resolve-deploy-scope.py",
                 "production_emergency.py",

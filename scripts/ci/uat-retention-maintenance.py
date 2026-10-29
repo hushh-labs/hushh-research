@@ -690,32 +690,38 @@ def one_chat_vertex_projects() -> frozenset[str]:
     return RETIRED_UAT_VERTEX_PROJECTS | {profile["environments"]["uat"]["project"]}
 
 
-def load_one_chat_release(
-    repository: str, run: dict, directory: Path
-) -> dict | None:
-    """Compose a trusted backend-only receipt with its earlier frontend owner."""
-    run_id = run["id"]
-    if not artifact_exists(repository, run_id, ONE_CHAT_ARTIFACT):
-        return None
-    source = directory / f"one-chat-{run_id}"
-    receipt = source / "uat-one-chat-release.json"
-    if not receipt.exists():
-        download(repository, run_id, ONE_CHAT_ARTIFACT, source)
-    if not receipt.is_file() or receipt.is_symlink():
-        raise retention.UnsafeState("One chat release receipt is missing or unsafe")
-    report = json.loads(receipt.read_text())
-    if not isinstance(report, dict):
-        raise retention.UnsafeState("One chat release receipt is invalid")
+def validate_one_chat_release_report(
+    report: dict,
+    run_id: int,
+    attempt: int | None,
+    artifact_name: str,
+    attempt_artifact: str | None,
+    *,
+    project: str,
+    region: str,
+    vertex_projects,
+    unsafe_state,
+) -> tuple[str, str, str]:
     candidate = report.get("candidate_revision")
     old = report.get("old_revision")
     sha = report.get("target_sha")
     probe = report.get("probe")
     if (
         report.get("status") != "success"
-        or report.get("project") != LANES["uat"]["project"]
-        or report.get("region") != REGION
+        or report.get("project") != project
+        or report.get("region") != region
         or report.get("service") != "consent-protocol"
         or report.get("run_id") != str(run_id)
+        or (
+            type(attempt) is int
+            and report.get("attempt") is not None
+            and report.get("attempt") != attempt
+        )
+        or (
+            attempt_artifact is not None
+            and artifact_name == attempt_artifact
+            and report.get("attempt") != attempt
+        )
         or not re.fullmatch(r"[a-f0-9]{40}", str(sha))
         or not re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(candidate))
         or not re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(old))
@@ -725,9 +731,51 @@ def load_one_chat_release(
         or report.get("temporary_probe_job_deleted") is not True
         or not isinstance(probe, dict)
         or probe.get("one_chat_probe_ok") is not True
-        or probe.get("one_chat_project") not in one_chat_vertex_projects()
+        or probe.get("one_chat_project") not in vertex_projects()
     ):
-        raise retention.UnsafeState("One chat receipt does not prove a healthy backend promotion")
+        raise unsafe_state("One chat receipt does not prove a healthy backend promotion")
+    return str(candidate), str(old), str(sha)
+
+
+def load_one_chat_release(
+    repository: str, run: dict, directory: Path
+) -> dict | None:
+    """Compose a trusted backend-only receipt with its earlier frontend owner."""
+    run_id = run["id"]
+    attempt = run.get("run_attempt")
+    attempt_artifact = (
+        f"{ONE_CHAT_ARTIFACT}-{attempt}"
+        if type(attempt) is int and attempt > 0
+        else None
+    )
+    if attempt_artifact and artifact_exists(repository, run_id, attempt_artifact):
+        artifact_name = attempt_artifact
+    elif attempt in (None, 1) and artifact_exists(repository, run_id, ONE_CHAT_ARTIFACT):
+        # Before exact-attempt names were introduced, attempt 1 used this name.
+        # Never let that legacy artifact stand in for a rerun.
+        artifact_name = ONE_CHAT_ARTIFACT
+    else:
+        return None
+    source = directory / f"one-chat-{run_id}"
+    receipt = source / "uat-one-chat-release.json"
+    if not receipt.exists():
+        download(repository, run_id, artifact_name, source)
+    if not receipt.is_file() or receipt.is_symlink():
+        raise retention.UnsafeState("One chat release receipt is missing or unsafe")
+    report = json.loads(receipt.read_text())
+    if not isinstance(report, dict):
+        raise retention.UnsafeState("One chat release receipt is invalid")
+    candidate, old, sha = validate_one_chat_release_report(
+        report,
+        run_id,
+        attempt,
+        artifact_name,
+        attempt_artifact,
+        project=LANES["uat"]["project"],
+        region=REGION,
+        vertex_projects=one_chat_vertex_projects,
+        unsafe_state=retention.UnsafeState,
+    )
     owner_run_id, owner = prior_healthy_uat_release(
         repository, run, directory, frontend_owner=True
     )

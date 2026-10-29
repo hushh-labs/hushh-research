@@ -22,6 +22,7 @@ def _serving_receipt(module, env, run_id):
     }
     release = {
         "status": "healthy",
+        "release_failed": False,
         "sha": SHA,
         "scope": "all",
         "final": {},
@@ -133,4 +134,5 @@ def _acceptance_fixture():
         responses[f"artifacts/{run_id + 1}/zip"] = archive.getvalue()
     client = module.GitHub()
     client.read = lambda path, **_: responses[path]
+    client.read_repository = lambda _path: []
     return module, client, receipts, responses, pins

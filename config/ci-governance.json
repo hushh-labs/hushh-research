@@ -24,6 +24,13 @@
   "repository": {
     "allow_auto_merge": true
   },
+  "attempt_receipt_tag_ruleset": {
+    "name": "immutable deployment attempt receipts",
+    "patterns": [
+      "refs/tags/deployed/dev-attempt/*",
+      "refs/tags/deployed/uat-attempt/*"
+    ]
+  },
   "main": {
     "required_status_check": "CI Status Gate",
     "required_approving_reviews": 1,
