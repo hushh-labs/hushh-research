@@ -57,11 +57,13 @@ def require_original(source, facts, *, stage="source_before"):
         raise DeliveryError("download_restricted")
     observed = content_identity(facts)
     # Modification time is metadata, not binary identity. Keep the frozen
-    # envelope shape, compare every content field, and verify the copied bytes.
+    # envelope shape, compare every captured content field, and verify the bytes.
+    # Later optional provider fields do not rewrite a legacy MD5-only snapshot.
     stable_content = bool(
         observed
-        and {key: value for key, value in identity.items() if key != "modifiedTime"}
-        == {key: value for key, value in observed.items() if key != "modifiedTime"}
+        and all(
+            value == observed.get(key) for key, value in identity.items() if key != "modifiedTime"
+        )
     )
     mismatches = [
         field
@@ -78,7 +80,9 @@ def require_original(source, facts, *, stage="source_before"):
                 [
                     IDENTITY_FIELDS[key]
                     for key in IDENTITY_FIELDS
-                    if identity.get(key) != observed.get(key)
+                    if key != "modifiedTime"
+                    and key in identity
+                    and identity[key] != observed.get(key)
                 ]
                 or ["identity"]
             )

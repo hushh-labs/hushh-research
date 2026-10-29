@@ -64,7 +64,7 @@ class Original:
 
 
 @pytest.fixture
-async def copies(flow, monkeypatch):
+async def copies(flow, monkeypatch, request):
     with flow.db.engine.connect() as connection:
         apply_drive_fixture_migration(connection, "432_document_delivery_background.sql")
         # Repeatability must not loosen receipt or consent constraints.
@@ -87,6 +87,7 @@ async def copies(flow, monkeypatch):
 
     monkeypatch.setattr(flow.sharing, "create_request", create_copy)
     original = Original()
+    original.legacy_identity = getattr(request, "param", False)
     seal = flow.bulk._seal
 
     def provider_metadata(value, **kwargs):
@@ -106,11 +107,18 @@ async def copies(flow, monkeypatch):
                 )
             from hushh_mcp.services.document_delivery.background_source import content_evidence
 
+            captured = {**original.facts_value, "mimeType": mime}
+            if getattr(original, "legacy_identity", False):
+                captured = {
+                    key: value
+                    for key, value in captured.items()
+                    if key not in {"sha256Checksum", "headRevisionId"}
+                }
             value = {
                 **value,
                 "mimeType": mime,
                 "sourceVersion": "1",
-                **content_evidence({**original.facts_value, "mimeType": mime}),
+                **content_evidence(captured),
             }
         return seal(value, **kwargs)
 
@@ -163,6 +171,9 @@ async def sale(flow, *, accept=True, paid=True):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "copies", [False, True], indirect=True, ids=["current_identity", "legacy_md5_identity"]
+)
 async def test_same_paid_sale_generic_original_stream_and_revoke(flow, copies, monkeypatch):
     from contextlib import closing
 

@@ -53,6 +53,10 @@ def test_source_identity_accepts_metadata_time_only_with_stable_content():
         require_original(weak_source, dict(weak, modifiedTime=after_grant["modifiedTime"]))
         == weak_source["sourceContentIdentity"]
     )
+    # Provider enrichment cannot invalidate a historical MD5/size snapshot.
+    assert require_original(weak_source, after_grant) == weak_source["sourceContentIdentity"]
+    with pytest.raises(DeliveryError, match="source_changed"):
+        require_original(source, dict(after_grant, sha256Checksum=None))
     with pytest.raises(DeliveryError, match="source_changed"):
         require_original(weak_source, dict(weak, md5Checksum="c" * 32))
     with pytest.raises(DeliveryError, match="download_restricted"):
