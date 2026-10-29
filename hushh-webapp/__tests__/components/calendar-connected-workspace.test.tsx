@@ -1,5 +1,6 @@
 import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
 import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
+import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLayoutEffect } from "react";
@@ -1001,21 +1002,24 @@ describe("CalendarConnectedWorkspace", () => {
   });
 
   it("labels the exclusive next midnight only in Free time and retains booking UTC bounds", async () => {
+    const deviceZone = calendarTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    const windowStart = bookingInstant("2026-10-14", "23:30", deviceZone);
+    const windowEnd = bookingInstant("2026-10-15", "00:00", deviceZone);
     mocks.today.mockImplementation(async ({ date, timeZone }) => ({
       ...dailyResponse([], date, timeZone),
       calendars: [{ id: "primary", primary: true, time_zone: "Asia/Kolkata" }],
     }));
     mocks.availability.mockResolvedValueOnce({ ...freeResponse(), full_count: 1, windows: [
-      { start_at: "2026-10-14T18:00:00Z", end_at: "2026-10-14T18:30:00Z", duration_minutes: 30 },
+      { start_at: windowStart, end_at: windowEnd, duration_minutes: 30 },
     ] });
     render(workspace());
-    await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: calendarTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone) })));
+    await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: deviceZone })));
     fireEvent.click(control("Free time"));
     expect(await screen.findByText(/Midnight \(next day\)/)).toBeInTheDocument();
     expect(screen.queryByText(/24:00/)).toBeNull();
     expect(mocks.availability).toHaveBeenLastCalledWith(expect.objectContaining({ startTime: "00:00", endTime: "24:00" }));
     fireEvent.click(screen.getByRole("button", { name: /^Ask One about/ }));
-    expect(mocks.onChat).toHaveBeenCalledWith(undefined, expect.objectContaining({ windowStart: "2026-10-14T18:00:00Z", windowEnd: "2026-10-14T18:30:00Z", durationMinutes: 15, timeZone: "Asia/Kolkata" }));
+    expect(mocks.onChat).toHaveBeenCalledWith(undefined, expect.objectContaining({ windowStart, windowEnd, durationMinutes: 15, timeZone: deviceZone }));
   });
 
   it("keeps a repeated-hour window's real UTC bounds in the Calendar chat handoff", async () => {
