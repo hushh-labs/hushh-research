@@ -15,6 +15,7 @@ import {
   type ObservabilityEventName,
   type PrimitiveEventValue,
 } from "@/lib/observability/events";
+import { LIVE_ACTIVITY_CONSOLIDATION_OUTCOMES } from "@/lib/observability/live-activity-telemetry";
 
 /*
  * These enums are intentionally long, human-readable strings. They are safe
@@ -63,6 +64,10 @@ export const GOVERNED_VALUES_BY_EVENT: Partial<
     ["lag_bucket", new Set(MINUTE_DURATION_BUCKETS)],
     ["pending_bucket", COUNT_BUCKET_SET],
     ["retry_bucket", COUNT_BUCKET_SET],
+  ]),
+  live_activity_consolidation_completed: new Map([
+    ["outcome", new Set(LIVE_ACTIVITY_CONSOLIDATION_OUTCOMES)],
+    ["saved_bucket", COUNT_BUCKET_SET],
   ]),
 };
 
