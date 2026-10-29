@@ -104,4 +104,9 @@ regexes = [
   # Python constant; the generic-key heuristic mistook that assignment for a
   # credential. The constant is now renamed, but CI scans commit history.
   '''^v1_evaluation_priority$''',
+  # An earlier feature commit put a synthetic token variable beside this
+  # checkpoint field in a test constructor. The generic-key heuristic captured
+  # the public field assignment as its value. Current code separates them; CI
+  # still scans the commit range. Match only this exact non-secret field text.
+  '''^epoch_digest=$''',
 ]

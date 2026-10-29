@@ -139,9 +139,8 @@ async def test_paged_scan_resumes_failed_section_without_dropping_tail(monkeypat
     async def current():
         return None
 
-    grant = SimpleNamespace(
-        token=_SYNTHETIC_TOKEN, epoch_digest="synthetic-epoch", require_current=current
-    )
+    grant = SimpleNamespace(epoch_digest="synthetic-epoch", require_current=current)
+    grant.token = _SYNTHETIC_TOKEN
     monkeypatch.setattr(scan, "open_selected_mail_grant", lambda **_: _grant(grant))
 
     async def assess_section(**kwargs):
