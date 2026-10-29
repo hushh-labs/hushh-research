@@ -161,7 +161,11 @@ from hushh_mcp.one_adk.specialist_availability import (
 )
 from hushh_mcp.one_adk.specialist_focus import specialist_focus_instruction as focus_instruction
 from hushh_mcp.one_adk.turn_location import get_my_location
-from hushh_mcp.one_adk.web_search import instruction_for_head, web_search_tools
+from hushh_mcp.one_adk.web_search import (
+    instruction_for_head,
+    search_model_for_text_head,
+    web_search_tools,
+)
 from hushh_mcp.one_adk.workspace_mcp_tools import (
     READ_WORKSPACE_TOOL,
     STATE_DRIVE_SEARCH_SELECTION,
@@ -176,7 +180,6 @@ from hushh_mcp.runtime_providers import (
     thinking_config_for,
 )
 from hushh_mcp.runtime_providers.managed_text import (
-    ManagedPrimaryTextModel,
     managed_text_agent,
     one_chat_root_model,
 )
@@ -2562,6 +2565,7 @@ def _one_roster_tools(
     allow_workspace_tools: bool = False,
     allow_private_mcp: bool = False,
     allow_receipt_tools: bool = False,
+    memory_available: bool | None = None,
 ) -> list:
     """The /one specialist roster, shared by every One head.
 
@@ -2576,17 +2580,9 @@ def _one_roster_tools(
     if tool_mode == "proposal":
         return [list_app_actions, propose_app_action]
 
-    # The turn writes every exchange to pod memory, so One must hold the tool that
-    # reads it back. Bound on the RESOLVED service (it embeds pod_mode), never flags.
-    memory_tools: list = []
-    from hushh_mcp.services.pod_memory_service import (  # noqa: PLC0415
-        resolve_pod_memory_service,
-    )
+    from hushh_mcp.one_adk.memory_tool_schema import memory_recall_tools
 
-    if resolve_pod_memory_service() is not None:
-        from google.adk.tools import load_memory  # noqa: PLC0415
-
-        memory_tools = [load_memory]
+    memory_tools = memory_recall_tools(memory_available)
 
     # Full roster below.
     text_model = specialist_model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
@@ -2776,9 +2772,11 @@ def build_one_text_agent(
     allow_workspace_tools: bool = False,
     allow_private_mcp: bool = False,
     include_thought_summaries: bool = False,
+    include_client_receipt_tools: bool = True,
     execution_mode: Literal["chat", "task"] = "chat",
     output_schema: Any = None,
     consent_bundle_lookup: Callable[[str, str], Awaitable[Any]] | None = None,
+    memory_available: bool | None = None,
 ) -> LlmAgent:
     """Build the One TEXT head: same brain, same tools, text model.
 
@@ -2788,18 +2786,11 @@ def build_one_text_agent(
     instruction and roster - ONE decision-maker, two transport heads.
     A provider-specific composition may supply a separate Google Search model
     for its native tool; other specialists continue to inherit the text model.
+    Client receipt tools require the per-run AG-UI proxy. Raw ADK runners must
+    omit them because they have no frontend session to execute those tools.
     """
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
-    if isinstance(text_model, ManagedPrimaryTextModel) and google_search_model is None:
-        # Search keeps the same Azure-only processor and invocation authority.
-        # Native search requires LOW/default rather than minimal reasoning.
-        google_search_model = text_model.model_copy(
-            update={
-                "allow_web_search": True,
-                "default_reasoning_effort": "low",
-                "text_verbosity": "low",
-            }
-        )
+    google_search_model = search_model_for_text_head(text_model, google_search_model)
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
@@ -2822,7 +2813,8 @@ def build_one_text_agent(
             google_search_model=google_search_model,
             allow_workspace_tools=allow_workspace_tools,
             allow_private_mcp=allow_private_mcp,
-            allow_receipt_tools=execution_mode == "chat",
+            allow_receipt_tools=execution_mode == "chat" and include_client_receipt_tools,
+            memory_available=memory_available,
         ),
         # Consent is checked per turn and redacted per model call (C3).
         before_agent_callback=[timed_one_before_agent, track_current_consent],
@@ -2932,7 +2924,9 @@ def build_one_live_runner(
     return Runner(
         app=App(
             name=ONE_APP_NAME,
-            root_agent=build_one_root_agent(model=_build_one_live_model()),
+            root_agent=build_one_text_agent(
+                model=_build_one_live_model(), include_client_receipt_tools=False
+            ),
             plugins=plugins,
         ),
         session_service=InMemorySessionService(),

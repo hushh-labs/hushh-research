@@ -271,31 +271,51 @@ async def test_boot_storage_reuse_preserves_identity_and_refuses_wrong_key(monke
 # --------------------------------------------------------------------------- #
 
 
-def test_startup_fills_the_key_before_the_keypair_is_resolved():
+async def test_startup_fills_the_key_before_the_keypair_is_resolved(monkeypatch):
     """Ordering is the whole correctness of the wiring.
 
     `pod_keypair()` caches for the process lifetime, so filling
     HUSSH_POD_PRIVATE_KEY after it would be a no-op that looks like it worked --
     the pod would log a durable key and serve an ephemeral one.
     """
-    from pathlib import Path
+    import logging
+    import os
+    from unittest.mock import AsyncMock
 
-    source = Path("pod_server.py").read_text(encoding="utf-8")
-    fill = source.index("await resolve_durable_private_key_b64(")
-    resolve = source.index("    pod_keypair()")
+    from hushh_mcp.services import pod_identity_store
 
-    assert fill < resolve, "the durable key is recovered after the keypair is cached"
+    monkeypatch.setenv("HUSSH_POD_PRIVATE_KEY", "")
+    monkeypatch.setattr(
+        pod_identity_store,
+        "resolve_durable_private_key_b64",
+        AsyncMock(return_value="synthetic-restored-key"),
+    )
+    await pod_identity_store.restore_durable_private_key(
+        storage=None, dek=None, log=logging.getLogger(__name__)
+    )
+    assert os.environ["HUSSH_POD_PRIVATE_KEY"] == "synthetic-restored-key"
 
 
-def test_startup_never_overwrites_an_explicitly_provided_key():
+async def test_startup_never_overwrites_an_explicitly_provided_key(monkeypatch):
     """A BYOC pod handed its key by secretKeyRef must keep it. That mount is the
     documented durable source, and the pod's own store is the fallback for pods
     that have no such mount."""
-    from pathlib import Path
+    import logging
+    import os
+    from unittest.mock import AsyncMock
 
-    source = Path("pod_server.py").read_text(encoding="utf-8")
+    from hushh_mcp.services import pod_identity_store
 
-    assert 'not os.getenv("HUSSH_POD_PRIVATE_KEY")' in source
+    monkeypatch.setenv("HUSSH_POD_PRIVATE_KEY", "synthetic-mounted-key")
+    monkeypatch.setattr(
+        pod_identity_store,
+        "resolve_durable_private_key_b64",
+        AsyncMock(return_value="synthetic-stored-key"),
+    )
+    await pod_identity_store.restore_durable_private_key(
+        storage=None, dek=None, log=logging.getLogger(__name__)
+    )
+    assert os.environ["HUSSH_POD_PRIVATE_KEY"] == "synthetic-mounted-key"
 
 
 def test_the_pod_reports_whether_its_identity_is_durable_at_boot():

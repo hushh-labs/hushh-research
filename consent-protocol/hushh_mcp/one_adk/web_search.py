@@ -53,6 +53,21 @@ def head_supports_web_search(model: Any) -> bool:
     return provider_supports_web_search(head_provider(model))
 
 
+def search_model_for_text_head(model: Any, selected: Any | None) -> Any | None:
+    """Enable native search on the managed Azure processor when none is supplied."""
+    from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
+
+    if selected is not None or not isinstance(model, ManagedPrimaryTextModel):
+        return selected
+    return model.model_copy(
+        update={
+            "allow_web_search": True,
+            "default_reasoning_effort": "low",
+            "text_verbosity": "low",
+        }
+    )
+
+
 def instruction_for_head(model: Any, instruction: Callable[[Any], str]) -> Callable[[Any], str]:
     """One's ``instruction`` as is for a head with web search; plus the honest line otherwise.
 
@@ -110,5 +125,6 @@ __all__ = [
     "head_supports_web_search",
     "instruction_for_head",
     "provider_supports_web_search",
+    "search_model_for_text_head",
     "web_search_tools",
 ]
