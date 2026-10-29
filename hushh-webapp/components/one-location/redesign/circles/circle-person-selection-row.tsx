@@ -27,8 +27,10 @@ export function CirclePersonSelectionRow({
   return (
     <SettingsRow
       layout="person"
+      leadingInteractive
       leading={
         <ConnectionPersonAvatar
+          userId={person.userId}
           size="list"
           photoUrl={person.photoUrl}
           label={name}

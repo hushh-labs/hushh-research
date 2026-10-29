@@ -1,5 +1,6 @@
 "use client";
 
+import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -94,7 +95,6 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { isNative } from "@/lib/capacitor/platform";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import {
-  buildPersonProfileRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -3436,7 +3436,7 @@ export default function ConnectPageClient() {
                                       // row rather than on the tab so the mark still means
                                       // something in a search that spans both.
                                       leading={
-                                        <ConnectionPersonAvatar
+                                        <ConnectionPersonAvatar userId={person.userId}
                                           size="compact"
                                           className="!size-9 max-[350px]:!size-8"
                                           fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(person.userId))}
@@ -3450,12 +3450,7 @@ export default function ConnectPageClient() {
                                         !isSelectionMode &&
                                         person.publicPersonRef
                                           ? () =>
-                                              router.push(
-                                                buildPersonProfileRoute(
-                                                  person.publicPersonRef!,
-                                                  { from: ROUTES.CONNECT },
-                                                ),
-                                              )
+                                              openPersonProfilePreview({ personRef: person.publicPersonRef! })
                                           : undefined
                                       }
                                       supplement={
@@ -3465,12 +3460,7 @@ export default function ConnectPageClient() {
                                             !isSelectionMode &&
                                             person.mutualConnectionPreview?.publicPersonRef
                                               ? () =>
-                                                  router.push(
-                                                    buildPersonProfileRoute(
-                                                      person.mutualConnectionPreview!.publicPersonRef!,
-                                                      { from: ROUTES.CONNECT },
-                                                    ),
-                                                  )
+                                                  openPersonProfilePreview({ personRef: person.mutualConnectionPreview!.publicPersonRef! })
                                               : undefined
                                           }
                                         />
@@ -3777,10 +3767,10 @@ export default function ConnectPageClient() {
                                   {group.items.map((connection) => {
                                     const connectionName = connectPersonName(connection);
                                     return (
-                                    <ConnectPersonRow
+                                    <ConnectPersonRow leadingInteractive
                                       key={connection.connectionId}
                                       leading={
-                                        <ConnectionPersonAvatar
+                                        <ConnectionPersonAvatar userId={connection.userId}
                                           size="compact"
                                           className="!size-9 max-[350px]:!size-8"
                                           fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
@@ -3803,12 +3793,7 @@ export default function ConnectPageClient() {
                                       onOpen={
                                         connection.publicPersonRef
                                           ? () =>
-                                              router.push(
-                                                buildPersonProfileRoute(
-                                                  connection.publicPersonRef!,
-                                                  { from: ROUTES.CONNECT },
-                                                ),
-                                              )
+                                              openPersonProfilePreview({ personRef: connection.publicPersonRef! })
                                           : undefined
                                       }
                                       trailing={
@@ -3948,11 +3933,11 @@ export default function ConnectPageClient() {
                   {batchConnectDraft.people.map((person) => {
                     const title = connectPersonName(person);
                     return (
-                      <SettingsRow
+                      <SettingsRow leadingInteractive
                         key={`batch-${person.userId}`}
                         layout="person"
                         leading={
-                          <ConnectionPersonAvatar
+                          <ConnectionPersonAvatar userId={person.userId}
                             size="list"
                             photoUrl={person.photoUrl}
                             label={title}

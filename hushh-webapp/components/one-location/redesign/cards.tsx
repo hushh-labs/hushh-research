@@ -265,6 +265,7 @@ export function ActiveShareCard({
 /* ------------------------------------------------------------------ */
 
 export function RequestCard({
+  userId,
   name,
   photoUrl,
   promptLine,
@@ -276,6 +277,7 @@ export function RequestCard({
   onApproveShorter,
   onDecline,
 }: {
+  userId?: string;
   name: string;
   photoUrl?: string | null;
   promptLine: string;
@@ -350,7 +352,7 @@ export function RequestCard({
   return (
     <div className={cn(SUBCARD_SURFACE, "p-4 shadow-none")}>
       <div className="flex items-start gap-3">
-        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} size={40} />
+        <Avatar userId={userId} initials={initialsFrom(name)} imageUrl={photoUrl} size={40} />
         <div className="min-w-0 flex-1">
           <MediumRowLabel as="p">
             {name}
@@ -476,6 +478,7 @@ export type GrantViewStatus = {
 };
 
 export function SharedWithMeCard({
+  userId,
   name,
   photoUrl,
   statusLine,
@@ -497,6 +500,7 @@ export function SharedWithMeCard({
   askReshareBusy,
   shareLanes,
 }: {
+  userId?: string;
   name: string;
   photoUrl?: string | null;
   statusLine: ReactNode;
@@ -564,8 +568,8 @@ export function SharedWithMeCard({
     >
       <div className="space-y-2.5 p-3.5 pb-2.5 sm:p-4 sm:pb-3">
         <div className="flex items-start gap-3">
-          <span className="relative shrink-0" aria-hidden="true">
-            <Avatar
+          <span className="relative shrink-0">
+            <Avatar userId={userId}
               initials={initialsFrom(name)}
               imageUrl={photoUrl}
               size={40}

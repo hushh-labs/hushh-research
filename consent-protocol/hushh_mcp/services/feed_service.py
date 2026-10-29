@@ -189,6 +189,7 @@ _WALLET_GROUPED_FEED_CTE = _GROUPED_FEED_CTE.replace(
     "  WHERE f.user_id = :user_id",
 )
 _COUNTERPART_PHOTO_KEY = "counterpart_photo_url"
+_COUNTERPART_PROFILE_KEY = "counterpart_person_ref"
 _DRIVE_DELIVERY_COUNT_FIELDS = (
     "current_delivery_total_count",
     "current_delivery_confirmed_count",
@@ -223,6 +224,7 @@ _SAFE_METADATA_KEYS = frozenset(
         "scope",
         "counterpart_label",
         _COUNTERPART_PHOTO_KEY,
+        _COUNTERPART_PROFILE_KEY,
         "display_name",
         "first_name",
         "feed_audience",
@@ -825,7 +827,8 @@ class FeedService:
         if not rows:
             return rows
 
-        current_photos = self._durable_counterpart_photos(user_id, rows)
+        profile_refs: dict[str, str] = {}
+        current_photos = self._durable_counterpart_photos(user_id, rows, profile_refs)
         if current_photos is not None:
             return [
                 {
@@ -835,6 +838,7 @@ class FeedService:
                         # A resolved empty photo clears any old snapshot. Do not
                         # resurrect an avatar after replacement/removal/erasure.
                         _COUNTERPART_PHOTO_KEY: current_photos.get(str(row.get("id"))),
+                        _COUNTERPART_PROFILE_KEY: profile_refs.get(str(row.get("id"))),
                     },
                 }
                 for row in rows
@@ -850,7 +854,7 @@ class FeedService:
                     for key, value in (
                         row["metadata"] if isinstance(row.get("metadata"), dict) else {}
                     ).items()
-                    if key != _COUNTERPART_PHOTO_KEY
+                    if key not in {_COUNTERPART_PHOTO_KEY, _COUNTERPART_PROFILE_KEY}
                 },
             }
             for row in rows
@@ -1234,7 +1238,10 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
         ]
 
     def _durable_counterpart_photos(
-        self, user_id: str, rows: list[dict[str, Any]]
+        self,
+        user_id: str,
+        rows: list[dict[str, Any]],
+        profile_refs: dict[str, str] | None = None,
     ) -> dict[str, str | None] | None:
         """Resolve current avatars through the retained Feed identity mapping.
 
@@ -1260,9 +1267,11 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
                 )
                 SELECT c.id::TEXT AS feed_id,
                   COALESCE(NULLIF(BTRIM(a.custom_photo_url), ''),
-                           NULLIF(BTRIM(a.photo_url), '')) AS counterpart_photo_url
+                           NULLIF(BTRIM(a.photo_url), '')) AS counterpart_photo_url,
+                  to_jsonb(p)->>'public_person_ref' AS counterpart_person_ref
                 FROM counterparts c
                 LEFT JOIN actor_identity_cache a ON a.user_id = c.actor_id
+                LEFT JOIN actor_profiles p ON p.user_id = c.actor_id
                 """,
                     {
                         "user_id": user_id,
@@ -1281,6 +1290,14 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
                 cause = cause.__cause__
             logger.exception("feed.counterpart_identity_lookup_failed")
             return None
+        if profile_refs is not None:
+            profile_refs.update(
+                {
+                    str(row["feed_id"]): str(row["counterpart_person_ref"])
+                    for row in results
+                    if row.get("counterpart_person_ref")
+                }
+            )
         return {
             str(row["feed_id"]): _safe_photo_url(row.get("counterpart_photo_url"))
             for row in results

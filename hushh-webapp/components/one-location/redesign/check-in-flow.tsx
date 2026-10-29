@@ -20,6 +20,7 @@
  *   publish path as a normal share (no new crypto, no new consent surface).
  */
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { trackEvent } from "@/lib/observability/client";
 import { trackLocationShareConfirmed } from "@/lib/observability/location-events";
@@ -135,6 +136,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 function ContactRow({
+  userId,
   checked,
   ready,
   locked,
@@ -146,6 +148,7 @@ function ContactRow({
   isLast,
   onToggle,
 }: {
+  userId?: string;
   checked: boolean;
   ready: boolean;
   locked: boolean;
@@ -159,7 +162,7 @@ function ContactRow({
 }) {
   const disabled = !ready || locked || completed;
   return (
-    <button
+    <PersonSelectionSurface
       type="button"
       onClick={disabled ? undefined : onToggle}
       disabled={disabled}
@@ -170,7 +173,7 @@ function ContactRow({
         disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
       )}
     >
-      <ContactAvatar
+      <ContactAvatar userId={userId}
         label={label}
         photoUrl={photoUrl}
         verified={verified}
@@ -206,7 +209,7 @@ function ContactRow({
       >
         {checked ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : null}
       </span>
-    </button>
+    </PersonSelectionSurface>
   );
 }
 
@@ -858,7 +861,7 @@ export function CheckInFlow({
         <div className={cn(CARD, "px-4")}>
           <div className={CONTACT_LIST_SCROLL_CLASS}>
             {filtered.map((recipient, index) => (
-              <ContactRow
+              <ContactRow userId={recipient.userId}
                 key={recipient.userId}
                 checked={checkedIds.includes(recipient.userId)}
                 ready={vm.isRecipientShareReady(recipient)}

@@ -1349,6 +1349,36 @@ def test_durable_identity_gives_same_person_photo_to_mixed_feed_events() -> None
     assert all("counterpart_user_id" not in row["metadata"] for row in enriched)
 
 
+def test_feed_profile_reference_is_current_public_identity_not_internal_id() -> None:
+    service = FeedService()
+    service._db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "feed_id": "41",
+                    "counterpart_photo_url": None,
+                    "counterpart_person_ref": "11111111-1111-4111-8111-111111111111",
+                },
+                {"feed_id": "42", "counterpart_photo_url": None},
+            ]
+        ]
+    )
+    rows = [
+        {
+            "id": item_id,
+            "metadata": {"counterpart_person_ref": "stale", "counterpart_user_id": "private-uid"},
+        }
+        for item_id in (41, 42)
+    ]
+    items = [FeedService._to_item(row) for row in service._with_counterpart_photos("viewer", rows)]
+    assert items[0]["metadata"]["counterpart_person_ref"] == "11111111-1111-4111-8111-111111111111"
+    assert not items[1]["metadata"].get("counterpart_person_ref")
+    assert all("counterpart_user_id" not in item["metadata"] for item in items)
+    sql, params = service._db.raw_calls[0]
+    assert "WHERE f.user_id = :user_id" in sql
+    assert params["user_id"] == "viewer"
+
+
 def test_uploaded_avatar_is_never_truncated_by_either_feed_boundary() -> None:
     photo = "data:image/png;base64," + base64.b64encode(b"synthetic-image" * 150).decode()
     service = FeedService()

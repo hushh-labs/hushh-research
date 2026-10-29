@@ -10,6 +10,7 @@
  * shown afterwards is the request the server returned, not an assumption.
  */
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -214,7 +215,7 @@ function PersonPicker({
   return (
     <div className="space-y-2" role="list" aria-label="Choose whom to ask">
       {people.items.map((recipient) => (
-        <button
+        <PersonSelectionSurface
           key={recipient.userId}
           type="button"
           role="listitem"
@@ -225,7 +226,7 @@ function PersonPicker({
           )}
           data-testid="ask-person-option"
         >
-          <ConnectionPersonAvatar
+          <ConnectionPersonAvatar userId={recipient.userId}
             label={recipient.displayName}
             photoUrl={recipient.photoUrl}
             verified={recipient.phoneVerified}
@@ -235,7 +236,7 @@ function PersonPicker({
               {recipient.displayName}
             </span>
           </span>
-        </button>
+        </PersonSelectionSurface>
       ))}
       {people.hasMore ? (
         <Button
@@ -416,7 +417,7 @@ export function AskForLocationFlow({
           data-testid="ask-not-connected"
         >
           <div className="flex items-center gap-3">
-            <ConnectionPersonAvatar
+            <ConnectionPersonAvatar userId={person.userId}
               label={person.name}
               photoUrl={person.photoUrl}
             />
@@ -451,7 +452,7 @@ export function AskForLocationFlow({
           data-testid="ask-connected"
         >
           <div className="flex items-center gap-3">
-            <ConnectionPersonAvatar
+            <ConnectionPersonAvatar userId={person.userId}
               label={person.name}
               photoUrl={person.photoUrl}
               verified={person.verified}

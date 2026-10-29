@@ -1,5 +1,6 @@
 "use client";
 
+import { isPersonProfilePreviewOpen } from "@/lib/connections/person-profile-preview";
 import {
   useCallback,
   useEffect,
@@ -1580,7 +1581,7 @@ export function LocationImmersiveMap({
 
   useEffect(() => {
     if (!sharingPopoverOpen) return;
-    const close = () => setSharingPopoverOpen(false);
+    const close = () => { if (!isPersonProfilePreviewOpen()) setSharingPopoverOpen(false); };
     window.addEventListener("scroll", close, true);
     return () => window.removeEventListener("scroll", close, true);
   }, [sharingPopoverOpen]);

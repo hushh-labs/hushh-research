@@ -1,7 +1,7 @@
 import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
 import { googleAvatarSource } from "@/lib/profile/provider-avatar";
 
-export type InvitationPerson = { displayName: string | null; photoUrl: string | null };
+export type InvitationPerson = { userId?: string; personRef?: string | null; displayName: string | null; photoUrl: string | null };
 
 /** Only a unique, exact email match may enrich a Calendar person. */
 export function connectedInvitationPeople(connections: readonly ConnectionSummaryEntry[]): ReadonlyMap<string, InvitationPerson> {
@@ -16,6 +16,8 @@ export function connectedInvitationPeople(connections: readonly ConnectionSummar
       continue;
     }
     people.set(email, {
+      userId: connection.userId,
+      personRef: connection.publicPersonRef,
       displayName: connection.displayName?.trim() || null,
       photoUrl: connection.photoUrl?.trim() || null,
     });

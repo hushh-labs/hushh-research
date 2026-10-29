@@ -469,7 +469,7 @@ export function popProfilePaneLocation(
   // there. The previous history entry is that screen, so this closes the pane
   // on the same route it was opened over.
   if (paneState.returnsToOrigin && paneState.depth === 1) {
-    window.history.back();
+    traverseOwnedHistory(-1);
     return;
   }
   // A resumed or directly linked child may be the first pane entry. Browser
@@ -479,7 +479,7 @@ export function popProfilePaneLocation(
     return;
   }
   if (getProfilePaneHistoryDepth() > 0) {
-    window.history.back();
+    traverseOwnedHistory(-1);
     return;
   }
   closeProfilePane(pathname, searchParams);
@@ -497,7 +497,7 @@ export function closeProfilePane(
   if (typeof window === "undefined") return;
   const depth = getProfilePaneHistoryDepth();
   if (depth > 0) {
-    window.history.go(-depth);
+    traverseOwnedHistory(-depth);
     return;
   }
   const state =
@@ -588,4 +588,22 @@ export function requestProfilePaneOpen(
     }),
   );
   return result;
+}
+
+// Same-document person previews reuse this reviewed history owner. The entry
+// contains only a transient counter, never a person or source's private state.
+const PERSON_PREVIEW_HISTORY_KEY = "__hushhPersonPreview";
+function traverseOwnedHistory(delta: number): void { window.history.go(delta); }
+export function personPreviewHistoryEntry(state: unknown): number | null {
+  if (!state || typeof state !== "object") return null;
+  const value = (state as Record<string, unknown>)[PERSON_PREVIEW_HISTORY_KEY];
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+export function openPersonPreviewHistory(entry: number): void {
+  window.history.pushState({ ...window.history.state, [PERSON_PREVIEW_HISTORY_KEY]: entry }, "", window.location.href);
+  emitHistoryUpdate();
+}
+export function closePersonPreviewHistory(entry: number): void {
+  if (personPreviewHistoryEntry(window.history.state) !== entry) return;
+  traverseOwnedHistory(-1);
 }

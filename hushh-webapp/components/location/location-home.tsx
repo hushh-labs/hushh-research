@@ -458,6 +458,7 @@ export function toStatusFacts(
 /* ------------------------------------------------------------------ */
 
 function PersonSummaryRow({
+  userId,
   name,
   photoUrl,
   detail,
@@ -466,6 +467,7 @@ function PersonSummaryRow({
   action,
   testId,
 }: {
+  userId?: string;
   name: string;
   photoUrl?: string | null;
   detail?: string | null;
@@ -482,7 +484,7 @@ function PersonSummaryRow({
       )}
       data-testid={testId}
     >
-      <AvatarBubble
+      <AvatarBubble userId={userId}
         initials={personInitials(name)}
         imageUrl={photoUrl}
         size={36}
@@ -720,7 +722,7 @@ export function LocationHome() {
         >
           <p className="ui-text-section-label px-1">Sharing now</p>
           {activeShares.slice(0, 3).map((grant) => (
-            <PersonSummaryRow
+            <PersonSummaryRow userId={grant.recipientUserId}
               key={grant.id}
               name={grant.recipientDisplayName || "Someone"}
               photoUrl={grant.recipientPhotoUrl}
@@ -818,7 +820,7 @@ export function LocationActiveSharesScreen() {
       ) : shares.length ? (
         <div className="space-y-2">
           {shares.map((grant) => (
-            <PersonSummaryRow
+            <PersonSummaryRow userId={grant.recipientUserId}
               key={grant.id}
               name={grant.recipientDisplayName || "Someone"}
               photoUrl={grant.recipientPhotoUrl}
@@ -882,7 +884,7 @@ export function LocationSharedWithMeScreen() {
       ) : shares.length ? (
         <div className="space-y-2">
           {shares.map((grant) => (
-            <PersonSummaryRow
+            <PersonSummaryRow userId={grant.ownerUserId}
               key={grant.id}
               name={grant.ownerDisplayName || "Someone"}
               photoUrl={grant.ownerPhotoUrl}
@@ -977,7 +979,7 @@ export function LocationNeedsReviewScreen() {
       ) : requests.length ? (
         <div className="space-y-2">
           {requests.map((request) => (
-            <PersonSummaryRow
+            <PersonSummaryRow userId={request.requesterUserId}
               key={request.id}
               name={request.requesterDisplayName || "Someone"}
               photoUrl={request.requesterPhotoUrl}

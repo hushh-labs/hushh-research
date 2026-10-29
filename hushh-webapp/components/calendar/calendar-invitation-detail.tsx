@@ -33,14 +33,14 @@ export function invitationPerson(people: InvitationPeople, email?: string | null
   return people.get(email?.trim().toLowerCase() || "");
 }
 
-export function InvitationAvatar({ name, email, photoUrl, photoSource }: { name: string; email?: string | null; photoUrl?: string | null; photoSource?: "hussh" }) {
+export function InvitationAvatar({ name, email, photoUrl, photoSource, userId, personRef }: { userId?: string | null; personRef?: string | null; name: string; email?: string | null; photoUrl?: string | null; photoSource?: "hussh" }) {
   const identity = (email?.trim().toLowerCase() || name.trim().toLowerCase());
   const tone = [...identity].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 4;
   const cleanPhoto = photoUrl?.trim() || "";
   const safePhoto = photoSource === "hussh"
     ? admittedPortraitSource(cleanPhoto) ? cleanPhoto : null
     : cleanPhoto.startsWith("https://") || (cleanPhoto.startsWith("/") && !cleanPhoto.startsWith("//")) ? cleanPhoto : null;
-  return <CalendarPersonAvatar name={name} photoUrl={safePhoto} className={styles.avatar} fallbackClassName={styles.avatarFallback} tone={tone} source={photoSource} />;
+  return <CalendarPersonAvatar userId={userId} personRef={personRef} name={name} photoUrl={safePhoto} className={styles.avatar} fallbackClassName={styles.avatarFallback} tone={tone} source={photoSource} />;
 }
 
 function guestStatus(status?: string | null) {
@@ -94,19 +94,19 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), work
         const photo = person?.photoUrl;
         return <li key={`${attendee.email || "guest"}:${index}`} title={attendee.email || undefined}>
           <span className={styles.guestAvatar} data-guest-avatar>
-            <InvitationAvatar name={name} email={attendee.email} photoUrl={photo} photoSource="hussh" />
+            <InvitationAvatar userId={attendee.self ? undefined : person?.userId} personRef={attendee.self ? undefined : person?.personRef} name={name} email={attendee.email} photoUrl={photo} photoSource="hussh" />
             {attendee.response_status === "accepted" ? <CheckCircle aria-hidden="true" weight="fill" data-accepted-indicator className={styles.guestAccepted} /> : null}
           </span>
           <span className={styles.guestCopy}><span>{name}</span>{photo ? <span className="sr-only">HUSSH profile photo</span> : null}{organizer && attendee.email && name !== attendee.email ? <small>{attendee.email}</small> : null}<small>{organizer ? `Organiser · ${guestStatus(attendee.response_status)}` : guestStatus(attendee.response_status)}</small></span>
         </li>;
       })}</ul>
     </div></> : <>
-    <div className={styles.detailSection}><p className={styles.sectionLabel}>Organiser</p><div className={styles.person}><InvitationAvatar name={organizerName} email={event.organizer?.email} photoUrl={organizerPerson?.photoUrl} /><div className={styles.copy}><p>{organizerName}</p>{organizerName !== event.organizer?.email ? <p className={styles.muted}>{event.organizer?.email}</p> : null}</div></div>
+    <div className={styles.detailSection}><p className={styles.sectionLabel}>Organiser</p><div className={styles.person}><InvitationAvatar userId={organizerPerson?.userId} personRef={organizerPerson?.personRef} name={organizerName} email={event.organizer?.email} photoUrl={organizerPerson?.photoUrl} /><div className={styles.copy}><p>{organizerName}</p>{organizerName !== event.organizer?.email ? <p className={styles.muted}>{event.organizer?.email}</p> : null}</div></div>
       {event.description ? <><p className={`${styles.sectionLabel} ${styles.descriptionLabel}`}>Description</p><p className={styles.description}>{invitationDescription(event.description)}</p></> : null}
       {event.location ? <p className={styles.location}><MapPin aria-hidden className="size-4 shrink-0" />{event.location}</p> : null}
     </div>
     <div className={styles.detailSection}><p className={styles.sectionLabel}>Attendees ({event.attendees?.length || 0})</p><ul className={styles.attendees}>{event.attendees?.map((attendee, index) => <li key={`${attendee.email}:${index}`} title={attendee.email || undefined}>
-      <InvitationAvatar name={attendee.display_name || invitationPerson(people, attendee.email)?.displayName || attendee.email || "?"} email={attendee.email} photoUrl={invitationPerson(people, attendee.email)?.photoUrl} /><span>{attendee.self ? "You" : attendee.display_name || invitationPerson(people, attendee.email)?.displayName || attendee.email}</span><small>{attendee.response_status === "needsAction" ? "Awaiting reply" : attendee.response_status}</small>
+      <InvitationAvatar userId={attendee.self ? undefined : invitationPerson(people, attendee.email)?.userId} personRef={attendee.self ? undefined : invitationPerson(people, attendee.email)?.personRef} name={attendee.display_name || invitationPerson(people, attendee.email)?.displayName || attendee.email || "?"} email={attendee.email} photoUrl={invitationPerson(people, attendee.email)?.photoUrl} /><span>{attendee.self ? "You" : attendee.display_name || invitationPerson(people, attendee.email)?.displayName || attendee.email}</span><small>{attendee.response_status === "needsAction" ? "Awaiting reply" : attendee.response_status}</small>
     </li>)}</ul></div></>}
   </article>;
 }

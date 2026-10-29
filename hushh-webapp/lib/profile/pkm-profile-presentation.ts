@@ -34,6 +34,7 @@ export function formatPkmTimestamp(value: string | null | undefined): string {
 export type PkmDomainAccessPresentation = NaturalAccessEntry & {
   scope: string;
   counterpartType: ConsentCenterEntry["counterpart_type"];
+  counterpartUserId?: string | null;
   domainKey: string;
   domainTitle: string;
 };
@@ -97,6 +98,7 @@ export type PkmDomainUpgradePresentation = {
 
 export type PkmAccessConnectionPresentation = {
   id: string;
+  personUserId?: string | null;
   requesterLabel: string;
   requesterImageUrl?: string | null;
   counterpartType: ConsentCenterEntry["counterpart_type"];
@@ -339,6 +341,7 @@ export function buildPkmDomainPresentation(params: {
       ...entry,
       scope: String(grant?.scope || ""),
       counterpartType: grant?.counterpart_type || "developer",
+      counterpartUserId: grant?.counterpart_id || null,
       domainKey: params.domain.key,
       domainTitle: params.domain.displayName,
     };
@@ -410,6 +413,7 @@ export function buildPkmAccessConnections(
       const key = `${grant.counterpartType}:${grant.requesterLabel}`;
       const current = grouped.get(key);
       if (current) {
+        if (current.personUserId !== grant.counterpartUserId) current.personUserId = null;
         current.grants.push(grant);
         if (!current.domains.includes(domain.title)) current.domains.push(domain.title);
         current.accessCount += 1;
@@ -418,6 +422,7 @@ export function buildPkmAccessConnections(
       }
       grouped.set(key, {
         id: key,
+        personUserId: ["person", "investor", "ria"].includes(grant.counterpartType) ? grant.counterpartUserId : null,
         requesterLabel: grant.requesterLabel,
         requesterImageUrl: grant.requesterImageUrl,
         counterpartType: grant.counterpartType,

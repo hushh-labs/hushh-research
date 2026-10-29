@@ -17,6 +17,7 @@
  * control back to Location.
  */
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -589,7 +590,7 @@ export function LocationMapScreen() {
                 focus.kind === "grant" && focus.grantId === row.grant.id;
               return (
                 <li key={row.grant.id}>
-                  <button
+                  <PersonSelectionSurface
                     type="button"
                     onClick={() => {
                       setFocus({ kind: "grant", grantId: row.grant.id });
@@ -602,7 +603,7 @@ export function LocationMapScreen() {
                       selected && "ring-2 ring-[color:var(--app-accent)]",
                     )}
                   >
-                    <AvatarBubble
+                    <AvatarBubble userId={row.grant.ownerUserId}
                       initials={initialsFor(ownerName(row.grant))}
                       imageUrl={row.grant.ownerPhotoUrl}
                       size={32}
@@ -624,7 +625,7 @@ export function LocationMapScreen() {
                     >
                       {fresh.state === "live" ? "Live" : "Paused"}
                     </StatusPill>
-                  </button>
+                  </PersonSelectionSurface>
                 </li>
               );
             })}

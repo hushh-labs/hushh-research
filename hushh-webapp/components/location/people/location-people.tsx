@@ -154,12 +154,14 @@ function rowStatusFor(
 }
 
 function RequestRow({
+  userId,
   name,
   photoUrl,
   detail,
   actions,
   testId,
 }: {
+  userId?: string;
   name: string;
   photoUrl?: string | null;
   detail: string;
@@ -174,7 +176,7 @@ function RequestRow({
       )}
       data-testid={testId}
     >
-      <AvatarBubble
+      <AvatarBubble userId={userId}
         initials={personInitials(name)}
         imageUrl={photoUrl}
         size={36}
@@ -315,7 +317,7 @@ export function LocationPeople({
         <section className="space-y-2" data-testid="location-people-incoming">
           <p className="ui-text-section-label px-1">Waiting for you</p>
           {incoming.map((request) => (
-            <RequestRow
+            <RequestRow userId={request.requesterUserId}
               key={request.id}
               name={request.requesterDisplayName || "Someone"}
               photoUrl={request.requesterPhotoUrl}
@@ -361,7 +363,7 @@ export function LocationPeople({
         <section className="space-y-2" data-testid="location-people-outgoing">
           <p className="ui-text-section-label px-1">You asked</p>
           {outgoing.map((request) => (
-            <RequestRow
+            <RequestRow userId={request.ownerUserId}
               key={request.id}
               name={request.ownerDisplayName || "Someone"}
               photoUrl={request.ownerPhotoUrl}

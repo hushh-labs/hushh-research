@@ -322,17 +322,21 @@ function remainingLabel(expiresAt: unknown, now = Date.now()): string | null {
 }
 
 function PersonRow({
+  userId,
+  personRef,
   name,
   photoUrl,
   detail,
 }: {
+  userId?: string | null;
+  personRef?: string | null;
   name: string;
   photoUrl: string | null;
   detail?: string | null;
 }) {
   return (
     <li className="flex min-h-9 items-center gap-2.5">
-      <AvatarBubble
+      <AvatarBubble userId={userId} personRef={personRef}
         initials={initialsFor(name)}
         size={28}
         imageUrl={photoUrl}
@@ -392,6 +396,8 @@ function PeopleDetail({ result }: { result: ToolResultPublic }) {
       : null;
   const single = person ? [person] : [];
   const items: Array<{
+    userId?: string | null;
+    personRef?: string | null;
     key: string;
     name: string;
     photo: string | null;
@@ -403,6 +409,8 @@ function PeopleDetail({ result }: { result: ToolResultPublic }) {
       if (!name) return;
       const relationship = text(row.relationship);
       items.push({
+        userId: text(row.user_id),
+        personRef: text(row.public_person_ref),
         key: `${items.length}:${index}`,
         name,
         photo: text(row.photo_url),
@@ -430,6 +438,8 @@ function PeopleDetail({ result }: { result: ToolResultPublic }) {
       {items.slice(0, 8).map((item) => (
         <PersonRow
           key={item.key}
+          userId={item.userId}
+          personRef={item.personRef}
           name={item.name}
           photoUrl={item.photo}
           detail={item.detail}

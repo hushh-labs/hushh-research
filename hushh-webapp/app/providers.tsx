@@ -55,6 +55,7 @@ import { NativeWorkspaceSeat } from "@/components/app-ui/native-workspace-seat";
 import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { AppProfileEdgeGesture } from "@/components/app-ui/app-profile-edge-gesture";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
+import { PersonProfilePreview } from "@/components/connections/person-profile-preview";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
@@ -679,6 +680,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                     onOpenChange={handleProfilePaneOpenChange}
                     returnFocusRef={profileReturnFocus}
                   />
+                  <PersonProfilePreview />
                   {/* This bridge owns one post-unlock reconciliation for the whole
                 app. Keeping it outside the route Suspense boundary prevents
                 fallback/resolved remounts from launching the same sync twice. */}

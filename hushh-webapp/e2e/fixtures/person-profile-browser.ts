@@ -8,13 +8,14 @@ export type PersonProfileBrowserFixture = {
   css: string;
   script: string;
   requestScript: string;
+  previewScript?: string;
   dispose(): void;
 };
 
 /** Shared production presentation/request fixture compiler. Each browser worker
  * owns its temporary output; failed builds and completed packs both remove it.
  */
-export async function buildPersonProfileBrowserFixture({ includePresentation = true } = {}): Promise<PersonProfileBrowserFixture> {
+export async function buildPersonProfileBrowserFixture({ includePresentation = true, includePreview = false } = {}): Promise<PersonProfileBrowserFixture> {
   const root = process.cwd();
   const { build } = await import("vite");
   const { Scanner } = await import("@tailwindcss/oxide");
@@ -52,6 +53,14 @@ export async function buildPersonProfileBrowserFixture({ includePresentation = t
       { find: "@", replacement: root },
     ] });
     const { compile } = await import("tailwindcss");
+    const previewPorts = path.join(root, "e2e/fixtures/person-profile-preview-ports.tsx");
+    const previewScript = includePreview ? await buildFixture("person-profile-preview.tsx", "preview-fixture.js", { alias: [
+      { find: "@/hooks/use-auth", replacement: previewPorts },
+      { find: "@/lib/services/connections-service", replacement: previewPorts },
+      { find: "next/navigation", replacement: previewPorts },
+      { find: /^\.\/person-profile-page$/, replacement: previewPorts },
+      { find: "@", replacement: root },
+    ] }) : undefined;
     const compiler = await compile(
       fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""),
       {
@@ -67,7 +76,7 @@ export async function buildPersonProfileBrowserFixture({ includePresentation = t
       .map(name => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
     const { optimize } = await import("@tailwindcss/node");
     const css = stripAppFontFaces(optimize(compiler.build([...candidates]) + modules, { minify: true }).code) + productFontStyle();
-    return { css, script, requestScript, dispose };
+    return { css, script, requestScript, previewScript, dispose };
   } catch (error) {
     dispose();
     throw error;
