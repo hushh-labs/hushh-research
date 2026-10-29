@@ -29,7 +29,6 @@ import {
   MapPin,
   Search,
   UsersRound,
-  WifiOff,
 } from "@/components/icons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -116,7 +115,6 @@ import { publishOneLocationMapPreferences } from "@/lib/one-location/use-one-loc
 import type {
   OneLocationMapMarker,
   OneLocationMapPreferences,
-  OneLocationGrant,
   OneLocationNearbyAttendee,
   OneLocationNearbyPresenceState,
   PlainLocationPoint,
