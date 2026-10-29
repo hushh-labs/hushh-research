@@ -269,10 +269,19 @@ def _job(job: dict, images: dict) -> dict:
     }
 
 
-def _job_history(jobs: dict, images: dict, until: str, submissions, probe_images) -> dict:
+def _job_history(
+    jobs: dict, images: dict, until: str, submissions, probe_images, observers=None
+) -> dict:
     from schema_job_history import qualify
 
-    return qualify(jobs, images, until, submissions=submissions, probe_images=probe_images)
+    return qualify(
+        jobs,
+        images,
+        until,
+        submissions=submissions,
+        probe_images=probe_images,
+        observers=observers,
+    )
 
 
 def _revision_history(service: str, state: dict, until: str) -> int:
@@ -297,6 +306,16 @@ def _revision_history(service: str, state: dict, until: str) -> int:
         require_retained=True,
         container_name="drive-worker" if service.endswith("-drive-worker") else None,
     )
+
+
+def _job_partition(inventory, images, owner):
+    rows = owner.observer_rows(inventory, PROJECT)
+    observers = {row["name"]: inventory["jobs"][row["name"]] for row in rows}
+    jobs = {
+        name: _job(job, images) for name, job in inventory["jobs"].items()
+        if name not in observers
+    }
+    return jobs, observers, rows
 
 
 class Runtime:
@@ -369,7 +388,7 @@ class Runtime:
                     ]
                 ),
             }
-        jobs = {name: _job(job, images) for name, job in inventory["jobs"].items()}
+        jobs, observers, observer_rows = _job_partition(inventory, images, budget._inventory)
         audit_counts["jobs"] = _job_history(
             jobs,
             images,
@@ -383,11 +402,13 @@ class Runtime:
                     else set()
                 )
             ),
+            observers,
         )
         return {
             "services": services,
             "revisions": revisions,
             "jobs": jobs,
+            "observer_jobs": observer_rows,
             "history_start": HISTORY_START,
             "source_anchor": SOURCE_ANCHOR,
             "audit_counts": audit_counts,

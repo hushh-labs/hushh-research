@@ -37,6 +37,8 @@ import {
   CONNECT_CIRCLES_LIST_HREF,
   connectCircleTaskTitle,
   readConnectCircleAction,
+  CONNECT_MUTUALS_PARAM,
+  connectDirectoryReturnHref,
 } from "@/lib/navigation/connect-routes";
 import {
   buildNearbyCheckInResumeHref,
@@ -1052,6 +1054,17 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
               { label: "Connect", href: CONNECT_CIRCLES_LIST_HREF },
               { label },
             ],
+      };
+    },
+  },
+  {
+    id: "connect-mutuals",
+    resolve: (pathname, searchParams) => {
+      if (pathname !== ROUTES.CONNECT || searchParams?.get("tab") === "circles" || !searchParams?.get(CONNECT_MUTUALS_PARAM)?.trim()) return undefined;
+      const backHref = connectDirectoryReturnHref(searchParams);
+      return {
+        backHref, backLabel: "Back to Find people", width: "profile", align: "center", hideBack: false,
+        items: [{ label: "Connect", href: backHref }, { label: "Mutual connections" }],
       };
     },
   },

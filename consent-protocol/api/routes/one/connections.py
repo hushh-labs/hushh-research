@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -138,6 +139,30 @@ def connections_directory(
             limit=limit,
             audience=audience,
             name_only=name_only,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.get("/connections/mutuals")
+@limiter.limit(_directory_daily_limit, key_func=_directory_daily_budget_key)
+@limiter.limit(RateLimits.ONE_CONNECT_DIRECTORY_READ)
+def list_mutual_connections(
+    request: Request,
+    response: Response,
+    person_ref: UUID = Query(...),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=50),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    del request
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return _service().list_mutual_connections_page(
+            firebase_uid,
+            person_ref=str(person_ref),
+            page=page,
+            limit=limit,
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
