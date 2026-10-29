@@ -18,6 +18,7 @@ import { PersonProfilePreview } from "@/components/connections/person-profile-pr
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
+import { PersonProfileLink } from "@/components/connections/person-profile-link";
 import { dismissTopmostOverlay } from "@/lib/navigation/back-layers";
 
 function Source({ settings = false }: { settings?: boolean }) {
@@ -37,6 +38,17 @@ describe("person profile return memory @feature_connected_profiles @trace_loop",
     state.resolve.mockReset().mockResolvedValue({ person: { publicPersonRef: "public-peer" } });
   });
   afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); });
+
+  it("retains normal profile navigation when no preview host accepts the link", () => {
+    render(<PersonProfileLink href="/people/11111111-1111-4111-8111-111111111111">View profile</PersonProfileLink>);
+    let intercepted: boolean | undefined;
+    document.addEventListener("click", event => {
+      intercepted = event.defaultPrevented;
+      event.preventDefault(); // The browser owns navigation; keep this jsdom fixture in place.
+    }, { once: true });
+    fireEvent.click(screen.getByRole("link", { name: "View profile" }));
+    expect(intercepted).toBe(false);
+  });
 
   it.each([false, true])("keeps selections, search, source DOM and focus through avatar and Back (settings %s)", async settings => {
     const { container } = render(<Source settings={settings} />);

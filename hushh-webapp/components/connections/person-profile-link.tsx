@@ -12,8 +12,9 @@ export function PersonProfileLink({ onClick, ...props }: ComponentProps<typeof L
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || props.target === "_blank") return;
     const personRef = resolvePersonRefFromProfilePathname(typeof props.href === "string" ? props.href : props.href.pathname);
     if (!personRef) return;
-    event.preventDefault();
-    event.stopPropagation();
-    openPersonProfilePreview({ personRef }, event.currentTarget);
+    if (openPersonProfilePreview({ personRef }, event.currentTarget)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
   }} />;
 }

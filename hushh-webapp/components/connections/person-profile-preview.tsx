@@ -73,7 +73,9 @@ export function PersonProfilePreview() {
   useEffect(() => {
     const open = (event: Event) => {
       const detail = (event as CustomEvent<PersonProfilePreviewIdentity & { returnFocus?: HTMLElement }>).detail;
-      if (!user || opening.current || (!detail?.personRef?.trim() && !detail?.userId?.trim())) return;
+      if (!user || (!detail?.personRef?.trim() && !detail?.userId?.trim())) return;
+      event.preventDefault();
+      if (opening.current) return;
       opening.current = true;
       returnFocus.current = detail.returnFocus;
       const key = ++nextKey.current;
