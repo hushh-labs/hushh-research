@@ -136,11 +136,10 @@ export function PortfolioImportView({
   const isBusy = isUploading || isPreloadingSchema || isConnectingPlaid;
 
   return (
-    <div className="w-full pb-2">
+    <div className={`${finance.workspace} w-full pb-2`}>
       <KaiWorkspaceHeader
         workspace="portfolio"
         title="Portfolio"
-        description="Choose how you want to begin."
       />
 
       <AppPageContentRegion className="space-y-3">

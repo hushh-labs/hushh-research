@@ -376,7 +376,7 @@ describe("private Puppy relay", () => {
     await ask("First question");
     expect(await screen.findByText("First answer")).toBeInTheDocument();
     await ask("Second question");
-    expect(await screen.findByText(/connection to your private agent dropped/)).toBeInTheDocument();
+    expect(await screen.findByText(/connection to Agent One dropped/)).toBeInTheDocument();
     expect(screen.getByText("A partial")).toBeInTheDocument();
 
     await ask("Third question");

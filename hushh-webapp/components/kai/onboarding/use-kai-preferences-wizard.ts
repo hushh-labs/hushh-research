@@ -75,6 +75,7 @@ export function useKaiPreferencesWizard(props: KaiPreferencesWizardOptions) {
     visit.pending = true; setPendingVisit(visit);
     try {
       await props.onComplete({ ...currentState().answers, horizonAnchorChoice: props.mode === "edit" ? currentState().horizonAnchorChoice : undefined });
+      if (!visit.live) return "blocked" as const;
       return "saved" as const;
     } catch {
       return "failed" as const; // The operation owner presents its outcome; never replay.
@@ -120,6 +121,12 @@ export function useKaiPreferencesWizard(props: KaiPreferencesWizardOptions) {
     if (!["small", "moderate", "large"].includes(entry)) return { status: "blocked", summary: "That's not one of the volatility options." };
     return answerByVoice("volatility_preference", entry);
   }, { enabled });
+  useLocalOnboardingActionHandler("kai.setup.launch_dashboard", async () => {
+    const outcome = await complete();
+    return outcome === "saved" ? { status: "succeeded", summary: "Preferences saved. Continue with your portfolio." }
+      : outcome === "failed" ? { status: "failed", summary: "Preferences couldn't be saved. Please retry." }
+      : { status: "blocked", summary: "Choose all three preferences before continuing." };
+  }, { enabled: enabled && props.mode === "onboarding" });
   const activeQuestion = KAI_PREFERENCE_QUESTIONS[value.step]!;
   const isLast = value.step === total - 1;
   const canContinue = Boolean(value.answers[activeQuestion.id]);

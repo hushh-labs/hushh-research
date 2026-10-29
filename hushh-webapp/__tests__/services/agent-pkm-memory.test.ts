@@ -1704,7 +1704,7 @@ describe("agent PKM memory helpers", () => {
       success: true,
     });
     expect(formatAgentPkmSaveSummary(result)).toBe(
-      "Saved in Food > Drinks > Favorite. Private to your private agent. Consent is required before external sharing."
+      "Saved in Food > Drinks > Favorite. Private to Agent One. Consent is required before external sharing."
     );
   });
 

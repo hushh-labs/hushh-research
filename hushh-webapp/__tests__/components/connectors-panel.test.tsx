@@ -53,7 +53,7 @@ describe('private Google transition owner review', () => {
     const result = vi.fn();
     render(<ReviewHarness ownerId="owner-a" epoch={snapshotVaultSessionEpoch()} result={result} />);
     fireEvent.click(screen.getByText('Review Google'));
-    expect(screen.getByText(/Existing Google connections, including your private agent/)).toBeInTheDocument();
+    expect(screen.getByText(/Existing Google connections, including Agent One/)).toBeInTheDocument();
     expect(result).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Replace and sign in' }));
     await waitFor(() => expect(result).toHaveBeenCalledWith(true));

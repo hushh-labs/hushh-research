@@ -25404,7 +25404,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Saves Finance preferences, marks only Finance ready, and returns to the One setup hub without resolving root onboarding.",
+      "description": "Saves the selected Finance preferences and continues to portfolio import without completing Finance or root setup.",
       "execution": {
         "binding_ref": "semantic_action:kai.setup.launch_dashboard",
         "executor": {
@@ -25497,8 +25497,8 @@
         "save",
         "finance",
         "preferences",
-        "finish",
-        "persona"
+        "continue",
+        "import"
       ],
       "settlement_proof": "directive_ledger_settlement",
       "side_effect": {
@@ -44278,7 +44278,7 @@
     },
     {
       "aliases": [
-        "Set up your private agent",
+        "Set up Agent One",
         "set up my cloud",
         "connect my cloud",
         "open cloud setup",
@@ -44342,7 +44342,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Set up your private agent",
+      "label": "Set up Agent One",
       "navigation": {
         "fallback": "/one/setup/cloud",
         "routes": [
@@ -50925,7 +50925,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "3110f0b533669d7a27a297157619059e3af898fc67cdd60f8017cc9b7f4b799d",
+      "projection_digest": "ba821972bb635eb21d80439f12aa27df15f048dff91a01f2900e0cfbbb3ee22b",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50935,7 +50935,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "71d4b20d76e9ffc3b09cbad3fd72af83da7274aad456ba101f4e32c9ab8ca18e",
+        "capability_graph_evolution": "5e08f4d349044b2bcfcdc5569e1b15303ef3068c024352e1518c484a5115e020",
         "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -50944,7 +50944,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "9dfe4bb11283b187",
+      "source_revision": "892bcac722d55357",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -52462,7 +52462,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "9dfe4bb11283b187",
+    "source_revision": "892bcac722d55357",
     "web": {
       "actions": [
         {
@@ -52505,7 +52505,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "28e9e75506162f2dcd6bf0ee04ca6bfebf68f7857620912ed9181d5dfe67dc33",
+      "projection_digest": "a18e18ba3c40fef082b3b5fb77f87c1578ee1d70fc5cfedcf1cb952443bba4aa",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52515,7 +52515,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "71d4b20d76e9ffc3b09cbad3fd72af83da7274aad456ba101f4e32c9ab8ca18e",
+        "capability_graph_evolution": "5e08f4d349044b2bcfcdc5569e1b15303ef3068c024352e1518c484a5115e020",
         "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -52524,7 +52524,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "9dfe4bb11283b187",
+      "source_revision": "892bcac722d55357",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -54081,7 +54081,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "9dfe4bb11283b187",
+  "revision": "892bcac722d55357",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -56076,9 +56076,15 @@
   "semantic_diff": {
     "added": [],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "actions:kai.setup.launch_dashboard",
+      "actions:setup.open_cloud"
+    ],
     "compatible": [],
-    "deprecated": [],
+    "deprecated": [
+      "actions:kai.setup.launch_dashboard",
+      "actions:setup.open_cloud"
+    ],
     "from_revision": "09508ecac56d001c",
     "migrated": [],
     "removed": []
@@ -58385,10 +58391,10 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "71d4b20d76e9ffc3b09cbad3fd72af83da7274aad456ba101f4e32c9ab8ca18e",
+    "capability_graph_evolution": "5e08f4d349044b2bcfcdc5569e1b15303ef3068c024352e1518c484a5115e020",
     "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "eca5b20202df56cb08e43928cf214de8c5745549a78a1cf2f4869270440efeeb",
+    "kai_action_gateway": "121c94713e3db589a5f2b4b008e54a65587589a3f8f5a394c821d7f244b68a62",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -58397,9 +58403,9 @@
     "route_orchestration_index": "7d497a97e7c950bc4486200ad349a27bca70a0f9b5479d54ef5de8047e290547",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "9dfe4bb11283b187",
+  "source_revision": "892bcac722d55357",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "9dfe4bb11283b187",
+    "current_graph_revision": "892bcac722d55357",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

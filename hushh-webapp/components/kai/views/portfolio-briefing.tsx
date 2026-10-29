@@ -46,7 +46,7 @@ export function PortfolioBriefing({ model, portfolio, onOpen, advisorAction }: {
           <div><dt>Cash share</dt><dd>{cashShare === null ? "Unavailable" : `${cashShare.toFixed(1)}%`}</dd></div>
           {leadingSector ? <div><dt>{leadingSector.sector} share</dt><dd aria-label={`${leadingSector.pct.toFixed(1)}% of portfolio`}>{leadingSector.pct.toFixed(1)}%</dd></div> : null}
         </dl>
-        <p className={styles.insightNotice}><CalendarDays aria-hidden="true" /><span>{model.quality.historyReady ? "Dated balance history is available." : "Balance history isn’t in this source."}</span></p>
+        <p className={styles.insightNotice}><CalendarDays aria-hidden="true" /><span>{model.quality.historyReady ? "Dated history available" : "No dated history"}</span></p>
       </> : null}
       <div className={styles.cardFooter}>{onOpen ? <ShellActionSurface variant="pill" className="min-h-11" onClick={onOpen}>
         {model ? "View analysis" : "Import portfolio"}

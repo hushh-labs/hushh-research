@@ -20658,7 +20658,7 @@
         "kai_wizard_investment_horizon"
       ],
       "state_exposure": [
-        "current wizard step"
+        "selected investment preferences"
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -20752,9 +20752,7 @@
           "one_setup_finance"
         ],
         "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Investment horizon must already be answered."
-        ],
+        "navigation_prerequisites": [],
         "active_personas": [
           "investor"
         ],
@@ -20778,7 +20776,7 @@
         "kai_wizard_drawdown_response"
       ],
       "state_exposure": [
-        "current wizard step"
+        "selected investment preferences"
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -20872,9 +20870,7 @@
           "one_setup_finance"
         ],
         "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Drawdown response must already be answered."
-        ],
+        "navigation_prerequisites": [],
         "active_personas": [
           "investor"
         ],
@@ -20898,7 +20894,7 @@
         "kai_wizard_volatility_preference"
       ],
       "state_exposure": [
-        "current wizard step"
+        "selected investment preferences"
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -20980,10 +20976,10 @@
         "save",
         "finance",
         "preferences",
-        "finish",
-        "persona"
+        "continue",
+        "import"
       ],
-      "meaning": "Saves Finance preferences, marks only Finance ready, and returns to the One setup hub without resolving root onboarding.",
+      "meaning": "Saves the selected Finance preferences and continues to portfolio import without completing Finance or root setup.",
       "speaker_persona": "kai",
       "delegate_agent_id": null,
       "reachability": {
@@ -21020,7 +21016,7 @@
         "kai_wizard_launch_dashboard"
       ],
       "state_exposure": [
-        "computed risk profile"
+        "selected investment preferences"
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -34542,7 +34538,7 @@
     {
       "action_id": "setup.open_cloud",
       "surface_id": "one_setup_hub",
-      "label": "Set up your private agent",
+      "label": "Set up Agent One",
       "aliases": [
         "set up my cloud",
         "connect my cloud",
@@ -34623,7 +34619,7 @@
           {
             "type": "action",
             "action_id": "setup.open_cloud",
-            "label": "Set up your private agent",
+            "label": "Set up Agent One",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/cloud",

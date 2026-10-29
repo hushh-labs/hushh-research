@@ -88,7 +88,7 @@
 .concentrationRing > span > span, .concentrationValue > span > span { display: block; color: var(--muted-foreground); font-size: 12px; line-height: 18px; }
 .concentrationLabel { min-width: 0; }
 .insightEyebrow { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
-.insightHoldingName { margin-block: 5px 3px; font-size: 14px; line-height: 20px; font-weight: 550; overflow-wrap: anywhere; }
+.insightHoldingName { margin-block: 5px 3px; font-size: 14px; line-height: 21px; font-weight: 550; overflow-wrap: anywhere; }
 .insightFacts { margin: 0; }
 .insightFacts > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 12px; border-top: 1px solid var(--border); font-size: 12px; line-height: 18px; }
 .insightFacts dt { display: flex; align-items: center; gap: 7px; min-width: 0; }

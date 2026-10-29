@@ -8966,7 +8966,7 @@
         "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
-        "back_button_pattern": "route-local-check-required"
+        "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": "app/one/setup/kai/page.voice-action-contract.json",
       "voice_action_contract_ids": [
@@ -11066,5 +11066,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "7af1a334f1b12b541024f220a02b4f11363bed9d80cb4051bc58d8bac2bd44ed"
+  "content_sha256": "8959c2e5cf360724974c0bf537287719874c0b605548be641910924f399b2a3c"
 }

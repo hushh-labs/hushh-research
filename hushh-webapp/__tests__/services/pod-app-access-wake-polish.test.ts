@@ -107,7 +107,7 @@ describe("a hub 409 on chat grants says which 409 it is", () => {
   });
 
   it("keeps the moved copy for a real move, and stays neutral for any other 409", async () => {
-    expect((await shown(json409({ code: "POD_ASSIGNMENT_CHANGED" }))).copy).toMatch(/^Your private agent moved/);
+    expect((await shown(json409({ code: "POD_ASSIGNMENT_CHANGED" }))).copy).toMatch(/^Agent One moved/);
     for (const other of [json409({ code: "POD_IDENTITY_NOT_DURABLE" }), new Response("conflict", { status: 409 })]) {
       const { copy } = await shown(other);
       expect(copy).toBe("Hussh could not confirm this chat with Agent One. Try again in a moment.");

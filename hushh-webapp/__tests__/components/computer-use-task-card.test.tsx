@@ -496,7 +496,7 @@ describe("private browser control", () => {
     vi.mocked(api.read).mockResolvedValue(snapshot({ phase: "unavailable", capability: "unavailable", controlOwner: "stopped" }));
     render(<ComputerUseTaskCard binding={binding} transport={api} />);
     await waitFor(() => expect(screen.getByRole("button", { name: "View browser" })).toBeDisabled());
-    expect(screen.getByText("Browser unavailable on this Agent One.")).toBeInTheDocument();
+    expect(screen.getByText("Browser unavailable on Agent One.")).toBeInTheDocument();
     expect(api.watchFrames).not.toHaveBeenCalled();
   });
 
@@ -556,7 +556,7 @@ describe("private browser control", () => {
     expect(api.getComputerUseAdmission).not.toHaveBeenCalled();
     expect(api.ownerPodRequest).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Browser" }));
-    expect(await screen.findByText("Browser isn’t available on this Agent One yet.")).toBeInTheDocument();
+    expect(await screen.findByText("Browser isn’t available on Agent One yet.")).toBeInTheDocument();
     expect(api.getComputerUseAdmission).toHaveBeenCalledOnce();
     expect(api.ownerPodRequest).not.toHaveBeenCalled();
   });

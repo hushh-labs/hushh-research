@@ -20,7 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { kaiAppSectionTitleClassName } from "@/components/kai/shared/kai-typography";
-import { SectionLabel } from "@/components/app-ui/typography";
+import { FormLabel, SectionLabel } from "@/components/app-ui/typography";
 import finance from "@/components/kai/shared/finance-workspace.module.css";
 
 export function KaiPreferencesWizard(props: {
@@ -272,18 +272,18 @@ function FinanceSetupForm({ model, terminalFooter }: { model: KaiPreferencesWiza
     <div className="mx-auto w-full max-w-[28rem] space-y-6 py-5">
       <header className="space-y-2">
         <SectionLabel role="heading" aria-level={1}>Your investment preferences</SectionLabel>
-        <p className={finance.description}>Help Agent One put your portfolio in context. You can change these answers later.</p>
+        <p className={finance.description}>You can change these later.</p>
       </header>
       <form className="space-y-5" onSubmit={event => { event.preventDefault(); void model.submit(); }}>
         {model.questions.map(question => <fieldset key={question.id} disabled={model.isSubmitting} className="min-w-0 space-y-2">
-          <legend id={`${formId}-${question.id}`} className="mb-2 text-sm font-medium leading-[21px]">{question.prompt}</legend>
-          <RadioGroup aria-labelledby={`${formId}-${question.id}`} value={model.answers[question.id] ?? ""} onValueChange={entry => model.selectAnswer(question.id, entry)}>
+          <FormLabel as="legend" id={`${formId}-${question.id}`} className="mb-2">{question.prompt}</FormLabel>
+          <RadioGroup data-voice-control-id={`kai_wizard_${question.id}`} aria-labelledby={`${formId}-${question.id}`} value={model.answers[question.id] ?? ""} onValueChange={entry => model.selectAnswer(question.id, entry)}>
             <SettingsGroup testId={`finance-preference-${question.id}`}>
               {question.options.map(option => <RadioOptionRow key={option.value} value={option.value} label={option.label} />)}
             </SettingsGroup>
           </RadioGroup>
         </fieldset>)}
-        <Button type="submit" variant="none" effect="fill" fullWidth loading={model.isSubmitting} disabled={!model.canSubmit || model.isSubmitting}
+        <Button type="submit" data-voice-control-id="kai_wizard_launch_dashboard" variant="none" effect="fill" fullWidth loading={model.isSubmitting} disabled={!model.canSubmit || model.isSubmitting}
           className="min-h-11 rounded-full !bg-primary text-sm !text-primary-foreground disabled:!bg-muted disabled:!text-muted-foreground">{model.isSubmitting ? "Saving…" : "Continue"}</Button>
       </form>
       {terminalFooter}
