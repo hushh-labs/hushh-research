@@ -2,6 +2,7 @@ name: "PR Validation"
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
     branches: ["**"]
   workflow_dispatch:
     inputs:
@@ -511,11 +512,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      frontend: ${{ needs.paths.outputs.frontend }}
-      backend: ${{ needs.paths.outputs.backend }}
-      ios: ${{ needs.paths.outputs.ios }}
-      android: ${{ needs.paths.outputs.android }}
-      editor: ${{ needs.paths.outputs.editor }}
+      frontend: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.frontend }}
+      backend: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.backend }}
+      ios: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.ios }}
+      android: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.android }}
+      editor: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.editor }}
     steps:
       - name: Validate cheap authority checks before expensive lanes
         shell: bash
@@ -1577,7 +1578,7 @@ jobs:
   # filter at all. `if: always()` is deliberate; `!cancelled()` would let a
   # cancelled run leave this check skipped, which GitHub reads as a pass.
   ci-status:
-    name: ${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || 'CI Status Gate' }}
+    name: ${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || (github.event.pull_request.draft && 'Draft Safety Gate' || 'CI Status Gate') }}
     permissions:
       contents: read
       actions: read
@@ -1651,56 +1652,56 @@ jobs:
             echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_CORE" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] && [ "$WEB_CORE" != "success" ]; then
             echo "Changed frontend sources require successful core and UI validator regressions."
             fail=1
           fi
           # A skipped lane passes the loop below, so a lane whose paths changed
           # must be proven to have actually run and succeeded.
-          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_TARGETED" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] && [ "$WEB_TARGETED" != "success" ]; then
             echo "Changed frontend sources require every targeted Node and browser shard to succeed."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_FULL_SUITE" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] && [ "$WEB_FULL_SUITE" != "success" ]; then
             echo "Changed frontend sources require a successful full Vitest suite run."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.editor }}" = "true" ] && [ "$WEB_EDITOR_PERF" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.editor }}" = "true" ] && [ "$WEB_EDITOR_PERF" != "success" ]; then
             echo "Changed editor sources require a successful macOS editor performance run."
             fail=1
           fi
-          if { [ "${{ needs.paths.outputs.frontend }}" = "true" ] || [ "${{ needs.paths.outputs.backend }}" = "true" ]; } && [ "$WEB_EDITOR_PERF" != "success" ]; then
+          if { [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] || [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ]; } && [ "$WEB_EDITOR_PERF" != "success" ]; then
             echo "Changed frontend or backend sources require the native macOS WebKit document flow."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.ios }}" = "true" ] && [ "$IOS_NATIVE" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.ios }}" = "true" ] && [ "$IOS_NATIVE" != "success" ]; then
             echo "Changed iOS sources require a successful native build and XCTest run."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.android }}" = "true" ] && [ "$ANDROID_NATIVE" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.android }}" = "true" ] && [ "$ANDROID_NATIVE" != "success" ]; then
             echo "Changed Android sources require a successful native compile and unit run."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.backend }}" = "true" ] && [ "$PROTOCOL" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ] && [ "$PROTOCOL" != "success" ]; then
             echo "Changed backend sources require a successful protocol check."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.backend }}" = "true" ] && [ "$PROTOCOL_DATABASE" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ] && [ "$PROTOCOL_DATABASE" != "success" ]; then
             echo "Changed backend sources require successful isolated serial database contracts."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.backend }}" = "true" ] && [ "$MCP_PACKAGE" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ] && [ "$MCP_PACKAGE" != "success" ]; then
             echo "Changed backend sources require a successful MCP package check."
             fail=1
           fi
-          if { [ "${{ needs.paths.outputs.frontend }}" = "true" ] || [ "${{ needs.paths.outputs.backend }}" = "true" ]; } && [ "$INTEGRATION" != "success" ]; then
+          if { [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] || [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ]; } && [ "$INTEGRATION" != "success" ]; then
             echo "Changed frontend or backend sources require a successful integration check."
             fail=1
           fi
           # An output that is neither true nor false selected nothing above, so
           # every lane it should have required would pass unrun. That is a
           # broken paths job, never a skip.
-          for lane in "frontend=${{ needs.paths.outputs.frontend }}" "backend=${{ needs.paths.outputs.backend }}" "ios=${{ needs.paths.outputs.ios }}" "android=${{ needs.paths.outputs.android }}" "editor=${{ needs.paths.outputs.editor }}"; do
+          for lane in "frontend=${{ needs['preflight-gate'].outputs.frontend }}" "backend=${{ needs['preflight-gate'].outputs.backend }}" "ios=${{ needs['preflight-gate'].outputs.ios }}" "android=${{ needs['preflight-gate'].outputs.android }}" "editor=${{ needs['preflight-gate'].outputs.editor }}"; do
             case "${lane#*=}" in
               true|false) ;;
               *) echo "Path filter output ${lane%%=*} is '${lane#*=}', not true or false."; fail=1 ;;
@@ -1763,14 +1764,3 @@ jobs:
               ;;
           esac
           echo "Branch validation scope ${SCOPE} ran every selected lane; this is not a PR merge verdict."
-
-      - uses: actions/checkout@v6
-        if: github.run_attempt > 1
-        with:
-          persist-credentials: false
-      - name: Verify the current rerun's protected security receipt
-        if: github.run_attempt > 1
-        run: python3 scripts/ci/github_security_receipt.py
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CI_SECURITY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

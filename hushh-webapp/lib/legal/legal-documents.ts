@@ -47,12 +47,12 @@ const LIMITED_USE_POLICY_URL =
   "https://developers.google.com/terms/api-services-user-data-policy";
 const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 
-const LAST_UPDATED = "2026-10-16";
-const LAST_UPDATED_LABEL = "October 16, 2026";
-const VERSION = "2.4";
-const PRIVACY_LAST_UPDATED = "2026-10-22";
-const PRIVACY_LAST_UPDATED_LABEL = "October 22, 2026";
-const PRIVACY_VERSION = "2.11";
+const LAST_UPDATED = "2026-10-29";
+const LAST_UPDATED_LABEL = "October 29, 2026";
+const VERSION = "2.5";
+const PRIVACY_LAST_UPDATED = "2026-10-29";
+const PRIVACY_LAST_UPDATED_LABEL = "October 29, 2026";
+const PRIVACY_VERSION = "2.12";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -79,7 +79,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     title: "Introduction",
     blocks: [
       p(
-        "Hussh One is your private agent. It answers you, remembers what you choose to save, works with the services you connect, and shares your information with other people only when you approve. This Privacy Policy explains what information One collects, how it is protected, how it is used, who it is shared with, and the choices you have.",
+        "Hussh One is your private agent. It answers you, remembers what you choose to save and useful details from how you use One, works with the services you connect, and shares your information with other people only when you approve. This Privacy Policy explains what information One collects, how it is protected, how it is used, who it is shared with, and the choices you have.",
       ),
       p(
         "It applies to the Hussh One apps for iPhone and Android and to one.hussh.si and its existing one.hussh.ai and one.hushh.ai addresses, including Kai, the investing feature inside One. It is provided by HushOne, Inc. (“Hussh”, “we”, “us”). The public website at www.hussh.si and its existing .ai addresses has its own privacy policy.",
@@ -99,7 +99,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "Your chat history is stored encrypted with a key derived from your vault key, which your device sends only while One is working on your request.",
         "Services you connect support your requests and their background features. With full Google Drive access, Agent One prepares private document packets by default; you can pause preparation in Connectors. Google information is handled under Google’s Limited Use requirements.",
         "Where available in UAT, Personal World Model public research with Microsoft Azure AI and Bing requires a separate choice. Bing search terms may include your name and verified email or phone.",
-        "In UAT, Azure is the server-managed primary provider for One text chat and document-request planning for all accounts. New requests deliver Google Drive search matches without per-file content reading or relevance assessment; older requests retain their original processing policy. Gemini is a bounded fallback for classified temporary model-service failures. This administrator policy does not create personal approval records.",
+        "In UAT, Azure is the server-managed primary provider for One text chat, memory organization and document-request planning for all accounts. New requests deliver Google Drive search matches without per-file content reading or relevance assessment; older requests retain their original processing policy. Gemini is a bounded fallback for classified temporary model-service failures. This administrator policy does not create personal approval records.",
         "You decide what to share with other people and businesses, for how long, and you can revoke access at any time.",
         "We do not sell your information, and we do not show you ads.",
         "You can delete your account in the app at any time.",
@@ -145,15 +145,15 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     title: "How your vault and chats are protected",
     blocks: [
       h("Your vault and memories"),
-      p(
-        "Your vault key is a random AES-256-GCM key created on your device. It is protected by your password, a passkey, your device’s biometric unlock, or your recovery key, and we never receive it. Memories are encrypted with it on your device before they are stored, so what we store for them is encrypted.",
-      ),
+      p("Your vault key is a random AES-256-GCM key created on your device. It is protected by your password, a passkey, your device’s biometric unlock, or your recovery key, and we never receive it. Memories are encrypted with it on your device before they are stored, so what we store for them is encrypted."),
       p("There are important limits to this, and we want you to know them:"),
       list(
         "To answer a request, your device sends the relevant memories to our servers, and One gives them to the AI model for that request. They are held in memory for that request and are not written to our database in readable form.",
         "When you save a new memory, the note is sent to our servers and an AI model to organize it before it is encrypted, and is held in memory briefly while that happens.",
         "Some descriptive details about your memories are stored readable so One can organize them, such as the names and counts of categories, timestamps, and a short summary. For investing, this includes a risk profile and asset-allocation percentages.",
       ),
+      h("In-app activity"),
+      p("While you are signed in and your vault is unlocked, One keeps a private, encrypted log on your device of what you do in the app, such as opening agents, connecting or disconnecting services, saving places, checking in at a place (its name), sharing, accepting connections, and reviewing your Personal World Model, and of when your connected services sync. One uses entries from the last seven days; older entries stay encrypted on that device until One next opens the log there, and signing out does not remove them. It does not record the contents of messages, mail, or files, your coordinates, passwords, or access tokens. When you chat with One, today’s recent activity is sent with your request so One can answer in context. From time to time, a short summary of it, together with what One already remembers, is sent to our servers and an AI model (in UAT, Microsoft Azure AI) to pick out useful details, which are encrypted before they are saved; a place you checked in at can become part of what One remembers until you delete it. This is on by default. You can see today’s activity in Memory and edit or delete what One remembers there. Reset removes the log on the device where you reset; on your other devices it stays, and One there can still use it, including saving details from it to what One remembers, until it ages out within seven days. Account deletion removes it from them when they next connect."),
       h("Your chat history"),
       p(
         "Chat titles, messages, and One’s working session are encrypted with AES-256-GCM using a key your device derives from your vault key. Your device sends that chat key with each request. Our servers use it only while One is working on your request, and if you leave the app while One is still answering, keep it in memory for up to five minutes so the answer can be saved; it is never written to our database. Our servers see the text of a conversation while answering it.",
@@ -364,7 +364,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "We do not sell your information or share it for advertising. We share it only in these cases:",
       ),
       list(
-        "Service providers that run One for us, under contracts that limit their use of it: Google Cloud (hosting, database, logging, and Vertex AI, including Gemini and Google Search), Microsoft Azure AI (owner-authorized sign-in and resource management for your private agent in Azure, managed One text chat and document-request planning, plus older document-assessment flows under the UAT administrator policy, and Personal World Model research you turn on in UAT), Google Firebase (sign-in, text-message codes, notifications, and app analytics), Google Analytics and Google Tag Manager, Google Maps Platform (places, addresses, and travel times), Apple (Sign in with Apple, notifications, Siri, and Apple Wallet cards you choose to add), and Plaid (bank connections you make). Email we send for you or to you, such as emergency alerts, goes through our own mail service using Google.",
+        "Service providers that run One for us, under contracts that limit their use of it: Google Cloud (hosting, database, logging, and Vertex AI, including Gemini and Google Search), Microsoft Azure AI (owner-authorized sign-in and resource management for your private agent in Azure, managed One text chat, memory organization and document-request planning, plus older document-assessment flows under the UAT administrator policy, and Personal World Model research you turn on in UAT), Google Firebase (sign-in, text-message codes, notifications, and app analytics), Google Analytics and Google Tag Manager, Google Maps Platform (places, addresses, and travel times), Apple (Sign in with Apple, notifications, Siri, and Apple Wallet cards you choose to add), and Plaid (bank connections you make). Email we send for you or to you, such as emergency alerts, goes through our own mail service using Google.",
         "Bing web search, only when you turn on UAT Personal World Model research. It is governed by Microsoft's separate terms and Privacy Statement; the Azure Data Protection Addendum does not apply to Bing search data.",
         "Market-information providers, which receive only the company or ticker you ask Kai about, as described above.",
         "Providers you choose. When you connect a service, add your own tool, use your own model key, or run your private agent in your own cloud (your own Google Cloud project or Microsoft Azure subscription), information goes to that provider to do what you asked.",
@@ -540,7 +540,7 @@ const TERMS_SECTIONS: LegalSection[] = [
     title: "What your private agent does",
     blocks: [
       p(
-        "One is an AI agent that works for you. It answers questions, keeps the memories you choose to save, and, with your permission, works with services you connect, such as Gmail, Google Calendar, Google Drive where available, your bank through Plaid, and tools you add yourself. With full Drive access, Agent One prepares private document packets in the background by default; you can pause this in Connectors. Preparation does not publish a packet or approve a buyer’s access. One shares information with people only when you approve.",
+        "One is an AI agent that works for you. It answers questions, keeps the memories you choose to save and useful details from your activity in One, and, with your permission, works with services you connect, such as Gmail, Google Calendar, Google Drive where available, your bank through Plaid, and tools you add yourself. With full Drive access, Agent One prepares private document packets in the background by default; you can pause this in Connectors. Preparation does not publish a packet or approve a buyer’s access. One shares information with people only when you approve.",
       ),
       list(
         "AI can be wrong. One can misunderstand you, miss information, or produce answers that are inaccurate or out of date. Check anything important before you rely on it.",

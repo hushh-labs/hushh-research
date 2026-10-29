@@ -40,6 +40,7 @@ vi.mock("@/lib/observability/adapters/native-firebase", () => ({
 }));
 
 import { trackEvent } from "@/lib/observability/client";
+import { subscribeTrackedEvents } from "@/lib/observability/tracked-event-bus";
 
 describe("governed observability dispatch", () => {
   beforeEach(() => {
@@ -86,5 +87,32 @@ describe("governed observability dispatch", () => {
       }),
     );
     expect(adapters.webTrack.mock.calls[0]?.[1]).not.toHaveProperty("email");
+  });
+
+  it("taps only sanitized, non-fatal events and isolates analytics from a failing listener", () => {
+    const received: Array<[string, Readonly<Record<string, unknown>>]> = [];
+    const stopThrowing = subscribeTrackedEvents((_name, sanitized) => {
+      (sanitized as Record<string, unknown>).action = "tampered";
+    });
+    const stopRecording = subscribeTrackedEvents((name, sanitized) => { received.push([name, sanitized]); });
+    try {
+      expect(trackEvent("one_memory_action", {
+        route_id: "pkm", action: "undeclared_dynamic_action", result: "success",
+      } as never)).toBe(false);
+      expect(received).toEqual([]);
+
+      const handedOff = trackEvent("one_memory_action", {
+        route_id: "pkm", action: "capture_saved", result: "success", email: "must-not-leave@example.test",
+      } as never);
+
+      expect(handedOff).toBe(true);
+      expect(received).toHaveLength(1);
+      expect(received[0]?.[1]).toMatchObject({ action: "capture_saved", result: "success" });
+      expect(received[0]?.[1]).not.toHaveProperty("email");
+      expect(adapters.webTrack.mock.calls[0]?.[1]).toMatchObject({ action: "capture_saved" });
+    } finally {
+      stopThrowing();
+      stopRecording();
+    }
   });
 });

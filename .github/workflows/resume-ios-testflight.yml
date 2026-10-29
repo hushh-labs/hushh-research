@@ -19,7 +19,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    with:
+      application_ref: ${{ github.sha }}
+      environment_name: native
+      scope: ${{ 'native' }}
+
   resume:
+    needs: deployment-security
     runs-on: ubuntu-latest
     environment: uat
     timeout-minutes: 35
@@ -29,6 +38,16 @@ jobs:
       GH_REPO: ${{ github.repository }}
       UPLOAD_RUN_ID: ${{ inputs.upload_run_id }}
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - uses: actions/checkout@v6
         with:
           ref: main

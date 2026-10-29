@@ -1,4 +1,5 @@
 import { ONE_MEMORY_ACTIONS, ONE_WALLET_ACTIONS, ONE_CALENDAR_ACTIONS, ONE_KYC_ACTIONS, ONE_CRM_ACTIONS, GMAIL_CONNECT_STARTED_ACTIONS, GMAIL_CONNECT_RESULT_ACTIONS, GMAIL_SYNC_RESULT_ACTIONS, type OneLocationJourneyAction, type OneLocationJourneyEntrySurface, type OneLocationJourneyTarget } from "./actions";
+import type { LiveActivityConsolidationPayload } from "./live-activity-telemetry";
 export * from "./actions";
 
 import type { ObservabilityEnvironment } from "@/lib/observability/env";
@@ -126,6 +127,7 @@ export type ObservabilityEventName =
   | "agent_pkm_context_unavailable"
   | "agent_pkm_save_confirmation_completed"
   | "live_memory_source_verified"
+  | "live_activity_consolidation_completed"
   | "one_location_foreground_retry"
   | "one_location_share_confirmed"
   | "one_location_contact_signal_synced"
@@ -150,13 +152,7 @@ export type ObservabilityEventName =
   | "one_kyc_action"
   | "one_crm_action";
 
-export type StatusBucket =
-  | "2xx"
-  | "3xx"
-  | "4xx_expected"
-  | "4xx_unexpected"
-  | "5xx"
-  | "network_error";
+export type StatusBucket = "2xx" | "3xx" | "4xx_expected" | "4xx_unexpected" | "5xx" | "network_error";
 
 export type DurationBucket =
   | "lt_100ms"
@@ -344,6 +340,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   agent_pkm_context_unavailable: "system",
   agent_pkm_save_confirmation_completed: "system",
   live_memory_source_verified: "system",
+  live_activity_consolidation_completed: "system",
   one_location_foreground_retry: "feature",
   one_location_share_confirmed: "feature",
   one_location_contact_signal_synced: "feature",
@@ -736,6 +733,7 @@ export interface EventPayloadMap {
     /** Failed reads in a row before this one. */
     retry_bucket: CountBucket;
   };
+  live_activity_consolidation_completed: LiveActivityConsolidationPayload;
   one_location_foreground_retry: {
     route_id: RouteId;
     operation: string;
