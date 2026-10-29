@@ -495,15 +495,20 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func clearNotificationKey(_ call: CAPPluginCall) {
         guard let user = call.getString("userId") else { call.reject("Notification identity required"); return }
         do {
-            if try ChatPreviewKeys.clear(userId: user) {
-                Task { @MainActor [weak self] in
-                    if #available(iOS 26.0, *) { EmergencySmsSystemAlarm.cancelOwner(user) }
-                    guard let self, self.emergencyOwner == user else { return }
-                    self.stopEmergencyCue()
-                }
+            _ = try ChatPreviewKeys.clear(userId: user)
+            Task { @MainActor [weak self] in
+                var cancelled = true
+                if #available(iOS 26.0, *) { cancelled = EmergencySmsSystemAlarm.cancelOwner(user) }
+                if let self, self.emergencyOwner == user { self.stopEmergencyCue() }
+                do {
+                    if call.getBool("deleteAlarmReceipts") == true {
+                        guard cancelled else { call.reject("Notification alarm cleanup unavailable"); return }
+                        try SmsAlarmLedger.forget(user: user)
+                    }
+                    call.resolve()
+                } catch { call.reject("Notification receipt cleanup unavailable") }
             }
             chatLock.lock(); activeChatTag = ""; activeChatKey = ""; chatLock.unlock()
-            call.resolve()
         } catch { call.reject("Notification cleanup unavailable") }
     }
 }

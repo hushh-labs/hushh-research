@@ -79,6 +79,8 @@ def push_db(monkeypatch):
                 0
             ]
             cursor.execute(_replay_sql(entry))
+            cursor.execute((ROOT / "db/migrations/441_sms_alarm_capability.sql").read_text())
+            raw.commit()
         raw.close()
 
         def execute_raw(sql, params):

@@ -7695,7 +7695,7 @@ class OneLocationAgentService:
         if not row:
             raise OneLocationAgentError(
                 "LOCATION_SOS_VOICE_PREFERENCE_UPDATE_FAILED",
-                "Could not update the SOS voice default.",
+                "Could not update the SMS voice default.",
                 status_code=500,
             )
         return self._sos_voice_preference_payload(row)

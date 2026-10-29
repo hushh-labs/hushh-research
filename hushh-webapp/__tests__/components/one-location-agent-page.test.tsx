@@ -4685,6 +4685,7 @@ describe("OneLocationAgentPage", () => {
 
   it("reports SMS primary delivery and lets Stop finish while the email fallback is still pending", async () => {
     mockGetSmsContacts.mockResolvedValue(["user_b"]);
+    mockStoreEnvelope.mockResolvedValue({ recipientAlerted: true });
     const baseState = locationState();
     const smsGrant = { ...baseState.ownerGrants[0]!, id: "grant_email_pending", shareKind: "sos", expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString() };
     let active = false;

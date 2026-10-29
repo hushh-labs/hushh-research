@@ -16,39 +16,61 @@ enum SmsAlarmLedger {
         if let account { item[kSecAttrAccount as String] = account }
         return item
     }
-    enum LedgerError: Error { case unavailable, ended }
+    enum LedgerError: Error { case unavailable, ended, deleted }
+    private static func ownerPrefix(_ user: String) -> String {
+        SHA256.hash(data: Data(user.utf8)).map { String(format: "%02x", $0) }.joined() + ":"
+    }
+    static func account(user: String, grant: String, suffix: String) -> String {
+        "\(ownerPrefix(user))\(id(user: user, grant: grant)).\(suffix)"
+    }
+    private static func deletionQuery(owner: String) throws -> [String: Any] {
+        var item = try query(account: owner)
+        item[kSecAttrService as String] = "hussh.sms.deleted.v1"
+        return item
+    }
+    private static func deletedOwner(_ owner: String) -> Bool {
+        guard let item = try? deletionQuery(owner: owner) else { return true }
+        return SecItemCopyMatching(item as CFDictionary, nil) != errSecItemNotFound
+    }
     static func id(user: String, grant: String) -> UUID {
         let bytes = Array(SHA256.hash(data: Data("\(user)\u{0}\(grant)".utf8)).prefix(16))
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
                           bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
     }
     private static func add(account: String, data: Data) throws {
+        let owner = String(account.prefix(65))
+        guard !deletedOwner(owner) else { throw LedgerError.deleted }
         var item = try query(account: account)
         item[kSecValueData as String] = data
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(item as CFDictionary, nil)
         guard status == errSecSuccess || status == errSecDuplicateItem else { throw LedgerError.unavailable }
+        // Deletion can run in the other process between admission and SecItemAdd.
+        if deletedOwner(owner) {
+            SecItemDelete(try query(account: account) as CFDictionary)
+            throw LedgerError.deleted
+        }
     }
     static func acknowledged(user: String, grant: String) -> Bool {
-        guard let item = try? query(account: "\(id(user: user, grant: grant)).ack") else { return false }
+        guard let item = try? query(account: account(user: user, grant: grant, suffix: "ack")) else { return false }
         return SecItemCopyMatching(item as CFDictionary, nil) == errSecSuccess
     }
     static func acknowledge(user: String, grant: String) throws {
         // Separate monotonic tombstone; a racing app/extension admission cannot overwrite it.
-        try add(account: "\(id(user: user, grant: grant)).ack", data: Data([1]))
+        try add(account: account(user: user, grant: grant, suffix: "ack"), data: Data([1]))
         NotificationCenter.default.post(name: Notification.Name("HushhSmsAlarmAcknowledged"), object: nil,
             userInfo: ["userId": user, "grantId": grant])
     }
     static func remember(user: String, grant: String) throws {
         guard try firstEvent(user: user, grant: grant, claiming: "admitted") == "admitted" else { throw LedgerError.ended }
         let data = try JSONSerialization.data(withJSONObject: ["userId": user, "grantId": grant])
-        try add(account: "\(id(user: user, grant: grant)).pending", data: data)
+        try add(account: account(user: user, grant: grant, suffix: "pending"), data: data)
     }
     static func markEnded(user: String, grant: String) throws {
         _ = try firstEvent(user: user, grant: grant, claiming: "ended")
     }
     static func endedBeforeAdmission(user: String, grant: String) -> Bool {
-        guard var item = try? query(account: "\(id(user: user, grant: grant)).first") else { return true }
+        guard var item = try? query(account: account(user: user, grant: grant, suffix: "first")) else { return true }
         item[kSecReturnData as String] = true
         var result: CFTypeRef?
         let status = SecItemCopyMatching(item as CFDictionary, &result)
@@ -57,11 +79,11 @@ enum SmsAlarmLedger {
         return String(data: data, encoding: .utf8) == "ended"
     }
     private static func firstEvent(user: String, grant: String, claiming value: String) throws -> String {
-        let account = "\(id(user: user, grant: grant)).first"
+        let storageAccount = account(user: user, grant: grant, suffix: "first")
         // SecItemAdd is atomic across app and extension processes. The first
         // admission/terminal event wins; a later pending write cannot reverse it.
-        try add(account: account, data: Data(value.utf8))
-        var item = try query(account: account)
+        try add(account: storageAccount, data: Data(value.utf8))
+        var item = try query(account: storageAccount)
         item[kSecReturnData as String] = true
         var result: CFTypeRef?
         guard SecItemCopyMatching(item as CFDictionary, &result) == errSecSuccess,
@@ -84,6 +106,25 @@ enum SmsAlarmLedger {
         }
     }
     static func owners() -> [String] { Array(Set(records().compactMap { $0["userId"] })) }
+    static func forget(user: String) throws {
+        var fence = try deletionQuery(owner: ownerPrefix(user))
+        fence[kSecValueData as String] = Data([1])
+        fence[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let fenced = SecItemAdd(fence as CFDictionary, nil)
+        guard fenced == errSecSuccess || fenced == errSecDuplicateItem else { throw LedgerError.unavailable }
+        var item = try query()
+        item[kSecMatchLimit as String] = kSecMatchLimitAll
+        item[kSecReturnAttributes as String] = true
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(item as CFDictionary, &result)
+        if status == errSecItemNotFound { return }
+        guard status == errSecSuccess, let rows = result as? [[String: Any]] else { throw LedgerError.unavailable }
+        for row in rows {
+            guard let account = row[kSecAttrAccount as String] as? String, account.hasPrefix(ownerPrefix(user)) else { continue }
+            let deletion = SecItemDelete(try query(account: account) as CFDictionary)
+            guard deletion == errSecSuccess || deletion == errSecItemNotFound else { throw LedgerError.unavailable }
+        }
+    }
     static func pending(user: String, includeAcknowledged: Bool = false) -> [String] {
         records().compactMap { receipt in
             guard receipt["userId"] == user, let grant = receipt["grantId"],
@@ -108,8 +149,8 @@ struct DismissSmsAlarmIntent: LiveActivityIntent {
     func perform() async throws -> some IntentResult {
         guard !userId.isEmpty, !grantId.isEmpty else { return .result() }
         // System Stop may already have removed the alarm. Receipt comes first.
+        defer { try? AlarmManager.shared.cancel(id: SmsAlarmLedger.id(user: userId, grant: grantId)) }
         try SmsAlarmLedger.acknowledge(user: userId, grant: grantId)
-        try? AlarmManager.shared.cancel(id: SmsAlarmLedger.id(user: userId, grant: grantId))
         return .result()
     }
 }
@@ -165,7 +206,13 @@ enum EmergencySmsSystemAlarm {
     static func cancel(user: String, grant: String) {
         try? AlarmManager.shared.cancel(id: SmsAlarmLedger.id(user: user, grant: grant))
     }
-    static func cancelOwner(_ user: String) {
-        for grant in SmsAlarmLedger.pending(user: user, includeAcknowledged: true) { cancel(user: user, grant: grant) }
+    @discardableResult static func cancelOwner(_ user: String) -> Bool {
+        let grants = SmsAlarmLedger.pending(user: user, includeAcknowledged: true)
+        if grants.isEmpty { return true }
+        let ids = Set(grants.map { SmsAlarmLedger.id(user: user, grant: $0) })
+        for grant in grants { cancel(user: user, grant: grant) }
+        // Retain receipts when cancellation cannot be confirmed so auth/resume
+        // cleanup can retry; deletion must not discard the only cancellation IDs.
+        return (try? AlarmManager.shared.alarms.allSatisfy { !ids.contains($0.id) }) ?? false
     }
 }

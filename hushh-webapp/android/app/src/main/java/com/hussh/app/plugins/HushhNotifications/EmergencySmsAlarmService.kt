@@ -19,6 +19,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.auth.FirebaseAuth
 import com.hussh.app.MainActivity
 import com.hussh.app.R
+import java.security.MessageDigest
 
 /** One audible owner for all admitted, unacknowledged SMS grants, including Home/lock. */
 class EmergencySmsAlarmService : Service() {
@@ -173,6 +174,10 @@ class EmergencySmsAlarmService : Service() {
         private const val ACKNOWLEDGE = "com.hussh.app.SMS_ACKNOWLEDGE"
         private const val NOTIFICATION_ID = 24091
         private var running: EmergencySmsAlarmService? = null
+        private fun deletionKey(user: String) = "deleted:" + MessageDigest.getInstance("SHA-256")
+            .digest(user.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        private fun deleted(context: Context, user: String) =
+            context.getSharedPreferences(ACK_STORE, Context.MODE_PRIVATE).getBoolean(deletionKey(user), false)
         private fun fallbackTag(user: String, grant: String) = "sms-alarm:$user:$grant"
         private fun cancelFallback(context: Context, user: String, grant: String) {
             (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(fallbackTag(user, grant), 24092)
@@ -221,6 +226,7 @@ class EmergencySmsAlarmService : Service() {
                 .filter { !acknowledged(context, user, it) }
 
         @Synchronized fun markEnded(context: Context, user: String, grant: String) {
+            if (deleted(context, user)) return
             val store = context.getSharedPreferences(ACK_STORE, Context.MODE_PRIVATE)
             val ended = store.getStringSet("ended:$user", emptySet()).orEmpty().toMutableSet()
             ended.add(grant)
@@ -233,7 +239,8 @@ class EmergencySmsAlarmService : Service() {
                 !pending(context, user).contains(grant)
 
         @Synchronized private fun claimAdmission(context: Context, user: String, grant: String): Boolean {
-            if (acknowledged(context, user, grant) || endedBeforeAdmission(context, user, grant)) return false
+            if (deleted(context, user) || ChatPreviewKeys.legacyKey(context, user).isNullOrBlank() ||
+                acknowledged(context, user, grant) || endedBeforeAdmission(context, user, grant)) return false
             val store = context.getSharedPreferences(ACK_STORE, Context.MODE_PRIVATE)
             val pending = store.getStringSet("pending:$user", emptySet()).orEmpty().toMutableSet()
             pending.add(grant)
@@ -257,10 +264,10 @@ class EmergencySmsAlarmService : Service() {
             } catch (_: Exception) { false }
         }
 
-        fun stop(context: Context, user: String?, grant: String? = null) {
+        @Synchronized fun stop(context: Context, user: String?, grant: String? = null) {
             // Persist before consulting the service: acknowledgement can beat
             // a queued startForegroundService/onCreate on the main looper.
-            if (user != null && grant != null) {
+            if (user != null && grant != null && !deleted(context, user) && !ChatPreviewKeys.legacyKey(context, user).isNullOrBlank()) {
                 val store = context.getSharedPreferences(ACK_STORE, Context.MODE_PRIVATE)
                 val values = store.getStringSet(user, emptySet()).orEmpty().toMutableSet()
                 values.add(grant)
@@ -271,6 +278,12 @@ class EmergencySmsAlarmService : Service() {
             val service = running ?: return
             if (user != null && service.owner != user) return
             if (grant == null) service.dispose() else service.acknowledge(grant)
+        }
+
+        @Synchronized fun forget(context: Context, user: String) {
+            stop(context, user)
+            context.getSharedPreferences(ACK_STORE, Context.MODE_PRIVATE).edit()
+                .putBoolean(deletionKey(user), true).remove(user).remove("pending:$user").remove("ended:$user").commit()
         }
     }
 }

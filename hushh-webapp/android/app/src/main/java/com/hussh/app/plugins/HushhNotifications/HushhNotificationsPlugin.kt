@@ -243,7 +243,12 @@ class HushhNotificationsPlugin : Plugin() {
     fun clearNotificationKey(call: PluginCall) {
         val user = call.getString("userId") ?: run { call.reject("Notification identity required"); return }
         emergencyHandler.post {
-            try { EmergencySmsAlarmService.stop(context, user); ChatPreviewKeys.clear(context, user); activeChatTag = ""; activeChatKey = ""; call.resolve() }
+            try {
+                EmergencySmsAlarmService.stop(context, user)
+                ChatPreviewKeys.clear(context, user)
+                if (call.getBoolean("deleteAlarmReceipts", false) == true) EmergencySmsAlarmService.forget(context, user)
+                activeChatTag = ""; activeChatKey = ""; call.resolve()
+            }
             catch (_: Exception) { call.reject("Notification cleanup unavailable") }
         }
     }

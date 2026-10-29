@@ -47,3 +47,15 @@ export function acknowledgeSmsAlarm(userId: string, grantId: string): void {
   write(userId, grantId, "acknowledged");
   window.dispatchEvent(new CustomEvent(SMS_ALARM_ACKNOWLEDGED_EVENT, { detail: { userId, grantId } }));
 }
+
+/** Confirmed account deletion only; sign-out retains unacknowledged receipts. */
+export function forgetSmsAlarms(userId: string): void {
+  const namespace = prefix(userId);
+  for (const storageKey of memory.keys()) if (storageKey.startsWith(namespace)) {
+    memory.delete(storageKey); failedWrites.delete(storageKey);
+  }
+  for (let index = localStorage.length - 1; index >= 0; index--) {
+    const storageKey = localStorage.key(index);
+    if (storageKey?.startsWith(namespace)) localStorage.removeItem(storageKey);
+  }
+}

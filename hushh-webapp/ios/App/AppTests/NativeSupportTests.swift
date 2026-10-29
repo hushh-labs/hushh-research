@@ -26,9 +26,13 @@ final class NativeSupportTests: XCTestCase {
                 for suffix in ["first", "pending", "ack"] {
                     SecItemDelete([kSecClass as String: kSecClassGenericPassword,
                         kSecAttrService as String: "hussh.sms.alarms.v1", kSecAttrAccessGroup as String: group,
-                        kSecAttrAccount as String: "\(SmsAlarmLedger.id(user: user, grant: grant)).\(suffix)"] as CFDictionary)
+                        kSecAttrAccount as String: SmsAlarmLedger.account(user: user, grant: grant, suffix: suffix)] as CFDictionary)
                 }
             }
+            let fence = SmsAlarmLedger.account(user: user, grant: admitted, suffix: "pending").prefix(65)
+            SecItemDelete([kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: "hussh.sms.deleted.v1", kSecAttrAccessGroup as String: group,
+                kSecAttrAccount as String: String(fence)] as CFDictionary)
         }
         try SmsAlarmLedger.markEnded(user: user, grant: ended)
         XCTAssertThrowsError(try SmsAlarmLedger.remember(user: user, grant: ended))
@@ -42,6 +46,12 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(SmsAlarmLedger.acknowledged(user: user, grant: admitted))
         XCTAssertTrue(SmsAlarmLedger.pending(user: user).isEmpty)
         XCTAssertEqual(SmsAlarmLedger.pending(user: user, includeAcknowledged: true), [admitted])
+        try SmsAlarmLedger.forget(user: user)
+        XCTAssertTrue(SmsAlarmLedger.pending(user: user, includeAcknowledged: true).isEmpty)
+        XCTAssertFalse(SmsAlarmLedger.acknowledged(user: user, grant: admitted))
+        XCTAssertFalse(SmsAlarmLedger.endedBeforeAdmission(user: user, grant: ended))
+        XCTAssertThrowsError(try SmsAlarmLedger.remember(user: user, grant: admitted))
+        XCTAssertThrowsError(try SmsAlarmLedger.acknowledge(user: user, grant: admitted))
     }
 
     @MainActor

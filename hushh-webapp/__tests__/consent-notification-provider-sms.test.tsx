@@ -6,7 +6,7 @@ import {
 } from "./helpers/one-location-notification-harness";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import * as locationNotifications from "@/lib/one-location/notifications";
-import { acknowledgeSmsAlarm, isSmsAlarmAcknowledged, pendingSmsAlarms, rememberSmsAlarm } from "@/lib/one-location/sms-alarm-state";
+import { acknowledgeSmsAlarm, forgetSmsAlarms, isSmsAlarmAcknowledged, pendingSmsAlarms, rememberSmsAlarm } from "@/lib/one-location/sms-alarm-state";
 
 describe("foreground SMS alarm presentation and cancellation", () => {
   it("never overwrites an acknowledgement arriving from another tab during alarm admission", () => {
@@ -31,6 +31,16 @@ describe("foreground SMS alarm presentation and cancellation", () => {
       expect(isSmsAlarmAcknowledged("quota-owner", "quota-grant")).toBe(true);
       expect(pendingSmsAlarms("quota-owner")).toEqual([]);
     } finally { spy.mockRestore(); }
+  });
+
+  it("erases only the deleted account's pending and acknowledgement receipts", () => {
+    rememberSmsAlarm("deleted-owner", "pending");
+    acknowledgeSmsAlarm("deleted-owner", "dismissed");
+    rememberSmsAlarm("retained-owner", "pending");
+    forgetSmsAlarms("deleted-owner");
+    expect(pendingSmsAlarms("deleted-owner")).toEqual([]);
+    expect(isSmsAlarmAcknowledged("deleted-owner", "dismissed")).toBe(false);
+    expect(pendingSmsAlarms("retained-owner")).toEqual(["pending"]);
   });
 
   it("keeps the system fallback retryable when browser audio is blocked, until the grant ends", async () => {
@@ -228,7 +238,7 @@ describe("foreground SMS alarm presentation and cancellation", () => {
     mocks.getPendingEmergencySmsAlarms.mockResolvedValue({
       grantIds: ["offline-alarm"], acknowledgedGrantIds: ["system-dismissed"],
     });
-    await renderReady();
+    renderProvider();
     await waitFor(() => expect(mocks.playEmergencySmsCue).toHaveBeenCalledWith(expect.objectContaining({ grantId: "offline-alarm" })));
     expect(mocks.playEmergencySmsCue).not.toHaveBeenCalledWith(expect.objectContaining({ grantId: "system-dismissed" }));
     expect(isSmsAlarmAcknowledged("recipient-user", "system-dismissed")).toBe(true);
