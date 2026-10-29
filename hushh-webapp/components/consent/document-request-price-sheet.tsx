@@ -96,7 +96,7 @@ export const DOCUMENT_REQUEST_PRICE_RULE =
  * every Allow surface; the copy is encrypted but not hidden from Hussh.
  */
 export const ONE_COPY_ALLOW_DISCLOSURE =
-  "Allow also lets Hussh keep encrypted copies of these files for this requester. Hussh can open them for delivery. You can stop One access and see its activity. Files the requester saved can’t be recalled.";
+  "Allow includes encrypted One copies. Hussh can read them for delivery. Stop One access anytime; saved downloads remain.";
 const LEGACY_PRICE_RULE = "Choose a whole-dollar price from $1 to $500.";
 
 // 44px targets, the same chip grammar as the Location duration ladder: a fixed

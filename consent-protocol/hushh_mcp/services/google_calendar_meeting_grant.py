@@ -11,6 +11,7 @@ from hushh_mcp.services.google_connection_contract import (
 
 CALENDAR_MEET_READ_SCOPE = "https://www.googleapis.com/auth/meetings.space.readonly"
 CALENDAR_MEET_DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.meet.readonly"
+CALENDAR_SHARED_DRIVE_METADATA_SCOPE = "https://www.googleapis.com/auth/drive.metadata.readonly"
 MEETING_SCOPES = {CALENDAR_MEET_READ_SCOPE, CALENDAR_MEET_DRIVE_READ_SCOPE}
 
 
@@ -28,6 +29,15 @@ def require_meeting_scopes(requested, granted, error_type):
     if MEETING_SCOPES.intersection(requested) and not MEETING_SCOPES.issubset(set(granted)):
         raise error_type(
             "Recording and notes permission was not granted.",
+            status_code=403,
+            reason_code="calendar_meeting_files_permission_required",
+        )
+    if (
+        CALENDAR_SHARED_DRIVE_METADATA_SCOPE in requested
+        and CALENDAR_SHARED_DRIVE_METADATA_SCOPE not in granted
+    ):
+        raise error_type(
+            "Shared meeting file metadata permission was not granted.",
             status_code=403,
             reason_code="calendar_meeting_files_permission_required",
         )
@@ -61,12 +71,16 @@ def native_allowed_scope_sets(service, base, calendar_list_scope, guest_photo_sc
     allowed = [base]
     if service == "calendar":
         for mask in range(1, 8):
-            allowed.append(
+            common = (
                 base
                 | ({calendar_list_scope} if mask & 1 else set())
                 | ({guest_photo_scope} if mask & 2 else set())
-                | (MEETING_SCOPES if mask & 4 else set())
             )
+            # Existing Meet-only grants remain valid. New explicit meeting-file
+            # upgrades also include metadata for organizer-shared ordinary files.
+            allowed.append(common | (MEETING_SCOPES if mask & 4 else set()))
+            if mask & 4:
+                allowed.append(common | MEETING_SCOPES | {CALENDAR_SHARED_DRIVE_METADATA_SCOPE})
     return allowed
 
 

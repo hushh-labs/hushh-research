@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from hushh_mcp.services.google_calendar_meeting_grant import CALENDAR_SHARED_DRIVE_METADATA_SCOPE
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_GUEST_PHOTO_SCOPE,
     CALENDAR_LIST_READ_SCOPE,
@@ -76,6 +77,7 @@ def test_meeting_file_scopes_are_explicit_and_native_start_echoes_request(monkey
     assert result["include_calendar_list"] is True
     assert CALENDAR_MEET_READ_SCOPE not in service.scopes("calendar", "read")
     assert CALENDAR_MEET_DRIVE_READ_SCOPE not in service.scopes("calendar", "read")
+    assert CALENDAR_SHARED_DRIVE_METADATA_SCOPE not in service.scopes("calendar", "read")
 
 
 @pytest.mark.parametrize("optional_list", [False, True])
@@ -92,7 +94,13 @@ def test_native_completion_accepts_only_the_exact_trusted_scope_set(
     if optional_list or meeting_files:
         requested.add(CALENDAR_LIST_READ_SCOPE)
     if meeting_files:
-        requested.update({CALENDAR_MEET_READ_SCOPE, CALENDAR_MEET_DRIVE_READ_SCOPE})
+        requested.update(
+            {
+                CALENDAR_MEET_READ_SCOPE,
+                CALENDAR_MEET_DRIVE_READ_SCOPE,
+                CALENDAR_SHARED_DRIVE_METADATA_SCOPE,
+            }
+        )
     if guest_photos:
         requested.add(CALENDAR_GUEST_PHOTO_SCOPE)
     calls: list[dict[str, object]] = []

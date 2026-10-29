@@ -62,14 +62,16 @@ async function saveOriginal(session: DocumentSession, bytes: Uint8Array, file: O
 
 export function useOneCopyFileActions(session: DocumentSession, requestId: string) {
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [busy, setBusy] = useState(false); const [notice, setNotice] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ fileRef: string; download: boolean } | null>(null);
+  const busy = pending !== null;
+  const [notice, setNotice] = useState<string | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const active = useRef<AbortController | null>(null); const previewRef = useRef<Preview | null>(null);
   const close = useCallback(() => {
     const shown = previewRef.current;
     active.current?.abort(); active.current = null;
     shown?.controller.abort(); shown?.bytes.fill(0); previewRef.current = null;
-    setPreview(null); setBusy(false); if (shown) returnFocus.current?.focus({ preventScroll: true }); return Boolean(shown);
+    setPreview(null); setPending(null); if (shown) returnFocus.current?.focus({ preventScroll: true }); return Boolean(shown);
   }, []);
   useEffect(() => { close(); setNotice(null); return () => { active.current?.abort(); previewRef.current?.bytes.fill(0); }; }, [session, requestId, close]);
   const acceptStatus = useCallback((value: OneCopy) => {
@@ -79,7 +81,7 @@ export function useOneCopyFileActions(session: DocumentSession, requestId: strin
   const open = async (file: OneCopyFile, download: boolean, trigger?: HTMLElement) => {
     if (active.current) return;
     close(); if (trigger) returnFocus.current = trigger; const controller = new AbortController(); active.current = controller;
-    setBusy(true); setNotice(null); let bytes: Uint8Array | null = null;
+    setPending({ fileRef: file.fileRef, download }); setNotice(null); let bytes: Uint8Array | null = null;
     try {
       // The clicked snapshot describes the immutable file; the content endpoint authorizes this read now.
       const current = file;
@@ -104,7 +106,7 @@ export function useOneCopyFileActions(session: DocumentSession, requestId: strin
       const owned = active.current === controller;
       if (timedOut) controller.abort();
       if (owned && (!controller.signal.aborted || timedOut) && session.isCurrent()) { close(); setNotice(timedOut ? "File took too long. Try again." : isShareCancellationError(error) ? "File was not saved." : "This copy is unavailable. Try again or open Drive."); }
-    } finally { (bytes as Uint8Array | null)?.fill(0); if (active.current === controller) { active.current = null; setBusy(false); } }
+    } finally { (bytes as Uint8Array | null)?.fill(0); if (active.current === controller) { active.current = null; setPending(null); } }
   };
-  return { preview, busy, notice, close, open, acceptStatus };
+  return { preview, busy, pending, notice, close, open, acceptStatus };
 }

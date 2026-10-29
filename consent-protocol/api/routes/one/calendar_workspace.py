@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -24,8 +25,11 @@ from api.routes.one.calendar_workspace_models import (
     CalendarInsightsDay,
     CalendarInvitationsWindow,
     CalendarMeetingDownload,
+    CalendarMeetingFileRequest,
     CalendarMeetingPage,
+    CalendarMeetingRequiredSelection,
     CalendarMeetingSelection,
+    CalendarMeetingStatusBatch,
     CalendarPublicOptions,
     CalendarRsvpConfirm,
     CalendarRsvpReview,
@@ -426,6 +430,96 @@ async def meeting_detail(
     return result
 
 
+@router.post("/meetings/requests", status_code=202)
+async def request_meeting_files(
+    payload: CalendarMeetingFileRequest,
+    response: Response,
+    token: dict = Depends(hub_content_owner),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Bind a selected Calendar attendee and occurrence to a manual Drive request."""
+    from api.routes.drive_sharing_owner import ContentOwner, sharing_error
+    from hushh_mcp.services.calendar_meeting_request_service import CalendarMeetingRequestService
+    from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+    from hushh_mcp.services.drive_sharing_service import DriveSharingService
+
+    verify_user_id_match(firebase_uid, token["user_id"])
+    response.headers["Cache-Control"] = "private, no-store"
+    owner = ContentOwner(token["user_id"], token["token"])
+    try:
+        await owner.require_current()
+        service = CalendarMeetingRequestService(
+            sharing=DriveSharingService(require_owner=owner.require_current)
+        )
+        result = await service.create(
+            user_id=owner.user_id,
+            **payload.model_dump(exclude={"expected_account_email"}),
+        )
+        await owner.require_current()
+        return result
+    except DriveSharingError as exc:
+        raise sharing_error(exc) from None
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/meetings/request-statuses")
+async def meeting_request_statuses(
+    payload: CalendarMeetingStatusBatch,
+    response: Response,
+    token: dict = Depends(hub_content_owner),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, token["user_id"])
+    response.headers["Cache-Control"] = "private, no-store"
+    from api.routes.drive_sharing_owner import ContentOwner
+
+    owner = ContentOwner(token["user_id"], token["token"])
+    await owner.require_current()
+    semaphore = asyncio.Semaphore(3)
+
+    async def one(selection):
+        async with semaphore:
+            await owner.require_current()
+            try:
+                result = await _artifacts(selection.account_id).approved_status(
+                    user_id=owner.user_id, **selection.model_dump(exclude={"account_id"})
+                )
+            except Exception:
+                return {"occurrence_id": selection.occurrence_id, "status": "unverified"}
+            await owner.require_current()
+            return result
+
+    meetings = await asyncio.gather(*(one(item) for item in payload.meetings))
+    await owner.require_current()
+    return {"meetings": meetings}
+
+
+@router.post("/meetings/approved-detail")
+async def approved_meeting_detail(
+    payload: CalendarMeetingRequiredSelection,
+    response: Response,
+    token: dict = Depends(hub_content_owner),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    from api.routes.drive_sharing_owner import ContentOwner
+    from api.routes.one.calendar_meeting_actions import meeting_detail as action
+
+    verify_user_id_match(firebase_uid, token["user_id"])
+    owner = ContentOwner(token["user_id"], token["token"])
+    await owner.require_current()
+    result = await action(
+        payload,
+        response,
+        owner.user_id,
+        artifacts=_artifacts,
+        http_error=_http,
+        include_approved=True,
+    )
+    await owner.require_current()
+    return result
+
+
 @router.post("/meetings/download")
 async def meeting_download(
     payload: CalendarMeetingDownload,
@@ -444,6 +538,50 @@ async def meeting_open(
 ):
     """Recheck the exact occurrence and file before opening it in Google."""
     return await _meeting_file_action(payload, response, firebase_uid, download=False)
+
+
+@router.post("/meetings/approved-open")
+async def approved_meeting_open(
+    payload: CalendarMeetingDownload,
+    response: Response,
+    token: dict = Depends(hub_content_owner),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    return await _approved_meeting_file_action(
+        payload, response, token, firebase_uid, download=False
+    )
+
+
+@router.post("/meetings/approved-download")
+async def approved_meeting_download(
+    payload: CalendarMeetingDownload,
+    response: Response,
+    token: dict = Depends(hub_content_owner),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    return await _approved_meeting_file_action(
+        payload, response, token, firebase_uid, download=True
+    )
+
+
+async def _approved_meeting_file_action(payload, response, token, firebase_uid, *, download):
+    from api.routes.drive_sharing_owner import ContentOwner
+    from api.routes.one.calendar_meeting_actions import meeting_file_action
+
+    verify_user_id_match(firebase_uid, token["user_id"])
+    owner = ContentOwner(token["user_id"], token["token"])
+    await owner.require_current()
+    result = await meeting_file_action(
+        payload,
+        response,
+        owner.user_id,
+        download=download,
+        artifacts=_artifacts,
+        http_error=_http,
+        include_approved=True,
+    )
+    await owner.require_current()
+    return result
 
 
 async def _meeting_file_action(payload, response, firebase_uid, *, download):
