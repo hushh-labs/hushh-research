@@ -151,9 +151,11 @@ def test_a_receipts_handback_admits_only_the_receipt_functions():
         before_external_read_model(context, request)
         return set(request.tools_dict)
 
+    asked = {"request": "What did I spend on receipts?"}  # A call without one reads nothing.
+
     def hand_back(invocation: str, *, mcp_read_in_batch: bool) -> None:
         context.invocation_id = invocation
-        assert before_external_read_tool(mail, {}, context) is None
+        assert before_external_read_tool(mail, asked, context) is None
         if mcp_read_in_batch:
             # A reviewed MCP read in the same batch writes the same barrier marker.
             assert before_external_read_tool(_reviewed_native_tool(), {}, context) is None
@@ -182,7 +184,7 @@ def test_a_receipts_handback_admits_only_the_receipt_functions():
 
     # A later turn's actual mail read never inherits an earlier hand-back.
     context.invocation_id = "c"
-    assert before_external_read_tool(mail, {}, context) is None
+    assert before_external_read_tool(mail, asked, context) is None
     after_external_read_tool(mail, {}, context, {"status": "ok"})
     assert next_model_step() == set()
     assert before_external_read_tool(receipts, {}, context)["reason"] == "connector_read_complete"

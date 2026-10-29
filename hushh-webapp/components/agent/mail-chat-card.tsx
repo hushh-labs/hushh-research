@@ -183,18 +183,29 @@ function MailBriefCard({ experience }: { experience: MailBriefExperience }) {
   );
 }
 
-function ReceiptSyncNotice() {
+const RECEIPT_SYNC_LABELS: Record<ReceiptSetupExperience["state"], string> = {
+  sync_required: "Receipts aren't synced on this device yet.",
+  syncing: "Syncing receipts…",
+  synced: "Receipts synced on this device.",
+  sync_incomplete: "Receipt sync didn't finish on this device.",
+};
+
+function ReceiptSyncNotice({ state }: { state: ReceiptSetupExperience["state"] }) {
   const router = useRouter();
   return (
     <div data-testid="receipt-setup" className={cn(styles.surface, "flex min-w-0 items-center gap-3 p-3")}>
       <span aria-hidden="true" className={cn(styles.tile, SEMANTIC_ROLE_CLASSES.neutral.tile, SEMANTIC_ROLE_CLASSES.neutral.glyph)}>
         <Receipt className="size-5" />
       </span>
-      <p data-profile-role="label" className="min-w-0 flex-1">Receipts aren&apos;t synced on this device yet.</p>
-      <Button type="button" variant="secondary" size="compact" className="shrink-0"
-        onClick={() => router.push(buildGmailWorkspaceRoute("receipts"))}>
-        Open receipts
-      </Button>
+      <p data-profile-role="label" className="min-w-0 flex-1" role={state === "syncing" ? "status" : undefined}>
+        {RECEIPT_SYNC_LABELS[state]}
+      </p>
+      {state === "sync_required" || state === "sync_incomplete" ? (
+        <Button type="button" variant="secondary" size="compact" className="shrink-0"
+          onClick={() => router.push(buildGmailWorkspaceRoute("receipts"))}>
+          Open receipts
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -202,6 +213,6 @@ function ReceiptSyncNotice() {
 /** A mail brief from One's Email specialist, or the receipt sync hint. */
 export function MailChatCard({ experience }: { experience: MailBriefExperience | ReceiptSetupExperience }) {
   return experience.type === RECEIPT_SETUP_EXPERIENCE_TYPE
-    ? <ReceiptSyncNotice />
+    ? <ReceiptSyncNotice state={experience.state} />
     : <MailBriefCard experience={experience} />;
 }

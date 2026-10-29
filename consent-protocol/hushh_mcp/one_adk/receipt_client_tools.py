@@ -6,6 +6,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import logging
 import re
 import time
 from datetime import date, datetime
@@ -25,6 +26,8 @@ from hushh_mcp.one_adk.request_secrets import (
     resolve_request_secret,
     store_request_secret,
 )
+
+logger = logging.getLogger(__name__)
 
 RECEIPT_TOOL_NAMES = frozenset(
     {
@@ -57,7 +60,10 @@ def validate_request(name: str, value: Any) -> dict:
     ):
         raise ValueError("Invalid receipt request.")
     result = dict(value)
-    result["limit"] = result.get("limit", 10)
+    # Read the limit as the device does: null is the default and JSON's 5.0 is 5.
+    limit = result.get("limit")
+    whole = isinstance(limit, float) and limit.is_integer()
+    result["limit"] = 10 if limit is None else int(limit) if whole else limit
     if not all(isinstance(result.get(k), str) for k in ("from_date", "to_date", "timezone")):
         raise ValueError("Invalid receipt range.")
     start, end = date.fromisoformat(result["from_date"]), date.fromisoformat(result["to_date"])
@@ -579,6 +585,7 @@ def receipt_after_model(callback_context: Any, llm_response: Any) -> None:
     # value-free bindings with the model FunctionCall event, before the proxy
     # defers, so sealed session reload can authorize the device continuation.
     content = getattr(llm_response, "content", None)
+    invalid = []
     for part in getattr(content, "parts", None) or []:
         call = part.function_call
         if not call or call.name not in RECEIPT_TOOL_NAMES:
@@ -587,7 +594,11 @@ def receipt_after_model(callback_context: Any, llm_response: Any) -> None:
             "hussh:consent_token"
         ):
             raise ValueError("Receipt owner authority is unavailable.")
-        request = validate_request(call.name, call.args)
+        try:
+            request = validate_request(call.name, call.args)
+        except (ValueError, KeyError, TypeError):
+            invalid.append(part)
+            continue
         if not call.id:
             # The proxy and sealed event must use this same SDK call identity.
             from google.adk.flows.llm_flows.functions import generate_client_function_call_id
@@ -606,6 +617,16 @@ def receipt_after_model(callback_context: Any, llm_response: Any) -> None:
             "issued_at": time.time(),
         }
         callback_context.state[STATE_RECEIPT_PENDING] = pending
+    if invalid and content is not None:
+        # A call that fails the closed schema leaves the response before the bridge
+        # defers it to the device, where it would also hide One's corrected call as
+        # a replay (UAT, 2026-10-29). With nothing else to say, the turn fails closed.
+        content.parts = [part for part in content.parts if all(part is not bad for bad in invalid)]
+        logger.info("one.receipt_call outcome=invalid_dropped")
+        if not any(
+            part.function_call or (part.text and not part.thought) for part in content.parts
+        ):
+            raise ValueError("Receipt request is invalid. Ask again.")
     ref = callback_context.state.get(STATE_RECEIPT_RESULT)
     if ref:
         consume_request_secret(ref)
