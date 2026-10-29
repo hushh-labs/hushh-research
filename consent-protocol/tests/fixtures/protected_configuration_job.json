@@ -1,0 +1,614 @@
+{
+  "build": {
+    "id": "0f80cc7e-2265-4639-9a1a-199359b20600",
+    "projectId": "hushh-pda",
+    "status": "SUCCESS",
+    "images": [
+      "gcr.io/hushh-pda/auth-health-job:<reviewed-source-sha>"
+    ],
+    "results": {
+      "buildStepImages": [
+        "sha256:f772ab459889c67835bd959c2b9e9351f2c0752c4f989710ecda20c229f0733e"
+      ],
+      "buildStepOutputs": [
+        ""
+      ],
+      "images": [
+        {
+          "artifactRegistryPackage": "projects/hushh-pda/locations/us/repositories/gcr.io/packages/auth-health-job/versions/sha256:290966a59c21221ecec03ad14fbcb6a42e609fa4836d6ffde243e05fe1ff5a38",
+          "digest": "sha256:290966a59c21221ecec03ad14fbcb6a42e609fa4836d6ffde243e05fe1ff5a38",
+          "name": "gcr.io/hushh-pda/auth-health-job:<reviewed-source-sha>",
+          "pushTiming": {
+            "endTime": "2026-10-29T16:09:30.003280507Z",
+            "startTime": "2026-10-29T16:09:25.910735703Z"
+          }
+        }
+      ]
+    },
+    "source": {
+      "storageSource": {
+        "bucket": "hushh-pda-auth-health-ops",
+        "generation": "1793290138950611",
+        "object": "sources/1793290138.604372-c59702af78c04b2a919eb2ec6d910a5a.tgz"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://hushh-pda-auth-health-ops/sources/1793290138.604372-c59702af78c04b2a919eb2ec6d910a5a.tgz#1793290138950611": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "EkOIlhkIRug0iLGjON4kkw=="
+            },
+            {
+              "type": "SHA256",
+              "value": "oZ_NsNxZHFE49rgxZoymTQsuh9D3keqKwF5PqMki0H8="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "hushh-pda-auth-health-ops",
+        "generation": "1793290138950611",
+        "object": "sources/1793290138.604372-c59702af78c04b2a919eb2ec6d910a5a.tgz"
+      }
+    },
+    "steps": [
+      {
+        "args": [
+          "build",
+          "--tag",
+          "gcr.io/hushh-pda/auth-health-job:<reviewed-source-sha>",
+          "."
+        ],
+        "name": "gcr.io/cloud-builders/docker",
+        "pullTiming": {
+          "endTime": "2026-10-29T16:09:04.469908735Z",
+          "startTime": "2026-10-29T16:09:04.461661683Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-10-29T16:09:25.876551439Z",
+          "startTime": "2026-10-29T16:09:04.461661683Z"
+        }
+      }
+    ],
+    "options": {
+      "logging": "GCS_ONLY",
+      "pool": {},
+      "workerRelease": "legacy"
+    },
+    "tags": [
+      "auth-health-a2ffdd150a3a41b7bb076700b5631939",
+      "auth-health-source-05ea774ef2eba09f0dfb3a1737c966e74b6da4a8"
+    ]
+  },
+  "job": {
+    "metadata": {
+      "name": "protected-configuration-health",
+      "uid": "2fe6b836-fc5a-4186-b8b3-19611ffb3dff",
+      "namespace": "1006304528804",
+      "creationTimestamp": "2026-10-29T16:21:33.378523Z",
+      "generation": 1,
+      "labels": {
+        "cloud.googleapis.com/location": "us-central1",
+        "managed_by": "repo_observability",
+        "operation": "a2ffdd150a3a41b7bb076700b5631939",
+        "purpose": "auth_health",
+        "run.googleapis.com/lastUpdatedTime": "2026-10-29T16:21:33.378523Z"
+      }
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "577.0.0",
+            "run.googleapis.com/execution-environment": "gen2"
+          },
+          "labels": {
+            "client.knative.dev/nonce": "rep_hoc_zed",
+            "managed_by": "repo_observability",
+            "operation": "a2ffdd150a3a41b7bb076700b5631939",
+            "purpose": "auth_health"
+          }
+        },
+        "spec": {
+          "parallelism": 1,
+          "taskCount": 1,
+          "template": {
+            "spec": {
+              "containers": [
+                {
+                  "env": [
+                    {
+                      "name": "AUTH_HEALTH_PROJECT",
+                      "value": "hushh-pda"
+                    },
+                    {
+                      "name": "AUTH_PHONE_RUNTIME_HEALTH_ENABLED",
+                      "value": "false"
+                    }
+                  ],
+                  "image": "gcr.io/hushh-pda/auth-health-job@sha256:290966a59c21221ecec03ad14fbcb6a42e609fa4836d6ffde243e05fe1ff5a38",
+                  "resources": {
+                    "limits": {
+                      "cpu": "1",
+                      "memory": "512Mi"
+                    }
+                  }
+                }
+              ],
+              "maxRetries": 0,
+              "serviceAccountName": "auth-health-check@hushh-pda.iam.gserviceaccount.com",
+              "timeoutSeconds": "600"
+            }
+          }
+        }
+      }
+    }
+  },
+  "events": [
+    {
+      "logName": "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Factivity",
+      "insertId": "16gjf3rdim45",
+      "timestamp": "2026-10-29T16:21:33.267583Z",
+      "resource": {
+        "labels": {
+          "job_name": "protected-configuration-health",
+          "location": "us-central1",
+          "project_id": "hushh-pda"
+        },
+        "type": "cloud_run_job"
+      },
+      "protoPayload": {
+        "serviceName": "run.googleapis.com",
+        "methodName": "google.cloud.run.v1.Jobs.CreateJob",
+        "resourceName": "namespaces/hushh-pda/jobs/protected-configuration-health",
+        "status": {},
+        "request": {
+          "@type": "type.googleapis.com/google.cloud.run.v1.CreateJobRequest",
+          "job": {
+            "apiVersion": "run.googleapis.com/v1",
+            "kind": "Job",
+            "metadata": {
+              "annotations": {
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "577.0.0"
+              },
+              "labels": {
+                "managed_by": "repo_observability",
+                "operation": "a2ffdd150a3a41b7bb076700b5631939",
+                "purpose": "auth_health"
+              },
+              "name": "protected-configuration-health",
+              "namespace": "hushh-pda"
+            },
+            "spec": {
+              "template": {
+                "metadata": {
+                  "annotations": {
+                    "run.googleapis.com/client-name": "gcloud",
+                    "run.googleapis.com/client-version": "577.0.0"
+                  },
+                  "labels": {
+                    "client.knative.dev/nonce": "rep_hoc_zed",
+                    "managed_by": "repo_observability",
+                    "operation": "a2ffdd150a3a41b7bb076700b5631939",
+                    "purpose": "auth_health"
+                  }
+                },
+                "spec": {
+                  "parallelism": 1,
+                  "taskCount": 1,
+                  "template": {
+                    "spec": {
+                      "containers": [
+                        {
+                          "image": "gcr.io/hushh-pda/auth-health-job@sha256:290966a59c21221ecec03ad14fbcb6a42e609fa4836d6ffde243e05fe1ff5a38",
+                          "name": "",
+                          "resources": {
+                            "limits": {
+                              "cpu": "1",
+                              "memory": "512Mi"
+                            }
+                          }
+                        }
+                      ],
+                      "maxRetries": 0,
+                      "serviceAccountName": "auth-health-check@hushh-pda.iam.gserviceaccount.com",
+                      "timeoutSeconds": "600"
+                    }
+                  }
+                }
+              }
+            },
+            "status": {
+              "latestCreatedExecution": {}
+            }
+          },
+          "parent": "namespaces/hushh-pda"
+        }
+      }
+    },
+    {
+      "logName": "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Fsystem_event",
+      "insertId": "-cr5p49dh53s",
+      "timestamp": "2026-10-29T16:21:33.802999Z",
+      "resource": {
+        "labels": {
+          "job_name": "protected-configuration-health",
+          "location": "us-central1",
+          "project_id": "hushh-pda"
+        },
+        "type": "cloud_run_job"
+      },
+      "protoPayload": {
+        "serviceName": "run.googleapis.com",
+        "methodName": "/Jobs.CreateJob",
+        "resourceName": "namespaces/hushh-pda/jobs/protected-configuration-health",
+        "status": {
+          "message": "Ready condition status changed to True for Job protected-configuration-health."
+        },
+        "response": {
+          "kind": "Job",
+          "metadata": {
+            "name": "protected-configuration-health",
+            "uid": "2fe6b836-fc5a-4186-b8b3-19611ffb3dff",
+            "namespace": "1006304528804",
+            "creationTimestamp": "2026-10-29T16:21:33.378523Z"
+          },
+          "spec": {
+            "template": {
+              "metadata": {
+                "annotations": {
+                  "run.googleapis.com/client-name": "gcloud",
+                  "run.googleapis.com/client-version": "577.0.0",
+                  "run.googleapis.com/execution-environment": "gen2"
+                },
+                "labels": {
+                  "client.knative.dev/nonce": "rep_hoc_zed",
+                  "managed_by": "repo_observability",
+                  "operation": "a2ffdd150a3a41b7bb076700b5631939",
+                  "purpose": "auth_health"
+                }
+              },
+              "spec": {
+                "parallelism": 1,
+                "taskCount": 1,
+                "template": {
+                  "spec": {
+                    "containers": [
+                      {
+                        "env": [
+                          {
+                            "name": "AUTH_HEALTH_PROJECT",
+                            "value": "hushh-pda"
+                          },
+                          {
+                            "name": "AUTH_PHONE_RUNTIME_HEALTH_ENABLED",
+                            "value": "false"
+                          }
+                        ],
+                        "image": "gcr.io/hushh-pda/auth-health-job@sha256:290966a59c21221ecec03ad14fbcb6a42e609fa4836d6ffde243e05fe1ff5a38",
+                        "resources": {
+                          "limits": {
+                            "cpu": "1",
+                            "memory": "512Mi"
+                          }
+                        }
+                      }
+                    ],
+                    "maxRetries": 0,
+                    "serviceAccountName": "auth-health-check@hushh-pda.iam.gserviceaccount.com",
+                    "timeoutSeconds": "600"
+                  }
+                }
+              }
+            }
+          },
+          "status": {
+            "conditions": [
+              {
+                "type": "Ready",
+                "status": "True"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "logName": "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Fsystem_event",
+      "insertId": "ftxsvqdfxza",
+      "timestamp": "2026-10-29T16:24:02.239686Z",
+      "resource": {
+        "labels": {
+          "job_name": "protected-configuration-health",
+          "location": "us-central1",
+          "project_id": "hushh-pda"
+        },
+        "type": "cloud_run_job"
+      },
+      "protoPayload": {
+        "serviceName": "run.googleapis.com",
+        "methodName": "/Jobs.RunJob",
+        "resourceName": "namespaces/hushh-pda/executions/protected-configuration-health-lbgtv",
+        "status": {
+          "code": 10,
+          "message": "Execution protected-configuration-health-lbgtv has failed to complete, 0/1 tasks were a success."
+        },
+        "response": {
+          "kind": "Execution",
+          "metadata": {
+            "name": "protected-configuration-health-lbgtv",
+            "uid": "9027197c-ba45-44a1-9d43-9514ebafafe5",
+            "namespace": "1006304528804",
+            "creationTimestamp": "2026-10-29T16:22:00.957770Z",
+            "ownerReferences": [
+              {
+                "apiVersion": "serving.knative.dev/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "protected-configuration-health",
+                "uid": "2fe6b836-fc5a-4186-b8b3-19611ffb3dff"
+              }
+            ]
+          },
+          "spec": {
+            "parallelism": 1,
+            "taskCount": 1,
+            "template": {
+              "spec": {
+                "containers": [
+                  {
+                    "env": [
+                      {
+                        "name": "AUTH_HEALTH_PROJECT",
+                        "value": "hushh-pda"
+                      },
+                      {
+                        "name": "AUTH_PHONE_RUNTIME_HEALTH_ENABLED",
+                        "value": "false"
+                      }
+                    ],
+                    "image": "gcr.io/hushh-pda/auth-health-job@sha256:290966a59c21221ecec03ad14fbcb6a42e609fa4836d6ffde243e05fe1ff5a38",
+                    "resources": {
+                      "limits": {
+                        "cpu": "1",
+                        "memory": "512Mi"
+                      }
+                    }
+                  }
+                ],
+                "maxRetries": 0,
+                "serviceAccountName": "auth-health-check@hushh-pda.iam.gserviceaccount.com",
+                "timeoutSeconds": "600"
+              }
+            }
+          },
+          "status": {
+            "conditions": [
+              {
+                "type": "Completed",
+                "status": "False"
+              },
+              {
+                "type": "ResourcesAvailable",
+                "status": "True"
+              },
+              {
+                "type": "Started",
+                "status": "True"
+              },
+              {
+                "type": "ContainerReady",
+                "status": "True"
+              },
+              {
+                "type": "Retry",
+                "status": "True"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "logName": "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Fsystem_event",
+      "insertId": "-7lruidcp7c",
+      "timestamp": "2026-10-29T16:26:56.272578Z",
+      "resource": {
+        "labels": {
+          "job_name": "protected-configuration-health",
+          "location": "us-central1",
+          "project_id": "hushh-pda"
+        },
+        "type": "cloud_run_job"
+      },
+      "protoPayload": {
+        "serviceName": "run.googleapis.com",
+        "methodName": "/Jobs.RunJob",
+        "resourceName": "namespaces/hushh-pda/executions/protected-configuration-health-p6qmn",
+        "status": {
+          "code": 10,
+          "message": "Execution protected-configuration-health-p6qmn has failed to complete, 0/1 tasks were a success."
+        },
+        "response": {
+          "kind": "Execution",
+          "metadata": {
+            "name": "protected-configuration-health-p6qmn",
+            "uid": "ddfae5f5-a098-4b52-8039-cd631fc9a25d",
+            "namespace": "1006304528804",
+            "creationTimestamp": "2026-10-29T16:26:03.924681Z",
+            "ownerReferences": [
+              {
+                "apiVersion": "serving.knative.dev/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "protected-configuration-health",
+                "uid": "2fe6b836-fc5a-4186-b8b3-19611ffb3dff"
+              }
+            ]
+          },
+          "spec": {
+            "parallelism": 1,
+            "taskCount": 1,
+            "template": {
+              "spec": {
+                "containers": [
+                  {
+                    "env": [
+                      {
+                        "name": "AUTH_HEALTH_PROJECT",
+                        "value": "hushh-pda"
+                      },
+                      {
+                        "name": "AUTH_PHONE_RUNTIME_HEALTH_ENABLED",
+                        "value": "false"
+                      }
+                    ],
+                    "image": "gcr.io/hushh-pda/auth-health-job@sha256:290966a59c21221ecec03ad14fbcb6a42e609fa4836d6ffde243e05fe1ff5a38",
+                    "resources": {
+                      "limits": {
+                        "cpu": "1",
+                        "memory": "512Mi"
+                      }
+                    }
+                  }
+                ],
+                "maxRetries": 0,
+                "serviceAccountName": "auth-health-check@hushh-pda.iam.gserviceaccount.com",
+                "timeoutSeconds": "600"
+              }
+            }
+          },
+          "status": {
+            "conditions": [
+              {
+                "type": "Completed",
+                "status": "False"
+              },
+              {
+                "type": "ResourcesAvailable",
+                "status": "True"
+              },
+              {
+                "type": "Started",
+                "status": "True"
+              },
+              {
+                "type": "ContainerReady",
+                "status": "True"
+              },
+              {
+                "type": "Retry",
+                "status": "True"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "logName": "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Fsystem_event",
+      "insertId": "nly2pqdrbve",
+      "timestamp": "2026-10-29T16:26:59.571620Z",
+      "resource": {
+        "labels": {
+          "job_name": "protected-configuration-health",
+          "location": "us-central1",
+          "project_id": "hushh-pda"
+        },
+        "type": "cloud_run_job"
+      },
+      "protoPayload": {
+        "serviceName": "run.googleapis.com",
+        "methodName": "/Jobs.RunJob",
+        "resourceName": "namespaces/hushh-pda/executions/protected-configuration-health-cj8gj",
+        "status": {
+          "code": 10,
+          "message": "Execution protected-configuration-health-cj8gj has failed to complete, 0/1 tasks were a success."
+        },
+        "response": {
+          "kind": "Execution",
+          "metadata": {
+            "name": "protected-configuration-health-cj8gj",
+            "uid": "4c69eeda-1915-454e-b4ed-0de49ad29c2e",
+            "namespace": "1006304528804",
+            "creationTimestamp": "2026-10-29T16:24:03.120797Z",
+            "ownerReferences": [
+              {
+                "apiVersion": "serving.knative.dev/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "protected-configuration-health",
+                "uid": "2fe6b836-fc5a-4186-b8b3-19611ffb3dff"
+              }
+            ]
+          },
+          "spec": {
+            "parallelism": 1,
+            "taskCount": 1,
+            "template": {
+              "spec": {
+                "containers": [
+                  {
+                    "env": [
+                      {
+                        "name": "AUTH_HEALTH_PROJECT",
+                        "value": "hushh-pda"
+                      },
+                      {
+                        "name": "AUTH_PHONE_RUNTIME_HEALTH_ENABLED",
+                        "value": "false"
+                      }
+                    ],
+                    "image": "gcr.io/hushh-pda/auth-health-job@sha256:290966a59c21221ecec03ad14fbcb6a42e609fa4836d6ffde243e05fe1ff5a38",
+                    "resources": {
+                      "limits": {
+                        "cpu": "1",
+                        "memory": "512Mi"
+                      }
+                    }
+                  }
+                ],
+                "maxRetries": 0,
+                "serviceAccountName": "auth-health-check@hushh-pda.iam.gserviceaccount.com",
+                "timeoutSeconds": "600"
+              }
+            }
+          },
+          "status": {
+            "conditions": [
+              {
+                "type": "Completed",
+                "status": "False"
+              },
+              {
+                "type": "ResourcesAvailable",
+                "status": "True"
+              },
+              {
+                "type": "Started",
+                "status": "True"
+              },
+              {
+                "type": "ContainerReady",
+                "status": "True"
+              },
+              {
+                "type": "Retry",
+                "status": "True"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "until": "2026-10-29T16:56:59.807766+00:00"
+}

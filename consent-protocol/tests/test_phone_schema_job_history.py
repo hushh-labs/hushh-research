@@ -127,6 +127,7 @@ def history(monkeypatch):
     module = importlib.import_module("schema_job_history")
     producer = importlib.import_module("schema_producers")
     monkeypatch.setattr(producer, "source_capable", lambda _sha: False)
+    monkeypatch.setattr(producer, "run", importlib.import_module("qualify_image").run)
     events = _events("genai-ready-" + BUILD, "job-uid")
     proof = {
         "qualification": "passed",

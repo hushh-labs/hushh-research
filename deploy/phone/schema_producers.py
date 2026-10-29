@@ -269,10 +269,25 @@ def _job(job: dict, images: dict) -> dict:
     }
 
 
-def _job_history(jobs: dict, images: dict, until: str, submissions, probe_images) -> dict:
+def _job_history(jobs: dict, images: dict, until: str, submissions, probe_images, non_sql=None) -> dict:
     from schema_job_history import qualify
 
-    return qualify(jobs, images, until, submissions=submissions, probe_images=probe_images)
+    return qualify(jobs, images, until, submissions=submissions, probe_images=probe_images,
+                   **({"non_sql": non_sql} if non_sql is not None else {}))
+
+
+def _database_jobs(budget, inventory, images):
+    non_sql = inventory.get("verified_non_sql_job")
+    auxiliary_rows = (
+        budget._inventory.observability_rows(inventory, "production") if non_sql is not None else []
+    )
+    auxiliary_names = {row["name"] for row in auxiliary_rows}
+    jobs = {
+        name: _job(job, images)
+        for name, job in inventory["jobs"].items()
+        if name not in auxiliary_names
+    }
+    return jobs, auxiliary_rows, non_sql
 
 
 def _revision_history(service: str, state: dict, until: str) -> int:
@@ -369,7 +384,7 @@ class Runtime:
                     ]
                 ),
             }
-        jobs = {name: _job(job, images) for name, job in inventory["jobs"].items()}
+        jobs, auxiliary_rows, non_sql = _database_jobs(budget, inventory, images)
         audit_counts["jobs"] = _job_history(
             jobs,
             images,
@@ -383,11 +398,13 @@ class Runtime:
                     else set()
                 )
             ),
+            **({"non_sql": non_sql} if non_sql is not None else {}),
         )
         return {
             "services": services,
             "revisions": revisions,
             "jobs": jobs,
+            **({"verified_non_sql_jobs": auxiliary_rows} if non_sql is not None else {}),
             "history_start": HISTORY_START,
             "source_anchor": SOURCE_ANCHOR,
             "audit_counts": audit_counts,

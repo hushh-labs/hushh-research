@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import importlib.util
 import ipaddress
+import hashlib
+import sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -27,6 +29,34 @@ ISOLATED_DEV_CONNECTION = _scope.ISOLATED_DEV_CONNECTION
 isolated_dev_scope = _scope.isolated_dev_scope
 non_target_rows = _scope.non_target_rows
 _non_target_routing = _scope.non_target_routing
+
+
+def _health_module():
+    # File-import consumers retain their own checkout without ambient PYTHONPATH.
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "deploy/observability/auth_health_non_sql.py"
+    )
+    name = "_hussh_auth_health_" + hashlib.sha256(str(path).encode()).hexdigest()[:12]
+    module = sys.modules.get(name)
+    if module is None:
+        spec = importlib.util.spec_from_file_location(name, path)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    assert Path(module.__file__).resolve() == path
+    return module
+
+
+def observability_rows(inventory, environment):
+    proof = inventory.get("verified_non_sql_job")
+    if proof is None:
+        return []
+    try:
+        return _health_module().capacity_rows(proof, inventory["jobs"], environment)
+    except ValueError as error:
+        raise BudgetError("protected configuration job is unqualified") from error
 
 
 def positive_int(value: Any, label: str, *, zero_ok: bool = False) -> int:
@@ -356,6 +386,15 @@ def collect_inventory(
     )
     jobs = _job_inventory(read, opts, parallel)
     result = {"database_max_connections": maximum, "services": services, "jobs": jobs}
+    if environment == "production" and project == "hushh-pda":
+        health = _health_module()
+        if health.NAME in jobs:
+            try:
+                result["verified_non_sql_job"] = health.qualify(jobs[health.NAME], read)
+            except ValueError as error:
+                raise BudgetError(
+                    "protected configuration job is unqualified"
+                ) from error
     if not isolated:
         return result
     zero_jobs = _non_target_jobs(

@@ -332,7 +332,10 @@ def _activity(event, births, jobs, stamp):
         raise ValueError("phone_schema_job_mutation_unknown")
 
 
-def review(events, jobs, images, until, *, submissions, project_number, probe_images=frozenset()):
+def review(
+    events, jobs, images, until, *, submissions, project_number,
+    probe_images=frozenset(), non_sql=None,
+):
     from schema_producers import HISTORY_START
 
     require(
@@ -354,11 +357,15 @@ def review(events, jobs, images, until, *, submissions, project_number, probe_im
             require(images.get(image, source) == source)
             images[image] = source
     births, seen, previous = {}, set(), closed._instant(HISTORY_START)
+    non_sql_events = []
     for event in events:
         payload, lane, stamp = _scope(event, HISTORY_START, until)
         require(stamp >= previous and event.get("insertId") and event["insertId"] not in seen)
         seen.add(event["insertId"])
         previous = stamp
+        if non_sql is not None and non_sql.matches(event):
+            non_sql_events.append(event)
+            continue
         if lane.endswith("system_event"):
             if payload.get("methodName") == "/Jobs.RunJob":
                 _execution(
@@ -380,6 +387,7 @@ def review(events, jobs, images, until, *, submissions, project_number, probe_im
     )
     return {
         "event_count": len(events),
+        **({"verified_non_sql_job": non_sql.review_history(non_sql_events)} if non_sql else {}),
         "closed_jobs": [
             {
                 "job": name,
@@ -393,7 +401,7 @@ def review(events, jobs, images, until, *, submissions, project_number, probe_im
     }
 
 
-def qualify(jobs, images, until, *, submissions, probe_images):
+def qualify(jobs, images, until, *, submissions, probe_images, non_sql=None):
     from schema_producers import HISTORY_START
 
     query = (
@@ -427,4 +435,5 @@ def qualify(jobs, images, until, *, submissions, probe_images):
         submissions=submissions,
         project_number=str(project.get("projectNumber", "")),
         probe_images=probe_images,
+        non_sql=non_sql,
     )

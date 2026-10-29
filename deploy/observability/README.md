@@ -354,6 +354,31 @@ uses the native failed-execution counter independently, covering startup/IAM,
 lease/timeouts and non-phone-list failures even if phone-list health is intact.
 It reuses the existing verified notification channels and has no reminder loop.
 
+Production schema closure and capacity admission independently qualify the
+reviewed list-only job incarnation through `auth_health_non_sql.py`. Its frozen
+UID/specification, source-body hashes, native successful Cloud Build, immutable
+source generation/archive SHA-256 and output image must all match. The reviewed
+six-file source archive contains the pinned Dockerfile, build configuration and
+four checker dependencies; the native build retains its hash after the temporary
+GCS archive expires. A local receipt or a matching job name grants no exception.
+The native-metadata test fixture restores its explicit source-SHA token before
+parsing; its decoded metadata is unchanged. This avoids misclassifying the image
+tag as a credential without adding secret-scanner exceptions.
+Every active execution must retain that exact specification, and complete audit
+history must bind the successful creation and each effective execution without
+updates or overrides. The existing bounded history limit still fails closed.
+
+This admits zero **additional direct SQL connections**: this exact list-only
+program has no direct database pool or schema/phone issuer. It still writes its
+Storage lease and health logs. Optional backend readiness requests would use the
+backend's already reserved pool; enabling that flag or changing source, image,
+UID, identity or specification requires fresh qualification. Database-issuer
+snapshots retain all original database jobs, with this independently verified job
+recorded separately. Terminal failed monitor executions retain their audit status
+and failed count; this classification does not assert monitoring health. Keep the
+existing failed-execution alert and fallback schedule until genuine healthy
+scheduled executions are verified.
+
 Apply only the auth policy subset through the existing reconciler. Preserve
 backend and database alerting. A successful configuration plan is not live
 execution or notification proof.

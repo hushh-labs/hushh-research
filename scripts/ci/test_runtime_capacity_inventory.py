@@ -235,5 +235,132 @@ class RuntimeCapacityCollectionTest(unittest.TestCase):
         self.assertTrue(completed.is_set())
 
 
+class ReviewedMonitoringCapacityTest(unittest.TestCase):
+    def setUp(self):
+        self.health = inventory._health_module()
+        fixture = (
+            MODULE_PATH.parents[2]
+            / "consent-protocol/tests/fixtures/protected_configuration_job.json"
+        )
+        self.native = json.loads(
+            fixture.read_text().replace("<reviewed-source-sha>", self.health.SOURCE)
+        )
+        self.profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        spec = importlib.util.spec_from_file_location(
+            "runtime_capacity_fixtures",
+            MODULE_PATH.with_name("runtime_capacity_fixtures.py"),
+        )
+        fixtures = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixtures)
+        self.current = fixtures.retained_production_inventory(
+            self.profile, fixtures.revision
+        )
+        self.current["jobs"][self.health.NAME] = self.native["job"]
+        self.active = []
+
+    def read(self, *args):
+        if args[:2] == ("builds", "describe"):
+            return copy.deepcopy(self.native["build"])
+        if args[:4] == ("run", "jobs", "executions", "list"):
+            self.assertIn(
+                "--filter=NOT status.completionTime>=1970-01-01T00:00:00Z", args
+            )
+            self.assertIn("--limit=501", args)
+            return copy.deepcopy(self.active)
+        if args[:3] == ("run", "jobs", "describe"):
+            return copy.deepcopy(self.native["job"])
+        raise AssertionError(args)
+
+    def qualify(self):
+        # A fresh adapter per attempt keeps the immutable-build cache isolated.
+        return self.health.qualify(self.native["job"], lambda *args: self.read(*args))
+
+    def test_native_monitoring_incarnation_adds_zero_without_losing_database_reservations(
+        self,
+    ):
+        with self.assertRaisesRegex(budget.BudgetError, "job inventory drift"):
+            budget.evaluate(
+                self.profile, "production", self.current, phase="post-release"
+            )
+        without_monitor = copy.deepcopy(self.current)
+        del without_monitor["jobs"][self.health.NAME]
+        expected = budget.evaluate(
+            self.profile, "production", without_monitor, phase="post-release"
+        )
+        self.current["verified_non_sql_job"] = self.qualify()
+        actual = budget.evaluate(
+            self.profile, "production", self.current, phase="post-release"
+        )
+        self.assertEqual(
+            actual["projected_connections"], expected["projected_connections"]
+        )
+        self.assertEqual(
+            actual["administrative_reserve"], expected["administrative_reserve"]
+        )
+        self.assertEqual(actual["jobs"][:-1], expected["jobs"])
+        self.assertEqual(actual["jobs"][-1]["connections"], 0)
+        self.current["verified_non_sql_job"] = actual["jobs"][-1]
+        with self.assertRaises(budget.BudgetError):
+            budget.evaluate(
+                self.profile, "production", self.current, phase="post-release"
+            )
+
+    def test_complete_history_cannot_omit_a_known_active_execution(self):
+        row = self.native["events"][-1]["protoPayload"]["response"]
+        self.active = [row]
+        qualified = self.qualify()
+        recorded = qualified.review_history(self.native["events"])
+        self.assertEqual(recorded["failed_execution_count"], 3)
+        with self.assertRaises(ValueError):
+            qualified.review_history(self.native["events"][:-1])
+
+    def test_qualification_rejects_changed_source_spec_and_active_execution_overrides(
+        self,
+    ):
+        original = copy.deepcopy(self.native)
+        for changed in (
+            "archive",
+            "build-step",
+            "image",
+            "uid",
+            "environment",
+            "active",
+            "bound",
+        ):
+            with self.subTest(changed=changed):
+                self.native = copy.deepcopy(original)
+                self.active = []
+                if changed == "archive":
+                    self.native["build"]["source"]["storageSource"]["generation"] = "1"
+                elif changed == "build-step":
+                    self.native["build"]["steps"][0]["env"] = ["PYTHONPATH=/unreviewed"]
+                elif changed == "image":
+                    self.native["build"]["results"]["images"][0]["digest"] = (
+                        "sha256:" + "0" * 64
+                    )
+                elif changed == "uid":
+                    self.native["job"]["metadata"]["uid"] = "replacement"
+                elif changed == "environment":
+                    task = self.native["job"]["spec"]["template"]["spec"]["template"][
+                        "spec"
+                    ]
+                    task["containers"][0]["env"].append(
+                        {"name": "PGHOST", "value": "unreviewed"}
+                    )
+                else:
+                    row = copy.deepcopy(
+                        self.native["events"][-1]["protoPayload"]["response"]
+                    )
+                    if changed == "active":
+                        row["spec"]["template"]["spec"]["containers"][0]["args"] = [
+                            "different.py"
+                        ]
+                        self.active = [row]
+                    else:
+                        self.active = [row] * 501
+                with self.assertRaises(ValueError):
+                    self.qualify()
+
+
 if __name__ == "__main__":
     unittest.main()
