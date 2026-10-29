@@ -107,7 +107,7 @@ class PullRequestContextTest(unittest.TestCase):
             }
             with (
                 patch.dict(os.environ, environment),
-                patch.object(gate, "GitHub") as github,
+                patch("live_memory_pr_context.GitHub") as github,
             ):
                 github.return_value.read.return_value = current
                 gate.validate_pr_event(set())

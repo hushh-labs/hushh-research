@@ -2,9 +2,29 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
 import re
 from collections.abc import Callable
 from typing import Any
+
+from github_security_authority import GitHub, Refused
+
+
+def event_impact_body(event: Any) -> str:
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    try:
+        read = None if attempt == "1" else GitHub(repository, os.environ.get("GH_TOKEN", "")).read
+        body = impact_body(event, attempt, repository, read)
+    except Refused as error:
+        raise ValueError("Current pull request authority is unavailable") from error
+    return body
+
+
+def report_impact_body(body: str) -> None:
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    print(f"Live Memory PR impact checked (attempt {os.environ.get('GITHUB_RUN_ATTEMPT', '')}, body sha256 {digest}).")
 
 
 def _binding(pr: Any, repository: dict) -> tuple:

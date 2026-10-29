@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -12,8 +11,7 @@ from tempfile import TemporaryDirectory
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
-from github_security_authority import GitHub, Refused
-from live_memory_pr_context import impact_body
+from live_memory_pr_context import event_impact_body, report_impact_body
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = Path("docs/reference/architecture/live-memory-source-contract.md")
@@ -174,16 +172,9 @@ def validate_pr_event(admitted_kinds: set[str]) -> None:
     if not event_path:
         raise ValueError("pull_request event path is unavailable")
     event = json.loads(Path(event_path).read_text(encoding="utf-8"))
-    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
-    repository = os.environ.get("GITHUB_REPOSITORY", "")
-    try:
-        read = None if attempt == "1" else GitHub(repository, os.environ.get("GH_TOKEN", "")).read
-        body = impact_body(event, attempt, repository, read)
-    except Refused as error:
-        raise ValueError("Current pull request authority is unavailable") from error
+    body = event_impact_body(event)
     validate_pr_impact(body, admitted_kinds)
-    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
-    print(f"Live Memory PR impact checked (attempt {attempt}, body sha256 {digest}).")
+    report_impact_body(body)
 
 
 def registered_kinds(records_code: str, sync_code: str) -> tuple[set[str], set[str]]:
