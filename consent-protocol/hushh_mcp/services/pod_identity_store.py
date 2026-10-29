@@ -231,6 +231,16 @@ async def resolve_durable_private_key_b64(
     return base64.b64encode(raw).decode("ascii")
 
 
+async def restore_durable_private_key(*, storage: Any, dek: Any, log: logging.Logger) -> None:
+    """Restore the existing boot environment seam before keypair caching."""
+    try:
+        durable = await resolve_durable_private_key_b64(storage=storage, dek=dek)
+        if durable and not os.getenv("HUSSH_POD_PRIVATE_KEY"):
+            os.environ["HUSSH_POD_PRIVATE_KEY"] = durable
+    except Exception:  # noqa: BLE001 - preserve the existing explicit ephemeral boot state
+        log.warning("pod.durable_identity_unavailable", exc_info=True)
+
+
 __all__ = [
     "IDENTITY_KEY_OBJECT",
     "PodIdentityStoreError",
@@ -238,5 +248,6 @@ __all__ = [
     "load_or_create_private_key",
     "open_private_key",
     "resolve_durable_private_key_b64",
+    "restore_durable_private_key",
     "seal_private_key",
 ]

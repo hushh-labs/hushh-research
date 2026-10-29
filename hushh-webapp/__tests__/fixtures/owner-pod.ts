@@ -1,11 +1,16 @@
 /** Synthetic signed hub and direct-pod transport for admission boundary tests. */
-import { generateKeyPairSync, sign as nodeSign } from "node:crypto";
+import { createPublicKey, generateKeyPairSync, sign as nodeSign, verify as nodeVerify } from "node:crypto";
 import * as ownerPod from "@/lib/services/owner-pod-endpoint";
 
 const issuer = generateKeyPairSync("ed25519");
 const publicRaw = issuer.publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("base64");
 function hubSignature(payload: Record<string, unknown>): string {
   return `ed25519.kid.${nodeSign(null, Buffer.from(ownerPod.canonicalJson(payload)), issuer.privateKey).toString("base64url")}`;
+}
+
+export function verifyDer(publicKeySpkiB64: string, payload: string, signatureB64: string): boolean {
+  const key = createPublicKey({ key: Buffer.from(publicKeySpkiB64, "base64"), format: "der", type: "spki" });
+  return nodeVerify("sha256", Buffer.from(payload, "utf8"), { key, dsaEncoding: "der" }, Buffer.from(signatureB64, "base64"));
 }
 
 export const USER = "uid-owner";
@@ -41,6 +46,9 @@ export class FakeWorld {
   appPublicKey = "";
   podReachable = true;
   challengePayload = '{"challenge_id":"psc_1","epoch":3,"hushh_id":"ha1_owner","nonce":"n","pod_key_id":"podk_1","purpose":"pod-session-admission","subject_id":"tdv_app_1"}';
+  epoch = 3;
+  challengeId = "psc_1";
+  nonce = "n";
   admitted: Array<Record<string, unknown>> = [];
   couriered: Array<Record<string, unknown>> = [];
   revokes: Array<Record<string, unknown>> = [];
@@ -49,6 +57,16 @@ export class FakeWorld {
   bindingExpiresOffsetMs = 24 * 3600 * 1000;
   deploymentTarget = "user_gcp";
   hostingMode: string | undefined;
+
+  rotateChallenge(epoch: number): void {
+    this.epoch = epoch;
+    this.challengeId = "psc_2";
+    this.nonce = "next";
+    this.challengePayload = ownerPod.canonicalJson({
+      challenge_id: this.challengeId, epoch, hushh_id: "ha1_owner", nonce: this.nonce,
+      pod_key_id: "podk_1", purpose: "pod-session-admission", subject_id: "tdv_app_1",
+    });
+  }
 
   transport(): ownerPod.OwnerPodTransport {
     return {
@@ -96,11 +114,11 @@ export class FakeWorld {
     this.calls.push({ target: "direct", url, init });
     if (!this.podReachable) throw new TypeError("Failed to fetch");
     if (url === `${POD_URL}/api/one/pod/session/challenge`) {
-      return json({ challengeId: "psc_1", nonce: "n", epoch: 3, podKeyId: "podk_1", expiresAt: this.now + 60_000, signingPayload: this.challengePayload });
+      return json({ challengeId: this.challengeId, nonce: this.nonce, epoch: this.epoch, podKeyId: "podk_1", expiresAt: this.now + 60_000, signingPayload: this.challengePayload });
     }
     if (url === `${POD_URL}/api/one/pod/session/admit`) {
       this.admitted.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-      return json({ session: "pst1.eyJzaWQiOiJwc3NfMSJ9.bWFj", sid: "pss_1", role: "app", scopes: ["pkm.read"], epoch: 3, expiresAt: this.now + 12 * 3600 * 1000, version: this.bindingVersion || 1 });
+      return json({ session: "pst1.eyJzaWQiOiJwc3NfMSJ9.bWFj", sid: "pss_1", role: "app", scopes: ["pkm.read"], epoch: this.epoch, expiresAt: this.now + 12 * 3600 * 1000, version: this.bindingVersion || 1 });
     }
     if (url === `${POD_URL}/api/one/pod/session/revoke`) {
       this.revokes.push(JSON.parse(String(init.body)) as Record<string, unknown>);
