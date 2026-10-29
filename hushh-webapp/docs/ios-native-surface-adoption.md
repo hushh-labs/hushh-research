@@ -159,6 +159,9 @@ Use the existing [physical reviewer preflight](../../.agents/skills/mobile-parit
 It separates device transport, XCTest authorization and Vault entry; binds both
 the app and runner to the source; and keeps credentials and private content out
 of artifacts. A partial or uncertain secure-field entry is not an unlock result.
+The performance runner stops on a rejected or uncertain entry; it does not yet
+prove exact private input delivery or interruption cleanup. Do not run private
+credential entry until the preflight's delivery and cleanup contract is proven.
 
 ## Evidence and history
 

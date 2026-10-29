@@ -7174,8 +7174,7 @@ final class AppUITests: XCTestCase {
             throw NSError(domain: "AppUITests", code: 3)
             #endif
         }
-        let passphrase = (environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"] ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let passphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"] ?? ""
         #if DEBUG
         let release = false
         #else
@@ -7405,27 +7404,15 @@ final class AppUITests: XCTestCase {
                 }
             }
             allowLocalNetworkIfAsked()
-            // The launch helper treats any "One" label as unlocked, which can
-            // be true for a moment before the vault gate settles (or while a
-            // system prompt covers it). Unlock here if the gate is up.
-            func unlockIfGated() {
+            // A gate reappearing after admission is an uncertain outcome, not
+            // permission to enter the same credential for a second time.
+            func requireSettledVaultAdmission() throws {
                 let field = app.secureTextFields.firstMatch
-                guard field.waitForExistence(timeout: 8), !passphrase.isEmpty else { return }
-                NSLog("PLAID_STEP gate_visible_unlocking")
-                field.tap()
-                perfSettle(0.5)
-                field.typeText(passphrase)
-                perfSettle(0.6)
-                let unlock = app.buttons["Unlock"]
-                if unlock.waitForExistence(timeout: 4) && unlock.isEnabled { unlock.tap() }
-                for _ in 0..<90 {
-                    if !app.secureTextFields.firstMatch.exists { break }
-                    perfSettle(1)
+                if field.waitForExistence(timeout: 8) {
+                    throw PerfUnsafeVaultEntry(reason: "vault gate returned after admission")
                 }
-                perfSettle(4)
-                NSLog("PLAID_STEP gate_cleared=\(!app.secureTextFields.firstMatch.exists)")
             }
-            unlockIfGated()
+            try requireSettledVaultAdmission()
             func element(_ label: String, contains: Bool = false) -> XCUIElement {
                 let format = contains ? "label CONTAINS[c] %@" : "label == %@"
                 return app.descendants(matching: .any)
@@ -8214,6 +8201,11 @@ final class AppUITests: XCTestCase {
                     XCUIApplication().terminate()
                     XCTFail("The app is signed out, so no route can be measured. Restore the reviewer session with scripts/perf/ios-reviewer-signin.sh, then rerun.")
                     break
+                } catch let failure as PerfUnsafeVaultEntry {
+                    NSLog("PERF_SWEEP_ABORTED reason=vault-entry-unconfirmed remaining=\(list.count - index)")
+                    XCUIApplication().terminate()
+                    XCTFail("Vault input or its outcome was not confirmed: \(failure.reason).")
+                    break
                 } catch let unreachable as PerfRouteUnreachable {
                     NSLog("PERF_ROUTE_UNREACHABLE route=\(route) reason=\(unreachable.reason)")
                     XCUIApplication().terminate()
@@ -8374,20 +8366,16 @@ final class AppUITests: XCTestCase {
     /// Thrown instead of an XCTFail when a caller sweeping many routes wants
     /// to record one unreachable route and carry on.
     struct PerfRouteUnreachable: Error { let reason: String }
+    struct PerfUnsafeVaultEntry: Error { let reason: String }
 
     /// Thrown to a sweeping caller when the launch sits on the sign-in
     /// screen: the Release truth lane has no automated sign-in (test mode is
     /// Debug-only by design), so nothing after it can be measured either.
     struct PerfSignedOut: Error {}
 
-    /// `shellOptional`: the bottom bar's "One" tab is the usual sign that the
-    /// app is signed in and unlocked, but a route that hides the shell (an
-    /// import flow, a full-screen setup step) never shows it, and waiting for
-    /// it there only burns the timeout. With this set, a submitted passphrase
-    /// whose field has stayed gone for four seconds, with no mismatch banner,
-    /// also counts, which is the signal the Android lane uses for the same
-    /// reason. `failHard: false` throws PerfRouteUnreachable instead of
-    /// failing the whole test.
+    /// Require positive shell evidence after unlock. A disappearing field
+    /// alone cannot prove authentication; focused routes that hide the shell
+    /// remain unverified until they expose an equivalent signal.
     private func perfUnlockVault(
         _ app: XCUIApplication,
         passphrase: String,
@@ -8402,10 +8390,19 @@ final class AppUITests: XCTestCase {
         var attempts = 0
         var announced = false
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        var fieldGoneSince: Date?
         var signInScreenSince: Date?
         while Date() < deadline {
-            if perfLabelExists(app, "One") {
+            let privacyCover = app.otherElements["session-privacy-shield"].firstMatch
+            let hosts = app.webViews.matching(identifier: "native-webview")
+            let host = hosts.firstMatch
+            let vaultField = host.secureTextFields.matching(NSPredicate(
+                format: "label == %@ OR placeholderValue == %@", "Vault password", "Enter password"
+            )).firstMatch
+            let mismatch = host.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "did not match")).firstMatch.exists
+            if mismatch { throw PerfUnsafeVaultEntry(reason: "vault unlock was rejected") }
+            let navigation = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
+            let oneTab = navigation.buttons["One"]
+            if hosts.count == 1 && navigation.exists && oneTab.exists && oneTab.isHittable && !vaultField.exists && !privacyCover.exists {
                 return
             }
             if !failHard {
@@ -8423,22 +8420,6 @@ final class AppUITests: XCTestCase {
                     signInScreenSince = nil
                 }
             }
-            if shellOptional && attempts > 0 {
-                let gateField = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault password", "Enter password")).firstMatch
-                let rejected = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "did not match")).firstMatch.exists
-                if !gateField.exists && !rejected {
-                    if let since = fieldGoneSince {
-                        if Date().timeIntervalSince(since) >= 4 {
-                            NSLog("PERF_UNLOCK ready=field-gone")
-                            return
-                        }
-                    } else {
-                        fieldGoneSince = Date()
-                    }
-                } else {
-                    fieldGoneSince = nil
-                }
-            }
             // The vault gate opens the passkey flow at launch; with no passkey
             // on this phone iOS shows its "Scan QR Code" sheet over the app and
             // every tap below lands on it. Close it (X) and use the passphrase.
@@ -8452,7 +8433,7 @@ final class AppUITests: XCTestCase {
                     continue
                 }
             }
-            let field = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault password", "Enter password")).firstMatch
+            let field = host.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault password", "Enter password")).firstMatch
             if !field.exists && attempts == 0 && !passphrase.isEmpty {
                 let reveal = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Password")).firstMatch
                 if reveal.exists {
@@ -8461,10 +8442,9 @@ final class AppUITests: XCTestCase {
                     continue
                 }
             }
-            let mismatch = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "did not match")).firstMatch.exists
-            // Type once, and again after a mismatch (a partial typeText was
-            // observed when the sheet above stole focus mid-string), up to 3 times.
-            if field.exists && !passphrase.isEmpty && (attempts == 0 || (mismatch && attempts < 3)) {
+            // An uncertain or rejected entry is not permission to replay a
+            // credential. The caller must reconcile the gate before a new run.
+            if field.exists && !passphrase.isEmpty && attempts == 0 {
                 if !fieldSeen {
                     fieldSeen = true
                     deadline = Date().addingTimeInterval(timeout)
@@ -8478,29 +8458,29 @@ final class AppUITests: XCTestCase {
                     NSLog("PERF_STOP name=gate-keyboard")
                     perfSettle(2.5)
                 }
-                if attempts > 0 {
-                    field.press(forDuration: 1.0)
-                    let selectAll = app.menuItems.matching(NSPredicate(format: "label == %@", "Select All")).firstMatch
-                    if selectAll.waitForExistence(timeout: 1.5) {
-                        selectAll.tap()
-                        perfSettle(0.2)
-                    }
-                    field.typeText(XCUIKeyboardKey.delete.rawValue)
-                    perfSettle(0.2)
+                guard let existing = field.value as? String,
+                      existing.isEmpty || existing == field.placeholderValue else {
+                    throw PerfUnsafeVaultEntry(reason: "vault field is not confirmed empty")
+                }
+                let reviewerEmail = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_REVIEWER_EMAIL"] ?? ""
+                let owner = host.staticTexts.matching(NSPredicate(format: "label == %@", reviewerEmail)).firstMatch
+                guard hosts.count == 1, !reviewerEmail.isEmpty, owner.exists && owner.isHittable, !privacyCover.exists else {
+                    throw PerfUnsafeVaultEntry(reason: "reviewer identity or privacy admission is unconfirmed")
                 }
                 field.typeText(passphrase)
                 perfSettle(0.3)
-                // A secure field reports one mask character per typed character.
+                // Masked length is only a necessary condition, not proof of
+                // exact delivery. The physical reviewer preflight remains required.
                 let typedCount = (field.value as? String)?.count ?? -1
                 if typedCount != passphrase.count {
-                    NSLog("PERF_UNLOCK typed_mismatch expected=\(passphrase.count) got=\(typedCount)")
+                    throw PerfUnsafeVaultEntry(reason: "vault entry was not acknowledged")
                 }
-                let unlock = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Unlock")).firstMatch
-                if unlock.exists && unlock.isHittable {
-                    unlock.tap()
-                } else {
-                    field.typeText("\n")
+                let unlock = host.buttons.matching(NSPredicate(format: "label == %@", "Unlock")).firstMatch
+                guard hosts.count == 1, owner.exists && owner.isHittable, !privacyCover.exists,
+                      unlock.exists && unlock.isHittable && unlock.isEnabled else {
+                    throw PerfUnsafeVaultEntry(reason: "vault unlock is not available")
                 }
+                unlock.tap()
                 attempts += 1
                 perfSettle(2)
                 continue
@@ -8510,6 +8490,9 @@ final class AppUITests: XCTestCase {
                 announced = true
             }
             perfSettle(1.0)
+        }
+        if attempts > 0 {
+            throw PerfUnsafeVaultEntry(reason: "vault unlock outcome is unconfirmed")
         }
         if !failHard {
             throw PerfRouteUnreachable(reason: "not signed in and unlocked within \(Int(timeout)) s")
