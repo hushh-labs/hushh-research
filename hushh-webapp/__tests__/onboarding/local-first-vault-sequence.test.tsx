@@ -338,7 +338,7 @@ describe("flag ON — vault is the last step, after the migration", () => {
     fireEvent.click(screen.getByTestId("one-setup-master-ack"));
 
     await waitFor(() => {
-      expect(screen.getByText("Your private agent is ready")).toBeTruthy();
+      expect(screen.getByText("Agent One is ready")).toBeTruthy();
     });
 
     CacheService.getInstance().invalidate(

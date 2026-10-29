@@ -261,8 +261,8 @@ function OwnerAgentPresence({ userId, compact }: { userId: string; compact: bool
         type="button"
         onClick={() => void handleRebuild()}
         disabled={rebuilding}
-        aria-label="Reconnect your private agent"
-        title="Reconnect your private agent"
+        aria-label="Reconnect Agent One"
+        title="Reconnect Agent One"
         className="min-w-0 truncate text-[12px] text-foreground underline underline-offset-2 disabled:opacity-60"
         data-testid="one-agent-rebuild"
       >

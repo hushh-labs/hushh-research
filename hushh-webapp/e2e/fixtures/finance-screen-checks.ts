@@ -51,6 +51,18 @@ export function registerFinanceScreenChecks(
         const importShell = page.getByTestId("finance-import-fixture").locator("[data-fullscreen-flow-shell]");
         expect(await importShell.evaluate(el => el.getBoundingClientRect().width)).toBeLessThanOrEqual(880);
         expect(await importShell.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+        const preferences = page.getByTestId("finance-preferences-fixture");
+        await expect(preferences.getByRole("radiogroup")).toHaveCount(3);
+        expect(await preferences.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+        const continueSetup = preferences.getByRole("button", { name: "Continue", exact: true });
+        await expect(continueSetup).toBeDisabled();
+        await preferences.getByRole("radio", { name: "Less than 3 years" }).click();
+        await preferences.getByRole("radio", { name: "Stay invested and review the situation" }).click();
+        await preferences.getByRole("radio", { name: "Moderate ups and downs for better returns" }).click();
+        expect(await preferences.locator("legend").first().evaluate(el => getComputedStyle(el).fontSize)).toBe("15px");
+        await preferences.screenshot({ path: test.info().outputPath(`preferences-${width}-${theme}.png`) });
+        await continueSetup.click();
+        await expect(page.getByTestId("action-result")).toHaveText("Preferences saved");
         const overview = page.getByTestId("portfolio-overview-fixture");
         await overview.scrollIntoViewIfNeeded();
         const importAction = overview.getByRole("button", { name: "Import portfolio", exact: true });
@@ -72,7 +84,7 @@ export function registerFinanceScreenChecks(
         expect(await overview.evaluate(el => getComputedStyle(el).getPropertyValue("--font-app-body").trim()))
           .toBe(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--font-app-body").trim()));
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
-        await expect(overview.getByText("Balance snapshot · This source hasn’t supplied dated balance history.")).toBeVisible();
+        await expect(overview.getByText("Dated balance history unavailable.")).toBeVisible();
         await expect(overview.getByRole("img", { name: "Sample Company: 91.9% of portfolio" })).toBeVisible();
         await expect(overview.getByText("Cash share").locator("..")).toContainText("8.1%");
         const performance = overview.getByTestId("portfolio-performance");

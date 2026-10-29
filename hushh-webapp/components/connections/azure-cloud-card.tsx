@@ -37,7 +37,7 @@ export function AzureCloudCard({ onConnect, busy = false }: AzureCloudCardProps)
     <SettingsGroup testId="connections-azure-cloud">
       <div className="flex flex-col gap-4 p-4">
         <p className="text-sm text-muted-foreground">
-          Sign in with Microsoft to set up your private agent in your own Azure
+          Sign in with Microsoft to set up Agent One in your own Azure
           subscription. Between your sign-ins, Hussh can only see and restart it.
         </p>
         <ul

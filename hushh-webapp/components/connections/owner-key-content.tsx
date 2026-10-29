@@ -72,14 +72,14 @@ export function OwnerKeyContent({
     body = (
       <HelperText role="status" className="inline-flex items-center gap-1.5">
         <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-        Checking your private agent…
+        Checking Agent One…
       </HelperText>
     );
   } else if (readiness.kind === "unknown") {
     body = (
       <>
         <HelperText role="status">
-          We couldn’t check your private agent.
+          We couldn’t check Agent One.
         </HelperText>
         <Button type="button" variant="link" onClick={() => void load()}>
           Try again
@@ -90,21 +90,21 @@ export function OwnerKeyContent({
     body = (
       <>
         <HelperText>
-          Your own key runs on your private agent, so Hussh never holds it.
+          Your own key runs on Agent One, so Hussh never holds it.
         </HelperText>
         <Button
           type="button"
           variant="link"
           onClick={() => router.push(ROUTES.ONE_SETUP_CLOUD)}
         >
-          Set up your private agent
+          Set up Agent One
         </Button>
       </>
     );
   } else if (readiness.kind === "agent_pending") {
     body = (
       <HelperText>
-        Your private agent isn’t ready yet. Your own key works once it is.
+        Agent One isn’t ready yet. Your own key works once it is.
       </HelperText>
     );
   } else if (readiness.kind === "needs_update") {

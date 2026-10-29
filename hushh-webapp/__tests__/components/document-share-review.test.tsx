@@ -2592,10 +2592,10 @@ describe("exact-file document review", () => {
     expect(trust).toHaveAccessibleDescription(/including future files, without asking/);
     expect(trust).toHaveAccessibleDescription(/while you’re away/);
     expect(trust).toHaveAccessibleDescription(/stop future sharing anytime/);
-    expect(document.body.textContent).not.toMatch(/\bOne\b/);
+    expect(trust).toHaveAccessibleDescription(/Agent One shares any Drive file they request/);
   });
 
-  it("names access outside the private agent without saying One", async () => {
+  it("names existing access outside Agent One", async () => {
     state.status.mockResolvedValue({ ...initial(), status: "completed" });
     state.delivery.mockResolvedValue({
       ...delivery(),
@@ -2603,14 +2603,14 @@ describe("exact-file document review", () => {
     });
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
     expect(
-      await screen.findByText("Access exists outside your private agent"),
+      await screen.findByText("Access exists outside Agent One"),
     ).toBeVisible();
     expect(
       screen.getByText(
         "Disconnecting Drive doesn't remove Google access. Other access may remain after removal.",
       ),
     ).toBeVisible();
-    expect(document.body.textContent).not.toMatch(/\bOne\b/);
+    expect(document.body.textContent).not.toMatch(/\bprivate agent\b/i);
   });
 
   it("disables Cancel while a removal is being sent", async () => {
