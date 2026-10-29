@@ -73,16 +73,19 @@ Sources: [category UI](../../components/profile/pkm-data-manager.tsx),
 | Tab / CTA | Current behavior |
 | --- | --- |
 | Facts | Source status, disagreements, current record rows, saved-detail sources; **Show more** per record kind. |
-| History | Observed changes, No changes yet, Show more, dropped-change count. Explicitly only changes seen while open and unlocked. |
+| History | **Today** first, only when this owner has activity today: up to 8 rows of in-app actions from this device (`Connected Gmail`, plus ` · N times` for repeats) with local time, then **Show more**; it rolls over at local midnight. Below it, observed changes (No changes yet only when Today is empty too), Show more, dropped-change count. Explicitly only changes seen while open and unlocked. |
 | Preview | Safe internal-link-only Markdown or Nothing to preview yet. |
 | Record / conflict | Opens **Source details** sheet with fields, source/version/timestamps, or the disagreeing source claims. **Done**/dismiss closes. A conflict view does not choose a winner. |
 | Correct source | Authored handoff to Account, Consents, Connect, Connectors, Payouts, sent documents or memory.md, depending on the source. |
 
+Today reads the encrypted device activity log for the current owner only; it
+never shows another owner's activity, has no badges and writes nothing.
 Locked state exposes only status. Owner/epoch change resets selection/paging;
 other people's identifiers are omitted, including disagreements. Checking,
 current, updating, stale, partial, conflict and empty remain distinct. There
 is no document-local Retry; recover through the source or Profile Refresh.
 Sources: [document](../../components/profile/living-memory-document.tsx),
+[Today](../../components/profile/live-activity-today.tsx),
 [source handoffs](../../lib/pkm/live-mirror-presentation.ts).
 
 ## Sharing and received information
@@ -461,7 +464,7 @@ Sources: [research](../../lib/services/world-model-research-service.ts),
 | Empty / no match | `No saved details yet` / `Details you save will appear here.`; `No matching details` / `Try another search.` |
 | Manifest state | `Refresh needed`; `Preparing sharing controls`. |
 | Financial context | `General`; `Portfolio`; `Risk`; `KYC`; `Tax`; `Documents`; placeholder `What should Hussh remember?`; `Save` / `Update` / `Saving...`; `Cancel` only while editing existing entry. |
-| Live tabs | `Facts`; `History`; `Preview`; `Show more`; `Source details`; `Done`. |
+| Live tabs | `Facts`; `History`; `Preview`; `Today`; `Show more`; accessible `Show more activity`; `Source details`; `Done`. |
 | Live provenance | `From`; `Version`; `Changed`; `Checked`; `Saved`; `No changes yet`; `Nothing to preview yet`; `Updates while the app is open and unlocked.`; `Only changes seen while open and unlocked`. |
 | Secrets | `Reload Secrets`; `Reveal`; `Hide`; `Hides in {n}s`; `Copy`; `Tap to confirm`; `Copied`; `Remove from Secrets`. |
 | Secret types | `Key, token or password`; `Card number`; `Card code`; `ID number`; `Bank account`. |
@@ -615,6 +618,7 @@ Nearest existing tests include
 [category management](../../__tests__/components/pkm-data-manager.test.tsx),
 [natural memory](../../__tests__/components/pkm-natural-panel.test.tsx),
 [live document](../../__tests__/components/living-memory-document.test.tsx),
+[Today activity](../../__tests__/components/live-activity-today.test.tsx),
 [secure cards](../../__tests__/components/shared-with-you-card.test.tsx),
 [secrets](../../__tests__/components/secret-items-panel.test.tsx), and
 [World Model](../../__tests__/components/personal-world-model-page.test.tsx).
@@ -623,6 +627,7 @@ These identify verification owners; execution is reported with the change.
 This inventory performs no reveal, export, source research, revocation, write,
 or invitation. Source review does not prove deployed flags, account counts,
 background durable history, provider availability or native admission. In
-particular, Live memory History covers observed open/unlocked changes only.
+particular, Live memory History covers observed open/unlocked changes only,
+and Today covers in-app actions on this device while open and unlocked.
 Run `./bin/hushh docs verify`; UI edits follow the
 [contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md).

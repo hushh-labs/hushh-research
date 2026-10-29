@@ -12,6 +12,13 @@ const mocks = vi.hoisted(() => ({
   forgetLocationRecipientKey: vi.fn(),
   clearDeviceVaultSecrets: vi.fn(),
   clearReleaseNotices: vi.fn(),
+  clearLiveActivity: vi.fn(),
+  clearLiveActivityNotice: vi.fn(),
+}));
+
+vi.mock("@/lib/pkm/live-activity/live-activity-journal", () => ({
+  clearLiveActivity: mocks.clearLiveActivity,
+  clearLiveActivityNotice: mocks.clearLiveActivityNotice,
 }));
 
 vi.mock("@/lib/services/onboarding-local-service", () => ({
@@ -101,6 +108,7 @@ describe("UserLocalStateService", () => {
     expect(mocks.clearRiaOnboardingDraft).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearVaultMethodPrompt).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearQuickUnlockTrust).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearLiveActivity).toHaveBeenCalledWith("uid-1");
   });
 
   it("forgets the remembered location grant and the sealed last-known fix", async () => {
@@ -147,12 +155,14 @@ describe("UserLocalStateService", () => {
     expect(mocks.forgetLocationRecipientKey).not.toHaveBeenCalled();
     expect(mocks.clearDeviceVaultSecrets).not.toHaveBeenCalled();
     expect(mocks.clearReleaseNotices).not.toHaveBeenCalled();
+    expect(mocks.clearLiveActivityNotice).not.toHaveBeenCalled();
     expect(SecureDurableResourceService.purgeUser).not.toHaveBeenCalled();
   });
 
   it("removes durable receipt ciphertext only for confirmed Reset/delete and surfaces failed removal", async () => {
     await UserLocalStateService.clearForUser("uid-1", { deleteDurableReceipts: true });
     expect(SecureDurableResourceService.purgeUser).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearLiveActivityNotice).toHaveBeenCalledExactlyOnceWith("uid-1");
     vi.mocked(SecureDurableResourceService.purgeUser).mockRejectedValueOnce(new Error("device storage blocked"));
     await expect(UserLocalStateService.clearForUser("uid-1", { deleteDurableReceipts: true })).rejects.toThrow("encrypted device receipts");
     expect(mocks.forgetLocationMemory).toHaveBeenCalledTimes(2);
