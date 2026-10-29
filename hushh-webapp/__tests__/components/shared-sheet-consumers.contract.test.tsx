@@ -59,6 +59,7 @@ const SHEET_CONSUMERS = [
   "components/kai/views/analysis-history-dashboard.tsx",
   "components/one-location/contact-sync-results-sheet.tsx",
   "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
+  "components/one-location/onboarding/onboarding-option-sheet.tsx",
   "components/one-location/onboarding/save-location-modal.tsx",
   "components/one-location/redesign/circles/circle-grow-actions.tsx",
   "components/one-location/redesign/circles/named-circle-flows.tsx",
@@ -107,6 +108,7 @@ describe("the shared bottom sheet stays shared", () => {
       "components/app-ui/settings-ui.tsx",
       "components/computer-use/computer-use-task-card.tsx",
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
+      "components/one-location/onboarding/onboarding-option-sheet.tsx",
       "components/one-location/onboarding/save-location-modal.tsx",
     ]);
   });

@@ -34,7 +34,7 @@ export function OnboardingOptionSheet({
         data-location-type-scale="connect"
         data-location-type-context="overlay"
         aria-describedby={undefined}
-        className={(overPlace ? "z-[9201] " : "z-[9051] ") + "mx-auto flex max-h-[min(88dvh,calc(100dvh-var(--kb-height,0px)-24px))] w-full max-w-[520px] flex-col gap-0 overflow-hidden rounded-t-[28px] p-0"}
+        className={(overPlace ? "z-[9201] " : "z-[9051] ") + "mx-auto flex max-h-[min(88dvh,calc(100dvh-var(--kb-height,0px)-24px))] w-full sm:max-w-[520px] flex-col gap-0 overflow-hidden rounded-t-[28px] p-0"}
         overlayClassName={overPlace ? "z-[9200]" : "z-[9050]"}
         showCloseButton={!busy}
         onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }}

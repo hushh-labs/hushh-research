@@ -78,11 +78,12 @@ for (const viewport of VIEWPORTS) {
 }
 
 test("uses local Back and keeps optional work in focused sheets", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 560, height: 844 });
   await openFixture(page);
   await page.getByRole("button", { name: "Set up later" }).click();
   await page.getByRole("button", { name: "Join with a code" }).click();
   await expect(page.getByRole("dialog", { name: "Join with a code" })).toBeVisible();
+  await expect.poll(async () => Math.round((await page.getByRole("dialog", { name: "Join with a code" }).boundingBox())?.width ?? 0)).toBe(560);
   await page.getByRole("textbox", { name: "Circle code" }).fill("ZXCVBNMASDFG");
   await page.getByRole("button", { name: "Look up" }).click();
   await page.getByRole("button", { name: "Join Family" }).click();
