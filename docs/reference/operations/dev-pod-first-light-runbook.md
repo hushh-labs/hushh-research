@@ -877,6 +877,9 @@ prove that an interrupted Files executor has exited and its provider effects hav
 settled. The current 974 custody functions alone do not establish that proof.
 A retained update may be inspected and its late receipt recorded, but neither
 lease age nor that receipt alone authorizes a new write or erasure completion.
+Cancellation now fences managed Files provider work and waits for its local worker
+thread. This does not establish that a cancelled database callback or an uncertain
+provider operation has finished; the erasure gate remains closed without that proof.
 When qualified, Files uses the existing managed storage offer and owner-approved
 update; the hosted pilot does not enable document model analysis. Normal Files
 reads and writes must not require an available model.

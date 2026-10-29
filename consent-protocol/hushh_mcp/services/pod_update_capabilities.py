@@ -30,6 +30,16 @@ def approved_update_browser_qualification(row: dict, *, approved: bool) -> dict 
     return qualification
 
 
+def await_update_publication(future, spec: PodSpec) -> None:
+    """Retain a timed-out managed Files callback while it completes normally."""
+    from hushh_mcp.services.pod_files.capability_checkpoint import await_owned_publication
+
+    await_owned_publication(
+        future,
+        join_on_timeout=spec.deployment_target == "gcp" and spec.files_upgrade_plan is not None,
+    )
+
+
 async def admit_capabilities(
     registry: Any, row: dict, *, approval_matches: bool, recoverable_operation: bool
 ) -> tuple[FilesCapabilityPlan | AzureFilesCapabilityPlan | None, GcpBrowserCapabilityPlan | None]:

@@ -1596,6 +1596,7 @@ class PersonalAgentProvisioningService:
         from hushh_mcp.services.pod_update_capabilities import (
             admit_capabilities,
             approved_update_browser_qualification,
+            await_update_publication,
         )
 
         files_capability, browser_capability = await admit_capabilities(
@@ -1889,6 +1890,7 @@ class PersonalAgentProvisioningService:
                     owner_loop=owner_loop,
                     publish=publish_files,
                     retain_late=retain_files,
+                    join_on_timeout=spec.deployment_target == "gcp",
                 ),
             )
 
@@ -1920,7 +1922,7 @@ class PersonalAgentProvisioningService:
                 )
 
             future = asyncio.run_coroutine_threadsafe(persist(), owner_loop)
-            future.result(timeout=30)
+            await_update_publication(future, spec)
 
         if approval_operation_id:
             spec = replace(spec, on_upgrade_idle=persist_handoff_idle)
@@ -1970,7 +1972,7 @@ class PersonalAgentProvisioningService:
                     raise
 
             future = asyncio.run_coroutine_threadsafe(persist(), owner_loop)
-            future.result(timeout=30)
+            await_update_publication(future, spec)
 
         spec = replace(spec, on_upgrade_ack=persist_acknowledgement)
         old_meta = dict(row.get("backend_metadata") or {})

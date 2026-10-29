@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from copy import deepcopy
 
 from hushh_mcp.services.byoc_substrate import SubstrateReceipt, plan_digest
@@ -173,12 +175,30 @@ class FilesUpgradeCheckpoint:
         )
 
 
+def await_owned_publication(future: Future, *, join_on_timeout: bool, timeout: float = 30) -> None:
+    """Wait after a timeout because the owner-loop callback may still be writing.
+
+    This does not prove worker exit or provider settlement: cancellation of the
+    bridge future can precede termination of the underlying operation.
+    """
+    try:
+        future.result(timeout=timeout)
+    except FutureTimeout:
+        if join_on_timeout and not future.done():
+            try:
+                future.result()
+            except Exception:  # noqa: BLE001 - retain the original timeout after joining
+                pass
+        raise
+
+
 def bind_checkpoint_persistence(
     checkpoint: FilesUpgradeCheckpoint,
     *,
     owner_loop: asyncio.AbstractEventLoop,
     publish: Callable[[dict, dict], Awaitable[None]],
     retain_late: Callable[[dict], Awaitable[None]],
+    join_on_timeout: bool = False,
 ) -> Callable[[str, str, list[dict]], None]:
     """Bind the synchronous provider to acknowledged owner-loop authority."""
 
@@ -194,7 +214,8 @@ def bind_checkpoint_persistence(
                 # Retaining obligations after erasure never permits another step.
                 raise
 
-        asyncio.run_coroutine_threadsafe(write(), owner_loop).result(timeout=30)
+        future = asyncio.run_coroutine_threadsafe(write(), owner_loop)
+        await_owned_publication(future, join_on_timeout=join_on_timeout)
         checkpoint.acknowledge(observation)
         if phase == "observed" and completed[-1].get("ok") is not True:
             raise RuntimeError("Files activation requires reconciliation")

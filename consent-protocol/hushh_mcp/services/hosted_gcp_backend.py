@@ -7,7 +7,6 @@ The general hosted tier remains closed independently of this two-owner dev pilot
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from hushh_mcp.services.compute_backend import BACKEND_GCP, BackendHandle, BackendStatus, PodSpec
@@ -162,7 +161,13 @@ class HostedGcpBackend(UserGcpBackend):
         if spec.files_upgrade_plan is not None:
             # Refuse before image copy, handoff or credentials, not only at the
             # first Files resource write.
-            await asyncio.to_thread(self._authority.require_files_work)
+            if spec.hosted_admission_guard is not self._authority:
+                raise HostedTierNotPermittedError(
+                    "Managed Files authority differs from its backend"
+                )
+            from hushh_mcp.services.pod_files.managed_worker import upgrade_thread
+
+            await upgrade_thread(spec, self._authority.require_files_work)
         return await super().upgrade(spec)
 
     async def deprovision(self, external_agent_id: str) -> None:
