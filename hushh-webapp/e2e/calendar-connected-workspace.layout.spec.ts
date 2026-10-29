@@ -592,10 +592,10 @@ for (const width of [390, 1280]) {
         occurrence_id: "d".repeat(64), grant_id: "b".repeat(64),
         sources: [{ calendar_id: "primary", event_id: "restricted" }],
         title: "QA Restricted meeting", start: { dateTime: "2026-10-15T09:00:00Z" },
-        artifact_kinds: [], availability: {}, discovery: "resource_denied", file_state: "provider_policy",
+        artifact_kinds: [], availability: {}, discovery: "meet_discovery_denied", file_state: "unknown",
       }] : [];
       return route.fulfill({ json: {
-        complete: !denied, calendar_complete: true, next_cursor: null, limitations: denied ? ["resource_denied"] : [],
+        complete: !denied, calendar_complete: true, next_cursor: null, limitations: denied ? ["meet_discovery_denied"] : [],
         checked_events: denied ? 1 : 0, meeting_file_access: "ready", meetings,
         account_id: "default", date: body.date, time_zone: body.time_zone,
       } });
@@ -604,7 +604,7 @@ for (const width of [390, 1280]) {
     await page.getByRole("button", { name: /Recordings & Notes/ }).click();
     await expect(page.getByText("No timed meetings for this day.")).toBeVisible();
     await page.getByRole("button", { name: "Next day" }).click();
-    await expect(page.getByText(/Google denied access to one or more meeting files/)).toBeVisible();
+    await expect(page.getByText(/Google denied the Meet discovery check/)).toBeVisible();
     await expect(page.getByRole("button", { name: /QA Restricted meeting/ })).toBeVisible();
     await expect(page.getByText("No timed meetings for this day.")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Allow recording and notes access" })).toHaveCount(0);
@@ -707,11 +707,11 @@ test("quiet loading preserves same-context previews and exposes real failures", 
   await page.screenshot({ path: path.join(screenshotDirectory, "insights-background-refresh.png") });
   release();
   await expect(page.getByRole("alert")).toBeVisible();
-  await expect(page.getByText("Scheduled events", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Scheduled events", { exact: true })).toBeVisible();
   gate = new Promise<void>(resolve => { release = resolve; });
   await page.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect(page.getByText("Scheduled events", { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("Snapshot loading")).toBeVisible();
+  await expect(page.getByText("Scheduled events", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Snapshot loading")).toHaveCount(0);
   release();
   await expect(page.getByRole("alert")).toBeVisible();
 });

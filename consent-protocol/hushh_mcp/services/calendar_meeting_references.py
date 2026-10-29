@@ -244,6 +244,12 @@ async def _initial_meet_token(calendar, user_id, grant, check, inspect_token, me
     return token, refreshed
 
 
+def _meet_discovery_state(state):
+    if state == "token_rejected":
+        return "temporarily_unavailable"
+    return "meet_discovery_denied" if state == "resource_denied" else state
+
+
 async def _discover(
     service, user_id, grant, event, calendar_id, code, refs, states, inspect_token, meet_scopes
 ):
@@ -263,9 +269,7 @@ async def _discover(
             return await service._meet_pages(token, path, field, params, page_size=page_size)
         except ArtifactUnavailable as error:
             if error.state != "token_rejected" or refreshed:
-                raise ArtifactUnavailable(
-                    "temporarily_unavailable" if error.state == "token_rejected" else error.state
-                ) from None
+                raise ArtifactUnavailable(_meet_discovery_state(error.state)) from None
         refreshed = True
         token = await calendar.connections.access_token(
             user_id=user_id, service="calendar", access_level="read", force_refresh=True
@@ -273,18 +277,14 @@ async def _discover(
         try:
             scopes = await inspect_token(token, grant.provider_subject)
         except ArtifactUnavailable as error:
-            raise ArtifactUnavailable(
-                "temporarily_unavailable" if error.state == "token_rejected" else error.state
-            ) from None
+            raise ArtifactUnavailable(_meet_discovery_state(error.state)) from None
         await check()
         if not scopes & meet_scopes:
             raise ArtifactUnavailable("permission_required")
         try:
             return await service._meet_pages(token, path, field, params, page_size=page_size)
         except ArtifactUnavailable as error:
-            raise ArtifactUnavailable(
-                "temporarily_unavailable" if error.state == "token_rejected" else error.state
-            ) from None
+            raise ArtifactUnavailable(_meet_discovery_state(error.state)) from None
 
     begin, finish = _event_window(event)
     matches = await meet_pages(
@@ -312,6 +312,7 @@ async def _discover(
                 "account_mismatch",
                 "provider_configuration",
                 "provider_policy",
+                "meet_discovery_denied",
                 "resource_denied",
                 "temporarily_unavailable",
                 "processing",

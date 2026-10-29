@@ -14,6 +14,7 @@ vi.mock("@/lib/services/calendar-insights-service", () => ({
 import { CalendarInsights } from "@/components/calendar/calendar-insights";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { CacheService } from "@/lib/services/cache-service";
 
 function insights(onAllowMeetingFiles?: (accountId: string) => void) {
   return <CalendarInsights userId="owner" account={{ account_id: "default", google_email: "owner@example.com", status: "connected", connected: true, access_level: "manage", calendar_list_access: true }} today="2026-10-14" zone="UTC" getIdToken={mocks.getIdToken} onAllowMeetingFiles={onAllowMeetingFiles} />;
@@ -35,6 +36,7 @@ function meetingPage(meetings: ReturnType<typeof meetingRow>[], complete = true,
 describe("Calendar Insights meeting library", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    CacheService.getInstance().clear();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-14T06:00:00Z"));
     mocks.getIdToken.mockResolvedValue("firebase-owner-token");
@@ -220,11 +222,11 @@ describe("Calendar Insights meeting library", () => {
   it("never offers another consent when a ready account hits a resource denial", async () => {
     const allow = vi.fn();
     mocks.insights.mockImplementation(async (path: string, body: { date: string; time_zone: string }) => path === "meetings" ?
-      { ...meetingPage([], false, body.date, body.time_zone), limitations: ["resource_denied"] } :
+      { ...meetingPage([], false, body.date, body.time_zone), limitations: ["meet_discovery_denied"] } :
       { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 });
     render(insights(allow));
     fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
-    expect(await screen.findByText(/Google denied access/)).toBeInTheDocument();
+    expect(await screen.findByText(/Google denied the Meet discovery check/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Allow recording and notes access" })).toBeNull();
     expect(screen.queryByText("No timed meetings for this day.")).toBeNull();
     expect(allow).not.toHaveBeenCalled();
@@ -256,5 +258,111 @@ describe("Calendar Insights meeting library", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh", exact: true }));
     await waitFor(() => expect(screen.queryByText("Updated provider notes")).toBeNull());
     expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+  });
+
+  it("keeps library controls in place during a cold check without large loading cards", () => {
+    mocks.insights.mockReturnValue(new Promise(() => undefined));
+    render(<CalendarInsights userId="owner" account={{ account_id: "default", connected: true, status: "connected", access_level: "read" }}
+      today="2026-10-14" zone="UTC" getIdToken={mocks.getIdToken}
+      initialLibrary={{ accountId: "default", day: "2026-10-14", timeZone: "UTC", query: "", filter: "all" }} />);
+    expect(screen.getByRole("heading", { name: "Recordings & Notes" })).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "Search meetings on this day" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Notes", exact: true })).toBeInTheDocument();
+    expect(screen.getByText("Checking meetings…")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Insights loading")).toBeNull();
+  });
+
+  it("shows a warm same-grant day immediately and replaces it after refresh", async () => {
+    const old = meetingRow("o", "Older verified meeting", ["notes"]);
+    const newer = meetingRow("n", "Updated verified meeting", ["recording"]);
+    let resolveRefresh!: (value: ReturnType<typeof meetingPage>) => void;
+    let meetingReads = 0;
+    mocks.insights.mockImplementation((path: string) => path === "meetings"
+      ? ++meetingReads === 1 ? Promise.resolve(meetingPage([old])) :
+        new Promise(resolve => { resolveRefresh = resolve; })
+      : Promise.resolve({ complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 }));
+    const props = { userId: "owner", account: { account_id: "default", connected: true, status: "connected" as const, access_level: "read" as const, grant_generation: "grant-one" },
+      today: "2026-10-14", zone: "UTC", getIdToken: mocks.getIdToken,
+      initialLibrary: { accountId: "default", day: "2026-10-14", timeZone: "UTC", query: "", filter: "all" as const } };
+    const first = render(<CalendarInsights {...props} />);
+    await screen.findByRole("button", { name: /Older verified meeting/ });
+    first.unmount();
+    render(<CalendarInsights {...props} />);
+    expect(screen.getByRole("button", { name: /Older verified meeting/ })).toBeInTheDocument();
+    await waitFor(() => expect(meetingReads).toBe(2));
+    await act(async () => resolveRefresh(meetingPage([newer])));
+    expect(await screen.findByRole("button", { name: /Updated verified meeting/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Older verified meeting/ })).toBeNull();
+  });
+
+  it("keeps a same-context snapshot visible after its fresh TTL while revalidating", async () => {
+    const row = meetingRow("w", "Warm meeting", ["notes"]);
+    let resolveRefresh!: (value: ReturnType<typeof meetingPage>) => void;
+    let reads = 0;
+    mocks.insights.mockImplementation((path: string) => path === "meetings"
+      ? ++reads === 1 ? Promise.resolve(meetingPage([row])) : new Promise(resolve => { resolveRefresh = resolve; })
+      : Promise.resolve({ complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 }));
+    const props = { userId: "owner", account: { account_id: "default", connected: true, status: "connected" as const, access_level: "read" as const },
+      today: "2026-10-14", zone: "UTC", getIdToken: mocks.getIdToken,
+      initialLibrary: { accountId: "default", day: "2026-10-14", timeZone: "UTC", query: "", filter: "all" as const } };
+    const first = render(<CalendarInsights {...props} />);
+    await screen.findByRole("button", { name: /Warm meeting/ });
+    first.unmount();
+    vi.setSystemTime(new Date("2026-10-14T06:01:01Z"));
+    render(<CalendarInsights {...props} />);
+    expect(screen.getByRole("button", { name: /Warm meeting/ })).toBeInTheDocument();
+    await waitFor(() => expect(reads).toBe(2));
+    await act(async () => resolveRefresh(meetingPage([row])));
+  });
+
+  it("retires approved availability when request-status verification fails on refresh", async () => {
+    const row = meetingRow("v", "Revoked request meeting", []);
+    mocks.insights.mockImplementation(async (path: string, body: { date: string; time_zone: string }) =>
+      path === "meetings" ? meetingPage([row], true, body.date, body.time_zone) :
+        { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 });
+    let denied = false;
+    mocks.requestStatuses.mockImplementation(async (selections: { occurrence_id: string }[]) => {
+      if (denied) throw new Error("Access could not be verified");
+      return selections.map(item => ({ occurrence_id: item.occurrence_id, requests: [], artifacts: [{ kind: "notes", state: "available" }] }));
+    });
+    render(<CalendarInsights userId="owner" account={{ account_id: "default", connected: true, status: "connected", access_level: "read" }}
+      today="2026-10-14" zone="UTC" getIdToken={mocks.getIdToken} getVaultOwnerToken={() => "vault-owner-token"}
+      initialLibrary={{ accountId: "default", day: "2026-10-14", timeZone: "UTC", query: "", filter: "all" }} />);
+    expect(await screen.findByText("Available (1)")).toBeInTheDocument();
+    denied = true;
+    fireEvent.click(screen.getByRole("button", { name: "Refresh", exact: true }));
+    expect(await screen.findByText("Not available yet (1)")).toBeInTheDocument();
+    expect(screen.queryByText("Available (1)")).toBeNull();
+    expect(screen.getByText(/request status could not be verified/)).toBeInTheDocument();
+  });
+
+  it("retains the last overview through a transient refresh failure", async () => {
+    let reads = 0;
+    mocks.insights.mockImplementation(async () => {
+      if (++reads > 1) throw new Error("temporary network failure");
+      return { complete: true, meeting_count: 7, meeting_minutes: 420, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 };
+    });
+    render(insights());
+    expect(await screen.findByText("7", { exact: true })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh", exact: true }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("temporary network failure");
+    expect(screen.getByText("7", { exact: true })).toBeInTheDocument();
+  });
+
+  it("debounces typing into one selected-day request", async () => {
+    const row = meetingRow("a", "Alpha meeting", []);
+    mocks.insights.mockImplementation(async (path: string, body: { date: string; time_zone: string; query?: string }) =>
+      path === "meetings" ? meetingPage(body.query ? [row] : [row], true, body.date, body.time_zone) :
+      { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 });
+    render(<CalendarInsights userId="owner" account={{ account_id: "default", connected: true, status: "connected", access_level: "read" }}
+      today="2026-10-14" zone="UTC" getIdToken={mocks.getIdToken}
+      initialLibrary={{ accountId: "default", day: "2026-10-14", timeZone: "UTC", query: "", filter: "all" }} />);
+    await screen.findByRole("button", { name: /Alpha meeting/ });
+    const reads = () => mocks.insights.mock.calls.filter(([path]) => path === "meetings").length;
+    const initialReads = reads();
+    for (const value of ["A", "Al", "Alpha"]) fireEvent.change(screen.getByRole("searchbox"), { target: { value } });
+    expect(reads()).toBe(initialReads);
+    expect(screen.getByText("Searching meetings…")).toBeInTheDocument();
+    await waitFor(() => expect(reads()).toBe(initialReads + 1));
   });
 });

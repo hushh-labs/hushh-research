@@ -58,6 +58,7 @@
   "productTruth": {
     "completeAlwaysOnMemory": false,
     "completeActionLog": false,
+    "inAppActivityJournal": "Founder decision 2026-10-29, implemented in code: while signed in and unlocked, allowlisted actions in One are kept in an encrypted owner-scoped device log (7 days, at most 2,048 events, enforced when the log is next opened) and consolidated into one_memory only by the private agent's existing memory pipeline, at most one commit per cycle. It excludes message, mail and file contents, coordinates, counterpart identity, URLs and tokens, is not a source inventory kind and is not a complete action log.",
     "allAgentsUseLiveMemory": false,
     "currentBoundary": "Seven admitted source kinds can update an encrypted owner inventory and derived Profile memory.md while an owner client is open and unlocked. The source and connector journals contain change hints, not the values or full action history.",
     "uatBoundary": "A healthy UAT release receipt exists for the earlier revision. It proves release health and provenance, not any real-owner capture story or a deployed freshness service level.",

@@ -192,7 +192,7 @@ analytics smoke failed intermittently.
 `hushh-webapp/lib/observability/adapters/gtag-hit-budget.ts` now decides who
 spends the budget. The high-volume operational events (`api_request_completed`,
 `cache_resource_resolved`, `route_readiness_completed`, `route_refresh_completed`,
-`warmup_completed`, `live_memory_source_verified`) only reach gtag while 8 tokens stay free for product events;
+`warmup_completed`, `live_memory_source_verified`, `live_activity_consolidation_completed`) only reach gtag while 8 tokens stay free for product events;
 every other event is always forwarded. Every event still reaches `dataLayer`.
 Consequence for reporting: on the web stream, operational events are a
 budget-shaped sample during load bursts, not a complete count. Read request
@@ -242,6 +242,7 @@ and neither does a build that never stores.
 | Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
 | --- | --- | --- | --- | --- | --- |
 | `live_memory_source_verified` | One living source was read by the background sync and the encrypted store succeeded; at most one per kind per build | `kind`, `outcome` (`verified`, `unavailable`, `capped`), `lag_bucket` (`lt_1m`, `1m_5m`, `5m_15m`, `15m_1h`, `gte_1h`, `unknown`), `pending_bucket` and `retry_bucket` (`0`, `1`, `2_5`, `6_20`, `gt_20`, `unknown`) | `hushh-webapp/lib/pkm/live-mirror-telemetry.ts` via `hushh-webapp/lib/pkm/living-source-sync.ts` | fleet commit-to-encrypted-write lag by kind (p50/p95), per-source backlog, bounded retry behaviour | `npm run verify:analytics`, `__tests__/lib/pkm/living-source-sync.test.ts`, `__tests__/lib/pkm/live-mirror-telemetry.test.ts` |
+| `live_activity_consolidation_completed` | Not a Live Memory source check: one background consolidation of the device activity log (`saved`; `nothing_durable`, nothing new kept; `host_skipped`; `failed`, a counted failure, a run that could not read memory.md, or one that found a local memory save stuck; `memory_full`, events kept). Busy, skipped and cancelled (stale, aborted, offline, or waiting for a local memory save) runs emit nothing | `outcome` (`saved`, `nothing_durable`, `host_skipped`, `failed`, `memory_full`), `saved_bucket` (`0`, `1`, `2_5`, `6_20`, `gt_20`, `unknown`) | `hushh-webapp/components/profile/live-activity-bridge.tsx` via `hushh-webapp/lib/pkm/live-activity/live-activity-consolidation.ts` | activity-to-memory yield, host-skipped versus model-judged cycles, failure and full-memory rates | `npm run verify:analytics` (includes `__tests__/services/observability-live-activity-schema.test.ts`), `__tests__/components/live-activity-bridge.test.tsx` |
 
 `lag_bucket` is `unknown` when no committed change was waiting on that source
 or the journal could not date it; `pending_bucket` is `unknown` after a journal

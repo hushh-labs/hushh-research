@@ -5,6 +5,7 @@
 import copy
 import importlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -12,6 +13,7 @@ import textwrap
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 from unittest.mock import Mock
 
 import pytest
@@ -19,6 +21,81 @@ import yaml
 
 pytestmark = pytest.mark.feature_auth_reliability
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture
+def historical_status_case(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+    owners = importlib.import_module("test_release_artifact_receipts")
+    case = owners.ReplayedProductionReleaseArtifactTest(
+        "test_legacy_production_status_is_bound_to_current_upload_and_digest"
+    )
+    case.setUp()
+    try:
+        yield case
+    finally:
+        case.doCleanups()
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        "deployment",
+        "cleanup",
+        "clock",
+        "Verify due production source",
+        "Prepare operational reference intent",
+    ],
+)
+def test_trusted_production_callers_authenticate_legacy_status_layout(
+    context,
+    historical_status_case,
+    tmp_path,
+):
+    case = historical_status_case
+    maintenance = case.maintenance
+    workflows = ROOT / ".github/workflows"
+    deploy = yaml.safe_load((workflows / "deploy-production.yml").read_text())
+    cleanup = yaml.safe_load((workflows / "capacity-maintenance.yml").read_text())
+    clock = yaml.safe_load((workflows / "capacity-maintenance-clock.yml").read_text())
+    contexts = {
+        "deployment": deploy["env"],
+        "cleanup": cleanup["jobs"]["cleanup"]["env"],
+        "clock": next(
+            step.get("env") or {}
+            for step in clock["jobs"]["check"]["steps"]
+            if step["name"] == "Check production"
+        ),
+        **{
+            step["name"]: step["env"]
+            for step in cleanup["jobs"]["select-release"]["steps"]
+            if step["name"]
+            in {"Verify due production source", "Prepare operational reference intent"}
+        },
+    }
+    assert len(contexts) == 5
+    payload = case.archive("legacy")
+    case.inventory = {"total_count": 1, "artifacts": [case.artifact]}
+    flag = maintenance.release_artifact_receipts.PRODUCTION_EVIDENCE_REPAIR_FLAG
+    with (
+        mock.patch.dict(os.environ, {flag: contexts[context].get(flag, "false")}),
+        mock.patch.object(maintenance, "api", side_effect=case.api),
+        mock.patch.object(
+            maintenance,
+            "download",
+            side_effect=AssertionError("extracted status is not authority"),
+        ),
+        mock.patch.object(
+            maintenance.retention,
+            "run_command",
+            return_value=subprocess.CompletedProcess([], 0, payload, b""),
+        ),
+    ):
+        result = maintenance.load_release(case.repo, 300, tmp_path, "production")
+        assert result == {"status": "healthy", "marker": "attempt-two"}
+        case.artifact["digest"] = "sha256:" + "0" * 64
+        with pytest.raises(maintenance.retention.UnsafeState):
+            maintenance.load_release(case.repo, 300, tmp_path, "production")
 
 
 def _healthy_tag(case, reference, *, run_id="500", source=None, revision=None):
