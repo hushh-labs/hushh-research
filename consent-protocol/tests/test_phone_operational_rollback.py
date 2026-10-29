@@ -5,7 +5,9 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shlex
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -15,6 +17,80 @@ from tests.test_phone_rollback_release import FALLBACK, IMAGE, PRIMARY, ROOT, _v
 from tests.test_phone_rollback_release import release_plan as release_plan
 
 pytestmark = pytest.mark.feature_auth_reliability
+
+
+def test_operational_maintenance_inherits_its_database_runtime(tmp_path):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/capacity-maintenance.yml").read_text())
+    steps = workflow["jobs"]["cleanup"]["steps"]
+    names = [step["name"] for step in steps]
+    setup = steps[names.index("Prepare operational reference database runtime")]
+    publication = steps[names.index("Publish operational backend reference under deployment lock")]
+    assert names.index(setup["name"]) < names.index("Start the five-minute cleanup budget")
+    assert names.index("Start the five-minute cleanup budget") < names.index(publication["name"])
+    assert setup["if"] == "inputs.operational_backend_proof_run_id != '' && inputs.apply"
+    pin = "psycopg2-binary==2.9.11"
+    assert pin in setup["run"] and pin in (ROOT / "consent-protocol/requirements.txt").read_text()
+    assert "cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64" in setup["run"]
+    assert '-o "${RUNNER_TEMP}/production-maintenance/bin/cloud-sql-proxy"' in setup["run"]
+
+    # Model the installed tools without network access; run the real publication
+    # shell and database-reader import, stopping before its first credential read.
+    prepared = tmp_path / "production-maintenance/bin"
+    ambient = tmp_path / "ambient"
+    prepared.mkdir(parents=True)
+    ambient.mkdir()
+    for directory, flag in ((prepared, ""), (ambient, "-S ")):
+        python = directory / "python3"
+        python.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {flag}"$@"\n')
+        python.chmod(0o755)
+    proxy = prepared / "cloud-sql-proxy"
+    proxy.write_text("#!/bin/sh\nexit 99\n")
+    proxy.chmod(0o755)
+    adapter = tmp_path / "scripts/ci/production_backend_successor_control.py"
+    adapter.parent.mkdir(parents=True)
+    adapter.write_text(
+        "import sys,shutil\n"
+        f"sys.path.insert(0, {str(ROOT / 'deploy/phone')!r})\n"
+        "import schema_producers\n"
+        "class BeforeCredentialRead(Exception): pass\n"
+        "def refuse(command, **kwargs):\n"
+        "    assert command[:4] == ['gcloud', 'secrets', 'versions', 'access']\n"
+        "    raise BeforeCredentialRead\n"
+        "schema_producers.closed.run = refuse\n"
+        "try: schema_producers.Runtime({}, '').database(True)\n"
+        "except BeforeCredentialRead:\n"
+        "    assert shutil.which('cloud-sql-proxy'), 'missing-owned-proxy'\n"
+        "    print('driver-ready; credential and database reads refused')\n"
+        "else: raise AssertionError('credential boundary was not reached')\n"
+    )
+    path_file = tmp_path / "github-path"
+    environment = {"RUNNER_TEMP": str(tmp_path), "GITHUB_PATH": str(path_file)}
+    path_script = "\n".join(
+        line for line in setup["run"].splitlines() if '>> "$GITHUB_PATH"' in line
+    )
+    subprocess.run(  # noqa: S603 - Actual workflow PATH publication with isolated temporary directories.
+        ["/bin/bash", "-euo", "pipefail", "-c", path_script], env=environment, check=True
+    )
+    published = path_file.read_text().splitlines()
+    assert str(prepared) in published
+
+    def publish(paths):
+        return subprocess.run(  # noqa: S603 - Main-authored shell, credential port refuses before any read.
+            ["/bin/bash", "-euo", "pipefail", "-c", publication["run"]],
+            cwd=tmp_path,
+            env={**environment, "PATH": os.pathsep.join([*paths, str(ambient)])},
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+
+    result = publish(published)
+    assert result.returncode == 0 and "driver-ready" in result.stdout, result.stderr
+    missing_driver = publish([])
+    assert missing_driver.returncode != 0 and "No module named 'psycopg2'" in missing_driver.stderr
+    proxy.unlink()
+    missing_proxy = publish(published)
+    assert missing_proxy.returncode != 0 and "missing-owned-proxy" in missing_proxy.stderr
 
 
 @pytest.fixture

@@ -1082,6 +1082,9 @@ The production deploy workflow selects this reader for its authorized production
 operation. Production maintenance selects it in source qualification, operational
 intent preparation, the locked cleanup job and the clock's production due check.
 The library default remains off; UAT reader behavior is unchanged.
+Operational-reference apply prepares the existing isolated metadata-reader runtime
+and pinned Cloud SQL proxy before the cleanup budget begins. Its PATH also reaches
+the document resolver's child interpreter; schema, live-state and tag checks remain mandatory.
 A saved maintenance checkpoint may precede the README writer. Only the existing
 attempt/job/source-qualified saved-checkpoint path may restore that shape; legacy
 pending-drain archives still require the marker. Artifact ID, size, digest, bounded

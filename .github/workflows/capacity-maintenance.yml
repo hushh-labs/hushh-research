@@ -309,6 +309,17 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: true
+      - name: Prepare operational reference database runtime
+        if: inputs.operational_backend_proof_run_id != '' && inputs.apply
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/production-maintenance"
+          "${RUNNER_TEMP}/production-maintenance/bin/pip" install --disable-pip-version-check psycopg2-binary==2.9.11
+          curl -fsSL https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+            -o "${RUNNER_TEMP}/production-maintenance/bin/cloud-sql-proxy"
+          chmod +x "${RUNNER_TEMP}/production-maintenance/bin/cloud-sql-proxy"
+          echo "${RUNNER_TEMP}/production-maintenance/bin" >> "$GITHUB_PATH"
       - name: Start the five-minute cleanup budget
         run: |
           python3 - <<'PYCODE'
