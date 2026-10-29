@@ -15,6 +15,10 @@ from functools import partial
 from typing import Literal
 
 
+class ActivityPlannerContractError(AssertionError):
+    """A generated plan failed an authored, synthetic semantic requirement."""
+
+
 def _probe_event(case, stage, result, **metrics):
     print(
         json.dumps(
@@ -47,17 +51,20 @@ def _planner_prompt(purpose):
     )
 
 
+def _require(case, condition, reason):
+    if not condition:
+        _probe_event(case, "grade", "failed", reason=reason)
+        raise ActivityPlannerContractError(reason)
+
+
 def grade_plan(plan, case):
     from hushh_mcp.services.drive_request_discovery import compile_discovery_queries
 
-    def require(condition, reason):
-        if not condition:
-            _probe_event(case, "grade", "failed", reason=reason)
-            raise AssertionError(reason)
-
-    if plan is None or plan.version != 2 or plan.status != "ready":
-        _probe_event(case, "grade", "failed", reason="activity_planner_invalid_plan")
-        raise ValueError("activity_planner_invalid_plan")
+    require = partial(_require, case)
+    require(
+        plan is not None and plan.version == 2 and plan.status == "ready",
+        "activity_planner_invalid_plan",
+    )
     predicates = [p for clause in plan.clauses for p in clause.predicates]
     if case == "ordinary":
         require(plan.date_basis == "activity_union", "activity_date_basis_missing")
