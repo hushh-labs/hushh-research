@@ -1,7 +1,9 @@
 # Bring your own AI: the person's own model key on their own agent
 
-**Status:** built on the dev workspace branch (2026-10-04) with unit evidence; not
-on `main`, UAT or production. Agent release `2026.10-dev.6` (image
+**Evidence:** the historical recovery rehearsals below qualify the named images,
+not every later source change or installed agent. For current release and installed
+readiness, see the [Founder/CTO readiness record](../quality/adk-orchestration-docs-audit.md).
+Agent release `2026.10-dev.6` (image
 `sha256:3a7bb679…2feb4c`, source `8a8494a73`) was qualified from the installed
 `sha256:a313b9f7…194126d` by recovery build `7a7751ae-4b3a-4165-b885-bdc713d18898`:
 identity, file bytes, encrypted sessions, memory, PKM summary and the sealed AI
@@ -52,6 +54,13 @@ never to Hussh, and if my provider refuses it I am told, not quietly switched."*
   for writes, `pod.status` for reads). A hub-relayed consent token is refused with
   `403 OWNER_SESSION_REQUIRED` even when valid: anyone can seal to a public key, so
   a hub-admitted write could swap in a key the person never chose.
+- **Conditional key removal.** The owner's app reads the selected provider and its
+  sealed-log revision together, then uses the separate `POST
+  /api/one/pod/ai-selection/clear-if-current` door. The pod rechecks owner
+  authority and that exact selection at the log head before each append. An older
+  image, a changed selection, or an uncertain write leaves the Vault key intact.
+  This source contract requires an installed image that supports it; publishing an
+  image does not install it.
 - **Checked by the agent.** The agent opens the envelope and makes one bounded call
   (8 s, 16 output tokens) before it stores anything. Refusals:
   `KEY_REFUSED`, `QUOTA_EXCEEDED`, `MODEL_UNAVAILABLE`, `PROVIDER_UNREACHABLE`,
@@ -83,6 +92,14 @@ never to Hussh, and if my provider refuses it I am told, not quietly switched."*
 
 ## Known gaps
 
+- The conditional clear prevents replacing a newer selection during that clear.
+  It does not atomically fence another device selecting the same provider after the
+  clear and before the separate Vault deletion. A durable cross-device removal
+  fence is required for that stronger guarantee; older clients retain their legacy
+  unconditional clear path.
+- The current incarnation lease and the selection log use separate storage
+  objects. Same-log authority checks do not by themselves prove atomic fencing
+  across an incarnation replacement; qualification must address that boundary.
 - **Voice** runs on managed Gemini Live, so the agent reports voice unavailable
   (`owner_ai_selected`) while a selection is in force; it never stands in.
 - **Location and other commands** need Gemini structured output and audio, so an

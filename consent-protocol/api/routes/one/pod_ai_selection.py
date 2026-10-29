@@ -57,6 +57,63 @@ def _no_store() -> HTTPException:
     return HTTPException(status_code=503, detail={"code": "AI_SELECTION_STORE_UNAVAILABLE"})
 
 
+def _settlement_refusal(exc: Exception) -> HTTPException:
+    from hushh_mcp.services.pod_ai_selection import (
+        AiSelectionOutcomeUnknown,
+        AiSelectionRecoveryPending,
+    )
+
+    if isinstance(exc, AiSelectionRecoveryPending):
+        return HTTPException(status_code=503, detail={"code": "AI_SELECTION_RECOVERY_PENDING"})
+    if isinstance(exc, AiSelectionOutcomeUnknown):
+        return HTTPException(status_code=503, detail={"code": "AI_SELECTION_OUTCOME_UNKNOWN"})
+    return HTTPException(status_code=409, detail={"code": "STALE_SELECTION"})
+
+
+def _snapshot_authorizer(*, log: Any, owner: str, token: str, verifier: Any, session: Any) -> Any:
+    """Recheck both admission and durable subject state for each CAS attempt."""
+    from hushh_mcp.services.pod_ai_selection_authority import require_snapshot_authority
+    from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG, PodSessionRefused
+
+    async def authorize(records: Any) -> None:
+        await _admit_owner_local(token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG)
+        try:
+            require_snapshot_authority(
+                records, log=log, owner=owner, session=session, scope=SCOPE_POD_CONFIG
+            )
+        except PodSessionRefused as exc:
+            from api.routes.one.pod_session import _refuse
+
+            raise _refuse(exc) from None
+
+    return authorize
+
+
+async def _record_authorized_selection(
+    *, log: Any, owner: str, opened: Any, now: int, token: str, verifier: Any, session: Any
+) -> Any:
+    from hushh_mcp.services import pod_ai_selection as store
+    from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG
+
+    await _admit_owner_local(token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG)
+    try:
+        return await store.record_ai_selection(
+            log,
+            hushh_id=owner,
+            opened=opened,
+            checked_at_ms=now,
+            authorize=_snapshot_authorizer(
+                log=log, owner=owner, token=token, verifier=verifier, session=session
+            ),
+        )
+    except (
+        store.AiSelectionRecoveryPending,
+        store.AiSelectionSuperseded,
+        store.AiSelectionOutcomeUnknown,
+    ) as exc:
+        raise _settlement_refusal(exc) from None
+
+
 def _gemini_default() -> str:
     """The manifest's model, which a Gemini selection with no model of its own runs on."""
     from api.routes.one.pod_turn import _resolve_model  # noqa: PLC0415
@@ -127,11 +184,14 @@ async def run_ai_selection_put(
             return _refused(code)
         # The provider call can outlive the owner's session or its revocation.
         # Recheck before replacing the working selection, as the clear path does.
-        await _admit_owner_local(
-            consent_token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG
-        )
-        selection = await store.record_ai_selection(
-            log, hushh_id=hushh_id, opened=opened, checked_at_ms=now
+        selection = await _record_authorized_selection(
+            log=log,
+            owner=hushh_id,
+            opened=opened,
+            now=now,
+            token=consent_token,
+            verifier=verifier,
+            session=session,
         )
     except AiSelectionRefused as exc:
         logger.info("pod_ai_selection.refused code=%s", exc.code)
@@ -157,6 +217,7 @@ async def run_ai_selection_delete(
     session: Optional[dict] = None,
     log: Any = None,
     verify_default: bool = False,
+    expected_selection: Optional[tuple[str, int]] = None,
 ) -> dict:
     """Clear the selection; the agent returns to its default model path."""
     from hushh_mcp.services import pod_ai_selection as store  # noqa: PLC0415
@@ -195,10 +256,25 @@ async def run_ai_selection_delete(
         )
     try:
         await store.clear_ai_selection(
-            log, hushh_id=owner_id, expected_floor=floor, verified_default=verified or None
+            log,
+            hushh_id=owner_id,
+            expected_floor=floor,
+            expected_selection=expected_selection,
+            verified_default=verified or None,
+            authorize=_snapshot_authorizer(
+                log=log, owner=owner_id, token=consent_token, verifier=verifier, session=session
+            ),
         )
     except store.AiSelectionRefused:
         raise HTTPException(status_code=409, detail={"code": "STALE_SELECTION"}) from None
+    except (
+        store.AiSelectionRecoveryPending,
+        store.AiSelectionSuperseded,
+        store.AiSelectionOutcomeUnknown,
+    ) as exc:
+        raise _settlement_refusal(exc) from None
+    except (PodLogConflict, PodLogFenced):
+        raise HTTPException(status_code=409, detail={"code": "AI_SELECTION_NOT_RECORDED"}) from None
     store.note_ai_selection_failure(None)
     logger.info("pod_ai_selection.cleared")
     return {
@@ -221,6 +297,9 @@ async def run_ai_selection_get(
     await _admit_owner_local(
         consent_token, verifier=verifier, session=session, scope=SCOPE_POD_STATUS
     )
+    log = log if log is not None else _log()
+    if log is None:
+        raise _no_store()
     if store.ai_selection_load_failed():
         # Heal on read: the startup load failed, so ask the log again before answering.
         await store.load_active_ai_selection(log)
@@ -228,10 +307,25 @@ async def run_ai_selection_get(
         raise HTTPException(status_code=503, detail={"code": "OWNER_AI_SELECTION_UNAVAILABLE"})
     from hushh_mcp.services.pod_ai_effective_connection import effective_connection
 
+    try:
+        selection, revision = await store.read_ai_selection_with_revision(
+            log, hushh_id=(os.environ.get("HUSSH_ID") or "").strip()
+        )
+    except Exception:  # noqa: BLE001 - do not return stale selection metadata
+        raise HTTPException(
+            status_code=503, detail={"code": "OWNER_AI_SELECTION_UNAVAILABLE"}
+        ) from None
+    effective = (
+        effective_connection()
+        if selection == store.current_ai_selection() and not store.ai_selection_load_failed()
+        else {"state": "unavailable", "code": "OWNER_AI_SELECTION_UNAVAILABLE"}
+    )
     return {
-        **store.public_selection(store.current_ai_selection()),
+        **store.public_selection(selection),
+        "selectionRevision": revision,
+        "conditionalClear": True,
         "lastFailure": store.last_ai_selection_failure(),
-        "effectiveConnection": effective_connection(),
+        "effectiveConnection": effective,
     }
 
 
@@ -285,6 +379,45 @@ async def pod_ai_selection_default_route(
         if chunk:
             raise HTTPException(status_code=400, detail={"code": "BAD_ENVELOPE"})
     return await run_ai_selection_delete(verify_default=True, **door)
+
+
+@router.post("/ai-selection/clear-if-current")
+async def pod_ai_selection_conditional_clear_route(
+    request: Request,
+    x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
+    from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG  # noqa: PLC0415
+
+    door = await _owner_local_door(
+        x_consent_token, authorization, scope=SCOPE_POD_CONFIG, held=True
+    )
+    await _admit_owner_local(
+        door["consent_token"],
+        verifier=door["verifier"],
+        session=door["session"],
+        scope=SCOPE_POD_CONFIG,
+    )
+    chunks = bytearray()
+    async for chunk in request.stream():
+        if len(chunks) + len(chunk) > 512:
+            raise HTTPException(status_code=400, detail={"code": "BAD_ENVELOPE"})
+        chunks.extend(chunk)
+    try:
+        body = json.loads(chunks)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail={"code": "BAD_ENVELOPE"}) from None
+    if not isinstance(body, dict) or set(body) != {"expectedProvider", "expectedSelectionRevision"}:
+        raise HTTPException(status_code=400, detail={"code": "BAD_ENVELOPE"})
+    provider, revision = body["expectedProvider"], body["expectedSelectionRevision"]
+    if (
+        not isinstance(provider, str)
+        or provider not in {"gemini", "openai", "azure_openai"}
+        or type(revision) is not int
+        or not 0 < revision <= 2**53 - 1
+    ):
+        raise HTTPException(status_code=400, detail={"code": "BAD_ENVELOPE"})
+    return await run_ai_selection_delete(expected_selection=(provider, revision), **door)
 
 
 @router.get("/ai-selection")

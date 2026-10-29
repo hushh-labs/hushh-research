@@ -1,30 +1,17 @@
-"""The person's "Bring your own AI" selection, held by their own agent.
+"""The owner's sealed AI selection and its ordered, fail-closed active copy.
 
-The device seals a provider, model and API key to this pod
-(``pod_ai_selection_seal``); the pod opens it, checks the key with one tiny live
-call, and only then appends record kind ``pod_ai_selection_v1`` to its own commit
-log. The log's sealing protects the key at rest and the hub never holds it. Reading
-the current selection is "the newest record for this owner", exactly as
-``pod_config`` reads its record: dispatch on kind, filter on owner, ignore the rest.
-
-A clearing record (``cleared: true``) removes the selection and returns the agent to
-its default model path. It carries the newest ``issuedAtMs`` forward, so an old
-envelope replayed after a clear is still a rollback and still refused.
-
-The turn path reads a process-wide active copy, loaded once at startup and replaced
-by every successful write. A copy that could NOT be loaded is not "no selection":
-treating it so would quietly move a person who chose their own AI onto a managed
-model, which is the one outcome this feature exists to rule out. So a failed load
-refuses turns (``AiSelectionUnavailable``) until a read of the log succeeds.
+The pod verifies a sealed selection before appending it to its own log. A clear
+retains the issued-time floor so old envelopes cannot be replayed. An unreadable
+selection refuses turns rather than silently switching to a managed model.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Optional
 
 from hushh_mcp.services.pod_ai_selection_seal import (
@@ -32,12 +19,14 @@ from hushh_mcp.services.pod_ai_selection_seal import (
     AiSelectionRefused,
     OpenedSelection,
 )
+from hushh_mcp.services.pod_ai_selection_types import AiSelection, selection_from_payload
 
 logger = logging.getLogger(__name__)
 
 POD_AI_SELECTION_RECORD_KIND = "pod_ai_selection_v1"
 POD_AI_SELECTION_VERSION = 1
 _APPEND_ATTEMPTS = 3
+SnapshotAuthorizer = Callable[[list[dict[str, Any]]], Awaitable[None]]
 
 
 class AiSelectionUnavailable(RuntimeError):
@@ -48,48 +37,20 @@ class AiSelectionStoreMissing(RuntimeError):
     """This pod has no durable store, so it cannot hold a selection."""
 
 
-@dataclass(frozen=True)
-class AiSelection:
-    """The owner's active choice. ``api_key`` never appears in a repr or a report."""
+class AiSelectionRecoveryPending(RuntimeError):
+    """A selection committed, but its current active state is unavailable."""
 
-    provider: str
-    model: Optional[str]
-    api_key: str = field(repr=False)
-    transport: Optional[str]
-    vertex_project: Optional[str]
-    vertex_location: Optional[str]
-    issued_at_ms: int
-    selection_id: str
-    checked_at_ms: int
-    azure_endpoint: Optional[str] = None
+
+class AiSelectionSuperseded(RuntimeError):
+    """A later committed selection replaced this write."""
+
+
+class AiSelectionOutcomeUnknown(RuntimeError):
+    """A storage failure left the selection write's outcome unknown."""
 
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
-
-
-def _from_payload(payload: Mapping[str, Any]) -> Optional[AiSelection]:
-    """A stored record as a selection; a malformed one is ignored, never half-used."""
-    try:
-        provider = str(payload["provider"])
-        api_key = str(payload["apiKey"])
-        if not provider or not api_key:
-            return None
-        return AiSelection(
-            provider=provider,
-            model=payload.get("model") or None,
-            api_key=api_key,
-            transport=payload.get("transport") or None,
-            vertex_project=payload.get("vertexProject") or None,
-            vertex_location=payload.get("vertexLocation") or None,
-            issued_at_ms=int(payload["issuedAtMs"]),
-            selection_id=str(payload.get("selectionId") or ""),
-            checked_at_ms=int(payload.get("checkedAtMs") or 0),
-            azure_endpoint=payload.get("azureEndpoint") or None,
-        )
-    except (KeyError, TypeError, ValueError):
-        logger.warning("pod_ai_selection.stored_record_ignored")
-        return None
 
 
 def selection_from_records(
@@ -114,18 +75,39 @@ def selection_from_records(
         if type(issued) is int:
             floor = max(floor, issued)
         cleared = payload.get("cleared") is True
-        current = None if cleared else _from_payload(payload)
+        current = None if cleared else selection_from_payload(payload)
         unreadable = not cleared and current is None
     if strict and unreadable:
         raise AiSelectionUnavailable("the newest AI selection record could not be read")
     return current, floor
 
 
-async def _snapshot(log: Any, *, hushh_id: str) -> tuple[Optional[AiSelection], int, int]:
+def selection_revision_from_records(records: Any, *, hushh_id: str) -> int:
+    """Sequence of this owner's last selection event, independent of other writes."""
+    for record in reversed(records or []):
+        payload = (record or {}).get("payload") or {}
+        if (
+            (record or {}).get("kind") == POD_AI_SELECTION_RECORD_KIND
+            and isinstance(payload, Mapping)
+            and payload.get("hushh_id") == hushh_id
+        ):
+            sequence = record.get("seq")
+            if type(sequence) is not int or not 0 < sequence <= 2**53 - 1:
+                raise AiSelectionUnavailable("the selection revision is unavailable")
+            return sequence
+    return 0
+
+
+async def _snapshot(
+    log: Any, *, hushh_id: str, authorize: SnapshotAuthorizer
+) -> tuple[Optional[AiSelection], int, int, int, int]:
+    failure_epoch = _FAILURE_EPOCH
     records = await log.replay()
+    await authorize(records)
     current, floor = selection_from_records(records, hushh_id=hushh_id)
     last_seq = int(records[-1]["seq"]) if records else 0
-    return current, floor, last_seq
+    revision = selection_revision_from_records(records, hushh_id=hushh_id)
+    return current, floor, revision, last_seq, failure_epoch
 
 
 async def read_ai_selection(log: Any, *, hushh_id: str) -> tuple[Optional[AiSelection], int]:
@@ -135,7 +117,21 @@ async def read_ai_selection(log: Any, *, hushh_id: str) -> tuple[Optional[AiSele
     return selection_from_records(await log.replay(), hushh_id=hushh_id, strict=True)
 
 
-async def _append_against_snapshot(log: Any, *, hushh_id: str, build: Any) -> Any:
+async def read_ai_selection_with_revision(
+    log: Any, *, hushh_id: str
+) -> tuple[Optional[AiSelection], int]:
+    """Read a selection and its event revision from one durable snapshot."""
+    if log is None:
+        raise AiSelectionStoreMissing("this pod has no durable selection store")
+    records = await log.replay()
+    selection, _ = selection_from_records(records, hushh_id=hushh_id, strict=True)
+    revision = selection_revision_from_records(records, hushh_id=hushh_id)
+    return selection, revision
+
+
+async def _append_against_snapshot(
+    log: Any, *, hushh_id: str, build: Any, authorize: SnapshotAuthorizer
+) -> tuple[Any, int, int]:
     """Append ``build(current, floor)`` only onto the head it was computed from.
 
     Two writes racing must not both pass the "newer than what I hold" check, so the
@@ -144,20 +140,35 @@ async def _append_against_snapshot(log: Any, *, hushh_id: str, build: Any) -> An
     from hushh_mcp.services.pod_commit_log import PodLogConflict  # noqa: PLC0415
 
     for _ in range(_APPEND_ATTEMPTS):
-        current, floor, last_seq = await _snapshot(log, hushh_id=hushh_id)
-        payload, result = build(current, floor)
+        current, floor, revision, last_seq, failure_epoch = await _snapshot(
+            log, hushh_id=hushh_id, authorize=authorize
+        )
+        payload, result = build(current, floor, revision)
         if payload is None:
-            return result
+            return result, last_seq, failure_epoch
         try:
-            await log.append(POD_AI_SELECTION_RECORD_KIND, payload, expected_seq=last_seq)
-            return result
+            record = await log.append(POD_AI_SELECTION_RECORD_KIND, payload, expected_seq=last_seq)
+            return result, int(record["seq"]), failure_epoch
         except PodLogConflict:
             continue
+        except asyncio.CancelledError:
+            # A cancelled or failed storage call may have committed its head.
+            # Refuse model use until a fresh read resolves the outcome.
+            _mark_load_failed(None)
+            raise
+        except Exception as exc:
+            _mark_load_failed(None)
+            raise AiSelectionOutcomeUnknown("selection write outcome is unknown") from exc
     raise PodLogConflict("the selection could not be recorded against a stable head")
 
 
 async def record_ai_selection(
-    log: Any, *, hushh_id: str, opened: OpenedSelection, checked_at_ms: int
+    log: Any,
+    *,
+    hushh_id: str,
+    opened: OpenedSelection,
+    checked_at_ms: int,
+    authorize: SnapshotAuthorizer,
 ) -> AiSelection:
     """Make ``opened`` this owner's selection. Refuses one that is not strictly newer."""
     if log is None:
@@ -175,7 +186,9 @@ async def record_ai_selection(
         azure_endpoint=opened.azure_endpoint,
     )
 
-    def build(_current: Optional[AiSelection], floor: int) -> tuple[dict, AiSelection]:
+    def build(
+        _current: Optional[AiSelection], floor: int, _revision: int
+    ) -> tuple[dict, AiSelection]:
         if selection.issued_at_ms <= floor:
             raise AiSelectionRefused(STALE_SELECTION)
         return {
@@ -193,8 +206,10 @@ async def record_ai_selection(
             "azureEndpoint": selection.azure_endpoint,
         }, selection
 
-    recorded: AiSelection = await _append_against_snapshot(log, hushh_id=hushh_id, build=build)
-    set_active_ai_selection(recorded)
+    recorded, sequence, failure_epoch = await _append_against_snapshot(
+        log, hushh_id=hushh_id, build=build, authorize=authorize
+    )
+    await _settle_committed(log, recorded, sequence=sequence, failure_epoch=failure_epoch)
     return recorded
 
 
@@ -202,15 +217,23 @@ async def clear_ai_selection(
     log: Any,
     *,
     hushh_id: str,
+    authorize: SnapshotAuthorizer,
     expected_floor: int | None = None,
+    expected_selection: tuple[str, int] | None = None,
     verified_default: dict[str, Any] | None = None,
 ) -> None:
     """Remove the selection; idempotent. The replay floor survives the clear."""
     if log is None:
         raise AiSelectionStoreMissing("this pod has no durable store for its owner's selection")
 
-    def build(current: Optional[AiSelection], floor: int) -> tuple[Optional[dict], None]:
+    def build(
+        current: Optional[AiSelection], floor: int, revision: int
+    ) -> tuple[Optional[dict], None]:
         if expected_floor is not None and floor != expected_floor:
+            raise AiSelectionRefused(STALE_SELECTION)
+        if expected_selection is not None and (
+            current is None or (current.provider, revision) != expected_selection
+        ):
             raise AiSelectionRefused(STALE_SELECTION)
         # Even an already-default connection needs a durable verification record.
         # A legacy unverified clear also invalidates a prior verification receipt.
@@ -223,10 +246,12 @@ async def clear_ai_selection(
             "verifiedDefault": verified_default,
         }, None
 
-    await _append_against_snapshot(log, hushh_id=hushh_id, build=build)
-    set_active_ai_selection(None)
-    global _DEFAULT_VERIFICATION
-    _DEFAULT_VERIFICATION = dict(verified_default) if verified_default else None
+    _result, sequence, failure_epoch = await _append_against_snapshot(
+        log, hushh_id=hushh_id, build=build, authorize=authorize
+    )
+    await _settle_committed(
+        log, None, sequence=sequence, failure_epoch=failure_epoch, verified_default=verified_default
+    )
 
 
 # -- process-wide active copy and the last failure ----------------------------------
@@ -234,6 +259,9 @@ async def clear_ai_selection(
 _ACTIVE: Optional[AiSelection] = None
 _LOAD_FAILED = False
 _REVISION = 0
+_APPLIED_SEQUENCE = -1
+_FAILURE_EPOCH = 0
+_FAILED_SEQUENCE: Optional[int] = None
 _LAST_FAILURE: Optional[dict[str, Any]] = None
 _DEFAULT_VERIFICATION: Optional[dict[str, Any]] = None
 
@@ -264,11 +292,80 @@ def owner_ai_in_force() -> bool:
 
 
 def set_active_ai_selection(selection: Optional[AiSelection]) -> None:
-    global _ACTIVE, _LOAD_FAILED, _REVISION, _DEFAULT_VERIFICATION
+    global \
+        _ACTIVE, \
+        _LOAD_FAILED, \
+        _REVISION, \
+        _DEFAULT_VERIFICATION, \
+        _APPLIED_SEQUENCE, \
+        _FAILED_SEQUENCE
     _ACTIVE = selection
     _LOAD_FAILED = False
     _REVISION += 1
     _DEFAULT_VERIFICATION = None
+    _APPLIED_SEQUENCE = -1
+    _FAILED_SEQUENCE = None
+
+
+def _publish_active(
+    selection: Optional[AiSelection],
+    *,
+    sequence: int,
+    failure_epoch: int,
+    verified_default: Optional[dict] = None,
+) -> bool:
+    """Keep late completions from replacing a newer committed or hydrated state."""
+    global _APPLIED_SEQUENCE, _DEFAULT_VERIFICATION
+    if sequence < _APPLIED_SEQUENCE:
+        return False
+    if _LOAD_FAILED:
+        if _FAILED_SEQUENCE is None and failure_epoch != _FAILURE_EPOCH:
+            return False
+        if _FAILED_SEQUENCE is not None and (
+            sequence < _FAILED_SEQUENCE
+            or (sequence == _FAILED_SEQUENCE and failure_epoch != _FAILURE_EPOCH)
+        ):
+            return False
+    set_active_ai_selection(selection)
+    _APPLIED_SEQUENCE = sequence
+    _DEFAULT_VERIFICATION = dict(verified_default) if verified_default else None
+    return True
+
+
+async def _settle_committed(
+    log: Any,
+    selection: Optional[AiSelection],
+    *,
+    sequence: int,
+    failure_epoch: int,
+    verified_default: Optional[dict] = None,
+) -> None:
+    if _publish_active(
+        selection, sequence=sequence, failure_epoch=failure_epoch, verified_default=verified_default
+    ):
+        return
+    if _LOAD_FAILED:
+        await load_active_ai_selection(log)
+    if _LOAD_FAILED:
+        raise AiSelectionRecoveryPending("saved selection is awaiting a fresh read")
+    if _ACTIVE != selection or _DEFAULT_VERIFICATION != (verified_default or None):
+        raise AiSelectionSuperseded("a later selection is active")
+
+
+def _mark_load_failed(sequence: Optional[int]) -> None:
+    """Do not let an older or unknown failed read be mistaken for a fresh state."""
+    global _LOAD_FAILED, _FAILED_SEQUENCE, _FAILURE_EPOCH, _REVISION
+    if sequence is not None and _APPLIED_SEQUENCE > sequence:
+        return
+    if not _LOAD_FAILED:
+        _FAILED_SEQUENCE = sequence
+    elif _FAILED_SEQUENCE is None or sequence is None:
+        _FAILED_SEQUENCE = None
+    else:
+        _FAILED_SEQUENCE = max(_FAILED_SEQUENCE, sequence)
+    _LOAD_FAILED = True
+    _FAILURE_EPOCH += 1
+    _REVISION += 1
 
 
 def ai_selection_revision() -> int:
@@ -309,27 +406,36 @@ async def load_active_ai_selection(
     that exists but cannot be read marks the copy unreadable, so turns refuse rather
     than fall back to a model the owner did not choose.
     """
-    global _LOAD_FAILED, _DEFAULT_VERIFICATION
     hushh_id = (os.environ.get("HUSSH_ID") or "").strip()
+    failure_epoch = _FAILURE_EPOCH
+    sequence: Optional[int] = None
     try:
         if log is None:
             from hushh_mcp.services.pod_memory_service import _resolve_log  # noqa: PLC0415
 
             log = _resolve_log()
+        if _LOAD_FAILED and _FAILED_SEQUENCE is None and log is None:
+            raise AiSelectionUnavailable("a fresh selection read is required")
         selection, _floor = None, 0
         if hushh_id:
-            if records is None:
+            if records is None or (_LOAD_FAILED and _FAILED_SEQUENCE is None):
                 records = await log.replay() if log is not None else []
+            sequence = records[-1]["seq"] if records else 0
+            if type(sequence) is not int or sequence < 0:
+                sequence = None
+                raise AiSelectionUnavailable("the selection snapshot has no valid sequence")
             selection, _floor = (
                 selection_from_records(records, hushh_id=hushh_id, strict=True)
                 if records is not None
                 else await read_ai_selection(log, hushh_id=hushh_id)
             )
+        else:
+            sequence = 0
     except Exception as exc:  # noqa: BLE001 - startup must never fail on this read
         logger.warning("pod_ai_selection.load_failed reason=%s", type(exc).__name__)
-        _LOAD_FAILED = True
+        _mark_load_failed(sequence)
         return None
-    set_active_ai_selection(selection)
+    verified_default = None
     for record in records or []:
         payload = (record or {}).get("payload") or {}
         if (
@@ -338,13 +444,17 @@ async def load_active_ai_selection(
             and payload.get("hushh_id") == hushh_id
         ):
             receipt = payload.get("verifiedDefault") if payload.get("cleared") is True else None
-            _DEFAULT_VERIFICATION = dict(receipt) if isinstance(receipt, dict) else None
+            verified_default = dict(receipt) if isinstance(receipt, dict) else None
+    _publish_active(
+        selection, sequence=sequence, failure_epoch=failure_epoch, verified_default=verified_default
+    )
+    effective = _ACTIVE
     logger.info(
         "pod_ai_selection.loaded configured=%s provider=%s",
-        selection is not None,
-        selection.provider if selection else None,
+        effective is not None,
+        effective.provider if effective else None,
     )
-    return selection
+    return effective
 
 
 async def load_owner_configuration(log: Any = None, *, records: Any = None) -> None:

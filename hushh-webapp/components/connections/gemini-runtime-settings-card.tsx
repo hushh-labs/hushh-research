@@ -27,6 +27,7 @@ import {
   readAgentAiSelection,
   sendAiSelectionToAgent,
   aiSelectionRefusalMessage,
+  aiSelectionClearFailureMessage,
   shareGeminiSelectionWithAgent,
   verifyAgentCloudAi,
 } from "@/lib/one/ai-selection-agent";
@@ -369,8 +370,13 @@ export function useGeminiRuntimeSettingsModel({
       } else selection = await ApiService.selectManagedGeminiRuntime();
       if (!selection) throw new Error("AGENT_UNREACHABLE");
       if (!ownerIsCurrent()) return false;
-      if (!privateCloud && (await clearAgentAiSelectionFor(null)) === "failed")
-        throw new Error("AGENT_UNREACHABLE");
+      if (!privateCloud) {
+        const clearResult = await clearAgentAiSelectionFor(null);
+        if (clearResult !== "cleared" && clearResult !== "not_needed") {
+          if (ownerIsCurrent()) toast.error(aiSelectionClearFailureMessage(clearResult));
+          return false;
+        }
+      }
       if (!ownerIsCurrent()) return false;
       setCloudAiVerified(privateCloud);
       setShowAiAlternatives(false);
@@ -703,7 +709,11 @@ export function useGeminiRuntimeSettingsModel({
     selectionRevisionRef.current += 1;
     setIsRemoving(true);
     try {
-      if ((await clearAgentAiSelectionFor("gemini")) === "failed") throw new Error("AGENT_UNREACHABLE");
+      const clearResult = await clearAgentAiSelectionFor("gemini");
+      if (clearResult !== "cleared" && clearResult !== "not_needed") {
+        if (ownerIsCurrent()) toast.error(aiSelectionClearFailureMessage(clearResult));
+        return false;
+      }
       if (!ownerIsCurrent()) return false;
       const credentialResult = await PersonalKnowledgeModelService.removeRuntimeSecret({
         userId,

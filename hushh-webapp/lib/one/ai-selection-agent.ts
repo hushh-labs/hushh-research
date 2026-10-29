@@ -43,6 +43,8 @@ export type AgentAiSelection = {
   model: string | null;
   checkedAtMs: number | null;
   lastFailure: string | null;
+  selectionRevision?: number | null;
+  conditionalClear?: boolean;
   effectiveConnection?: {
     provider: string | null;
     model: string | null;
@@ -60,6 +62,8 @@ export const AI_SELECTION_REFUSAL_CODES = [
   "PROVIDER_UNREACHABLE",
   "PROVIDER_UNSUPPORTED",
   "STALE_SELECTION",
+  "AI_SELECTION_RECOVERY_PENDING",
+  "AI_SELECTION_OUTCOME_UNKNOWN",
   "BAD_ENVELOPE",
   "AI_DEFAULT_UNAVAILABLE",
 ] as const;
@@ -155,6 +159,10 @@ function textOrNull(value: unknown): string | null {
 export function parseAgentAiSelection(body: unknown): AgentAiSelection | null {
   if (!body || typeof body !== "object") return null;
   const value = body as Record<string, unknown>;
+  const provider = textOrNull(value.provider);
+  if (typeof value.configured !== "boolean" ||
+    (value.configured && !["gemini", "openai", "azure_openai"].includes(provider ?? "")) ||
+    (!value.configured && value.provider !== null)) return null;
   const failure = value.lastFailure;
   const failureCode =
     failure && typeof failure === "object"
@@ -172,10 +180,13 @@ export function parseAgentAiSelection(body: unknown): AgentAiSelection | null {
       checkedAtMs: finiteOrNull(effective.checkedAtMs),
     } } : {}),
     configured: value.configured === true,
-    provider: textOrNull(value.provider),
+    provider,
     model: textOrNull(value.model),
     checkedAtMs: finiteOrNull(value.checkedAtMs),
     lastFailure: failureCode,
+    selectionRevision: Number.isSafeInteger(value.selectionRevision) && Number(value.selectionRevision) > 0
+      ? Number(value.selectionRevision) : null,
+    conditionalClear: value.conditionalClear === true,
   };
 }
 
@@ -271,19 +282,35 @@ export async function sendAiSelectionToAgent(
   return { ok: false, code: refusalFromResponse(response.status, body) };
 }
 
+type ClearAgentAiResult = "cleared" | "failed" | "recovery_pending" | "outcome_unknown";
+
 export async function clearAgentAiSelection(
   verifyDefault = false,
   expectedProvider?: string,
   isCurrent = captureAiOwner(),
-): Promise<boolean> {
-  if (!isCurrent()) return false;
+  expectedSelection?: { provider: string; revision: number },
+): Promise<ClearAgentAiResult> {
+  if (!isCurrent() || (verifyDefault && expectedSelection)) return "failed";
   try {
-    const response = await ApiService.ownerPodRequest("ai-selection", {
-      method: verifyDefault ? "PATCH" : "DELETE",
+    const response = await ApiService.ownerPodRequest(expectedSelection ? "ai-selection/clear-if-current" : "ai-selection", {
+      method: expectedSelection ? "POST" : verifyDefault ? "PATCH" : "DELETE",
+      ...(expectedSelection ? {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedProvider: expectedSelection.provider, expectedSelectionRevision: expectedSelection.revision }),
+      } : {}),
     }, false, undefined, undefined, isCurrent);
-    if (!isCurrent() || !response.ok) return false;
-    if (!verifyDefault) return true;
+    if (!isCurrent()) return "failed";
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      if (!isCurrent()) return "failed";
+      const code = refusalFromResponse(response.status, body);
+      if (code === "AI_SELECTION_RECOVERY_PENDING") return "recovery_pending";
+      if (code === "AI_SELECTION_OUTCOME_UNKNOWN") return "outcome_unknown";
+      return "failed";
+    }
     const body = await response.json().catch(() => null);
+    if (!isCurrent() || body?.status !== "cleared") return "failed";
+    if (!verifyDefault) return "cleared";
     return (
       isCurrent() && body?.status === "cleared" &&
       typeof body.defaultModel === "string" &&
@@ -292,9 +319,9 @@ export async function clearAgentAiSelection(
       Number.isFinite(body.checkedAtMs) &&
       body.checkedAtMs > 0 &&
       body.defaultProvider === expectedProvider
-    );
+    ) ? "cleared" : "failed";
   } catch {
-    return false;
+    return "failed";
   }
 }
 
@@ -349,6 +376,10 @@ export function aiSelectionRefusalMessage(
       return `Your agent needs an update to use ${providerName}.`;
     case "STALE_SELECTION":
       return "This setting changed on another device. Try again.";
+    case "AI_SELECTION_RECOVERY_PENDING":
+      return "Your AI change was saved. Your agent is reconnecting; check its connection before trying again.";
+    case "AI_SELECTION_OUTCOME_UNKNOWN":
+      return "We couldn't confirm the AI change. Check your agent's connection before trying again.";
     case "BAD_ENVELOPE":
       return "Your agent could not read this request. Refresh the app and try again.";
     case "AGENT_KEY_CHANGED":
@@ -403,24 +434,36 @@ export async function shareGeminiSelectionWithAgent(
 export async function clearAgentAiSelectionFor(
   onlyProvider: AiSelectionProvider | null,
   verifyDefault = false,
-): Promise<"cleared" | "not_needed" | "failed"> {
+): Promise<ClearAgentAiResult | "not_needed"> {
   const isCurrent = captureAiOwner();
-  if (!isCurrent()) return "failed";
+  if (!isCurrent() || (onlyProvider && verifyDefault)) return "failed";
   const status = await readAgentStatus();
   if (!isCurrent()) return "failed";
-  if (advertisedAiProviders(status) === null)
+  if (!status) return "failed";
+  if (status.hostingMode === "shared")
     return verifyDefault ? "failed" : "not_needed";
+  if (advertisedAiProviders(status) === null) return "failed";
+  let expectedSelection: { provider: string; revision: number } | undefined;
   if (onlyProvider) {
     const current = await readAgentAiSelection(isCurrent).catch(() => undefined);
-    if (!isCurrent() || current === undefined) return "failed";
-    if (!current?.configured || current.provider !== onlyProvider)
+    if (!isCurrent() || !current) return "failed";
+    if (!current.conditionalClear) return "failed";
+    if (!current.configured || current.provider !== onlyProvider)
       return "not_needed";
+    if (!current.selectionRevision) return "failed";
+    expectedSelection = { provider: onlyProvider, revision: current.selectionRevision };
   }
   if (verifyDefault && status?.aiSelection?.defaultVerification !== true)
     return "failed";
   const expectedProvider =
     status?.deploymentTarget === "user_azure" ? "azure_openai" : "gemini";
-  return (await clearAgentAiSelection(verifyDefault, expectedProvider, isCurrent))
-    ? "cleared"
-    : "failed";
+  return clearAgentAiSelection(verifyDefault, expectedProvider, isCurrent, expectedSelection);
+}
+
+export function aiSelectionClearFailureMessage(result: ClearAgentAiResult): string {
+  if (result === "recovery_pending")
+    return "Your agent saved this change but is reconnecting. Your key stays in your vault; check the AI connection before trying again.";
+  if (result === "outcome_unknown")
+    return "We couldn't confirm the change. Your key stays in your vault; check the AI connection before trying again.";
+  return "Your private agent could not be reached, so it may still use this key. Check its connection before trying again.";
 }

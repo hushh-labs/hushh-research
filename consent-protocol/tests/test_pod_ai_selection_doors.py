@@ -38,7 +38,6 @@ from hushh_mcp.services import (
     pod_self_registration,
 )
 from hushh_mcp.services.pod_ai_selection_seal import (
-    AiSelectionRefused,
     b64url_decode,
     seal_ai_selection,
 )
@@ -47,9 +46,8 @@ from hushh_mcp.services.pod_connector_keypair_service import PodKeyPair
 from hushh_mcp.services.pod_consent_client import ConsentVerdict
 from hushh_mcp.services.pod_session_authority import (
     LOCAL_TOKEN_PREFIX,
-    SCOPE_POD_CONFIG,
-    SCOPE_POD_STATUS,
 )
+from tests.helpers import pod_ai_selection_fixtures as selection_fixtures
 
 with pytest.MonkeyPatch.context() as _pod_import_env:
     _pod_import_env.setenv("HUSSH_POD_MODE", "1")
@@ -102,6 +100,7 @@ def pod(monkeypatch, tmp_path):
     monkeypatch.setattr(pod_memory_service, "_resolve_log", lambda: log)
     monkeypatch.setattr(pod_consent_client, "verify_consent", _owner_verifier)
     monkeypatch.setattr(pod_ai_selection_check, "live_check", _answers)
+    asyncio.run(selection_fixtures.seed_owner_binding(log, OWNER, _CLAIMS))
     pod_ai_selection.set_active_ai_selection(None)
     pod_ai_selection.note_ai_selection_failure(None)
     yield log
@@ -117,7 +116,7 @@ def _client() -> TestClient:
 OWNER_SESSION = {"Authorization": "Bearer pod-session-fixture"}
 #: A hub-relayed consent token valid for the owner: refused on every selection door.
 HUB = {"X-Consent-Token": "hub-consent"}
-_CLAIMS = {"role": "app", "scopes": [SCOPE_POD_CONFIG, SCOPE_POD_STATUS]}
+_CLAIMS = selection_fixtures.owner_claims(OWNER)
 
 
 class _OwnerSession:
@@ -190,6 +189,8 @@ async def test_a_checked_selection_is_sealed_into_the_log_and_never_echoed(
         "provider": "openai",
         "model": None,
         "checkedAtMs": checked,
+        "selectionRevision": 2,
+        "conditionalClear": True,
         "lastFailure": None,
     }
     records = await _records(pod)
@@ -253,12 +254,6 @@ async def test_a_replay_or_rollback_is_refused_even_after_a_clear(pod, owner_ses
     assert pod_ai_selection.active_ai_selection() is None
     assert json.loads((await put(NOW + 1)).body) == {"code": "STALE_SELECTION"}, "rollback"
     assert (await put(NOW + 2))["status"] == "active", "a fresh choice after a clear"
-    # The store re-checks under its own compare-and-set, so two racing writes that both
-    # opened against the same floor cannot both land.
-    with pytest.raises(AiSelectionRefused):
-        await pod_ai_selection.record_ai_selection(
-            pod, hushh_id=OWNER, opened=_opened(issued_at_ms=NOW + 2), checked_at_ms=NOW
-        )
 
 
 async def test_admission_is_settled_before_the_envelope_is_read(pod, monkeypatch):

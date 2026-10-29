@@ -8,6 +8,7 @@ import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 import {
   agentAiReadiness,
+  aiSelectionRefusalMessage,
   clearAgentAiSelectionFor,
   sendAiSelectionToAgent,
   shareGeminiSelectionWithAgent,
@@ -132,6 +133,15 @@ describe("ai-selection agent client", () => {
 
   it("maps C2 refusals to stable codes", async () => {
     mocks.pod.mockResolvedValueOnce(
+      json({ detail: { code: "AI_SELECTION_RECOVERY_PENDING" } }, 503),
+    );
+    expect(await sendAiSelectionToAgent(OPENAI)).toEqual({
+      ok: false,
+      code: "AI_SELECTION_RECOVERY_PENDING",
+    });
+    expect(aiSelectionRefusalMessage("AI_SELECTION_RECOVERY_PENDING", "Azure AI"))
+      .toContain("change was saved");
+    mocks.pod.mockResolvedValueOnce(
       json({ detail: { code: "KEY_REFUSED" } }, 422),
     );
     expect(await sendAiSelectionToAgent(OPENAI)).toEqual({
@@ -178,6 +188,7 @@ describe("ai-selection agent client", () => {
         model: null,
         checkedAtMs: 1,
         lastFailure: null,
+        conditionalClear: true,
       }),
     );
     expect(await clearAgentAiSelectionFor("gemini")).toBe("not_needed");
@@ -193,11 +204,84 @@ describe("ai-selection agent client", () => {
           model: null,
           checkedAtMs: 1,
           lastFailure: null,
+          selectionRevision: 7,
+          conditionalClear: true,
         }),
       )
       .mockResolvedValueOnce(json({ status: "cleared" }));
     expect(await clearAgentAiSelectionFor("gemini")).toBe("cleared");
-    expect(mocks.pod.mock.calls[1][1]).toMatchObject({ method: "DELETE" });
+    expect(mocks.pod.mock.calls[1][0]).toBe("ai-selection/clear-if-current");
+    expect(mocks.pod.mock.calls[1][1]).toMatchObject({ method: "POST", body: JSON.stringify({
+      expectedProvider: "gemini", expectedSelectionRevision: 7,
+    }) });
+  });
+
+  it("keeps the key when an older agent lacks conditional clear or the choice changed", async () => {
+    mocks.status.mockResolvedValue(CAPABLE);
+    mocks.pod.mockResolvedValueOnce(json({ configured: true, provider: "gemini" }));
+    expect(await clearAgentAiSelectionFor("gemini")).toBe("failed");
+    expect(mocks.pod).toHaveBeenCalledTimes(1);
+    for (const status of [404, 409]) {
+      mocks.pod.mockClear();
+      mocks.pod.mockResolvedValueOnce(json({ configured: true, provider: "gemini", selectionRevision: 7, conditionalClear: true }))
+        .mockResolvedValueOnce(json({}, status));
+      expect(await clearAgentAiSelectionFor("gemini")).toBe("failed");
+      expect(mocks.pod).toHaveBeenCalledTimes(2);
+      expect(mocks.pod.mock.calls[1][0]).toBe("ai-selection/clear-if-current");
+    }
+  });
+
+  it("does not clear a provider when asked to verify the cloud default in the same operation", async () => {
+    expect(await clearAgentAiSelectionFor("gemini", true)).toBe("failed");
+    expect(mocks.status).not.toHaveBeenCalled();
+    expect(mocks.pod).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    json({ detail: "unavailable" }, 503),
+    json({}),
+    json({ configured: false, provider: "gemini" }),
+    json({ configured: true, provider: "unknown-provider" }),
+  ])(
+    "keeps the key when the agent's current selection cannot be read",
+    async (response) => {
+    mocks.status.mockResolvedValue(CAPABLE);
+    mocks.pod.mockResolvedValueOnce(response);
+    expect(await clearAgentAiSelectionFor("gemini")).toBe("failed");
+    expect(mocks.pod).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([json({}), json({ status: "active" }), new Response("not json", { status: 200 })])(
+    "does not accept an unconfirmed clear response",
+    async (response) => {
+      mocks.status.mockResolvedValue(CAPABLE);
+      mocks.pod
+        .mockResolvedValueOnce(json({ configured: true, provider: "gemini", selectionRevision: 7, conditionalClear: true }))
+        .mockResolvedValueOnce(response);
+      expect(await clearAgentAiSelectionFor("gemini")).toBe("failed");
+    },
+  );
+
+  it("distinguishes Shared from an unreadable or older private agent", async () => {
+    mocks.status.mockRejectedValueOnce(new Error("unavailable"));
+    expect(await clearAgentAiSelectionFor("gemini")).toBe("failed");
+    mocks.status.mockResolvedValueOnce({ hostingMode: "shared" });
+    expect(await clearAgentAiSelectionFor("gemini")).toBe("not_needed");
+    mocks.status.mockResolvedValueOnce({ hostingMode: "byoc", state: "active" });
+    expect(await clearAgentAiSelectionFor("gemini")).toBe("failed");
+    expect(mocks.pod).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["AI_SELECTION_RECOVERY_PENDING", "recovery_pending"],
+    ["AI_SELECTION_OUTCOME_UNKNOWN", "outcome_unknown"],
+  ])("preserves %s when a clear has no confirmed active outcome", async (code, expected) => {
+    mocks.status.mockResolvedValue(CAPABLE);
+    mocks.pod
+      .mockResolvedValueOnce(json({ configured: true, provider: "gemini", selectionRevision: 7, conditionalClear: true }))
+      .mockResolvedValueOnce(json({ detail: { code } }, 503));
+    expect(await clearAgentAiSelectionFor("gemini")).toBe(expected);
   });
 
   it("seals a saved Gemini key only to an agent that takes sealed selections", async () => {
