@@ -1295,19 +1295,19 @@ Tests follow the same economy: add a test only for a real regression, a trust bo
 
 ## Branch Lanes
 
-1. **Dev intake** is the default for new development. Preserve existing `integration/pr-train` work and protection. The staged UAT transition selects changes with exact assembled-SHA Dev acceptance; its existing Main-based default remains active until separately authorized. Governed maintainers retain direct Main operations/hotfix authority under Admin SOP.
-2. UAT and production use a green `main` SHA with successful `Main Post-Merge Smoke`. Dev accepts an exact CI-green branch SHA through the [Dev Fast Lane](./dev-fast-lane.md).
-3. UAT deploys only by an explicit manual dispatch of that green `main` SHA through `.github/workflows/deploy-uat.yml`.
+1. **Dev intake** is the default for new development. Preserve existing `integration/pr-train` work and protection. Governed maintainers retain direct Main operations/hotfix authority under Admin SOP.
+2. Release workflows run from Main. Dev accepts an exact CI-green branch SHA through the [Dev Fast Lane](./dev-fast-lane.md).
+3. UAT deploys by explicit manual dispatch through `.github/workflows/deploy-uat.yml`. The application can be a qualified Main or protected UAT SHA; current admission requires exact Dev acceptance for each selected service. A Main application also requires its landed Main smoke.
 4. Manual UAT dispatch is limited to the current
    `uat.manual_dispatch_users` cohort in `config/ci-governance.json`; do not
    transcribe actor names into this document.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only actors listed in `production.manual_dispatch_users` may trigger it.
-6. Manual UAT uses a qualified Main or protected-UAT application SHA with exact Dev acceptance. Production requires UAT acceptance and Main approval, preserving distinct SHAs and identical content; the explicit emergency mode waives only predecessor deployment. Automatic publication remains disabled.
-7. Feature and hotfix branches may deploy to dev through its governed main-owned dispatch. UAT and production require promotion through `main`.
+6. Ordinary production requires UAT acceptance and Main approval, preserving distinct application and approval SHAs and identical content. The explicit emergency mode waives only predecessor deployment. Automatic publication remains disabled.
+7. Feature and hotfix branches may deploy to Dev through its governed Main-owned dispatch. The approved direction is to allow UAT-specific work after exact-commit CI without a mandatory Dev deployment; that admission path is not yet qualified or active. Until it is, retain the current Dev acceptance requirement.
 
 Deploy to UAT is expected to behave as a closed-loop release lane:
 
-1. start from an explicitly chosen green `main` SHA
+1. start from an explicitly chosen, qualified application SHA and its required Dev acceptance
 2. sync canonical secrets
 3. capture last healthy revisions
 4. deploy changed surfaces
@@ -1358,6 +1358,19 @@ was never crossed. This proves no provider mutation; it grants no cleanup or
 release-health authority. Unknown source, incomplete logs, cancellation and failed
 checkpoint uploads remain blocked. Every attempt is inspected, including earlier
 attempts of a currently running retry; never delete failed runs to clear admission.
+The reviewed workflow source can identify a skipped primary deployment job even
+when GitHub reports its unevaluated name. The job must be uniquely bound to the
+exact attempt, completed, skipped and unstarted; earlier attempts still require
+reconciliation. This does not establish a healthy release. A new producer in a
+different job requires a separate source-authority review.
+
+The historical production status-reader repair is off unless the trusted workflow
+explicitly sets `HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR=true`; enabling it
+requires a separately authorized production operation. When enabled, production
+status comes from the current attempt's digest-verified artifact, not a local
+cache. The reader accepts `tmp/prod-release-status.json` only as an unambiguous
+alternative to the root status file, and rechecks the run and artifact inventory
+without the maintenance-pass cache.
 A saved maintenance checkpoint may precede the README writer. Only the existing
 attempt/job/source-qualified saved-checkpoint path may restore that shape; legacy
 pending-drain archives still require the marker. Artifact ID, size, digest, bounded
