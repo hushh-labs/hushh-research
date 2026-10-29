@@ -36,6 +36,33 @@ class ChatMessagingService : FirebaseMessagingService() {
         if (data["recipient_key_id"] == null) data["user_id"]?.let { user -> ChatPreviewKeys.legacyKey(this, user)?.let { data["recipient_key_id"] = it } }
         if (data["recipient_key_id"] == null) data["chat_owner"]?.let { owner -> ChatPreviewKeys.legacyHashKey(this, owner)?.let { data["recipient_key_id"] = it } }
         val kind = data["type"]
+        if (kind == "location_share_revoked" || kind == "location_share_expired") {
+            val user = data["user_id"] ?: return
+            val grant = data["grant_id"] ?: return
+            if (ChatPreviewKeys.legacyKey(this, user) != null) EmergencySmsAlarmService.markEnded(this, user, grant)
+            return
+        }
+        if (kind == "location_share_created" && data["sms_alarm_version"] == "1" && data["notification_presentation"] == "alert") {
+            val user = data["user_id"] ?: return
+            val grant = data["grant_id"] ?: return
+            if (ChatPreviewKeys.legacyKey(this, user).isNullOrBlank() || grant.isBlank()) return
+            val expiry = data["expires_at"]
+            if (!expiry.isNullOrBlank()) {
+                val normalized = expiry.replace("+00:00", "Z").replace(Regex("\\.\\d+Z$"), "Z")
+                val deadline = runCatching {
+                    java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                        timeZone = java.util.TimeZone.getTimeZone("UTC"); isLenient = false
+                    }.parse(normalized)?.time
+                }.getOrNull() ?: return
+                if (deadline <= System.currentTimeMillis()) return
+            }
+            // High-priority FCM permits foreground-service admission while the
+            // app is backgrounded. Local visible notification is the fallback.
+            if (!EmergencySmsAlarmService.start(this, user, grant, System.currentTimeMillis() + 2000)) {
+                EmergencySmsAlarmService.showFallback(this, user, grant)
+            }
+            return
+        }
         if (kind == "direct_message_read" || kind == "location_circle_chat_read") {
             val key = data["recipient_key_id"] ?: return
             val thread = data["conversation_id"] ?: data["circle_id"] ?: return

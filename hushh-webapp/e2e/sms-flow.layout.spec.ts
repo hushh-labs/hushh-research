@@ -164,11 +164,12 @@ test("Chrome autoplay blocking uses the system fallback, then a gesture primes l
     await evaluateWithoutGesture(`SmsSound.stopOneLocationNotificationSound("active")`);
     expect(await evaluateWithoutGesture("window.toneConnections")).toBe(0);
     expect(await evaluateWithoutGesture(`SmsSound.playOneLocationNotificationSound("sos", "next")`)).toBe(true);
-    // Hiding the app must disconnect synchronously, even if both native audio
-    // time and JS timers freeze before the tone's scheduled end.
+    // Backgrounding is not recipient acknowledgement. Disposing the owning
+    // session still releases sound immediately.
     await evaluateWithoutGesture(`window.dispatchEvent(new Event("pagehide"))`);
-    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(0);
+    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(1);
     await evaluateWithoutGesture("window.releaseSound()");
+    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(0);
     await expect.poll(() => evaluateWithoutGesture("window.createdContexts[0].state")).toBe("closed");
   } finally {
     await browser.close();
@@ -281,7 +282,7 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
   await expect(page.getByTestId("sos-sms-progress")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("sms-send-tap-countdown.png"), fullPage: true });
   await send.click();
-  await expect(send).toHaveText("Send");
+  await expect(send).toHaveText("Send · 2s");
   await page.waitForTimeout(2100);
   await expect(page.locator("body")).not.toHaveAttribute("data-sent-count");
   await page.getByRole("button", { name: "Come get me" }).click();

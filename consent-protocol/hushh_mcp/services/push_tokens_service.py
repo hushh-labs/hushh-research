@@ -21,12 +21,12 @@ LEGACY_REGISTRY_OWNER_FILTER = """
     > (COALESCE(l.updated_at,l.created_at),l.id))
 """
 PUSH_TOKEN_REGISTRY_SQL = f"""
- SELECT id,user_id,token,platform,device_id,preview_key_id,preview_public_key,
+ SELECT id,user_id,token,platform,device_id,preview_key_id,preview_public_key,sms_alarm_version,
    'installation' AS source FROM user_push_installations p
  WHERE NOT EXISTS (SELECT 1 FROM account_deletion_tombstones t
   WHERE t.user_id_hash='sha256:' || encode(digest(p.user_id,'sha256'),'hex'))
  UNION ALL
- SELECT id,user_id,token,platform,device_id,preview_key_id,preview_public_key,
+ SELECT id,user_id,token,platform,device_id,preview_key_id,preview_public_key,0 AS sms_alarm_version,
    'legacy' AS source FROM user_push_tokens l WHERE {LEGACY_REGISTRY_OWNER_FILTER}
  AND NOT EXISTS (SELECT 1 FROM account_deletion_tombstones t
   WHERE t.user_id_hash='sha256:' || encode(digest(l.user_id,'sha256'),'hex'))
@@ -34,6 +34,10 @@ PUSH_TOKEN_REGISTRY_SQL = f"""
 PUSH_TOKENS_FOR_USER_SQL = f"""
  SELECT token,platform FROM ({PUSH_TOKEN_REGISTRY_SQL}) registrations WHERE user_id=:user_id
 """  # nosec B608 # Composes the fixed registry query; user_id remains a bound parameter.
+
+PUSH_SMS_DEVICES_FOR_USER_SQL = f"""
+ SELECT token,platform,sms_alarm_version FROM ({PUSH_TOKEN_REGISTRY_SQL}) registrations WHERE user_id=:user_id
+"""  # nosec B608 # SMS renderer negotiation stays in the canonical registry.
 
 
 PUSH_NOTIFICATION_DEVICES_FOR_USER_SQL = f"""
@@ -63,6 +67,32 @@ def restore_legacy_push_projection(db, user_id: str) -> None:
         raise RuntimeError("Failed to restore compatible push registration")
 
 
+UPSERT_INSTALLATION_SQL = """
+    INSERT INTO user_push_installations (user_id, token, platform, device_id,
+      preview_key_id, preview_public_key, sms_alarm_version, created_at, updated_at)
+    VALUES (:user_id, :token, :platform, COALESCE(CAST(:device_id AS uuid), gen_random_uuid()),
+      CAST(:preview_key_id AS uuid), :preview_public_key, :sms_alarm_version, NOW(), NOW())
+    ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id,
+      platform = EXCLUDED.platform, device_id = COALESCE(CAST(:device_id AS uuid), user_push_installations.device_id),
+      preview_key_id = EXCLUDED.preview_key_id, preview_public_key = EXCLUDED.preview_public_key,
+      sms_alarm_version = EXCLUDED.sms_alarm_version,
+      updated_at = NOW()
+    RETURNING id
+"""
+
+UPSERT_LEGACY_PUSH_SQL = """
+    INSERT INTO user_push_tokens(user_id,token,platform,created_at,updated_at)
+    VALUES(:user_id,:token,:platform,now(),now())
+    ON CONFLICT(user_id,platform) DO UPDATE SET token=EXCLUDED.token,
+      preview_key_id=NULL, preview_public_key=NULL, updated_at=now()
+    RETURNING id
+"""
+PUSH_REGISTRATION_OWNERS_SQL = """
+    SELECT user_id FROM user_push_installations WHERE token=:token OR device_id=CAST(:device AS uuid)
+    UNION SELECT user_id FROM user_push_tokens WHERE token=:token OR device_id=CAST(:device AS uuid)
+"""
+
+
 class PushTokensService:
     """
     Service-layer wrapper for push token persistence.
@@ -79,32 +109,10 @@ class PushTokensService:
         device_id: str | None = None,
         preview_key_id: str | None = None,
         preview_public_key: str | None = None,
+        sms_alarm_version: int = 0,
     ) -> Optional[int]:
         db = get_db()
 
-        sql = """
-            INSERT INTO user_push_installations (user_id, token, platform, device_id,
-              preview_key_id, preview_public_key, created_at, updated_at)
-            VALUES (:user_id, :token, :platform, COALESCE(CAST(:device_id AS uuid), gen_random_uuid()),
-              CAST(:preview_key_id AS uuid), :preview_public_key, NOW(), NOW())
-            ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id,
-              platform = EXCLUDED.platform, device_id = COALESCE(CAST(:device_id AS uuid), user_push_installations.device_id),
-              preview_key_id = EXCLUDED.preview_key_id, preview_public_key = EXCLUDED.preview_public_key,
-              updated_at = NOW()
-            RETURNING id
-        """
-
-        legacy_sql = """
-            INSERT INTO user_push_tokens(user_id,token,platform,created_at,updated_at)
-            VALUES(:user_id,:token,:platform,now(),now())
-            ON CONFLICT(user_id,platform) DO UPDATE SET token=EXCLUDED.token,
-              preview_key_id=NULL, preview_public_key=NULL, updated_at=now()
-            RETURNING id
-        """
-        owner_sql = """
-            SELECT user_id FROM user_push_installations WHERE token=:token OR device_id=CAST(:device AS uuid)
-            UNION SELECT user_id FROM user_push_tokens WHERE token=:token OR device_id=CAST(:device AS uuid)
-        """
         # Serialize both token and installation ownership, including rotation.
         from sqlalchemy import text
         from sqlalchemy.exc import DBAPIError
@@ -119,7 +127,7 @@ class PushTokensService:
                 with db.engine.begin() as conn:
                     old_users = (
                         conn.execute(
-                            text(owner_sql),
+                            text(PUSH_REGISTRATION_OWNERS_SQL),
                             {"token": token, "device": device_id},
                         )
                         .scalars()
@@ -137,7 +145,7 @@ class PushTokensService:
                         )
                     current_users = set(
                         conn.execute(
-                            text(owner_sql),
+                            text(PUSH_REGISTRATION_OWNERS_SQL),
                             {"token": token, "device": device_id},
                         )
                         .scalars()
@@ -164,7 +172,7 @@ class PushTokensService:
                     )
                     legacy_row = (
                         conn.execute(
-                            text(legacy_sql),
+                            text(UPSERT_LEGACY_PUSH_SQL),
                             {"user_id": user_id, "token": token, "platform": platform},
                         )
                         .mappings()
@@ -193,9 +201,12 @@ class PushTokensService:
                         )
                         row = legacy_row
                     if device_id:
+                        conn.execute(
+                            text("SELECT set_config('hushh.sms_alarm_registration', '1', true)")
+                        )
                         row = (
                             conn.execute(
-                                text(sql),
+                                text(UPSERT_INSTALLATION_SQL),
                                 {
                                     "user_id": user_id,
                                     "token": token,
@@ -203,6 +214,9 @@ class PushTokensService:
                                     "device_id": device_id,
                                     "preview_key_id": preview_key_id,
                                     "preview_public_key": preview_public_key,
+                                    "sms_alarm_version": sms_alarm_version
+                                    if platform == "android" and preview_key_id
+                                    else 0,
                                 },
                             )
                             .mappings()

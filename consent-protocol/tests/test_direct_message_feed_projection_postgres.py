@@ -378,8 +378,7 @@ def projection_db():
                     CREATE TABLE circle_chat_messages(id UUID PRIMARY KEY);
                     CREATE TABLE circle_chat_recipients(push_due_at TIMESTAMPTZ);
                     CREATE TABLE feed_events (
-                      id BIGSERIAL PRIMARY KEY,
-                      user_id TEXT NOT NULL,
+                      id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL,
                       source_domain TEXT NOT NULL,
                       event_type TEXT NOT NULL,
                       actor_label TEXT,
@@ -425,6 +424,7 @@ def projection_db():
                     "282_direct_message_actions.sql",
                     "284_direct_message_multiple_reactions.sql",
                     "290_chat_push_delivery.sql",
+                    "441_sms_alarm_capability.sql",
                     "295_direct_message_attachments.sql",
                     "327_direct_message_delivery_receipts.sql",
                 ]

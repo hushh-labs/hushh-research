@@ -4670,6 +4670,36 @@ describe("OneLocationAgentPage", () => {
     expect(mockSendSosEmails).toHaveBeenCalled();
   });
 
+  it("reports SMS primary delivery and lets Stop finish while the email fallback is still pending", async () => {
+    mockGetSmsContacts.mockResolvedValue(["user_b"]);
+    mockStoreEnvelope.mockResolvedValue({ recipientAlerted: true });
+    const baseState = locationState();
+    const smsGrant = { ...baseState.ownerGrants[0]!, id: "grant_email_pending", shareKind: "sos", expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString() };
+    let active = false;
+    mockCreateGrant.mockImplementation(async () => { active = true; return smsGrant; });
+    mockRevokeGrant.mockImplementation(async () => { active = false; return { ...smsGrant, status: "revoked" }; });
+    mockGetState.mockImplementation(async () => ({ ...baseState, ownerGrants: active ? [smsGrant] : [] }));
+    let finishEmail!: (value: { emailed: number; attempted: number; configured: boolean; withoutEmail: string[] }) => void;
+    mockSendSosEmails.mockReturnValueOnce(new Promise((resolve) => { finishEmail = resolve; }));
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    fireEvent.click(screen.getByRole("button", { name: "Save My Soul emergency alert" }));
+    const hold = await screen.findByRole("button", { name: /^Press and hold for two seconds/ });
+    await waitFor(() => expect(hold).toBeEnabled());
+    fireEvent.keyDown(hold, { key: " ", code: "Space" });
+    await waitFor(() => expect(mockSendSosEmails).toHaveBeenCalled(), { timeout: 4000 });
+    expect(toast.success).toHaveBeenCalledWith("SMS alert sent.", expect.anything());
+    const stop = screen.getByRole("button", { name: "Stop Save My Soul alert" });
+    expect(stop).toBeEnabled();
+    fireEvent.click(stop);
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop Save My Soul alert?" })).getByRole("button", { name: "Stop alert" }));
+    await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop Save My Soul alert" })).toBeNull());
+    const calls = vi.mocked(toast.success).mock.calls.length;
+    await act(async () => finishEmail({ emailed: 1, attempted: 1, configured: true, withoutEmail: [] }));
+    expect(vi.mocked(toast.success).mock.calls).toHaveLength(calls);
+  });
+
   it("does not prompt for location merely by opening Save My Soul", async () => {
     mockGetPermissionState.mockResolvedValue({ state: "prompt", precise: null, background: "foreground-only", locationServicesEnabled: true });
     render(<OneLocationAgentPage />);
@@ -4711,6 +4741,8 @@ describe("OneLocationAgentPage", () => {
     await act(async () => { releasePassive({ state: "prompt", precise: null, background: "foreground-only", locationServicesEnabled: true }); });
     expect(mockCreateGrant).toHaveBeenCalledTimes(grantsAfter);
     fireEvent.click(screen.getByRole("button", { name: "Stop Save My Soul alert" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop Save My Soul alert?" })).getByRole("button", { name: "Stop alert" }));
+    await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByRole("button", { name: "Stop Save My Soul alert" })).toBeNull());
   });
 
