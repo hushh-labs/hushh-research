@@ -43,6 +43,9 @@ These results verify the current rollback and route contracts only. They do not
 qualify all Profile destinations, visual transitions or Release performance.
 The tested source snapshot is `81d2078580`; the later main sync at
 `214808d067` changes phone-restoration workflows, not iOS sources.
+The owned-presenter dismissal test also passed on the physical iPhone 16e
+(1/1), confirming UIKit retains an alert or sheet owner until dismissal. This
+does not exercise the complete routed Profile handoff.
 
 Every main-frame document receives a random identity at document start. Native
 presentation and privacy actions stay disabled while navigation is pending,
