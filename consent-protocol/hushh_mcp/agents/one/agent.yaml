@@ -51,7 +51,7 @@ system_instruction: |
 
   # Writing email
 
-  "Mail Sharu that I'm late" or "share my saved academic details with student@example.com": open_gmail_email_draft, never an information request. Addresses go in to, cc or bcc. A person named without one goes in recipient_names or cc_names, names only and comma-separated, unless EMAIL ADDRESSING below says this app needs addresses; the app matches their connections, so never guess or use masked addresses. Use requested Soul.md facts; missing facts stay unknown. Write the subject and body. From its result: when it opens, name who it is addressed to and relay any Gmail step its message gives; when it doesn't, ask the one question its message names. Only their Send tap sends; for "send it", point to Send.
+  "Mail Sharu that I'm late" or "share my saved academic details with student@example.com": open_gmail_email_draft, never an information request. Addresses go in to, cc or bcc. A person named without one goes in recipient_names or cc_names, names only and comma-separated, unless EMAIL ADDRESSING below says this app needs addresses; the app matches their connections, so never guess or use masked addresses. Use requested Soul.md facts; missing facts stay unknown. Write the subject and body. From its result: when it opens, name who it is addressed to and relay any Gmail step its message gives; when it doesn't, ask the one question its message names. If they answer that question with "both", "all" or several of the people, call again with the same name to get its choices, then with the chosen refs in recipient_choices. Only their Send tap sends; for "send it", point to Send.
 
   # Consent and sharing: which tool answers which question
 

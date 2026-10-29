@@ -63,7 +63,7 @@ import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-tur
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
 import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
 import { RECEIPT_FUNCTIONS, RECEIPT_TOOL_DECLARATIONS, type ReceiptAnalysisRequest, type ReceiptFunction } from "@/lib/mail/receipt-analysis";
-import { receiptCallRequest, receiptCallRunner, type ReceiptSetupState } from "./agent-chat-receipt-calls";
+import { receiptCallRequest, receiptCallRunner, settleReceiptCalls, type ReceiptSetupState } from "./agent-chat-receipt-calls";
 
 export type AgentChatMessage = {
   id: string;
@@ -1543,15 +1543,17 @@ export async function streamAgentChat(input: {
   };
   const startReceiptCall = (toolCallId: string, operation: ReceiptFunction, args: unknown) => {
     if (receiptCalls.has(toolCallId)) return;
+    const admission = receiptCallRequest(operation, receiptArgs.get(toolCallId), args, timezone, receiptSessionCurrent() && receiptCalls.size < 4);
+    receiptArgs.delete(toolCallId);
     receiptPrivate = true;
     handlers.onReceiptPrivate?.();
-    const request = receiptCallRequest(operation, receiptArgs.get(toolCallId), args, timezone, receiptSessionCurrent() && receiptCalls.size < 4);
-    receiptArgs.delete(toolCallId);
-    if (!request) {
+    // The hub drops schema-invalid calls, so any call reaching here was bound: one it can't admit fails the turn.
+    if (admission.kind !== "admitted") {
       failure = new Error("Receipt request doesn't match this owner turn. Ask again.");
       handlers.onError?.(failure.message);
       agent.abortRun(); finishTerminalRun(); return;
     }
+    const { request } = admission;
     receiptCalls.set(toolCallId, runReceiptCall(operation, request).then(result => ({ toolCallId, toolName: operation, request, result })));
   };
   const subscriber: AgentSubscriber = {
@@ -2155,12 +2157,13 @@ export async function streamAgentChat(input: {
         status: "resolved" as const, payload: { confirmed: recovered.approval !== null } }] } : {}),
     });
     if (receiptCalls.size && !failure && !detached && !input.signal?.aborted) {
-      const receiptToolResults = await Promise.all(receiptCalls.values());
+      const receiptToolResults = await settleReceiptCalls(receiptCalls.values(), input.signal, () => handlers.onStreamHealth?.({ kind: "activity" }));
       receiptCalls.clear();
       if (mcpReviews.size) throw new Error("Receipt analysis must complete in its own authorized turn. Ask again.");
       if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Unlock and ask again.");
-      for (const item of receiptToolResults) agent.addMessage({ id: crypto.randomUUID(), role: "tool", toolCallId: item.toolCallId,
-        content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) });
+      // Only the receipt replies: replaying run A's question made the bridge start a second run beside the receipt call.
+      agent.setMessages(receiptToolResults.map(item => ({ id: crypto.randomUUID(), role: "tool" as const, toolCallId: item.toolCallId,
+        content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) })));
       await runUntilTerminal({ tools, context: [], forwardedProps: {
         timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2,
       } });
