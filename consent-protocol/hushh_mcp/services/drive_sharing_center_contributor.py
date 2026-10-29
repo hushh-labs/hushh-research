@@ -20,7 +20,7 @@ from hushh_mcp.services.drive_request_queue import (
     queue_delayed,
     started_work_waiting_since,
 )
-from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
+from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -986,6 +986,13 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         ]
         if not share_ids:
             return
+        cipher = DriveSharingCipher()
+        try:
+            cipher._key()
+        except DriveSharingError:
+            # The center's generic metadata projection must remain available
+            # when the optional private sharing key is unavailable.
+            return
         private_rows = connection.execute(
             text("""SELECT request_id,user_id,request_envelope
             FROM drive_share_requests
@@ -994,7 +1001,6 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                 FROM jsonb_array_elements_text(CAST(:ids AS jsonb)))"""),
             {"user": user_id, "ids": json.dumps(share_ids)},
         ).mappings()
-        cipher = DriveSharingCipher()
         by_id = {}
         for private_row in private_rows:
             identifier = str(private_row["request_id"])

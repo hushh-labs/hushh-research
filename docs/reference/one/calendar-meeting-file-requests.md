@@ -1,5 +1,19 @@
 # Calendar meeting file requests: typed Drive integration
 
+## Visual Context
+
+Canonical owner: [One Index](./README.md). The related Calendar model is in the
+[Calendar knowledge graph](./one-calendar-knowledge-graph.md).
+
+```mermaid
+flowchart LR
+  Calendar[Selected Calendar account] --> Request[Occurrence-bound request]
+  Request --> Feed[Organizer Feed review]
+  Feed --> Share[Exact-file Drive sharing]
+  Share --> Verify[Selected-account access check]
+  Verify --> Card[Calendar card]
+```
+
 Status: implementation contract for the Calendar Insights follow-up to PR #8584. This contract does not change ordinary Drive requests or grant Calendar read access permission to share a file.
 
 ## Authority and identity
