@@ -7,6 +7,30 @@ import pytest
 from tests.test_uat_deploy_no_traffic_contract import _managed_provider_gate, _provider_fixture
 
 
+def _execution_fixture(value, expected, environment):
+    return {
+        "metadata": {"ownerReferences": [{"name": value["job"]}]},
+        "spec": {
+            "template": {
+                "spec": {
+                    "serviceAccountName": expected["runtime_account"],
+                    "containers": [
+                        {
+                            "image": expected["image"],
+                            "command": ["python3"],
+                            "args": ["scripts/verify_managed_vertex_runtime.py"],
+                            "env": [
+                                {"name": name, "value": item} for name, item in environment.items()
+                            ],
+                        }
+                    ],
+                }
+            }
+        },
+        "status": {"conditions": [{"type": "Completed", "status": "True"}]},
+    }
+
+
 def _record_vertex(monkeypatch, scope):
     gate = _managed_provider_gate()
     expected, value = _provider_fixture(gate, "vertex")
@@ -45,27 +69,7 @@ def _record_vertex(monkeypatch, scope):
         (gate.ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text()
     )
     environment["GENAI_GOOGLE_CLOUD_PROJECT"] = document["environments"]["uat"]["project"]
-    execution = {
-        "metadata": {"ownerReferences": [{"name": value["job"]}]},
-        "spec": {
-            "template": {
-                "spec": {
-                    "serviceAccountName": expected["runtime_account"],
-                    "containers": [
-                        {
-                            "image": expected["image"],
-                            "command": ["python3"],
-                            "args": ["scripts/verify_managed_vertex_runtime.py"],
-                            "env": [
-                                {"name": name, "value": item} for name, item in environment.items()
-                            ],
-                        }
-                    ],
-                }
-            }
-        },
-        "status": {"conditions": [{"type": "Completed", "status": "True"}]},
-    }
+    execution = _execution_fixture(value, expected, environment)
 
     def cloud(arguments):
         if arguments[:4] == ["run", "jobs", "executions", "list"]:
@@ -73,7 +77,10 @@ def _record_vertex(monkeypatch, scope):
         if arguments[:4] == ["run", "jobs", "executions", "describe"]:
             return execution
         assert arguments[:2] == ["logging", "read"] and value["execution"] in arguments[2]
-        return [{"jsonPayload": terminal}]
+        return [
+            {"jsonPayload": terminal},
+            {"jsonPayload": {"managed_capabilities_probe": value["capability_proof"]}},
+        ]
 
     for name, item in expected.items():
         monkeypatch.setenv("READINESS_" + name.upper(), str(item))
@@ -123,3 +130,37 @@ def test_drive_probe_history_still_refuses_unreviewed_names_and_attempts(defect)
         helper.sanitize_probe_history(
             [row], provider="azure_openai" if defect == "azure" else "vertex"
         )
+
+
+def test_vertex_capability_failure_survives_collection_without_private_payloads():
+    helper = _managed_provider_gate()._capability_proof()
+    diagnostics = helper.execution_diagnostics(
+        "vertex",
+        [
+            {
+                "check": "managed_vertex_runtime",
+                "probes": [
+                    {
+                        "probe": "capability:one_text_root",
+                        "ok": False,
+                        "classification": "candidate_misconfigured",
+                        "attempts": [
+                            {
+                                "ok": False,
+                                "classification": "candidate_misconfigured",
+                                "elapsed_ms": 3,
+                                "error_type": "ValueError",
+                                "failure_reason": "root.roundtrip_failed",
+                                "error": "SYNTHETIC_PRIVATE_PROVIDER_BODY",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    )
+    assert diagnostics["capabilities"]["capability:one_text_root"] is False
+    assert (
+        diagnostics["probe_history"][0]["attempts"][0]["failure_reason"] == "root.roundtrip_failed"
+    )
+    assert "SYNTHETIC_PRIVATE_PROVIDER_BODY" not in str(diagnostics)

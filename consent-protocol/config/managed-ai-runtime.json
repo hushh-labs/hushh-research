@@ -1,5 +1,8 @@
 {
   "version": 1,
+  "managed_provider_selection": {
+    "uat": "azure_openai"
+  },
   "private_drive_text_uat": {
     "enabled": true,
     "policy_id": "6f3464f2-5df4-4d23-864d-11f7b164c051",

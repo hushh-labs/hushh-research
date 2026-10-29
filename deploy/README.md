@@ -422,10 +422,12 @@ runtime identity, in parallel. A provider passes only when its full application
 capability bundle passes: structured and streamed text, image and PDF inputs,
 public search citations, exact public source retrieval, Location transcription
 and semantics, isolated narration, Live audio with function results and input
-transcription, and compatible embeddings. The required aggregate accepts either
-complete provider (or both), preferring Azure; neither passing blocks promotion.
+transcription, and compatible embeddings. The required aggregate qualifies the
+provider selected in `config/managed-ai-runtime.json` (`managed_provider_selection.uat`),
+with Azure as the checked-in default. A healthy alternate does not override that
+choice; an incomplete selected provider blocks promotion.
 The API and both Drive workers must bind the same selected provider. UAT remains
-held until Azure has a verified replacement for every declared capability.
+held until the selected provider has verified every declared capability.
 
 Azure's canonical PWM schema and six-case attribution evaluation remain
 independent safety checks. An explicit identity, attribution or schema violation
