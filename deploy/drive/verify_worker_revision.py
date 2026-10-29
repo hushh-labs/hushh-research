@@ -144,6 +144,26 @@ SCANNER_AMD64 = (
 SERVICE = "consent-protocol-drive-worker"
 
 
+def same_worker_spec(desired: dict, observed: dict) -> bool:
+    """Compare exact settings after resolving only the reviewed scanner image pair."""
+    normalized = []
+    for spec in (desired, observed):
+        value = copy.deepcopy(spec)
+        scanners = [
+            item for item in value.get("containers", []) if item.get("name") == "clamav"
+        ]
+        allowed = {
+            f"{repository}@{digest}"
+            for repository in ("clamav/clamav", "mirror.gcr.io/clamav/clamav")
+            for digest in (SCANNER_INDEX, SCANNER_AMD64)
+        }
+        if len(scanners) != 1 or scanners[0].get("image") not in allowed:
+            return False
+        scanners[0]["image"] = f"clamav/clamav@{SCANNER_AMD64}"
+        normalized.append(value)
+    return normalized[0] == normalized[1]
+
+
 def scheduler_command(action: str, path: Path, origin: str) -> list[str]:
     if action not in {"capture", "verify"}:
         raise ValueError("worker_scheduler_action_invalid")
