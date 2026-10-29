@@ -25,6 +25,7 @@ import httpx
 
 from db.db_client import get_db
 from hushh_mcp.consent.audit_logger import get_trace_id
+from hushh_mcp.services import google_calendar_booking as booking
 from hushh_mcp.services.google_calendar_proposals import (
     CalendarProposalStore,
     CalendarTokens,
@@ -122,6 +123,13 @@ def _meeting_link(value: object) -> tuple[str, str] | None:
             or re.fullmatch(r"/meet/[0-9]{10,40}/?", path)
         ):
             return candidate, "Microsoft Teams"
+        if host in {"discord.com", "discordapp.com"} and (
+            re.fullmatch(r"/channels/(?:@me|[0-9]{5,25})/[0-9]{5,25}/?", path)
+            or re.fullmatch(r"/invite/[A-Za-z0-9-]{2,64}/?", path)
+        ):
+            return candidate, "Discord"
+        if host == "discord.gg" and re.fullmatch(r"/[A-Za-z0-9-]{2,64}/?", path):
+            return candidate, "Discord"
     except ValueError:
         return None
     return None
@@ -1164,28 +1172,52 @@ class GoogleCalendarService:
         expected_binding: tuple[str, ...] | None = None,
     ) -> list[dict[str, Any]]:
         """Read the exact overlapping events used to warn the owner."""
-        response = await self._request(
-            user_id=user_id,
-            method="GET",
-            path="/calendars/primary/events",
-            access="manage",
-            expected_binding=expected_binding,
-            params={
-                "timeMin": start_at,
-                "timeMax": end_at,
-                "singleEvents": "true",
-                "orderBy": "startTime",
-                "maxResults": 2500,
-            },
+        conflicts: list[dict[str, Any]] = []
+        page: str | None = None
+        seen_pages: set[str] = set()
+        for _ in range(10):
+            response = await self._request(
+                user_id=user_id,
+                method="GET",
+                path="/calendars/primary/events",
+                access="manage",
+                expected_binding=expected_binding,
+                params={
+                    "timeMin": start_at,
+                    "timeMax": end_at,
+                    "singleEvents": "true",
+                    "orderBy": "startTime",
+                    "maxResults": 2500,
+                    **({"pageToken": page} if page else {}),
+                },
+            )
+            items = response.get("items", [])
+            if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+                raise self._invalid_response()
+            conflicts.extend(
+                self._event_summary(event)
+                for event in items
+                if event.get("status") != "cancelled"
+                and event.get("transparency") != "transparent"
+                and str(event.get("id") or "") != str(exclude_event_id or "")
+            )
+            next_page = response.get("nextPageToken")
+            if not next_page:
+                return conflicts
+            if not isinstance(next_page, str) or next_page in seen_pages:
+                raise self._invalid_response()
+            seen_pages.add(next_page)
+            page = next_page
+        raise GoogleConnectionError(
+            "Calendar conflicts could not be fully checked",
+            status_code=502,
+            reason_code="calendar_invalid_response",
         )
-        return [
-            self._event_summary(event)
-            for event in response.get("items", [])
-            if isinstance(event, dict)
-            and event.get("status") != "cancelled"
-            and event.get("transparency") != "transparent"
-            and str(event.get("id") or "") != str(exclude_event_id or "")
-        ]
+
+    async def _board_booking_state(
+        self, *, user_id: str, plan: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        return await booking.board_booking_state(self, user_id=user_id, plan=plan)
 
     async def propose(
         self,
@@ -1211,13 +1243,10 @@ class GoogleCalendarService:
             )
         await self._check_read_binding(user_id, binding)
         plan = self._validate_plan(action=action, payload=payload)
-        plan["connection_binding"] = list(binding)
-        if action == "create" and await self.connections.has_service_scope(
-            user_id=user_id, service="calendar", scope=CALENDAR_LIST_READ_SCOPE
-        ):
-            plan["included_conflicts"] = await self._creation_conflicts(
-                user_id=user_id, plan=plan, binding=binding
-            )
+        await booking.prepare_proposal_account(self, user_id=user_id, plan=plan, binding=binding)
+        await booking.prepare_included_conflicts(
+            self, user_id=user_id, action=action, plan=plan, binding=binding
+        )
         expected_etag: str | None = None
         if action != "create":
             event = await self._request(
@@ -1231,7 +1260,7 @@ class GoogleCalendarService:
             plan["current_event"] = self._event_summary(event)
             if action == "reschedule":
                 self._stage_reschedule(plan, event)
-        if action in {"create", "reschedule"}:
+        if action in {"create", "reschedule"} and plan.get("booking_source") != "board":
             plan["conflicts"] = await self._find_conflicts(
                 user_id=user_id,
                 start_at=plan["start_at"],
@@ -1265,64 +1294,7 @@ class GoogleCalendarService:
         }
 
     def _validate_plan(self, *, action: str, payload: dict[str, Any]) -> dict[str, Any]:
-        event_id = str(payload.get("event_id") or "").strip()
-        title = str(payload.get("title") or "").strip()
-        if action in {"reschedule", "cancel"} and not event_id:
-            raise GoogleConnectionError("Calendar event id is required", status_code=422)
-        if action == "cancel":
-            return {"event_id": event_id, "send_updates": bool(payload.get("send_updates", True))}
-        # A reschedule changes only what it names; the current title stands.
-        if (action == "create" and not title) or len(title) > 512:
-            raise GoogleConnectionError("Calendar event title is required", status_code=422)
-        start, end = (
-            self._iso(str(payload.get("start_at") or "")),
-            self._iso(str(payload.get("end_at") or "")),
-        )
-        if start >= end:
-            raise GoogleConnectionError("Calendar end must be after start", status_code=422)
-        raw_attendees = payload.get("attendees")
-        attendees = [
-            str(item).strip().lower()
-            for item in (raw_attendees if isinstance(raw_attendees, list) else [])
-            if str(item).strip()
-        ]
-        if len(attendees) > 100 or any("@" not in item for item in attendees):
-            raise GoogleConnectionError(
-                "Calendar attendees must be valid email addresses", status_code=422
-            )
-        description = str(payload.get("description") or "")[:8000]
-        location = str(payload.get("location") or "")[:1024]
-        plan: dict[str, Any] = {
-            "event_id": event_id or None,
-            "start_at": start,
-            "end_at": end,
-            "time_zone": str(payload.get("time_zone") or "UTC"),
-            "send_updates": bool(payload.get("send_updates", True)),
-        }
-        if action == "create":
-            return {
-                **plan,
-                "title": title,
-                "attendees": attendees,
-                "description": description,
-                "location": location,
-                # This id is created before the confirmation is persisted, so
-                # the reviewed proposal remains the idempotency boundary for
-                # Google's asynchronous conference generation request.
-                "conference_request_id": f"meet_{secrets.token_urlsafe(18)}",
-            }
-        # Reschedule: an omitted or empty field is left exactly as it is.
-        # Attendees, when given, are the complete new list; the review shows
-        # who that adds and removes before anything changes.
-        changes = {
-            "title": title,
-            "description": description,
-            "location": location,
-        }
-        plan.update({key: value for key, value in changes.items() if value})
-        if attendees:
-            plan["attendees"] = list(dict.fromkeys(attendees))
-        return plan
+        return booking.validate_plan(self, action=action, payload=payload)
 
     def _stage_reschedule(self, plan: dict[str, Any], event: dict[str, Any]) -> None:
         """Record what the reviewed reschedule changes on the fetched event."""
@@ -1486,7 +1458,9 @@ class GoogleCalendarService:
             for left, right in busy
         ]
 
-    async def execute(self, *, user_id: str, proposal_id: str) -> dict[str, Any]:
+    async def execute(
+        self, *, user_id: str, proposal_id: str, account_id: str = "default"
+    ) -> dict[str, Any]:
         await self._purge_expired_proposals(user_id=user_id)
         proposal = await self.proposals.claim(user_id=user_id, proposal_id=proposal_id)
         if not proposal:
@@ -1497,10 +1471,18 @@ class GoogleCalendarService:
         value_epoch = await capture_value_epoch(user_id)
         plan = proposal["plan"]
         try:
+            if plan.get("account_id", "default") != account_id or account_id != getattr(
+                self.connections, "account_id", "default"
+            ):
+                raise GoogleConnectionError(
+                    "Calendar account changed. Review the meeting again.", status_code=409
+                )
             binding = tuple(plan["connection_binding"]) if plan.get("connection_binding") else None
             if binding is not None:
                 await self._check_read_binding(user_id, binding)
             action = proposal["action"]
+            if action == "create" and plan.get("booking_source") == "board":
+                await booking.verify_board_execution(self, user_id=user_id, plan=plan)
             if action == "create" and "included_conflicts" in plan:
                 if "availability_calendar_ids" not in plan:
                     raise GoogleConnectionError(
@@ -1515,34 +1497,8 @@ class GoogleCalendarService:
                     ),
                 )
             if action == "create":
-                if not str(plan.get("conference_request_id") or "").strip():
-                    # A proposal persisted immediately before Meet support
-                    # shipped has no request id. Its proposal id is already
-                    # owner-scoped and confirmation-bound, so it provides a
-                    # stable idempotency key for this short compatibility path.
-                    plan["conference_request_id"] = (
-                        f"meet_legacy_{proposal_id.removeprefix('gcal_')}"
-                    )
-                self._reject_new_conflicts(
-                    planned=plan.get("primary_conflicts", plan.get("conflicts")),
-                    current=await self._find_conflicts(
-                        user_id=user_id,
-                        start_at=plan["start_at"],
-                        end_at=plan["end_at"],
-                        expected_binding=binding,
-                    ),
-                )
-                response = await self._request(
-                    user_id=user_id,
-                    method="POST",
-                    path="/calendars/primary/events",
-                    access="manage",
-                    expected_binding=binding,
-                    params={
-                        "sendUpdates": "all" if plan["send_updates"] else "none",
-                        "conferenceDataVersion": 1,
-                    },
-                    payload=self._event_payload(plan),
+                response = await booking.execute_create(
+                    self, user_id=user_id, proposal_id=proposal_id, plan=plan, binding=binding
                 )
             else:
                 current = await self._request(
@@ -1627,6 +1583,10 @@ class GoogleCalendarService:
         }
 
     @staticmethod
+    def _reject_board_conflicts(*, planned: object, current: list[dict[str, Any]]) -> None:
+        booking.reject_board_conflicts(planned=planned, current=current)
+
+    @staticmethod
     def _reject_new_conflicts(*, planned: object, current: list[dict[str, Any]]) -> None:
         reviewed = planned if isinstance(planned, list) else []
         if GoogleCalendarService._conflict_fingerprints(reviewed) != (
@@ -1651,20 +1611,7 @@ class GoogleCalendarService:
 
     @staticmethod
     def _event_payload(plan: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "summary": plan["title"],
-            "description": plan["description"] or None,
-            "location": plan["location"] or None,
-            "start": {"dateTime": plan["start_at"], "timeZone": plan["time_zone"]},
-            "end": {"dateTime": plan["end_at"], "timeZone": plan["time_zone"]},
-            "attendees": [{"email": email} for email in plan["attendees"]],
-            "conferenceData": {
-                "createRequest": {
-                    "requestId": plan["conference_request_id"],
-                    "conferenceSolutionKey": {"type": "hangoutsMeet"},
-                }
-            },
-        }
+        return booking.event_payload(plan)
 
 
 _singleton: GoogleCalendarService | None = None

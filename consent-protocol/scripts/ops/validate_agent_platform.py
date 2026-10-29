@@ -45,7 +45,7 @@ def _build_agent(*, model):
     """The single entry point under test: Agent One, built for real."""
     from hushh_mcp.one_adk import agent_tree
 
-    return agent_tree.build_one_text_agent(model=model)
+    return agent_tree.build_one_text_agent(model=model, include_client_receipt_tools=False)
 
 
 async def probe_surface() -> dict[str, dict]:

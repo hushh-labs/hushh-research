@@ -943,7 +943,7 @@ export function AuthStep({
   if (hydrated && !authLoading && sessionVerificationRequired) {
     return (
       <SessionVerificationRecovery
-        onRetry={() => void retrySessionVerification()}
+        onRetry={retrySessionVerification}
         onSignOut={() => void signOut({ skipFcmCleanup: true })}
       />
     );

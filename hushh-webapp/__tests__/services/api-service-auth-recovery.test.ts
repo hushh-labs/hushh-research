@@ -16,6 +16,8 @@ import { ComputerUseClient } from "@/lib/services/computer-use-client";
 import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { AUTH_SESSION_INVALIDATED_EVENT } from "@/lib/auth/session-invalidation";
 import { AuthService } from "@/lib/services/auth-service";
+import { apiErrorCode } from "@/lib/services/api-client";
+import { PhoneRecoveryService } from "@/lib/services/phone-recovery-service";
 const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -43,6 +45,20 @@ describe("ApiService authentication recovery", () => {
     expect(mockFetch).toHaveBeenCalledOnce();
     expect(AuthService.getIdToken).not.toHaveBeenCalled();
     expect(events.mock.calls.filter(([event]) => event.type === AUTH_SESSION_INVALIDATED_EVENT)).toHaveLength(terminal ? 1 : 0);
+  });
+
+  it("@feature_account_deletion @trace_loop sends a wrong linked-deletion code once, so the server counts one attempt", async () => {
+    publishValidatedAuthSessionPrincipal({firebaseUid: "user-1", ownerId: "user-1", accountGeneration: 0});
+    const user = {uid: "user-1", getIdToken: async () => makeUnsignedToken({sub: "user-1", version: 1})};
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(user as never);
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(makeUnsignedToken({sub: "user-1", version: 2}));
+    mockFetch.mockResolvedValueOnce(jsonResponse({detail: {code: "UAT_PHONE_TEST_INVALID_CODE"}}, 401))
+      .mockResolvedValueOnce(jsonResponse({operation_id: "op-1", state: "prepared"}));
+    const failure = await PhoneRecoveryService.confirmLinkedDeletion(user as never, "op-1", "+16505550101",
+      {test_code: "000000"}, () => true).catch(error => error);
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(AuthService.getIdToken).not.toHaveBeenCalled();
+    expect(apiErrorCode(failure)).toBe("UAT_PHONE_TEST_INVALID_CODE");
   });
 
   it("reads a selected public quote without vault authority and preserves its observed time", async () => {

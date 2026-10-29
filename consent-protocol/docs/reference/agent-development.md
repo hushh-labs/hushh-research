@@ -73,6 +73,12 @@ or establish deployment readiness. Preserve shared defaults when transferring
 portable changes from a private deployment branch; keep deployment adapters and
 pod admission policy with their owning topology.
 
+One's frontend receipt tools require the AG-UI wrapper's per-run client proxy.
+Raw ADK runners, including provider-free warmup and model qualification, build
+the same chat head with `include_client_receipt_tools=False`; all non-client
+tools and their authority checks remain in place. Wrapped interactive chat keeps
+the client tools and resolves them for each run.
+
 ### Azure response schemas with dynamic fields
 
 Memory's structure gene returns dynamic payload, summary and sensitivity maps.

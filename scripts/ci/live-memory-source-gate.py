@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
+from live_memory_pr_context import event_impact_body, report_impact_body
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = Path("docs/reference/architecture/live-memory-source-contract.md")
@@ -171,10 +172,9 @@ def validate_pr_event(admitted_kinds: set[str]) -> None:
     if not event_path:
         raise ValueError("pull_request event path is unavailable")
     event = json.loads(Path(event_path).read_text(encoding="utf-8"))
-    body = event.get("pull_request", {}).get("body")
-    if not isinstance(body, str):
-        raise ValueError("pull_request body is unavailable")
+    body = event_impact_body(event)
     validate_pr_impact(body, admitted_kinds)
+    report_impact_body(body)
 
 
 def registered_kinds(records_code: str, sync_code: str) -> tuple[set[str], set[str]]:

@@ -241,7 +241,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
     }
     if (replay && routePath.endsWith("/schedule/availability")) {
       const bundle = JSON.parse(fs.readFileSync(process.env.CALENDAR_PROVIDER_REPLAY_PATH!, "utf8"));
-      expect(body.time_zone).toBe("Asia/Calcutta");
+      expect(body.time_zone).toBe("Asia/Kolkata");
       expect(body.start_time).toBe("00:00"); expect(body.end_time).toBe("24:00");
       const response = replay === "today" ? bundle.today[String(body.duration_minutes)] : bundle.days[String(body.date)][String(body.duration_minutes)];
       return route.fulfill({ json: response });

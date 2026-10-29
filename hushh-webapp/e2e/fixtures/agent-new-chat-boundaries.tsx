@@ -27,6 +27,13 @@ export const useEffectiveAvatarUrl = () => null;
 export const useOneDisplayName = () => "One";
 export const useEntryWelcome = () => null;
 export const ModelPreferenceService = { get: async () => ({ choices: [], effective_model: "test" }) };
+const syntheticModelPreference = { choices: [], source: "owner_pod", effective_provider: "azure_openai", effective_model: "a-long-private-deployment-name", verification: "unverified" };
+const ignoreModelChange = () => {};
+export const useOneModelPreference = () => ({
+  modelPreference: location.search.includes("model=1") ? syntheticModelPreference : null,
+  modelPreferenceSaving: false,
+  handleOneModelChange: ignoreModelChange,
+});
 const search = new URLSearchParams();
 export const usePathname = () => "/";
 export const useSearchParams = () => search;

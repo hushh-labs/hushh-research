@@ -1,7 +1,10 @@
 """Frontend receipts inherit one immutable ordinary backend owner, never history."""
 
 import copy
+import hashlib
+import importlib
 import json
+import pathlib
 import subprocess
 import tempfile
 from contextlib import ExitStack, contextmanager
@@ -10,8 +13,11 @@ from types import SimpleNamespace
 from unittest import mock
 
 import production_backend_inheritance as inheritance
+
 from production_phone_receipt_fixtures import archive, cold_revision
 from production_worker_basis_cases import _basis_case, _ordinary, _runtime, _tag
+
+MAINTENANCE = importlib.import_module("uat-retention-maintenance")
 
 
 def _frontend_documents(case):
@@ -244,3 +250,136 @@ class BackendInheritanceCases:
             self.assertEqual(
                 _find(ports)[1]["_maintenance_backend_identity"]["run_id"], 500
             )
+
+
+class ProductionEvidenceStatusCases:
+    def test_legacy_production_status_is_bound_to_current_upload_and_digest(self):
+        if self.environment != "production":
+            return
+        archive = self.archive("legacy")
+        self.inventory = {"total_count": 1, "artifacts": [self.artifact]}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            (directory / "300").mkdir()
+            (directory / "300" / self.status_name).write_text('{"status":"forged"}')
+            outside = directory / "outside"
+            outside.mkdir()
+            (outside / self.status_name).write_text('{"status":"forged"}')
+            (directory / "300-artifact-100").symlink_to(outside, target_is_directory=True)
+
+            with (
+                mock.patch.object(MAINTENANCE, "api", side_effect=self.api),
+                mock.patch.object(MAINTENANCE, "download", side_effect=AssertionError("filesystem cache is not authority")),
+                mock.patch.object(
+                    MAINTENANCE.retention,
+                    "run_command",
+                    return_value=subprocess.CompletedProcess([], 0, archive, b""),
+                ),
+            ):
+                result = MAINTENANCE.load_release(self.repo, 300, directory, self.environment)
+                self.assertEqual(result["marker"], "attempt-two")
+                self.assertEqual(result["status"], "healthy")
+                self.artifact["digest"] = "sha256:" + "0" * 64
+                with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                    MAINTENANCE.load_release(self.repo, 300, directory, self.environment)
+                self.artifact["digest"] = "sha256:" + hashlib.sha256(archive).hexdigest()
+                calls = 0
+
+                def rerun(repository, endpoint):
+                    nonlocal calls
+                    result = copy.deepcopy(self.api(repository, endpoint))
+                    if endpoint == "runs/300":
+                        calls += 1
+                        if calls == 2:
+                            result["run_attempt"] += 1
+                    return result
+
+                with mock.patch.object(MAINTENANCE, "api", side_effect=rerun):
+                    with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                        MAINTENANCE.load_release(self.repo, 300, directory, self.environment)
+
+    def test_production_release_refuses_a_changed_attempt_or_new_artifact(self):
+        if self.environment != "production":
+            return
+        for defect in (None, "run", "artifact"):
+            self.setUp()
+            self.inventory = {"total_count": 0, "artifacts": []}
+            calls = {"run": 0, "artifact": 0}
+
+            def changing_api(repository, endpoint):
+                result = copy.deepcopy(self.api(repository, endpoint))
+                key = "artifact" if "/artifacts?" in endpoint else "run"
+                calls[key] += 1
+                if calls[key] == 2 and defect == key:
+                    if key == "run":
+                        result["run_attempt"] += 1
+                    else:
+                        result = {"total_count": 1, "artifacts": [self.artifact]}
+                return result
+
+            with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temporary:
+                with mock.patch.object(MAINTENANCE, "api", side_effect=changing_api):
+                    if defect is None:
+                        self.assertIsNone(MAINTENANCE.load_release(self.repo, 300, pathlib.Path(temporary), self.environment))
+                    else:
+                        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                            MAINTENANCE.load_release(self.repo, 300, pathlib.Path(temporary), self.environment)
+
+    def test_snapshot_recheck_bypasses_the_real_maintenance_api_cache(self):
+        if self.environment != "production":
+            return
+        for defect in ("run", "artifact"):
+            self.setUp()
+            inventory = {"total_count": 0, "artifacts": []}
+            calls = {"run": 0, "artifact": 0}
+
+            def command(*args):
+                key = "artifact" if "/artifacts?" in args[-1] else "run"
+                calls[key] += 1
+                value = copy.deepcopy(inventory if key == "artifact" else self.run)
+                if calls[key] == 2 and key == defect:
+                    if key == "run":
+                        value["run_attempt"] += 1
+                    else:
+                        value = {"total_count": 1, "artifacts": [self.artifact]}
+                return json.dumps(value)
+
+            cache = MAINTENANCE._API_CACHE.set({})
+            try:
+                with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temporary:
+                    with mock.patch.object(MAINTENANCE, "command", side_effect=command):
+                        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                            MAINTENANCE.load_release(self.repo, 300, pathlib.Path(temporary), self.environment)
+                self.assertGreaterEqual(calls[defect], 2)
+            finally:
+                MAINTENANCE._API_CACHE.reset(cache)
+
+
+class ProductionEvidenceFlagCases:
+    def test_production_evidence_repair_defaults_off(self):
+        receipts = MAINTENANCE.release_artifact_receipts
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(receipts.production_evidence_repair_enabled())
+        for value, expected in (("false", False), ("TRUE", False), ("1", False), ("true", True)):
+            with self.subTest(value=value), mock.patch.dict("os.environ", {receipts.PRODUCTION_EVIDENCE_REPAIR_FLAG: value}, clear=True):
+                self.assertEqual(receipts.production_evidence_repair_enabled(), expected)
+
+    def test_disabled_repair_keeps_existing_release_reader(self):
+        flag = MAINTENANCE.release_artifact_receipts.PRODUCTION_EVIDENCE_REPAIR_FLAG
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+
+            def download(_repo, _run, _name, target):
+                target.mkdir(parents=True)
+                (target / self.status_name).write_text('{"status":"blocked"}')
+
+            with (
+                mock.patch.dict("os.environ", {flag: "false"}),
+                mock.patch.object(MAINTENANCE, "artifact_exists", return_value=True),
+                mock.patch.object(MAINTENANCE, "download", side_effect=download),
+                mock.patch.object(MAINTENANCE, "uncached_api", side_effect=AssertionError("disabled repair")),
+            ):
+                self.assertEqual(
+                    MAINTENANCE.load_release(self.repo, 300, directory, "production"),
+                    {"status": "blocked"},
+                )

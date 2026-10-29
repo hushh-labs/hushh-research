@@ -118,7 +118,7 @@ class OneLocationAccountSettingsService:
 
     def get(self, *, user_id: str) -> AccountSettings:
         row = self._execute_one(
-            f"SELECT {_SETTINGS_COLUMNS} FROM one_location_account_settings WHERE user_id = :user_id",  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            f"SELECT {_SETTINGS_COLUMNS} FROM one_location_account_settings WHERE user_id = :user_id",  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"user_id": user_id},
         )
         return _row_to_settings(user_id, row)
@@ -147,7 +147,7 @@ class OneLocationAccountSettingsService:
             SET {assignments}, updated_at = NOW()
             WHERE user_id = :user_id
             RETURNING {_SETTINGS_COLUMNS}
-            """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"user_id": user_id, **params},
         )
         return _row_to_settings(user_id, updated)
@@ -264,7 +264,7 @@ class OneLocationAccountSettingsService:
                             updated_at = NOW()
                         WHERE user_id = :user_id
                         RETURNING {_SETTINGS_COLUMNS}
-                        """  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+                        """  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
                         ),
                         {
                             "user_id": user_id,
@@ -287,7 +287,7 @@ class OneLocationAccountSettingsService:
                     SELECT id FROM one_location_share_grants
                     WHERE owner_user_id = :owner_user_id AND status = 'active'
                     {_share_lane_match_sql()}
-                    """  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+                    """  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
                     ),
                     {"owner_user_id": user_id, "is_sos_lane": True},
                 )
@@ -359,7 +359,7 @@ class OneLocationAccountSettingsService:
                     SET sharing_state = 'off', sharing_disabled_at = NOW(), updated_at = NOW()
                     WHERE user_id = :user_id
                     RETURNING {_SETTINGS_COLUMNS}
-                    """  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+                    """  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
                     ),
                     {"user_id": user_id},
                 )

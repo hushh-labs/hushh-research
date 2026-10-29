@@ -614,7 +614,7 @@ async def _stream_one_text_turn_once(
     runner = Runner(
         app_name=ONE_APP_NAME,
         plugins=product_activity_plugins("agent_one"),
-        agent=build_one_text_agent(model=model_object),
+        agent=build_one_text_agent(model=model_object, include_client_receipt_tools=False),
         session_service=session_service,
         # The pod's ONLY turn path runs through here, and this argument was absent --
         # so `resolve_pod_memory_service` had no caller inside a pod at all. Its only

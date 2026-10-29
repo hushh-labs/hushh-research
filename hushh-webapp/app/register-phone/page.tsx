@@ -312,7 +312,7 @@ export function PhoneMandatePageContent() {
   if (sessionVerificationRequired || (!loading && !ownerId)) {
     return (
       <SessionVerificationRecovery
-        onRetry={() => void retrySessionVerification()}
+        onRetry={retrySessionVerification}
         onSignOut={() => void handleSignOut()}
       />
     );

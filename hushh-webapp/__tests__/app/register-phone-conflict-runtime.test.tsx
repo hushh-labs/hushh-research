@@ -156,6 +156,16 @@ describe("register-phone conflict runtime", () => {
     expect(vi.mocked(fetch).mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
+  it("@feature_account_deletion @trace_loop leaves the previous-account sign-in loop for the number's in-place choices", async () => {
+    const id = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
+    window.history.replaceState({}, "", `/register-phone?recovery=${id}`);
+    vi.mocked(fetch).mockResolvedValue(Response.json({continuation_id: id, state: "awaiting_previous_sign_in"}));
+    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "Verify the number here" }));
+    // Back to this account's phone form, where Delete my previous account runs in place; no sign-out handoff.
+    expect(mocks.routerReplace).toHaveBeenCalledWith("/register-phone");
+    expect(mocks.replaceDocument).not.toHaveBeenCalled();
+  });
   it("opens the existing deletion review only after server-matched old-owner confirmation", async () => {
     const id = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
     window.history.replaceState({}, "", `/register-phone?recovery=${id}`);

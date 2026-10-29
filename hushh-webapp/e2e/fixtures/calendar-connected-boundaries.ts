@@ -28,6 +28,7 @@ export function usePathname() { return "/one/calendar"; }
 export function useSearchParams() { return new URLSearchParams(); }
 export class ApiService {
   static apiFetch(path: string, init?: RequestInit) { return globalThis.fetch(path, init); }
+  static async getPersonalAgentStatus() { return { hostingMode: "shared" }; }
 }
 
 /** Identity is synthetic; the fixture never initializes or signs in to Firebase. */

@@ -47,7 +47,8 @@ describe("recipient-accessible Calendar rescheduling", () => {
     const suggestion = await screen.findByRole("link", { name: /^Suggest / });
     const href = decodeURIComponent(suggestion.getAttribute("href")!);
     expect(href).toContain("mailto:owner@example.com?");
-    expect(href).toContain("Asia/Kolkata");
+    expect(href).toContain("UTC+05:30");
+    expect(href).not.toContain("Asia/Kolkata");
     expect(href).toContain("30 minutes");
     expect(screen.getByRole("link", { name: "Open this meeting in Google Calendar", exact: true })).toHaveAttribute("href", offered.event_link);
     expect(window.location.hash).toBe("");
@@ -65,6 +66,21 @@ describe("recipient-accessible Calendar rescheduling", () => {
     await screen.findByRole("link", { name: /^Suggest / });
     expect(mocks.publicOptions).toHaveBeenCalledWith("captured-recipient-capability");
     expect(window.__oneCalendarReschedulingCapability).toBeUndefined();
+  });
+
+  it("shows each offered time's own offset across a clock change", async () => {
+    mocks.publicOptions.mockResolvedValueOnce({
+      ...offered,
+      time_zone: "America/New_York",
+      openings: [
+        { start_at: "2027-03-14T06:30:00Z", end_at: "2027-03-14T07:00:00Z" },
+        { start_at: "2027-03-14T07:30:00Z", end_at: "2027-03-14T08:00:00Z" },
+      ],
+    });
+    render(<CalendarReschedulingPage />);
+    const suggestions = await screen.findAllByRole("link", { name: /^Suggest / });
+    expect(suggestions[0]).toHaveTextContent("UTC-05:00");
+    expect(suggestions[1]).toHaveTextContent("UTC-04:00");
   });
 
   it.each([

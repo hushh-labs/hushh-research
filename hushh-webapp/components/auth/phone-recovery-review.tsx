@@ -75,6 +75,9 @@ function PhoneRecoveryJourney({ user: activeUser, continuationId, signOut }: Pro
         <h1 className="text-2xl font-semibold">Sign in to your previous account</h1>
         <p>Use the Google or Apple account linked to that number.</p>
         <Button disabled={signingOut} onClick={() => void choosePreviousAccount()}>Choose account</Button>
+        {/* Signing in again as this account only returns here; verifying the number offers in-place choices. */}
+        <p>Can’t sign in to it? Verify the number on this account for other options.</p>
+        <Button variant="none" disabled={signingOut} onClick={cancel}>Verify the number here</Button>
       </> : result?.state === "expired" || result?.state === "stale" ? <>
         <h1 className="text-2xl font-semibold">This request has ended</h1><p>Go back and start again.</p>
       </> : result?.state === "ready" ? <>

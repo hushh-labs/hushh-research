@@ -152,7 +152,7 @@ function HomeContent() {
   if (sessionVerificationRequired) {
     return (
       <SessionVerificationRecovery
-        onRetry={() => void retrySessionVerification()}
+        onRetry={retrySessionVerification}
         onSignOut={() => void signOut({ skipFcmCleanup: true })}
       />
     );

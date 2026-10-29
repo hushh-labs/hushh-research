@@ -18,7 +18,7 @@ async def _root_contract() -> tuple[Any, str, list[types.FunctionDeclaration]]:
     from hushh_mcp.one_adk.agent_tree import build_one_text_agent
     from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
 
-    root = build_one_text_agent(allow_workspace_tools=True)
+    root = build_one_text_agent(allow_workspace_tools=True, include_client_receipt_tools=False)
     policy = load_managed_runtime_policy()
     descriptor = policy["azure"]["one_text_root"] if policy else None
     model = root.model

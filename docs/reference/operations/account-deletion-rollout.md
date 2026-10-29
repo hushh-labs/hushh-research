@@ -782,6 +782,31 @@ response reports `ready_to_start_fresh` only when Firebase removal is confirmed,
 so it stays `false` while the shared identity is retained. Where generations are
 on, the next sign-in reaches start-fresh through `registration-status` instead.
 
+### Start-fresh recovery screens
+
+Each registration screen offers only a step that can change its answer:
+
+- Fresh proof comes from a Google, Apple or Microsoft sign-in (`registration_review`)
+  or a new email code (its purpose-bound enrollment). Any other session (phone,
+  password, custom token) can't supply it, during the identity wait or after it, so
+  that screen asks the person to sign out and choose a sign-in option, with Sign out
+  first; the title names a phone sign-in only when the session's own token says so.
+  The native app verifies Google and Apple only; a Microsoft sign-in is sent to the
+  web instead of a button that always fails.
+- `historical_cleanup_unconfirmed` and `identity_write_unconfirmed` are support-led
+  (`support@hushh.ai`). Neither expires or replays on its own (see migration 419
+  above), so the screen offers Email support and Sign out, with no refresh or polling.
+- Refresh appears only on the review, where its answer can change, and reads
+  "Checking…" while pending at every recovery mount. Forced validations coalesce: at
+  most one runs and one waits. Sign out is never disabled.
+- Dev and UAT builds trace this journey in the browser console; filter by `[KARMA]`.
+  Lines carry an opaque operation, sequence and elapsed time, then enums only:
+  `registration.shown` (state, reason, verification, the session's sign-in method,
+  rendered controls), `registration.refresh_*` and `session.validation_*` (outcome,
+  duration), `email_code.code_stale` (code, status) and `phone_transfer.transfer_refused`.
+  `lib/observability/journey-trace.ts` gates them on `resolveAppEnvironment()`, so
+  production prints nothing, whatever debug flag is set.
+
 ## Maintainer UAT backend-only erasure
 
 The test-account helper uses `AccountService.erase_uat_backend_account`, not

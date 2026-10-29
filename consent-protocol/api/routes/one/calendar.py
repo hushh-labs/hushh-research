@@ -6,11 +6,14 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 from api.middleware import require_firebase_auth, verify_user_id_match
 from api.middlewares.rate_limit import limiter
-from hushh_mcp.services.google_calendar_service import get_google_calendar_service
+from hushh_mcp.services.google_calendar_service import (
+    calendar_reads_via_door,
+    get_google_calendar_service,
+)
 from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     get_google_connection_service,
@@ -81,10 +84,34 @@ class CalendarProposal(_UserRequest):
     description: str | None = Field(default=None, max_length=8000)
     location: str | None = Field(default=None, max_length=1024)
     send_updates: bool = True
+    account_id: str = Field(default="default", min_length=1, max_length=128)
+    booking_source: Literal["board"] | None = None
+    checked_account_ids: list[str] | None = Field(default=None, min_length=1, max_length=3)
+    calendar_overrides_by_account: dict[str, dict[str, StrictBool]] | None = Field(
+        default=None, max_length=3
+    )
+    selected_date: str | None = Field(default=None, min_length=10, max_length=10)
+    meeting_type: Literal["google_meet", "external_link", "in_person"] | None = None
+    meeting_link: str | None = Field(default=None, max_length=2048)
 
 
 class CalendarExecute(_UserRequest):
     proposal_id: str = Field(min_length=8, max_length=256)
+    account_id: str = Field(default="default", min_length=1, max_length=128)
+
+
+def _selected_calendar(account_id: str):
+    if account_id == "default":
+        return get_google_calendar_service()
+    if calendar_reads_via_door():
+        raise GoogleConnectionError(
+            "Additional Calendar account booking is unavailable in this runtime",
+            status_code=403,
+            reason_code="calendar_account_unavailable",
+        )
+    from hushh_mcp.services.calendar_account_board_service import account_schedule
+
+    return account_schedule(account_id).calendar
 
 
 def _http(exc: Exception) -> HTTPException:
@@ -274,7 +301,7 @@ async def availability(payload: CalendarRange, token: dict = Depends(hub_content
 async def proposal(payload: CalendarProposal, token: dict = Depends(hub_content_owner)):
     verify_user_id_match(token["user_id"], payload.user_id)
     try:
-        return await get_google_calendar_service().propose(
+        return await _selected_calendar(payload.account_id).propose(
             user_id=token["user_id"],
             action=payload.action,
             payload=payload.model_dump(exclude={"user_id", "action"}),
@@ -287,8 +314,10 @@ async def proposal(payload: CalendarProposal, token: dict = Depends(hub_content_
 async def execute(payload: CalendarExecute, token: dict = Depends(hub_content_owner)):
     verify_user_id_match(token["user_id"], payload.user_id)
     try:
-        return await get_google_calendar_service().execute(
-            user_id=token["user_id"], proposal_id=payload.proposal_id
+        return await _selected_calendar(payload.account_id).execute(
+            user_id=token["user_id"],
+            proposal_id=payload.proposal_id,
+            account_id=payload.account_id,
         )
     except Exception as exc:
         raise _http(exc) from exc

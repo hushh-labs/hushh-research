@@ -690,7 +690,7 @@ class ConnectionsService:
             WHERE user_id = :user_id
               AND {_RIA_VERIFIED_STATUS_SQL}
             LIMIT 1
-            """,  # nosec B608 - _RIA_VERIFIED_STATUS_SQL is a module constant of
+            """,  # nosec B608 # _RIA_VERIFIED_STATUS_SQL is a module constant of
             # static text; the only caller-supplied value here is bound.
             {"user_id": owner_user_id},
         )
@@ -1960,7 +1960,7 @@ class ConnectionsService:
             WHERE id = :id
             LIMIT 1
             {lock_clause}
-            """,  # nosec B608 - lock_clause is a fixed internal literal
+            """,  # nosec B608 # lock_clause is a fixed internal literal
             {"id": (request_id or "").strip()},
         )
         if not row:
@@ -3061,7 +3061,7 @@ class ConnectionsService:
         else:
             where = "cr.requester_user_id = :user_id"
             counterpart_col = "cr.addressee_user_id"
-        # nosec B608 - counterpart_col/where are hardcoded literals selected by
+        # nosec B608 # counterpart_col/where are hardcoded literals selected by
         # `direction` above (never user input); user_id is always parameterized.
         status_clause = "" if include_resolved else "AND cr.status = 'pending'"
         rows = self._execute_many(
@@ -3168,7 +3168,7 @@ class ConnectionsService:
             FROM ria_profiles
             WHERE user_id = ANY(:user_ids)
               AND {_RIA_VERIFIED_STATUS_SQL}
-            """,  # nosec B608 - _RIA_VERIFIED_STATUS_SQL is a module constant of
+            """,  # nosec B608 # _RIA_VERIFIED_STATUS_SQL is a module constant of
             # static text; the user ids are bound as an array parameter.
             {"user_ids": candidates},
         )
@@ -3708,7 +3708,7 @@ class ConnectionsService:
             LEFT JOIN page_rows ON TRUE
             ORDER BY page_rows.match_rank, page_rows.normalized_name,
                      page_rows.user_id, page_rows.connection_id
-            """,  # nosec B608 - the RIA predicate is a static module constant.
+            """,  # nosec B608 # the RIA predicate is a static module constant.
             {
                 "user_id": viewer_id,
                 "query": normalized_query,

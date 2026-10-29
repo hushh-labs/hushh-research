@@ -334,7 +334,7 @@ function AccountPhoneMandateGuard({
   if (sessionVerificationRequired || (user && !applicationOwnerId)) {
     return (
       <SessionVerificationRecovery
-        onRetry={() => void retrySessionVerification()}
+        onRetry={retrySessionVerification}
         onSignOut={() => void signOut({ skipFcmCleanup: true })}
       />
     );

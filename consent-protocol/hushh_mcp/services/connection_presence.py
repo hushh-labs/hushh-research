@@ -93,7 +93,7 @@ def get_directory_presence(execute_one: ExecuteOne, *, user_id: str) -> dict[str
         FROM actor_profiles profile
         WHERE profile.user_id = :user_id
         LIMIT 1
-        """,  # nosec B608 - the interpolated text is a module constant.
+        """,  # nosec B608 # the interpolated text is a module constant.
         {"user_id": _owner(user_id)},
     )
     return presence_payload(row)
@@ -137,7 +137,7 @@ def update_directory_presence(
         SET {", ".join(assignments)}, updated_at = NOW()
         WHERE profile.user_id = :user_id
         RETURNING {_PRESENCE_COLUMNS}
-        """,  # nosec B608 - assignments are fixed column fragments chosen above;
+        """,  # nosec B608 # assignments are fixed column fragments chosen above;
         # every caller value is bound.
         params,
     )

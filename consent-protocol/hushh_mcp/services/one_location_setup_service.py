@@ -103,7 +103,7 @@ class OneLocationSetupService:
         return _row(
             user_id,
             self._execute_one(
-                f"SELECT {_COLUMNS} FROM one_location_setup_progress WHERE user_id = :user_id",  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+                f"SELECT {_COLUMNS} FROM one_location_setup_progress WHERE user_id = :user_id",  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
                 {"user_id": user_id},
             ),
         )
@@ -116,7 +116,7 @@ class OneLocationSetupService:
             VALUES (:user_id, 'intro', NOW(), NOW())
             ON CONFLICT (user_id) DO UPDATE SET updated_at = NOW()
             RETURNING {_COLUMNS}
-            """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"user_id": user_id},
         )
         return _row(user_id, row)
@@ -138,7 +138,7 @@ class OneLocationSetupService:
             SET step = :step, {assignments}, updated_at = NOW()
             WHERE user_id = :user_id
             RETURNING {_COLUMNS}
-            """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"user_id": user_id, "step": step, **params},
         )
         return _row(user_id, row)

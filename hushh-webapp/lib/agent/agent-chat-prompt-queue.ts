@@ -26,6 +26,8 @@ export type QueuedAgentPrompt = {
   deferPkmContext?: boolean;
   /** One selected saved Drive result. Owner authorization is rechecked at chat ingress. */
   driveSearchSelection?: DriveSearchSelection;
+  /** Exact Calendar zone for this one queued turn; never visible prompt copy. */
+  timeZoneOverride?: string;
   /**
    * Only plain typed text may join One's running turn or share a turn with
    * other queued messages. A prompt that carries its own per-turn authority
@@ -56,7 +58,7 @@ export function editQueuedAgentPrompt(
   // a copy the running turn held was withdrawn, so it waits again.
   return queue.map((prompt) =>
     prompt.id === id
-      ? { ...prompt, text, driveSearchSelection: undefined, placement: "waiting" }
+      ? { ...prompt, text, driveSearchSelection: undefined, timeZoneOverride: undefined, placement: "waiting" }
       : prompt,
   );
 }
@@ -75,6 +77,7 @@ export function canJoinAgentTurn(prompt: QueuedAgentPrompt): boolean {
     Boolean(prompt.text) &&
     !prompt.attachments?.length &&
     !prompt.driveSearchSelection &&
+    !prompt.timeZoneOverride &&
     !prompt.gmailInformationRequestWorkflowId &&
     !prompt.kycInformationSaveConfirmed
   );

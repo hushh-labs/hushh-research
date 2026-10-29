@@ -38,6 +38,7 @@ describe("iOS UAT native runtime env", () => {
     expect(env.NEXT_PUBLIC_BACKEND_URL).toBe(
       "https://consent-protocol-f2gsa4kfsq-uc.a.run.app",
     );
+    expect(env.NEXT_PUBLIC_DRIVE_NATIVE_CALLBACK_ORIGIN).toBe("https://api.uat.hushh.ai");
     expect(env.NEXT_PUBLIC_FIREBASE_API_KEY).toBe("local-firebase-api-key");
     expect(env.NEXT_PUBLIC_FIREBASE_PROJECT_ID).toBe("hushh-pda");
   });
@@ -46,6 +47,7 @@ describe("iOS UAT native runtime env", () => {
     const env = buildIosUatRuntimeEnv({
       processEnv: {
         NEXT_PUBLIC_BACKEND_URL: "https://consent-protocol-preview.example.run.app/",
+        NEXT_PUBLIC_DRIVE_NATIVE_CALLBACK_ORIGIN: "https://unregistered.example",
       },
       uatValues: {},
       localValues: {},
@@ -54,5 +56,6 @@ describe("iOS UAT native runtime env", () => {
     expect(env.NEXT_PUBLIC_BACKEND_URL).toBe(
       "https://consent-protocol-preview.example.run.app",
     );
+    expect(env.NEXT_PUBLIC_DRIVE_NATIVE_CALLBACK_ORIGIN).toBe("https://api.uat.hushh.ai");
   });
 });

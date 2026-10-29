@@ -10,6 +10,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 import hashlib
 import importlib
+import os
 from io import BytesIO
 from pathlib import Path
 import re
@@ -20,6 +21,12 @@ from zipfile import BadZipFile, ZipFile
 retention = importlib.import_module("cloudrun-retention")
 Document = dict[str, Any]
 Timestamp = Callable[[object], datetime | None]
+PRODUCTION_EVIDENCE_REPAIR_FLAG = "HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR"
+
+
+def production_evidence_repair_enabled() -> bool:
+    """Production activation is explicit; an unset flag preserves current behavior."""
+    return os.environ.get(PRODUCTION_EVIDENCE_REPAIR_FLAG) == "true"
 
 
 def artifact_exists(repository, run_id, name, *, api):
@@ -226,15 +233,21 @@ def current_attempt_artifact(repository, run, lane, *, api, timestamp):
     )
 
 
-def _status_bytes(archive: bytes, status_name: str) -> bytes:
+def _status_bytes(
+    archive: bytes, status_name: str, *, allow_legacy_production: bool = False
+) -> bytes:
     try:
         with ZipFile(BytesIO(archive)) as bundle:
             entries = bundle.infolist()
             names = [entry.filename for entry in entries]
+            allowed = {status_name}
+            if allow_legacy_production and status_name == "prod-release-status.json":
+                allowed.add("tmp/prod-release-status.json")
+            matches = [name for name in names if name in allowed]
             if (
                 len(entries) > 500
                 or len(names) != len(set(names))
-                or names.count(status_name) != 1
+                or len(matches) != 1
                 or sum(entry.file_size for entry in entries) > 20 * 1024 * 1024
                 or any(
                     path.is_absolute() or ".." in path.parts
@@ -242,7 +255,7 @@ def _status_bytes(archive: bytes, status_name: str) -> bytes:
                 )
             ):
                 raise retention.UnsafeState("release artifact has unsafe files")
-            status = bundle.getinfo(status_name)
+            status = bundle.getinfo(matches[0])
             if (
                 status.is_dir()
                 or stat.S_IFMT(status.external_attr >> 16) == stat.S_IFLNK
@@ -292,12 +305,15 @@ def download_replayed_artifact(
     *,
     run_command: Callable[..., Any],
     timeout: float,
+    allow_legacy_production: bool = False,
 ) -> None:
     """Download an immutable digest-verified archive and create only its status."""
     archive = immutable_archive(
         repository, artifact, run_command=run_command, timeout=timeout
     )
-    status = _status_bytes(archive, status_name)
+    status = _status_bytes(
+        archive, status_name, allow_legacy_production=allow_legacy_production
+    )
     if directory.is_symlink():
         raise retention.UnsafeState("release artifact directory is a symlink")
     directory.mkdir(parents=True, exist_ok=True)

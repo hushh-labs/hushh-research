@@ -146,7 +146,7 @@ function Invitations({ workspaceLayout = false, connectedProfiles = false, accou
           <DialogTitle className="sr-only">Invitation details</DialogTitle>
           {selected ? <div className={styles.detailPane}>
           <Button variant="ghost" size="compact" className={`${styles.back} ${presentationStyles.utility}`} disabled={actionBusy} onClick={close}><ChevronLeft aria-hidden className="size-4" />Invitations</Button>
-          <CalendarInvitationDetail event={selected} zone={zone} people={people} workspaceLayout={workspaceLayout} />
+          <CalendarInvitationDetail event={selected} zone={zone} people={people} workspaceLayout={workspaceLayout} accountEmail={data.account_email || accountEmail} />
           <CalendarInvitationActions key={`${selected.calendar_id}:${selected.id}:${JSON.stringify(initialTerms)}`} event={selected} userId={userId} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout={workspaceLayout} accountId={accountId} expectedAccountEmail={data.account_email || accountEmail} onBusyChange={updateBusy} initialDecision={initialDecision} initialTerms={initialTerms} onSend={onSend} onConnect={onConnect} onMailConnect={onMailConnect} onOfferTimes={onOfferTimes ? () => onOfferTimes({ ownerId: userId, accountEmail: accountEmail || "", calendarId: selected.calendar_id, eventId: selected.id }) : undefined} onResult={result => {
             onResult?.(result);
             // Keep partial/unknown outcomes visible; only a fully confirmed RSVP

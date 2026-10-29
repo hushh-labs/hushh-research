@@ -155,7 +155,7 @@ lane. The target-branch setting does not grant a bot Main merge authority.
 | Lane | Source and authority |
 |---|---|
 | Dev | Feature PRs target protected `dev`; governed operators deploy an exact CI-green SHA through Main-owned tooling. Explicit feature refs remain supported. |
-| UAT | Existing Main-based default and Dev acceptance remain active. The approved direction selects dependency-complete changes into protected `uat` and qualifies the exact assembled SHA in CI before UAT once the admission path is ready. |
+| UAT | Existing Main-based default and Dev acceptance remain active. The approved direction selects dependency-complete changes into protected `uat` and permits UAT after exact assembled-SHA CI without requiring a Dev deployment, once that admission path is qualified. |
 | Main | Review accepted UAT content for release. When its approval merge differs from the tested application SHA, require identical complete Git trees and preserve both identities. |
 | Main operations/hotfix | A governed maintainer may branch from `origin/main` and open a PR directly into `main` by actor identity. CI, conversations, queue/Admin SOP and landed smoke remain mandatory. Merging does not deploy. |
 | Production | Explicit UAT-accepted application plus Main approval, or the separately approved manual emergency route. Automatic publication remains disabled. |

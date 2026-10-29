@@ -444,11 +444,20 @@ class WorkerBasisCases:
             try:
                 with mock.patch.object(ports.owner, "api", cached_api):
                     contract()
-                    with mock.patch.object(
-                        basis,
-                        "_fresh_run",
-                        side_effect=lambda owner, run_id: owner.api(
-                            basis.REPOSITORY, f"runs/{run_id}"
+                    with (
+                        mock.patch.object(
+                            basis,
+                            "_fresh_run",
+                            side_effect=lambda owner, run_id: owner.api(
+                                basis.REPOSITORY, f"runs/{run_id}"
+                            ),
+                        ),
+                        mock.patch.object(
+                            ports.owner,
+                            "uncached_api",
+                            side_effect=lambda repository, endpoint: ports.owner.api(
+                                repository, endpoint
+                            ),
                         ),
                     ):
                         with self.assertRaises(AssertionError):

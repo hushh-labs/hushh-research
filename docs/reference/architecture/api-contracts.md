@@ -2571,8 +2571,8 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/calendar/disconnect`        | Firebase Bearer    | Disable the selected Calendar `account_id`; the default preserves sibling Google services, while an additional Calendar-only credential is erased and its provider token revoked best-effort. |
 | POST   | `/api/one/calendar/events`            | VAULT_OWNER Bearer | Read bounded primary-calendar events in a supplied ISO-8601 time range.                                             |
 | POST   | `/api/one/calendar/availability`      | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars.                                                         |
-| POST   | `/api/one/calendar/proposals`         | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google.                     |
-| POST   | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed.                         |
+| POST   | `/api/one/calendar/proposals`         | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google. Board creates also seal the selected account, checked account set, grant bindings, calendar selection, interval and current availability. |
+| POST   | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Atomically claim one reviewed proposal. Board creates recheck every account, writable primary destination and complete free/busy coverage before one account-bound Google create; changed or busy selections fail closed. Existing Chat proposals keep their current flow. |
 | POST | `/api/one/calendar/schedule/today` | Firebase Bearer + active owner-bound Calendar OAuth grant | Resolve `date` in `time_zone`, page the subscribed calendar inventory and all readable calendar events, including recurring instances and civil all-day dates. Fail on incomplete reads; report calendars that share only busy times separately. |
 | POST | `/api/one/calendar/schedule/availability` | Firebase Bearer + active owner-bound Calendar OAuth grant | Check every subscribed calendar and return up to three maximal free `windows` plus exact `full_count`, filtering by requested 15/30/60-minute duration. Missing permission or any unavailable calendar fails closed. |
 | POST | `/api/one/calendar/board/day` | Firebase Bearer + each account's active Calendar OAuth grant | Return all paged events, hidden invitations and full-day free windows for up to three distinct accounts, with source coverage, cross-account overlaps and exact shared free-time intersection. A missing or changing account marks the result incomplete; no shared opening is offered. Per-account calendar-inclusion overrides affect availability only. |
@@ -2591,21 +2591,25 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
 Connected `/one/calendar` shows an account board when Calendar account status is available, with one to three accounts, per-account Events/Free time, cross-account conflict review and shared openings. Invitations remains available per account and Insights retains the default account's weekly overview. An inline decline/email flow keeps the person on Calendar; Mail enablement and retry of a known failed organizer note also stay in the review. Provider-side accept/decline and Mail send cannot be rolled back together. The legacy single-account workspace remains a compatibility surface during a newly verified connection before account status refresh. Today loads every event-readable subscribed calendar with
-source names/colors and real Meet/Zoom/Teams links. Free time checks up to 100
+source names/colors and real Meet/Zoom/Teams/Discord links. Free time checks up to 100
 subscribed calendars in batches of twenty, merges busy periods and clips elapsed
 time before counting matching windows. Overlaps and civil-day/DST boundaries
 are calculated server-side. Time zone resolves from the connected primary calendar,
 with device fallback; advanced options remain in the account menu. Free time
-checks the full selected local day. A selected window hands its date, exact
-start/end, duration, zone and account context to the existing One conversation.
-One asks who should join; the reply carries this memory-only context through
-normal chat text attachments. The existing proposal requires confirmation.
-The selected window/duration are checked before confirmation and execution.
-Change time offers fitting starts in the resolved zone and requests a fresh
-proposal with the reviewed attendees/title. A changed connected account blocks
-execution. A conflict offers a fresh availability check inside chat. Only successful
-execution publishes an owner-scoped refresh for Today and Free time. Slot taps,
-cancellation and authorization never execute an event.
+checks the full selected local day. A Board Free time row opens a compact
+review dialog with a bounded duration and editable date, time, zone, guests and
+meeting place. Per-account rows bind their destination to the clicked account;
+shared openings require an explicit writable account and use its primary
+calendar. The existing short-lived proposal and one-time confirmation ledger
+own the write. Review and execution recheck every connected account and its
+included calendars, and the destination's management grant. Changed accounts,
+selection, grants, or availability require a new review. Discord uses a valid
+existing link and creates no Meet conference; no guests sends no invitations.
+Only a confirmed Google event publishes the Board refresh. Slot taps,
+cancellation and authorization never execute an event. Calendar Join uses the
+event's account email for an explicit Meet pre-join reminder; the external Meet
+app or browser still chooses its own signed-in account. Other meeting providers
+open their original validated links directly.
 Calendar automatically loads using the current signed-in identity and its existing
 Calendar OAuth grant; it has no additional credential prompt or unlock card.
 Each provider request checks the original connection/grant binding. Disconnect,
@@ -2614,10 +2618,9 @@ Responses are private/no-store; events stay in component memory. A vault lock or
 HCT revocation does not revoke these two provider reads: Firebase invalidation
 or Calendar disconnect does. Attendance still requires matching Firebase and
 VAULT_OWNER authority. Date/view changes and session epochs reject stale results.
-Selected-day shortcuts open Google Calendar, and free-window actions hand off
-date, range, time zone and the exact requested-duration booking to Calendar chat.
-Chat gathers missing details and requires the existing proposal confirmation;
-selecting a window never creates an event by itself. New proposals bind the
+Selected-day shortcuts open Google Calendar. The legacy single-account
+workspace still hands free windows to Calendar chat. Chat gathers missing
+details and requires the existing proposal confirmation. New proposals bind the
 review to the current Google grant. With subscribed-calendar access, create
 proposals show busy-period warnings across the included calendars and reject
 changed availability at confirmation. Google must return an event identifier

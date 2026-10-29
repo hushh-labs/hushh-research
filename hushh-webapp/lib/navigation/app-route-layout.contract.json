@@ -1691,7 +1691,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.calendar",
-      "purpose": "Connect Google Calendar; use Schedule, Invitations and Insights tabs. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
+      "purpose": "Connect Google Calendar; use the account Board, Invitations and Insights tabs. Board Free time opens an account-bound booking dialog with exact review and confirmation; the legacy single-account Schedule view keeps its chat handoff. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
       "screen": "calendar",
       "entryCue": "Connect Calendar when you want schedule help from One.",
       "proactivity": "ambient",
@@ -1708,7 +1708,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "RSVP changes only the connected attendee on the selected event occurrence after exact confirmation. Alternate-time proposals continue in the existing chat; Mail delivery has a separate outcome, and the organizer must update their meeting. Back closes invitation detail before leaving Calendar, and waits while a confirmed response settles. In Insights, Back unwinds meeting detail to the filtered library, then the overview, before the route parent. Recording and notes content requires independent live provider authorization.",
+      "completionBoundary": "Board booking creates one event only after owner confirmation and rechecking the selected account, writable destination and every checked account's availability. A Google Meet Join reminder names the event account but cannot switch the external app's identity. RSVP changes only the connected attendee on the selected event occurrence after exact confirmation. Alternate-time proposals continue in the existing chat; Mail delivery has a separate outcome, and the organizer must update their meeting. Back closes the deepest Calendar dialog before leaving the route, and waits while a confirmed response settles. In Insights, Back unwinds meeting detail to the filtered library, then the overview, before the route parent. Recording and notes content requires independent live provider authorization.",
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

@@ -3,6 +3,10 @@ import { ApiService } from "@/lib/services/api-service";
 export type CalendarReadRecovery = "connect" | "reconnect" | "permission" | "retry";
 export type CalendarSource = { availability_default_included?: boolean; availability_included?: boolean; time_zone?: string | null; id: string; name?: string; primary?: boolean; access_role?: string; background_color?: string | null };
 
+export function calendarFailure(error: unknown): Error {
+  return error instanceof Error ? error : new Error("Calendar could not be checked.");
+}
+
 const CALENDAR_RECOVERY: Readonly<Record<string, CalendarReadRecovery>> = {
   calendar_not_connected: "connect",
   calendar_reauthorization_required: "reconnect",

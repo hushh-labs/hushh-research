@@ -283,7 +283,7 @@ describe("memory capture input", () => {
     expect(source).toContain("const turnSourceText = composeTurnSourceText(text, attachments)");
     expect(source).toContain("sourceMessage: turnSourceText");
     expect(source).not.toMatch(/sourceMessage: text,/);
-    expect(source).toMatch(/streamAgentChat\(\{\s+userId,\s+message: text,\s+attachments,/);
+    expect(source).toMatch(/streamAgentChat\(\{\s+userId,\s+message: text,\s+timeZoneOverride: options\.timeZoneOverride,\s+attachments,/);
   });
 
   it("keeps text typed before a large paste as the message, not inside the chip", () => {

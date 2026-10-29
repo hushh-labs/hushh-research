@@ -25,7 +25,7 @@ test.beforeAll(async () => {
       ...["@/hooks/use-auth", "@/lib/firebase/auth-context", "@/lib/vault/vault-context", "@/lib/persona/persona-context",
         "@/lib/agent/chat-onboarding/use-chat-onboarding", "@/lib/profile/gmail-connector-store",
         "@/lib/navigation/use-root-chat-deferred-ready", "@/lib/one-voice/readiness", "@/hooks/use-effective-avatar-url",
-        "@/lib/agent/use-one-display-name", "@/lib/agent/use-entry-welcome", "@/lib/services/model-preference-service",
+        "@/lib/agent/use-one-display-name", "@/lib/agent/use-entry-welcome", "@/lib/services/model-preference-service", "@/lib/agent/use-one-model-preference",
         "@/lib/services/auth-service", "./auth-service", "@/lib/firebase/config", "@/lib/firebase", "@/components/vault/vault-unlock-dialog", "next/navigation",
       ].map(find => ({ find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), replacement: boundary })),
       { find: "@", replacement: root },
@@ -46,6 +46,36 @@ test.beforeAll(async () => {
     + fs.readdirSync(directory).filter(file => file.endsWith(".css")).map(file => fs.readFileSync(path.join(directory, file), "utf8")).join("\n");
 }, 120_000);
 test.afterAll(() => { if (directory) fs.rmSync(directory, { recursive: true, force: true }); });
+
+test("owner AI identifies its provider in the header and a sheet-sized frame", async ({ page }) => {
+  await page.route("http://localhost/**", async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/new-chat-fixture") return route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${script.replace(/<\/script/gi, "<\\/script")}</script>`,
+    });
+    if (url.pathname.startsWith("/one-presence/")) {
+      const file = path.resolve(process.cwd(), "public", `.${url.pathname}`);
+      if (file.startsWith(path.join(process.cwd(), "public/one-presence/")) && fs.existsSync(file))
+        return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith(".wasm") ? "application/wasm" : file.endsWith(".riv") ? "application/octet-stream" : "image/webp" });
+    }
+    return route.fulfill({ contentType: "application/json", body: "{}" });
+  });
+  const label = "One's AI: Azure AI · a-long-private-deployment-name · Not verified";
+  await page.setViewportSize({ width: 768, height: 844 });
+  await page.goto("http://localhost/new-chat-fixture?model=1");
+  const headerModel = page.getByRole("group", { name: label });
+  await expect(headerModel).toBeVisible();
+  const headerBox = (await headerModel.boundingBox())!;
+  expect(headerBox.x + headerBox.width).toBeLessThanOrEqual(768);
+  await page.setViewportSize({ width: 393, height: 844 });
+  await page.goto("http://localhost/new-chat-fixture?model_frame=1");
+  const sheetModel = page.getByRole("group", { name: label });
+  await expect(sheetModel).toBeVisible();
+  const modelText = sheetModel.getByText("Azure AI · a-long-private-deployment-name");
+  expect(await modelText.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await expect(sheetModel.getByText("Not verified")).toBeVisible();
+});
 
 for (const [width, anonymous, entry] of [[393, false, "Create new chat"], [768, true, "Start new chat"], [1440, false, "Start new chat"]] as const) {
   test(`new chat resets and recovers after a failed turn at ${width}px (anonymous=${anonymous})`, async ({ page }, testInfo) => {
