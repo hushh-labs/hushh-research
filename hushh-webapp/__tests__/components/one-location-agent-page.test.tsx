@@ -1746,7 +1746,7 @@ describe("OneLocationAgentPage", () => {
       mockGetState.mockResolvedValue(boundedState);
       mockListRecipientsPage.mockResolvedValue({ items: directory, page: 1, hasMore: false, totalCount: directory.length });
       render(<OneLocationAgentPage />);
-      await skipLocationEntryFlow({ expectMain: false });
+      await act(async () => { await skipLocationEntryFlow({ expectMain: false }); });
       const action = flow === "Share" ? /Select Investor D for private sharing/i : /Select Investor D for location request/i;
       expect(await screen.findByRole("button", { name: action })).toBeEnabled();
       fireEvent.click(screen.getByRole("button", { name: action }));
