@@ -479,7 +479,7 @@ def _keep_tool_pairs_whole(contents: list[Any], replace: dict[int, str]) -> None
 
 
 def consent_answer_fast_path(callback_context: Any, llm_request: Any, *, model: str | None) -> bool:
-    """Before-model: the answer turn runs at the lowest thinking level and calls no tools.
+    """Before-model: use LOW, accepted by Gemini and Azure, and call no tools.
 
     Assigns fresh config objects: ADK's request config is a shallow copy, so
     mutating the agent's own ``thinking_config`` would leak into later turns.
@@ -494,8 +494,6 @@ def consent_answer_fast_path(callback_context: Any, llm_request: Any, *, model: 
 
     from hushh_mcp.runtime_providers.gemini_config import thinking_config_for
 
-    # LOW is supported by both text adapters. Gemini's MINIMAL normalization
-    # does not apply to Azure deployment names, which reject that effort.
     resolved = thinking_config_for(model, "low", genai_types)
     config.thinking_config = genai_types.ThinkingConfig(
         include_thoughts=False,
