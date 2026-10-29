@@ -72,8 +72,8 @@ def build_single_turn_agent(
         raise ValueError("single-turn output_schema is required")
     config = _manifest_config(manifest_or_subagent)
     configured_model = resolve_fleet_model_name(config.name)
-    # One tool-less request: a transient provider failure may replay in the next
-    # configured Vertex location through the shared VertexRegionalClient.
+    # Managed policy defaults to Azure in UAT; Vertex retains regional failover.
+    # Azure failures do not silently switch this turn to Vertex.
     resolved = (
         model if model is not None else build_managed_regional_gemini_adk_model(configured_model)
     )
