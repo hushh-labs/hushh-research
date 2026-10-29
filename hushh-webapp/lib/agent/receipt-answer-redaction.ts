@@ -36,8 +36,7 @@ export function withoutSyncingReceiptCard<E extends Entry>(entries: readonly E[]
  * values says the analysis "was shown": a failed turn keeps its error (its error
  * text replaces a partial answer), a stopped one keeps "Stopped.", and a turn
  * still running, or one whose receipts were unavailable, says it ended first.
- * Status never changes here; a redacted message takes no later streamed text,
- * so a real error still lands below it.
+ * Status never changes here; see retireReceiptAnswer for the stored form.
  */
 export function redactReceiptAnswer<T extends ReceiptTurnMessage>(message: T): T {
   const cards = withoutSyncingReceiptCard(message.structuredExperiences).filter(entry => entry.id.endsWith(RECEIPT_SETUP_ID));
@@ -49,4 +48,13 @@ export function redactReceiptAnswer<T extends ReceiptTurnMessage>(message: T): T
     ...message, text, receiptRedacted: true, errorNotice: undefined,
     structuredExperience: null, structuredExperiences: cards, streamEvents: [], sources: [], followUps: [],
   };
+}
+
+/**
+ * The stored form of a retired receipt answer. A redacted message takes no
+ * later updates, so a turn still running is settled now; otherwise it would
+ * stream forever with its timer running and its real outcome never shown.
+ */
+export function retireReceiptAnswer<T extends ReceiptTurnMessage & { receiptPrivate?: unknown }>(message: T): T {
+  return { ...redactReceiptAnswer(message), receiptPrivate: undefined, status: message.status === "streaming" ? "done" : message.status };
 }

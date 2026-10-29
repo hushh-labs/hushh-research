@@ -323,11 +323,15 @@ def test_mail_call_without_its_request_reads_nothing_and_keeps_tools_for_a_retry
     context = SimpleNamespace(
         invocation_id="turn", state={STATE_EXECUTION_SURFACE: "typed_chat"}, user_id="owner"
     )
-    for args in ({}, {"request": "  "}):
-        assert before_external_read_tool(mail, args, context)["reason"] == "missing_argument"
-        assert STATE_EXTERNAL_READ not in context.state
+    assert before_external_read_tool(mail, {}, context)["reason"] == "missing_argument"
+    assert STATE_EXTERNAL_READ not in context.state
     assert before_external_read_tool(mail, {"request": "anything important?"}, context) is None
     assert context.state[STATE_EXTERNAL_READ] == "turn"
+    # One retry per turn: a second empty call closes the tools like a read, so no loop.
+    context.invocation_id, context.state = "next", {STATE_EXECUTION_SURFACE: "typed_chat"}
+    for args in ({}, {"request": "  "}):
+        refused = before_external_read_tool(mail, args, context)
+    assert refused["reason"] == "missing_argument" and context.state[STATE_EXTERNAL_READ] == "next"
 
 
 def test_a_drive_call_without_its_request_records_no_outcome_so_the_retry_counts(monkeypatch):

@@ -397,7 +397,7 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES, buildGmailWorkspaceRoute } from "@/lib/navigation/routes";
 import { MailAttentionStack } from "@/components/agent/mail-attention-stack";
 import { receiptSetupExperience } from "@/lib/agent/mail-chat-experiences";
-import { redactReceiptAnswer, withoutSyncingReceiptCard } from "@/lib/agent/receipt-answer-redaction";
+import { redactReceiptAnswer, retireReceiptAnswer, withoutSyncingReceiptCard } from "@/lib/agent/receipt-answer-redaction";
 import { cn } from "@/lib/utils";
 import {
   useConsentActions,
@@ -2749,9 +2749,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ]);
   const pkmCaptureMessageIdsRef = useRef<ReadonlySet<string>>(new Set());
   pkmCaptureMessageIdsRef.current = new Set(messages.map((message) => message.id));
-  const clearReceiptAnswers = useCallback(() => setMessages(current => current.map(message => message.receiptPrivate ? {
-    ...redactReceiptAnswer(message), receiptPrivate: undefined,
-  } : message)), []);
+  const clearReceiptAnswers = useCallback(() => setMessages(current => current.map(message => message.receiptPrivate
+    ? retireReceiptAnswer(message) : message)), []);
   useEffect(() => {
     const privateMessages = messages.filter(message => message.receiptPrivate);
     if (!privateMessages.length) return;

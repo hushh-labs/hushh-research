@@ -909,7 +909,8 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   barrier with provider text. Two schema violations are caught and recorded,
   never decided for One: a read call missing a required argument reads nothing
   and is refused with `missing_argument` without arming the barrier or recording
-  a Drive outcome (`one.read_call_refused`), so One can retry in the same turn;
+  a Drive outcome (`one.read_call_refused`), so One can retry once in the same turn
+  (a second empty call closes the turn's tools like a read, so it can't loop);
   and a receipt call whose arguments fail the closed schema is removed from the
   model response in `receipt_after_model` before the bridge can defer it to the
   device (`one.receipt_call outcome=invalid_dropped`), failing the turn closed

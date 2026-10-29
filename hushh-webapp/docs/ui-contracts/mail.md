@@ -1018,8 +1018,8 @@ Coverage fields:
 `source,listed_count,candidate_count,matched_count,pages_scanned,max_messages,max_pages,reached_limit,query_scope,rejection_counts,evidence_counts`.
 Rejection counts: `missing_receipt_signal,extractor_not_receipt`; a message
 whose cited receipt evidence doesn't verify against it
-(`GMAIL_RECEIPT_EXTRACTION_UNVERIFIED`) is counted with `extractor_not_receipt`
-and no longer fails its page; evidence:
+(`GMAIL_RECEIPT_EXTRACTION_UNVERIFIED`) is asked once more, then counted with
+`extractor_not_receipt`, and no longer fails its page; evidence:
 `gmail_category,subject_signal,body_signal,verified_merchant,order_candidate,total_candidate`.
 Strict scan parser validates page identity/counters/continuation consistency.
 Scan schema forbids extra fields; page1–50, per_page1–6, cursor≤8192;

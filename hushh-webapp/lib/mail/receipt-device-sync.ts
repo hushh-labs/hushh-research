@@ -5,7 +5,6 @@
  * snapshot), started by a chat receipt question that finds nothing saved, or in
  * the background after unlock or a Gmail connection. No second store or endpoint.
  */
-import { getConnectorView } from "@/lib/profile/gmail-connector-store";
 import { MailReceiptResourceService } from "@/lib/services/mail-receipt-resource-service";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import type { ReceiptStoreSession } from "./receipt-store";
@@ -26,8 +25,9 @@ export function registerReceiptSyncAuth(ownerId: string, getIdToken: () => Promi
 }
 
 /** The connected Mail account and token source a sync needs, from state the app already holds. */
-function syncInputs(ownerId: string) {
-  const status = getConnectorView(ownerId).status;
+async function syncInputs(ownerId: string) {
+  // Loaded lazily like knownGmailConnection: browser layout fixtures stub this store.
+  const status = (await import("@/lib/profile/gmail-connector-store")).getConnectorView(ownerId).status;
   const usable = status?.connected === true && !status.revoked && status.needs_reauth !== true && status.receipt_sync_available !== false;
   const account = usable ? status.google_sub || status.google_email || null : null;
   return account && auth?.ownerId === ownerId ? { account, getIdToken: auth.getIdToken } : null;
@@ -36,7 +36,7 @@ function syncInputs(ownerId: string) {
 /** Saves this device's receipts within the budget. `synced` only when a snapshot was written. */
 export async function syncReceiptsOnDevice(session: ReceiptStoreSession, onStart?: () => void,
   budgetMs = RECEIPT_SYNC_BUDGET_MS): Promise<DeviceReceiptSync> {
-  const inputs = syncInputs(session.userId);
+  const inputs = await syncInputs(session.userId);
   if (!inputs || !(session.isCurrent?.() ?? true)) return "unavailable";
   onStart?.();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -58,7 +58,7 @@ export async function syncReceiptsOnDevice(session: ReceiptStoreSession, onStart
  * or they are a day old. A restore that fails stays unknown and never starts a scan.
  */
 export async function startBackgroundReceiptSync(session: ReceiptStoreSession): Promise<DeviceReceiptSync | "skipped"> {
-  const inputs = syncInputs(session.userId);
+  const inputs = await syncInputs(session.userId);
   if (!inputs) return "unavailable";
   const epoch = snapshotVaultSessionEpoch();
   const key = JSON.stringify([session.userId, inputs.account]);

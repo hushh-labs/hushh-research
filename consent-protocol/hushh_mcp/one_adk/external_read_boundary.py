@@ -23,6 +23,7 @@ STATE_EXTERNAL_READ_CONTINUATION = "temp:one_external_read_model_continuation"
 STATE_DRIVE_READ_OUTCOME = "temp:one_drive_read_outcome"
 STATE_SELECTED_DRIVE_SHARE = "temp:one_selected_drive_share"
 STATE_RECEIPT_HANDBACK = "temp:one_receipt_handback_invocation"
+STATE_READ_CALL_REFUSED = "temp:one_read_call_refused_invocation"
 _DRIVE_READ_FAILED_ANSWER = (
     "I couldn’t complete a fresh Drive check. Earlier filenames and links in this chat "
     "have not been verified again, so I can’t confirm the current result. Please try again."
@@ -237,13 +238,20 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
         if not isinstance(invocation, str) or not invocation:
             return {"status": "blocked", "reason": "invocation_required"}
         if _missing_required_argument(tool, args):
-            # A schema violation reads nothing, so it must not end the turn's
-            # tools: One retries with the owner's words (2026-10-29, UAT).
+            # A schema violation reads nothing, so it need not end the turn's
+            # tools: One retries once with the owner's words (2026-10-29, UAT).
+            # A second one closes them like a read, so the turn can't loop.
+            retried = tool_context.state.get(STATE_READ_CALL_REFUSED) == invocation
+            tool_context.state[STATE_READ_CALL_REFUSED] = invocation
+            if retried:
+                tool_context.state[STATE_EXTERNAL_READ] = invocation
             logger.info("one.read_call_refused reason=missing_argument tool=%s", tool.name)
             return {
                 "status": "blocked",
                 "reason": "missing_argument",
-                "message": "Nothing was read. Call this tool again with the owner's request.",
+                "message": "Nothing was read. Ask the owner what they want, in one short question."
+                if retried
+                else "Nothing was read. Call this tool again with the owner's request.",
             }
         # Set before any await/dispatch so parallel tool calls cannot race the
         # receipt of retrieved text into a second action.

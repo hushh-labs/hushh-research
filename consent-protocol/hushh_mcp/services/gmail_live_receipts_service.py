@@ -103,16 +103,18 @@ _EXTRACTOR_CONCURRENCY = _MAX_PER_PAGE
 _DEADLINE_SECONDS = 55.0
 _EXTRACTOR_TIMEOUT_SECONDS = 15.0
 _EXTRACTOR_RETRIES = 1
-# Only transient model failures are retried, and after the retry they fail the
-# page typed so the device retries it; an invalid result fails it too. A
-# well-formed answer whose evidence doesn't verify against its own message is
-# not a verified receipt: it is counted with extractor_not_receipt instead of
-# failing every other receipt on the page. One such message used to block an
-# owner's whole sync (UAT, Oct 22-29).
+# Transient model failures and unverifiable answers are asked once more. After
+# that, a transient failure fails the page typed so the device retries it, and
+# an invalid result fails it too. A well-formed answer whose evidence still
+# doesn't verify against its own message is not a verified receipt: it is
+# counted with extractor_not_receipt instead of failing every other receipt on
+# the page. One such message used to block an owner's whole sync (UAT, Oct 22-29).
+_UNVERIFIED = "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED"
 _RETRYABLE_EXTRACTION_CODES = frozenset(
     {
         "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
         "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE",
+        _UNVERIFIED,
     }
 )
 _EXTRACTOR_RETRY_DELAY_SECONDS = 1.0
@@ -1612,8 +1614,6 @@ class GmailLiveReceiptsService:
                     "Receipt extraction could not be verified against the message.": "receipt",
                 }.get(str(exc), "schema")
                 _logger.warning("live_receipt_validation_failed field=%s", field)
-                if exc.code == "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED":
-                    return None  # Not a verified receipt; the page keeps the others.
                 raise
 
         async def one(message: dict[str, Any]):
@@ -1644,6 +1644,8 @@ class GmailLiveReceiptsService:
                         item = await extract(message, evidence, model_input)
                         break
                     except GmailApiError as exc:
+                        if exc.code == _UNVERIFIED and attempt >= _EXTRACTOR_RETRIES:
+                            return None, evidence, "extractor_not_receipt"  # Not verified.
                         if (
                             exc.code not in _RETRYABLE_EXTRACTION_CODES
                             or attempt >= _EXTRACTOR_RETRIES

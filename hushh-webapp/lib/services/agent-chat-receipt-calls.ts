@@ -79,7 +79,8 @@ export function receiptCallRunner(session: ReceiptStoreSession, onSetupNeeded: (
         code = receiptUnavailableCode(retry, gmail);
       }
     }
-    const state = receiptSetupState(code);
+    // A started sync never leaves "Syncing receipts…" on a turn that ended without an answer.
+    const state = receiptSetupState(code) ?? (outcome === "unavailable" ? null : "sync_incomplete");
     if (state) report(state);
     return unavailableReceiptAnalysis(operation, request, code);
   };

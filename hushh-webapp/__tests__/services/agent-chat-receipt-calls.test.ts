@@ -84,6 +84,19 @@ describe("receipt calls on a device with no saved receipts", () => {
     expect(setup.mock.calls).toEqual([["syncing"], ["sync_incomplete"]]);
   });
 
+  it("never leaves the syncing card on a turn whose receipts can't be read after its sync", async () => {
+    connector.status = { configured: true, connected: true, revoked: false };
+    const live = { ...session };
+    const setup = vi.fn();
+    const result = await receiptCallRunner(live, setup, async (_s, onStart) => {
+      onStart();
+      live.vaultOwnerToken = ""; // The store now refuses the read instead of finding nothing.
+      return "synced";
+    })("list_recent_receipts", list);
+    expect(result).toMatchObject({ code: "receipt_snapshot_unavailable" });
+    expect(setup.mock.calls).toEqual([["syncing"], ["sync_incomplete"]]);
+  });
+
   it("reports activity while a long device sync runs, so the turn never reads as a quiet connection", async () => {
     vi.useFakeTimers();
     try {
