@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import tempfile
@@ -14,6 +15,8 @@ from bootstrap_ports import REPOSITORY, WORKFLOW, _api, _authorities
 
 UPLOAD = "Publish initial cold schema intent"
 PREFIX = "prod-phone-schema-intent"
+# Exact reviewed synchronous workflow: submission is its terminal command.
+LEGACY_SYNCHRONOUS_WORKFLOW = "a9cae2a19c165dab2a20bc985f72501d331122d830b87e3c42f2f66268078895"
 
 
 def _builds(start: str) -> list[dict]:
@@ -27,7 +30,7 @@ def _builds(start: str) -> list[dict]:
         "--region=global",
         f"--filter=createTime>={start} OR status=PENDING OR status=STATUS_UNKNOWN OR status=QUEUED OR status=WORKING",
         f"--limit={closed.LIMIT}",
-        "--format=json",
+        "--format=json(id,status,createTime)",
     ]
     rows = closed._document(command)
     if not isinstance(rows, list) or len(rows) >= closed.LIMIT:
@@ -53,9 +56,7 @@ def _builds(start: str) -> list[dict]:
                 "--format=json",
             ]
         )
-        if any(
-            detail.get(key) != row.get(key) for key in ("id", "status", "createTime")
-        ):
+        if any(detail.get(key) != row.get(key) for key in ("id", "status", "createTime")):
             raise ValueError("phone_schema_build_inventory_changed")
         if detail.get("status") not in {
             "SUCCESS",
@@ -81,8 +82,7 @@ def _job_steps(job: dict) -> list[dict]:
         not isinstance(steps, list)
         or len(steps) > 500
         or any(
-            not isinstance(step, dict) or not isinstance(step.get("name"), str)
-            for step in steps
+            not isinstance(step, dict) or not isinstance(step.get("name"), str) for step in steps
         )
         or len({step["name"] for step in steps}) != len(steps)
     ):
@@ -90,24 +90,15 @@ def _job_steps(job: dict) -> list[dict]:
     return steps
 
 
-def _acknowledged(
-    attempt: dict, job: dict, builds: list, owner: dict, timestamp
-) -> dict | None:
+def _acknowledged(attempt: dict, job: dict, builds: list, owner: dict, timestamp) -> dict | None:
     current = (
-        str(attempt["id"]) == owner["run_id"]
-        and attempt["run_attempt"] == owner["run_attempt"]
+        str(attempt["id"]) == owner["run_id"] and attempt["run_attempt"] == owner["run_attempt"]
     )
     if current and attempt.get("status") != "in_progress":
         raise ValueError("phone_schema_current_submission_phase_unknown")
     steps = _job_steps(job)
-    matches = [
-        step for step in steps if step.get("name") == "Deploy backend using Cloud Build"
-    ]
-    if (
-        job.get("status") == "completed"
-        and job.get("conclusion") == "skipped"
-        and steps == []
-    ):
+    matches = [step for step in steps if step.get("name") == "Deploy backend using Cloud Build"]
+    if job.get("status") == "completed" and job.get("conclusion") == "skipped" and steps == []:
         return None
     if len(matches) > 1:
         raise ValueError("phone_schema_prior_submission_unknown")
@@ -116,9 +107,7 @@ def _acknowledged(
         and job.get("status") == "in_progress"
         and (not matches or matches[0].get("status") in {"queued", "pending"})
     ):
-        active = [
-            step.get("name") for step in steps if step.get("status") == "in_progress"
-        ]
+        active = [step.get("name") for step in steps if step.get("status") == "in_progress"]
         if active not in [
             ["Qualify initial cold schema boundary"],
             ["Qualify installed cold schema"],
@@ -127,18 +116,27 @@ def _acknowledged(
         return None
     if len(matches) != 1:
         raise ValueError("phone_schema_prior_submission_unknown")
-    if not current and (
-        attempt.get("status") != "completed" or job.get("status") != "completed"
-    ):
+    if not current and (attempt.get("status") != "completed" or job.get("status") != "completed"):
         raise ValueError("phone_schema_prior_producer_unfinished")
     step = matches[0]
-    if step.get("conclusion") == "skipped" and step.get("started_at") is None:
+    if (
+        step.get("status") == "completed"
+        and step.get("conclusion") == "skipped"
+        and (
+            step.get("started_at") is None
+            or (
+                job.get("status") == attempt.get("status") == "completed"
+                and step.get("started_at") == step.get("completed_at")
+                and timestamp(step.get("started_at")) is not None
+            )
+        )
+    ):
         return None
     if step.get("status") != "completed" or step.get("conclusion") != "success":
         raise ValueError("phone_schema_prior_submission_unacknowledged")
-    if current and [
-        step.get("name") for step in steps if step.get("status") == "in_progress"
-    ] != ["Qualify final cold installed-schema proof"]:
+    if current and [step.get("name") for step in steps if step.get("status") == "in_progress"] != [
+        "Qualify final cold installed-schema proof"
+    ]:
         raise ValueError("phone_schema_current_submission_phase_unknown")
     started, ended = (
         timestamp(step.get("started_at")),
@@ -178,15 +176,10 @@ def _build_binding(build: dict, attempt: dict, timestamp) -> dict:
     phase = settings.get("_PHONE_DEPLOY_PHASE", "standard")
     if phase not in {"standard", "cold"} or (
         settings.get("_GITHUB_RUN_ATTEMPT", "unknown") != "unknown"
-        and f"phone-{phase}-{attempt['id']}-{attempt['run_attempt']}"
-        not in build.get("tags", [])
+        and f"phone-{phase}-{attempt['id']}-{attempt['run_attempt']}" not in build.get("tags", [])
     ):
         raise ValueError("phone_schema_prior_submission_phase_unknown")
-    source = (
-        settings.get("_PHONE_ROLLBACK_SHA")
-        if phase == "cold"
-        else settings["_DEPLOY_SHA"]
-    )
+    source = settings.get("_PHONE_ROLLBACK_SHA") if phase == "cold" else settings["_DEPLOY_SHA"]
     image = (
         settings.get("_PHONE_ROLLBACK_IMAGE_REFERENCE")
         if phase == "cold"
@@ -214,7 +207,7 @@ def closed_submissions(owner: dict, *, start: str, source_anchor: str) -> dict:
     timestamp = authority._github_timestamp
 
     def api(_repository, endpoint):
-        return _api(endpoint)
+        return authority.uncached_api(_repository, endpoint)
 
     builds, accepted, boundary = _builds(start), [], False
     for listed in history._history(REPOSITORY, api, timestamp):
@@ -248,7 +241,10 @@ def closed_submissions(owner: dict, *, start: str, source_anchor: str) -> dict:
         )
         if (
             len(blocks) != 1
-            or "set -euo pipefail" not in blocks[0]
+            or (
+                "set -euo pipefail" not in blocks[0]
+                and hashlib.sha256(source.encode()).hexdigest() != LEGACY_SYNCHRONOUS_WORKFLOW
+            )
             or "--async" in blocks[0]
             or blocks[0].count("gcloud builds submit") != 1
         ):
@@ -259,16 +255,12 @@ def closed_submissions(owner: dict, *, start: str, source_anchor: str) -> dict:
                 # The shared reader permits this only for a queued workflow
                 # with no admitted deploy job; it cannot yet submit a build.
                 continue
-            if history._restoration_nonproducer(
-                REPOSITORY, attempt, job, trusted, source, run
-            ):
+            if history._restoration_nonproducer(REPOSITORY, attempt, job, trusted, source, run):
                 continue
             receipt = _acknowledged(attempt, job, builds, owner, timestamp)
             if receipt:
                 accepted.append(receipt)
-    if not boundary or {row["build_id"] for row in accepted} != {
-        row["id"] for row in builds
-    }:
+    if not boundary or {row["build_id"] for row in accepted} != {row["id"] for row in builds}:
         raise ValueError("phone_schema_prior_producer_history_incomplete")
     return {
         "qualification": "passed",
@@ -310,9 +302,7 @@ def load(run_id: str, attempt_number: int) -> tuple[dict, dict]:
     inventory = _api(f"runs/{run_id}/artifacts?per_page=100")
     artifacts = inventory.get("artifacts", [])
     selected = [
-        row
-        for row in artifacts
-        if row.get("name") == f"{PREFIX}-{run_id}-{attempt_number}"
+        row for row in artifacts if row.get("name") == f"{PREFIX}-{run_id}-{attempt_number}"
     ]
     if (
         inventory.get("total_count") != len(artifacts)

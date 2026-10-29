@@ -309,7 +309,7 @@ def restoration_history(submission, monkeypatch):
     builds = [build]
     monkeypatch.setenv("GITHUB_SHA", "e" * 40)
     monkeypatch.setattr(module, "_builds", lambda _start: builds)
-    monkeypatch.setattr(module, "_api", lambda endpoint: case.api(module.REPOSITORY, endpoint))
+    monkeypatch.setattr(module._authorities(), "uncached_api", case.api)
     monkeypatch.setattr(importlib.import_module("qualify_image"), "run", case.source)
     return module, case, builds
 

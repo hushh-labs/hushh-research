@@ -413,6 +413,26 @@ Initial producer admission still uses `--qualify-source` and migration 423, so
 upgrading a pre-phone producer remains possible. Source qualification does not
 replace schema, runtime health, provider-settlement or device acceptance proof.
 
+Initial production phone-schema qualification accounts for retained and deleted
+issuers. The recorded pre-phone restoration and its exact parallel predecessor
+require canonical source-policy, producer-absence and scoped Git equality checks;
+they gain no phone-reader or rollback authority. Build inventory uses metadata
+listing plus bounded full readback, and joins every synchronous submission to its
+exact governed workflow attempt. The reviewed legacy workflow is pinned in full.
+Completed skipped steps may have equal valid start/end timestamps; unmatched
+builds and incomplete or active producers still refuse qualification.
+
+Deleted readiness jobs require the complete Cloud Run activity/system audit join:
+redacted create request, full UID-bound job creation, effective execution template,
+delete request and matching job/execution deletion. Source/image pairs must join
+acknowledged builds. Only reviewed packaged probes and the three exact historical
+document-readiness bodies qualify. The approved rollout probe's production-
+equivalent legacy body is restricted to the selected plan source/image pairs.
+The retained October 2 readiness image separately requires its original immutable
+release archive. Missing evidence, changed launchers, overrides, unknown jobs or
+changed incarnations refuse proof. No extra IAM role or Cloud Asset dependency
+is required; operational receipts retain fingerprints and release metadata only.
+
 The UAT expensive-lane selector is
 `scripts/ci/resolve-uat-verification-plan.py`. It alone decides when PKM upgrade
 rehearsal or reviewer BYOK proof is required. Paid candidate PKM evaluation and RIA live-model checks retain the explicit

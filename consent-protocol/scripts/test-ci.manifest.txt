@@ -1557,6 +1557,9 @@ tests/test_phone_transfer_authority.py
 tests/test_phone_bootstrap.py
 tests/test_phone_schema_qualification.py
 tests/test_phone_schema_origin.py
+tests/test_phone_schema_history_compatibility.py
+tests/test_phone_schema_legacy_job.py
+tests/test_phone_schema_job_history.py
 
 # Phone recovery authority, packaged rollback reader and provider receipts.
 # Full phone UI/SQL proof runs in the mandatory Integration browser gate.
