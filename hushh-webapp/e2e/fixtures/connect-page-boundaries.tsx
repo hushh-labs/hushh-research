@@ -19,17 +19,18 @@ const after = <T,>(ms: number, value: T) =>
 
 // ---- routing ----------------------------------------------------------------
 let currentQuery = dataset().initialQuery ?? "";
+let currentPath = "/one/connect";
 const routeListeners = new Set<() => void>();
 const navigate = (href: string) => {
   document.body.dataset.lastNavigation = href;
   const destination = new URL(href, "http://localhost");
-  if (destination.pathname !== "/connect" && destination.pathname !== "/one/connect") return;
+  currentPath = destination.pathname;
   currentQuery = destination.search;
   routeListeners.forEach((listener) => listener());
 };
 const router = { replace: navigate, push: navigate, prefetch: noop, back: noop, refresh: noop };
 export const useRouter = () => router;
-export const usePathname = () => "/one/connect";
+export const usePathname = () => useSyncExternalStore(subscribeRoute, () => currentPath);
 const subscribeRoute = (listener: () => void) => {
   routeListeners.add(listener);
   return () => { routeListeners.delete(listener); };
@@ -93,6 +94,7 @@ const connections = () =>
 const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
   (displayName, index) => ({
     userId: `directory-${index}`,
+    publicPersonRef: `person_directory_${index}`,
     displayName: dataset().longDirectoryIdentity === "1" && index === 0
       ? "Avery Featherstonehaugh-Rajendran"
       : displayName,
@@ -108,7 +110,16 @@ const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
   }),
 );
 
+export class ConnectionsServiceRequestError extends Error { status = 500; }
 export const ConnectionsService = {
+  listMutualConnections: async ({ personRef, page }: { personRef: string; page: number }) => ({
+    person: { publicPersonRef: personRef, displayName: "Avery Stone" },
+    items: Array.from({ length: page === 1 ? 20 : 5 }, (_, index) => ({
+      publicPersonRef: `mutual_${(page - 1) * 20 + index}`,
+      displayName: `Mutual Person ${String((page - 1) * 20 + index + 1).padStart(2, "0")}`,
+      photoUrl: null,
+    })), page, hasMore: page === 1, totalCount: 25,
+  }),
   listConnectionsPage: () => {
     const items = connections();
     return after(delay("connectionsMs", 600), {
