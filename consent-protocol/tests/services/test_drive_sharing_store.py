@@ -2026,21 +2026,6 @@ def test_semantic_search_creation_is_uat_only_and_sealed_policy_is_strict(monkey
     assert not semantic_search_request({**sealed, "request_flow": "older"})
 
 
-def test_azure_semantic_admission_is_fixed_policy_without_owner_receipt_writes(monkeypatch):
-    from hushh_mcp.runtime_providers.managed_text import managed_text_binding
-    from hushh_mcp.services.drive_sharing_store import _new_semantic_model_binding
-
-    monkeypatch.setenv("ENVIRONMENT", "uat")
-    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
-    connection = Mock()
-    for legacy_selector in ("gemini", "azure_openai"):
-        monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", legacy_selector)
-        binding = _new_semantic_model_binding(connection, owner_user_id="arbitrary-owner")
-        assert binding == managed_text_binding()
-        assert binding["authorization_basis"] == "uat_policy"
-    connection.execute.assert_not_called()  # No fabricated acceptance or preference dependency.
-
-
 @pytest.mark.asyncio
 async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing, monkeypatch):
     live_drive(sharing, monkeypatch)

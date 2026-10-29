@@ -39,6 +39,7 @@ from hushh_mcp.services.drive_request_package_assessment import (
 )
 from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlanInput
 from hushh_mcp.services.drive_sharing_contract import (
+    CalendarReviewedSource,
     DriveSharingError,
     LiveReviewedSource,
     ReviewedSource,
@@ -726,6 +727,27 @@ class DriveSuggestionService:
                             (datetime.now(UTC) + timedelta(days=1)).replace(microsecond=0)
                         ),
                     )
+                    if job.get("calendar_types"):
+                        if retrieved["truncated"] or len(reader._rows) != len(owner_selected):
+                            raise DriveSharingError("source_changed")
+                        allowed = set(job["calendar_types"])
+                        for source in reader._rows:
+                            mime = source.get("mime_type")
+                            artifact_kind = (
+                                "recording"
+                                if isinstance(mime, str) and mime.startswith("video/")
+                                else "notes"
+                                if mime
+                                in {
+                                    "application/vnd.google-apps.document",
+                                    "text/plain",
+                                    "text/markdown",
+                                }
+                                else None
+                            )
+                            if artifact_kind not in allowed:
+                                raise DriveSharingError("source_not_shareable")
+                            source["artifact_kind"] = artifact_kind
                 elif job.get("live"):
                     await self._require_current(job)
                     stage = "search_plan"
@@ -992,7 +1014,11 @@ class DriveSuggestionService:
                 await self._require_current(job)
                 observed = {
                     str(row["document_id"]): (
-                        LiveReviewedSource if row.get("_live") else ReviewedSource
+                        CalendarReviewedSource
+                        if row.get("artifact_kind")
+                        else LiveReviewedSource
+                        if row.get("_live")
+                        else ReviewedSource
                     ).model_validate(self.store._source_terms(row))
                     for row in reader._rows
                 }

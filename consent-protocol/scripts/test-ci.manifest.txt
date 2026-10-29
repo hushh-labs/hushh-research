@@ -1509,6 +1509,9 @@ tests/services/test_calendar_schedule_boundaries.py
 tests/services/test_calendar_attendance_service.py
 tests/services/test_calendar_invitations.py
 tests/services/test_calendar_meeting_artifacts.py
+tests/services/test_calendar_meeting_grant_access.py
+tests/services/test_calendar_meeting_library_paging.py
+tests/services/test_calendar_meeting_request_flow_postgres.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.

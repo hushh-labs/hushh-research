@@ -47,7 +47,21 @@ async def require_recipient_identity(recipient: dict) -> None:
                 firebase_auth.get_user, identity_uid, app=get_firebase_auth_app()
             )
         kind = recipient.get("kind", "google_provider")
-        if kind == "verified_email":
+        if kind == "calendar_grant":
+            if user.uid != identity_uid or user.disabled:
+                raise DriveSharingError("recipient_changed")
+            from hushh_mcp.services.calendar_meeting_request_service import (
+                verified_calendar_recipient,
+            )
+
+            current = await verified_calendar_recipient(
+                recipient["user_id"],
+                recipient["account_id"],
+                expected_grant=recipient["grant_id"],
+            )
+            if current.subject != recipient["subject"] or current.email != recipient["email"]:
+                raise DriveSharingError("recipient_changed")
+        elif kind == "verified_email":
             try:
                 current = recipient_from_verified_firebase_email(
                     recipient["user_id"], user, firebase_uid=identity_uid

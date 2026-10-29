@@ -35,6 +35,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     automatic_recipient_current,
     autoshare_enabled,
     autoshare_request,
+    new_semantic_model_binding,
     new_semantic_search_policy_version,
     owner_allowed_marker,
     owner_allowed_price_cents,
@@ -42,7 +43,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     package_allow_marker,
     request_has_document_scope,
     semantic_search_enrollment_enabled,
-    semantic_search_request,
+    semantic_search_policy_view,
     valid_owner_price_cents,
     valid_request_price_cents,
     whole_dollar_request,
@@ -74,6 +75,8 @@ from hushh_mcp.services.drive_sharing_contract import (
     LEGACY_TRUST_SCOPE,
     MAX_FILES,
     SHARING_ACTION,
+    CalendarReviewedSource,
+    CalendarShareOrigin,
     DriveSharingCipher,
     DriveSharingError,
     LiveReviewedSource,
@@ -96,16 +99,8 @@ def _new_requests_use_legacy_flow() -> bool:
 
 
 def _new_semantic_model_binding(connection, *, owner_user_id: str) -> dict | None:
-    """Freeze current owner approval or the scoped UAT administrator default."""
-
-    from hushh_mcp.runtime_providers.managed_text import managed_text_binding, managed_text_policy
-
-    if managed_text_policy() is not None:
-        return managed_text_binding()
-    provider = os.getenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini").strip().lower()
-    if provider == "gemini":
-        return None
-    raise ValueError("Azure Documents requires the UAT administrator policy")
+    """Compatibility facade for the existing enrollment-policy owner."""
+    return new_semantic_model_binding(policy_version=new_semantic_search_policy_version())
 
 
 def _period_conflict_view(private) -> dict:
@@ -1485,13 +1480,145 @@ class DriveSharingStore(DriveDocumentStore):
                 **background_consent.projection(private),
                 "trustedAuto": private.get("trusted_auto") is True,
                 "autoshare": autoshare_request(private),
-                "semanticSearch": semantic_search_request(private),
-                "providerResultsOnly": private.get("semantic_search_policy_version") in (3, 4),
-                "activityDateUnion": private.get("semantic_search_policy_version") == 4,
-                "discoveryDelivery": private.get("semantic_search_policy_version") in (2, 3, 4)
-                and semantic_search_request(private),
+                **semantic_search_policy_view(private),
                 "semanticModelBinding": private.get("semantic_model_binding"),
                 "reusablePacket": private.get("reusable_packet"),
+            }
+
+        return cast(dict, await self._transaction(operation))
+
+    async def create_calendar_request(
+        self,
+        *,
+        recipient: VerifiedGoogleRecipient,
+        owner_user_id: str,
+        origin: CalendarShareOrigin,
+    ) -> dict:
+        """One manually reviewed Calendar request in the existing durable owner.
+
+        No generic Drive pricing, package, search, copy or trust branch runs.
+        The keyed client UUID makes an identical request idempotent across tabs.
+        """
+        if (
+            recipient.kind != "calendar_grant"
+            or recipient.account_id != origin.account_id
+            or recipient.grant_id != origin.grant_id
+            or not 0 <= (datetime.now(UTC) - recipient.verified_at).total_seconds() <= 300
+        ):
+            raise DriveSharingError("recipient_changed")
+        self._sharing_admission(recipient.user_id)
+        self._sharing_admission(owner_user_id)
+        calendar = origin.model_dump(mode="json")
+        calendar["requested_types"] = sorted(calendar["requested_types"])
+        binding = self.sharing_cipher.recipient_binding(recipient)
+        request_digest = self.sharing_cipher.digest(
+            "calendar-request",
+            [
+                owner_user_id,
+                binding,
+                origin.account_id,
+                origin.occurrence_id,
+                calendar["requested_types"],
+            ],
+        )
+        client_request_id = str(
+            self.sharing_cipher.calendar_client_id(
+                recipient.user_id,
+                origin.account_id,
+                origin.occurrence_id,
+                calendar["requested_types"],
+            )
+        )
+        request_id = str(uuid4())
+        private = {
+            "origin": REQUESTER_ORIGIN,
+            "request_type": "calendar_meeting",
+            "calendar": calendar,
+            "purpose": {
+                "purpose": "Meeting recording and notes request",
+                "periodStart": origin.date,
+                "periodEnd": origin.date,
+            },
+            "recipient": {
+                "kind": "calendar_grant",
+                "user_id": recipient.user_id,
+                "subject": recipient.subject,
+                "email": recipient.email,
+                "account_id": recipient.account_id,
+                "grant_id": recipient.grant_id,
+                "verified_at": recipient.verified_at.isoformat(),
+            },
+        }
+
+        def operation(connection):
+            lock_connection_graph_users(connection, user_ids=[owner_user_id, recipient.user_id])
+            self._relationship(connection, owner_user_id, recipient.user_id)
+            old = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests
+                WHERE recipient_user_id=:recipient AND client_request_id=:client FOR UPDATE""",
+                {"recipient": recipient.user_id, "client": client_request_id},
+            )
+            if old:
+                if old["user_id"] != owner_user_id or old["request_digest"] != request_digest:
+                    raise DriveSharingError("request_changed")
+                return {
+                    **self._summary(old, recipient=True),
+                    "requestType": "calendar_meeting",
+                    "recipientEmail": self._open_request(old)["recipient"]["email"],
+                }
+            envelope = self.sharing_cipher.seal(
+                private, user_id=owner_user_id, resource_id=request_id, purpose="request"
+            )
+            row = self._row(
+                connection,
+                """INSERT INTO drive_share_requests
+                (request_id,user_id,recipient_user_id,client_request_id,request_envelope,
+                 recipient_binding,request_digest,payment_required)
+                VALUES (:id,:owner,:recipient,:client,CAST(:envelope AS jsonb),
+                        :binding,:digest,FALSE)
+                ON CONFLICT (recipient_user_id,client_request_id) DO NOTHING RETURNING *""",
+                {
+                    "id": request_id,
+                    "owner": owner_user_id,
+                    "recipient": recipient.user_id,
+                    "client": client_request_id,
+                    "envelope": json.dumps(envelope),
+                    "binding": binding,
+                    "digest": request_digest,
+                },
+            )
+            if row is None:
+                row = self._row(
+                    connection,
+                    """SELECT * FROM drive_share_requests
+                    WHERE recipient_user_id=:recipient AND client_request_id=:client FOR UPDATE""",
+                    {"recipient": recipient.user_id, "client": client_request_id},
+                )
+                if (
+                    not row
+                    or row["user_id"] != owner_user_id
+                    or row["request_digest"] != request_digest
+                ):
+                    raise DriveSharingError("request_changed")
+            else:
+                connection.execute(
+                    text("""INSERT INTO drive_share_management_contexts(request_id,user_id)
+                    VALUES (:id,:user) ON CONFLICT (request_id) DO NOTHING"""),
+                    {"id": request_id, "user": owner_user_id},
+                )
+                row = self._row(
+                    connection,
+                    """UPDATE drive_share_requests
+                    SET preparation_next_at=expires_at WHERE request_id=:id RETURNING *""",
+                    {"id": request_id},
+                )
+                self._event(connection, row, owner_user_id, "document_share_request")
+                self._event(connection, row, recipient.user_id, "document_share_request_sent")
+            return {
+                **self._summary(row, recipient=True),
+                "requestType": "calendar_meeting",
+                "recipientEmail": recipient.email,
             }
 
         return cast(dict, await self._transaction(operation))
@@ -1763,15 +1890,6 @@ class DriveSharingStore(DriveDocumentStore):
                 if enroll_semantic_search
                 else None
             )
-            if (
-                enroll_semantic_search
-                and new_semantic_search_policy_version() == 4
-                and (
-                    semantic_model_binding is None
-                    or semantic_model_binding.get("provider") != "azure_openai"
-                )
-            ):
-                raise DriveSharingError("provider_unavailable")
             envelope = self.sharing_cipher.seal(
                 {
                     **payload,
@@ -1969,6 +2087,16 @@ class DriveSharingStore(DriveDocumentStore):
     def _source_terms(self, row):
         if row.get("_live"):
             metadata = self._source_metadata(row)
+            if metadata.get("artifact_kind") in {"recording", "notes"}:
+                return CalendarReviewedSource(
+                    document_id=row["document_id"],
+                    source_version=row["source_version"],
+                    provider_file_binding=self.sharing_cipher.digest(
+                        "calendar-file", [metadata["file_id"], metadata["artifact_kind"]]
+                    ),
+                    connection_generation=row["connection_generation"],
+                    artifact_kind=metadata["artifact_kind"],
+                ).model_dump(mode="json")
             return LiveReviewedSource(
                 document_id=row["document_id"],
                 source_version=row["source_version"],
@@ -1990,6 +2118,8 @@ class DriveSharingStore(DriveDocumentStore):
                     "file_id": row["file_id"],
                     "name": row["name"],
                     "content_fingerprint": row["content_fingerprint"],
+                    "artifact_kind": row.get("artifact_kind"),
+                    "mime_type": row.get("mime_type"),
                     "metadata_only": row.get("metadata_only", False),
                     "time_field": row.get("time_field"),
                     "start_time": row.get("start_time"),
@@ -2004,7 +2134,11 @@ class DriveSharingStore(DriveDocumentStore):
         return self.cipher.open(row)
 
     def _admit_sources(self, connection, *, user_id, generation, sources):
-        live = [item for item in sources if isinstance(item, LiveReviewedSource)]
+        live = [
+            item
+            for item in sources
+            if isinstance(item, (LiveReviewedSource, CalendarReviewedSource))
+        ]
         if live:
             if len(live) != len(sources):
                 raise DriveSharingError("source_changed")
@@ -2036,6 +2170,17 @@ class DriveSharingStore(DriveDocumentStore):
         for row in rows:
             file_id = row.get("file_id")
             metadata_only = row.get("metadata_only") is True
+            artifact_kind = row.get("artifact_kind")
+            mime_type = row.get("mime_type")
+            valid_calendar_artifact = (
+                artifact_kind is None
+                or artifact_kind == "recording"
+                and isinstance(mime_type, str)
+                and mime_type.startswith("video/")
+                or artifact_kind == "notes"
+                and mime_type
+                in {"application/vnd.google-apps.document", "text/plain", "text/markdown"}
+            )
             fingerprint = row.get("content_fingerprint")
             valid_fingerprint = (
                 fingerprint is None
@@ -2071,6 +2216,7 @@ class DriveSharingStore(DriveDocumentStore):
                 or not row["source_version"].isdigit()
                 or not valid_fingerprint
                 or not valid_time_window
+                or not valid_calendar_artifact
             ):
                 raise DriveSharingError("source_changed")
             document_id = str(UUID(str(row["document_id"])))
@@ -2080,6 +2226,11 @@ class DriveSharingStore(DriveDocumentStore):
                     "name": row["name"],
                     "content_fingerprint": fingerprint,
                     "metadata_only": metadata_only,
+                    **(
+                        {"artifact_kind": artifact_kind, "mime_type": mime_type}
+                        if artifact_kind
+                        else {}
+                    ),
                     **(
                         {
                             "time_field": row["time_field"],
@@ -2149,7 +2300,8 @@ class DriveSharingStore(DriveDocumentStore):
 
     def _matching_rule(self, connection, *, request, sources, coverage, generation):
         if (
-            not sources
+            self._open_request(request).get("request_type") == "calendar_meeting"
+            or not sources
             or not all(item.get("_live") for item in sources)
             or coverage.get("coverage_status") != "complete"
             or coverage.get("gaps")
@@ -2210,6 +2362,14 @@ class DriveSharingStore(DriveDocumentStore):
                     "file_name": metadata["name"],
                     "source_version": source["source_version"],
                     "source_kind": "live" if source.get("_live") else "indexed",
+                    **(
+                        {
+                            "request_type": "calendar_meeting",
+                            "artifact_kind": metadata["artifact_kind"],
+                        }
+                        if metadata.get("artifact_kind") in {"recording", "notes"}
+                        else {}
+                    ),
                     "metadata_only": metadata.get("metadata_only") is True,
                     **(
                         {
@@ -2257,10 +2417,11 @@ class DriveSharingStore(DriveDocumentStore):
         request_id: str,
         expected_revision: int,
         document_ids: list[str],
-        observed_sources: list[ReviewedSource],
+        observed_sources: list[ReviewedSource | LiveReviewedSource | CalendarReviewedSource],
         coverage: dict,
         preparation_lease_id: str | None = None,
-        read_sources: list[ReviewedSource | LiveReviewedSource] | None = None,
+        read_sources: list[ReviewedSource | LiveReviewedSource | CalendarReviewedSource]
+        | None = None,
         live_sources: list[dict] | None = None,
         foreground: bool = False,
         notify_owner: bool = True,
@@ -2287,7 +2448,24 @@ class DriveSharingStore(DriveDocumentStore):
                 self._active(connection, user_id, generation)
                 self._selection_policy(connection, user_id, feature="drive_document_sharing")
             row = self._related_request(connection, user_id, request_id)
-            if self._open_request(row).get("agent_package_required") is True:
+            private = self._open_request(row)
+            calendar_request = private.get("request_type") == "calendar_meeting"
+            if calendar_request != bool(
+                live_sources
+                and all(
+                    item.get("artifact_kind") in {"recording", "notes"} for item in live_sources
+                )
+            ):
+                raise DriveSharingError("source_changed")
+            if calendar_request and (
+                not foreground
+                or any(
+                    item["artifact_kind"] not in private["calendar"]["requested_types"]
+                    for item in live_sources or []
+                )
+            ):
+                raise DriveSharingError("source_changed")
+            if private.get("agent_package_required") is True:
                 raise DriveSharingError("package_review_required")
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
@@ -2484,6 +2662,7 @@ class DriveSharingStore(DriveDocumentStore):
         review_digest: str,
         document_ids: list[str],
         confirmed: bool,
+        calendar_occurrence_confirmed: bool = False,
         trust_future_requests: bool = False,
         trust_scope: str | None = None,
         trust_disclosure_version: str | None = None,
@@ -2501,6 +2680,13 @@ class DriveSharingStore(DriveDocumentStore):
         def operation(connection):
             self._participant_gate(connection, user_id, request_id)
             request = self._related_request(connection, user_id, request_id)
+            calendar_request = self._open_request(request).get("request_type") == "calendar_meeting"
+            if calendar_request and trust_future_requests:
+                raise DriveSharingError("rule_not_covered")
+            if calendar_request and calendar_occurrence_confirmed is not True:
+                raise DriveSharingError("confirmation_required")
+            if not calendar_request and calendar_occurrence_confirmed:
+                raise DriveSharingError("invalid_argument")
             if self._open_request(request).get("agent_package_required") is True:
                 raise DriveSharingError("package_review_required")
             review = self._row(
@@ -2816,6 +3002,11 @@ class DriveSharingStore(DriveDocumentStore):
             return {
                 **self._summary(row, recipient=recipient),
                 "direction": "outgoing" if recipient else "incoming",
+                **(
+                    {"requestType": "calendar_meeting"}
+                    if private.get("request_type") == "calendar_meeting"
+                    else {}
+                ),
                 **background_consent.projection(private),
                 **request_outcome_view(row, owner=not recipient),
                 # Waiting in the durable queue with no search yet; never "paused".
@@ -2889,6 +3080,27 @@ class DriveSharingStore(DriveDocumentStore):
 
         return cast(dict, await self._transaction(operation))
 
+    async def calendar_request_preview(self, *, user_id: str, request_id: str) -> dict:
+        """Owner-only private meeting terms, readable before Drive is connected."""
+
+        def operation(connection):
+            self._participant_gate(connection, user_id, request_id)
+            row = self._related_request(connection, user_id, request_id)
+            private = self._open_request(row)
+            if private.get("request_type") != "calendar_meeting":
+                raise DriveSharingError("request_unavailable")
+            return {
+                **self._summary(row),
+                "requestType": "calendar_meeting",
+                "meeting": private["calendar"],
+                "recipientEmail": private["recipient"]["email"],
+                "ownerDriveReady": self._owner_drive_setup(connection, row).get(
+                    "ownerDriveReady", True
+                ),
+            }
+
+        return cast(dict, await self._transaction(operation))
+
     async def owner_review(self, *, user_id: str, request_id: str) -> dict:
         """Service must require current Vault Owner authority; never cache this result."""
 
@@ -2914,6 +3126,11 @@ class DriveSharingStore(DriveDocumentStore):
             now = datetime.now(UTC)
             result = {
                 **self._summary(row),
+                **(
+                    {"requestType": "calendar_meeting", "meeting": private["calendar"]}
+                    if private.get("request_type") == "calendar_meeting"
+                    else {}
+                ),
                 **background_consent.projection(private),
                 "purpose": private["purpose"],
                 "reason": private.get("reason", ""),
@@ -3052,7 +3269,8 @@ class DriveSharingStore(DriveDocumentStore):
                         "coverage": payload["coverage"],
                         "reviewDigest": review["review_digest"],
                         "canTrustFutureRequests": bool(
-                            payload["approval"]
+                            private.get("request_type") != "calendar_meeting"
+                            and payload["approval"]
                             and all(item.get("_live") for item in sources)
                             and (payload.get("coverage") or {}).get("coverage_status") == "complete"
                             and not (payload.get("coverage") or {}).get("gaps")
@@ -3193,6 +3411,8 @@ class DriveSharingStore(DriveDocumentStore):
             if row["revision"] != revision:
                 raise DriveSharingError("review_changed")
             private = self._open_request(row)
+            if private.get("request_type") == "calendar_meeting":
+                raise DriveSharingError("request_already_decided")
             if not valid_request_price_cents(private, amount_cents):
                 raise DriveSharingError("invalid_payment_amount")
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
@@ -3280,6 +3500,8 @@ class DriveSharingStore(DriveDocumentStore):
             self._participant_gate(connection, user_id, identity)
             DriveLivePreferences(db=self.db).live_active(connection, user_id=user_id)
             row = self._related_request(connection, user_id, identity)
+            if self._open_request(row).get("request_type") == "calendar_meeting":
+                raise DriveSharingError("request_already_decided")
             private = background_consent.allow_private(self, connection, row, one_copy_accepted)
             allowed = owner_allowed_marker(private)
             if allowed is not None:
