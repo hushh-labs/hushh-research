@@ -24,7 +24,7 @@ Platform = Literal["web", "ios", "android"]
 
 
 def _device_fields(body: dict) -> dict:
-    fields = {}
+    fields: dict[str, str | int] = {}
     for key in ("device_id", "preview_key_id"):
         if body.get(key) is not None:
             try:
