@@ -33,6 +33,9 @@ export type ChromeControlProjection = NativeControlAppearance & ChromeControl & 
 };
 export type NativeContentPaneIdentity = { documentId: string; ownerEpoch: string; generation: number; privacyGeneration: number };
 export type NativeContentPaneReceipt = NativeContentPaneIdentity & { phase: "active" | "retired" };
+export type NativeContentPaneRetirementState = NativeContentPaneIdentity & {
+  phase: "active" | "retired" | "retiring" | "unknown"; settled: boolean; handoffReady: boolean;
+};
 export type ChromeProjection = ChromeIdentity & ChromeControlProjection;
 export type ChromeAcknowledgement = ChromeIdentity & {
   presentationApplied?: boolean;
@@ -86,6 +89,7 @@ export type NativeChromeCapabilities = {
   coherentPresentation?: boolean;
   ownedContentPane?: boolean;
   contentPanePreparation?: boolean;
+  contentPaneRetirementReadback?: boolean;
   documentScopedLifecycleEvents?: boolean;
   leaseScopedInvalidationEvents?: boolean;
   reservedPresentationRegions?: boolean;
@@ -100,6 +104,8 @@ export interface HushhNativeChromePlugin {
   acquireContentPane(options: NativeContentPaneIdentity & { viewport: { width: number; height: number }; preparationVisitId?: string }): Promise<NativeContentPaneReceipt>;
   confirmContentPanePreparation?(options: NativeContentPaneIdentity & { preparationVisitId: string; preparationId: string }): Promise<NativeContentPaneReceipt>;
   releaseContentPane(options: NativeContentPaneIdentity): Promise<NativeContentPaneReceipt>;
+  cancelContentPane?(options: NativeContentPaneIdentity): Promise<NativeContentPaneRetirementState>;
+  getContentPaneRetirementState?(options: NativeContentPaneIdentity): Promise<NativeContentPaneRetirementState | { valid: false }>;
   setPresentationRegions(options: NativePresentationRegions): Promise<NativePresentationRegions>;
   interactionFeedback(options: { documentId: string; privacyGeneration: number; intentId: string; kind: "light" | "selection"; issuedAtMs: number }): Promise<{ played: boolean }>;
   applyPanelPose(options: NativePanelPose): Promise<NativePanelReceipt>;
@@ -118,6 +124,7 @@ export interface HushhNativeChromePlugin {
   addListener(eventName: "choiceRequested", listener: (event: ChromeChoice) => void): Promise<PluginListenerHandle>;
   addListener(eventName: "invalidated", listener: (event: ChromeLifecycleEvent) => void): Promise<PluginListenerHandle>;
   addListener(eventName: "readmissionRequested", listener: (event: ChromeLifecycleEvent) => void): Promise<PluginListenerHandle>;
+  addListener(eventName: "contentPaneHandoffChanged", listener: (event: { documentId: string }) => void): Promise<PluginListenerHandle>;
 }
 
 export const nativeChrome = registerPlugin<HushhNativeChromePlugin>("HushhNativeChrome");

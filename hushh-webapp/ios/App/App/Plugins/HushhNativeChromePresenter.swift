@@ -62,7 +62,7 @@ struct NativeAccentSelector: View {
     var body: some View {
         styledButton
         .buttonBorderShape(.capsule).tint(Color(uiColor: theme.accent))
-        .accessibilityLabel("App accent color").accessibilityValue(selected == "gold" ? "Molten Gold" : "iOS Blue")
+        .accessibilityLabel("App accent color").accessibilityValue(selected == "gold" ? "Molten Gold" : "Blue")
         .accessibilityIdentifier("profile-accent").accessibilityFocused($accessibilityFocused)
         .onChange(of: focus.sequence) { _, _ in accessibilityFocused = true }
         .frame(width: width, height: 44)
@@ -79,7 +79,7 @@ struct NativeAccentSelector: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Circle().fill(Color(uiColor: theme.accent)).frame(width: 12, height: 12)
-                Text(selected == "gold" ? "Molten Gold" : "iOS Blue").font(.subheadline)
+                Text(selected == "gold" ? "Molten Gold" : "Blue").font(.subheadline)
                 Image(systemName: "chevron.down").font(.caption.weight(.semibold))
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 .foregroundStyle(Color(uiColor: theme.foreground))
@@ -91,6 +91,24 @@ struct HushhChromeOption {
     let value: String
     let label: String
     let disabled: Bool
+}
+
+/// Retains owned presenters until UIKit confirms their actual disappearance,
+/// including when their original document and trigger have been replaced.
+final class NativeChromePresenterRetirements {
+    private var presenters = [ObjectIdentifier: HushhNativeChromePresenter]()
+    var onChange: (() -> Void)?
+    var isEmpty: Bool { presenters.isEmpty }
+    func retire(_ presenter: HushhNativeChromePresenter) {
+        let key = ObjectIdentifier(presenter)
+        guard presenters[key] == nil else { return }
+        presenters[key] = presenter
+        presenter.retire { [weak self, weak presenter] in
+            guard let self, let presenter, self.presenters[key] === presenter else { return }
+            self.presenters.removeValue(forKey: key)
+            self.onChange?()
+        }
+    }
 }
 
 /// An owned presentation, not a second router. Completion means UIKit has

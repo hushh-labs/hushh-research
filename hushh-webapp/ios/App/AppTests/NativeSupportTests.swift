@@ -1700,6 +1700,25 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(container.acquireContentPane(next, viewport: container.bounds.size), "Same-document retirement still rejects late acquisition")
     }
 
+    func testCanceledContentPaneLifetimeCannotBeReadmittedAcrossPrivacyRefresh() {
+        let first = NativeContentPaneIdentity(document: "old", ownerEpoch: "owner", generation: 1, privacyGeneration: 0)
+        let refused = NativeContentPaneIdentity(document: "next", ownerEpoch: "owner", generation: 1, privacyGeneration: 0)
+        let refreshed = NativeContentPaneIdentity(document: "next", ownerEpoch: "owner", generation: 1, privacyGeneration: 1)
+        let successor = NativeContentPaneIdentity(document: "next", ownerEpoch: "owner", generation: 2, privacyGeneration: 1)
+        var fence = NativeContentPaneCancellationFence()
+        XCTAssertTrue(fence.cancel(refused)); XCTAssertTrue(fence.cancel(refused))
+        XCTAssertTrue(fence.isCanceled(refreshed))
+        XCTAssertFalse(fence.isCanceled(first)); XCTAssertFalse(fence.isCanceled(successor))
+        fence.forgetRetiredDocument("next")
+        XCTAssertFalse(fence.isCanceled(refused))
+        let older = NativeContentPaneIdentity(document: "next", ownerEpoch: "older", generation: 1, privacyGeneration: 0)
+        let newer = NativeContentPaneIdentity(document: "next", ownerEpoch: "newer", generation: 2, privacyGeneration: 0)
+        XCTAssertTrue(fence.cancel(newer))
+        XCTAssertFalse(fence.isCanceled(older), "A newer canceled request cannot disable an earlier delayed competitor")
+        XCTAssertTrue(fence.cancel(older))
+        XCTAssertTrue(fence.isCanceled(older))
+    }
+
     func testContentPaneRetirementCompletionCannotReleaseANewerPendingLifetime() {
         let first = NativeContentPaneIdentity(document: "public", ownerEpoch: "first", generation: 1, privacyGeneration: 0)
         let next = NativeContentPaneIdentity(document: "public", ownerEpoch: "next", generation: 2, privacyGeneration: 0)
@@ -1715,6 +1734,11 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(fence.acquire(later), "A newer acquisition cannot bypass an empty but retiring fence")
         XCTAssertTrue(fence.release(next))
         XCTAssertFalse(fence.retiring)
+        var competing = NativeContentPaneFence()
+        XCTAssertTrue(competing.acquire(next))
+        XCTAssertTrue(competing.beginRetirement(next)); XCTAssertTrue(competing.release(next))
+        XCTAssertTrue(competing.acquire(first), "Retiring a newer competitor must not cancel an earlier delayed live owner")
+        XCTAssertFalse(competing.acquire(next), "The retired lifetime must remain fenced")
     }
 
     @MainActor
@@ -4382,15 +4406,25 @@ final class NativeSupportTests: XCTestCase {
         // The fix is alert-specific. Custom sheets retain adaptive dismissal.
         let sheet = UIViewController()
         sheet.modalPresentationStyle = .pageSheet
-        let presenter = HushhNativeChromePresenter(parent: parent, controller: sheet, updateSequence: 1) { _, _ in
+        let presenter = HushhNativeChromePresenter(parent: parent, controller: sheet, updateSequence: 1, animatedDismissal: true) { _, _ in
             XCTFail("Retirement alone must not execute a choice")
         }
         presenter.present()
         XCTAssertTrue(sheet.presentationController?.delegate === presenter)
+        let presented = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            sheet.presentingViewController === parent && !sheet.isBeingPresented
+        }, object: nil)
+        await fulfillment(of: [presented], timeout: 3)
         let dismissed = expectation(description: "Custom sheet detached")
-        presenter.retire { dismissed.fulfill() }
+        let retirements = NativeChromePresenterRetirements()
+        retirements.onChange = { dismissed.fulfill() }
+        retirements.retire(presenter)
+        if sheet.presentingViewController != nil {
+            XCTAssertFalse(retirements.isEmpty, "A pending UIKit dismissal must retain the predecessor")
+        }
         await fulfillment(of: [dismissed], timeout: 3)
         XCTAssertNil(sheet.presentingViewController)
+        XCTAssertTrue(retirements.isEmpty)
     }
 
     func testSessionPrivacyStatePreservesBackgroundDebtThroughTransientInactivity() {

@@ -17,15 +17,38 @@ struct NativeContentPaneIdentity: Equatable {
     }
 }
 
+/// Cancellation is scoped to a presentation lifetime, not a privacy refresh.
+/// A canceled request must not become active if its acquire arrives late.
+struct NativeContentPaneCancellationFence {
+    private struct Lifetime: Hashable {
+        let document: String; let owner: String; let generation: Int
+        init(_ identity: NativeContentPaneIdentity) {
+            document = identity.document; owner = identity.ownerEpoch; generation = identity.generation
+        }
+    }
+    private var canceled = Set<Lifetime>()
+    mutating func cancel(_ identity: NativeContentPaneIdentity) -> Bool {
+        guard identity.valid else { return false }
+        canceled.insert(Lifetime(identity)); return true
+    }
+    func isCanceled(_ identity: NativeContentPaneIdentity) -> Bool { canceled.contains(Lifetime(identity)) }
+    /// The plugin must first make the document permanently inadmissible.
+    mutating func forgetRetiredDocument(_ document: String) { canceled = Set(canceled.filter { $0.document != document }) }
+}
+
 struct NativeContentPaneFence {
+    private struct Lifetime: Hashable {
+        let document: String; let owner: String; let generation: Int
+        init(_ identity: NativeContentPaneIdentity) { document = identity.document; owner = identity.ownerEpoch; generation = identity.generation }
+    }
     private(set) var identity: NativeContentPaneIdentity?
     private var retirement: NativeContentPaneIdentity?
     var retiring: Bool { retirement != nil }
-    private var retiredGeneration = 0
+    private var retired = Set<Lifetime>()
     private var document: String?
     init(document: String? = nil) { self.document = document }
     mutating func acquire(_ next: NativeContentPaneIdentity) -> Bool {
-        guard next.valid, !retiring, document == nil || document == next.document, next.generation > retiredGeneration else { return false }
+        guard next.valid, !retiring, document == nil || document == next.document, !retired.contains(Lifetime(next)) else { return false }
         if let identity {
             guard !retiring, identity.document == next.document, identity.ownerEpoch == next.ownerEpoch,
                   identity.generation == next.generation, next.privacyGeneration >= identity.privacyGeneration else { return false }
@@ -38,9 +61,9 @@ struct NativeContentPaneFence {
         guard requested.valid, document == nil || document == requested.document,
               identity == nil || identity?.sameLifetime(as: requested) == true,
               retirement == nil || retirement?.sameLifetime(as: requested) == true,
-              requested.generation >= retiredGeneration else { return false }
+              !retired.contains(Lifetime(requested)) || retirement?.sameLifetime(as: requested) == true || identity == nil && retirement == nil else { return false }
         document = requested.document
-        retiredGeneration = max(retiredGeneration, requested.generation)
+        retired.insert(Lifetime(requested))
         retirement = requested
         return true
     }
@@ -50,7 +73,7 @@ struct NativeContentPaneFence {
               identity == nil || identity?.sameLifetime(as: requested) == true,
               retirement == nil || retirement?.sameLifetime(as: requested) == true else { return false }
         document = requested.document
-        retiredGeneration = max(retiredGeneration, requested.generation)
+        retired.insert(Lifetime(requested))
         identity = nil
         retirement = nil
         return true
@@ -149,6 +172,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     var legacyRegionPresentation: Bool { basePresentation == .contentBacked }
     var wholeNativeDrawers: Bool { basePresentation == .coherentDrawers }
     private var ownedDrawerIsolation = false
+    var ownedPresentationIsolated: Bool { ownedDrawerIsolation }
     var interactionIsolated: Bool { overlayIsolated || ownedDrawerIsolation }
     private(set) var isolationGeneration = 0
     let drawerClipping: Bool
@@ -158,6 +182,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     private let contentChrome = UIView()
     private var contentPaneFence = NativeContentPaneFence()
     var contentPane: NativeContentPaneIdentity? { contentPaneFence.identity }
+    var contentPaneRetiring: Bool { contentPaneFence.retiring }
     private var groups: [String: UIView] = [:]
     private var fences: [String: NativePanelPoseFence] = [:]
     private var controls: [String: (view: UIView, group: String?, pane: NativeContentPaneIdentity?, admitted: Bool)] = [:]

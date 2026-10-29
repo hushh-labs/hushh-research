@@ -36,11 +36,13 @@ can leave its retirement barrier blocked. A recovery must also prove that the
 previous owned presenter has actually detached. Keep the custom shell gated
 until that behavior and the other acceptance requirements below are verified.
 
-The local follow-up also fences overlapping retirements and recovers a late,
-identity-matched dismissal receipt. It does not yet reconcile a lost or
-rejected receipt through native readback, or prove predecessor dismissal across
-document replacement. These changes have focused test evidence only; they do
-not qualify a new device candidate.
+The local follow-up fences overlapping retirements and uses identity-bound
+native cancellation and readback to recover same-document handoffs. It retains
+owned presenters until UIKit confirms dismissal; a competing canceled pane
+does not hide an already admitted one. Focused bridge tests and simulator
+dismissal tests cover parts of this behavior. Replacement-document ownership
+and physical acceptance remain unproven; these checks do not qualify a new
+device candidate.
 
 Native Chrome lifecycle notifications now identify their document and affected
 control revisions when the wrapper advertises that capability. Older wrappers

@@ -48,7 +48,7 @@ import { registerBackLayer } from "@/lib/navigation/back-layers";
 import { backProfilePane } from "@/lib/navigation/profile-pane-back";
 import { validNativeWorkspace, workspaceAcknowledged, type NativeWorkspaceProjection } from "@/lib/capacitor/native-workspace";
 import { useNativeWorkspace } from "@/lib/capacitor/use-native-workspace";
-import { contentPaneAcknowledged, NativeContentPaneRetirementBarrier } from "@/lib/capacitor/use-native-content-pane";
+import { contentPaneAcknowledged, contentPaneHandoffConfirmed, reconcileContentPaneRetirement, NativeContentPaneRetirementBarrier } from "@/lib/capacitor/use-native-content-pane";
 
 describe("content pane retirement barrier", () => {
   it("waits for overlapping retirements and retains an earlier failure", async () => {
@@ -109,6 +109,74 @@ describe("content pane retirement barrier", () => {
     retirement.resolve(undefined);
     await expect(admission).resolves.toBe("admitted");
     expect(start).toHaveBeenCalledOnce();
+  });
+  it("keeps an uncertain pane fenced until a targeted native readback confirms handoff", async () => {
+    const barrier = new NativeContentPaneRetirementBarrier();
+    const retirement = deferred<void>();
+    const readback = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    barrier.track(retirement.promise, undefined, readback);
+    retirement.reject(new Error("uncertain"));
+    await expect(barrier.wait()).rejects.toThrow("NATIVE_CONTENT_PANE_RETIRE_UNCONFIRMED");
+    expect(barrier.clear).toBe(false);
+    await expect(barrier.wait()).resolves.toBeUndefined();
+    expect(barrier.clear).toBe(true);
+    expect(readback).toHaveBeenCalledTimes(2);
+  });
+  it("requires exact canceled-pane identity and a settled, unobstructed handoff", () => {
+    const identity = { documentId: "document", ownerEpoch: "owner", generation: 1, privacyGeneration: 2 };
+    const receipt = { ...identity, phase: "retired" as const, settled: true, handoffReady: true };
+    expect(contentPaneHandoffConfirmed(receipt, identity)).toBe(true);
+    expect(contentPaneHandoffConfirmed({ ...receipt, handoffReady: false }, identity)).toBe(false);
+    expect(contentPaneHandoffConfirmed({ ...receipt, settled: false }, identity)).toBe(false);
+    expect(contentPaneHandoffConfirmed({ ...receipt, ownerEpoch: "other" }, identity)).toBe(false);
+    expect(contentPaneHandoffConfirmed({ valid: false }, identity)).toBe(false);
+    expect(contentPaneHandoffConfirmed(null, identity)).toBe(false);
+  });
+  it("retains a wake-up observer until an uncertain handoff actually settles", async () => {
+    const barrier = new NativeContentPaneRetirementBarrier();
+    const retirement = deferred<void>();
+    let ready = false, wake = () => {};
+    const stop = vi.fn();
+    const observe = vi.fn(async (callback: () => void) => { wake = callback; return stop; });
+    const readback = vi.fn(async () => ready);
+    barrier.track(retirement.promise, undefined, readback, observe);
+    retirement.reject(new Error("uncertain"));
+    await waitFor(() => expect(readback).toHaveBeenCalled());
+    expect(barrier.clear).toBe(false);
+    expect(stop).not.toHaveBeenCalled();
+    ready = true; wake();
+    await waitFor(() => expect(barrier.clear).toBe(true));
+    expect(stop).toHaveBeenCalledOnce();
+  });
+  it("rechecks after a dismissal wake arrives during an older negative readback", async () => {
+    const barrier = new NativeContentPaneRetirementBarrier();
+    const retirement = deferred<void>(), first = deferred<boolean>();
+    let wake = () => {};
+    const stop = vi.fn();
+    const readback = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValueOnce(true);
+    barrier.track(retirement.promise, undefined, readback, async callback => { wake = callback; return stop; });
+    retirement.reject(new Error("uncertain"));
+    await waitFor(() => expect(readback).toHaveBeenCalledOnce());
+    wake();
+    first.resolve(false);
+    await waitFor(() => expect(barrier.clear).toBe(true));
+    expect(readback).toHaveBeenCalledTimes(2);
+    expect(stop).toHaveBeenCalledOnce();
+  });
+  it("reissues only identity-matched cancellation after native reports it missing", async () => {
+    const identity = { documentId: "document", ownerEpoch: "owner", generation: 1, privacyGeneration: 2 };
+    const state = { ...identity, phase: "unknown" as const, settled: false, handoffReady: false };
+    const source = { getContentPaneRetirementState: vi.fn().mockResolvedValue(state),
+      cancelContentPane: vi.fn().mockResolvedValue({ ...identity, phase: "retired", settled: true, handoffReady: true }) };
+    expect(await reconcileContentPaneRetirement(identity, source)).toBe(true);
+    expect(source.cancelContentPane).toHaveBeenCalledExactlyOnceWith(identity);
+    source.cancelContentPane.mockClear();
+    source.getContentPaneRetirementState.mockResolvedValue({ ...state, ownerEpoch: "other" });
+    expect(await reconcileContentPaneRetirement(identity, source)).toBe(false);
+    expect(source.cancelContentPane).not.toHaveBeenCalled();
+    source.getContentPaneRetirementState.mockResolvedValue({ ...state, phase: "retiring" });
+    expect(await reconcileContentPaneRetirement(identity, source)).toBe(false);
+    expect(source.cancelContentPane).not.toHaveBeenCalled();
   });
 });
 
@@ -776,7 +844,7 @@ vi.mock("@/components/profile/profile-workspace-page", () => ({ ProfilePage: () 
 
 const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", callbacks: new Map<string, (event: unknown) => void>(),
   listeners: new Map<string, Set<(event: unknown) => void>>(), setPresentationRegions: vi.fn(), applyPanelPose: vi.fn(), retirePanel: vi.fn(),
-  acquireContentPane: vi.fn(), releaseContentPane: vi.fn(),
+  acquireContentPane: vi.fn(), releaseContentPane: vi.fn(), cancelContentPane: vi.fn(), getContentPaneRetirementState: vi.fn(),
   subscribe: vi.fn(), prepare: vi.fn(), prepareBackReplacement: vi.fn(), prepareHistoryReplacement: vi.fn(), activate: vi.fn(), update: vi.fn(), suspend: vi.fn(), retire: vi.fn(), restoreFocus: vi.fn(), confirmChoice: vi.fn(), getCapabilities: vi.fn(), setCanvasAppearance: vi.fn() }));
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
   subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn(), snapshotDraft: vi.fn() }));
@@ -2129,6 +2197,7 @@ describe("native chrome presentation lease", () => {
     bridge.callbacks.clear();
     bridge.listeners.clear();
     bridge.subscribe.mockReset().mockResolvedValue(undefined);
+    bridge.cancelContentPane.mockReset(); bridge.getContentPaneRetirementState.mockReset();
     bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true });
     bridge.setCanvasAppearance.mockReset().mockImplementation(async (value) => value);
     bridge.setPresentationRegions.mockReset().mockImplementation(async (value) => value);
@@ -4014,6 +4083,85 @@ describe("native chrome presentation lease", () => {
     expect(bridge.acquireContentPane).toHaveBeenCalledOnce();
     expect(bridge.releaseContentPane).toHaveBeenCalledOnce();
     await act(async () => { release.resolve({ ...identity, phase: "retired" }); await release.promise; });
+  });
+  it("keeps a new pane blocked until a canceled predecessor reports an unobstructed handoff", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back"], independentControls: true,
+      coherentPresentation: true, ownedContentPane: true, contentPaneRetirementReadback: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.acquireContentPane.mockReset().mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    let handoffReady = false;
+    bridge.cancelContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired", settled: true, handoffReady }));
+    bridge.getContentPaneRetirementState.mockImplementation(async identity => ({ ...identity, phase: "retired", settled: true, handoffReady }));
+    const first = render(<NativeFeaturePage pane open title="First" owner="first" context="first" onBack={vi.fn()}><p>First</p></NativeFeaturePage>);
+    let second: ReturnType<typeof render> | undefined;
+    try {
+      await waitFor(() => expect(bridge.acquireContentPane).toHaveBeenCalledOnce());
+      first.unmount();
+      await waitFor(() => expect(bridge.cancelContentPane).toHaveBeenCalledOnce());
+      await waitFor(() => expect(bridge.getContentPaneRetirementState).toHaveBeenCalled());
+      second = render(<NativeFeaturePage pane open title="Second" owner="second" context="second" onBack={vi.fn()}><p>Second</p></NativeFeaturePage>);
+      await waitFor(() => expect(bridge.getContentPaneRetirementState).toHaveBeenCalled());
+      expect(bridge.acquireContentPane).toHaveBeenCalledOnce();
+      handoffReady = true;
+      act(() => bridge.callbacks.get("contentPaneHandoffChanged")?.({ documentId: bridge.documentId }));
+      await waitFor(() => expect(bridge.acquireContentPane).toHaveBeenCalledTimes(2));
+    } finally {
+      handoffReady = true;
+      act(() => bridge.callbacks.get("contentPaneHandoffChanged")?.({ documentId: bridge.documentId }));
+      second?.unmount(); first.unmount();
+      await act(async () => { await Promise.resolve(); });
+    }
+  });
+  it("retries an eligible pane after its blocking native presenter dismisses", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back"], independentControls: true,
+      coherentPresentation: true, ownedContentPane: true, contentPaneRetirementReadback: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.acquireContentPane.mockReset().mockRejectedValueOnce(new Error("NATIVE_CONTENT_PANE_REFUSED"))
+      .mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    bridge.cancelContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired", settled: true, handoffReady: true }));
+    const view = render(<NativeFeaturePage pane open title="Preferences" owner="owner-a" context="pane" onBack={vi.fn()}><p>Preferences</p></NativeFeaturePage>);
+    try {
+      await waitFor(() => expect(bridge.acquireContentPane).toHaveBeenCalledOnce());
+      act(() => bridge.callbacks.get("contentPaneHandoffChanged")?.({ documentId: bridge.documentId }));
+      await waitFor(() => expect(bridge.acquireContentPane).toHaveBeenCalledTimes(2));
+    } finally { view.unmount(); await act(async () => { await Promise.resolve(); }); }
+  });
+  it("keeps an admitted pane visible while an unadmitted competitor retires", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back"], independentControls: true,
+      coherentPresentation: true, ownedContentPane: true, contentPaneRetirementReadback: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.acquireContentPane.mockReset().mockImplementationOnce(async identity => ({ ...identity, phase: "active" }))
+      .mockRejectedValueOnce(new Error("NATIVE_CONTENT_PANE_REFUSED"))
+      .mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    let handoffReady = false;
+    bridge.cancelContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired", settled: true, handoffReady }));
+    bridge.getContentPaneRetirementState.mockImplementation(async identity => ({ ...identity, phase: "retired", settled: true, handoffReady }));
+    const back = vi.fn();
+    const live = render(<NativeFeaturePage pane open title="Live pane" owner="owner-a" context="live" onBack={back}><p>Live body</p></NativeFeaturePage>);
+    let contender: ReturnType<typeof render> | undefined;
+    const originalWidth = window.innerWidth;
+    try {
+      await waitFor(() => expect(live.getByRole("dialog", { name: "Live pane" })).toBeVisible());
+      contender = render(<NativeFeaturePage pane open title="Contender" owner="owner-b" context="contender" onBack={vi.fn()}><p>Other body</p></NativeFeaturePage>);
+      await waitFor(() => expect(bridge.acquireContentPane).toHaveBeenCalledTimes(2));
+      contender.unmount();
+      await waitFor(() => expect(bridge.cancelContentPane).toHaveBeenCalledOnce());
+      await waitFor(() => expect(bridge.getContentPaneRetirementState).toHaveBeenCalled());
+      expect(live.getByRole("dialog", { name: "Live pane" })).toBeVisible();
+      act(() => { window.innerWidth = originalWidth - 1; window.dispatchEvent(new Event("resize")); });
+      await waitFor(() => expect(bridge.acquireContentPane).toHaveBeenCalledTimes(3));
+      expect(live.getByRole("dialog", { name: "Live pane" })).toBeVisible();
+      const projection = bridge.prepare.mock.calls.filter(([value]) => value.controlId === "profile-back").at(-1)![0];
+      const updateSequence = bridge.update.mock.calls.filter(([value]) => value.controlId === "profile-back").at(-1)?.[0].updateSequence ?? 0;
+      act(() => bridge.callbacks.get("choiceRequested")?.({ ...projection, sequence: 1, updateSequence, privacyGeneration: 0 }));
+      await waitFor(() => expect(back).toHaveBeenCalledOnce());
+    } finally {
+      handoffReady = true;
+      act(() => bridge.callbacks.get("contentPaneHandoffChanged")?.({ documentId: bridge.documentId }));
+      contender?.unmount(); live.unmount();
+      window.innerWidth = originalWidth;
+      await act(async () => { await Promise.resolve(); });
+    }
   });
   it("reveals a full-height Profile pane only after its plane and both header controls are acknowledged", async () => {
     measureSlot();

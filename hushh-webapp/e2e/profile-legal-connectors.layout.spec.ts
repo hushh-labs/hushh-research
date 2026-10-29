@@ -272,7 +272,7 @@ test("Accent stays coherent through repeated selection and Profile close/reopen"
   await page.emulateMedia({ reducedMotion: "no-preference" });
   const trigger = page.getByRole("combobox", { name: "App accent color" });
   for (let cycle = 0; cycle < 10; cycle += 1) {
-    const accent = cycle % 2 === 0 ? "Molten Gold" : "iOS Blue";
+    const accent = cycle % 2 === 0 ? "Molten Gold" : "Blue";
     const value = cycle % 2 === 0 ? "gold" : "blue";
     await trigger.selectOption(value);
     await expect(trigger).toHaveValue(value);
