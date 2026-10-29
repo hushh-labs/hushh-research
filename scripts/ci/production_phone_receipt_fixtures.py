@@ -16,6 +16,13 @@ def historical_restoration_source(canonical):
     # Exact job used by healthy restoration 40475676949/2, before two
     # additive dispatch gates. Its digest freezes the reconstructed bytes.
     block = lease.nonproducer._job_block(canonical.decode(), lease.RESTORATION_JOB)
+    original = block
+    block = block.replace("    needs: deployment-security\n", "")
+    marker = "      - name: Require current-attempt deployment security\n"
+    if marker in block:
+        start = block.index(marker)
+        end = block.index("      - ", start + len(marker))
+        block = block[:start] + block[end:]
     historical = block.replace("${{ inputs.main_approval_sha }}", "").replace(
         "\n      - name: Validate production incident boundary\n"
         "        id: dispatch-authority\n"
@@ -25,7 +32,7 @@ def historical_restoration_source(canonical):
     assert hashlib.sha256(historical.encode()).hexdigest() == (
         "94db30af3be1742efd4f2105f43aa2508d74fbceb58a2d3cc26c92795ea24d62"
     ), "Historical restoration fixture changed"
-    return canonical.replace(block.encode(), historical.encode())
+    return canonical.replace(original.encode(), historical.encode())
 
 
 def _qualified_phone():

@@ -254,7 +254,7 @@ Before deleting a local backup branch, classify its unique commits as:
 2. Production deploys through governed dispatch with the exact UAT-accepted application SHA. A distinct Main approval merge must pass smoke, incorporate that application and preserve its entire tree.
 3. The workflow validates that the SHA is reachable from `origin/main`.
 4. The workflow also validates that `Main Post-Merge Smoke Gate` succeeded for that SHA before deployment starts.
-5. Manual operators must be listed in `production.manual_dispatch_users`. The sole unattended exception is `production.automatic_release_workflow`: the protected-main release cadence controller, with immutable exact-run authority, complete input binding and a verified UAT source. The bot is never added to the human cohort. See [automatic native release cadence](./ci.md#automatic-native-release-cadence).
+5. Manual operators must be listed in `production.manual_dispatch_users`. There is no unattended release exception. Automatic release cadence is retired; commits and workflow completions do not authorize deployment. See [explicit releases](./ci.md#explicit-releases-and-retired-cadence).
 6. The canonical GitHub deployment environment for this lane is `production`.
 
 ## Protected Surfaces & Trust Model

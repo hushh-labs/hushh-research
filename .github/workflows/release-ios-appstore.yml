@@ -117,7 +117,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    with:
+      application_ref: ${{ inputs.sha || github.sha }}
+      environment_name: native
+      scope: ${{ 'native' }}
+
   preflight:
+    needs: deployment-security
     name: Authorize release and admit an editable Apple version
     runs-on: ubuntu-latest
     environment:
@@ -130,6 +139,16 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - uses: actions/checkout@v6
         with:
           ref: main
@@ -203,7 +222,7 @@ jobs:
 
   release:
     name: Build, upload & prepare iOS App Store release
-    needs: preflight
+    needs: [preflight, deployment-security]
     if: needs.preflight.outputs.ready == 'true'
     runs-on: macos-15
     concurrency:
@@ -220,6 +239,16 @@ jobs:
       export_outcome: ${{ steps.export_ipa.outcome }}
 
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert manual dispatch originates from main
         shell: bash
         run: |
@@ -874,7 +903,7 @@ jobs:
 
   prepare:
     name: Process and prepare uploaded App Store build
-    needs: release
+    needs: [release, deployment-security]
     if: ${{ needs.release.result == 'success' && inputs.dry_run != true }}
     runs-on: ubuntu-latest
     environment:
@@ -885,6 +914,16 @@ jobs:
       IOS_MARKETING_VERSION: ${{ needs.release.outputs.marketing_version }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - uses: actions/checkout@v6
         with:
           # Only tooling comes from main. Build identity is the pinned macOS

@@ -20,7 +20,16 @@ concurrency:
   queue: max
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    with:
+      application_ref: ${{ inputs.sha || github.sha }}
+      environment_name: uat
+      scope: ${{ 'backend' }}
+
   wait-capacity:
+    needs: deployment-security
     name: Wait for UAT One chat capacity outside the mutation lock
     runs-on: ubuntu-latest
     timeout-minutes: 7
@@ -32,6 +41,16 @@ jobs:
       name: uat
       deployment: false
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Checkout current admission tooling
         uses: actions/checkout@v6
         with:
@@ -58,7 +77,7 @@ jobs:
 
   deploy:
     name: Deploy only consent-protocol
-    needs: wait-capacity
+    needs: [wait-capacity, deployment-security]
     runs-on: ubuntu-latest
     concurrency:
       group: deploy-uat
@@ -67,6 +86,16 @@ jobs:
     environment: uat
     timeout-minutes: 65
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert main dispatch and governed actor
         shell: bash
         run: |

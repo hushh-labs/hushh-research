@@ -1,0 +1,55 @@
+name: Deployment Security
+
+on:
+  workflow_call:
+    inputs:
+      application_ref:
+        required: true
+        type: string
+      environment_name:
+        required: true
+        type: string
+      scope:
+        default: all
+        type: string
+    outputs:
+      application_sha:
+        value: ${{ jobs.alerts.outputs.sha }}
+      attempt:
+        value: ${{ jobs.alerts.outputs.attempt }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  alerts:
+    name: Verify repository secret clearance
+    if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    environment: ci-security
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.clearance.outputs.sha }}
+      attempt: ${{ steps.clearance.outputs.attempt }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read protected repository inventory
+        id: clearance
+        run: python3 scripts/ci/deployment_security.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+          DEPLOY_SECURITY_REF: ${{ inputs.application_ref }}
+          DEPLOY_SECURITY_ENVIRONMENT: ${{ inputs.environment_name }}
+          DEPLOY_SECURITY_SCOPE: ${{ inputs.scope }}
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: deployment-security-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/deployment-security.json
+          if-no-files-found: error
+          retention-days: 7

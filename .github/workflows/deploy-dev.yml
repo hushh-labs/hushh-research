@@ -83,13 +83,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    with:
+      application_ref: ${{ inputs.sha || inputs.ref || 'dev' }}
+      environment_name: dev
+      scope: ${{ inputs.scope || 'auto' }}
+
   deploy:
+    needs: deployment-security
     name: Deploy Dev Scope
     if: inputs.target != 'pod-publication'
     runs-on: ubuntu-24.04
     environment: dev
 
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       # The workflow DEFINITION always runs from main (single routing
       # authority); the CONTENT deployed comes from inputs.ref / inputs.sha.
       - name: Assert manual dispatch originates from main
@@ -145,7 +164,7 @@ jobs:
           if [ -n "${{ github.event.inputs.sha }}" ]; then
             DEPLOY_SHA="${{ github.event.inputs.sha }}"
           else
-            DEPLOY_SHA="$(git rev-parse "origin/${DEPLOY_REF}")"
+            DEPLOY_SHA="${{ needs.deployment-security.outputs.application_sha }}"
           fi
           echo "ref=$DEPLOY_REF" >> "$GITHUB_OUTPUT"
           echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
@@ -1872,6 +1891,7 @@ jobs:
         run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_REVISION_RETENTION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
 
   pod-publication:
+    needs: deployment-security
     name: Pod Release Publication
     if: inputs.target == 'pod-publication'
     runs-on: ubuntu-24.04
@@ -1884,6 +1904,16 @@ jobs:
       POD_REF: ${{ inputs.ref }}
       POD_FOLDER: /tmp/pod-publication
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}

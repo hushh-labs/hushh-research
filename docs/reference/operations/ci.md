@@ -337,242 +337,23 @@ Future reviews should compare the same scope, lane set and attempt, with sample
 counts, cache observations and failure causes. Reuse existing run timestamps and
 release receipts; add no monitoring workflow or scheduled test loop for this review.
 
-## Automatic native release cadence
+<a id="automatic-native-release-cadence"></a>
 
-**Surgical lifecycle release hold (2026-10-24, source candidate):**
-`config/release-cadence.json` sets `enabled: false` so this dev/UAT correction
-cannot automatically publish production or native releases. Manual governed
-deployments remain available. Retain the accounting ledger, baseline run and
-monitor improvements; resuming automatic publication is a separate release decision.
-This source setting does not prove a running controller has adopted the hold.
+## Explicit releases and retired cadence
 
-`UAT Release Cadence` observes completed `Deploy to UAT` runs in a separate
-workflow. UAT never waits for that observer, a native build, production deployment,
-or Apple processing. The observer has its own short accounting lock; UAT and
-production retain their existing independent mutation locks.
+UAT and production release only through governed manual dispatch. Commits, Main
+merges and completed workflows do not dispatch a release. The UAT Release Cadence
+workflow and automatic actor authority are retired. Its state branch and existing
+receipts remain historical evidence; do not reset or delete them. Shared receipt,
+retention and native-resume helpers remain supported independently of the observer.
+The retained CLI supports `wait-production` for an already approved exact run;
+`reconcile` refuses before ledger access or dispatch.
 
-Native jobs read their governed environment configuration with `deployment: false`,
-so they do not create hosted UAT/production deployment records. The UAT target
-selector also excludes historical native records from its hosted baseline;
-rollback, rehearsal and unknown mutation records retain their fail-closed checks.
-
-The counter starts with the commit that introduces `config/release-cadence.json`.
-Every second distinct, healthy deployed source commit qualifies for a UAT-backed
-TestFlight build. Every fourth also qualifies for a production backend/frontend
-deployment and a production-backed iOS build. Failed, rolled-back and NO_OP runs,
-retries, repeated SHAs and pre-policy sources do not advance the counter. A
-frontend-only healthy receipt counts even when it inherits an older backend.
-The receipt's `sha` is authoritative; a dispatch's workflow HEAD is not its
-deployed source.
-
-A production-first restart may pin `production_baseline_run_id` to one successful
-governed manual production deployment. Its healthy, complete exact-source receipt
-must match an already counted UAT source, including a non-milestone ordinal. After
-accounting the held history, the controller certifies that source, ordinal, run,
-attempt and receipt digest once. It supersedes only strictly never-started
-historical release groups through that ordinal, with an explicit cutover reason;
-it preserves counts, sources, started releases and recovery evidence. For example,
-a verified cutover at count 24 makes 26 the next TestFlight milestone and 28 the
-next production pair; a cutover at 31 makes 32 the next milestone for both lanes.
-The global two/four phase never shifts. A changed baseline, partial production receipt or started
-historical bundle refuses adoption. Checkpoint recovery revalidates the pinned
-attempt and receipt. The GitHub monitor shows the cutover alongside the count.
-
-Deployment reruns retain identically named receipts. Their duplicate-name reader
-uses the existing release-artifact owner to select only the current attempt's
-successful upload window, repository/source identity and immutable archive digest.
-It never selects by greatest artifact ID or deletes old evidence. Truncated,
-ambiguous or ungoverned evidence blocks accounting.
-
-Each milestone pins one green `main` SHA. Production deploy and archive are
-dispatched together. Before upload, the iOS job joins the exact recorded production
-run, requires its healthy same-SHA receipt, then rechecks live production backend
-provenance. Production builds explicitly select `backend_target=production`.
-The authorized cadence submits qualifying production builds to Apple and selects
-automatic publication after approval. Existing manual dispatches keep their
-prepare-only defaults. Automatic submission requires the existing privacy/export
-compliance attestations and configured production App Review contact/sign-in
-information; missing prerequisites block submission rather than weakening gates.
-Under the production mutation lock, automatic deployment additionally requires
-both currently serving service SHAs to equal or precede its pinned source. The
-scope resolver is preserved from current main before any historical checkout;
-an older or incomparable automatic source cannot roll production back. Manual
-operator deployment and rollback authority remains explicit.
-
-Only macOS build/upload jobs share `ios-build-and-upload`, preventing build-number
-races across TestFlight and App Store. Apple processing, group assignment and
-App Store preparation run on Ubuntu. Signed archives, IPAs, keychains, credentials
-and raw build logs never pass through Actions artifacts. Newer pending milestones
-replace older work that has not started; active deployments and uploads are never
-cancelled by the observer. UAT may advance while a pinned binary finishes, so
-supported app/backend compatibility remains a release requirement. The shared
-GitHub-hosted runner limit can still cause scheduling delays; separate locks do
-not reserve runner capacity.
-
-When automatic release cadence is enabled with its required hourly wake restored,
-admission gives UAT precedence: queued, requested, pending,
-waiting or running UAT workflows defer new releases in the ledger. The observer
-exits immediately instead of sleeping on a runner, then retries on every terminal
-UAT result (including failure/cancellation), release completion or the hourly
-fallback. Failed UAT runs never advance the counter. Only one automatic release
-bundle is admitted at a time: either TestFlight, or production deploy plus its
-parallel App Store archive. Existing recorded starts keep a continuous stream of
-production candidates from starving TestFlight. Missing production acceptance
-keeps that pair pending while an eligible TestFlight bundle can proceed.
-The two production dispatches each recheck UAT;
-an intervening UAT request leaves a recoverable half-pair, without redispatching
-production. Active deployments, uploads and Apple processing finish normally.
-Manual release dispatches retain their existing operator contract.
-
-This is best-effort priority, not a runner reservation. The admission snapshot
-can race a new UAT request, an already admitted release may still occupy a slot,
-and other repositories share the organization quota. GitHub's standard hosted
-pool has no workflow priority or preemption setting; strict isolation requires
-dedicated UAT runner capacity.
-
-Accounting persists in the state-only `automation/release-cadence-state` branch.
-Fast-forward-only updates reject concurrent writers. A tiny immutable
-`release-cadence-authority` artifact certifies the ledger commit and state hash
-when a protected-main controller changes or refreshes the ledger. A verified
-quiet or disabled run does not create a new artifact. Both reconciliation and bot authorization
-require the newest certified checkpoint, rejecting forged or replayed branch
-state. The bot is not a member of either human dispatch cohort; each child is
-authorized only for its recorded run ID, workflow, milestone, source and complete
-input set. `config/ci-governance.json` owns the permitted controller for each
-surface. The cadence policy is a protected pipeline file.
-
-The dispatch validator accepts omitted or null `marketing_version`/`notes` only
-when the authorized value is blank, and typed booleans only for the lane's
-declared Boolean fields. Every nonempty value remains required and exact;
-unknown fields, changed source identities and changed switches fail closed.
-Mismatch diagnostics list only known field names and received types, never
-input values or caller-supplied unknown field names. A governed retry reuses the
-recorded failed child run rather than issuing a second release request.
-
-The 2/4 policy preserves the existing counter and certified sources. A one-time
-certified transition makes the latest newly eligible TestFlight milestone pending
-(count 2 when adoption occurs at count 2 or 3), without replaying older milestones.
-Already issued 4/8 requests retain their original lanes and authority; the new
-policy begins after any such request at the transition boundary. Recovery checks
-both policy periods. Missing transition metadata means the original 4/8 policy.
-
-Monitoring runs in GitHub inside the same observer job, after checkpoint
-publication. It adds no workflow, runner job, polling loop or UAT dependency.
-Completion events report failures and verified milestones when delivered. While
-automatic releases are disabled, a daily scheduled observation provides a
-fallback without an hourly Actions run. GitHub can delay scheduled runs. The
-capacity-maintenance clock and its independent cleanup checks are unchanged.
-Before enabling automatic releases, restore the reviewed hourly wake and cron,
-verify the certified ledger and unresolved failures, and separately authorize
-any production or native publication. Disabled observations do not refresh the
-90-day checkpoint artifact, and disabled mode cannot recertify it. Preserve the
-certificate and track its expiry as an unresolved recovery requirement. Unresolved recorded
-child failures are rechecked for governed retries without replaying settled
-release artifacts. More than 20 unresolved failures stops reconciliation for
-operator recovery rather than silently dropping history or growing polling work.
-TestFlight completion requires successful processing and distribution steps plus
-active internal distribution evidence. Its optional skipped hardware gate must
-not skip the distribution job. A green upload with missing delivery proof remains
-a recoverable failure with the certified count available, and defers new bundles.
-`resume-ios-testflight.yml` reuses the exact uploaded build without archiving or
-uploading again. Its receipt binds the original run and attempt, source, bundle,
-version and build to the governed recovery run and attempt. The observer reads at
-most 20 recovery candidates; missing, mismatched or truncated proof never clears
-the failure. Recovery completion wakes the existing observer, and verification
-failures remain pending until proven or explicitly retired. UAT has no dependency
-on this recovery or observer.
-The monitor uses only standard-library code and the existing
-repository token, with `issues: write` added for one bot-owned `UAT release monitor`
-issue assigned to `monitor_issue_assignee` in the policy. Notification delivery
-follows that person's GitHub notification settings.
-
-The issue keeps a bounded observation journal separate from the certified release
-ledger and links exact runs. Repeated unchanged results stay quiet. Notification
-transport failures remain visible in Actions and do not prevent already authorized
-children from running or change UAT's result. TestFlight reports prove upload and
-internal distribution; external Beta App Review may remain pending. App Store
-deferral is reported as deferral, and accepted review submission with
-`AFTER_APPROVAL` is distinct from later public publication. Only existing redacted
-receipts are read; monitoring needs no Apple or cloud credentials.
-
-UAT/release overlap reports use observed workflow/job timestamps. A UAT start
-during a release demonstrates progress for that sample; it does not prove reserved
-capacity or that every later job avoided queuing. Each created, queued UAT job
-awaiting a runner for over 10 minutes during recorded release activity raises a
-possible-contention warning, even after an earlier job started. The observer
-deduplicates that warning and records subsequent allocation. Dependency time
-before job creation and time inside UAT's capacity step are not runner waits.
-One final job scan per completed attempt also reports long allocation waits that
-started and finished between observations, without adding a polling schedule.
-A UAT with no allocated job also retains its run-level warning; UAT's own
-concurrency and other organization jobs can explain that delay. The
-monitor observes and reports; it never dispatches, cancels, retries or repairs a
-release.
-
-Every dispatch records intent first, then the exact run ID returned by the
-versioned REST API. A controller interrupted after dispatch reconciles the unique
-cadence marker instead of blindly posting again. A partial production pair resumes
-its pending app build without redispatching the deployment. Ambiguous dispatches,
-missing receipts, altered state and failed releases stop that release lane and
-remain visible in the Actions summary; they do not change UAT's result.
-
-When enabled, the observer also runs a weekly full reconciliation for missed
-completion events and old successful reruns. While a public version is under review, Ubuntu
-preflight records a deferred receipt and allocates no Mac. The restored hourly observer
-revisits the latest deferred candidate without redeploying production; newer
-milestones supersede older deferred app candidates. TestFlight uses an independent
-beta version train and continues while public review is pending. History queries split before GitHub's filtered-query
-limit, and no historical build storm is created. To reconcile explicitly, a
-governed production operator may run:
-
-```bash
-gh workflow run release-cadence.yml --ref main -f full_reconcile=true
-```
-
-Disabling `config/release-cadence.json` stops accounting and release admission.
-The observer still verifies the existing immutable checkpoint and reports its
-last certified count and timestamp, rather than claiming a new accounting pass.
-A missing or inconsistent certificate remains a verification failure. Re-enabling
-the policy resumes ordinary distinct-source accounting without resetting counts.
-The observer uploads any checkpoint written before a later accounting failure.
-It verifies the current ledger and certificate before treating an unchanged run
-as healthy. Reporting to the monitoring issue is best effort if GitHub is
-unavailable; the controller itself fails when verification cannot be completed.
-
-Obsolete failed candidates may be retired only by a governed production operator
-through `retire_failed_before` and `reviewed_ledger_sha` on a dedicated manual
-controller run. Review the exact certified ledger first. The frontier must be its
-latest existing milestone; only older terminal failures are eligible. Every
-native target must positively prove failed packaging preflight and skipped native
-build/upload/distribution jobs at the unchanged attempt. A failed deployment needs
-a later recorded healthy production successor. All targets are verified before
-one ledger CAS update and checkpoint publication. Requests, sources, counts, run
-IDs and failure audits are retained; retirement does not claim a successful upload
-or App Store replacement. Retired candidates cannot resume or upload. Active,
-deferred, changed-attempt, missing-evidence and stale-head cases fail closed.
-
-For an interrupted upload, use the existing `Resume TestFlight Distribution`
-workflow with the recorded upload run ID; do not build another binary just to
-retry Apple processing. For an ambiguous dispatch, first inspect its exact
-`Cadence <ordinal> <lane> · <origin-run-id>` marker and the latest certified
-checkpoint. Never reset or delete the state branch to restart the counter. A
-missing/expired checkpoint or a mismatch requires operator inspection before
-restoring certified state. If the trusted controller was interrupted after its
-Git update but before checkpoint publication, a production operator must inspect
-that controller's job, the current ledger diff and every dispatch marker first.
-After reviewing the exact state commit, recover through the protected controller:
-
-```bash
-gh api repos/hushh-labs/hushh-research/git/ref/heads/automation/release-cadence-state --jq .object.sha
-gh workflow run release-cadence.yml --ref main -f recover_checkpoint_sha=<reviewed-ledger-commit>
-```
-
-Recovery requires that exact head, independently rereads each successful UAT
-receipt, checks contiguous source counts and every milestone/child identity, then
-publishes a new certified checkpoint. It never blindly redispatches an uncertain
-request. Missing or expired source evidence blocks recertification. Set the
-policy's `enabled` switch to false to stop new
-automatic releases; existing manual workflows remain available.
+Keep Dev/UAT/Main history separate. Stable fixes move downward through reviewed
+manual sync PRs. Freshness checks use the destination branch; deployment is a
+separate decision. Follow [branch governance](./branch-governance.md) for exact
+application/Main-approval mapping, direct-UAT qualification and the emergency
+production route. Removing cadence does not authorize using an unqualified path.
 
 ## Account deletion regression gate
 
@@ -1137,120 +918,28 @@ alerts remain independently reported.
 
 ### GitHub Alert Parity
 
-The secret gate is intentionally stricter than raw regex scanning:
+PR and queue source scans retain Gitleaks with read-only credentials. Draft PRs
+run safety, governance and UI contract checks; selected expensive lanes run when
+the PR is ready. `Draft Safety Gate` cannot satisfy merge or deployment admission.
+Manual `PR Validation` with scope `auto` or `all` provides full branch diagnostics.
 
-- local runs use authenticated `gh` access to compare against open GitHub secret-scanning and Dependabot alerts
-- the protected `ci-security` environment holds `GH_SECURITY_ALERTS_TOKEN`, a replacement fine-grained token with only Secret scanning alerts: read and Dependabot alerts: read; its custom deployment branch policy permits `main` only
-- the final blocking mode fails if either:
-  - `gitleaks` finds a leak in the scanned commit range, or
-  - GitHub still reports any open secret-scanning alerts
-- open Dependabot alerts are currently advisory in CI; they are still reported in logs and should be managed as backlog, but they do not block unrelated merges
-- explicitly strict checks refuse missing CLI/authentication, unavailable required reads and malformed responses; unavailable authority is never a successful clearance
+[Deployment Security](../../../.github/workflows/deployment-security.yml) reads
+repository-wide alerts within an explicit release run, in a separate job using
+the Main-only `ci-security` environment. Its fine-grained token has only Secret
+scanning alerts: read and Dependabot alerts: read. Candidate code never executes
+in that job. Any unresolved secret alert blocks release; dependency alerts remain
+advisory. Inaccessible or incomplete inventories fail closed. The receipt binds
+the release run/attempt, Main workflow, environment, requested scope and resolved
+application reference. Existing release admission still verifies selected services,
+source CI, schema and rollback compatibility.
 
-[The main-owned alert worker](../../../.github/workflows/ci-security.yml) reads
-alerts with the protected environment credential. PR-controlled Secret Scan
-receives only the read-only Actions token and verifies a bounded, immutable
-receipt for its exact source run, attempt and SHA. The worker serializes
-repeated start notifications and reuses a verified receipt for the same tuple;
-another attempt requires a fresh inventory. Its bounded pending queue uses
-`queue: max` with cancellation disabled: GitHub's default single pending slot
-would cancel an earlier duplicate during a burst, correctly causing our
-fail-closed consumer to refuse clearance. See the [GitHub concurrency contract](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency).
-The 23 October sample contained 80 successful worker records across 25 source
-attempts. Receipt reuse alone did not eliminate those repeated workflow starts.
-The automatic trigger now uses `requested` once for each new validation run,
-instead of repeated `in_progress` transitions. This landed through
-[PR #8371](https://github.com/hushh-labs/hushh-research/pull/8371), after all 26
-exact-head checks passed; the canonical task carries live initial/retry receipts. Missing, expired, mismatched or
-incomplete receipts fail closed. Local checks use the same bounded cursor
-reader without writing raw alerts to disk.
+The standalone CI Security Alerts workflow and its PR receipt polling are retired.
+Rerunning PR validation does not create another workflow. Historical receipt readers
+remain for retained evidence; they do not establish new deployment clearance.
+Synchronize an old feature branch with its destination before retrying legacy CI.
+Keep PR validation on `pull_request`; do not execute untrusted source in a privileged
+`pull_request_target` event to avoid visible workflow entries.
 
-Each worker entry is a workflow run, not a new vulnerability. The recurring
-entries are a current implementation cost, not the desired final presentation.
-To retire them, replace the protected worker and its receipt consumers together
-with a qualified trusted check in the normal CI flow. Preserve exact source and
-attempt binding, isolated credentials, rerun precedence, and missing-receipt
-refusal. Do not remove the worker merely by hiding, renaming, or bypassing it.
-
-A replacement using `pull_request_target` also needs an applicable Actions
-event policy. GitHub documents a public-repository default block scheduled for
-2 December 2026; repository readback on 28 October found no local policies, and
-the inherited organization policy could not be verified. Qualify the effective
-policy and protected-secret boundary before adopting this event. The current
-worker does not use it. [GitHub's event guidance](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
-
-The replacement credential was qualified on 22 October 2026 using worker
-39861716513. On 23 October, PR8365 passed all 26 checks and landed as `51a5a86675`.
-Main worker `39889655505` then verified receipt reuse without another inventory
-read or artifact. The repository-level secret was deleted and its absence read
-back; no same-name organization secret is accessible to this repository. The
-main-only protected replacement remains present. Original PAT revocation is
-separately unverified: removing a stored secret does not revoke its token.
-Older PR branches must inherit the current read-only consumer and rerun gate through normal
-main synchronization; never restore the exposed repository credential to repair
-an obsolete consumer. Missing authority still refuses clearance.
-
-The bounded [CI trust qualification](../../../.github/workflows/ci-trust-qualification.yml)
-prepares consolidation into one Main-owned validation workflow. It triggers only
-against the disposable `ci/trusted-source-qualification` branch, never ordinary
-application PRs. Linux/macOS fixtures record actual workflow, candidate and native
-check identities; spoofing client cache write mode must not bypass server-issued
-read-only authority. An empty cache listing alone is insufficient: require the
-actual server refusal and fresh absence readback. A synthetic check write must
-receive the specific integration-permission refusal. Jobs use no protected
-environment, OIDC or owner information and issue no merge verdict. Retire this
-temporary workflow and its disposable refs after the qualified CI cutover;
-the existing security worker remains required until its replacement is active.
-
-The worker starts when a new PR Validation run is requested; it does not wait
-for the validation it must unblock. [GitHub does not emit `requested` for reruns](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
-Use the governed operator command below to request one retry and its exact
-security worker together. Only immutable main code reads
-the protected token. It validates the repository, canonical workflow, source run,
-current attempt and exact SHA before and after bounded, complete API pagination.
-GitHub's verified `pending` concurrency state is accepted alongside queued,
-running and completed sources; this does not replace successful PR validation.
-Its two-day artifact contains counts and provenance only. Repository-wide secret
-clearance intentionally replaces the old PR-created-date filter; dependency
-backlog remains advisory. No PR code, dependencies, caches or artifacts execute
-with alert credentials. Manual main-only recovery requires the existing protected
-pipeline operator cohort and exact `source_run_id`, `source_attempt`, `source_sha`.
-A missing credential, denied read or incomplete inventory refuses clearance.
-
-```bash
-./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <current-attempt> --sha <exact-head-sha>
-```
-
-The default retries failed jobs only; `--all` explicitly retries the full run.
-`--job-id <id>` retries only the completed final gate after proving its run, SHA
-and membership in the complete attempt-scoped job inventory; use it for gate-only
-qualification instead of repeating successful suites. Other jobs use the failed
-or full-run modes.
-The command verifies main's operator policy and the completed source, requests
-one retry, observes its incremented attempt, then dispatches the protected worker
-on main. An uncertain response is reconciled without another rerun request.
-The final gate verifies that new attempt's receipt even if GitHub retained the
-previous successful Secret Scan job. PR permissions remain read-only.
-
-On a PR rerun, the Live Memory impact check reads the current description so a
-corrected explanation does not require closing and reopening the PR. It accepts
-that description only when the live PR remains open and its repository, number,
-head and base identities match the original event. A changed base or head needs
-a fresh validation event. The job logs the evaluated description's digest;
-reviewers still check the current description before merging.
-
-When changing final-gate outcomes or conditions, run the nearest actual gate
-harness alongside the existing security authority/receipt suites before pushing:
-`cd consent-protocol && uv run pytest tests/test_ci_status_gate_fails_closed.py -q`.
-Its scenarios execute the outcome bash; retry cases isolate only checkout and
-receipt I/O. Unknown conditions still refuse verification.
-
-A raw GitHub UI rerun does not automatically launch the worker. Its consumer
-prints the exact main-only recovery command immediately and retains the bounded
-eight-minute wait. Dispatch recovery while that attempt is running. If it has
-already failed, use `ci-rerun` for the next attempt; a late receipt cannot turn a
-completed failed check green. Inspect an uncertain worker dispatch before retrying
-it. Never repeat the source request merely because the worker response was lost.
 
 ## Advisory Checks (Non-Blocking By Default)
 

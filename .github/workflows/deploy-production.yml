@@ -164,13 +164,32 @@ concurrency:
   queue: max
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    with:
+      application_ref: ${{ inputs.sha || github.sha }}
+      environment_name: production
+      scope: ${{ inputs.scope || 'all' }}
+
   deploy:
+    needs: deployment-security
     name: ${{ (inputs.phone_phase == 'activate' || inputs.restoration_activation_run_id != '') && 'Ordinary production deploy (not selected)' || 'Deploy Production Scope' }}
     runs-on: ubuntu-24.04
     if: github.event_name == 'workflow_dispatch' && inputs.phone_phase != 'worker' && inputs.phone_phase != 'activate' && inputs.restoration_activation_run_id == ''
     environment: production
 
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert manual dispatch originates from main
         shell: bash
         env:
@@ -267,7 +286,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RECOVERY_RUN: ${{ inputs.restoration_validation_run }}
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
           IMAGE_SOURCE: ${{ inputs.backend_image_source }}
           DRIVE_MODE: ${{ inputs.drive_live_mode }}
@@ -3118,6 +3137,7 @@ jobs:
           echo "✅ Production release healthy; new revisions serving traffic."
 
   stage-drive-worker:
+    needs: deployment-security
     name: Stage qualified production Drive worker
     if: github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'worker' && inputs.restoration_activation_run_id == ''
     runs-on: ubuntu-24.04
@@ -3128,6 +3148,16 @@ jobs:
       actions: read
       id-token: write
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert manual dispatch originates from main
         shell: bash
         env:
@@ -3445,6 +3475,7 @@ jobs:
 
 
   complete-phone-activation:
+    needs: deployment-security
     name: ${{ inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == '' && 'Deploy Production Scope' || 'Activation continuation not selected' }}
     if: github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == ''
     runs-on: ubuntu-24.04
@@ -3458,6 +3489,16 @@ jobs:
       REQUESTED_SCOPE: ${{ inputs.scope }}
       REQUESTED_DRIVE_MODE: ${{ inputs.drive_live_mode }}
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert manual activation continuation originates from main
         shell: bash
         env:
@@ -4074,6 +4115,7 @@ jobs:
           PY
 
   complete-restoration-activation:
+    needs: deployment-security
     name: ${{ inputs.restoration_activation_run_id != '' && 'Deploy Production Scope' || 'Restoration continuation not selected' }}
     if: github.event_name == 'workflow_dispatch' && inputs.restoration_activation_run_id != ''
     runs-on: ubuntu-24.04
@@ -4085,6 +4127,16 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       PYTHONPATH: ${{ github.workspace }}/scripts/ci
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Admit manual restoration verification only
         env:
           REQUESTED_SCOPE: ${{ inputs.scope }}
