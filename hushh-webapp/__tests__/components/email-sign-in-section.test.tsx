@@ -65,6 +65,9 @@ describe("Email sign-in authority handoff", () => {
     await enterCode();
     await screen.findByText("Previous account cleanup needs review before you can start fresh.");
     expect(screen.queryByRole("button", { name: "Create new account" })).not.toBeInTheDocument();
+    // @feature_account_deletion: a new code returns the same support-led answer, so support replaces it.
+    expect(screen.queryByRole("button", { name: /Request a new code/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Email support@hushh.ai" })).toHaveAttribute("href", "mailto:support@hushh.ai");
     expect(authenticated).not.toHaveBeenCalled();
     expect(request).toHaveBeenCalledTimes(2);
   });
