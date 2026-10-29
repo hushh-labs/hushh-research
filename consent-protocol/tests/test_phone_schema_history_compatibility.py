@@ -233,3 +233,37 @@ def test_exact_historical_terminal_submit_still_requires_all_build_acknowledgeme
             )["qualification"]
             == "passed"
         )
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_cold_reference_qualifies_only_the_recorded_current_healthy_release(monkeypatch, missing):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+    monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
+    producer = importlib.import_module("schema_producers")
+    basis = importlib.import_module("production_worker_basis")
+    monkeypatch.setattr(basis, "current_release_run_id", lambda: "404")
+    selected = []
+
+    def find(_repository, run_id, _directory, *, require_live, environment):
+        selected.append(run_id)
+        assert require_live is True and environment == "production"
+        if not run_id:
+            raise FileNotFoundError("incomplete historical archive/prod-release-status.json")
+        assert run_id == "404"
+        return (
+            None if missing else (404, {"sha": "a" * 40, "final": {"backend_revision": "backend"}})
+        )
+
+    monkeypatch.setattr(producer, "_authorities", lambda: SimpleNamespace(find_release=find))
+    runtime = producer.Runtime({}, "")
+    if missing:
+        with pytest.raises(ValueError, match="healthy_serving_reference_missing"):
+            runtime.reference()
+    else:
+        result = runtime.reference()
+        assert (result["run_id"], result["source"], result["revision"]) == (
+            "404",
+            "a" * 40,
+            "backend",
+        )
+    assert selected == ["404"]

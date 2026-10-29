@@ -415,15 +415,19 @@ class Runtime:
         }
 
     def reference(self) -> dict:
+        authority = _authorities()
+        from production_worker_basis import current_release_run_id
+
+        selected_run_id = current_release_run_id()
         with tempfile.TemporaryDirectory(prefix="phone-schema-serving-") as temporary:
-            found = _authorities().find_release(
+            found = authority.find_release(
                 REPOSITORY,
-                "",
+                selected_run_id,
                 Path(temporary),
                 require_live=True,
                 environment="production",
             )
-        if found is None:
+        if found is None or str(found[0]) != selected_run_id:
             raise ValueError("phone_schema_healthy_serving_reference_missing")
         run_id, release = found
         return {
