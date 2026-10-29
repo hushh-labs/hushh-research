@@ -3571,6 +3571,7 @@ export function OneLocationAgentPageContent({
           grant.recipientUserId || grant.id,
           {
             displayName: grantCounterpartyLabel(grant),
+            userId: grant.recipientUserId,
             photoUrl: grant.recipientPhotoUrl ?? null,
           },
         ]),

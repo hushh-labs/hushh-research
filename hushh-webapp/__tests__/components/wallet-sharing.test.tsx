@@ -13,6 +13,18 @@ vi.mock("@/lib/services/wallet-sharing-service", async (original) => ({ ...await
 describe("Wallet Sharing", () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+  it("opens a recipient profile without managing their access @feature_connected_profiles", async () => {
+    vi.mocked(loadWalletSharing).mockResolvedValue({ requests: [], grants: [{ id: "grant", scope: "attr.wallet.summary.*", kind: "active_grant", status: "active", action: "grant", counterpart_type: "person", counterpart_id: "alex", counterpart_label: "Alex" }] });
+    const preview = vi.fn(); window.addEventListener("hussh:person-profile-preview", preview);
+    try {
+      render(<WalletSharing />);
+      fireEvent.click(await screen.findByRole("button", { name: "View Alex's profile" }));
+      expect(preview.mock.calls[0][0].detail.userId).toBe("alex");
+      expect(screen.queryByRole("button", { name: "Revoke access" })).toBeNull();
+      expect(mocks.revoke).not.toHaveBeenCalled();
+    } finally { window.removeEventListener("hussh:person-profile-preview", preview); }
+  });
+
   it("retains confirmed recipients during background refresh and tab changes", async () => {
     vi.mocked(loadWalletSharing).mockResolvedValue({ requests: [], grants: [{ id: "grant", scope: "attr.wallet.summary.*", kind: "active_grant", status: "active", action: "grant", counterpart_type: "person", counterpart_label: "Alex" }] });
     const getHistoryContext = () => null;

@@ -2866,7 +2866,7 @@ describe("LocationImmersiveMap reported map defects", () => {
   /** An incoming pin: someone who shares location back with this account. */
   function incomingMarker(ownerDisplayName: string, lat: number, lng: number) {
     return {
-      grant: { id: `${ownerDisplayName}-incoming`, ownerDisplayName },
+      grant: { id: `${ownerDisplayName}-incoming`, ownerDisplayName, ownerUserId: `${ownerDisplayName}-uid` },
       envelope: {
         id: `${ownerDisplayName}-envelope`,
         capturedAt: "2026-07-23T00:00:00.000Z",
@@ -2905,6 +2905,25 @@ describe("LocationImmersiveMap reported map defects", () => {
     experienceHarness.query = "source=map";
   });
 
+  it("opens an incoming profile from its portrait without moving the map @feature_connected_profiles", async () => {
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+    await renderReadyMap();
+    const row = (await screen.findByTestId("one-location-map-person")).parentElement!;
+    const preview = vi.fn();
+    window.addEventListener("hussh:person-profile-preview", preview);
+    try {
+      mapHarness.map.setCamera.mockClear();
+      fireEvent.click(within(row).getByRole("button", { name: `View ${ANKIT}'s profile` }));
+      expect(preview).toHaveBeenCalledOnce();
+      expect(preview.mock.calls[0][0].detail.userId).toBe(`${ANKIT}-uid`);
+      expect(mapHarness.map.setCamera).not.toHaveBeenCalled();
+      expect(row.querySelector("button button")).toBeNull();
+    } finally { window.removeEventListener("hussh:person-profile-preview", preview); }
+  });
+
   it("keeps a selected person's last-seen text white and other people muted", async () => {
     serviceHarness.getMapState.mockResolvedValue({
       markers: [incomingMarker(ANKIT, 25.4358, 81.8463), incomingMarker(ABDUL, 25.4501, 81.8201)],
@@ -2912,8 +2931,8 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
     await renderReadyMap();
     const people = await screen.findAllByTestId("one-location-map-person");
-    const firstStatus = within(people[0]).getByText(/^last seen/);
-    const secondStatus = within(people[1]).getByText(/^last seen/);
+    const firstStatus = within(people[0].parentElement!).getByText(/^last seen/);
+    const secondStatus = within(people[1].parentElement!).getByText(/^last seen/);
     fireEvent.click(people[0]);
     await waitFor(() => expect(firstStatus).toHaveClass("text-white"));
     expect(firstStatus).not.toHaveClass("text-muted-foreground");
@@ -3214,7 +3233,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(rows).toHaveLength(2);
     // min-h-11 is 44px, the platform minimum. Below it these rows are the kind
     // of target that needs two or three tries on a phone.
-    for (const row of rows) expect(row).toHaveClass("min-h-11");
+    for (const row of rows) expect(row.parentElement).toHaveClass("min-h-11");
   });
 
   it("gives Sharing its own row on phone widths", async () => {

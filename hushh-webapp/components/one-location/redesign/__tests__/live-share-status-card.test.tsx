@@ -38,6 +38,22 @@ describe("LiveShareStatusCard", () => {
     vi.useRealTimers();
   });
 
+  it("opens each known profile without managing or stopping the live share @feature_connected_profiles", () => {
+    const manage = vi.fn(); const stop = vi.fn(); const preview = vi.fn();
+    window.addEventListener("hussh:person-profile-preview", preview);
+    try {
+      const view = render(<LiveShareStatusCard status={status({ people: [{ displayName: "Rohan Mehta", userId: "rohan" }] })} onManage={manage} onStop={stop} />);
+      fireEvent.click(screen.getByRole("button", { name: "View Rohan Mehta's profile" }));
+      expect(preview.mock.calls[0][0].detail.userId).toBe("rohan");
+      expect(manage).not.toHaveBeenCalled(); expect(stop).not.toHaveBeenCalled();
+      view.rerender(<LiveShareStatusCard status={status({ count: 2, grantCount: 2, names: ["Rohan Mehta", "Mira"], people: [{ displayName: "Rohan Mehta", userId: "rohan" }, { displayName: "Mira", userId: "mira" }] })} onManage={manage} />);
+      fireEvent.click(screen.getByRole("button", { name: "View Mira's profile" }));
+      expect(preview.mock.calls[1][0].detail.userId).toBe("mira");
+      view.rerender(<LiveShareStatusCard status={status()} onManage={manage} />);
+      expect(screen.queryByRole("button", { name: /^View .*profile$/ })).toBeNull();
+    } finally { window.removeEventListener("hussh:person-profile-preview", preview); }
+  });
+
   it("streams the remaining time second by second", () => {
     // The whole point of the fix: a share set for an hour must visibly count
     // down, not print one value and freeze.

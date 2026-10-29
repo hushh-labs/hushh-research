@@ -1,5 +1,9 @@
 "use client";
 
+import { PersonProfileButton } from "@/components/connections/person-profile-button";
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
+import { MapPersonTrayChip, MapSharingPersonRow, activeSharePeopleFromGrants, type MapSharingPerson } from "./map-connection-rows";
+
 import { isPersonProfilePreviewOpen } from "@/lib/connections/person-profile-preview";
 import {
   useCallback,
@@ -224,17 +228,6 @@ const MAP_ACCENT_ACTIVE_CLASSNAME =
 /** No map, nothing to act on — the resting tone, not an accent and not red. */
 const UNAVAILABLE_TONE = roleClasses("neutral");
 
-function activeShareLabels(grants: OneLocationGrant[]): string[] {
-  return grants
-    .filter((grant) => grant.status === "active")
-    .map(
-      (grant) =>
-        grant.recipientDisplayName?.trim() ||
-        grant.recipientMaskedPhone?.trim() ||
-        "Someone",
-    );
-}
-
 /**
  * The camera payload `onCameraIdle` and `onBoundsChanged` both deliver.
  *
@@ -257,6 +250,7 @@ type MapCameraEvent = {
 type RenderMarker = {
   key: string;
   avatarUrl?: string | null;
+  userId?: string;
   point: PlainLocationPoint;
   label: string;
   /**
@@ -745,8 +739,8 @@ export function LocationImmersiveMap({
   const cachedLocationState = auth.userId
     ? OneLocationStateResource.readPresentation(auth.userId)
     : null;
-  const cachedActiveShareNames = cachedLocationState
-    ? activeShareLabels(cachedLocationState.ownerGrants)
+  const cachedActiveSharePeople = cachedLocationState
+    ? activeSharePeopleFromGrants(cachedLocationState.ownerGrants)
     : null;
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
@@ -901,10 +895,10 @@ export function LocationImmersiveMap({
   // refresh — the map surfaces it as a "Sharing with N" status, since outgoing
   // shares carry no coordinate to plot.
   const [activeShareCount, setActiveShareCount] = useState<number | null>(
-    cachedActiveShareNames?.length ?? null,
+    cachedActiveSharePeople?.length ?? null,
   );
-  const [activeShareNames, setActiveShareNames] = useState<string[]>(
-    cachedActiveShareNames ?? [],
+  const [activeSharePeople, setActiveSharePeople] = useState<MapSharingPerson[]>(
+    cachedActiveSharePeople ?? [],
   );
   /**
    * The same number, resolved and named for what it is to the reader.
@@ -929,9 +923,9 @@ export function LocationImmersiveMap({
     if (!auth.userId || demoMode) return;
     const snapshot = OneLocationStateResource.readPresentation(auth.userId);
     if (!snapshot) return;
-    const names = activeShareLabels(snapshot.ownerGrants);
-    setActiveShareCount(names.length);
-    setActiveShareNames(names);
+    const people = activeSharePeopleFromGrants(snapshot.ownerGrants);
+    setActiveShareCount(people.length);
+    setActiveSharePeople(people);
   }, [auth.userId, demoMode]);
   const [sharingPopoverOpen, setSharingPopoverOpen] = useState(false);
   /** The in-sheet twin of `sharingPopoverOpen`: the header chip's popover
@@ -1467,6 +1461,7 @@ export function LocationImmersiveMap({
                 `${marker.grant.id}:${marker.envelope.capturedAt}`,
               point,
               avatarUrl: marker.grant.ownerPhotoUrl ?? null,
+              userId: marker.grant.ownerUserId,
               label: displayLabel(marker),
               shortLabel: displayShortLabel(marker),
               kind: "person",
@@ -1541,9 +1536,9 @@ export function LocationImmersiveMap({
         OneLocationService.getState(vaultOwnerToken),
       );
       if (!mountedRef.current) return;
-      const names = activeShareLabels(state.ownerGrants);
-      setActiveShareCount(names.length);
-      setActiveShareNames(names);
+      const people = activeSharePeopleFromGrants(state.ownerGrants);
+      setActiveShareCount(people.length);
+      setActiveSharePeople(people);
     } catch {
       // A status count is non-critical; leave the last-known value in place.
     }
@@ -3425,9 +3420,9 @@ export function LocationImmersiveMap({
       );
       // Keep the on-map "Sharing with N" status in sync off this same fetch.
       if (mountedRef.current) {
-        const names = activeShareLabels(state.ownerGrants);
-        setActiveShareCount(names.length);
-        setActiveShareNames(names);
+        const people = activeSharePeopleFromGrants(state.ownerGrants);
+        setActiveShareCount(people.length);
+        setActiveSharePeople(people);
       }
       // Nothing to send is not a failure, and it must not be reported as one.
       // It is also the one place Ghost Mode is worth mentioning on this path:
@@ -4067,7 +4062,8 @@ export function LocationImmersiveMap({
                   className="grid gap-1"
                   aria-label="People you are sharing with"
                 >
-                  {activeShareNames.map((name, index) => {
+                  {activeSharePeople.map((person, index) => {
+                    const name = person.label;
                     const pin = markerForSharedPerson(name);
                     return (
                       <li key={`${name}-${index}`}>
@@ -4086,34 +4082,8 @@ export function LocationImmersiveMap({
                           rather than pretending to do something on the map.
                           min-h-11 keeps the row a 44px touch target.
                         */}
-                        <button
-                          type="button"
-                          data-testid="one-location-map-sharing-person"
-                          data-has-pin={pin ? "true" : "false"}
-                          aria-label={
-                            pin
-                              ? `Show ${name} on your map`
-                              : `Manage your location share with ${name}`
-                          }
-                          className="flex min-h-11 w-full items-center gap-2 rounded-[12px] px-2 py-1.5 text-left text-[15px] leading-5 transition-colors hover:bg-[var(--app-accent-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-                          onClick={() => void openSharedPerson(name)}
-                        >
-                          <span
-                            className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
-                            aria-hidden="true"
-                          />
-                          <span data-location-type-role="row-title" className="min-w-0 flex-1 truncate">
-                            {name}
-                          </span>
-                          {pin ? (
-                            <span data-location-type-role="helper"
-                              className="shrink-0 text-[11px] font-medium text-muted-foreground"
-                              aria-hidden="true"
-                            >
-                              On your map
-                            </span>
-                          ) : null}
-                        </button>
+                        <MapSharingPersonRow person={person} hasPin={Boolean(pin)} compact={false}
+                          onOpen={() => void openSharedPerson(name)} />
                       </li>
                     );
                   })}
@@ -4400,7 +4370,7 @@ export function LocationImmersiveMap({
             willChange: "width, height, border-radius",
           }}
         >
-          <button
+          <PersonSelectionSurface preserveChildPositioning
             ref={trayHeaderRef}
             type="button"
             className={`group relative flex w-full shrink-0 touch-manipulation items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 motion-reduce:transition-none ${
@@ -4453,9 +4423,9 @@ export function LocationImmersiveMap({
               }`}
               aria-hidden={!trayExpanded}
             >
-              <span className="flex shrink-0 -space-x-2" aria-hidden="true">
+              <span className="flex shrink-0 -space-x-2">
                 {markers.slice(0, 3).map((person) => (
-                  <span data-location-type-exception="avatar-initial"
+                  <PersonProfileButton userId={trayExpanded ? person.userId : undefined} label={person.label} data-location-type-exception="avatar-initial"
                     key={person.key}
                     className="grid h-8 w-8 place-items-center rounded-full border-2 border-background text-[10px] font-semibold text-white"
                     style={{
@@ -4465,13 +4435,13 @@ export function LocationImmersiveMap({
                     }}
                   >
                     {personInitials(person.label)}
-                  </span>
+                  </PersonProfileButton>
                 ))}
                 {nearbyAttendees
                   .slice(0, Math.max(0, 3 - markers.length))
                   .map((attendee) => (
                     <span data-location-type-exception="avatar-initial"
-                      key={attendee.participantAlias}
+                      key={attendee.participantAlias} aria-hidden="true"
                       className="grid h-8 w-8 place-items-center rounded-full border-2 border-background bg-[var(--app-accent)] text-[10px] font-semibold text-[var(--app-accent-fg)]"
                     >
                       {personInitials(attendee.displayName)}
@@ -4494,7 +4464,7 @@ export function LocationImmersiveMap({
                 <ChevronDown className="h-4 w-4" />
               </span>
             </span>
-          </button>
+          </PersonSelectionSurface>
 
           <div
             className={`min-h-0 flex-1 motion-reduce:transition-none ${
@@ -4652,69 +4622,9 @@ export function LocationImmersiveMap({
                         ? lastSeenLabel(person.capturedAt, staleClockMs)
                         : null;
                       return (
-                        <button
-                          key={person.key}
-                          type="button"
-                          className={`flex h-11 shrink-0 items-center gap-2 rounded-full border px-2.5 pr-3 text-left text-sm transition-colors ${
-                            selectedPerson
-                              ? MAP_ACCENT_ACTIVE_CLASSNAME
-                              : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
-                          }`}
-                          // The live case keeps its original name exactly. Only a
-                          // person who has gone quiet has anything extra worth
-                          // announcing, and saying "sharing live" on every other
-                          // row would be noise in a screen reader.
-                          aria-label={
-                            lastSeen
-                              ? `Show ${person.label} on the map. Last seen ${lastSeen}.`
-                              : `Show ${person.label} on the map`
-                          }
-                          title={
-                            lastSeen
-                              ? `${person.label} — last seen ${lastSeen}`
-                              : `${person.label} — live now`
-                          }
-                          data-testid="one-location-map-person"
-                          data-stale={personStale ? "true" : "false"}
-                          onClick={() => void focusMarker(person)}
-                        >
-                          <span className="relative shrink-0">
-                            <span data-location-type-exception="avatar-initial"
-                              className={`grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white transition-[filter,opacity] ${
-                                personStale ? "opacity-70 grayscale" : ""
-                              }`}
-                              style={{
-                                backgroundColor: person.tint
-                                  ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
-                                  : "var(--app-accent)",
-                              }}
-                            >
-                              {personInitials(person.label)}
-                            </span>
-                            {/* Bottom-right, over the avatar's own edge. Shape as
-                              well as colour, so it survives being read on a
-                              greyscale avatar by someone who cannot rely on
-                              the grey itself. */}
-                            {personStale ? (
-                              <span
-                                className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-background ring-1 ring-border"
-                                aria-hidden="true"
-                              >
-                                <WifiOff className="h-2.5 w-2.5 text-muted-foreground" />
-                              </span>
-                            ) : null}
-                          </span>
-                          <span className="flex min-w-0 flex-col leading-tight">
-                            <span data-location-type-role="row-title" className="max-w-28 truncate font-medium">
-                              {person.label}
-                            </span>
-                            {lastSeen ? (
-                              <span data-location-type-role="row-description" className={cn("max-w-28 truncate text-[11px]", selectedPerson ? "text-white" : "text-muted-foreground")}>
-                                {lastSeen}
-                              </span>
-                            ) : null}
-                          </span>
-                        </button>
+                          <MapPersonTrayChip key={person.key} person={person}
+                            initials={personInitials(person.label)} selectedPerson={selectedPerson} personStale={personStale}
+                            lastSeen={lastSeen} selectedClassName={MAP_ACCENT_ACTIVE_CLASSNAME} onFocus={() => void focusMarker(person)} />
                       );
                     })}
                     {filteredPeople.length === 0 ? (
@@ -4874,33 +4784,16 @@ export function LocationImmersiveMap({
                           className="grid gap-0.5 px-2 pb-2"
                           aria-label="People you are sharing with privately"
                         >
-                          {activeShareNames.map((name, index) => {
+                          {activeSharePeople.map((person, index) => {
+                    const name = person.label;
                             const pin = markerForSharedPerson(name);
                             return (
                               <li key={`${name}-${index}`}>
                                 {/* Same two destinations as the header popover,
                                   for the same reason: a row that names a person
                                   has to go to that person. */}
-                                <button
-                                  type="button"
-                                  data-testid="one-location-map-private-share-person"
-                                  data-has-pin={pin ? "true" : "false"}
-                                  aria-label={
-                                    pin
-                                      ? `Show ${name} on your map`
-                                      : `Manage your location share with ${name}`
-                                  }
-                                  className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left text-sm transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
-                                  onClick={() => void openSharedPerson(name)}
-                                >
-                                  <span
-                                    className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
-                                    aria-hidden="true"
-                                  />
-                                  <span data-location-type-role="row-title" className="min-w-0 flex-1 truncate">
-                                    {name}
-                                  </span>
-                                </button>
+                        <MapSharingPersonRow person={person} hasPin={Boolean(pin)} compact={true}
+                          onOpen={() => void openSharedPerson(name)} />
                               </li>
                             );
                           })}
