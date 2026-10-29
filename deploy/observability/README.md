@@ -338,6 +338,28 @@ log publication, its lease bucket and optional service metadata observation.
 The clock identity gets only job invocation. Existing runtime-check rollout stays
 independent for UAT and production.
 
+The pinned amd64 SDK image supplies its interpreter under
+`/usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin/python3`; the health
+entrypoint uses that path directly. Resource discovery uses native HTTP status:
+only 404 permits creation, while denied or malformed observations refuse.
+
+UAT's deployment-authority deny policy intentionally blocks administrators from
+submitting Cloud Builds manually. Preserve that policy. For an existing recorded
+health operation, dispatch **Verify Protected Configuration** from Main with
+`health_build_operation` set to its opaque operation ID. This manual-only mode
+uses the existing governed UAT WIF identity to build the monitoring image; it
+does not deploy the application or change IAM, jobs or schedules. Its concurrency
+is separate from health checks, so neither clock nor manual runs cancel it.
+The protected-list checks remain the default when that input is empty.
+
+Read back the exact workflow source, actor, attempt, image-only artifact and
+successful native Cloud Build before resuming the original local ownership
+journal. Image reuse verifies the immutable source-object generation, bounded
+archive contents and exact reviewed recipe against Main, including the
+Dockerfile. Matching build tags alone never establish provenance. A missing
+source archive requires explicit repair; do not infer successful qualification
+from an image tag or rerun an unresolved build blindly.
+
 ```bash
 python3 deploy/observability/setup_auth_health.py --project hushh-pda-uat
 # After Main acceptance, operator journal path must be outside committed source:

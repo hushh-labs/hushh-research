@@ -19,17 +19,24 @@ on:
     # is an engineer losing a day to a symptom three layers away from the cause.
     - cron: "17 * * * *"
   workflow_dispatch:
+    inputs:
+      health_build_operation:
+        description: "Build only the reviewed UAT health image for an existing operation (empty runs checks)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: verify-protected-lists
-  cancel-in-progress: true
+  group: verify-protected-lists-${{ inputs.health_build_operation != '' && 'image-build' || 'checks' }}
+  cancel-in-progress: false
 
 jobs:
   uat:
+    if: inputs.health_build_operation == ''
     name: "UAT lists"
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -62,6 +69,7 @@ jobs:
             --project "${{ env.GCP_PROJECT_ID }}" --emit-health-log "$@"
 
   production:
+    if: inputs.health_build_operation == ''
     name: "Production lists"
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -92,3 +100,48 @@ jobs:
           esac
           python3 scripts/ops/verify_secret_list_invariants.py \
             --project "${{ env.GCP_PROJECT_ID }}" --emit-health-log "$@"
+
+  health-image:
+    name: "Build UAT health image (manual)"
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.health_build_operation != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: uat
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify governed operator before obtaining cloud credentials
+        env:
+          OPERATOR: ${{ github.actor }}
+          HEALTH_OPERATION: ${{ inputs.health_build_operation }}
+        run: |
+          set -euo pipefail
+          [[ "$HEALTH_OPERATION" =~ ^[0-9a-f]{32}$ ]]
+          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$OPERATOR"
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "false"
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+          create_credentials_file: true
+          export_environment_variables: true
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build reviewed monitoring image without application deployment
+        env:
+          HEALTH_OPERATION: ${{ inputs.health_build_operation }}
+        run: |
+          consent-protocol/.venv/bin/python deploy/observability/setup_auth_health.py --project hushh-pda-uat \
+            --build-image --operation "$HEALTH_OPERATION" --receipt health-image.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: auth-health-image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: health-image.json
+          if-no-files-found: error
+          retention-days: 14
