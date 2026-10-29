@@ -235,14 +235,15 @@ def test_exact_historical_terminal_submit_still_requires_all_build_acknowledgeme
         )
 
 
-@pytest.mark.parametrize("missing", [False, True])
-def test_cold_reference_qualifies_only_the_recorded_current_healthy_release(monkeypatch, missing):
+@pytest.mark.parametrize("changed", [None, "missing", "run_id", "drift"])
+def test_cold_reference_qualifies_only_the_recorded_current_healthy_release(monkeypatch, changed):
     monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
     monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
     producer = importlib.import_module("schema_producers")
     basis = importlib.import_module("production_worker_basis")
     monkeypatch.setattr(basis, "current_release_run_id", lambda: "404")
-    selected = []
+    selected, checked = [], []
+    release = {"sha": "a" * 40, "final": {"backend_revision": "backend"}}
 
     def find(_repository, run_id, _directory, *, require_live, environment):
         selected.append(run_id)
@@ -250,14 +251,24 @@ def test_cold_reference_qualifies_only_the_recorded_current_healthy_release(monk
         if not run_id:
             raise FileNotFoundError("incomplete historical archive/prod-release-status.json")
         assert run_id == "404"
-        return (
-            None if missing else (404, {"sha": "a" * 40, "final": {"backend_revision": "backend"}})
-        )
+        return None if changed == "missing" else (405 if changed == "run_id" else 404, release)
 
-    monkeypatch.setattr(producer, "_authorities", lambda: SimpleNamespace(find_release=find))
+    def live(value, *, environment):
+        assert value is release and environment == "production"
+        checked.append(value)
+        return changed != "drift"
+
+    monkeypatch.setattr(
+        producer,
+        "_authorities",
+        lambda: SimpleNamespace(find_release=find, live_release_matches=live),
+    )
     runtime = producer.Runtime({}, "")
-    if missing:
+    if changed in {"missing", "run_id"}:
         with pytest.raises(ValueError, match="healthy_serving_reference_missing"):
+            runtime.reference()
+    elif changed == "drift":
+        with pytest.raises(ValueError, match="healthy_serving_reference_not_live"):
             runtime.reference()
     else:
         result = runtime.reference()
@@ -267,3 +278,4 @@ def test_cold_reference_qualifies_only_the_recorded_current_healthy_release(monk
             "backend",
         )
     assert selected == ["404"]
+    assert checked == ([] if changed in {"missing", "run_id"} else [release])

@@ -427,9 +427,13 @@ class Runtime:
                 require_live=True,
                 environment="production",
             )
-        if found is None or str(found[0]) != selected_run_id:
-            raise ValueError("phone_schema_healthy_serving_reference_missing")
-        run_id, release = found
+            if found is None or str(found[0]) != selected_run_id:
+                raise ValueError("phone_schema_healthy_serving_reference_missing")
+            run_id, release = found
+            # An explicit run selects provenance; the legacy reader does not
+            # check serving traffic on that path, even with require_live=True.
+            if not authority.live_release_matches(release, environment="production"):
+                raise ValueError("phone_schema_healthy_serving_reference_not_live")
         return {
             "run_id": str(run_id),
             "source": release["sha"],
