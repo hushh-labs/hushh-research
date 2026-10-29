@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type SetStateAction } from "react";
 import { ProfilePaneAccountIcon, ProfilePaneInviteIcon, ProfilePaneSecurityIcon, ProfilePaneCardIcon } from "@/components/profile/profile-pane-icons";
 import { SettingsDetailPanel, SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
@@ -19,30 +19,71 @@ import { CardAccessUnavailableError, WalletCardAccessService, type CardAccessRec
 import { WalletService, type WalletCardSummary, type WalletCardShareReceipt } from "@/lib/services/wallet-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import styles from "./wallet-saved-card-sharing.module.css";
 import presentationStyles from "./wallet-connect-presentation.module.css";
 
 // Present the existing API limit before the owner submits their selection.
 const MAX_CARD_SHARE_RECIPIENTS = 20;
+type AccessAuthority = { userId: string; cardId: string; vaultEpoch: number; current: () => boolean };
+type AccessSnapshot = { value: CardAccessState; authority: AccessAuthority } | null;
 
 export function useWalletSavedCardSharing({ card, getContext, compact = false, native = false }: {
   card: Pick<WalletCardSummary, "cardId"> & Partial<WalletCardSummary>; getContext: (cardId: string) => CardShareContext | null; disabled: boolean; showHistory?: boolean; compact?: boolean; native?: boolean;
 }) {
   const isProfile = card.cardId.startsWith("profile_");
   const [manageOpen, setManageOpen] = useState(false);
-  const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
+  const revokeValue = useRef<{ target: string | null; revision: number }>({ target: null, revision: 0 });
+  const [revokeSnapshot, setRevokeSnapshot] = useState(revokeValue.current);
+  const revokeTarget = revokeSnapshot.target;
+  const setRevokeTarget = useCallback((target: string | null) => {
+    if (target === revokeValue.current.target) return;
+    const next = { target, revision: revokeValue.current.revision + 1 };
+    revokeValue.current = next; setRevokeSnapshot(next);
+  }, []);
   const manageTrigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [recipients, setRecipients] = useState<CardAccessRecipient[]>([]);
-  const [selected, setSelected] = useState<Record<string, CardAccessRecipient>>({});
+  const searchValue = useRef({ query: "", revision: 0 });
+  const [search, setSearch] = useState(searchValue.current);
+  const query = search.query;
+  const generation = useRef(0);
+  const currentCardId = useRef(card.cardId);
+  useLayoutEffect(() => { currentCardId.current = card.cardId; }, [card.cardId]);
+  const setQuery = useCallback((value: string) => {
+    if (value === searchValue.current.query) return;
+    const next = { query: value, revision: searchValue.current.revision + 1 };
+    searchValue.current = next;
+    setSearch(next);
+  }, []);
+  const [lookup, setLookup] = useState<{ cardId: string; session: number; query: string; queryRevision: number; retry: number; userId?: string; vaultEpoch: number;
+    phase: "loading" | "ready" | "failed"; items: CardAccessRecipient[]; hasMore: boolean; current: () => boolean } | null>(null);
+  const [selectedState, setSelected] = useState<Record<string, CardAccessRecipient>>({});
+  const selectedSnapshot = useRef(selectedState);
+  const selectionAuthority = useRef<{ userId: string; cardId: string; session: number; vaultEpoch: number; current: () => boolean } | null>(null);
+  const accessAuthority = useRef<AccessAuthority | null>(null);
+  const activeContext = getContext(card.cardId);
+  const selectionBinding = selectionAuthority.current;
+  const selected = selectionBinding && selectionBinding.cardId === card.cardId && selectionBinding.session === generation.current &&
+    selectionBinding.vaultEpoch === snapshotVaultSessionEpoch() && selectionBinding.current() &&
+    activeContext?.userId === selectionBinding.userId && activeContext.isCurrent() && selectedSnapshot.current === selectedState ? selectedState : {};
   const selectedCount = Object.keys(selected).length;
-  const [duration, setDuration] = useState<15 | 60 | 120>(15);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [state, setState] = useState<CardAccessState | null>(null);
+  const durationValue = useRef<{ value: 15 | 60 | 120; revision: number }>({ value: 15, revision: 0 });
+  const [durationSnapshot, setDurationSnapshot] = useState(durationValue.current);
+  const duration = durationSnapshot.value;
+  const setDuration = useCallback((value: 15 | 60 | 120) => {
+    if (durationValue.current.value === value) return;
+    const next = { value, revision: durationValue.current.revision + 1 };
+    durationValue.current = next; setDurationSnapshot(next);
+  }, []);
+  const [access, setAccessState] = useState<AccessSnapshot>(null);
+  const accessSnapshot = useRef<AccessSnapshot>(null);
+  const setAccess = useCallback((update: SetStateAction<AccessSnapshot>) => {
+    const next = typeof update === "function" ? update(accessSnapshot.current) : update;
+    accessSnapshot.current = next; setAccessState(next);
+  }, []);
+  const state = access && access === accessSnapshot.current && access.authority === accessAuthority.current && access.authority.cardId === card.cardId &&
+    access.authority.vaultEpoch === snapshotVaultSessionEpoch() && access.authority.current() &&
+    activeContext?.userId === access.authority.userId && activeContext.isCurrent() ? access.value : null;
   const [stateFailed, setStateFailed] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -54,20 +95,55 @@ export function useWalletSavedCardSharing({ card, getContext, compact = false, n
   const [copiesOpen, setCopiesOpen] = useState(false);
   const moreRequest = useRef<AbortController | null>(null);
   const historyEnd = useRef<HTMLDivElement>(null);
-  const generation = useRef(0);
   const sending = useRef(false);
+  const revoking = useRef(false);
   // Keep this key across uncertain delivery retries, never extend the original grant.
   const attempt = useRef<{ fingerprint: string; id: string } | null>(null);
   const close = useCallback(() => {
     generation.current += 1;
-    setOpen(false); setQuery(""); setSelected({}); setRecipients([]); setBusy(false);
-  }, []);
+    selectionAuthority.current = null;
+    selectedSnapshot.current = {};
+    setOpen(false); setQuery(""); setSelected(selectedSnapshot.current); setLookup(null); setBusy(false);
+  }, [setQuery]);
+  const lookupCurrent = !!lookup && open && lookup.cardId === card.cardId && lookup.session === generation.current &&
+    lookup.query === search.query && lookup.queryRevision === search.revision && lookup.queryRevision === searchValue.current.revision &&
+    lookup.vaultEpoch === snapshotVaultSessionEpoch() && (lookup.phase !== "ready" || !!activeContext && activeContext.userId === lookup.userId && activeContext.isCurrent()) &&
+    lookup.retry === recipientRevision && lookup.current();
+  const recipients = lookupCurrent && lookup.phase === "ready" ? lookup.items : [];
+  const hasMore = lookupCurrent && lookup.phase === "ready" && lookup.hasMore;
+  const loading = open && (!lookupCurrent || lookup.phase === "loading");
+  const failed = lookupCurrent && lookup.phase === "failed";
+  const selectRecipient = (recipient: CardAccessRecipient, checked?: boolean) => {
+    if (!lookupCurrent || !lookup || lookup.phase !== "ready" || lookup.session !== generation.current ||
+        lookup.queryRevision !== searchValue.current.revision || lookup.query !== searchValue.current.query ||
+        lookup.cardId !== currentCardId.current || lookup.vaultEpoch !== snapshotVaultSessionEpoch() || !lookup.current() ||
+        !lookup.items.some(item => item.personRef === recipient.personRef)) return;
+    const base = getContext(lookup.cardId);
+    if (!base || !base.isCurrent() || base.userId !== lookup.userId) return;
+    const authority = selectionAuthority.current;
+    if (authority && (authority.userId !== base.userId || authority.cardId !== lookup.cardId ||
+        authority.session !== lookup.session || authority.vaultEpoch !== lookup.vaultEpoch || !authority.current())) return;
+    if (!authority) selectionAuthority.current = { userId: base.userId, cardId: lookup.cardId,
+      session: lookup.session, vaultEpoch: lookup.vaultEpoch, current: base.isCurrent };
+    const previous = selectedSnapshot.current, next = { ...previous };
+    const select = checked ?? !previous[recipient.personRef];
+    if (select) { if (Object.keys(previous).length < MAX_CARD_SHARE_RECIPIENTS) next[recipient.personRef] = recipient; }
+    else delete next[recipient.personRef];
+    selectedSnapshot.current = next; setSelected(next);
+  };
+  const selectionAtRender = selectionAuthority.current;
+  const removeSelected = (personRef: string) => {
+    if (!selectionAtRender || selectionAuthority.current !== selectionAtRender || selectedSnapshot.current !== selectedState ||
+        selectionAtRender.session !== generation.current || selectionAtRender.cardId !== currentCardId.current ||
+        selectionAtRender.vaultEpoch !== snapshotVaultSessionEpoch() || !selectionAtRender.current()) return;
+    const next = { ...selectedSnapshot.current }; delete next[personRef]; selectedSnapshot.current = next; setSelected(next);
+  };
   useBackLayer(ROUTES.ONE_WALLET, !native && open ? 3 : 0, () => { close(); return true; });
   useBackLayer(ROUTES.ONE_WALLET, !native && compact && manageOpen ? 2 : 0, () => { if (!busy) setManageOpen(false); return true; });
   useBackLayer(ROUTES.ONE_WALLET, !native && compact && revokeTarget ? 4 : 0, () => { if (!busy) setRevokeTarget(null); return true; });
   const currentCopies = copies?.cardId === card.cardId && copies.current() ? copies.receipts : [];
   useBackLayer(ROUTES.ONE_WALLET, !native && copiesOpen && currentCopies.length ? compact ? 3 : 2 : 0, () => { setCopiesOpen(false); return true; });
-  useEffect(() => { close(); setManageOpen(false); setRevokeTarget(null); setState(null); attempt.current = null; }, [card.cardId, getContext, close]);
+  useEffect(() => { close(); setManageOpen(false); setRevokeTarget(null); setAccess(null); attempt.current = null; }, [card.cardId, getContext, close, setAccess, setRevokeTarget]);
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -76,11 +152,19 @@ export function useWalletSavedCardSharing({ card, getContext, compact = false, n
     moreRequest.current?.abort(); moreRequest.current = null;
     setLoadingMore(false); setMoreFailed(false);
     setStateFailed(false); setUnavailable(false);
+    accessAuthority.current = null;
+    const vaultEpoch = snapshotVaultSessionEpoch();
     void WalletCardAccessService.state(context, card.cardId, controller.signal).then(result => {
-      if (!cancelled && context.isCurrent()) setState(result);
-    }).catch(error => { if (!cancelled && context.isCurrent()) { setState(null); setStateFailed(true); setUnavailable(error instanceof CardAccessUnavailableError); } });
+      if (!cancelled && context.isCurrent() && vaultEpoch === snapshotVaultSessionEpoch() && currentCardId.current === card.cardId) {
+        const authority = { userId: context.userId, cardId: card.cardId, vaultEpoch, current: context.isCurrent };
+        accessAuthority.current = authority;
+        setAccess({ value: result, authority });
+      }
+    }).catch(error => { if (!cancelled && context.isCurrent() && vaultEpoch === snapshotVaultSessionEpoch() && currentCardId.current === card.cardId) {
+      setAccess(null); setStateFailed(true); setUnavailable(error instanceof CardAccessUnavailableError);
+    } });
     return () => { cancelled = true; controller.abort(); moreRequest.current?.abort(); moreRequest.current = null; };
-  }, [card.cardId, getContext, revision]);
+  }, [card.cardId, getContext, revision, setAccess]);
   useEffect(() => {
     let cancelled = false;
     let readRevision = 0;
@@ -106,43 +190,53 @@ export function useWalletSavedCardSharing({ card, getContext, compact = false, n
     if (!open) return;
     let cancelled = false;
     const controller = new AbortController();
-    setLoading(true); setFailed(false);
+    const captured = { cardId: card.cardId, session: generation.current, query: search.query, queryRevision: search.revision,
+      retry: recipientRevision, vaultEpoch: snapshotVaultSessionEpoch() };
+    setLookup({ ...captured, phase: "loading", items: [], hasMore: false, current: () => true });
     const timer = window.setTimeout(() => {
       const context = getContext(card.cardId);
       if (!context) { close(); return; }
+      const current = () => !cancelled && context.isCurrent() && captured.session === generation.current &&
+        captured.queryRevision === searchValue.current.revision && captured.query === searchValue.current.query &&
+        captured.vaultEpoch === snapshotVaultSessionEpoch() && captured.cardId === currentCardId.current;
       void WalletCardAccessService.recipients(context, query, controller.signal).then(result => {
-        if (!cancelled && context.isCurrent()) { setRecipients(result.items); setHasMore(result.hasMore); }
-      }).catch(() => { if (!cancelled && context.isCurrent()) setFailed(true); })
-        .finally(() => { if (!cancelled && context.isCurrent()) setLoading(false); });
+        if (current()) setLookup({ ...captured, userId: context.userId, phase: "ready", items: result.items, hasMore: result.hasMore, current: context.isCurrent });
+      }).catch(() => { if (current()) setLookup({ ...captured, phase: "failed", items: [], hasMore: false, current: context.isCurrent }); });
     }, 200);
     return () => { cancelled = true; controller.abort(); window.clearTimeout(timer); };
-  }, [open, query, card.cardId, getContext, recipientRevision, close]);
+  }, [open, search, query, card.cardId, getContext, recipientRevision, close]);
   useEffect(() => {
     const hide = () => { if (document.visibilityState === "hidden") close(); };
+    const retire = subscribeVaultSessionEpoch(() => { accessAuthority.current = null; close(); setAccess(null); setRevision(value => value + 1); });
     document.addEventListener("visibilitychange", hide);
-    return () => { generation.current += 1; document.removeEventListener("visibilitychange", hide); };
-  }, [close]);
+    return () => { generation.current += 1; retire(); document.removeEventListener("visibilitychange", hide); };
+  }, [close, setAccess]);
   const loadMore = useCallback(async () => {
     const context = getContext(card.cardId);
     const cursor = state?.nextCursor;
-    if (!context || !cursor || moreRequest.current || stateFailed) return;
+    const authority = accessAuthority.current;
+    if (!context || !authority || authority.userId !== context.userId || authority.cardId !== card.cardId ||
+        authority.vaultEpoch !== snapshotVaultSessionEpoch() || !authority.current() || !context.isCurrent() ||
+        !cursor || moreRequest.current || sending.current || revoking.current || stateFailed) return;
+    const current = () => accessAuthority.current === authority && authority.cardId === currentCardId.current &&
+      authority.vaultEpoch === snapshotVaultSessionEpoch() && authority.current() && context.isCurrent();
     const controller = new AbortController();
     moreRequest.current = controller;
     setLoadingMore(true); setMoreFailed(false);
     try {
       const page = await WalletCardAccessService.state(context, card.cardId, controller.signal, cursor);
-      if (controller.signal.aborted || !context.isCurrent()) return;
-      setState(previous => {
-        if (!previous || previous.nextCursor !== cursor) return previous;
-        const existing = new Set(previous.grants.map(grant => grant.id));
-        return { ...page, grants: [...previous.grants, ...page.grants.filter(grant => !existing.has(grant.id))] };
+      if (controller.signal.aborted || !current()) return;
+      setAccess(previous => {
+        if (!previous || previous.authority !== authority || previous.value.nextCursor !== cursor) return previous;
+        const existing = new Set(previous.value.grants.map(grant => grant.id));
+        return { ...previous, value: { ...page, grants: [...previous.value.grants, ...page.grants.filter(grant => !existing.has(grant.id))] } };
       });
     } catch {
-      if (!controller.signal.aborted && context.isCurrent()) setMoreFailed(true);
+      if (!controller.signal.aborted && current()) setMoreFailed(true);
     } finally {
       if (moreRequest.current === controller) { moreRequest.current = null; setLoadingMore(false); }
     }
-  }, [card.cardId, getContext, state?.nextCursor, stateFailed]);
+  }, [card.cardId, getContext, state?.nextCursor, stateFailed, setAccess]);
   useEffect(() => {
     const node = historyEnd.current;
     if (!node || !state?.nextCursor || loadingMore || moreFailed || typeof IntersectionObserver === "undefined") return;
@@ -155,9 +249,23 @@ export function useWalletSavedCardSharing({ card, getContext, compact = false, n
   const send = async () => {
     const base = getContext(card.cardId);
     const refs = Object.keys(selected).sort();
-    if (!base || !refs.length || refs.length > MAX_CARD_SHARE_RECIPIENTS || sending.current || stateFailed || !state) return;
+    const selection = selectionBinding, authority = access?.authority;
+    if (!base || !base.isCurrent() || !selection || selectionAuthority.current !== selection || selectedSnapshot.current !== selectedState ||
+        durationValue.current !== durationSnapshot || accessSnapshot.current !== access ||
+        !authority || accessAuthority.current !== authority || selection.userId !== base.userId || authority.userId !== base.userId ||
+        selection.cardId !== card.cardId || authority.cardId !== card.cardId || currentCardId.current !== card.cardId ||
+        selection.session !== generation.current || selection.vaultEpoch !== snapshotVaultSessionEpoch() ||
+        authority.vaultEpoch !== snapshotVaultSessionEpoch() || !selection.current() || !authority.current() ||
+        !refs.length || refs.length > MAX_CARD_SHARE_RECIPIENTS || sending.current || stateFailed || !state) return;
     const requestGeneration = generation.current;
-    const context = { ...base, isCurrent: () => requestGeneration === generation.current && base.isCurrent() };
+    moreRequest.current?.abort(); moreRequest.current = null; setLoadingMore(false);
+    const ownerCurrent = () => currentCardId.current === card.cardId &&
+      getContext(card.cardId)?.userId === base.userId && selection.vaultEpoch === snapshotVaultSessionEpoch() &&
+      authority.vaultEpoch === snapshotVaultSessionEpoch() && selection.current() && authority.current() && base.isCurrent();
+    const selectionCurrent = () => requestGeneration === generation.current && selectionAuthority.current === selection && selectedSnapshot.current === selectedState &&
+      durationValue.current === durationSnapshot && accessSnapshot.current === access && accessAuthority.current === authority;
+    const context = { ...base, isCurrent: () => ownerCurrent() && selectionCurrent() };
+    const dispatchContext = { ...base, isCurrent: ownerCurrent, canDispatch: selectionCurrent };
     const fingerprint = JSON.stringify([base.userId, card.cardId, refs, duration]);
     if (attempt.current?.fingerprint !== fingerprint) attempt.current = { fingerprint, id: crypto.randomUUID() };
     sending.current = true; setBusy(true);
@@ -167,44 +275,62 @@ export function useWalletSavedCardSharing({ card, getContext, compact = false, n
       if (!context.isCurrent()) return;
       const encryptedCards = isProfile ? undefined : await prepareTemporaryCardShares(context, card.cardId, refs);
       if (!context.isCurrent()) return;
-      await WalletCardAccessService.share(context, card.cardId, refs, duration, attempt.current.id, encryptedCards);
-      if (!context.isCurrent()) return;
-      attempt.current = null; close(); setRevision(value => value + 1);
+      await WalletCardAccessService.share(dispatchContext, card.cardId, refs, duration, attempt.current.id, encryptedCards);
+      if (!ownerCurrent()) return;
+      attempt.current = null; if (selectionCurrent()) close(); setRevision(value => value + 1);
       morphyToast.success("Card shared.");
     } catch (error) {
-      if (context.isCurrent()) {
+      if (ownerCurrent()) {
         if (error instanceof CardRecipientKeyUnavailableError) {
           morphyToast.error(error.message);
         } else if (error instanceof CardAccessUnavailableError) {
-          close(); setState(null); setStateFailed(true); setUnavailable(true);
+          close(); setAccess(null); setStateFailed(true); setUnavailable(true);
           morphyToast.error("Card sharing is temporarily unavailable. Try again later.");
         } else {
           morphyToast.error("Could not confirm sharing. Retry to check the same request.");
         }
       }
     }
-    finally { sending.current = false; if (context.isCurrent()) setBusy(false); }
+    finally {
+      sending.current = false;
+      if (requestGeneration === generation.current && currentCardId.current === card.cardId && base.isCurrent()) setBusy(false);
+    }
   };
   const revoke = async (id: string) => {
-    const context = getContext(card.cardId);
-    if (!context || busy) return;
-    setBusy(true);
+    const base = getContext(card.cardId), authority = access?.authority;
+    if (!base || !authority || accessSnapshot.current !== access || accessAuthority.current !== authority ||
+        ((compact || native) && (revokeSnapshot.target !== id || revokeValue.current !== revokeSnapshot)) ||
+        !access?.value.grants.some(grant => grant.id === id && grant.status === "active") ||
+        authority.userId !== base.userId || authority.cardId !== card.cardId ||
+        authority.cardId !== currentCardId.current || authority.vaultEpoch !== snapshotVaultSessionEpoch() ||
+        !authority.current() || !base.isCurrent() || busy || revoking.current) return;
+    const context = { ...base, isCurrent: () => authority.cardId === currentCardId.current &&
+      getContext(card.cardId)?.userId === base.userId && authority.vaultEpoch === snapshotVaultSessionEpoch() && authority.current() && base.isCurrent(),
+      canDispatch: () => accessSnapshot.current === access && accessAuthority.current === authority &&
+        (!(compact || native) || revokeValue.current === revokeSnapshot) };
+    moreRequest.current?.abort(); moreRequest.current = null; setLoadingMore(false);
+    revoking.current = true; setBusy(true);
     try {
       await WalletCardAccessService.revoke(context, id);
       if (context.isCurrent()) {
-        setState(previous => previous ? { ...previous, grants: previous.grants.map(grant => grant.id === id ? { ...grant, status: "revoked" } : grant) } : previous);
-        setRevokeTarget(null);
+        if (accessSnapshot.current === access && accessAuthority.current === authority) {
+          setAccess(previous => previous?.authority === authority ? { ...previous, value: { ...previous.value, grants: previous.value.grants.map(grant => grant.id === id ? { ...grant, status: "revoked" } : grant) } } : previous);
+        } else setRevision(value => value + 1);
+        if (revokeValue.current === revokeSnapshot) setRevokeTarget(null);
         morphyToast.success("Access revoked.");
       }
     } catch { if (context.isCurrent()) morphyToast.error("Could not revoke access. Try again."); }
-    finally { if (context.isCurrent()) setBusy(false); }
+    finally {
+      revoking.current = false;
+      if (context.isCurrent()) setBusy(false);
+    }
   };
-  return { isProfile, manageOpen, setManageOpen, revokeTarget, setRevokeTarget, manageTrigger, open, setOpen, query, setQuery, recipients, selected, setSelected, selectedCount, duration, setDuration, hasMore, loading, failed, state, stateFailed, unavailable, busy, setRevision, setRecipientRevision, loadingMore, moreFailed, copiesOpen, setCopiesOpen, historyEnd, close, currentCopies, loadMore, send, revoke };
+  return { isProfile, manageOpen, setManageOpen, revokeTarget, setRevokeTarget, manageTrigger, open, setOpen, query, setQuery, recipients, selected, selectRecipient, removeSelected, selectedCount, duration, setDuration, hasMore, loading, failed, state, stateFailed, unavailable, busy, setRevision, setRecipientRevision, loadingMore, moreFailed, copiesOpen, setCopiesOpen, historyEnd, close, currentCopies, loadMore, send, revoke };
 }
 
 export function WalletSavedCardSharing(props: Parameters<typeof useWalletSavedCardSharing>[0]) {
   const { card, disabled, showHistory = true, compact = false } = props;
-  const { isProfile, manageOpen, setManageOpen, revokeTarget, setRevokeTarget, manageTrigger, open, setOpen, query, setQuery, recipients, selected, setSelected, selectedCount, duration, setDuration, hasMore, loading, failed, state, stateFailed, unavailable, busy, setRevision, setRecipientRevision, loadingMore, moreFailed, copiesOpen, setCopiesOpen, historyEnd, close, currentCopies, loadMore, send, revoke } = useWalletSavedCardSharing(props);
+  const { isProfile, manageOpen, setManageOpen, revokeTarget, setRevokeTarget, manageTrigger, open, setOpen, query, setQuery, recipients, selected, selectRecipient, removeSelected, selectedCount, duration, setDuration, hasMore, loading, failed, state, stateFailed, unavailable, busy, setRevision, setRecipientRevision, loadingMore, moreFailed, copiesOpen, setCopiesOpen, historyEnd, close, currentCopies, loadMore, send, revoke } = useWalletSavedCardSharing(props);
   const sharingHistory = <>
       {showHistory ? <SettingsGroup title="Shared with">
         {state?.grants.length ? state.grants.map(grant => <SettingsRow key={grant.id} icon={ProfilePaneAccountIcon} iconTone="transparent"
@@ -259,13 +385,20 @@ export function WalletSavedCardSharing(props: Parameters<typeof useWalletSavedCa
         <div className="space-y-4">
           <div className={styles.cardSummary}><ProfilePaneCardIcon className="size-7" /><div><strong>{isProfile ? "Profile card" : card.nickname || (card.brand ? cardNetworkLabel(card.brand) : "Your card")}{card.last4 ? ` · •••• ${card.last4}` : ""}</strong><span>Share with your connections</span></div></div>
           {sharingFeedback}
+          {selectedCount ? <section aria-label="Selected connections" className="space-y-1">
+            <p className="text-sm font-medium">Selected</p>
+            {Object.values(selected).map(recipient => <div key={recipient.personRef} className="flex min-h-11 items-center gap-3">
+              <span className="min-w-0 flex-1 break-words">{recipient.displayName}</span>
+              <Button variant="ghost" size="compact" className="min-h-11" disabled={busy} aria-label={`Remove ${recipient.displayName}`} onClick={() => removeSelected(recipient.personRef)}>Remove</Button>
+            </div>)}
+          </section> : null}
           <Input aria-label="Search connections" placeholder="Search connections" value={query} disabled={busy} onChange={event => setQuery(event.target.value)} />
           <div className={styles.recipientList} aria-label="Connections">
             {loading ? <div role="status" aria-label="Finding connections"><span className="sr-only">Finding connections…</span>{[0, 1, 2].map(index => <div key={index} className="flex min-h-14 items-center gap-3 px-3 py-2"><Skeleton className="size-8 rounded-full" /><Skeleton className="h-4 w-40" /></div>)}</div> : failed ? <Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={() => setRecipientRevision(value => value + 1)}>Retry connections</Button> : recipients.map(recipient => <label key={recipient.personRef} className="flex min-h-14 items-center gap-3 rounded-xl px-3 py-2 text-sm leading-[21px]">
               <Avatar className="size-8"><AvatarImage src={recipient.photoUrl || undefined} alt="" /><AvatarFallback>{recipient.displayName.slice(0, 1)}</AvatarFallback></Avatar>
               <span className="min-w-0 flex-1 break-words">{recipient.displayName}{recipient.trusted ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><ProfilePaneSecurityIcon size={14} />Trusted Circle</span> : null}</span>
               <Checkbox aria-label={`Share with ${recipient.displayName}`} checked={Boolean(selected[recipient.personRef])} disabled={busy || (selectedCount >= MAX_CARD_SHARE_RECIPIENTS && !selected[recipient.personRef])}
-                onCheckedChange={checked => setSelected(previous => { const next = { ...previous }; if (checked === true) { if (Object.keys(previous).length < MAX_CARD_SHARE_RECIPIENTS) next[recipient.personRef] = recipient; } else delete next[recipient.personRef]; return next; })} />
+                onCheckedChange={checked => selectRecipient(recipient, checked === true)} />
             </label>)}
             {!loading && !failed && !recipients.length ? <p className="py-3 text-xs text-muted-foreground">No connections found.</p> : null}
             {hasMore ? <p className="text-xs text-muted-foreground">Search by name to find more connections.</p> : null}

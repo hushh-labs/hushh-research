@@ -26,10 +26,11 @@ export function nativeWalletSharingScene({ sharing, page, disabled, handle, back
   } else if (page === "share") {
     title = sharing.isProfile ? "Share Profile Card" : "Share card";
     if (sharing.stateFailed) group("share-error", [row("share-retry", "Retry sharing", () => sharing.setRevision(value => value + 1), { detail: sharing.unavailable ? "Card sharing is temporarily unavailable." : "Could not check sharing." })]);
+    if (sharing.selectedCount) group("selected", Object.values(sharing.selected).map(recipient =>
+      row(`selected-${recipient.personRef}`, recipient.displayName, () => sharing.removeSelected(recipient.personRef), { trailing: "Remove" })), "Selected");
     group("recipients", sharing.loading ? [row("recipients-loading", "Finding connections…")] : sharing.failed ? [row("recipients-retry", "Retry connections", () => sharing.setRecipientRevision(value => value + 1))] :
-      sharing.recipients.length ? sharing.recipients.map(recipient => row(`recipient-${recipient.personRef}`, recipient.displayName, () => sharing.setSelected(previous => {
-        const next = { ...previous }; if (next[recipient.personRef]) delete next[recipient.personRef]; else if (Object.keys(next).length < 20) next[recipient.personRef] = recipient; return next;
-      }), { selected: !!sharing.selected[recipient.personRef], enabled: !disabled && !sharing.busy && (sharing.selectedCount < 20 || !!sharing.selected[recipient.personRef]), ...(recipient.trusted ? { detail: "Trusted Circle" } : {}) })) : [row("recipients-empty", "No connections found.")], "Connections");
+      sharing.recipients.length ? sharing.recipients.map(recipient => row(`recipient-${recipient.personRef}`, recipient.displayName, () => sharing.selectRecipient(recipient),
+      { selected: !!sharing.selected[recipient.personRef], enabled: !disabled && !sharing.busy && (sharing.selectedCount < 20 || !!sharing.selected[recipient.personRef]), ...(recipient.trusted ? { detail: "Trusted Circle" } : {}) })) : [row("recipients-empty", "No connections found.")], "Connections");
     group("duration", ([15, 60, 120] as const).map(minutes => row(`duration-${minutes}`, minutes === 15 ? "15 minutes" : minutes === 60 ? "1 hour" : "2 hours", () => sharing.setDuration(minutes), { selected: sharing.duration === minutes })), "Access time");
     group("send", [row("share-send", sharing.busy ? "Sharing…" : `Share with ${sharing.selectedCount}`, sharing.send, { enabled: !disabled && !sharing.busy && !sharing.stateFailed && !!sharing.state && sharing.selectedCount > 0 }),
       row("share-note", sharing.isProfile ? "Only your selected profile details are shared." : "Shares the full card number, name, network and expiry. CVV and PIN are never shared."),

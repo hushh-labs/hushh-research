@@ -3,6 +3,7 @@ import { googlePlacement, capacitorMocks, nativeStreamFetch, previewMocks, kaiMo
 import { ApiService } from "@/lib/services/api-service";
 import { GoogleConnectionService } from "@/lib/services/google-connection-service";
 import { PhoneRecoveryService } from "@/lib/services/phone-recovery-service";
+import { WalletCardAccessService } from "@/lib/services/wallet-card-access-service";
 import { AuthService } from "@/lib/services/auth-service";
 
 import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
@@ -15,6 +16,17 @@ const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 import { jsonResponse, makeUnsignedToken, deferred } from "../fixtures/api-service-responses";
 
 describe("ApiService.apiFetch", () => {
+  it("does not dispatch a Wallet revoke when confirmation is withdrawn during token acquisition", async () => {
+    const token = deferred<string>();
+    let confirmed = true;
+    const context = { userId: "account-a", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-consent",
+      getIdToken: () => token.promise, isCurrent: () => true, canDispatch: () => confirmed };
+    const pending = WalletCardAccessService.revoke(context, "synthetic-grant");
+    confirmed = false;
+    token.resolve(makeUnsignedToken({ user_id: "account-a" }));
+    await expect(pending).rejects.toThrow();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
   it("does not replay a linked-account deletion confirmation after a 401", async () => {
     const initial = makeUnsignedToken({ user_id: "account-a", version: 1 });
     const refreshed = makeUnsignedToken({ user_id: "account-a", version: 2 });
