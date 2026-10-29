@@ -111,8 +111,14 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
             else { self.resumeEmergencyCue() }
         })
         emergencyObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.handOffEmergencyCue() })
+        emergencyObservers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
-        ) { [weak self] _ in self?.resumeEmergencyCue() })
+        ) { [weak self] _ in
+            EmergencySmsCueHandoff.cancel()
+            self?.resumeEmergencyCue()
+        })
         if FirebaseApp.app() != nil {
             emergencyAuthObserver = Auth.auth().addStateDidChangeListener { [weak self] _, user in
                 Task { @MainActor in
@@ -145,6 +151,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func stopEmergencyCue(grantId: String? = nil) {
+        EmergencySmsCueHandoff.cancel(grants: grantId.map { Set([$0]) })
         if let grantId {
             emergencyGrants.remove(grantId)
             if !emergencyGrants.isEmpty { return }
@@ -162,12 +169,19 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         // stale category over another feature's current ownership.
     }
 
+    /// The in-app cue plays only in the foreground: the app holds no background
+    /// audio mode, and a grant acknowledged elsewhere (a tapped alert) never resumes.
     private func resumeEmergencyCue() {
         guard !emergencyInterrupted, !emergencyGrants.isEmpty,
+              UIApplication.shared.applicationState == .active,
               FirebaseApp.app() != nil,
               Auth.auth().currentUser?.uid == emergencyFirebaseUid,
               let owner = emergencyOwner,
               ChatPreviewKeys.recipientKey(["user_id": owner]) != nil else { return }
+        for grant in emergencyGrants where SmsAlarmLedger.acknowledged(user: owner, grant: grant) {
+            stopEmergencyCue(grantId: grant)
+        }
+        guard !emergencyGrants.isEmpty else { return }
         do {
             let session = AVAudioSession.sharedInstance()
             if session.category == .record {
@@ -178,6 +192,27 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
             try session.setActive(true)
             emergencyPlayer?.play()
         } catch { /* Retain pending alerts through system audio interruptions. */ }
+    }
+
+    /// Backgrounding is not acknowledgement. iOS suspends the in-app player, so a
+    /// ringing alarm continues as bounded notification sound until acknowledged.
+    private func handOffEmergencyCue() {
+        guard !emergencyGrants.isEmpty, let owner = emergencyOwner,
+              FirebaseApp.app() != nil, Auth.auth().currentUser?.uid == emergencyFirebaseUid,
+              ChatPreviewKeys.recipientKey(["user_id": owner]) != nil else { return }
+        emergencyPlayer?.pause()
+        let grants = emergencyGrants.filter { !SmsAlarmLedger.acknowledged(user: owner, grant: $0) }
+        guard !grants.isEmpty else { return }
+        var task = UIBackgroundTaskIdentifier.invalid
+        task = UIApplication.shared.beginBackgroundTask {
+            UIApplication.shared.endBackgroundTask(task)
+            task = .invalid
+        }
+        EmergencySmsCueHandoff.schedule(owner: owner, grants: Array(grants)) {
+            guard task != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(task)
+            task = .invalid
+        }
     }
 
     @objc func stopEmergencySmsCue(_ call: CAPPluginCall) {
@@ -263,7 +298,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                     guard Auth.auth().currentUser?.uid == firebaseUid,
                           ChatPreviewKeys.recipientKey(["user_id": userId]) != nil
                     else { self.stopEmergencyCue(); return }
-                    if !self.emergencyInterrupted {
+                    if !self.emergencyInterrupted, UIApplication.shared.applicationState == .active {
                         if self.emergencyPlayer?.isPlaying != true { self.resumeEmergencyCue() }
                         AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
                     }
@@ -540,5 +575,68 @@ private final class ChatNotificationHandler: NSObject, NotificationHandlerProtoc
             }
         }
         forwarded.didReceive(response: response)
+    }
+}
+
+/// Carries a ringing in-app SMS alarm while iOS suspends the app. The app holds
+/// no background audio mode (One Voice privacy contract), so on iOS 17-25, or
+/// without AlarmKit, a bounded series of local alerts with the alarm siren stands
+/// in until acknowledgement. They carry the SOS push's routing fields, so tapping
+/// one acknowledges the alarm exactly as tapping the push does.
+enum EmergencySmsCueHandoff {
+    static let sound = "one_location_sms_alarm_handoff.wav"
+    static let soundSeconds = 10.0
+    static let prefix = "hushh.sms-alarm.handoff."
+    /// The first alert after 5 s, then one a minute for ten minutes.
+    static let offsets: [TimeInterval] = [5] + (1...10).map { TimeInterval($0 * 60) }
+    /// iOS keeps at most 64 pending requests per app; leave room for others.
+    static let maxGrants = 4
+
+    static func requests(owner: String, grants: [String]) -> [UNNotificationRequest] {
+        grants.sorted().prefix(maxGrants).flatMap { grant in
+            offsets.enumerated().map { (index, offset) -> UNNotificationRequest in
+                let content = UNMutableNotificationContent()
+                content.title = "Unacknowledged SMS alert"
+                content.body = "An SMS alert needs your attention. Tap to acknowledge it."
+                content.sound = UNNotificationSound(named: UNNotificationSoundName(sound))
+                content.categoryIdentifier = "ONE_LOCATION_SMS_EMERGENCY"
+                content.threadIdentifier = prefix + grant
+                content.userInfo = ["type": "location_share_created", "share_kind": "sos",
+                                    "user_id": owner, "grant_id": grant]
+                return UNNotificationRequest(
+                    identifier: "\(prefix)\(grant).\(index)", content: content,
+                    trigger: UNTimeIntervalNotificationTrigger(timeInterval: offset, repeats: false))
+            }
+        }
+    }
+
+    static func schedule(owner: String, grants: [String], completion: @escaping () -> Void) {
+        let center = UNUserNotificationCenter.current()
+        let group = DispatchGroup()
+        for request in requests(owner: owner, grants: grants) {
+            group.enter()
+            center.add(request) { _ in group.leave() }
+        }
+        group.notify(queue: .main, execute: completion)
+    }
+
+    /// Removes pending and delivered hand-off alerts for the given grants, or all of them.
+    static func cancel(grants: Set<String>? = nil) {
+        let center = UNUserNotificationCenter.current()
+        center.getPendingNotificationRequests { pending in
+            center.removePendingNotificationRequests(
+                withIdentifiers: pending.map(\.identifier).filter { matches($0, grants) })
+        }
+        center.getDeliveredNotifications { delivered in
+            center.removeDeliveredNotifications(
+                withIdentifiers: delivered.map(\.request.identifier).filter { matches($0, grants) })
+        }
+    }
+
+    static func matches(_ identifier: String, _ grants: Set<String>?) -> Bool {
+        guard identifier.hasPrefix(prefix) else { return false }
+        guard let grants else { return true }
+        let grant = identifier.dropFirst(prefix.count).split(separator: ".").dropLast().joined(separator: ".")
+        return grants.contains(grant)
     }
 }

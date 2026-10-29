@@ -3,6 +3,7 @@ import SwiftUI
 import Capacitor
 import WebKit
 import Security
+import UserNotifications
 @testable import App
 
 private final class ZeroSafeAreaView: UIView {
@@ -62,6 +63,36 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(SmsAlarmLedger.endedBeforeAdmission(user: user, grant: ended))
         XCTAssertThrowsError(try SmsAlarmLedger.remember(user: user, grant: admitted))
         XCTAssertThrowsError(try SmsAlarmLedger.acknowledge(user: user, grant: admitted))
+    }
+
+    func testBackgroundAlarmHandoffIsBoundedAndTapAcknowledgesLikeThePush() throws {
+        // No background audio mode: a ringing in-app alarm continues as local alerts.
+        let offsets = EmergencySmsCueHandoff.offsets
+        let requests = EmergencySmsCueHandoff.requests(owner: "user-1", grants: ["grant-b", "grant-a"])
+        XCTAssertEqual(requests.count, 2 * offsets.count)
+        XCTAssertEqual(Set(requests.map(\.identifier)).count, requests.count)
+        XCTAssertLessThan(EmergencySmsCueHandoff.soundSeconds, 30) // iOS plays at most 30 s.
+        XCTAssertEqual(requests.first?.content.userInfo["grant_id"] as? String, "grant-a")
+        for request in requests {
+            // The exact fields ChatNotificationHandler.didReceive needs to acknowledge.
+            let info = request.content.userInfo
+            XCTAssertEqual(info["type"] as? String, "location_share_created")
+            XCTAssertEqual(info["share_kind"] as? String, "sos")
+            XCTAssertEqual(info["user_id"] as? String, "user-1")
+            XCTAssertEqual(request.content.categoryIdentifier, "ONE_LOCATION_SMS_EMERGENCY")
+            XCTAssertNotNil(request.content.sound)
+            let trigger = try XCTUnwrap(request.trigger as? UNTimeIntervalNotificationTrigger)
+            XCTAssertFalse(trigger.repeats)
+            XCTAssertLessThanOrEqual(trigger.timeInterval, 600)
+        }
+        let capped = EmergencySmsCueHandoff.requests(owner: "user-1", grants: (1...9).map { "grant-\($0)" })
+        XCTAssertEqual(capped.count, EmergencySmsCueHandoff.maxGrants * offsets.count)
+        XCTAssertLessThanOrEqual(capped.count, 64) // iOS pending-request limit.
+        let identifier = try XCTUnwrap(requests.first?.identifier)
+        XCTAssertTrue(EmergencySmsCueHandoff.matches(identifier, ["grant-a"]))
+        XCTAssertFalse(EmergencySmsCueHandoff.matches(identifier, ["grant-b"]))
+        XCTAssertTrue(EmergencySmsCueHandoff.matches(identifier, nil))
+        XCTAssertFalse(EmergencySmsCueHandoff.matches("chat.message.grant-a.0", nil))
     }
 
     @MainActor
