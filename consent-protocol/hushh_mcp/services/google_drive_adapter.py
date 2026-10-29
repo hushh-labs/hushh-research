@@ -16,7 +16,10 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, TypeGuard
+from typing import TYPE_CHECKING, Any, TypeGuard
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.google_drive_permission_adapter import PermissionSnapshot
 
 import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
@@ -263,6 +266,13 @@ class DriveMetadata:
 
 
 @dataclass(frozen=True)
+class DriveShareMetadata(DriveMetadata):
+    """Opt-in ACL projection; legacy metadata serialization remains unchanged."""
+
+    permission_snapshot: PermissionSnapshot | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
 class DriveContent:
     metadata: DriveMetadata
     mime_type: str
@@ -324,6 +334,16 @@ def _decode_json(payload: bytes) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise DriveReadError("provider_response_invalid")
     return result
+
+
+def _share_metadata_fields(include_permissions: bool) -> str:
+    if type(include_permissions) is not bool:
+        raise DriveReadError("invalid_argument")
+    if not include_permissions:
+        return SHARE_METADATA_FIELDS
+    from hushh_mcp.services.google_drive_permission_adapter import PERMISSION_FIELDS
+
+    return f"{SHARE_METADATA_FIELDS},driveId,permissions({PERMISSION_FIELDS})"
 
 
 class GoogleDriveAdapter:
@@ -869,16 +889,22 @@ class GoogleDriveAdapter:
         return facts_projection(file_id, result)
 
     async def get_share_metadata(
-        self, *, file_id: str, access_token: str, resource_key: str | None = None
+        self,
+        *,
+        file_id: str,
+        access_token: str,
+        resource_key: str | None = None,
+        include_permissions: bool = False,
     ) -> DriveMetadata:
         """Check an exact live file for sharing without requiring content access."""
+        fields = _share_metadata_fields(include_permissions)
         if resource_key is not None:
             _resource_keys({file_id: resource_key})
         result = _decode_json(
             await self._get(
                 _file_path(file_id),
                 access_token=access_token,
-                params={"fields": SHARE_METADATA_FIELDS, "supportsAllDrives": "true"},
+                params={"fields": fields, "supportsAllDrives": "true"},
                 limit=METADATA_LIMIT,
                 **({"resource_keys": {file_id: resource_key}} if resource_key else {}),
             )
@@ -917,6 +943,20 @@ class GoogleDriveAdapter:
             and (not isinstance(created, str) or not 1 <= len(created) <= 64)
         ):
             raise DriveReadError("provider_response_invalid")
+        if include_permissions:
+            from hushh_mcp.services.google_drive_permission_adapter import _embedded_snapshot
+
+            return DriveShareMetadata(
+                file_id,
+                name,
+                mime,
+                version,
+                modified,
+                None,
+                None,
+                created,
+                _embedded_snapshot(result),
+            )
         return DriveMetadata(file_id, name, mime, version, modified, None, None, created)
 
     async def list_files(

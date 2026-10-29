@@ -7,7 +7,6 @@ order row, and a paid event must match that order's amount and currency.
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 from datetime import UTC, datetime
 from urllib.parse import quote, urlsplit
@@ -45,6 +44,7 @@ from hushh_mcp.services.drive_request_queue import automatic_start_parked
 from hushh_mcp.services.drive_request_review_policy import request_requires_owner_review
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation, drive_stage
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.stripe_mode import (
@@ -53,7 +53,7 @@ from hushh_mcp.services.stripe_mode import (
     stripe_key_mode,
 )
 
-logger = logging.getLogger(__name__)
+logger = drive_logger(__name__)
 
 # Stripe requires at least 30 minutes; keep a minute of transport/clock slack.
 CHECKOUT_HOLD_SECONDS = 31 * 60
@@ -541,6 +541,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         if not valid:
             raise checkout_refusal("search_parked")
 
+    @drive_operation(job_key="request_id")
     @logs_checkout_refusals
     async def checkout(
         self,
@@ -557,14 +558,18 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         ):
             raise checkout_refusal("v1_not_eligible")
         request_id = _request_id(request_id)
-        state = await self.payment_state(requester_user_id=requester_user_id, request_id=request_id)
-        state = await payment_integration.accept_checkout(
-            self,
-            state,
-            requester=requester_user_id,
-            request_id=request_id,
-            acceptance=accepted_contract,
-        )
+        with drive_stage(logger, "checkout_state"):
+            state = await self.payment_state(
+                requester_user_id=requester_user_id, request_id=request_id
+            )
+        with drive_stage(logger, "checkout_acceptance"):
+            state = await payment_integration.accept_checkout(
+                self,
+                state,
+                requester=requester_user_id,
+                request_id=request_id,
+                acceptance=accepted_contract,
+            )
         if state.get("existingAccess") is True:
             return {"requestId": request_id, "existingAccess": True}
         try:
@@ -605,7 +610,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         if payout_enrolled:
             payment_integration.require_payout(state)
         if bank_settlement:
-            verified_account_id = await payment_integration.verify_payout_account(state)
+            with drive_stage(logger, "checkout_payout"):
+                verified_account_id = await payment_integration.verify_payout_account(state)
 
         # Read source versions and recipient access after payout-account I/O,
         # immediately before reserving provider work. Failed access checks must
@@ -659,19 +665,23 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                     # whole price, and later files stream after payment.
                     files = None
                     if package_owner:
-                        files = await bulk.package_sources(user_id=owner, request_id=request_id)
+                        with drive_stage(logger, "checkout_sources"):
+                            files = await bulk.package_sources(user_id=owner, request_id=request_id)
                     elif legacy_owner:
-                        files = await bulk.legacy_checkout_sources(
-                            user_id=owner, request_id=request_id
-                        )
+                        with drive_stage(logger, "checkout_sources"):
+                            files = await bulk.legacy_checkout_sources(
+                                user_id=owner, request_id=request_id
+                            )
                     elif manual_owner:
-                        files = await bulk.legacy_manual_checkout_sources(
-                            user_id=owner, request_id=request_id
-                        )
+                        with drive_stage(logger, "checkout_sources"):
+                            files = await bulk.legacy_manual_checkout_sources(
+                                user_id=owner, request_id=request_id
+                            )
                     else:
-                        sources = await bulk.autoshare_checkout_sources(
-                            user_id=owner, request_id=request_id
-                        )
+                        with drive_stage(logger, "checkout_sources"):
+                            sources = await bulk.autoshare_checkout_sources(
+                                user_id=owner, request_id=request_id
+                            )
                         checked_revision = sources["revision"]
                         files = sources["files"] if sources["complete"] else None
                         stage = "authority_changed"
@@ -681,14 +691,15 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                             raise checkout_refusal(authority_refusal_reason(error)) from None
                     if not flat_request:
                         stage = "access_check_failed"
-                        access = await DrivePackageAccessPreflight(
-                            sharing=sharing, bulk=bulk
-                        ).inspect(
-                            user_id=owner,
-                            request_id=request_id,
-                            require_current=require_current,
-                            files=files,
-                        )
+                        with drive_stage(logger, "checkout_access"):
+                            access = await DrivePackageAccessPreflight(
+                                sharing=sharing, bulk=bulk
+                            ).inspect(
+                                user_id=owner,
+                                request_id=request_id,
+                                require_current=require_current,
+                                files=files,
+                            )
             except Exception as error:
                 raise checkout_refusal(refusal_reason(error, stage)) from None
             if flat_request and files and len(files) <= 120 and getattr(files, "final", True):
@@ -698,15 +709,16 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 # owner's approvals so far are final only once they hold every
                 # shareable match of a finished search.
                 try:
-                    async with asyncio.timeout(FLAT_ACCESS_CHECK_SECONDS):
-                        access = await DrivePackageAccessPreflight(
-                            sharing=sharing, bulk=bulk
-                        ).inspect(
-                            user_id=owner,
-                            request_id=request_id,
-                            require_current=require_current,
-                            files=files,
-                        )
+                    with drive_stage(logger, "checkout_access"):
+                        async with asyncio.timeout(FLAT_ACCESS_CHECK_SECONDS):
+                            access = await DrivePackageAccessPreflight(
+                                sharing=sharing, bulk=bulk
+                            ).inspect(
+                                user_id=owner,
+                                request_id=request_id,
+                                require_current=require_current,
+                                files=files,
+                            )
                 except Exception:
                     access = None
             if access is not None and access.status == "all_existing":
@@ -866,7 +878,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             order["stripe_checkout_expires_at"] = datetime.fromtimestamp(expires_at, UTC)
             return order
 
-        order = await self._transaction(reserve)
+        with drive_stage(logger, "checkout_reserve"):
+            order = await self._transaction(reserve)
         if order["stripe_checkout_url"]:
             return {"checkoutUrl": order["stripe_checkout_url"]}
 
@@ -932,7 +945,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 return self.stripe_api.checkout.Session.create(**params)
 
         try:
-            session = _stripe_dict(await asyncio.to_thread(create))
+            with drive_stage(logger, "checkout_stripe"):
+                session = _stripe_dict(await asyncio.to_thread(create))
         except Exception:
             raise checkout_refusal("provider_unavailable", "payment_unavailable") from None
         session_metadata = session.get("metadata")
@@ -1006,11 +1020,13 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             notified = self._event(connection, request, "document_share_payment_ready")
             return session["url"], notified
 
-        checkout_url, notified = await self._transaction(bind)
+        with drive_stage(logger, "checkout_bind"):
+            checkout_url, notified = await self._transaction(bind)
         if checkout_url is None:
             raise checkout_refusal("link_expired", "payment_checkout_expired")
         if notified:
-            await wake_drive_work("sharing")
+            with drive_stage(logger, "checkout_wake"):
+                await wake_drive_work("sharing")
         return {"checkoutUrl": checkout_url}
 
     async def process_webhook(self, *, payload: bytes, signature: str | None) -> None:

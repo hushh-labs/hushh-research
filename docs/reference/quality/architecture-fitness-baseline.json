@@ -4996,7 +4996,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "DriveRequestPaymentService",
-      "value": 1204
+      "value": 1214
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5230,7 +5230,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": "GoogleDriveAdapter",
-      "value": 836
+      "value": 841
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -10324,7 +10324,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "checkout",
-      "value": 473
+      "value": 485
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -19182,7 +19182,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": null,
-      "value": 1314
+      "value": 1325
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19398,7 +19398,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": null,
-      "value": 1161
+      "value": 1189
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29530,7 +29530,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_package_access_preflight.py",
       "symbol": "inspect",
-      "value": 102
+      "value": 110
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -87500,5 +87500,47 @@
     "source_sha256": "7c2c7b29c81445066f91080f7600240d2d90f06e4c0a7d1df2756caa34ab96fb",
     "reviewer": "task-owner session review",
     "review": "Extend the existing real planner-grader regression with fixed failure reasons and exact safe diagnostic shape. Alias and exact-filename negative controls remain. No new test module, budget change, detector change or duplicate-finding collapse. Probe functions stay within the 80-line budget."
+  },
+  "drive_checkout_fresh_acl_and_timing_review_20261029": {
+    "reviewer": "task-owner technical review",
+    "reason": "Bounded Checkout latency/diagnostic changes: consolidate fresh metadata and complete validated ACL reads through the existing validator; preserve listing fallback, source/recipient checks and legacy DriveMetadata serialization. Checkout growth is timing instrumentation of existing awaits, with payment/amount/consent/expiry/idempotency gates unchanged. Production helper tests and the protected-document Chromium/WebKit loops pass. No new oversized function, budget/detector change or duplicate finding collapse.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|DriveRequestPaymentService|class exceeds the advisory operon budget",
+        "before": 1204,
+        "after": 1214,
+        "source_sha256": "1bc7f3f7fd49fd0426ee57f4b91ef376ed44f8a4e96f0cef25853d05a0ae09f9"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|GoogleDriveAdapter|class exceeds the advisory operon budget",
+        "before": 836,
+        "after": 841,
+        "source_sha256": "581190c69efc8aa8a93f6cae2f8f0dc248df98356c460344aa81ea07b2d23366"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|checkout|function exceeds the advisory gene budget",
+        "before": 473,
+        "after": 485,
+        "source_sha256": "1bc7f3f7fd49fd0426ee57f4b91ef376ed44f8a4e96f0cef25853d05a0ae09f9"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_package_access_preflight.py|inspect|function exceeds the advisory gene budget",
+        "before": 102,
+        "after": 110,
+        "source_sha256": "6e92fb48c380c1a245ce3082d6b82f439fb76665c30130d8bec69c1f80140985"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py||module exceeds the advisory operon budget",
+        "before": 1314,
+        "after": 1325,
+        "source_sha256": "1bc7f3f7fd49fd0426ee57f4b91ef376ed44f8a4e96f0cef25853d05a0ae09f9"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py||module exceeds the advisory operon budget",
+        "before": 1161,
+        "after": 1189,
+        "source_sha256": "581190c69efc8aa8a93f6cae2f8f0dc248df98356c460344aa81ea07b2d23366"
+      }
+    ]
   }
 }

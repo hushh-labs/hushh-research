@@ -2545,7 +2545,9 @@ async def test_requester_payment_projection_does_not_expose_payout_owner():
 
 
 @pytest.mark.asyncio
-async def test_checkout_uses_supported_stripe_parameters_and_binds_sdk_session(monkeypatch):
+async def test_checkout_uses_supported_stripe_parameters_and_binds_sdk_session(monkeypatch, caplog):
+    caplog.set_level("INFO")
+
     def create_session(**params):
         # UAT Stripe rejected this legacy argument before opening Checkout.
         if "payment_method_types" in params:
@@ -2594,6 +2596,16 @@ async def test_checkout_uses_supported_stripe_parameters_and_binds_sdk_session(m
         if call.args[1].get("type") == "document_share_payment_ready"
     )
     assert create.call_args.kwargs["expires_at"] == binding["expires"]
+    timings = [r.getMessage() for r in caplog.records if "drive_stage.timing" in r.getMessage()]
+    for stage in (
+        "checkout_state",
+        "checkout_acceptance",
+        "checkout_reserve",
+        "checkout_stripe",
+        "checkout_bind",
+    ):
+        assert any(f"stage={stage} outcome=ok duration_ms=" in line for line in timings)
+    assert all(request_id not in line and "checkout.stripe.com" not in line for line in timings)
 
 
 @pytest.mark.asyncio
