@@ -87548,7 +87548,7 @@
         "key": "module_size|hushh-webapp/__tests__/app/connect/page-client.test.tsx||module exceeds the advisory operon budget",
         "before": 3630,
         "after": 3695,
-        "source_sha256": "a102a896d2951a73b4429ba8a75860a001997d2f19e69dcb4327f1d8309a6e9d",
+        "source_sha256": "fff888b5ddc3f322b3a9365ead2c8d09e342ba170c64a49a96a2e4f88b5da97e",
         "reviewer": "independent read-only regression and architecture review",
         "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
       },
@@ -87564,7 +87564,7 @@
         "key": "module_size|hushh-webapp/e2e/connect-page-grid.layout.spec.ts||module exceeds the advisory operon budget",
         "before": 744,
         "after": 774,
-        "source_sha256": "203c82d19cddf931e450d26c488e2dd22a1523251ee287a99029a0684a9c707f",
+        "source_sha256": "e09fa0f6f169dda31f40d9162df643ab1889e11cc6ec6a2dd6d0061197cf254a",
         "reviewer": "independent read-only regression and architecture review",
         "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
       },

@@ -2947,11 +2947,11 @@ describe("Connect — inviting someone who is not on One yet", () => {
     return screen.findByText(`No one matches "${query}"`);
   }
 
-  it("offers an invite instead of stopping at the dead end", async () => {
-    // No matches does not prove the person lacks an account. The optional
-    // invite must not make that claim.
-    await searchForNobody();
-
+  it("offers an invite when People hands off a search with no matches", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&q=Bob%20Kanjilal");
+    mocks.searchDirectory.mockResolvedValue({ items: [], hasMore: false, page: 1 });
+    render(<ConnectPageClient />);
+    expect(await screen.findByText('No one matches "Bob Kanjilal"')).toBeTruthy();
     expect(await screen.findByText("Invite them to One")).toBeTruthy();
     expect(
       screen.getByText("Share an invite link with them."),

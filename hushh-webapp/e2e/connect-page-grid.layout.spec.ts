@@ -281,9 +281,9 @@ for (const dark of [false, true]) {
       await expect(page.getByTestId("directory-person-masked-phone")).toHaveCount(0);
       await expect(cards.first().getByText("Alex Chen", { exact: true })).toHaveCount(0);
       await expect(cards.first()).toContainText("2 mutual connections");
-      const mutual = cards.first().getByRole("button", { name: "Open mutual connection Alex Chen's profile" });
-      await mutual.click();
-      await expect(page.locator("body")).toHaveAttribute("data-last-navigation", /^\/people\/person_alex\?/);
+      await cards.first().getByRole("button", { name: "View all 2 mutual connections with Avery Stone" }).click();
+      await expect(page.getByTestId("mutual-connections-list")).toBeVisible();
+      await page.getByRole("button", { name: "Back", exact: true }).click();
       await expect(cards.nth(1).getByTestId("mutual-connection")).toHaveCount(0);
       // Circle creation moved to its named flow; Connect cards no longer own
       // the retired discovery-card dialog (also asserted by the page unit contract).
