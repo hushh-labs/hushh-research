@@ -20,7 +20,7 @@ import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 import { boardOccasionKind, isCountedBoardEvent } from "@/lib/calendar/calendar-board-event";
 import type { GoogleCalendarAccount, GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
-import { calendarHusshPerson, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
+import { verifiedCalendarAccountPhoto, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
 import { connectionAvatarInitials } from "@/components/connections/connection-person-avatar";
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { GoogleCalendarService, type CalendarBoardAccount, type CalendarBoardConflict, type CalendarBoardDay, type CalendarEventSummary, type CalendarInvitation } from "@/lib/services/google-calendar-service";
@@ -99,12 +99,6 @@ function accountEmailParts(email: string): [string, string] {
   return at > 0 ? [email.slice(0, at), email.slice(at)] : [email, ""];
 }
 
-function verifiedAccountPhoto(account: GoogleCalendarAccount | undefined, email: string, people: CalendarHusshPeople) {
-  return account?.google_email_verified === true && account.google_email?.trim().toLowerCase() === email.trim().toLowerCase()
-    ? calendarHusshPerson(people, email)?.photoUrl ?? null
-    : null;
-}
-
 function CalendarAccountPicker({ accounts, value, onChange, people }: {
   accounts: GoogleCalendarAccount[]; value: string; onChange: (accountId: string) => void; people: CalendarHusshPeople;
 }) {
@@ -114,7 +108,7 @@ function CalendarAccountPicker({ accounts, value, onChange, people }: {
     <span className={styles.accountPickerLabel}>Calendar account</span>
     <DropdownMenu>
       <DropdownMenuTrigger asChild><button type="button" className={styles.accountPickerTrigger} aria-label={`Calendar account: ${selectedEmail}`} title={selectedEmail}>
-        {selected ? <CalendarPersonAvatar name={selectedEmail} photoUrl={verifiedAccountPhoto(selected, selectedEmail, people)} className={styles.pickerAvatar} source="hussh" /> : null}
+        {selected ? <CalendarPersonAvatar name={selectedEmail} photoUrl={verifiedCalendarAccountPhoto(selected, selectedEmail, people)} className={styles.pickerAvatar} source="hussh" /> : null}
         <span className={styles.accountPickerEmail}>{selectedEmail}</span><ChevronDown aria-hidden="true" className={styles.accountPickerChevron} />
       </button></DropdownMenuTrigger>
       <DropdownMenuContent align="start" className={styles.accountPickerMenu}>
@@ -122,7 +116,7 @@ function CalendarAccountPicker({ accounts, value, onChange, people }: {
           {accounts.map(account => {
             const email = accountLabel(account.google_email);
             return <DropdownMenuRadioItem key={account.account_id} value={account.account_id} title={email} className={styles.accountPickerItem}>
-              <CalendarPersonAvatar name={email} photoUrl={verifiedAccountPhoto(account, email, people)} className={styles.pickerAvatar} source="hussh" />
+              <CalendarPersonAvatar name={email} photoUrl={verifiedCalendarAccountPhoto(account, email, people)} className={styles.pickerAvatar} source="hussh" />
               <span className={styles.accountPickerEmail}>{email}</span>
             </DropdownMenuRadioItem>;
           })}
@@ -281,7 +275,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
               const scrollEvents = meetings.length + otherItems.length > 3;
               const [accountName, accountDomain] = accountEmailParts(account.google_email);
               const verifiedAccount = status.accounts?.find(item => item.account_id === account.account_id);
-              const husshPhoto = verifiedAccountPhoto(verifiedAccount, account.google_email, calendarPeople);
+              const husshPhoto = verifiedCalendarAccountPhoto(verifiedAccount, account.google_email, calendarPeople);
               const renderEvent = (event: CalendarEventSummary) => {
                 const choice: Selection = { accountId: account.account_id, calendarId: event.calendar_id || "primary", eventId: event.id || "" };
                 const count = board.conflicts.filter(pair => pairIncludes(pair, choice)).length;

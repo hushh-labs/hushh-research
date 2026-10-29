@@ -103,7 +103,7 @@ test("three-account Board keeps its measure, heading roles and account actions a
 });
 
 test("a broken HUSSH portrait keeps the Calendar account initial and size", async ({ page }) => {
-  const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, true);
+  const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, "broken");
   const account = page.getByRole("group", { name: "Calendar account qa-work@example.com" });
   const avatar = account.locator("[data-photo-source=hussh]");
   await expect(avatar.locator("[data-slot=avatar-fallback]")).toBeVisible();
@@ -111,6 +111,25 @@ test("a broken HUSSH portrait keeps the Calendar account initial and size", asyn
   const bounds = await avatar.boundingBox();
   expect(bounds?.width).toBeGreaterThan(30);
   expect(bounds?.height).toBeGreaterThan(30);
+  expect(unexpectedRequests).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test("Calendar account pickers show verified portraits and readable initials for transparent photos", async ({ page }) => {
+  const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, "transparent");
+  for (const section of ["Insights", "Invitations"]) {
+    await page.getByRole("tab", { name: section, exact: true }).click();
+    const owner = page.getByRole("button", { name: "Calendar account: qa-owner@example.com" });
+    await expect.poll(() => owner.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
+    await owner.click();
+    const work = page.getByRole("menuitemradio", { name: /qa-work@example.com/ });
+    await expect.poll(() => work.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
+    await expect(work.locator("[data-slot=avatar-fallback]")).toHaveText("Q");
+    const unmatched = page.getByRole("menuitemradio", { name: /qa-projects@example.com/ });
+    await expect(unmatched.locator("[data-photo-url]")).toHaveCount(0);
+    await expect(unmatched.locator("[data-slot=avatar-fallback]")).toHaveText("Q");
+    await page.keyboard.press("Escape");
+  }
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -235,7 +254,8 @@ for (const width of [320, 390, 1440]) {
     const menu = page.getByRole("button", { name: "Calendar settings and actions", exact: true });
     await menu.focus(); await page.keyboard.press("Enter");
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await expect(page.getByRole("dialog")).toContainText("Time zone and calendars for this session. Free time checks the whole selected day.");
+    await expect(page.getByRole("dialog")).toContainText("Choose calendars and alternative meeting hours. Free time checks the whole selected day.");
+    await expect(page.getByRole("dialog").getByRole("combobox", { name: "Time zone" })).toHaveCount(0);
     for (let index = 0; index < 6; index++) { await page.keyboard.press("Tab"); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
     await page.keyboard.press("Escape");
     await expect(menu).toBeFocused();
@@ -351,7 +371,6 @@ if (process.env.CALENDAR_PROVIDER_REPLAY_PATH) {
     const { errors, unexpectedRequests } = await openFixture(page, width, false, "empty", "future");
     await page.getByRole("button", { name: "Calendar settings and actions", exact: true }).click();
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await page.getByRole("combobox", { name: "Time zone", exact: true }).selectOption("Asia/Kolkata");
     await page.getByRole("button", { name: "Save settings", exact: true }).click();
     await page.getByRole("button", { name: "Next day", exact: true }).click();
     await page.getByRole("tab", { name: "Free time", exact: true }).click();
@@ -369,7 +388,6 @@ if (process.env.CALENDAR_PROVIDER_REPLAY_PATH) {
     const today = await openFixture(page, width, false, "empty", "today");
     await page.getByRole("button", { name: "Calendar settings and actions", exact: true }).click();
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await page.getByRole("combobox", { name: "Time zone", exact: true }).selectOption("Asia/Kolkata");
     await page.getByRole("button", { name: "Save settings", exact: true }).click();
     await page.getByRole("tab", { name: "Free time", exact: true }).click();
     await expect(page.getByText(/^2:13.*11:00 PM$/)).toBeVisible();

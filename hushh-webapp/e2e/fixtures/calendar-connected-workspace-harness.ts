@@ -132,7 +132,7 @@ function fixtureEvents(day: string, variant: "standard" | "long" | "empty" | "bu
   return variant === "long" ? events.map(event => event.calendar_id === "primary" && event.id === "shared-id"
     ? { ...event, title: privateLongTitle, location: privateLongLocation } : event) : events;
 }
-export async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" | "busy" = "standard", replay: false | "future" | "today" = false, boardMode = false, brokenWorkPhoto = false) {
+export async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" | "busy" = "standard", replay: false | "future" | "today" = false, boardMode = false, workPhoto: "normal" | "broken" | "transparent" = "normal") {
   // Settle the previous fixture before registering the next fixture's error
   // collector: navigating away intentionally cancels its pending reads.
   await page.goto("about:blank");
@@ -155,7 +155,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
   await page.route("**/api/one/connections", route => route.fulfill({ json: { items: [
     { connectionId: "qa-manish", userId: "qa-manish", email: "manish@example.test", emailVerified: true, displayName: "Manish", photoUrl: fixturePortraits[2], createdAt: null },
     { connectionId: "qa-priya", userId: "qa-priya", email: "qa-organizer-0@example.test", emailVerified: true, displayName: "Priya Mehta", photoUrl: fixturePortraits[1], createdAt: null },
-    { connectionId: "qa-work", userId: "qa-work", email: "qa-work@example.com", emailVerified: true, displayName: "QA Work", photoUrl: brokenWorkPhoto ? "data:image/png;base64,AA==" : fixturePortraits[1], createdAt: null },
+    { connectionId: "qa-work", userId: "qa-work", email: "qa-work@example.com", emailVerified: true, displayName: "QA Work", photoUrl: workPhoto === "broken" ? "data:image/png;base64,AA==" : workPhoto === "transparent" ? "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=" : fixturePortraits[1], createdAt: null },
   ] } }));
   await page.route("**/api/account/email-aliases", route => route.fulfill({ json: { success: true, user_id: "synthetic-calendar-owner", aliases: [] } }));
   await page.route("https://calendar-fixture.test/calendar-fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
