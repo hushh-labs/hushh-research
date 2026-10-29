@@ -98,6 +98,7 @@ tests/services/test_drive_live_formats.py
 tests/services/test_google_calendar_service.py
 tests/services/test_google_calendar_oauth_scopes.py
 tests/services/test_google_connection_account_binding.py
+tests/test_google_connection_routes.py
 tests/services/test_calendar_native_optional_scope.py
 tests/services/test_google_calendar_guest_photo_token.py
 tests/services/test_google_calendar_event_type.py
@@ -298,6 +299,8 @@ tests/test_pass_assets_reach_the_deployed_image.py
 tests/test_hushh_adk_single_turn.py
 tests/services/test_pkm_agent_lab_service.py
 tests/services/test_pkm_preview_outcomes.py
+# A model quote with copy drift maps onto the owner's exact characters, or fails closed.
+tests/services/test_pkm_source_quote.py
 # A pasted context transfer is kept whole (Phase 4): recorded server answers.
 tests/services/test_context_transfer_is_kept.py
 tests/test_ria_claim_flow.py
@@ -578,7 +581,6 @@ tests/test_reserved_branches.py
 # on both sides), spans without values, the per-item grant shape, and the
 # plaintext summary envelope that refuses a leaked label or value.
 tests/test_secrets_area.py
-tests/test_scope_catalog_self_corrects_stale_rows.py
 tests/services/test_structure_decision_is_the_models.py
 tests/services/test_intent_frame_is_the_models.py
 tests/test_agent_stage_skips_are_visible.py
@@ -679,6 +681,7 @@ tests/test_consent_db_revocation_worker.py
 tests/scripts/test_eval_specialist_turns.py
 tests/test_consent_refresh_bootstrap.py
 tests/test_hushh_adk_turn.py
+tests/test_adk_event_timeout_details.py
 tests/test_agent_runtime_declarations.py
 tests/test_one_manifest_subagent_prompts.py
 tests/test_nav_a2a_agent.py
@@ -891,6 +894,7 @@ tests/test_chat_history_rollout.py
 tests/test_one_agent_chat_ingress.py
 
 tests/test_pod_server.py
+tests/test_pod_startup_order.py
 
 # Execute the real deploy shell with immutable-artifact fixtures.
 tests/test_personal_agent_deploy_lane.py
@@ -1505,8 +1509,6 @@ tests/services/test_calendar_schedule_boundaries.py
 tests/services/test_calendar_attendance_service.py
 tests/services/test_calendar_invitations.py
 tests/services/test_calendar_meeting_artifacts.py
-tests/services/test_calendar_native_optional_scope.py
-tests/services/test_google_connection_account_binding.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.

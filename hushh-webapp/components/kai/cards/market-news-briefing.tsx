@@ -5,6 +5,7 @@ import { getCompanyLogoUrl } from "@/components/kai/shared/symbol-avatar";
 import type { KaiHomeNewsItem } from "@/lib/services/api-service";
 import { openExternalUrl, requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import marketBriefingStyles from "@/components/kai/shared/market-briefing.module.css";
 function normalizeMarketSymbol(value: unknown) { return String(value || "").trim().toUpperCase(); }
 function openOneMarketHref(href: string) {
@@ -88,13 +89,14 @@ export function OneMarketNewsBriefing({ rows }: { rows: KaiHomeNewsItem[] }) {
       {stories.map((row, index) => (
         <article key={row.url} className="min-w-0 border-b border-border/60 last:border-b-0 sm:[&:nth-last-child(2)]:border-b-0">
           <button type="button" onClick={() => openOneMarketHref(row.url)}
-            className="group/news flex min-h-[100px] w-full items-center gap-4 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+            className="group/news relative isolate flex min-h-[100px] w-full items-center gap-4 overflow-hidden rounded-sm py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
             <span className="min-w-0 flex-1">
               <span className={cn(marketBriefingStyles.newsTitle, "text-foreground transition-colors group-hover/news:text-[color:var(--one-link)]")}>{row.title}</span>
               <span className={marketBriefingStyles.newsMetadata}>{row.source_name || "Market news"} <span aria-hidden="true"> · </span> {formatHeadlinePublished(row.published_at)}</span>
               {row.summary ? <span className="mt-1 hidden text-xs leading-5 text-muted-foreground sm:line-clamp-1">{row.summary}</span> : null}
             </span>
             <OneMarketNewsCover row={row} index={index} thumbnail className="h-14 w-14 shrink-0 rounded-lg [&_img]:!h-full [&_img]:!w-full [&_img]:object-cover sm:h-16 sm:w-16" />
+            <MaterialRipple variant="none" effect="fade" className="z-10" />
           </button>
         </article>
       ))}

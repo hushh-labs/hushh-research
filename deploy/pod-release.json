@@ -1,17 +1,18 @@
 {
-  "version": "2026.10-dev.33",
+  "version": "2026.10-dev.35",
   "channel": "dev",
-  "summary": "Private hosting and reliable owner connections.",
+  "summary": "Reliable private-pod startup and owner processing consent.",
   "notes": {
     "improvements": [
-      "One private-agent image supports owner-cloud and admitted Hussh-hosted dev pods."
+      "Private pods complete the provider-free turn rehearsal before admitting owner work."
     ],
     "fixes": [
-      "Phone verification preserves the hosting choice before provisioning."
+      "Owner processing grants preserve their signed consent scope.",
+      "The unprivileged worker uses its owned Gunicorn control socket."
     ],
     "security": [
-      "Hosting admission keeps project, identity and recovery bindings explicit.",
-      "Owner updates remain unavailable until recovery is verified for this exact image."
+      "Hosting retains exact owner, project and workload identity bindings.",
+      "Existing-owner installation remains unavailable until this image passes recovery qualification."
     ]
   },
   "supportedUpgradeDigests": []

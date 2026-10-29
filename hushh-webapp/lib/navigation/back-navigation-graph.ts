@@ -420,13 +420,12 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
       if (pathname !== KAI_MARKET_PATH) return undefined;
       const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
       const setupBackHref = resolveCapabilitySetupBackHref(pathname, originHref);
-      const fromSetup = originHref === ROUTES.ONE_SETUP;
       return {
         backHref: setupBackHref || ROUTES.ONE_HOME,
         width: "content",
         align: "center",
         suppressFallbackTitle: true,
-        items: fromSetup ? [] : [{ label: "One", href: ROUTES.ONE_HOME }],
+        items: [{ label: "Finance" }],
       };
     },
   },

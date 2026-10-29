@@ -2,8 +2,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
-const mocks = vi.hoisted(() => ({ capture: vi.fn(), recipients: vi.fn(), prepare: vi.fn(), publish: vi.fn(), history: vi.fn(), view: vi.fn(), decrypt: vi.fn(), review: vi.fn(), saved: vi.fn() }));
+const mocks = vi.hoisted(() => ({ mobile: false, capture: vi.fn(), recipients: vi.fn(), prepare: vi.fn(), publish: vi.fn(), history: vi.fn(), view: vi.fn(), decrypt: vi.fn(), review: vi.fn(), saved: vi.fn() }));
 const context = { userId: "owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-consent", getIdToken: async () => "synthetic-token", isCurrent: () => true };
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => mocks.mobile }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/one/kai", useSearchParams: () => new URLSearchParams("tab=portfolio") }));
 vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({ useFinanceShareContext: () => ({ capture: mocks.capture, session: "owner:1", ready: true }) }));
 vi.mock("@/lib/services/finance-sharing-service", () => ({ FinanceSharingService: mocks, pendingFinanceShare: () => null }));
@@ -23,6 +24,7 @@ const policy = { version: 1, mode: "snapshot", sections: ["note"], selectionHash
 const grant = { id: "grant", requestId: "request", recipientUserId: "recipient", recipientName: "Recipient", senderName: "Owner", policy, direction: "received", status: "active", revision: 1, contentHash: "a".repeat(64), createdAt: "2026-10-27T00:00:00Z", updatedAt: "2026-10-27T00:00:00Z", serverNow: "2026-10-27T00:00:00Z", expiresAt: null };
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.mobile = false;
   mocks.capture.mockReturnValue(context);
   Object.defineProperty(document, "hidden", { configurable: true, value: false });
   mocks.recipients.mockResolvedValue({ items: [{ userId: "recipient", publicPersonRef: "person", keyId: "key", publicKeyJwk: {}, displayName: "Synthetic connection" }], hasMore: false });
@@ -146,4 +148,27 @@ it("does not append a late outgoing page after the owner switches to received sh
   await screen.findByText("received");
   await act(async () => { finish({ items: [{ ...grant, id: "late", recipientName: "Late outgoing", senderName: "Late outgoing" }], nextCursor: null }); });
   expect(screen.queryByText("Late outgoing")).toBeNull();
+});
+
+it("keeps phone selections through options and preview Back without publishing", async () => {
+  mocks.mobile = true;
+  const close = vi.fn();
+  render(<FinanceShareFlow open onOpenChange={close} model={model} source={source} />);
+  const next = screen.getByRole("button", { name: "Continue" });
+  expect(next).toBeDisabled();
+  fireEvent.click(await screen.findByRole("checkbox", { name: /^Synthetic connection/ }));
+  expect(screen.queryByRole("heading", { name: "How should access work?" })).toBeNull();
+  fireEvent.click(next);
+  expect(screen.getByRole("heading", { name: "What do you want to share?" })).toHaveFocus();
+  expect(screen.getByRole("heading", { name: "How should access work?" })).toBeVisible();
+  expect(mocks.saved).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("checkbox", { name: /^Show dollar amounts/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true }));
+  await screen.findByRole("heading", { name: "Review before sharing" });
+  act(() => { unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio")); });
+  expect(screen.getByRole("checkbox", { name: /^Show dollar amounts/ })).toBeChecked();
+  act(() => { unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio")); });
+  expect(screen.getByRole("checkbox", { name: /^Synthetic connection/ })).toBeChecked();
+  expect(close).not.toHaveBeenCalled();
+  expect(mocks.publish).not.toHaveBeenCalled();
 });

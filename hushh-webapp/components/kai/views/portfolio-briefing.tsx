@@ -25,17 +25,16 @@ export function PortfolioBriefing({ model, onOpen, advisorAction }: { model?: Da
   const largest = largestPosition(model);
   const leadingSector = model?.quality.sectorReady ? model.equity_sector_allocation[0] : undefined;
   return <SurfaceCard data-testid="portfolio-briefing">
-    <SurfaceCardContent className="space-y-3 p-5">
-      <div className="flex items-center justify-between gap-3"><SectionLabel role="heading" aria-level={2}>One’s briefing</SectionLabel><span className={styles.description}>{model ? "Portfolio overview" : "Get started"}</span></div>
-      <p className="text-lg font-semibold leading-7">{model ? "A closer look at your portfolio." : "Your portfolio, at a glance."}</p>
+    <SurfaceCardContent className={styles.insightCard}>
+      <SectionLabel role="heading" aria-level={2}>One’s briefing</SectionLabel>
       <ul className="space-y-3 text-sm leading-6 text-muted-foreground">
         <li>{!model ? "Add a portfolio to see your analysis." : largest
           ? `${largest.name} is your largest tracked position at ${largest.weightPct.toFixed(1)}% of your portfolio.`
           : "Your saved portfolio is ready to review. Position concentration is unavailable for this source."}</li>
-        {model ? <li>{model.quality.historyReady ? "Dated portfolio balances are available to review." : "This source does not provide enough dated balances for a history chart."}</li> : null}
+        {model ? <li>{model.quality.historyReady ? "Dated portfolio balances are available to review." : "Dated balance history is unavailable for this source."}</li> : null}
         {leadingSector ? <li>{`${leadingSector.sector} represents ${leadingSector.pct.toFixed(1)}% of your portfolio.`}</li> : null}
       </ul>
-      <div className="flex flex-wrap gap-2">{onOpen ? <ShellActionSurface variant="pill" className="min-h-11" onClick={onOpen}>
+      <div className={styles.cardFooter}>{onOpen ? <ShellActionSurface variant="pill" className="min-h-11" onClick={onOpen}>
         {model ? "View analysis" : "Import portfolio"}
       </ShellActionSurface> : null}{advisorAction}</div>
     </SurfaceCardContent>
@@ -61,7 +60,7 @@ export function PortfolioAnalysis({ model, source }: { model: DashboardViewModel
       {model.quality.historyReady ? <>
         <PortfolioHistoryChart data={model.history} height={180} />
         <p className={styles.description}>Saved balance changes may include deposits and withdrawals; they are not investment returns.</p>
-      </> : <p className={styles.description}>This source does not provide enough dated balances for a history chart.</p>}
+      </> : <p className={styles.description}>Dated balance history is unavailable for this source.</p>}
     </SurfaceCardContent></SurfaceCard>
     <SurfaceCard><SurfaceCardContent className="space-y-3 p-5">
       <h2 className="ui-text-section-label">Position concentration</h2>

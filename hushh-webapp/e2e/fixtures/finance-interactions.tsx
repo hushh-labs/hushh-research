@@ -1,3 +1,5 @@
+import { FullscreenFlowShell } from "../../components/app-ui/fullscreen-flow-shell";
+import { PortfolioImportView } from "../../components/kai/views/portfolio-import-view";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ImportProgressView } from "../../components/kai/views/import-progress-view";
@@ -104,6 +106,7 @@ function Fixture() {
   const [action, setAction] = useState("");
   const [indexMetric, setIndexMetric] = useState<MarketOverviewMetric | null>(null);
   return <main className="mx-auto max-w-3xl p-4">
+    <section data-testid="finance-import-fixture"><FullscreenFlowShell width="agent"><PortfolioImportView onFileSelect={() => {}} onSkip={() => {}} /></FullscreenFlowShell></section>
     <GroupedHoldingsFixture />
     <button onClick={() => setUpdated(true)}>Update progress</button>
     <ImportProgressView stage="extracting" isStreaming progressPct={updated ? 77 : undefined}

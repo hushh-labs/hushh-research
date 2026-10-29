@@ -622,12 +622,19 @@ or production-corpus recall.
   duplicate | disclaimer}`; `agent_memory_intent` alone decides memory versus a live
   `command`; `agent_pkm_structure` chooses a domain for everything or the reserved sibling.
   The Financial Guard Agent and its keyword fallback were removed.
-- Validator, normalize only: `locate_source_quote` maps each quote onto the owner's exact
-  text, folding Markdown emphasis, heading and code marks, dash and quotation-mark variants
-  and whitespace on both sides; the stored quote is always the ORIGINAL span. A quote that
-  matches nothing is dropped alone and counted (`unmatched_quote_count`,
-  `segment_quote_unmatched`); the device shows its lines as "not yet saved". It no longer
-  discards the whole section.
+- Validator, normalize only: `locate_source_quote`
+  (`hushh_mcp/services/pkm_source_quote.py`) maps each quote onto the owner's exact text.
+  An exact substring wins; otherwise both sides fold, per character: NFKC compatibility
+  forms ("…" to "...", fullwidth to ASCII), Markdown emphasis, heading and code marks,
+  dash and quotation-mark variants, whitespace runs, case (casefold) and apostrophes. The
+  whole folded quote is tried first, so the owner's own end punctuation stays in the span,
+  then the quote with its edge punctuation (space, `.,;:!?` and `"`) trimmed, leaving at
+  least two letters or digits; a folded match may not begin or end inside a word. The returned span
+  is always the owner's exact ORIGINAL characters;
+  there is no fuzzy repair. A translation, paraphrase, person rewrite or invented clause
+  still matches nothing: it fails closed, is dropped alone and counted
+  (`unmatched_quote_count`, `segment_quote_unmatched`); the device shows its lines as
+  "not yet saved". It no longer discards the whole section.
 - Validator, recorded substitution: a model target named after a protocol namespace a
   person could mean as a subject (`agent`, `agents`, `mcp`, `system`) is kept in the intent
   agent's recommended domain, or `professional` when that is unusable, nested under the

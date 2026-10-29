@@ -97,7 +97,7 @@ export function railTimeLabel(value: string, zone: string) {
 }
 export function durationLabel(minutes: number) {
   const hours = Math.floor(minutes / 60), remainder = minutes % 60;
-  return hours ? `${hours} hr${remainder ? ` ${remainder} min` : ""}` : `${minutes} min`;
+  return hours ? `${hours}\u00a0hr${remainder ? ` ${remainder}\u00a0min` : ""}` : `${minutes}\u00a0min`;
 }
 export function eventTime(event: CalendarEventSummary, zone: string) {
   const start = event.start?.dateTime, end = event.end?.dateTime;

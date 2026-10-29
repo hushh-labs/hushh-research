@@ -240,7 +240,9 @@ export function ContactSyncResultsSheet({
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
               ["Checked", result.checkedContactCount],
-              ["Matched", result.matchedContactCount],
+              // The list and connection outcomes count unique people. One
+              // person can have several matching address-book entries.
+              ["Matched", result.matches.length],
               ["Connected", connectedCount],
               ["No match", result.unmatchedContactCount],
             ].map(([label, count]) => (
@@ -257,7 +259,6 @@ export function ContactSyncResultsSheet({
 
         {result.partial ||
         result.lookupLimitExceeded ||
-        result.excludedSelfContactCount ||
         result.unknownContactCount ||
         result.uncheckableContactCount ? (
           <div className="mt-3 rounded-2xl border border-border/70 bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
@@ -298,12 +299,6 @@ export function ContactSyncResultsSheet({
               <p data-location-type-role="body">
                 {result.uncheckableContactCount} contacts had no usable phone
                 number.
-              </p>
-            ) : null}
-            {result.excludedSelfContactCount ? (
-              <p data-location-type-role="body">
-                {result.excludedSelfContactCount} contact entries containing
-                your own number were skipped.
               </p>
             ) : null}
           </div>

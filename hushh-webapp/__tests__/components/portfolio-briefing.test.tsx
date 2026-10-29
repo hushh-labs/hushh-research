@@ -37,7 +37,7 @@ describe("portfolio briefing", () => {
     const open = vi.fn();
     render(<PortfolioOverview model={model} source="Statement" period="Saved snapshot" onOpenSection={open} />);
     expect(screen.getByText("Example")).toBeTruthy();
-    expect(screen.getByText("Position contributions to your change are not available from this source.")).toBeTruthy();
+    expect(screen.getByText("Position contributions are unavailable for this source.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View performance" }));
     expect(open).toHaveBeenCalledWith("performance");
     fireEvent.click(screen.getByRole("button", { name: "View allocation" }));
