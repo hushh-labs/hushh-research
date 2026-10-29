@@ -4,6 +4,8 @@
 """Prepare the protected health timer; apply only reviewed Main-owned source."""
 
 import argparse
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -67,10 +69,29 @@ def _journal(project: str, source: str, journal_path: Path):
     operation = journal.get("operation", "")
     if journal.get("project") != project or len(operation) != 32 or any(c not in "0123456789abcdef" for c in operation):
         raise RuntimeError("Health resource journal does not match this project")
+    if journal.get("source") != source:
+        raise RuntimeError("Health resource journal belongs to another reviewed source")
     def save(**values):
-        journal.update(values)
-        journal_path.write_text(json.dumps(journal, indent=2) + "\n")
-        journal_path.chmod(0o600)
+        updated = {**journal, **values}
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", dir=journal_path.parent,
+                                             prefix=".auth-health-", delete=False) as output:
+                temporary = Path(output.name)
+                json.dump(updated, output, indent=2)
+                output.write("\n")
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, journal_path)
+            directory = os.open(journal_path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+            journal.update(updated)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
     save()
     return journal, save
 
@@ -111,6 +132,9 @@ def _identities(run, project: str, operation: str, bucket: str, runtime: bool, j
                 or observed.get("description") != description or not observed.get("uniqueId")
                 or observed.get("disabled") is True):
             raise RuntimeError("Existing health service account has unverified ownership")
+        recorded = journal.get("identities", {}).get(account)
+        if recorded is not None and recorded != observed["uniqueId"]:
+            raise RuntimeError("Health service account identity changed; review required")
         identities = {**journal.get("identities", {}), account: observed["uniqueId"]}
         save(identities=identities)
 
@@ -152,7 +176,13 @@ def _image(run, project: str, operation: str, source: str, bucket: str, save):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
         shutil.copyfile(ROOT / "deploy/observability/auth-health.Dockerfile", stage / "Dockerfile")
-        build = matches[0] if matches else run(["builds", "submit", str(stage), f"--tag={tag}", f"--tags=auth-health-{operation}", "--async", "--timeout=600s",
+        config = stage / "cloudbuild.json"
+        config.write_text(json.dumps({
+            "steps": [{"name": "gcr.io/cloud-builders/docker", "args": ["build", "--tag", tag, "."]}],
+            "images": [tag], "tags": [f"auth-health-{operation}"], "timeout": "600s",
+            "options": {"logging": "GCS_ONLY"},
+        }))
+        build = matches[0] if matches else run(["builds", "submit", str(stage), f"--config={config}", "--async",
                      f"--gcs-source-staging-dir=gs://{bucket}/sources",
                      f"--gcs-log-dir=gs://{bucket}/build-logs"])
     save(phase="building", build_id=build["id"])
@@ -186,13 +216,34 @@ def _timer(run, project: str, operation: str, image: str, checker: str, schedule
     run(["scheduler", "jobs", "update" if existing else "create", "http", JOB,
          f"--location={REGION}", f"--schedule={schedule}", "--time-zone=Etc/UTC",
          f"--uri={target}", "--http-method=POST", "--message-body={}",
-         "--headers=Content-Type=application/json", f"--oauth-service-account-email={scheduler}",
+         ("--update-headers=" if existing else "--headers=") + "Content-Type=application/json",
+         f"--oauth-service-account-email={scheduler}",
          "--oauth-token-scope=https://www.googleapis.com/auth/cloud-platform", "--attempt-deadline=30s",
          "--max-retry-attempts=0", f"--description=Hussh auth-health operation {operation}"])
 
 
 
+@contextmanager
+def _operation_lock(path: Path):
+    if path.is_symlink() or path.resolve().is_relative_to(ROOT):
+        raise RuntimeError("Health journal must be a private file outside committed source")
+    descriptor = os.open(str(path) + ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("Health setup is already running for this journal") from error
+        yield
+    finally:
+        os.close(descriptor)
+
+
 def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> dict:
+    with _operation_lock(journal_path):
+        return _apply_locked(project, runtime=runtime, schedule=schedule, journal_path=journal_path)
+
+
+def _apply_locked(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> dict:
     if project not in PROJECTS:
         raise ValueError("Ungoverned health project")
     source = _reviewed_source()
@@ -205,10 +256,10 @@ def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> 
         checker, scheduler = _identities(run, project, operation, bucket, runtime, journal, save)
         image, build_id = _image(run, project, operation, source, bucket, save)
         _timer(run, project, operation, image, checker, scheduler, runtime, schedule)
-        save(phase="configured", image=image, build_id=build_id)
-        return {**journal, "source": source, "job": JOB, "schedule": schedule,
-                "runtime_observation": runtime, "task_timeout_seconds": 600,
-                "checker_timeout_seconds": 450, "lease_seconds": 900}
+        save(phase="configured", image=image, build_id=build_id, job=JOB, schedule=schedule,
+             runtime_observation=runtime, task_timeout_seconds=600, checker_timeout_seconds=450,
+             lease_seconds=900)
+        return journal
     finally:
         api.close()
 
@@ -228,8 +279,6 @@ def main() -> int:
     if not args.receipt:
         parser.error("--apply requires --receipt for durable resource ownership and retry")
     receipt = apply(args.project, runtime=args.check_phone_runtime, schedule=args.schedule, journal_path=args.receipt)
-    if args.receipt:
-        args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
     print(json.dumps(receipt))
     return 0
 

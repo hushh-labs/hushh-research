@@ -18,7 +18,7 @@ CALLERS = {
     "deploy-dev.yml", "deploy-uat.yml", "deploy-production.yml", "deploy-uat-one-chat.yml",
     "validate-plg-frontend-source.yml", "release-ios-appstore.yml", "ship-ios-testflight.yml",
     "resume-ios-testflight.yml", "ship-android-playstore-v1.yml", "publish-hushh-mcp.yml",
-    "rollback.yml", "deployment-security.yml",
+    "rollback.yml", "deployment-security.yml", "ios-voice-device.yml",
 }
 
 

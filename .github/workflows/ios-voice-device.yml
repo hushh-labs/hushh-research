@@ -7,6 +7,10 @@ on:
         description: Exact green main SHA whose microphone startup is measured.
         required: true
         type: string
+      security_attempt:
+        description: Current attempt clearance from the trusted parent release
+        required: true
+        type: string
     outputs:
       release_sha:
         description: Exact source SHA proved by the attached iPhone.
@@ -31,8 +35,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  deployment-security:
+    if: inputs.security_attempt == ''
+    uses: ./.github/workflows/deployment-security.yml
+    with:
+      application_ref: ${{ inputs.sha || 'main' }}
+      environment_name: native
+      scope: native
+
   hardware-capture:
     name: iPhone One Voice capture p95
+    needs: deployment-security
+    if: ${{ always() && (needs.deployment-security.result == 'success' || (needs.deployment-security.result == 'skipped' && inputs.security_attempt != '')) }}
     runs-on: [self-hosted, macOS, ios-voice-device]
     environment: uat
     timeout-minutes: 60
@@ -48,6 +62,16 @@ jobs:
       IOS_VOICE_DEVICE_TIER: ${{ vars.IOS_VOICE_DEVICE_TIER }}
 
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ inputs.security_attempt || needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Hardware proof requires current-attempt release clearance. Rerun the entire release." >&2
+            exit 1
+          fi
       - name: Refuse non-main dispatches
         shell: bash
         run: |
@@ -81,7 +105,7 @@ jobs:
           REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
         run: |
           set -euo pipefail
-          REQUESTED="${{ inputs.release_sha || github.event.inputs.sha || '' }}"
+          REQUESTED="${{ inputs.release_sha || github.event.inputs.sha || needs.deployment-security.outputs.application_sha }}"
           git fetch --no-tags origin main
           if [ -z "$REQUESTED" ]; then
             SHA="$(git rev-parse origin/main)"

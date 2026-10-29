@@ -270,3 +270,131 @@ def test_cloud_health_lease_fences_duplicates_and_preserves_successors(case):
                 assert not duplicate
             assert state["body"] is not None
         assert state["body"] is None
+
+
+def load_health_setup():
+    root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location(
+        "setup_auth_health", root / "deploy/observability/setup_auth_health.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("case", ["same", "replaced", "lost-create-response"])
+def test_health_setup_retries_preserve_workload_identity(case):
+    module = load_health_setup()
+    project, operation = "hushh-pda-uat", "a" * 32
+    checker = f"auth-health-check@{project}.iam.gserviceaccount.com"
+    journal = {"identities": {checker: "original"}} if case != "lost-create-response" else {}
+    grants = []
+
+    def cloud(args, **kwargs):
+        if args[:2] == ["iam", "service-accounts"]:
+            account = args[3]
+            return {
+                "email": account,
+                "projectId": project,
+                "uniqueId": "replacement" if case == "replaced" else "original",
+                "description": f"Hussh auth-health operation {operation}",
+            }
+        if args[:3] == ["iam", "roles", "describe"]:
+            return {
+                "includedPermissions": [
+                    "secretmanager.versions.list",
+                    "secretmanager.versions.access",
+                ]
+            }
+        grants.append(args)
+        return {}
+
+    def save(**values):
+        journal.update(values)
+
+    if case == "replaced":
+        with pytest.raises(RuntimeError, match="identity changed"):
+            module._identities(cloud, project, operation, "fixture-bucket", False, journal, save)
+        assert not grants
+        assert journal["identities"][checker] == "original"
+    else:
+        module._identities(cloud, project, operation, "fixture-bucket", False, journal, save)
+        assert grants
+        assert journal["identities"][checker] == "original"
+
+
+def test_health_journal_is_atomic_and_serializes_recovery(tmp_path, monkeypatch):
+    module = load_health_setup()
+    path = tmp_path / "operation.json"
+    with module._operation_lock(path):
+        journal, save = module._journal("hushh-pda-uat", "a" * 40, path)
+        initial = path.read_bytes()
+        with pytest.raises(RuntimeError, match="already running"), module._operation_lock(path):
+            pytest.fail("Concurrent cloud operations acquired the same journal")
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                module.os, "replace", lambda *_: (_ for _ in ()).throw(OSError("disk full"))
+            )
+            with pytest.raises(OSError, match="disk full"):
+                save(phase="configured")
+        assert path.read_bytes() == initial
+        assert journal["phase"] == "prepared"
+        assert not list(tmp_path.glob(".auth-health-*"))
+        save(phase="configured")
+    with module._operation_lock(path):
+        recovered, _ = module._journal("hushh-pda-uat", "a" * 40, path)
+        assert recovered["operation"] == journal["operation"]
+        assert recovered["phase"] == "configured"
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_health_build_and_timer_use_supported_cloud_cli_contracts(existing):
+    module = load_health_setup()
+    project, operation = "hushh-pda-uat", "a" * 32
+    calls = []
+    image = {
+        "id": "build-1",
+        "status": "SUCCESS",
+        "images": [f"gcr.io/{project}/auth-health-job:source"],
+        "results": {"images": [{"digest": "sha256:" + "b" * 64}]},
+    }
+
+    def cloud(args, **kwargs):
+        calls.append(args)
+        if args[:2] == ["builds", "list"]:
+            return []
+        if args[:2] == ["builds", "submit"]:
+            config = json.loads(
+                Path(
+                    next(a.split("=", 1)[1] for a in args if a.startswith("--config="))
+                ).read_text()
+            )
+            assert config["tags"] == [f"auth-health-{operation}"]
+            assert config["images"] == image["images"]
+            assert config["timeout"] == "600s"
+            assert not any(a.startswith("--tags=") for a in args)
+            return image
+        if "describe" in args:
+            return (
+                {
+                    "metadata": {"labels": {"operation": operation}},
+                    "description": f"Hussh auth-health operation {operation}",
+                }
+                if existing
+                else None
+            )
+        return {}
+
+    digest, _ = module._image(
+        cloud, project, operation, "source", "fixture-bucket", lambda **_: None
+    )
+    assert digest.endswith("b" * 64)
+    module._timer(cloud, project, operation, digest, "checker", "clock", False, "17 * * * *")
+    timer = next(c for c in calls if c[:2] == ["scheduler", "jobs"] and "describe" not in c)
+    assert timer[2] == ("update" if existing else "create")
+    assert (
+        "--update-headers=" if existing else "--headers="
+    ) + "Content-Type=application/json" in timer
+    assert (
+        "--headers=" if existing else "--update-headers="
+    ) + "Content-Type=application/json" not in timer

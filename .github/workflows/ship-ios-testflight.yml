@@ -218,6 +218,7 @@ jobs:
     uses: ./.github/workflows/ios-voice-device.yml
     with:
       release_sha: ${{ needs.preflight.outputs.release_sha }}
+      security_attempt: ${{ needs.deployment-security.outputs.attempt }}
     secrets: inherit
 
   ship:

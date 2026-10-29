@@ -64,7 +64,7 @@ def test_android_release_is_green_main_uat_backed_and_fail_closed() -> None:
     steps = _steps(workflow, "ship")
     assert all("${{" not in step.get("run", "") for step in steps)
     names = [step["name"] for step in steps]
-    assert names[0] == "Validate target track"
+    assert names[:2] == ["Require current-attempt deployment security", "Validate target track"]
     assert names.index("Resolve release SHA") < names.index("Check out exact release SHA")
     assert names.index("Check out exact release SHA") < names.index("Assert source SHA")
     assert names.index("Assert source SHA") < names.index(
@@ -89,7 +89,10 @@ def test_android_release_is_green_main_uat_backed_and_fail_closed() -> None:
     resolve = _named(steps, "Resolve release SHA")
     assert resolve["env"]["REQUIRE_CI_SUCCESS"] == "1"
     assert resolve["env"]["REQUIRED_CHECK_NAME"] == "Main Post-Merge Smoke Gate"
-    assert resolve["env"]["REQUESTED_SHA"] == "${{ inputs.sha }}"
+    assert (
+        resolve["env"]["REQUESTED_SHA"]
+        == "${{ inputs.sha || needs.deployment-security.outputs.application_sha }}"
+    )
     assert "^[0-9a-f]{40}$" in resolve["run"]
     assert 'require-deploy-sha-on-main.sh "$SHA"' in resolve["run"]
 
@@ -440,7 +443,7 @@ def test_ios_dry_run_retains_ipa_without_requiring_upload_receipts() -> None:
         assert "inputs.dry_run != true" in _named(steps, name)["if"]
     distribution = workflow["jobs"]["distribute"]
     assert distribution["runs-on"] == "ubuntu-latest"
-    assert distribution["needs"] == ["preflight", "ship"]
+    assert distribution["needs"] == ["preflight", "ship", "deployment-security"]
     assert "needs.ship.result == 'success'" in distribution["if"]
     assert "inputs.dry_run != true" in distribution["if"]
     for name in (
@@ -582,13 +585,13 @@ def test_appstore_upload_receipt_keeps_source_with_effective_packaging_version(
 def test_production_archive_overlaps_deploy_but_upload_joins_exact_healthy_release() -> None:
     workflow = _workflow("release-ios-appstore.yml")
     assert workflow["jobs"]["preflight"]["runs-on"] == "ubuntu-latest"
-    assert workflow["jobs"]["release"]["needs"] == "preflight"
+    assert workflow["jobs"]["release"]["needs"] == ["preflight", "deployment-security"]
     assert workflow["jobs"]["release"]["if"] == "needs.preflight.outputs.ready == 'true'"
-    admission = _named(
-        _steps(workflow, "preflight"), "Admit automatic App Store version or defer without a Mac"
+    assert workflow["jobs"]["preflight"]["outputs"]["ready"] == "${{ 'true' }}"
+    assert all(
+        "Admit automatic App Store" not in step.get("name", "")
+        for step in _steps(workflow, "preflight")
     )
-    assert "--defer-if-review" in admission["run"]
-    assert '"$status" == 75' in admission["run"]
     steps = _steps(workflow, "release")
     names = [step.get("name") for step in steps]
     archive = names.index("Archive with target-owned automatic signing")
@@ -605,22 +608,17 @@ def test_production_archive_overlaps_deploy_but_upload_joins_exact_healthy_relea
     )
     prepare = workflow["jobs"]["prepare"]
     assert prepare["runs-on"] == "ubuntu-latest"
-    assert prepare["needs"] == "release"
+    assert prepare["needs"] == ["release", "deployment-security"]
     assert "needs.release.result == 'success'" in prepare["if"]
     assert "inputs.dry_run != true" in prepare["if"]
-    assert (
-        "materialize-ios-testflight-release-config.sh"
-        in _named(
-            prepare["steps"], "Require automatic public-release privacy and compliance attestations"
-        )["run"]
+    submission = _named(
+        prepare["steps"],
+        "Prepare App Store version (set What's New, attach build; one-click submit)",
     )
-    assert (
-        "--require-reviewer-account"
-        in _named(
-            prepare["steps"],
-            "Prepare App Store version (set What's New, attach build; one-click submit)",
-        )["run"]
-    )
+    assert "github.event.inputs.submit_for_review" in submission["run"]
+    assert "SUBMIT_ARGS+=(--submit)" in submission["run"]
+    assert "Public App Store submission" in submission["run"]
+    assert "cadence_origin" not in (ROOT / ".github/workflows/release-ios-appstore.yml").read_text()
     testflight = _workflow("ship-ios-testflight.yml")
     assert workflow["jobs"]["release"]["concurrency"] == testflight["jobs"]["ship"]["concurrency"]
     assert workflow["jobs"]["release"]["concurrency"]["group"] == "ios-build-and-upload"

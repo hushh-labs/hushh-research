@@ -93,6 +93,7 @@ class DeploymentSecurityTest(unittest.TestCase):
                     self.assertIn("deployment-security", [needs] if isinstance(needs, str) else needs)
                     if "uses" in job:
                         self.assertEqual(job["uses"], "./.github/workflows/ios-voice-device.yml")
+                        self.assertEqual(job["with"]["security_attempt"], "${{ needs.deployment-security.outputs.attempt }}")
                         continue
                     self.assertEqual(job["steps"][0]["name"], "Require current-attempt deployment security")
         reusable = (root / ".github/workflows/deployment-security.yml").read_text()
