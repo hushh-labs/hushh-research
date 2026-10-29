@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { primeCachedGmailReceipts, getCachedGmailReceipts, clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const mocks = vi.hoisted(() => ({
   nativePlatform: false,
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   clearAgentPkmContext: vi.fn(),
   clearAgentChatHistoryCache: vi.fn(),
   warmAgentChatHistoryCache: vi.fn(),
+  clearLiveActivity: vi.fn(), renewLiveActivitySession: vi.fn(), renewMarkdownMemorySession: vi.fn(),
   invalidateVaultState: vi.fn(),
   getIdToken: vi.fn(),
   unlockWarmRun: vi.fn(),
@@ -53,18 +55,19 @@ vi.mock("@/lib/firebase/auth-context", () => ({
   }),
 }));
 
-vi.mock("@/lib/agent/agent-pkm-memory", () => ({
-  clearAgentPkmContext: mocks.clearAgentPkmContext,
-}));
+vi.mock("@/lib/agent/agent-pkm-memory", () => ({ clearAgentPkmContext: mocks.clearAgentPkmContext }));
+vi.mock("@/lib/pkm/markdown-memory", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/pkm/markdown-memory")>()), renewMarkdownMemorySession: mocks.renewMarkdownMemorySession }));
 
 vi.mock("@/lib/agent/agent-chat-history-cache", () => ({
   clearAgentChatHistoryCache: mocks.clearAgentChatHistoryCache,
   warmAgentChatHistoryCache: mocks.warmAgentChatHistoryCache,
 }));
 
-vi.mock("@/lib/cache/cache-sync-service", () => ({
-  CacheSyncService: { onVaultStateChanged: vi.fn() },
+vi.mock("@/lib/pkm/live-activity/live-activity-journal", () => ({
+  clearLiveActivity: mocks.clearLiveActivity, renewLiveActivitySession: mocks.renewLiveActivitySession,
 }));
+
+vi.mock("@/lib/cache/cache-sync-service", () => ({ CacheSyncService: { onVaultStateChanged: vi.fn() } }));
 
 vi.mock("@/lib/capacitor", () => ({
   HushhConsent: {
@@ -73,9 +76,7 @@ vi.mock("@/lib/capacitor", () => ({
   },
 }));
 
-vi.mock("@/lib/observability/growth", () => ({
-  trackGrowthFunnelStepCompleted: vi.fn(),
-}));
+vi.mock("@/lib/observability/growth", () => ({ trackGrowthFunnelStepCompleted: vi.fn() }));
 
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: { getIdToken: mocks.getIdToken, getCurrentUser: () => mocks.authUser },
@@ -89,9 +90,7 @@ vi.mock("@/lib/services/consent-export-refresh-orchestrator", () => ({
 }));
 
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
-  PersonalKnowledgeModelService: {
-    invalidateSessionStateAfterVaultRekey: vi.fn(),
-  },
+  PersonalKnowledgeModelService: { invalidateSessionStateAfterVaultRekey: vi.fn() },
 }));
 
 vi.mock("@/lib/services/pkm-upgrade-orchestrator", () => ({
@@ -148,27 +147,17 @@ function VaultHarness() {
   useEffect(() => { currentVault = vault; }, [vault]);
   return (
     <div>
-      <span data-testid="vault-status">
-        {vault.isVaultUnlocked ? "unlocked" : "locked"}
-      </span>
+      <span data-testid="vault-status">{vault.isVaultUnlocked ? "unlocked" : "locked"}</span>
       <span data-testid="vault-token">{vault.vaultOwnerToken ?? "none"}</span>
       <span data-testid="vault-key">{vault.vaultKey ?? "none"}</span>
       <span data-testid="owner-token-status">{vault.ownerTokenStatus}</span>
       <button onClick={() => void vault.retryOwnerTokenRenewal()}>Renew</button>
       <button onClick={vault.lockVault}>Lock</button>
       <button onClick={() => vault.unlockVault("vault-key", "vault-token", NOW + 600_000)}>Unlock long-lived</button>
-      <button
-        type="button"
-        onClick={() => vault.unlockVault("vault-key", "vault-token", NOW + 1_000)}
-      >
-        Unlock short-lived
-      </button>
-      <button
-        type="button"
-        onClick={() => vault.unlockVault("vault-key", "vault-token", NOW + 60_000)}
-      >
-        Unlock valid
-      </button>
+      <button type="button" onClick={() => vault.unlockVault("vault-key", "vault-token", NOW + 1_000)}>Unlock short-lived</button>
+      <button type="button" onClick={() => vault.unlockVault("vault-key", "vault-token", NOW + 60_000)}>Unlock valid</button>
+      <button type="button" onClick={() => vault.unlockVault("vault-key", "kai-token", NOW + 60_000)}>Unlock refreshed token</button>
+      <button type="button" onClick={() => vault.unlockVault("other-key", "vault-token", NOW + 60_000)}>Unlock other key</button>
     </div>
   );
 }
@@ -225,15 +214,27 @@ describe("VaultProvider app-resume expiry recovery", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
     expect(currentVault.getVaultKey()).toBe("vault-key");
     expect(currentVault.getVaultOwnerToken()).toBe("vault-token");
-    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", {
-      detail: { reason: "owner-revoked", userId: "vault-owner" },
-    })));
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", { detail: { reason: "owner-revoked", userId: "vault-owner" } })));
     expect(currentVault.getVaultKey()).toBe("vault-key");
-    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", {
-      detail: { reason: "owner-revoked", userId: mocks.ownerId },
-    })));
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", { detail: { reason: "owner-revoked", userId: mocks.ownerId } })));
     expect(currentVault.getVaultKey()).toBeNull();
     expect(currentVault.getVaultOwnerToken()).toBeNull();
+  });
+
+  it("keeps the activity journal and memory.md sync across a same-owner, same-key re-unlock (Kai's token refresh), never across a key change", () => {
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
+    const unlockedEpoch = snapshotVaultSessionEpoch();
+    mocks.renewLiveActivitySession.mockClear(); mocks.renewMarkdownMemorySession.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock refreshed token" }));
+    expect(snapshotVaultSessionEpoch()).not.toBe(unlockedEpoch);
+    expect(mocks.renewLiveActivitySession).toHaveBeenCalledWith({ userId: "vault-owner", previousEpoch: unlockedEpoch, vaultKey: "vault-key" });
+    expect(mocks.renewMarkdownMemorySession).toHaveBeenCalledWith(expect.objectContaining({ userId: "vault-owner", previousEpoch: unlockedEpoch, vaultKey: "vault-key", vaultOwnerToken: "kai-token" }));
+    expect(mocks.clearLiveActivity).not.toHaveBeenCalled();
+    mocks.renewLiveActivitySession.mockClear(); mocks.renewMarkdownMemorySession.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock other key" }));
+    expect(mocks.renewLiveActivitySession).not.toHaveBeenCalled();
+    expect(mocks.renewMarkdownMemorySession).not.toHaveBeenCalled();
   });
 
   it("renews authority before expiry without another local unlock", async () => {
@@ -249,9 +250,9 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(currentVault.getVaultOwnerToken()).toBe("renewed-token");
     expect(currentVault.getVaultKey()).toBe("vault-key");
     expect(currentVault.ownerTokenStatus).toBe("valid");
-    expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenLastCalledWith({
-      userId: "vault-owner", vaultOwnerToken: "renewed-token", vaultKey: "vault-key",
-    });
+    expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenLastCalledWith({ userId: "vault-owner", vaultOwnerToken: "renewed-token", vaultKey: "vault-key" });
+    expect(mocks.renewLiveActivitySession).toHaveBeenCalledWith(expect.objectContaining({ userId: "vault-owner", vaultKey: "vault-key" }));
+    expect(mocks.clearLiveActivity).not.toHaveBeenCalled();
   });
 
   it("repairs receiving while Chat stays visible after the fast retry window and stops on lock", async () => {
@@ -469,9 +470,7 @@ describe("VaultProvider app-resume expiry recovery", () => {
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
     vi.spyOn(Date, "now").mockReturnValue(NOW + 60_001);
-    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", {
-      detail: { reason: "VAULT_OWNER token revoked" },
-    })));
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", { detail: { reason: "VAULT_OWNER token revoked" } })));
     expect(currentVault.getVaultKey()).toBeNull();
     expect(mocks.issueVaultOwnerToken).not.toHaveBeenCalled();
   });
@@ -486,9 +485,7 @@ describe("VaultProvider app-resume expiry recovery", () => {
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
 
-    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", {
-      detail: { reason: "VAULT_OWNER token revoked", userId: "account-a" },
-    })));
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", { detail: { reason: "VAULT_OWNER token revoked", userId: "account-a" } })));
 
     expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
     expect(screen.getByTestId("vault-token").textContent).toBe("vault-token");
@@ -498,9 +495,7 @@ describe("VaultProvider app-resume expiry recovery", () => {
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
 
-    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", {
-      detail: { reason: "VAULT_OWNER token revoked", userId: "vault-owner" },
-    })));
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", { detail: { reason: "VAULT_OWNER token revoked", userId: "vault-owner" } })));
 
     expect(screen.getByTestId("vault-status").textContent).toBe("locked");
   });
@@ -695,6 +690,7 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(screen.getByTestId("vault-token").textContent).toBe("none");
     expect(screen.getByTestId("vault-key").textContent).toBe("none");
     expect(mocks.invalidateVaultState).toHaveBeenCalled();
+    expect(mocks.clearLiveActivity).toHaveBeenCalledWith();
     expect(getCachedGmailReceipts("vault-owner", "synthetic-account")).toBeNull();
     expect(getCachedGmailReceipts("other-owner", "synthetic-account")?.items).toHaveLength(1);
     clearCachedGmailReceipts("other-owner");

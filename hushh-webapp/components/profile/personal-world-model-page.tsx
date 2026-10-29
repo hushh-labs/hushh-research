@@ -53,6 +53,7 @@ import {
 } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import { publicProfileUrls } from "@/lib/world-model/public-profile-urls";
+import { recordLiveActivity } from "@/lib/pkm/live-activity/live-activity-journal";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { useCoarseClock } from "@/lib/perf/use-periodic-task";
@@ -667,6 +668,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     }
     // Decided: an open detail for it is stale, and focus moves to what's next.
     if (!owner.isCurrent()) return;
+    recordLiveActivity({ kind: "pwm_reviewed", quantity: 1 });
     setDetail((open) =>
       open?.kind === "draft" && open.key === fact.key ? null : open,
     );
