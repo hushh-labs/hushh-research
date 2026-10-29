@@ -43,10 +43,10 @@ describe("PortfolioImportView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /bank account \(via plaid\)/i }));
+    fireEvent.click(screen.getByRole("button", { name: /connect a bank or brokerage/i }));
     expect(onConnectPlaid).toHaveBeenCalledWith("sandbox");
 
-    fireEvent.click(screen.getByRole("button", { name: /load sample brokerage/i }));
+    fireEvent.click(screen.getByRole("button", { name: /try a sample portfolio/i }));
     expect(onPreloadSchema).toHaveBeenCalledOnce();
 
     const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');

@@ -149,7 +149,7 @@ export function CommandAgentBar({
         data-command-capture-state={recording ?? "idle"}
         data-command-cancel-armed={cancelArmed || undefined}
         role="group"
-        aria-label="One private agent"
+        aria-label="Agent One"
         className={cn("transition-opacity motion-reduce:transition-none", cancelArmed && "text-destructive")}
         onPointerDown={(event) => {
           const control = event.target instanceof Element && event.target.closest("button, input, textarea, a");

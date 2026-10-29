@@ -240,7 +240,7 @@ async function refusePreparationResponse(
   }
   throw new Error(
     response.status === 404
-      ? "Your private agent needs an update before preparing Memory. Nothing was saved."
+      ? "Agent One needs an update before preparing Memory. Nothing was saved."
       : `Memory preparation failed (${errorCode}). Please try again.`,
   );
 }

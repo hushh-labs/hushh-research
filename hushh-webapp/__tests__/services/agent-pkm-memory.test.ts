@@ -1700,11 +1700,11 @@ describe("agent PKM memory helpers", () => {
     expect(result.results[0]).toMatchObject({
       domain: "food",
       scope: "drinks.favorite",
-      sharingPosture: "Private to your private agent. Consent is required before external sharing.",
+      sharingPosture: "Private to Agent One. Consent is required before external sharing.",
       success: true,
     });
     expect(formatAgentPkmSaveSummary(result)).toBe(
-      "Saved in Food > Drinks > Favorite. Private to your private agent. Consent is required before external sharing."
+      "Saved in Food > Drinks > Favorite. Private to Agent One. Consent is required before external sharing."
     );
   });
 
