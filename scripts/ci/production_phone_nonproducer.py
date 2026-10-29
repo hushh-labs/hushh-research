@@ -59,6 +59,14 @@ def _job_block(text: str, name: str) -> str:
     return blocks[0]
 
 
+def skipped_primary_name(workflow: str) -> str | None:
+    """GitHub reports an unevaluated name expression for a skipped job."""
+    names = re.findall(r"^    name: (.+)$", _job_block(workflow, "deploy"), re.M)
+    if len(names) != 1 or not names[0].startswith("${{") or not names[0].endswith("}}"):
+        return None
+    return names[0][3:-2].strip() or None
+
+
 def _source(workflow: str, canonical: str, lease_markers: tuple[str, ...]) -> None:
     # Every other changed historical job shape still requires compatibility review.
     block = _job_block(workflow, JOB_ID)

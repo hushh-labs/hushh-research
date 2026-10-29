@@ -368,15 +368,14 @@ class ProductionWorkerOnlyLeaseCases:
                     with self.assertRaises(lease.retention.UnsafeState):
                         self.lease_check(case)
 
-    def test_disabled_repair_keeps_existing_worker_refusal(self):
+    def test_disabled_repair_keeps_main_skipped_primary_check(self):
         self.setUp()
         case, environment = self.worker_only_lease(active=True)
         environment[lease.receipts.PRODUCTION_EVIDENCE_REPAIR_FLAG] = "false"
         with mock.patch.dict("os.environ", environment, clear=True):
-            with self.assertRaisesRegex(
-                lease.retention.UnsafeState, "attempt job is not bound"
-            ):
-                self.lease_check(case)
+            with mock.patch.object(lease, "_stage_only") as strict_worker_review:
+                self.assertIsNone(self.lease_check(case))
+                strict_worker_review.assert_not_called()
 
     def restoration_lease(self, conclusion="success", *, active=False):
         case = LeaseFixture(self)
