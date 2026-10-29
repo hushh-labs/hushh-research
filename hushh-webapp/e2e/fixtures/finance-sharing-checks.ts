@@ -1,6 +1,29 @@
 import { expect, test, type Page } from "@playwright/test";
 
 export function registerFinanceSharingChecks(mount: (page: Page, width: number) => Promise<void>) {
+for (const width of [393, 1024]) {
+  test(`Finance received-only management ${width}px`, async ({ page }) => {
+    await mount(page, width);
+    const sharing = page.getByTestId("finance-received-only-fixture");
+    await expect(sharing.getByRole("button", { name: "Ask an advisor", exact: true })).toBeDisabled();
+    await expect(sharing.getByRole("button", { name: "Share portfolio", exact: true })).toBeDisabled();
+    await sharing.getByRole("button", { name: "Manage sharing", exact: true }).click();
+    const manager = page.getByRole("dialog", { name: "Finance sharing", exact: true });
+    await expect(manager.getByRole("button", { name: "Shared by you", exact: true })).toBeDisabled();
+    await expect(manager.getByRole("heading", { name: "Sample sender", exact: true })).toBeVisible();
+    const view = manager.getByRole("button", { name: "View", exact: true });
+    await expect(view).toBeVisible();
+    expect(await manager.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    if (width >= 768) {
+      const inset = await view.evaluate(button => button.closest("article")!.getBoundingClientRect().right - button.getBoundingClientRect().right);
+      expect(Math.abs(inset)).toBeLessThanOrEqual(1);
+    }
+    await manager.screenshot({ path: test.info().outputPath(`finance-manager-${width}.png`) });
+    await view.click();
+    await expect(page.getByRole("dialog", { name: "Sample sender · Finance", exact: true })).toBeVisible();
+    await expect(page.locator("body")).not.toHaveAttribute("data-finance-publishes");
+  });
+}
 test("Finance motion keeps sharing immediate with reduced motion", async ({ page }) => {
   await mount(page, 393);
   await page.getByRole("button", { name: "Open sample Finance sharing", exact: true }).click();

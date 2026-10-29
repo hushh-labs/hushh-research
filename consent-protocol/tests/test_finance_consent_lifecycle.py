@@ -16,6 +16,34 @@ from hushh_mcp.one_adk.consent_redaction import (
 )
 
 
+def test_finance_review_config_is_accepted_by_the_shared_azure_adapter():
+    from types import SimpleNamespace
+
+    from google.adk.models.llm_request import LlmRequest
+
+    from hushh_mcp.one_adk.consent_redaction import consent_answer_fast_path
+    from hushh_mcp.runtime_providers.azure_adk import _request
+
+    request = LlmRequest(
+        model="synthetic-azure-chat",
+        contents=[types.Content(role="user", parts=[types.Part(text="Review shared Finance")])],
+        config=types.GenerateContentConfig(
+            tools=[
+                types.Tool(function_declarations=[types.FunctionDeclaration(name="synthetic_tool")])
+            ]
+        ),
+    )
+    context = SimpleNamespace(
+        state={STATE_CONSENT_CONTINUATION: {"kind": "finance", "outcome": "granted"}}
+    )
+    assert consent_answer_fast_path(context, request, model=request.model)
+    # Use the real provider serializer: unsupported effort fails before any HTTP call.
+    wire = _request(request, "synthetic-shared-deployment")
+    assert wire["reasoning"] == {"effort": "low"}
+    assert wire["tool_choice"] == "none"
+    assert request.config.thinking_config.include_thoughts is False
+
+
 @pytest.mark.asyncio
 async def test_finance_model_callback_rechecks_authority_before_consent_redaction(monkeypatch):
     from hushh_mcp.one_adk import finance_share_context
