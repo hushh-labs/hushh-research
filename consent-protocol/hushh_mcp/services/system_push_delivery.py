@@ -14,6 +14,7 @@ import uuid
 
 from sqlalchemy import text
 
+from api.utils.fcm_messages import build_push_message
 from db.db_client import get_db
 from hushh_mcp.services.push_tokens_service import (
     LEGACY_REGISTRY_OWNER_FILTER,
@@ -259,7 +260,6 @@ def _notification(conn, event: dict, source: dict) -> dict:
 
 def _deliver(db, event: dict) -> str:
     from api.consent_listener import publish_user_state_event_threadsafe
-    from api.utils.fcm_messages import build_push_message
     from api.utils.firebase_admin import ensure_firebase_admin
     from hushh_mcp.services.account_deletion_lifecycle_service import (
         AccountDeletionLifecycleService,
@@ -359,6 +359,7 @@ def _deliver(db, event: dict) -> str:
                 request_url=payload["request_url"],
                 notification_tag=payload["notification_tag"],
                 show_alert=True,
+                sms_alarm_version=int(row.get("sms_alarm_version") or 0),
             )
             try:
                 messaging.send(message)
