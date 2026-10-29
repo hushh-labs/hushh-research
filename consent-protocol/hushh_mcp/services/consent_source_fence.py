@@ -106,7 +106,7 @@ def capture_consent_source_fence(
     connection.execute(text("SET LOCAL lock_timeout='2s'"))
     queries = []
     for table, predicate, temporal in _SOURCES:
-        query = f"SELECT '{table}' AS source,r.tableoid::text||':'||r.ctid::text||':'||r.xmin::text||':'||COALESCE(({temporal})::text,'false') AS version FROM {table} r WHERE {predicate}"  # nosec B608 - fixed authored identifiers/predicates, owner values are bound.
+        query = f"SELECT '{table}' AS source,r.tableoid::text||':'||r.ctid::text||':'||r.xmin::text||':'||COALESCE(({temporal})::text,'false') AS version FROM {table} r WHERE {predicate}"  # nosec B608 # fixed authored identifiers/predicates, owner values are bound.
         queries.append(text(query).columns(source=String, version=String))
     versions = union_all(*queries).subquery()
     rows = connection.execute(

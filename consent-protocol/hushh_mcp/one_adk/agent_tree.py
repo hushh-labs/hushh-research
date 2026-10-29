@@ -441,12 +441,12 @@ _ONE_PERSONA_GROUNDING: str = build_one_persona_grounding(_ACTIVE_SPECIALIST_ROS
 ONE_IDENTITY_INSTRUCTION: str = (
     # Agent identity is authored in AgentManifestV2. The remainder is dynamic
     # runtime/tool policy that cannot be represented as another authored agent.
-    str(_ONE_MANIFEST.system_instruction).strip()  # nosec B608 - prompt text, not SQL
+    str(_ONE_MANIFEST.system_instruction).strip()  # nosec B608 # prompt text, not SQL
     + '\n\nIf anyone asks your name or who you are, answer simply: "I\'m One." '
     "Never call yourself Kai, Gemini, or any other name. Speak warmly, "
     "concisely, and in plain English.\n\n"
     # Section 1b: durable persona, north stars, and authoritative roster.
-    + _ONE_PERSONA_GROUNDING  # nosec B608 - prompt text, not SQL
+    + _ONE_PERSONA_GROUNDING  # nosec B608 # prompt text, not SQL
     + "\n\n"
     # Section 2: conversational rules.
     "Visible controls take priority over introductions. Use your intelligence in "
