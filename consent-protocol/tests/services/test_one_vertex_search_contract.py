@@ -113,5 +113,6 @@ async def test_configured_vertex_search_preserves_native_grounding_and_chat_comp
     assert len(requests) == (2 if finish else 3)
     assert all(req.model == native.model for req in requests)
     assert requests[1].config.thinking_config.thinking_level == types.ThinkingLevel.LOW
+    assert child.model._primary_timeout(requests[1]) == 60
     assert sum(event.type == EventType.RUN_FINISHED for event in events) == 1
     assert not any(event.type == EventType.RUN_ERROR for event in events)

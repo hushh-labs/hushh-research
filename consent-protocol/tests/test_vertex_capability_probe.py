@@ -5,6 +5,65 @@ import json
 import pytest
 
 
+@pytest.mark.parametrize(
+    "defect", [None, "wrong_fact", "missing_domain", "lookalike_domain", "no_citations", "no_field"]
+)
+async def test_native_compact_search_requires_the_fact_field_and_received_sources(
+    monkeypatch, defect
+):
+    from types import SimpleNamespace
+
+    from google.adk.models.llm_response import LlmResponse
+    from google.genai import types
+
+    from hushh_mcp.hushh_adk import turn
+    from hushh_mcp.one_adk import agent_tree
+    from hushh_mcp.runtime_providers.managed_text import build_managed_text_model
+    from scripts.probe_managed_capabilities import _probe_public_search
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
+    model = build_managed_text_model(scope="one_text_chat")
+    monkeypatch.setattr(agent_tree, "_resolve_text_model", lambda *args, **kwargs: model)
+    dispatched = []
+    text = "registration_available=false\nIANA reserves example.net and example.org."
+    if defect == "wrong_fact":
+        text = text.replace("=false", "=true")
+    elif defect == "missing_domain":
+        text = text.replace("example.org", "a different domain")
+    elif defect == "lookalike_domain":
+        text = text.replace("example.net", "example.net.evil")
+    elif defect == "no_field":
+        text = text.partition("\n")[2]
+
+    async def received(**kwargs):
+        dispatched.append(True)
+        assert "Do not use JSON" in kwargs["message"]
+        response = LlmResponse(
+            grounding_metadata=types.GroundingMetadata(
+                grounding_chunks=[]
+                if defect == "no_citations"
+                else [
+                    types.GroundingChunk(
+                        web=types.GroundingChunkWeb(uri="https://www.iana.org/help/example-domains")
+                    )
+                ]
+            )
+        )
+        await kwargs["agent"].after_model_callback(None, response)
+        return SimpleNamespace(final_text=text)
+
+    monkeypatch.setattr(turn, "run_specialist_adk_turn", received)
+    if defect:
+        with pytest.raises(ValueError):
+            await _probe_public_search(compact=True)
+    else:
+        proof = await _probe_public_search(compact=True)
+        assert proof["synthetic_content_verified"] is True and proof["cited_sources"] == 1
+    assert dispatched == [True]
+
+
 def _capture_task_output(original_turn, defect):
     async def capture(**kwargs):
         from dataclasses import replace
