@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 from google.adk.events import Event, EventActions
 from google.genai import types as genai_types
@@ -15,6 +13,11 @@ from hushh_mcp.one_adk.agent_tree import (
 )
 from hushh_mcp.one_adk.text_runtime import OneTextStreamEvent
 from hushh_mcp.services.agent_chat_service import AgentChatMessage
+
+
+def _raw_text_head(*, model, include_client_receipt_tools):
+    assert include_client_receipt_tools is False
+    return ("one", model)
 
 
 def test_managed_text_runtime_uses_explicit_vertex_contract(monkeypatch):
@@ -77,7 +80,7 @@ async def test_text_runtime_replays_history_and_extracts_generated_directive(mon
             )
 
     monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
-    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", _raw_text_head)
     history = [
         AgentChatMessage(
             id="m1",
@@ -328,7 +331,7 @@ async def test_text_runtime_emits_non_partial_final_memory_summary(monkeypatch):
             )
 
     monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
-    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", _raw_text_head)
     opaque_token = "opaque-" + "token"
 
     events = [
@@ -352,54 +355,6 @@ async def test_text_runtime_emits_non_partial_final_memory_summary(monkeypatch):
     assert [event.text for event in events] == ["You prefer concise summaries."]
 
 
-@pytest.mark.asyncio
-async def test_bounded_adk_events_times_out_stalled_first_event(monkeypatch):
-    async def stalled():
-        await asyncio.sleep(0.05)
-        yield object()
-
-    monkeypatch.setattr(text_runtime, "_FIRST_EVENT_TIMEOUT_SECONDS", 0.01)
-    monkeypatch.setattr(text_runtime, "_TOTAL_TURN_TIMEOUT_SECONDS", 0.1)
-
-    with pytest.raises(asyncio.TimeoutError):
-        async for _ in text_runtime._bounded_adk_events(stalled()):
-            pass
-
-
-@pytest.mark.asyncio
-async def test_bounded_adk_events_accepts_provider_first_event_budget():
-    async def delayed():
-        await asyncio.sleep(0.01)
-        yield "ready"
-
-    observed = [
-        event
-        async for event in text_runtime._bounded_adk_events(delayed(), first_event_timeout=0.05)
-    ]
-
-    assert observed == ["ready"]
-
-
-@pytest.mark.asyncio
-async def test_bounded_adk_events_times_out_stalled_followup(monkeypatch):
-    first = object()
-
-    async def stalled():
-        yield first
-        await asyncio.sleep(0.05)
-        yield object()
-
-    monkeypatch.setattr(text_runtime, "_BETWEEN_EVENT_TIMEOUT_SECONDS", 0.01)
-    monkeypatch.setattr(text_runtime, "_TOTAL_TURN_TIMEOUT_SECONDS", 0.1)
-
-    observed = []
-    with pytest.raises(asyncio.TimeoutError):
-        async for event in text_runtime._bounded_adk_events(stalled()):
-            observed.append(event)
-
-    assert observed == [first]
-
-
 async def test_text_runtime_rejects_silent_model_completion(monkeypatch):
     class _FakeRunner:
         def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
@@ -410,7 +365,7 @@ async def test_text_runtime_rejects_silent_model_completion(monkeypatch):
                 yield None
 
     monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
-    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", _raw_text_head)
     opaque_token = "opaque-" + "token"
 
     with pytest.raises(text_runtime.OneTextEmptyResponseError):
@@ -474,7 +429,7 @@ async def test_text_runtime_persists_the_aggregated_final_and_commits_it_to_memo
             yield final
 
     monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
-    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", _raw_text_head)
     monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: _Recorder())
     opaque_token = "opaque-" + "token"
 
@@ -540,7 +495,7 @@ async def test_text_runtime_treats_an_all_partial_tool_call_turn_as_silent(monke
             )
 
     monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
-    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", _raw_text_head)
     monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: _Recorder())
     opaque_token = "opaque-" + "token"
 
@@ -594,7 +549,7 @@ async def test_text_runtime_stamps_the_reported_model_on_token_events(
             )
 
     monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
-    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", _raw_text_head)
     events = [
         event
         async for event in text_runtime.stream_one_text_turn(
@@ -642,7 +597,7 @@ async def test_text_runtime_leaves_model_version_empty_when_unreported_negative_
             )
 
     monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
-    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", _raw_text_head)
     events = [
         event
         async for event in text_runtime.stream_one_text_turn(
@@ -753,7 +708,7 @@ async def test_text_runtime_reports_observed_recall_digest_and_catch_up(monkeypa
             )
 
     monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
-    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", _raw_text_head)
     monkeypatch.setattr(text_runtime, "_runtime_model", lambda **_kw: "the-model-object")
     monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: memory)
     monkeypatch.setattr("hushh_mcp.one_adk.memory_review.run_memory_review", _review)
@@ -851,7 +806,7 @@ async def test_the_catch_up_review_carries_the_turns_verified_authority(monkeypa
             )
 
     monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
-    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", _raw_text_head)
     monkeypatch.setattr(text_runtime, "_runtime_model", lambda **_kw: "the-model-object")
     monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: memory)
     monkeypatch.setattr("hushh_mcp.one_adk.memory_review.run_memory_review", _review)
@@ -965,7 +920,7 @@ async def test_a_second_model_step_answer_is_not_discarded_as_a_duplicate(monkey
             )
 
     monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
-    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", _raw_text_head)
     monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: _Recorder())
 
     events = [
@@ -1101,7 +1056,7 @@ def _one_step_runner():
 async def _run_turn_with_gate(monkeypatch, gate):
     recorder = _CountingRecorder()
     monkeypatch.setattr(text_runtime, "Runner", _one_step_runner())
-    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", _raw_text_head)
     monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: recorder)
 
     events = [

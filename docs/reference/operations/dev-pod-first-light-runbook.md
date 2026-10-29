@@ -1005,3 +1005,40 @@ owner-local session. Do not remove that protection or substitute `pkm.read` for
 processing consent. Read consent status directly; withdrawal requires no new hub
 grant. Complete both owner-isolation and native Memory Bank checks before treating
 learning as verified. This pilot authorizes no UAT or production checks or changes.
+
+The verifier's response must retain the signed wire scope through
+`consent_token_scope_value`; stringifying a `ConsentScope` enum is not that scope.
+The typed-token regression covers processing consent and dynamic information
+scopes. Keep the pod's exact-scope and independent provider-grant checks intact.
+
+### Qualifying private-worker startup
+
+Use the common image's existing UID10001-owned `/app/.gunicorn` control socket.
+Verify the actual Unix socket, one worker and readiness in the deployment image;
+a successful health response alone missed a nonfatal control-server permission error.
+Private startup must finish the existing provider-free ADK stub rehearsal before
+heartbeat or background consumers start. Rehearsal selects memory tool metadata
+without opening owner memory, custody or a writer, and then rechecks the retained
+incarnation. Failed rehearsal leaves startup unsuccessful. Cancelling a thread wait
+does not prove that its thread stopped.
+
+Retain first-event, between-event and total deadlines. Diagnose their phase, elapsed
+time and event count without logging content or credentials. The October27 pilot's
+first owner request returned504; missing warmup is a measured startup hazard, not
+yet proof of that request's sole cause. No further owner model call follows an
+uncertain attempt until its outcome and repair are reconciled.
+
+The October28 pilot also observed `foreign_incarnation` during first app admission
+on the original image. A Cloud Run revision can contain successive worker
+incarnations; matching revision names do not establish a matching admission epoch.
+Keep the stale proof rejected. On that explicit refusal, the app may obtain a fresh
+owner-authorized binding and sign one new challenge, sharing the existing single
+retry bound with consumed-grant recovery. Do not retry an ambiguous admission
+transport outcome, revocation or other authorization refusal. Qualify cold and warm
+connections against the new image before claiming reliable first admission;
+provider-free warmup alone does not prove this boundary.
+
+Native Memory Bank remained billing-blocked in both dev owner projects on October27;
+the owner confirmed the balance was not cleared. Do not retry that prerequisite or
+substitute another memory project. Consent withdrawal and bridge inference are
+separate acceptance claims and cannot qualify native memory.
