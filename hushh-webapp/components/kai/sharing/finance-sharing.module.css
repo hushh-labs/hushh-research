@@ -23,6 +23,21 @@
 .bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--muted); }
 .value { font-size: 30px; line-height: 38px; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
 .toolbar { width: 100%; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.managerTabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.managerTabs > button { min-height: 44px; justify-content: center; }
+.grantRow { padding-block: 22px; border-bottom: 1px solid var(--border); }
+.grantRow:last-child { border-bottom: 0; }
+.grantHeader, .grantPerson { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.grantHeader { justify-content: space-between; }
+.grantPerson h3 { overflow-wrap: anywhere; }
+.grantAvatar { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--muted); color: var(--muted-foreground); font-size: 14px; font-weight: 550; }
+.grantInfo { display: grid; gap: 12px; padding-top: 16px; }
+.grantDates { display: grid; gap: 4px; font-size: 12px; line-height: 18px; }
+.grantDates > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.grantDates dt { color: var(--muted-foreground); flex: none; }
+.grantDates dd { margin: 0; text-align: end; overflow-wrap: anywhere; }
+.grantActions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 16px; }
+@media(min-width: 768px) { .grantInfo { grid-template-columns: minmax(0, 1fr) minmax(240px, .9fr); gap: 24px; } }
 @media(min-width: 1024px) {
   .layout { grid-template-columns: minmax(0,1.05fr) minmax(0,1fr); align-items: start; gap: 28px; }
   .surface { max-width: min(1040px,calc(100vw - 80px)) !important; }

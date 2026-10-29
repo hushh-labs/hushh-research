@@ -1924,7 +1924,6 @@ export function DashboardMasterView({
           workspace="portfolio"
           title="Portfolio"
           description="Choose how you want to begin."
-          actions={<FinanceSharingHistoryAction />}
         />
         <AppPageContentRegion className="space-y-3">
           <PortfolioBriefing onOpen={onReupload} />
@@ -1970,6 +1969,7 @@ export function DashboardMasterView({
               testId="portfolio-source-upload-statement"
             />
           </SettingsGroup>
+          <FinancePortfolioSharing />
           {deletePortfolioDialog}
           {deleteStatementSnapshotDialog}
         </AppPageContentRegion>

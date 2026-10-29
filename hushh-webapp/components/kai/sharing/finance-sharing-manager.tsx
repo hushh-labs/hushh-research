@@ -13,10 +13,15 @@ import { FinanceSharedDetail } from "./finance-shared-detail";
 import finance from "@/components/kai/shared/finance-workspace.module.css";
 import styles from "./finance-sharing.module.css";
 
-export function FinanceSharingManager({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+const accessDate = (value: string) => new Date(value).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
+
+export function FinanceSharingManager({ open, onOpenChange, hasPortfolio = true }: { open: boolean; onOpenChange: (open: boolean) => void; hasPortfolio?: boolean }) {
   const { capture, session, ready } = useFinanceShareContext();
   const [items, setItems] = useState<FinanceGrant[]>([]);
-  const [direction, setDirection] = useState<"outgoing" | "received">("outgoing");
+  const [chosenDirection, setDirection] = useState<"outgoing" | "received">(hasPortfolio ? "outgoing" : "received");
+  const [existingOutgoing, setExistingOutgoing] = useState<{ session: string; available: boolean } | null>(null);
+  const canManageOutgoing = hasPortfolio || (existingOutgoing?.session === session && existingOutgoing.available);
+  const direction = canManageOutgoing ? chosenDirection : "received";
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -29,6 +34,20 @@ export function FinanceSharingManager({ open, onOpenChange }: { open: boolean; o
   const owner = capture()?.userId;
   const pathname = usePathname();
   useBackLayer(pathname, open ? 1 : 0, () => { onOpenChange(false); return true; });
+  useEffect(() => { setDirection(hasPortfolio ? "outgoing" : "received"); }, [hasPortfolio, session]);
+  useEffect(() => {
+    if (!open || hasPortfolio || !ready) return;
+    const context = capture(); if (!context) return;
+    let disposed = false;
+    // Source removal keeps the last approved view. Preserve its revocation route.
+    void FinanceSharingService.history(context, "outgoing").then(result => {
+      if (!disposed && context.isCurrent()) setExistingOutgoing({ session, available: result.items.length > 0 });
+    }).catch(() => {
+      // An unread history must not hide potentially active outgoing access.
+      if (!disposed && context.isCurrent()) setExistingOutgoing({ session, available: true });
+    });
+    return () => { disposed = true; };
+  }, [capture, open, hasPortfolio, ready, session, reload]);
   useEffect(() => { setItems([]); setSelected(null); setStopping(null); setCursor(null); setError(null); }, [open, session, direction]);
   useEffect(() => {
     if (!open) return;
@@ -67,18 +86,18 @@ export function FinanceSharingManager({ open, onOpenChange }: { open: boolean; o
   };
   return <>
     <KaiControlSurface open={open} onOpenChange={onOpenChange} title="Finance sharing" description="Review access person by person." surfaceClassName={finance.detail}>
-      <div className={styles.mode} role="group" aria-label="Sharing direction"><button aria-pressed={direction === "outgoing"} onClick={() => setDirection("outgoing")}>Shared by you</button><button aria-pressed={direction === "received"} onClick={() => setDirection("received")}>Shared with you</button></div>
+      <div className={styles.managerTabs} role="group" aria-label="Sharing direction"><ShellActionSurface variant="pill" disabled={!canManageOutgoing} aria-pressed={direction === "outgoing"} onClick={() => setDirection("outgoing")}>Shared by you</ShellActionSurface><ShellActionSurface variant="pill" aria-pressed={direction === "received"} onClick={() => setDirection("received")}>Shared with you</ShellActionSurface></div>
+      {!hasPortfolio ? <p className={`${styles.caption} mt-3`}>{canManageOutgoing ? "Add a portfolio to share again. You can still manage previous shares." : "Add a portfolio to share."}</p> : null}
       {error ? <div role="alert" className="my-4 text-sm text-destructive"><p>{error}</p><ShellActionSurface variant="pill" onClick={() => setReload(n => n + 1)}>Retry</ShellActionSurface></div> : null}
       {busy && !items.length ? <p role="status" className="py-8 text-sm">Checking access…</p> : null}
       {!busy && !items.length && !error ? <p className="py-8 text-sm text-muted-foreground">{ready ? "No Finance shares yet." : "Unlock your vault to manage sharing."}</p> : null}
-      {items.map(item => <article key={item.id} className="mt-4 rounded-[18px] border border-border p-[18px]">
-        <div className="flex items-start justify-between gap-4"><div><h3 className="text-sm font-semibold">{direction === "outgoing" ? item.recipientName : item.senderName}</h3><p className={styles.caption}>{item.policy.mode === "snapshot" ? "Snapshot" : "Ongoing access"}</p></div><span className={styles.chip}>{item.status === "stopped" ? "Stopped" : item.status === "expired" ? "Expired" : "Active"}</span></div>
-        <p className="mt-3 text-sm capitalize">{item.policy.sections.join(" · ")}</p>
-        <p className={`${styles.caption} mt-2`}>Dollar amounts {item.policy.showAmounts ? "included" : "hidden"} · Private-agent review {item.policy.model_processing.allowed ? "allowed" : "off"}</p>
-        <p className={`${styles.caption} mt-1`}>{item.expiresAt ? `Access ends ${new Date(item.expiresAt).toLocaleString()}` : direction === "outgoing" ? "Until you stop sharing" : "Until the owner stops sharing"}</p>
-        <p className={`${styles.caption} mt-1`}>Last shared {new Date(item.updatedAt).toLocaleString()}</p>
+      {items.map(item => <article key={item.id} className={styles.grantRow}>
+        <div className={styles.grantHeader}><div className={styles.grantPerson}><span aria-hidden="true" className={styles.grantAvatar}>{(direction === "outgoing" ? item.recipientName : item.senderName)?.trim().slice(0, 1).toUpperCase() || "?"}</span><div><h3 className="text-sm font-semibold">{direction === "outgoing" ? item.recipientName : item.senderName}</h3><p className={styles.caption}>{item.policy.mode === "snapshot" ? "Snapshot" : "Ongoing access"}</p></div></div><span className={styles.chip}>{item.status === "stopped" ? "Stopped" : item.status === "expired" ? "Expired" : "Active"}</span></div>
+        <div className={styles.grantInfo}><div><p className="text-sm capitalize">{item.policy.sections.join(" · ")}</p><p className={`${styles.caption} mt-2`}>Amounts {item.policy.showAmounts ? "included" : "hidden"} · Private-agent review {item.policy.model_processing.allowed ? "allowed" : "off"}</p></div>
+          <dl className={styles.grantDates}><div><dt>Access ends</dt><dd>{item.expiresAt ? accessDate(item.expiresAt) : direction === "outgoing" ? "When you stop sharing" : "When the owner stops sharing"}</dd></div><div><dt>Last shared</dt><dd>{accessDate(item.updatedAt)}</dd></div></dl>
+        </div>
         {direction === "outgoing" && item.status === "active" && item.policy.mode === "ongoing" && owner ? <div className="mt-2"><p className={styles.caption}>{financePublicationState(owner, item.id) === "source_changed" ? "Updates paused: the portfolio account/source roster changed. Review and share a new view." : financePublicationState(owner, item.id) === "unavailable" ? "The latest update could not be published. No new information has been shared." : "Updates from approved saved information while One is open and unlocked."}</p>{financePublicationState(owner, item.id) === "unavailable" ? <ShellActionSurface variant="pill" onClick={() => window.dispatchEvent(new Event("finance-sharing-changed"))}>Retry saved update</ShellActionSurface> : null}</div> : null}
-        {item.status === "active" ? <div className={`${styles.toolbar} mt-3`}><ShellActionSurface variant="pill" onClick={() => setSelected(item.id)}>View</ShellActionSurface>{direction === "outgoing" ? <ShellActionSurface variant="pill" onClick={() => setStopping(item)}>Stop sharing</ShellActionSurface> : null}</div> : null}
+        {item.status === "active" ? <div className={styles.grantActions}><ShellActionSurface variant="pill" onClick={() => setSelected(item.id)}>View</ShellActionSurface>{direction === "outgoing" ? <ShellActionSurface variant="pill" onClick={() => setStopping(item)}>Stop sharing</ShellActionSurface> : null}</div> : null}
       </article>)}
       {cursor ? <div className="mt-4"><ShellActionSurface variant="pill" disabled={busy} onClick={() => void loadMore()}>More shares</ShellActionSurface></div> : null}
     </KaiControlSurface>
