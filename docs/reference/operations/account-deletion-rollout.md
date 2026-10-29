@@ -1140,6 +1140,9 @@ arguments, environment, sidecars, volumes, identities, missing history, executio
 overrides, job replacement and deletion refuse qualification. All other jobs
 retain the existing producer/history and capacity rules; this grants no new
 deployment source, schema mutation, recovery activation or traffic authority.
+A Production release of an application that predates this helper restores it
+from current tooling beside the capacity and phone tools after checking out that
+application, so the same owner qualifies the observer instead of failing to load.
 
 Its explicit backend scope selects qualification work without moving primary
 traffic. The subsequent standard release still applies the ordinary
