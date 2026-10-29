@@ -155,6 +155,13 @@ class BackgroundCopyJobs:
         return await self._transaction(operation)
 
     async def finish(self, row, *, result=None, reason=None, retry=False):
+        if result is not None and self.production_paused(row):
+            from datetime import UTC, datetime, timedelta
+
+            from hushh_mcp.services.drive_rest_admission import DriveRestDeferred
+
+            raise DriveRestDeferred(datetime.now(UTC) + timedelta(minutes=1))
+
         def operation(connection):
             request, current = self.file_authority(connection, row, self.owner(row), lease=True)
             state = (

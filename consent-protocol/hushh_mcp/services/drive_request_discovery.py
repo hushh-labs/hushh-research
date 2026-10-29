@@ -12,32 +12,43 @@ from collections.abc import Mapping
 
 from hushh_mcp.services.drive_request_semantic_plan import (
     MAX_SEMANTIC_QUERY_CHARS,
-    SemanticDrivePlan,
     SemanticPlanInputRequired,
     _full_text,
     _identity,
     _metadata_period,
     _quoted,
+    parse_semantic_plan,
     semantic_plan_digest,
 )
 
 DISCOVERY_DELIVERY_POLICY = "drive_query_matches_v1"
 DISCOVERY_PROVIDER_RESULTS_POLICY = "drive_query_results_v2"
+DISCOVERY_ACTIVITY_UNION_POLICY = "drive_activity_union_v1"
+
+
+def activity_union(checkpoint: Mapping) -> bool:
+    return checkpoint.get("discovery_delivery_policy") == DISCOVERY_ACTIVITY_UNION_POLICY
 
 
 def discovery_delivery(checkpoint: Mapping) -> bool:
     return checkpoint.get("discovery_delivery_policy") in {
         DISCOVERY_DELIVERY_POLICY,
         DISCOVERY_PROVIDER_RESULTS_POLICY,
+        DISCOVERY_ACTIVITY_UNION_POLICY,
     }
 
 
 def provider_results_only(checkpoint: Mapping) -> bool:
     """A sealed new policy preserves Google membership without host narrowing."""
-    return checkpoint.get("discovery_delivery_policy") == DISCOVERY_PROVIDER_RESULTS_POLICY
+    return checkpoint.get("discovery_delivery_policy") in {
+        DISCOVERY_PROVIDER_RESULTS_POLICY,
+        DISCOVERY_ACTIVITY_UNION_POLICY,
+    }
 
 
-def semantic_checkpoint(plan, *, binding, policy, purpose, delivery, provider_results) -> dict:
+def semantic_checkpoint(
+    plan, *, binding, policy, purpose, delivery, provider_results, activity_dates=False
+) -> dict:
     """Freeze the model's plan and the selected delivery policy together."""
     if plan is None:
         return {}
@@ -48,13 +59,16 @@ def semantic_checkpoint(plan, *, binding, policy, purpose, delivery, provider_re
         **({"semantic_model_binding": binding} if binding is not None else {}),
         **(
             {
-                "discovery_delivery_policy": DISCOVERY_PROVIDER_RESULTS_POLICY
+                "discovery_delivery_policy": DISCOVERY_ACTIVITY_UNION_POLICY
+                if activity_dates
+                else DISCOVERY_PROVIDER_RESULTS_POLICY
                 if provider_results
                 else DISCOVERY_DELIVERY_POLICY
             }
             if delivery
             else {}
         ),
+        **({"activity_fallback_decision": None} if activity_dates else {}),
         "semantic_pending": [],
         "semantic_seen": [],
         "semantic_purpose": purpose,
@@ -62,6 +76,17 @@ def semantic_checkpoint(plan, *, binding, policy, purpose, delivery, provider_re
 
 
 def provider_date_coverage(enabled: bool, plan: Mapping | None) -> dict:
+    if enabled and plan is not None and plan.get("version") == 2:
+        return {
+            "dateBasis": "activity_union",
+            "dateEventBasis": plan["date_basis"],
+            "datePolicy": DISCOVERY_ACTIVITY_UNION_POLICY,
+            "dateGateApplied": True,
+            "datePushdown": plan["date_basis"]
+            if plan["date_basis"] in {"created", "modified"}
+            else "not_expressed",
+            "fallbackActivated": False,
+        }
     if not enabled or plan is None:
         return {}
     basis = plan["date_basis"]
@@ -79,6 +104,16 @@ def candidate_metadata(checkpoint, match, source, *, resource_key, shareability,
         "mimeType": match["mime_type"],
         "modifiedTime": match["modified_time"],
         "createdTime": match["created_time"],
+        **{
+            key: source[key]
+            for key in (
+                "modifiedByMeTime",
+                "sharedWithMeTime",
+                "viewedByMeTime",
+                "imageMediaMetadata",
+            )
+            if key in source
+        },
         **(
             {"sourceContentIdentity": source["sourceContentIdentity"]}
             if isinstance(source.get("sourceContentIdentity"), dict)
@@ -100,7 +135,7 @@ def candidate_metadata(checkpoint, match, source, *, resource_key, shareability,
     }
 
 
-def compile_discovery_queries(
+def _compile_discovery_query(
     plan,
     *,
     file_kind="any",
@@ -108,12 +143,13 @@ def compile_discovery_queries(
     period_end=None,
     timezone="UTC",
     shared_with_me=False,
-) -> list[dict]:
+    fallback=False,
+) -> dict:
     """Compile final provider-search membership, not assessor discovery clues."""
     from hushh_mcp.services.drive_live_reader import MIME_CLAUSES
     from hushh_mcp.services.drive_owner_search_service import _request_discovery_clause
 
-    parsed = SemanticDrivePlan.model_validate(plan)
+    parsed = parse_semantic_plan(plan)
     if parsed.status != "ready" or parsed.date_basis == "content":
         raise SemanticPlanInputRequired("provider_search_scope_required")
     if file_kind == "folder":
@@ -145,7 +181,12 @@ def compile_discovery_queries(
                         if predicate.kind == "title"
                         else f"({title} or fullText contains {_full_text(value, phrase=predicate.match != 'token')})"
                     )
-                expression = "(" + " and ".join(atoms) + ")"
+                joiner = (
+                    " or "
+                    if fallback and getattr(predicate, "sparse_fallback_any_token", False)
+                    else " and "
+                )
+                expression = "(" + joiner.join(atoms) + ")"
             required.append(f"not ({expression})" if predicate.negated else expression)
         alternatives.append("(" + " and ".join(required) + ")")
     clauses = [
@@ -171,7 +212,23 @@ def compile_discovery_queries(
     if "fullText contains" not in query:
         field = "createdTime" if parsed.date_basis == "created" else "modifiedTime"
         arguments["orderBy"] = f"{field} desc"
-    return [{"arguments": arguments}]
+    return {"arguments": arguments}
+
+
+def compile_discovery_queries(plan, **kwargs) -> list[dict]:
+    """Freeze primary and explicitly authored fallback before any provider read."""
+    parsed = parse_semantic_plan(plan)
+    primary = _compile_discovery_query(parsed, **kwargs)
+    if parsed.version == 1:
+        return [primary]
+    queries = [dict(primary, role="primary")]
+    if any(
+        getattr(p, "sparse_fallback_any_token", False) for c in parsed.clauses for p in c.predicates
+    ):
+        fallback = _compile_discovery_query(parsed, fallback=True, **kwargs)
+        if fallback != primary:
+            queries.append(dict(fallback, role="frozen_fallback"))
+    return queries
 
 
 def discovery_evidence(checkpoint: Mapping, *, user_id, generation, metadata) -> dict:
@@ -205,6 +262,11 @@ def discovery_evidence(checkpoint: Mapping, *, user_id, generation, metadata) ->
         "date_basis": checkpoint["semantic_plan"]["date_basis"],
         "period": checkpoint["requested_period"],
         "source": {key: metadata[key] for key in ("id", "name", "mimeType")},
+        **(
+            {"date_evidence": metadata["activityDateEvidence"]}
+            if activity_union(checkpoint)
+            else {}
+        ),
     }
 
 
@@ -216,13 +278,36 @@ def discovery_evidence_matches(file: Mapping, *, user_id, generation, checkpoint
     try:
         if checkpoint is not None:
             bound = dict(checkpoint, query_index=evidence["query_index"])
+            if (
+                activity_union(bound)
+                and bound["queries"][evidence["query_index"]].get("role") == "frozen_fallback"
+                and (bound.get("activity_fallback_decision") or {}).get("armed") is not True
+            ):
+                return False
             if evidence != discovery_evidence(
                 bound, user_id=user_id, generation=generation, metadata=file
             ):
                 return False
         period = evidence["period"]
+        if evidence["policy"] == DISCOVERY_ACTIVITY_UNION_POLICY:
+            from hushh_mcp.services.drive_date_ontology import match_activity_dates
+
+            frozen = file.get("activityDateEvidence")
+            if (
+                frozen != match_activity_dates(dict(file), period, basis=evidence["date_basis"])
+                or frozen.get("matched") is not True
+                or evidence.get("date_evidence") != frozen
+            ):
+                return False
+        elif "date_evidence" in evidence or "activityDateEvidence" in file:
+            return False
         return (
-            evidence["policy"] in {DISCOVERY_DELIVERY_POLICY, DISCOVERY_PROVIDER_RESULTS_POLICY}
+            evidence["policy"]
+            in {
+                DISCOVERY_DELIVERY_POLICY,
+                DISCOVERY_PROVIDER_RESULTS_POLICY,
+                DISCOVERY_ACTIVITY_UNION_POLICY,
+            }
             and evidence["basis"] == "drive_query"
             and evidence["content_assessment"] == "not_applicable_by_delivery_policy"
             and evidence["owner_user_id"] == user_id
@@ -240,9 +325,63 @@ def discovery_evidence_matches(file: Mapping, *, user_id, generation, checkpoint
                 for k in ("plan_digest", "query_digest")
             )
             and evidence["source"] == {key: file[key] for key in ("id", "name", "mimeType")}
-            and evidence["date_basis"] in {"title_created_modified", "created", "modified"}
+            and evidence["date_basis"]
+            in {"title_created_modified", "created", "modified", "activity_union"}
             and isinstance(period, dict)
             and all(isinstance(period[k], str) and period[k] for k in ("start", "end", "timezone"))
         )
-    except (KeyError, TypeError, IndexError):
+    except (KeyError, TypeError, IndexError, ValueError):
         return False
+
+
+def request_diagnostics(checkpoint):
+    """Private, owner-authenticated request GET only; never an operational log."""
+    if not activity_union(checkpoint):
+        return None
+    decision = checkpoint.get("activity_fallback_decision")
+    if decision is not None:
+        if (
+            not isinstance(decision, dict)
+            or type(decision.get("first_page_valid_distinct_count")) is not int
+            or not 0 <= decision["first_page_valid_distinct_count"] <= 1000
+            or type(decision.get("armed")) is not bool
+            or decision["armed"] != (decision["first_page_valid_distinct_count"] < 3)
+        ):
+            raise ValueError("invalid_fallback_decision")
+    queries = []
+    for index, item in enumerate(checkpoint["queries"]):
+        query = item["arguments"]["query"]
+        if (
+            item.get("role") not in {"primary", "frozen_fallback"}
+            or len(query) > MAX_SEMANTIC_QUERY_CHARS
+        ):
+            raise ValueError("invalid_frozen_query")
+        queries.append(
+            {
+                "index": index,
+                "role": item["role"],
+                "query": query,
+                "queryDigest": hashlib.sha256(query.encode()).hexdigest(),
+                "enabled": item["role"] == "primary"
+                or isinstance(decision, dict)
+                and decision.get("armed") is True,
+            }
+        )
+    if not 1 <= len(queries) <= 2:
+        raise ValueError("invalid_frozen_query")
+    return {
+        "policy": DISCOVERY_ACTIVITY_UNION_POLICY,
+        "planDigest": checkpoint["semantic_plan_digest"],
+        "planVersion": 2,
+        "dateBasis": checkpoint["semantic_plan"]["date_basis"],
+        "period": checkpoint["requested_period"],
+        "fallbackDecision": (
+            {
+                "armed": decision["armed"],
+                "first_page_valid_distinct_count": decision["first_page_valid_distinct_count"],
+            }
+            if isinstance(decision, dict)
+            else None
+        ),
+        "queries": queries,
+    }

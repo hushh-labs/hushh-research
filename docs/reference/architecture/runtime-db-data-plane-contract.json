@@ -1359,14 +1359,16 @@
         "drive_share_file_claims",
         "drive_share_events",
         "drive_query_events",
-        "drive_share_management_contexts"
+        "drive_share_management_contexts",
+        "drive_rest_owner_admission",
+        "drive_rest_call_leases"
       ],
-      "primary_access_path": "PostgreSQL file-level mutation serialization, owner-only removal contexts and a finite metadata-only notification outbox worker. It emits only a closed document_share_* type plus opaque request/event IDs (drive_query_events carries the question-lane types for drive_live_query_requests); web/native derives its fixed local review route and the generic push adapter is called outside the lease transaction. No model/caller-controlled provider endpoint or request/provider URL is forwarded.",
-      "retention_policy": "A file claim remains through uncertain outcomes until GET-only reconciliation; never expire a potentially dispatched mutation into an automatic retry. An erased-owner uncertain effect retains only an ownerless keyed-file fence without age-based release, requiring Google management. Stable file-lock HMAC keys/fences must survive rotation. Each notification event has at most three dispatch attempts with crash-safe lease recovery; a settled timestamp means dispatch work ended, never device/user receipt. The default-off OIDC scheduler route has a fixed small batch/deadline; configuring it, token registration and live acceptance remain release prerequisites.",
-      "deletion_behavior": "Known terminal operations remove live claims. Account reset/deletion removes outbox/private linkage and contexts; recipient erasure retains owner-only contexts for necessary encrypted removal receipts. Owner erasure detaches uncertain claims from deleted operations, leaving no user ID, recipient, provider file ID or credential. Late results cannot reconstruct erased private data.",
+      "primary_access_path": "PostgreSQL file-level mutation serialization, owner-only removal contexts and a finite metadata-only notification outbox worker. It emits only a closed document_share_* type plus opaque request/event IDs (drive_query_events carries the question-lane types for drive_live_query_requests); web/native derives its fixed local review route and the generic push adapter is called outside the lease transaction. No model/caller-controlled provider endpoint or request/provider URL is forwarded. Owner/generation-bound REST admission shares an application budget across replicas: ten starts per second, eight concurrent calls, or lower configured bounds. File claims also serialize bulk grants and removals.",
+      "retention_policy": "A file claim remains through uncertain outcomes until GET-only reconciliation; never expire a potentially dispatched mutation into an automatic retry. An erased-owner uncertain effect retains only an ownerless keyed-file fence without age-based release, requiring Google management. Stable file-lock HMAC keys/fences must survive rotation. Each notification event has at most three dispatch attempts with crash-safe lease recovery; a settled timestamp means dispatch work ended, never device/user receipt. The default-off OIDC scheduler route has a fixed small batch/deadline; configuring it, token registration and live acceptance remain release prerequisites. Call leases expire after 120 seconds and are purged in bounded batches; owner cooldown rows persist per connection generation until connector/account deletion. Quota recovery has six refusal attempts through an application-defined 24-hour boundary; ordinary failures retain five attempts.",
+      "deletion_behavior": "Known terminal operations remove live claims. Account reset/deletion removes outbox/private linkage and contexts; recipient erasure retains owner-only contexts for necessary encrypted removal receipts. Owner erasure detaches uncertain claims from deleted operations, leaving no user ID, recipient, provider file ID or credential. Late results cannot reconstruct erased private data. Connector deletion cascades owner admission and leases. Bulk/removal deletion anonymizes uncertain file claims and releases known-safe claims.",
       "trust_boundary": "Only opaque request/operation/event IDs, owner linkage, timestamps and keyed file equality HMACs. No filenames, purpose, emails, provider IDs, credentials or content in queued notification metadata.",
       "plaintext_posture": "opaque_workflow_identifiers_keyed_equality_digests_and_status_only",
-      "expected_row_growth": "one_active_claim_per_file_and_deduplicated_events_per_request_revision"
+      "expected_row_growth": "one_active_claim_per_file_and_deduplicated_events_per_request_revision; one admission row per connection generation and at most eight unexpired leases per owner generation."
     },
     {
       "id": "drive_picker_selection_sessions",
@@ -1914,7 +1916,10 @@
       "owner": "iam-consent-governance",
       "data_class": "personal_encrypted",
       "lifecycle_status": "release_schema_qualification",
-      "exact_tables": ["finance_share_requests", "finance_access_grants"],
+      "exact_tables": [
+        "finance_share_requests",
+        "finance_access_grants"
+      ],
       "primary_access_path": "Owner-confirmed recipient-encrypted curated Finance objects, delivered by reference through transactional Messages. Snapshot is immutable; ongoing revisions use owner-unlocked saved information and compare-and-swap. History never grants read authority.",
       "retention_policy": "Expiry and stop deny reads immediately. Ciphertext is cleared on the participants' next access/history reconciliation. Dormant expired ciphertext and minimal idempotency/policy metadata remain until reconciliation or account erasure; no scheduled purge is claimed. Indefinite ongoing access is explicit and stops only on revocation, disconnection, key loss or account erasure.",
       "deletion_behavior": "Explicit ordered account cleanup erases grants for either participant and owner request/config rows. Message deletion cascades its grant. Account-generation tombstone write guards prevent recreation. Raw PKM sources and generic financial scopes remain private.",

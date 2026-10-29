@@ -64,12 +64,8 @@ if [[ -n "${_DB_POOL_SETTINGS:-}" ]]; then
   done
   export _DB_POOL_ACQUIRE_TIMEOUT_SECONDS _DB_POOL_MAX_SIZE _DB_POOL_MIN_SIZE _DB_SQLALCHEMY_MAX_OVERFLOW _DB_SQLALCHEMY_POOL_SIZE
 fi
-# Cloud Build has a 100-entry environment limit; keep the reviewed search pair together.
-IFS='|' read -r _DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED _DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER _drive_search_extra <<< "${_DRIVE_SEARCH_SETTINGS:-false|gemini}"
-if [[ -n "${_drive_search_extra}" || ! "${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}" =~ ^(true|false)$ ||
-      ! "${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}" =~ ^(gemini|azure_openai)$ ]]; then
-  echo "Invalid Drive semantic search settings." >&2; exit 1
-fi
+# Keep version-compatible search and rollback controls in one packed entry.
+source scripts/deploy/backend-drive-search-settings.sh
 source scripts/deploy/backend-model-settings.sh
 source scripts/deploy/backend-drive-secret-settings.sh
 # UAT's Drive work-drain scheduler identity is packed into one Cloud Build
@@ -390,6 +386,8 @@ fi
 env_vars=(
   "DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}"
   "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}"
+  "DRIVE_REQUEST_ACTIVITY_UNION_ENABLED=${_DRIVE_REQUEST_ACTIVITY_UNION_ENABLED}"
+  "DRIVE_REQUEST_ACTIVITY_UNION_PAUSED=${_DRIVE_REQUEST_ACTIVITY_UNION_PAUSED}"
   "ENVIRONMENT=${runtime_environment}"
   "HUSHH_DEPLOY_ENV=${_DEPLOY_ENV}"
   "HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE}"

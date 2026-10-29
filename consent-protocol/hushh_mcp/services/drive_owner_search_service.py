@@ -33,6 +33,7 @@ from hushh_mcp.services.drive_owner_search_store import (
     validate_reusable_packet,
 )
 from hushh_mcp.services.drive_request_discovery import (
+    activity_union,
     candidate_metadata,
     compile_discovery_queries,
     discovery_delivery,
@@ -1459,6 +1460,17 @@ def _bounded_corpus_complete(checkpoint, candidates, files, *, incomplete):
 def _advance_query(checkpoint):
     queries = checkpoint.get("queries", [])
     index = checkpoint.get("query_index", 0) + 1
+    while (
+        index < len(queries)
+        and activity_union(checkpoint)
+        and queries[index].get("role") == "frozen_fallback"
+    ):
+        decision = checkpoint.get("activity_fallback_decision")
+        if not isinstance(decision, dict) or type(decision.get("armed")) is not bool:
+            raise DriveReadError("provider_response_invalid")
+        if decision["armed"]:
+            break
+        index += 1
     if index >= len(queries):
         if checkpoint.get("request_origin_id") and checkpoint.get("folder_queue"):
             _phase(checkpoint, "folder_files")
@@ -1841,6 +1853,7 @@ class DriveOwnerSearchService:
         semantic_model_binding=None,
         discovery_delivery_enabled=False,
         provider_results_only_enabled=False,
+        activity_union_enabled=False,
     ):
         """Start or resume the owner-approved request's durable metadata search.
 
@@ -1865,6 +1878,13 @@ class DriveOwnerSearchService:
             authority_mode not in {"owner", "trusted_auto", "agent_package"}
             or type(v1_live_request) is not bool
             or type(autoshare) is not bool
+            or type(activity_union_enabled) is not bool
+            or activity_union_enabled
+            and (
+                not discovery_delivery_enabled
+                or not provider_results_only_enabled
+                or semantic_model_binding is None
+            )
             or type(provider_results_only_enabled) is not bool
             or provider_results_only_enabled
             and not discovery_delivery_enabled
@@ -1905,11 +1925,29 @@ class DriveOwnerSearchService:
             provider_packet=provider_packet,
             parsed_brain=parsed_brain,
         )
+        if activity_union_enabled and (
+            semantic_plan is None
+            or semantic_plan["version"] != 2
+            or semantic_model_binding.get("provider") != "azure_openai"
+        ):
+            raise DriveReadError("invalid_argument")
+        if (
+            not activity_union_enabled
+            and semantic_plan is not None
+            and semantic_plan["version"] != 1
+        ):
+            raise DriveReadError("invalid_argument")
         request = self._request(query, timezone)
         existing = await self.store.by_client(user_id=user_id, client_request_id=request_id)
         if existing is not None and existing["status"] in {"queued", "running"}:
             return existing
-        if indexed:
+        if activity_union_enabled:
+            period = {
+                "start": purpose["periodStart"],
+                "end": purpose["periodEnd"],
+                "timezone": timezone,
+            }
+        elif indexed:
             period = {"start": purpose.get("periodStart"), "end": purpose.get("periodEnd")}
             queries = (
                 route["queries"]
@@ -1998,6 +2036,7 @@ class DriveOwnerSearchService:
                     purpose=purpose,
                     delivery=discovery_delivery_enabled,
                     provider_results=provider_results_only_enabled,
+                    activity_dates=activity_union_enabled,
                 ),
                 "evidence_route": route["kind"],
                 **({"provider_packet": True} if provider_packet else {}),
@@ -2087,7 +2126,7 @@ class DriveOwnerSearchService:
                     if direct_originals or discovery_delivery_enabled
                     else "resolve_targets",
                     "resultLimit": result_limit,
-                    "orderBy": f"{order_field} desc",
+                    "orderBy": queries[0]["arguments"].get("orderBy"),
                     **({"planSource": plan_source} if plan_source else {}),
                     **({"localIndexFirst": True} if local_first else {}),
                 },
@@ -2270,6 +2309,14 @@ class DriveOwnerSearchService:
                 if not isinstance(item, dict)
                 or item.get("mimeType") not in {FOLDER_MIME, SHORTCUT_MIME}
             ]
+        probe = bool(
+            activity_union(checkpoint)
+            and checkpoint.get("query_index") == 0
+            and checkpoint.get("phase") == "user"
+            and checkpoint.get("page_token") is None
+            and checkpoint.get("activity_fallback_decision") is None
+        )
+        probe_ids = set()
         targets = {}
         for candidate in candidates:
             if not isinstance(candidate, dict) or candidate.get("mimeType") != SHORTCUT_MIME:
@@ -2310,6 +2357,8 @@ class DriveOwnerSearchService:
         target_files = dict(
             await asyncio.gather(*(target_metadata(target, key) for target, key in targets.items()))
         )
+        gate_started = time.perf_counter()
+        prior_excluded = checkpoint.get("coverage_counts", {}).get("excludedByDateCount", 0)
         files = []
         incomplete = False
         kind = checkpoint.get("request_file_kind", "any")
@@ -2485,7 +2534,21 @@ class DriveOwnerSearchService:
                 # results remain available even when the title is generic.
                 _counter(checkpoint, "excludedByTopicCount")
                 continue
-            if not period_matches(match):
+            date_evidence = {}
+            if activity_union(checkpoint):
+                from hushh_mcp.services.drive_date_ontology import match_activity_dates
+
+                probe_ids.add(match["file_id"])
+                matched_dates = match_activity_dates(
+                    source, period, basis=checkpoint["semantic_plan"]["date_basis"]
+                )
+                if "filename_budget" in matched_dates["unknown"]:
+                    incomplete = True
+                if not matched_dates["matched"]:
+                    _counter(checkpoint, "excludedByDateCount")
+                    continue
+                date_evidence = {"activityDateEvidence": matched_dates}
+            elif not period_matches(match):
                 _counter(checkpoint, "excludedByDateCount")
                 continue
             files.append(
@@ -2495,8 +2558,26 @@ class DriveOwnerSearchService:
                     source,
                     resource_key=key,
                     shareability=_shareability(source),
-                    evidence=evidence,
+                    evidence={**evidence, **date_evidence},
                 )
+            )
+        if probe:
+            checkpoint["activity_fallback_decision"] = {
+                "first_page_valid_distinct_count": len(probe_ids),
+                "armed": len(probe_ids) < 3,
+            }
+            checkpoint.setdefault("coverage_manifest", {})["fallbackActivated"] = bool(
+                len(checkpoint.get("queries", [])) > 1 and len(probe_ids) < 3
+            )
+        if activity_union(checkpoint):
+            logger.info(
+                "drive_search.date_gate policy=drive_activity_union_v1 provider_rows=%d retained=%d excluded=%d fallback_activated=%s elapsed_ms=%.2f",
+                len(candidates),
+                len(files),
+                checkpoint.get("coverage_counts", {}).get("excludedByDateCount", 0)
+                - prior_excluded,
+                checkpoint.get("coverage_manifest", {}).get("fallbackActivated", False),
+                (time.perf_counter() - gate_started) * 1000,
             )
         return files, incomplete
 
@@ -2857,10 +2938,17 @@ class DriveOwnerSearchService:
                 index = checkpoint["query_index"]
                 if type(index) is not int or index < 0 or checkpoint["phase"] == "folder_files":
                     raise ValueError
+                if (
+                    activity_union(checkpoint)
+                    and checkpoint["queries"][index].get("role") == "frozen_fallback"
+                    and checkpoint.get("activity_fallback_decision", {}).get("armed") is not True
+                ):
+                    raise ValueError
                 if checkpoint["arguments"] != checkpoint["queries"][index]["arguments"]:
                     raise ValueError
             except (KeyError, IndexError, TypeError, ValueError):
                 raise DriveReadError("provider_response_invalid") from None
+        page_query_index = checkpoint.get("query_index", 0)
         args = {**checkpoint["arguments"], "pageSize": file_page_size}
         if phase == "folder_files":
             folder = checkpoint["folder_queue"][0]
@@ -3047,7 +3135,10 @@ class DriveOwnerSearchService:
             for item in files:
                 item.pop("requestEvidence", None)
                 item["discoveryEvidence"] = discovery_evidence(
-                    checkpoint, user_id=job["user_id"], generation=job["generation"], metadata=item
+                    dict(checkpoint, query_index=page_query_index),
+                    user_id=job["user_id"],
+                    generation=job["generation"],
+                    metadata=item,
                 )
             logger.info(
                 "drive_search.delivery policy=%s content_assessment=not_applicable files=%d",

@@ -1,7 +1,7 @@
 """Request discovery is evidence for owner review, never permission to share."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pydantic import ValidationError
@@ -11,6 +11,7 @@ from hushh_mcp.services.drive_owner_search_service import (
     compile_request_queries,
 )
 from hushh_mcp.services.drive_request_review_policy import checkpoint_requires_owner_review
+from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from tests.services.test_drive_request_search_unit import (
     _checkpoint,
@@ -326,3 +327,37 @@ def test_discovery_evidence_preserves_legacy_default_and_explicit_policy_binding
         assert not discovery_evidence_matches(
             file, user_id="owner", generation=7, checkpoint=checkpoint
         )
+
+
+def test_azure_semantic_admission_is_fixed_policy_without_owner_receipt_writes(monkeypatch):
+    from hushh_mcp.runtime_providers.managed_text import managed_text_binding
+    from hushh_mcp.services.drive_sharing_store import _new_semantic_model_binding
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    connection = Mock()
+    for legacy_selector in ("gemini", "azure_openai"):
+        monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", legacy_selector)
+        binding = _new_semantic_model_binding(connection, owner_user_id="arbitrary-owner")
+        assert binding == managed_text_binding()
+        assert binding["authorization_basis"] == "uat_policy"
+    connection.execute.assert_not_called()  # No fabricated acceptance or preference dependency.
+
+
+@pytest.mark.parametrize("binding", [None, {"provider": "vertex"}])
+def test_activity_enrollment_rejects_missing_or_different_processor_but_preserves_v3(
+    monkeypatch, binding
+):
+    from hushh_mcp.runtime_providers import managed_text
+    from hushh_mcp.services.drive_sharing_store import _new_semantic_model_binding
+
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini")
+    monkeypatch.setenv("DRIVE_REQUEST_ACTIVITY_UNION_ENABLED", "true")
+    monkeypatch.setattr(managed_text, "managed_text_policy", lambda: {} if binding else None)
+    monkeypatch.setattr(managed_text, "managed_text_binding", lambda: binding)
+    connection = Mock()
+    with pytest.raises(DriveSharingError, match="provider_unavailable"):
+        _new_semantic_model_binding(connection, owner_user_id="arbitrary-owner")
+    monkeypatch.setenv("DRIVE_REQUEST_ACTIVITY_UNION_ENABLED", "false")
+    assert _new_semantic_model_binding(connection, owner_user_id="arbitrary-owner") == binding
+    connection.execute.assert_not_called()

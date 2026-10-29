@@ -20,6 +20,13 @@ PHONE_RELATIONS = (
     "account_phone_recovery_continuations",
     "account_device_actions",
 )
+PHONE_PRODUCER_PATHS = (
+    "consent-protocol/api",
+    "consent-protocol/hushh_mcp",
+    "consent-protocol/db",
+    "consent-protocol/server.py",
+    "consent-protocol/server_drive_worker.py",
+)
 
 
 class Refused(ValueError):
@@ -76,9 +83,17 @@ def qualify_recorded_source() -> dict:
 def qualify_phone_history_source(sha: str, *, project: str) -> dict:
     """Admit the exact audited non-producer as history, never as a phone reader."""
     require(project == "hushh-pda", "Phone history restoration requires production")
-    record = qualify_source(sha)
+    record = qualify_recorded_source()
     require(
-        record.get("requiredAbsentTables") == list(PHONE_RELATIONS),
+        record.get("requiredAbsentTables") == list(PHONE_RELATIONS)
+        and (
+            sha == record["sourceSha"]
+            or (
+                sha
+                == record["previousSha"]
+                == record.get("previousServices", {}).get("consent-protocol", {}).get("sha")
+            )
+        ),
         "Phone history source boundary changed",
     )
     # The immutable reviewed source must also retain its audited absence of the
@@ -91,11 +106,7 @@ def qualify_phone_history_source(sha: str, *, project: str) -> dict:
             "|".join((*PHONE_RELATIONS, "phone_unlink")),
             sha,
             "--",
-            "consent-protocol/api",
-            "consent-protocol/hushh_mcp",
-            "consent-protocol/db",
-            "consent-protocol/server.py",
-            "consent-protocol/server_drive_worker.py",
+            *PHONE_PRODUCER_PATHS,
         ],
         capture_output=True,
         text=True,

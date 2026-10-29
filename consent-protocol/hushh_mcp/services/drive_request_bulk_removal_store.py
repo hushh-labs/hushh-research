@@ -242,6 +242,31 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
                 and self._plan(row).get("scope") != OWNER_FILE_REMOVAL_SCOPE
             ):
                 raise DriveSharingError("approval_superseded")
+            from hushh_mcp.services.drive_permission_file_claims import claim_file
+
+            plan = self._plan(row)
+            try:
+                acquired = claim_file(
+                    connection,
+                    self.cipher.file_lock(plan["file_id"]),
+                    removal=identifier,
+                    reconcile=row["state"] in {"dispatching", "unknown"},
+                )
+            except DriveSharingError as error:
+                if (
+                    str(error) != "permission_requires_google_management"
+                    or row["state"] != "queued"
+                ):
+                    raise
+                connection.execute(
+                    text(
+                        "UPDATE drive_request_bulk_removals SET state='needs_review',safe_error_code='permission_requires_google_management',updated_at=clock_timestamp() WHERE removal_id=:id"
+                    ),
+                    {"id": identifier},
+                )
+                return None
+            if not acquired:
+                return None
             lease = str(uuid4())
             state = "queued" if row["state"] == "queued" else "unknown"
             updated = self._row(
@@ -261,6 +286,13 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
             raise DriveSharingError("invalid_argument")
 
         def operation(connection):
+            from hushh_mcp.services.drive_permission_file_claims import require_file_claim
+
+            require_file_claim(
+                connection,
+                self.cipher.file_lock(job["plan"]["file_id"]),
+                removal=str(job["removal_id"]),
+            )
             row = self._row(
                 connection,
                 """SELECT state,lease_id,lease_expires_at,v1_statement_search
@@ -285,6 +317,13 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
             raise DriveSharingError("invalid_argument")
 
         def operation(connection):
+            from hushh_mcp.services.drive_permission_file_claims import require_file_claim
+
+            require_file_claim(
+                connection,
+                self.cipher.file_lock(job["plan"]["file_id"]),
+                removal=str(job["removal_id"]),
+            )
             changed = connection.execute(
                 text("""UPDATE drive_request_bulk_removals SET state='dispatching',
                    updated_at=clock_timestamp()

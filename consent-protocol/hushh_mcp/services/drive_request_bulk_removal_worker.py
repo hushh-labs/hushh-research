@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
+from contextlib import nullcontext
 
 from hushh_mcp.services.drive_permission_executor import verified_issuer
 from hushh_mcp.services.drive_request_bulk_removal_store import DriveRequestBulkRemovalStore
+from hushh_mcp.services.drive_rest_admission import owner_scope
 from hushh_mcp.services.drive_revocation_executor import current_recorded_viewer
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.external_connector_oauth_service import (
@@ -28,7 +30,7 @@ class DriveRequestBulkRemovalWorker:
         )
         if verified_issuer(credentials) != job["plan"]["issuer"]:
             raise DriveSharingError("reconnect_original_account")
-        return credentials
+        return row, credentials
 
     async def _run_job(self, row, *, v1_only=False):
         v1_kwargs = {"v1_only": True} if v1_only else {}
@@ -40,48 +42,60 @@ class DriveRequestBulkRemovalWorker:
         plan = job["plan"]
         dispatched = job["state"] == "unknown"
         try:
-            credentials = await self._credential(job)
-            args = {
-                "file_id": plan["file_id"],
-                "access_token": credentials["accessToken"],
-                "require_current": lambda: self.store.require_current(job, **v1_kwargs),
-                "resource_key": plan.get("resource_key"),
-            }
-            await self.adapter.inspect_permission_management(**args, require_app_authorized=False)
-            snapshot = await self.adapter.list_permissions(**args)
-            try:
-                present = current_recorded_viewer(snapshot, plan)
-            except DriveSharingError:
-                await self.store.settle(
-                    job, state="needs_review", code="permission_changed", **v1_kwargs
+            connection, credentials = await self._credential(job)
+            admission = (
+                owner_scope(
+                    db=self.store.db,
+                    owner=job["user_id"],
+                    generation=connection["connection_generation"],
                 )
-                return "needs_review"
-            if present is None:
-                await self.store.settle(job, state="absent", **v1_kwargs)
-                return "absent"
-            if dispatched:
-                # A timed-out DELETE may have succeeded and another actor may
-                # have restored access. Presence alone cannot authorize a retry.
-                await self.store.settle(
-                    job, state="needs_review", code="outcome_unknown", **v1_kwargs
-                )
-                return "needs_review"
-            await self.store.mark_dispatching(job, **v1_kwargs)
-            dispatched = True
-            await self.adapter.remove_recorded_permission(
-                **args, recorded_permission_id=plan["permission_id"]
+                if getattr(self.store, "db", None) is not None
+                else nullcontext()
             )
-            # A successful DELETE response is not the final user-visible
-            # outcome. Confirm the recorded direct ACL is absent; a timeout
-            # here becomes GET-only reconciliation, never another DELETE.
-            after = await self.adapter.list_permissions(**args)
-            if any(item["id"] == plan["permission_id"] for item in after.permissions):
-                await self.store.settle(
-                    job, state="needs_review", code="permission_still_present", **v1_kwargs
+            async with admission:
+                args = {
+                    "file_id": plan["file_id"],
+                    "access_token": credentials["accessToken"],
+                    "require_current": lambda: self.store.require_current(job, **v1_kwargs),
+                    "resource_key": plan.get("resource_key"),
+                }
+                await self.adapter.inspect_permission_management(
+                    **args, require_app_authorized=False
                 )
-                return "needs_review"
-            await self.store.settle(job, state="removed", **v1_kwargs)
-            return "removed"
+                snapshot = await self.adapter.list_permissions(**args)
+                try:
+                    present = current_recorded_viewer(snapshot, plan)
+                except DriveSharingError:
+                    await self.store.settle(
+                        job, state="needs_review", code="permission_changed", **v1_kwargs
+                    )
+                    return "needs_review"
+                if present is None:
+                    await self.store.settle(job, state="absent", **v1_kwargs)
+                    return "absent"
+                if dispatched:
+                    # A timed-out DELETE may have succeeded and another actor may
+                    # have restored access. Presence alone cannot authorize a retry.
+                    await self.store.settle(
+                        job, state="needs_review", code="outcome_unknown", **v1_kwargs
+                    )
+                    return "needs_review"
+                await self.store.mark_dispatching(job, **v1_kwargs)
+                dispatched = True
+                await self.adapter.remove_recorded_permission(
+                    **args, recorded_permission_id=plan["permission_id"]
+                )
+                # A successful DELETE response is not the final user-visible
+                # outcome. Confirm the recorded direct ACL is absent; a timeout
+                # here becomes GET-only reconciliation, never another DELETE.
+                after = await self.adapter.list_permissions(**args)
+                if any(item["id"] == plan["permission_id"] for item in after.permissions):
+                    await self.store.settle(
+                        job, state="needs_review", code="permission_still_present", **v1_kwargs
+                    )
+                    return "needs_review"
+                await self.store.settle(job, state="removed", **v1_kwargs)
+                return "removed"
         except (DriveReadError, TimeoutError) as error:
             if isinstance(error, DriveSharingError) and str(error) == "reconnect_original_account":
                 await self.store.settle(

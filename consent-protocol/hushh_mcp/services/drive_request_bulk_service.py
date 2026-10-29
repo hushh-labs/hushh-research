@@ -455,11 +455,16 @@ class DriveRequestBulkService:
             plan = route["plan"]
             plan_source = "frozen_provider_packet"
         elif context.get("semanticSearch") is True:
+            from hushh_mcp.services.drive_owner_allowed import activity_union_paused
+
+            if context.get("activityDateUnion") is True and activity_union_paused():
+                raise DriveReadError("provider_unavailable", retryable=True)
             # This creation-time policy never falls back to a lexical planner.
             # The complete interpretation is sealed; v2 delivers provider-query matches.
             prompt = {
                 "document_request": purpose,
                 "transaction_search": True,
+                "semantic_plan_version": 2 if context.get("activityDateUnion") is True else 1,
                 "current_time_utc": (
                     requested_at if isinstance(requested_at, datetime) else datetime.now(UTC)
                 )
@@ -598,7 +603,9 @@ class DriveRequestBulkService:
 
     async def search_status(self, *, user_id, request_id):
         await self._context(user_id, request_id)
-        return await self.search.store.by_client(user_id=user_id, client_request_id=request_id)
+        return await self.search.store.by_client(
+            user_id=user_id, client_request_id=request_id, include_diagnostics=True
+        )
 
     async def search_files(self, *, user_id, request_id, cursor=None):
         state = await self.search_status(user_id=user_id, request_id=request_id)
