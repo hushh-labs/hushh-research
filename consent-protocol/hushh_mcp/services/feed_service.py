@@ -840,8 +840,6 @@ class FeedService:
         if current_photos is not None:
             return with_counterpart_identity(rows, current_photos, profile_refs)
 
-        # Rolling-schema fallback must not resurrect an old photo snapshot when
-        # its current identity was removed, cannot be resolved, or is unavailable.
         rows = without_counterpart_identity(rows)
 
         connection_request_ids: set[str] = set()
