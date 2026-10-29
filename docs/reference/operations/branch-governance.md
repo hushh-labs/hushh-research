@@ -187,14 +187,14 @@ freshness boundaries before it is enabled.
 
 1. New development starts from the intended protected Dev baseline and targets Dev. Preserve the active branch and dependency context.
 2. After the UAT transition is authorized, curate UAT explicitly. A merge or cherry-pick produces a new assembled SHA; individual source receipts cannot qualify it.
-3. Until direct-CI admission is qualified, accept that assembled SHA on Dev and then UAT through Main-owned workflows and exact service receipts.
+3. The direct-CI source path admits a protected UAT candidate without a preceding Dev deployment only after exact full-scope CI, current-attempt, serving-base, and protected-security checks pass. Do not treat the end-to-end route as qualified until those proofs pass against reconciled history and the real serving baseline; the source change itself does not authorize a deployment.
 4. Promote accepted UAT content to Main without adding untested content; preserve the application/approval mapping. Concurrent Main changes require reconciliation and affected verification.
 5. Governed maintainer operations/hotfix PRs can target Main directly. Retain legacy train promotions without treating that branch as new intake or deploying automatically.
 6. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
 7. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
 8. After an isolated hotfix lands, return local work to the preserved development branch and delete the temporary branch after rollout validation.
 9. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
-10. UAT uses an exact CI-qualified application with Dev acceptance. Main candidates require Main smoke; UAT-only candidates require canonical PR, queue or full branch validation.
+10. Protected UAT candidates use the exact-CI admission path; historical Main candidates retain Dev-backed acceptance and require Main smoke. UAT-only candidates also require canonical PR, queue, or full branch validation. Do not dispatch the direct path before its exact branch-CI and admission proof pass.
 11. Production deploys only the explicitly approved application through its Main approval or separately governed emergency admission. Cadence remains disabled until it understands the same mapping.
 12. Prepared-branch baseline and curated-selection PRs preserve history. Their merge does not deploy an environment; release tooling remains Main-owned.
 

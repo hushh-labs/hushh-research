@@ -1041,13 +1041,13 @@ Tests follow the same economy: add a test only for a real regression, a trust bo
 
 1. **Dev intake** is the default for new development. Preserve existing `integration/pr-train` work and protection. Governed maintainers retain direct Main operations/hotfix authority under Admin SOP.
 2. Release workflows run from Main. Dev accepts an exact CI-green branch SHA through the [Dev Fast Lane](./dev-fast-lane.md).
-3. UAT deploys by explicit manual dispatch through `.github/workflows/deploy-uat.yml`. The application can be a qualified Main or protected UAT SHA; current admission requires exact Dev acceptance for each selected service. A Main application also requires its landed Main smoke.
+3. UAT deploys by explicit manual dispatch through `.github/workflows/deploy-uat.yml`. A protected UAT candidate can use exact full-scope CI with its current attempt, observed serving base, and protected security checks; historical Main candidates retain Dev-backed acceptance. A Main application also requires its landed Main smoke. The source path does not prove live branch/history/admission qualification by itself.
 4. Manual UAT dispatch is limited to the current
    `uat.manual_dispatch_users` cohort in `config/ci-governance.json`; do not
    transcribe actor names into this document.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only actors listed in `production.manual_dispatch_users` may trigger it.
 6. Ordinary production requires UAT acceptance and Main approval, preserving distinct application and approval SHAs and identical content. The explicit emergency mode waives only predecessor deployment. Automatic publication remains disabled.
-7. Feature and hotfix branches may deploy to Dev through its governed Main-owned dispatch. The approved direction is to allow UAT-specific work after exact-commit CI without a mandatory Dev deployment; that admission path is not yet qualified or active. Until it is, retain the current Dev acceptance requirement.
+7. Feature and hotfix branches may deploy to Dev through its governed Main-owned dispatch. Direct UAT source admission omits a preceding Dev deployment only for the protected UAT candidate with exact CI and the recorded serving base. Treat the route as unqualified until the exact branch-CI and Main-owned admission proof pass against the reconciled history and real serving baseline. This source change does not dispatch or authorize an application deployment.
 
 Deploy to UAT is expected to behave as a closed-loop release lane:
 

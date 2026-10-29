@@ -447,3 +447,16 @@ def test_runtime_observation_rejects_conditional_or_different_service_members():
         },
         "checker@example.invalid",
     )
+
+
+def test_monitoring_jobs_do_not_publish_application_deployment_records():
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root / ".github/workflows/verify-protected-lists.yml").read_text())
+    for name, environment in (
+        ("uat", "uat"),
+        ("production", "production"),
+        ("health-image", "uat"),
+    ):
+        assert workflow["jobs"][name]["environment"] == {"name": environment, "deployment": False}
