@@ -38,13 +38,15 @@ export const PROFILE_PANE_ROOT_LOCATION: ProfilePaneLocation = {
   detail: null,
 };
 
+type ProfilePaneSearchParams =
+  | URLSearchParams
+  | { get(name: string): string | null; toString?: () => string }
+  | string
+  | null
+  | undefined;
+
 function toSearchParams(
-  value:
-    | URLSearchParams
-    | { get(name: string): string | null; toString?: () => string }
-    | string
-    | null
-    | undefined,
+  value: ProfilePaneSearchParams,
 ): URLSearchParams {
   if (value instanceof URLSearchParams) return new URLSearchParams(value);
   if (typeof value === "string") return new URLSearchParams(value.replace(/^\?/, ""));
@@ -129,11 +131,7 @@ export function profilePaneLocationKey(location: ProfilePaneLocation): string {
 }
 
 export function resolveProfilePaneUrlState(
-  searchParams?:
-    | URLSearchParams
-    | { get(name: string): string | null; toString?: () => string }
-    | string
-    | null,
+  searchParams?: ProfilePaneSearchParams,
 ): ProfilePaneUrlState {
   const query = toSearchParams(searchParams);
   const open = query.get(PROFILE_PANE_QUERY) === "1";
@@ -162,12 +160,7 @@ export function profilePaneParentLocation(
 
 function profilePaneHref(
   pathname: string,
-  searchParams:
-    | URLSearchParams
-    | { get(name: string): string | null; toString?: () => string }
-    | string
-    | null
-    | undefined,
+  searchParams: ProfilePaneSearchParams,
   location: ProfilePaneLocation,
 ): string {
   const query = toSearchParams(searchParams);
@@ -182,12 +175,7 @@ function profilePaneHref(
 
 export function buildProfilePaneHref(
   pathname: string,
-  searchParams:
-    | URLSearchParams
-    | { get(name: string): string | null; toString?: () => string }
-    | string
-    | null
-    | undefined,
+  searchParams: ProfilePaneSearchParams,
   location: ProfilePaneLocation = PROFILE_PANE_ROOT_LOCATION,
 ): string {
   return profilePaneHref(pathname, searchParams, location);
@@ -218,12 +206,7 @@ export function legacyProfileRouteRedirectHref(
 
 export function buildProfilePaneCloseHref(
   pathname: string,
-  searchParams:
-    | URLSearchParams
-    | { get(name: string): string | null; toString?: () => string }
-    | string
-    | null
-    | undefined,
+  searchParams: ProfilePaneSearchParams,
 ): string {
   const query = toSearchParams(searchParams);
   query.delete(PROFILE_PANE_QUERY);
@@ -234,12 +217,7 @@ export function buildProfilePaneCloseHref(
 }
 
 export function stripProfilePaneTransientParams(
-  searchParams:
-    | URLSearchParams
-    | { get(name: string): string | null; toString?: () => string }
-    | string
-    | null
-    | undefined,
+  searchParams: ProfilePaneSearchParams,
 ): URLSearchParams {
   const query = toSearchParams(searchParams);
   query.delete("unlock_vault");
@@ -345,12 +323,7 @@ export function canGoBackProfilePane(location: ProfilePaneLocation): boolean {
 
 export function pushProfilePaneLocation(
   pathname: string,
-  searchParams:
-    | URLSearchParams
-    | { get(name: string): string | null; toString?: () => string }
-    | string
-    | null
-    | undefined,
+  searchParams: ProfilePaneSearchParams,
   location: ProfilePaneLocation,
   options: { returnsToOrigin?: boolean } = {},
 ): void {
@@ -393,12 +366,7 @@ export function pushProfilePaneLocation(
 
 export function openProfilePane(
   pathname: string,
-  searchParams:
-    | URLSearchParams
-    | { get(name: string): string | null; toString?: () => string }
-    | string
-    | null
-    | undefined,
+  searchParams: ProfilePaneSearchParams,
   location: ProfilePaneLocation = PROFILE_PANE_ROOT_LOCATION,
   options: {
     /**
@@ -423,12 +391,7 @@ export function openProfilePane(
 
 export function replaceProfilePaneLocation(
   pathname: string,
-  searchParams:
-    | URLSearchParams
-    | { get(name: string): string | null; toString?: () => string }
-    | string
-    | null
-    | undefined,
+  searchParams: ProfilePaneSearchParams,
   location: ProfilePaneLocation,
 ): void {
   if (typeof window === "undefined") return;
@@ -452,12 +415,7 @@ export function replaceProfilePaneLocation(
 
 export function popProfilePaneLocation(
   pathname: string,
-  searchParams:
-    | URLSearchParams
-    | { get(name: string): string | null; toString?: () => string }
-    | string
-    | null
-    | undefined,
+  searchParams: ProfilePaneSearchParams,
 ): void {
   if (typeof window === "undefined") return;
   const current = resolveProfilePaneUrlState(searchParams);
@@ -487,12 +445,7 @@ export function popProfilePaneLocation(
 
 export function closeProfilePane(
   pathname: string,
-  searchParams:
-    | URLSearchParams
-    | { get(name: string): string | null; toString?: () => string }
-    | string
-    | null
-    | undefined,
+  searchParams: ProfilePaneSearchParams,
 ): void {
   if (typeof window === "undefined") return;
   const depth = getProfilePaneHistoryDepth();
@@ -519,12 +472,7 @@ export function closeProfilePane(
  */
 export function clearProfilePaneQuery(
   pathname: string,
-  searchParams:
-    | URLSearchParams
-    | { get(name: string): string | null; toString?: () => string }
-    | string
-    | null
-    | undefined,
+  searchParams: ProfilePaneSearchParams,
 ): void {
   if (typeof window === "undefined") return;
   const state =

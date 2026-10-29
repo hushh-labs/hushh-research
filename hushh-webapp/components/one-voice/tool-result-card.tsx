@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonRow } from "@/components/one-voice/tool-result-person-row";
+
 /**
  * What a tool actually returned, on screen.
  *
@@ -38,7 +40,6 @@ import type {
   OpenedDraft,
   OpenedMailMessage,
 } from "@/lib/one-voice/mail-open";
-import { AvatarBubble } from "@/lib/morphy-ux/ui/surface-primitives";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import {
   NOT_SUCCESS_STATUSES,
@@ -57,7 +58,6 @@ import {
 } from "@/lib/one-voice/session-reducer";
 import { cn } from "@/lib/utils";
 
-import { initialsFor } from "./entity-card";
 
 export type OpenMail = (input: {
   ordinal: number;
@@ -319,38 +319,6 @@ function remainingLabel(expiresAt: unknown, now = Date.now()): string | null {
   if (minutes < 60) return `${Math.max(1, minutes)} min left`;
   const hours = Math.round(minutes / 60);
   return `${hours} ${hours === 1 ? "hour" : "hours"} left`;
-}
-
-function PersonRow({
-  userId,
-  personRef,
-  name,
-  photoUrl,
-  detail,
-}: {
-  userId?: string | null;
-  personRef?: string | null;
-  name: string;
-  photoUrl: string | null;
-  detail?: string | null;
-}) {
-  return (
-    <li className="flex min-h-9 items-center gap-2.5">
-      <AvatarBubble userId={userId} personRef={personRef}
-        initials={initialsFor(name)}
-        size={28}
-        imageUrl={photoUrl}
-      />
-      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[color:var(--app-label)]">
-        {name}
-      </span>
-      {detail ? (
-        <span className="shrink-0 text-[12px] text-[color:var(--app-secondary-label)]">
-          {detail}
-        </span>
-      ) : null}
-    </li>
-  );
 }
 
 function FactRow({

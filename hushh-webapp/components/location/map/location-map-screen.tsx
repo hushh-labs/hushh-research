@@ -1,5 +1,7 @@
 "use client";
 
+import { connectionAvatarInitials as initialsFor } from "@/components/connections/connection-person-avatar";
+
 /**
  * `/one/location/map` — Your Map, for the voice-first Location area.
  *
@@ -95,17 +97,6 @@ export type DecodedMarker = {
 };
 
 export type MapFocus = { kind: "self" } | { kind: "grant"; grantId: string };
-
-function initialsFor(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1)
-    return (parts[0] ?? "").slice(0, 2).toUpperCase() || "?";
-  return (
-    `${parts[0]?.[0] ?? ""}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase() ||
-    "?"
-  );
-}
 
 function ownerName(grant: OneLocationGrant): string {
   return grant.ownerDisplayName?.trim() || "Someone";

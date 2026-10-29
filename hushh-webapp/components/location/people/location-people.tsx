@@ -1,5 +1,7 @@
 "use client";
 
+import { RequestRow } from "@/components/location/people/location-request-row";
+
 /**
  * `/one/location?view=people` for the voice-first Location area.
  *
@@ -15,7 +17,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Search, UserPlus } from "@/components/icons";
 
 import {
-  personInitials,
   selectPendingIncomingRequests,
   selectPendingOutgoingRequests,
   useLocationVoiceReconcile,
@@ -31,9 +32,8 @@ import {
   hrefForLocationAction,
 } from "@/lib/location/screen-ids";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { MUTED_TEXT, SUBCARD_SURFACE } from "@/lib/morphy-ux/tokens/surfaces";
+import { MUTED_TEXT } from "@/lib/morphy-ux/tokens/surfaces";
 import {
-  AvatarBubble,
   EmptyState,
   StatusPill,
 } from "@/lib/morphy-ux/ui/surface-primitives";
@@ -47,7 +47,6 @@ import type {
 } from "@/lib/one-location/types";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
-import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
 const PEOPLE_VOICE_ACTIONS = deriveLocationVoiceActions("one_location_people");
@@ -151,43 +150,6 @@ function rowStatusFor(
     return { label: "Asked", tone: "pending" };
   }
   return null;
-}
-
-function RequestRow({
-  userId,
-  name,
-  photoUrl,
-  detail,
-  actions,
-  testId,
-}: {
-  userId?: string;
-  name: string;
-  photoUrl?: string | null;
-  detail: string;
-  actions: React.ReactNode;
-  testId: string;
-}) {
-  return (
-    <div
-      className={cn(
-        SUBCARD_SURFACE,
-        "flex min-h-[58px] flex-wrap items-center gap-3 px-3.5 py-2.5",
-      )}
-      data-testid={testId}
-    >
-      <AvatarBubble userId={userId}
-        initials={personInitials(name)}
-        imageUrl={photoUrl}
-        size={36}
-      />
-      <div className="min-w-0 flex-1">
-        <p className="ui-text-row-label truncate">{name}</p>
-        <p className={cn(MUTED_TEXT, "truncate")}>{detail}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">{actions}</div>
-    </div>
-  );
 }
 
 export function LocationPeople({

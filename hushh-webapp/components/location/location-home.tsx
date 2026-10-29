@@ -1,5 +1,8 @@
 "use client";
 
+import { connectionAvatarInitials as personInitials } from "@/components/connections/connection-person-avatar";
+export { personInitials };
+
 /**
  * `/one/location?view=now` for the voice-first Location area, plus the three
  * focused lists it summarises (`?action=active-shares`, `shared-with-me`,
@@ -403,15 +406,6 @@ export function selectPendingOutgoingRequests(
     (request) =>
       request.status === "pending" && request.requesterUserId === userId,
   );
-}
-
-export function personInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] ?? "";
-  if (!first) return "?";
-  if (parts.length === 1) return first.slice(0, 2).toUpperCase();
-  const last = parts[parts.length - 1] ?? "";
-  return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase();
 }
 
 function grantRemainingLabel(grant: OneLocationGrant, nowMs: number): string {
