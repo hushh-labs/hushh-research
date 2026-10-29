@@ -102,7 +102,7 @@ describe("One Location onboarding finale — the map is real", () => {
 
     // And the headline stops promising a map.
     expect(
-      screen.getByRole("heading", { name: "You're all set." }),
+      screen.getByRole("heading", { name: "Your people." }),
     ).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /on the map/ })).toBeNull();
   });
@@ -129,6 +129,7 @@ describe("One Location onboarding finale — the map is real", () => {
     fireEvent.click(screen.getByText("Join with a code"));
     expect(screen.getByLabelText("Circle code")).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     fireEvent.click(finishButton());
     expect(props.onComplete).toHaveBeenCalledTimes(1);
   });
@@ -147,10 +148,10 @@ describe("One Location onboarding finale — the copy", () => {
     // What survives: state, the privacy fact, the circle's name, the code, its
     // expiry, the two invite actions, the way in, the way on.
     expect(
-      screen.getByRole("heading", { name: "You're on the map." }),
+      screen.getByRole("heading", { name: "Your people." }),
     ).toBeTruthy();
     expect(screen.queryByText("Private until you share.")).toBeNull();
-    expect(screen.getByText("Meena Family")).toBeTruthy();
+    expect(screen.getByText("Your circle code")).toBeTruthy();
     expect(screen.getByText("Expires in 72 hours")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Copy/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Share/ })).toBeTruthy();

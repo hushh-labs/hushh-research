@@ -116,6 +116,10 @@ class DeploymentSecurityTest(unittest.TestCase):
                     jobs["deployment-security"]["uses"],
                     "./.github/workflows/deployment-security.yml",
                 )
+                self.assertEqual(
+                    jobs["deployment-security"].get("secrets"),
+                    {"GH_SECURITY_ALERTS_TOKEN": "${{ secrets.GH_SECURITY_ALERTS_TOKEN }}"},
+                )
                 for key, job in jobs.items():
                     if key == "deployment-security" or (
                         name == "deploy-uat.yml" and key == "select-target"
@@ -137,6 +141,12 @@ class DeploymentSecurityTest(unittest.TestCase):
                         job["steps"][0]["name"], "Require current-attempt deployment security"
                     )
         reusable = (root / ".github/workflows/deployment-security.yml").read_text()
+        workflow = yaml.safe_load(reusable)
+        declaration = workflow.get("on", workflow.get(True))["workflow_call"]
+        self.assertEqual(
+            declaration.get("secrets"),
+            {"GH_SECURITY_ALERTS_TOKEN": {"required": True}},
+        )
         for name in gate.CALLERS - {"deployment-security.yml"}:
             jobs = yaml.safe_load((root / ".github/workflows" / name).read_text())
             self.assertEqual(jobs["permissions"].get("actions"), "read", name)
