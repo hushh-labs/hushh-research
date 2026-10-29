@@ -868,7 +868,7 @@ describe("Personal World Model page", () => {
     expect(await screen.findByText("Public search is paused right now")).toBeInTheDocument();
     const status = screen.getByTestId("pwm-status-row");
     expect(status).toHaveTextContent(
-      "Your private agent can’t reach its research service. It will try again in about 5 minutes.",
+      "Agent One can’t reach its research service. It will try again in about 5 minutes.",
     );
     expect(screen.getByRole("button", { name: "Try again" })).toBeDisabled();
     expect(reload).not.toHaveBeenCalled();
@@ -941,7 +941,7 @@ describe("Personal World Model page", () => {
       hour: "numeric",
       minute: "2-digit",
     });
-    expect(await screen.findByText(`Your private agent can’t reach its research service. It will try again at ${at}.`)).toBeInTheDocument();
+    expect(await screen.findByText(`Agent One can’t reach its research service. It will try again at ${at}.`)).toBeInTheDocument();
   });
 
   it("offers one explicit new check after exhaustion without an automatic retry loop", async () => {

@@ -118,7 +118,7 @@ describe("hosted document payout and link boundaries", () => {
     const onChanged = vi.fn(), getIdToken = async () => "one-id-token";
     const view = render(<HostedDocumentPanelBody session={oldSession} requestId={requestId} getIdToken={getIdToken} onChanged={onChanged} />);
     fireEvent.click(await screen.findByRole("checkbox", { name: /Original.pdf/ }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize my private agent/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize Agent One/ }));
     fireEvent.click(screen.getByRole("button", { name: "Prepare encrypted copies" }));
     await waitFor(() => expect(state.prepare).toHaveBeenCalledOnce());
     expect(state.approve.mock.calls[0]![2].selectedFiles).toEqual([file]);
@@ -137,7 +137,7 @@ describe("hosted document payout and link boundaries", () => {
     expect(state.sourceSelection).toHaveBeenCalledTimes(3);
     const prepare = screen.getByRole("button", { name: "Prepare encrypted copies" });
     expect(prepare).toBeDisabled();
-    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize my private agent/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize Agent One/ }));
     expect(prepare).toBeEnabled();
     await act(async () => {
       oldPreparation.onProgress({ stage: "upload", completed: 1, total: 1 });
@@ -166,7 +166,7 @@ describe("hosted document payout and link boundaries", () => {
     fireEvent.click(screen.getByRole("button", { name: "Choose files" }));
     fireEvent.click(await screen.findByRole("checkbox", { name: /Recovered.pdf/ }));
     expect(screen.getByRole("button", { name: "Prepare encrypted copies" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize my private agent/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize Agent One/ }));
     expect(screen.getByRole("button", { name: "Prepare encrypted copies" })).toBeEnabled();
     expect(state.approve).not.toHaveBeenCalled();
   });
@@ -210,7 +210,7 @@ describe("hosted document payout and link boundaries", () => {
     expect(deadline).toHaveAttribute("type", "datetime-local");
     const localDeadline = "2026-12-01T14:30:12";
     fireEvent.change(deadline, { target: { value: localDeadline } });
-    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize my private agent/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize Agent One/ }));
     const prepare = screen.getByRole("button", { name: "Prepare encrypted copies" });
     expect(prepare).toBeEnabled();
     await act(async () => { await polls.get(`hosted-document-status:${requestId}`)?.(); });
@@ -230,8 +230,8 @@ describe("hosted document payout and link boundaries", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /Chosen.pdf/ }));
     expect(screen.getByLabelText("Price (USD)")).toHaveValue(2.5);
     expect(new Date((screen.getByLabelText("Access until (your time)") as HTMLInputElement).value).toISOString()).toBe(new Date(localDeadline).toISOString());
-    expect(screen.getByRole("checkbox", { name: /I authorize my private agent/ })).not.toBeChecked();
-    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize my private agent/ }));
+    expect(screen.getByRole("checkbox", { name: /I authorize Agent One/ })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize Agent One/ }));
     expect(screen.getByRole("button", { name: "Prepare encrypted copies" })).toBeEnabled();
     expect(state.selectDocuments).toHaveBeenCalledWith("owner", "picker-session", ["chosen"], false);
     expect(state.terms).toHaveBeenCalledTimes(2); // Initial load and the explicit background tick.
@@ -249,14 +249,14 @@ describe("hosted document payout and link boundaries", () => {
     const onChanged = vi.fn();
     render(<HostedDocumentPanelBody session={{ userId: "a", vaultKey: "vault", vaultOwnerToken: "owner", isCurrent: () => true }} requestId={requestId} getIdToken={async () => "id-token"} onChanged={onChanged} />);
     fireEvent.click(await screen.findByRole("checkbox", { name: /Original.pdf/ }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize my private agent/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize Agent One/ }));
     fireEvent.click(screen.getByRole("button", { name: "Prepare encrypted copies" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Unavailable");
     expect(onChanged).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Approve prepared copies" })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("checkbox", { name: /Original.pdf/ })).toBeEnabled());
     fireEvent.click(screen.getByRole("checkbox", { name: /Original.pdf/ }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize my private agent/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /I authorize Agent One/ }));
     fireEvent.click(screen.getByRole("button", { name: "Prepare encrypted copies" }));
     await waitFor(() => expect(state.prepare).toHaveBeenCalledTimes(2));
     expect(state.approve.mock.calls.map(call => call[2].expectedRevision)).toEqual([1, 2]);

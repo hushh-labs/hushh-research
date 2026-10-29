@@ -24,7 +24,7 @@ describe("portfolio briefing", () => {
     const { unmount } = render(<PortfolioBriefing model={model} onOpen={open} />);
     expect(screen.getByRole("img", { name: "Larger: 90.0% of portfolio" })).toBeTruthy();
     expect(screen.getByText("Cash share").nextElementSibling?.textContent).toBe("Unavailable");
-    expect(screen.getByText("Balance history isn’t in this source.")).toBeTruthy();
+    expect(screen.getByText("No dated history")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View analysis" }));
     expect(open).toHaveBeenCalledOnce();
     unmount();

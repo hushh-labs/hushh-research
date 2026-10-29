@@ -30,9 +30,9 @@ export function PortfolioBriefing({ model, portfolio, onOpen, advisorAction }: {
   const cash = model ? overviewFacts(model, portfolio).cash : null;
   const cashShare = cash !== null && model && model.hero.totalValue > 0 ? cash / model.hero.totalValue * 100 : null;
   const ringReady = largest && Number.isFinite(largest.weightPct) && largest.weightPct <= 100;
-  return <SurfaceCard className={styles.insightShell} data-testid="portfolio-briefing">
+  return <SurfaceCard className={`${styles.insightShell} ${!model ? styles.importEntry : ""}`} data-testid="portfolio-briefing">
     <SurfaceCardContent className={`${styles.insightCard} space-y-0`}>
-      <SectionLabel role="heading" aria-level={2}>One’s briefing</SectionLabel>
+      <SectionLabel role="heading" aria-level={2}>Agent One’s briefing</SectionLabel>
       {largest ? <div className={styles.concentrationSummary}>
         <div className={ringReady ? styles.concentrationRing : styles.concentrationValue}
           style={ringReady ? { "--holding-share": `${largest.weightPct * 3.6}deg` } as CSSProperties : undefined}
@@ -46,7 +46,7 @@ export function PortfolioBriefing({ model, portfolio, onOpen, advisorAction }: {
           <div><dt>Cash share</dt><dd>{cashShare === null ? "Unavailable" : `${cashShare.toFixed(1)}%`}</dd></div>
           {leadingSector ? <div><dt>{leadingSector.sector} share</dt><dd aria-label={`${leadingSector.pct.toFixed(1)}% of portfolio`}>{leadingSector.pct.toFixed(1)}%</dd></div> : null}
         </dl>
-        <p className={styles.insightNotice}><CalendarDays aria-hidden="true" /><span>{model.quality.historyReady ? "Dated balance history is available." : "Balance history isn’t in this source."}</span></p>
+        <p className={styles.insightNotice}><CalendarDays aria-hidden="true" /><span>{model.quality.historyReady ? "Dated history available" : "No dated history"}</span></p>
       </> : null}
       <div className={styles.cardFooter}>{onOpen ? <ShellActionSurface variant="pill" className="min-h-11" onClick={onOpen}>
         {model ? "View analysis" : "Import portfolio"}

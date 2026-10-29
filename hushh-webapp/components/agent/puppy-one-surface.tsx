@@ -77,7 +77,7 @@ function PuppyPlacement({ ownerId, ...props }: PuppySurfaceProps & { ownerId?: s
     : checking ? "Checking your agent…"
     : failed ? "Couldn’t check your agent."
     : status?.hostingMode === "shared" ? "Puppy needs your own cloud."
-    : status?.hostingMode === "pending" ? "Finish setting up your private agent to connect Puppy."
+    : status?.hostingMode === "pending" ? "Finish setting up Agent One to connect Puppy."
     : "Set up your own cloud to connect Puppy.";
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col p-4", props.className)}

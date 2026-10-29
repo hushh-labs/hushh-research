@@ -204,7 +204,7 @@ export function azureConnected(location: string | null | undefined) {
   return {
     projectId: "Microsoft Azure",
     rationale: location
-      ? `Your private agent runs in ${location}, in your own Azure subscription.`
-      : "Your private agent runs in your own Azure subscription.",
+      ? `Agent One runs in ${location}, in your own Azure subscription.`
+      : "Agent One runs in your own Azure subscription.",
   };
 }
