@@ -51,6 +51,9 @@ import {
   TAKEOVER_OVERLAY_Z_CLASSNAME,
   TAKEOVER_SURFACE_Z_CLASSNAME,
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
+import { SavedLocationDetailFields } from "./saved-location-detail-fields";
+import { OnboardingPlaceScreen } from "./onboarding-place-screen";
+import { OnboardingLiveMap } from "./onboarding-live-map";
 import { isNative } from "@/lib/capacitor/platform";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import { cn } from "@/lib/utils";
@@ -380,6 +383,13 @@ export type SaveLocationModalProps = {
   collectAddressDetails?: boolean;
   /** Present map, address, details, and category together as onboarding step 3. */
   unifiedOnboarding?: boolean;
+  /** Compact two-screen onboarding; the existing form still owns the save. */
+  compactOnboarding?: boolean;
+  onboardingRouteId?: string;
+  onRequestLocation?: () => void;
+  requestingLocation?: boolean;
+  onboardingPlaceSaved?: boolean;
+  onContinue?: () => void;
   /** Navigate back without treating the place as skipped. */
   onBack?: () => void;
   /** Pre-select a category when editing an existing saved place. */
@@ -475,14 +485,16 @@ function SavedLocationCategoryPicker({
   value,
   disabled,
   onChange,
+  compact = false,
 }: {
+  compact?: boolean;
   value: SavedLocationCategory | null;
   disabled: boolean;
   onChange: (category: SavedLocationCategory) => void;
 }) {
   return (
     <div role="group" aria-label="Saved location category">
-      <p data-location-type-role="row-description" className={controlLabelClassName}>Kind of place</p>
+      <p data-location-type-role="row-description" className={compact ? "sr-only" : controlLabelClassName}>Kind of place</p>
       <div className="grid grid-cols-3 gap-2.5">
         {CATEGORY_OPTIONS.map(({ category, label, Icon }) => {
           const selected = value === category;
@@ -494,7 +506,8 @@ function SavedLocationCategoryPicker({
               onClick={() => onChange(category)}
               disabled={disabled}
               className={cn(
-                "press-scale flex min-h-[82px] flex-col items-center justify-center gap-2 rounded-[14px] border px-2 py-3 transition-colors disabled:opacity-45",
+                "press-scale flex items-center justify-center gap-2 rounded-[14px] border px-2 transition-colors disabled:opacity-45",
+                compact ? "min-h-11 flex-row py-2" : "min-h-[82px] flex-col py-3",
                 selected
                   ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
                   : "border-border/70 bg-[color:var(--app-card-surface-default-solid)] text-muted-foreground hover:bg-foreground/[0.03]",
@@ -535,6 +548,12 @@ export function SaveLocationModal({
   takeover = false,
   collectAddressDetails = false,
   unifiedOnboarding = false,
+  compactOnboarding = false,
+  onboardingRouteId,
+  onRequestLocation,
+  requestingLocation = false,
+  onboardingPlaceSaved = false,
+  onContinue,
   onBack,
   initialCategory = null,
   existingLocations = [],
@@ -722,7 +741,7 @@ export function SaveLocationModal({
   // once, here, so every place this line is shown or saved says the same thing.
   const resolvedAddress = stripPlusCodeSegment(address);
   const changingPlace = selectingPlaceId !== null;
-  const interactionBusy = saving || changingPlace || unifiedSaveInFlight;
+  const interactionBusy = saving || changingPlace || unifiedSaveInFlight || requestingLocation;
   const canEditPlace = Boolean(onSearchPlaces && onSelectPlace);
   const canPickOnMap = Boolean(
     onPickExactLocation &&
@@ -735,7 +754,7 @@ export function SaveLocationModal({
    * painted over the map itself. Only true on device: on web the map is an
    * ordinary element inside the sheet and the scrim belongs there.
    */
-  const nativeMapShowing = isNative() && flowStep === "map" && canPickOnMap;
+  const nativeMapShowing = isNative() && canPickOnMap && ((unifiedOnboarding && !onboardingPlaceSaved) || flowStep === "map");
   useEffect(() => {
     if (!open) return;
     if (startWithMapPicker && canPickOnMap) {
@@ -1070,7 +1089,9 @@ export function SaveLocationModal({
    * `SHEET_TAKEOVER_SURFACE_CLASSNAME` for why a merge cannot be trusted to
    * erase the 92% cap.
    */
-  const surfaceGeometryClassName = unifiedOnboarding
+  const surfaceGeometryClassName = compactOnboarding
+    ? "!h-[calc(100dvh-var(--kb-height,0px))] !max-h-[calc(100dvh-var(--kb-height,0px))] w-full !rounded-none border-0"
+    : unifiedOnboarding
     ? "w-full max-h-[calc((100dvh-var(--kb-height,0px))*0.96)] rounded-t-[28px] border-x-0 border-b-0"
     : takeover
       ? SHEET_TAKEOVER_SURFACE_CLASSNAME
@@ -1088,10 +1109,73 @@ export function SaveLocationModal({
   const surfaceZClassName =
     takeover || unifiedOnboarding ? TAKEOVER_SURFACE_Z_CLASSNAME : undefined;
 
+  const unifiedDetailFields = (
+    <SavedLocationDetailFields
+      effectiveAddressLine={effectiveAddressLine}
+      addressLineError={addressLineError}
+      addressLineErrorId={addressLineErrorId}
+      setAddressLineValue={setAddressLineValue}
+      setAddressTouched={setAddressTouched}
+      interactionBusy={interactionBusy}
+      deferredUntilVault={deferredUntilVault}
+      addressDetails={addressDetails}
+      updateAddressDetail={updateAddressDetail}
+      category={category}
+      customLabel={customLabel}
+      setCustomLabel={setCustomLabel}
+      controlLabelClassName={controlLabelClassName}
+      controlInputClassName={controlInputClassName}
+      categoryPicker={!compactOnboarding ? <SavedLocationCategoryPicker value={category} disabled={interactionBusy} onChange={setCategory} /> : null}
+    />
+  );
+
   const surfaceChildren = (
     <>
       <style>{CAROUSEL_KEYFRAMES}</style>
-      {unifiedOnboarding ? (
+      {unifiedOnboarding && compactOnboarding ? (
+        <>
+          <DialogTitle className="sr-only">Your place</DialogTitle>
+          <OnboardingPlaceScreen
+            routeId={onboardingRouteId}
+            nativeMapShowing={nativeMapShowing}
+            map={onboardingPlaceSaved ? (
+              <OnboardingLiveMap point={mapInitial ? { lat: mapInitial.latitude, lng: mapInitial.longitude } : null} emptyLabel="Place saved." className="absolute inset-0" />
+            ) : canPickOnMap ? (
+              <LocationPickerMap
+                ref={mapPickerRef}
+                embedded
+                compact
+                initialLatitude={mapInitial!.latitude}
+                initialLongitude={mapInitial!.longitude}
+                initialAddress={pickedAddress || resolvedAddress}
+                initialAccuracyM={initialAccuracyM}
+                reverseGeocode={reverseGeocode}
+                onLocateMe={onLocateMe}
+                onConfirm={handleConfirmMapPick}
+                onSelectionChange={updateUnifiedPickedLocation}
+                onReadyChange={setMapReady}
+                onCancel={onBack ?? onSkip}
+                rendererDisclosureAccepted={rendererReady}
+                onAcceptRendererDisclosure={handleAcceptRendererDisclosure}
+              />
+            ) : null}
+            address={effectiveAddressLine}
+            loadingAddress={loadingAddress}
+            categoryPicker={<SavedLocationCategoryPicker compact value={category} disabled={interactionBusy || onboardingPlaceSaved} onChange={setCategory} />}
+            details={unifiedDetailFields}
+            hasPoint={canPickOnMap}
+            canSave={unifiedCanSave}
+            busy={interactionBusy}
+            capturing={requestingLocation}
+            saved={onboardingPlaceSaved}
+            error={unifiedSaveError}
+            onBack={onBack ?? onSkip}
+            onRequestLocation={onRequestLocation ?? (() => undefined)}
+            onSave={onboardingPlaceSaved ? (onContinue ?? onSkip) : handleSave}
+            onLater={onSkip}
+          />
+        </>
+      ) : unifiedOnboarding ? (
         <div
           className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[color:var(--app-grouped-background)]"
           data-testid="one-location-onboarding-save-place-surface"
@@ -1195,145 +1279,7 @@ export function SaveLocationModal({
                   </div>
                 </section>
 
-                <section
-                  className="min-w-0 space-y-4"
-                  aria-label="Place details"
-                >
-                  <div>
-                    <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                      <label data-location-type-role="form-label"
-                        htmlFor="onboarding-saved-location-address"
-                        className={cn(controlLabelClassName, "mb-0")}
-                      >
-                        Address
-                      </label>
-                      <span data-location-type-role="row-description" aria-hidden className={REQUIRED_BADGE_CLASSNAME}>
-                        Required
-                      </span>
-                    </div>
-                    <input data-location-type-role="input"
-                      id="onboarding-saved-location-address"
-                      type="text"
-                      required
-                      aria-required="true"
-                      aria-invalid={addressLineError}
-                      aria-describedby={
-                        addressLineError ? addressLineErrorId : undefined
-                      }
-                      value={effectiveAddressLine}
-                      onChange={(event) =>
-                        setAddressLineValue(event.target.value)
-                      }
-                      onBlur={() => setAddressTouched(true)}
-                      disabled={interactionBusy}
-                      maxLength={300}
-                      autoComplete={
-                        deferredUntilVault ? "off" : "street-address"
-                      }
-                      placeholder="12 MG Road, Bengaluru"
-                      className={cn(
-                        controlInputClassName,
-                        "aria-[invalid=true]:border-[color:var(--app-destructive)]",
-                      )}
-                    />
-                    {addressLineError ? (
-                      <p data-location-type-role="row-description"
-                        id={addressLineErrorId}
-                        role="alert"
-                        className="mt-1.5 text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
-                      >
-                        Enter the address.
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-                    <div>
-                      <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                        <label data-location-type-role="form-label"
-                          htmlFor="onboarding-saved-location-house"
-                          className={cn(controlLabelClassName, "mb-0")}
-                        >
-                          House or flat
-                        </label>
-                        <span data-location-type-role="row-description" aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
-                          Optional
-                        </span>
-                      </div>
-                      <input data-location-type-role="input"
-                        id="onboarding-saved-location-house"
-                        type="text"
-                        value={addressDetails.houseOrFlat}
-                        onChange={(event) =>
-                          updateAddressDetail("houseOrFlat", event.target.value)
-                        }
-                        disabled={interactionBusy}
-                        maxLength={80}
-                        autoComplete={
-                          deferredUntilVault ? "off" : "address-line1"
-                        }
-                        placeholder="Flat 4B, Tower 2"
-                        className={controlInputClassName}
-                      />
-                    </div>
-                    <div>
-                      <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                        <label data-location-type-role="form-label"
-                          htmlFor="onboarding-saved-location-landmark"
-                          className={cn(controlLabelClassName, "mb-0")}
-                        >
-                          Landmark
-                        </label>
-                        <span data-location-type-role="row-description" aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
-                          Optional
-                        </span>
-                      </div>
-                      <input data-location-type-role="input"
-                        id="onboarding-saved-location-landmark"
-                        type="text"
-                        value={addressDetails.landmark}
-                        onChange={(event) =>
-                          updateAddressDetail("landmark", event.target.value)
-                        }
-                        disabled={interactionBusy}
-                        maxLength={100}
-                        autoComplete={
-                          deferredUntilVault ? "off" : "address-line2"
-                        }
-                        placeholder="e.g. Opposite City Hospital"
-                        className={controlInputClassName}
-                      />
-                    </div>
-                  </div>
-
-                  <SavedLocationCategoryPicker
-                    value={category}
-                    disabled={interactionBusy}
-                    onChange={setCategory}
-                  />
-
-                  {category === "other" ? (
-                    <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
-                      <label data-location-type-role="form-label"
-                        htmlFor="onboarding-saved-location-name"
-                        className={controlLabelClassName}
-                      >
-                        Name it
-                      </label>
-                      <input data-location-type-role="input"
-                        id="onboarding-saved-location-name"
-                        type="text"
-                        value={customLabel}
-                        onChange={(event) => setCustomLabel(event.target.value)}
-                        disabled={interactionBusy}
-                        maxLength={40}
-                        placeholder="Gym, parents' house"
-                        className={controlInputClassName}
-                      />
-                    </div>
-                  ) : null}
-
-                </section>
+                {unifiedDetailFields}
               </div>
             </div>
           </div>
@@ -2019,13 +1965,14 @@ export function SaveLocationModal({
     return (
       <Sheet open={open} modal onOpenChange={handleSurfaceOpenChange}>
         <SheetContent
+          data-location-type-scale={compactOnboarding ? "connect" : undefined}
           data-location-type-context={takeover || unifiedOnboarding ? "flow" : "overlay"}
           side="bottom"
           showCloseButton={false}
           showDragHandle={false}
           contentDragDismiss={false}
           data-testid="save-location-modal"
-          aria-describedby={descriptionId}
+          aria-describedby={compactOnboarding ? undefined : descriptionId}
           onPointerDown={handleSwipeStart}
           onPointerUp={handleSwipeEnd}
           onPointerCancel={() => {
@@ -2056,10 +2003,11 @@ export function SaveLocationModal({
   return (
     <Dialog open={open} modal onOpenChange={handleSurfaceOpenChange}>
       <DialogContent
+        data-location-type-scale={compactOnboarding ? "connect" : undefined}
         data-location-type-context={takeover || unifiedOnboarding ? "flow" : "overlay"}
         showCloseButton={false}
         data-testid="save-location-modal"
-        aria-describedby={descriptionId}
+        aria-describedby={compactOnboarding ? undefined : descriptionId}
         onPointerDown={handleSwipeStart}
         onPointerUp={handleSwipeEnd}
         onPointerCancel={() => {
@@ -2077,7 +2025,9 @@ export function SaveLocationModal({
           "rounded-[20px] border",
           DIALOG_SURFACE_CLASSNAME,
           unifiedOnboarding &&
-            "!h-[min(92dvh,860px)] !max-h-[min(92dvh,860px)] sm:!max-w-[min(1120px,calc(100vw-48px))]",
+            (compactOnboarding
+              ? "!h-[min(620px,calc(100dvh-48px))] !max-h-[min(620px,calc(100dvh-48px))] sm:!max-w-[min(1040px,calc(100vw-48px))]"
+              : "!h-[min(92dvh,860px)] !max-h-[min(92dvh,860px)] sm:!max-w-[min(1120px,calc(100vw-48px))]"),
           surfaceEdgeClassName,
           surfacePaddingClassName,
           surfaceShadowClassName,

@@ -59,6 +59,7 @@ const SHEET_CONSUMERS = [
   "components/kai/views/analysis-history-dashboard.tsx",
   "components/one-location/contact-sync-results-sheet.tsx",
   "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
+  "components/one-location/onboarding/onboarding-option-sheet.tsx",
   "components/one-location/onboarding/save-location-modal.tsx",
   "components/one-location/redesign/circles/circle-grow-actions.tsx",
   "components/one-location/redesign/circles/named-circle-flows.tsx",
@@ -107,6 +108,7 @@ describe("the shared bottom sheet stays shared", () => {
       "components/app-ui/settings-ui.tsx",
       "components/computer-use/computer-use-task-card.tsx",
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
+      "components/one-location/onboarding/onboarding-option-sheet.tsx",
       "components/one-location/onboarding/save-location-modal.tsx",
     ]);
   });
@@ -241,6 +243,21 @@ describe("useSheetDragHandle", () => {
     );
   }
 
+  function DelegatedGrabber({ testId }: { testId: string }) {
+    const drag = useSheetDragHandle();
+    return (
+      <div
+        data-testid={testId}
+        onPointerDown={drag?.onPointerDown}
+        onPointerMove={drag?.onPointerMove}
+        onPointerUp={drag?.onPointerUp}
+        onPointerCancel={drag?.onPointerCancel}
+      >
+        rail
+      </div>
+    );
+  }
+
   it("hands a bottom sheet's children the grabber's pointer handlers", () => {
     render(
       <Sheet open onOpenChange={vi.fn()}>
@@ -306,21 +323,6 @@ describe("useSheetDragHandle", () => {
     // the gesture and then refuses it.
     const onOpenChange = vi.fn();
 
-    function Header() {
-      const drag = useSheetDragHandle();
-      return (
-        <div
-          data-testid="delegated-grabber"
-          onPointerDown={drag?.onPointerDown}
-          onPointerMove={drag?.onPointerMove}
-          onPointerUp={drag?.onPointerUp}
-          onPointerCancel={drag?.onPointerCancel}
-        >
-          rail
-        </div>
-      );
-    }
-
     render(
       <Sheet open onOpenChange={onOpenChange}>
         <SheetContent
@@ -329,7 +331,7 @@ describe("useSheetDragHandle", () => {
           contentDragDismiss={false}
           aria-label="Delegated"
         >
-          <Header />
+          <DelegatedGrabber testId="delegated-grabber" />
         </SheetContent>
       </Sheet>,
     );
@@ -358,21 +360,6 @@ describe("useSheetDragHandle", () => {
   it("snaps back instead of dismissing when the drag is too short", () => {
     const onOpenChange = vi.fn();
 
-    function Header() {
-      const drag = useSheetDragHandle();
-      return (
-        <div
-          data-testid="short-grabber"
-          onPointerDown={drag?.onPointerDown}
-          onPointerMove={drag?.onPointerMove}
-          onPointerUp={drag?.onPointerUp}
-          onPointerCancel={drag?.onPointerCancel}
-        >
-          rail
-        </div>
-      );
-    }
-
     render(
       <Sheet open onOpenChange={onOpenChange}>
         <SheetContent
@@ -381,7 +368,7 @@ describe("useSheetDragHandle", () => {
           contentDragDismiss={false}
           aria-label="Short"
         >
-          <Header />
+          <DelegatedGrabber testId="short-grabber" />
         </SheetContent>
       </Sheet>,
     );

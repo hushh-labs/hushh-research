@@ -113,6 +113,8 @@ jobs:
     needs: select-target
     if: needs.select-target.outputs.decision != 'NO_OP'
     uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
     with:
       application_ref: ${{ needs.select-target.outputs.sha }}
       environment_name: uat

@@ -1229,7 +1229,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "The Location introduction unwinds optional panels, then Ready or Save a place to Features, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent. Circle creation unwinds its contact step before the route parent, retains saved identity and selection, and consumes Back during membership saves. Contact invitation overlay Back unwinds batch result to review to selection, preserving selected recipients; a pending composer consumes Back and explicit Close clears its session."
+      "reason": "The Location introduction unwinds optional panels, then Your people to Your place, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent. Circle creation unwinds its contact step before the route parent, retains saved identity and selection, and consumes Back during membership saves. Contact invitation overlay Back unwinds batch result to review to selection, preserving selected recipients; a pending composer consumes Back and explicit Close clears its session."
     }
   },
   {
@@ -3770,7 +3770,7 @@
         "callbackError": "Use the verified current route and its generated actions only.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "The Location introduction finishes when its completion marker is saved and the setup hub settles. Device location access is requested later from the Location workspace.",
+      "completionBoundary": "The two-screen Location introduction finishes when its completion marker is saved and the setup hub settles. Your place requests foreground access only on a tap, saves through the existing transaction, or advances with Set up later. Denial never blocks completion. Optional details, contacts and join tasks use sheets; no sharing starts implicitly.",
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3787,7 +3787,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "The Location introduction unwinds optional panels, then Ready or Save a place to Features, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
+      "reason": "The Location introduction unwinds optional panels, then Your people to Your place, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
     }
   },
   {

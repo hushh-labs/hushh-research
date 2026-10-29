@@ -1,24 +1,29 @@
 """Request discovery is evidence for owner review, never permission to share."""
 
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pydantic import ValidationError
 
+from hushh_mcp.services import drive_owner_search_service as search_module
 from hushh_mcp.services.drive_owner_search_service import (
     DriveOwnerSearchService,
     compile_request_queries,
 )
+from hushh_mcp.services.drive_request_package_service import assessment_policy_version
 from hushh_mcp.services.drive_request_review_policy import checkpoint_requires_owner_review
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from tests.services.test_drive_request_search_unit import (
+    _activity_checkpoint,
     _checkpoint,
     _discovery_checkpoint,
     _provider_file,
     _real_rest_service,
     _request_candidate,
+    _semantic_checkpoint,
 )
 
 
@@ -329,12 +334,17 @@ def test_discovery_evidence_preserves_legacy_default_and_explicit_policy_binding
         )
 
 
-def test_azure_semantic_admission_is_fixed_policy_without_owner_receipt_writes(monkeypatch):
+@pytest.mark.parametrize("provider", ["azure_openai", "vertex"])
+def test_managed_semantic_admission_is_fixed_policy_without_owner_receipt_writes(
+    monkeypatch, provider
+):
     from hushh_mcp.runtime_providers.managed_text import managed_text_binding
     from hushh_mcp.services.drive_sharing_store import _new_semantic_model_binding
 
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", provider)
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
     connection = Mock()
     for legacy_selector in ("gemini", "azure_openai"):
         monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", legacy_selector)
@@ -344,7 +354,7 @@ def test_azure_semantic_admission_is_fixed_policy_without_owner_receipt_writes(m
     connection.execute.assert_not_called()  # No fabricated acceptance or preference dependency.
 
 
-@pytest.mark.parametrize("binding", [None, {"provider": "vertex"}])
+@pytest.mark.parametrize("binding", [None, {"provider": "vertex"}, {"provider": "gemini"}])
 def test_activity_enrollment_rejects_missing_or_different_processor_but_preserves_v3(
     monkeypatch, binding
 ):
@@ -361,3 +371,66 @@ def test_activity_enrollment_rejects_missing_or_different_processor_but_preserve
     monkeypatch.setenv("DRIVE_REQUEST_ACTIVITY_UNION_ENABLED", "false")
     assert _new_semantic_model_binding(connection, owner_user_id="arbitrary-owner") == binding
     connection.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider,activity", [("azure_openai", False), ("azure_openai", True), ("gemini", True)]
+)
+async def test_semantic_checkpoint_seals_explicit_binding_and_its_policy(
+    monkeypatch, provider, activity
+):
+    from hushh_mcp.services import drive_request_package_assessment as assessment
+
+    monkeypatch.setattr(
+        assessment, "validate_semantic_model_binding", lambda value: deepcopy(value)
+    )
+    binding = {
+        "provider": provider,
+        "deployment": "synthetic-deployment",
+        "config_fingerprint": "a" * 64,
+        "approval_generation": "synthetic-generation",
+        "authorization_basis": "uat_policy",
+    }
+    store = SimpleNamespace(
+        clear_legacy_completed_request=AsyncMock(),
+        by_client=AsyncMock(return_value=None),
+        create=AsyncMock(return_value=({"jobId": "synthetic-job"}, True)),
+        align_request_expiry=AsyncMock(),
+    )
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    service.run_one = AsyncMock()
+    service.status = AsyncMock(return_value={"jobId": "synthetic-job", "status": "queued"})
+    monkeypatch.setattr(search_module, "wake_drive_work", AsyncMock())
+    await service.create_for_request(
+        user_id="owner",
+        request_id="12345678-1234-1234-1234-123456789012",
+        request_revision=1,
+        purpose={
+            "purpose": "Synthetic Subject records",
+            "periodStart": "2026-09-02",
+            "periodEnd": "2026-10-02",
+        },
+        plan={
+            "mode": "find",
+            "terms": [],
+            "file_kind": "any",
+            "semantic_query": (
+                _activity_checkpoint() if activity else _semantic_checkpoint("Synthetic Subject")
+            )["semantic_plan"],
+        },
+        require_current=AsyncMock(),
+        semantic_search=True,
+        semantic_model_binding=binding,
+        discovery_delivery_enabled=activity,
+        provider_results_only_enabled=activity,
+        activity_union_enabled=activity,
+    )
+    sealed = store.create.await_args.kwargs["checkpoint"]
+    assert sealed["semantic_model_binding"] == binding
+    assert sealed["semantic_model_binding"] is not binding
+    assert sealed["semantic_assessment_policy"] == assessment_policy_version(binding)
+    assert sealed["semantic_assessment_policy"] != assessment_policy_version()
+    from hushh_mcp.services.drive_owner_search_store import _semantic_binding_current
+
+    _semantic_binding_current(sealed)
