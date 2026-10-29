@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
+import { calendarDate } from "@/components/calendar/calendar-schedule-presentation";
 
 const mocks = vi.hoisted(() => ({
   boardDay: vi.fn(), reviewBoardBooking: vi.fn(), executeProposal: vi.fn(), reviewWorkspaceConflict: vi.fn(), confirmWorkspaceConflict: vi.fn(),
@@ -190,7 +192,9 @@ describe("three-account Calendar board", () => {
     expect(mocks.executeProposal).not.toHaveBeenCalled();
   });
 
-  it("returns to the event's actual Board date when booking in another zone", async () => {
+  it("returns to the event's actual Board date after booking in UTC", async () => {
+    const boardZone = calendarTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    const boardDate = calendarDate(Date.parse("2026-10-21T23:30:00.000Z"), boardZone);
     render(page());
     fireEvent.click(await screen.findByRole("button", { name: /Schedule from shared free time/ }));
     const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
@@ -204,7 +208,7 @@ describe("three-account Calendar board", () => {
     fireEvent.click(await within(dialog).findByRole("button", { name: "Schedule personal block" }));
     await waitFor(() => expect(mocks.executeProposal).toHaveBeenCalledOnce());
     await waitFor(() => expect(mocks.boardDay.mock.calls.length).toBeGreaterThan(callsBeforeConfirmation));
-    await waitFor(() => expect(mocks.boardDay.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ date: "2026-10-22", timeZone: "Asia/Kolkata" })));
+    await waitFor(() => expect(mocks.boardDay.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ date: boardDate, timeZone: boardZone })));
   });
 
   it("retries only a definitely failed organizer email once without changing attendance", async () => {
