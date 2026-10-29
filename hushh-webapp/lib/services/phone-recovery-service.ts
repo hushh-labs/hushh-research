@@ -32,11 +32,12 @@ function linkedReceipt(value: LinkedDeletionReceipt, operation: string): LinkedD
   return value;
 }
 
-async function request<T>(user: User, current: () => boolean, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+async function request<T>(user: User, current: () => boolean, path: string, body?: unknown, signal?: AbortSignal,
+  authRefreshRetry?: "never"): Promise<T> {
   if (!current()) throw new Error("Your account changed. Sign in again.");
   const token = await withDeadline(user.getIdToken(), Date.now() + 8_000);
   if (!current()) throw new Error("Your account changed. Sign in again.");
-  return apiJson<T>(path, { method: body === undefined ? "GET" : "POST", cache: "no-store",
+  return apiJson<T>(path, { method: body === undefined ? "GET" : "POST", cache: "no-store", authRefreshRetry,
     headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000), isEffectCurrent: current });
@@ -55,8 +56,9 @@ export const PhoneRecoveryService = {
     return value;
   },
   async confirmLinkedDeletion(user: User, operation: string, phone: string, proof: LinkedDeletionProof, current: () => boolean) {
+    // The server counts every wrong code; a 401 token-refresh replay would spend a second attempt.
     return linkedReceipt(await request<LinkedDeletionReceipt>(user, current, `${LINKED}/confirm`,
-      { operation_id: operation, phone_number: phone, confirmed: true, ...proof }), operation);
+      { operation_id: operation, phone_number: phone, confirmed: true, ...proof }, undefined, "never"), operation);
   },
   async linkedDeletionStatus(user: User, operation: string, current: () => boolean) {
     return linkedReceipt(await request<LinkedDeletionReceipt>(user, current, `${LINKED}/${encodeURIComponent(operation)}`), operation);

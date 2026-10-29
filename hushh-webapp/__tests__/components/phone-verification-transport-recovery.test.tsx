@@ -16,7 +16,7 @@ async function beginOccupiedPhone() {
 }
 
 describe("phone verification explicit transport recovery", () => {
-  it("shows shared-auth transfer unavailability with account recovery instead of retry advice", async () => {
+  it("@feature_account_deletion @trace_loop drops the transfer control once this environment refuses moving a number", async () => {
     const transfer = vi.fn().mockRejectedValue(new ApiError("synthetic provider body must stay private", 403,
       { detail: { code: "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE" } }));
     const confirm = vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED"));
@@ -26,9 +26,13 @@ describe("phone verification explicit transport recovery", () => {
     fireEvent.submit(code.closest("form")!);
     fireEvent.click(await screen.findByRole("button", { name: "Use this number on this account" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm phone transfer" }));
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Phone transfer is unavailable in this environment. Recover your previous account or use another number."));
-    expect(screen.getByRole("alert").textContent).not.toMatch(/retry|SMS|progress|synthetic/i);
-    expect(screen.queryByRole("button", { name: "Check transfer progress" })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Moving a number isn't available in this environment. Delete your previous account or use a different number."));
+    expect(screen.getByRole("alert").textContent).not.toMatch(/retry|SMS|progress|synthetic|recover/i);
+    // Back on the choices, only controls that can still change the outcome remain.
+    for (const name of ["Use this number on this account", "Confirm phone transfer", "Send a real SMS code", "Check transfer progress"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(screen.getByRole("button", { name: "Delete my previous account" })).toBeEnabled();
     expect(transfer).toHaveBeenCalledOnce();
     expect(flow.onCompleted).not.toHaveBeenCalled();
   });

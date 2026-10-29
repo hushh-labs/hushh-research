@@ -180,7 +180,7 @@ def _source(args, port):
         ) from error
 
 
-def _attempt(repository, run, number, api):
+def _attempt(repository, run, number, api, workflow):
     attempt = api(repository, f"runs/{run['id']}/attempts/{number}")
     _require(
         isinstance(attempt, dict)
@@ -216,6 +216,25 @@ def _attempt(repository, run, number, api):
         "pending",
     }:
         return attempt, result, None
+    if not matches:
+        try:
+            skipped_name = nonproducer.skipped_primary_name(workflow)
+        except ValueError as error:
+            raise retention.UnsafeState(
+                "Cold health lease reconciliation required: primary job source is ambiguous"
+            ) from error
+        matches = [
+            job
+            for job in jobs
+            if skipped_name is not None and job.get("name") == skipped_name
+        ]
+        _require(
+            len(matches) == 1
+            and matches[0].get("status") == "completed"
+            and matches[0].get("conclusion") == "skipped"
+            and matches[0].get("steps") == [],
+            "skipped primary job is not uniquely unexecuted",
+        )
     _require(
         len(matches) == 1
         and all(
@@ -424,7 +443,7 @@ def assert_reconciled(
                 return
             continue
         for number in range(run["run_attempt"], 0, -1):
-            attempt, result, job = _attempt(repository, run, number, api)
+            attempt, result, job = _attempt(repository, run, number, api, text)
             if (
                 job is None
                 or _steps(

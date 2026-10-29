@@ -95,7 +95,7 @@ korean-lunar-calendar==0.4.0
 langchain==1.3.13
 langchain-core==1.4.9
 langchain-protocol==0.0.18
-langgraph==1.2.9
+langgraph==1.2.14
 langgraph-checkpoint==4.1.1
 langgraph-prebuilt==1.1.0
 langgraph-sdk==0.4.8

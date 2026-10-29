@@ -149,7 +149,7 @@ export function CapabilityVaultPrerequisite({
   // A token is memory-only and is the actual authority for the capability.
   // Render immediately once it arrives instead of briefly flashing a loader
   // while the status effect catches up after vault settlement.
-  if (user && !userId) return <SessionVerificationRecovery onRetry={() => void retrySessionVerification()}
+  if (user && !userId) return <SessionVerificationRecovery onRetry={retrySessionVerification}
     onSignOut={() => void signOut({ skipFcmCleanup: true })} />;
   if (vaultOwnerToken || state === "ready") return <>{children}</>;
   if (!userId) {

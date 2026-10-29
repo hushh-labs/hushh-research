@@ -9,6 +9,8 @@ type Props = {
   busy: boolean;
   submissionBlocked: boolean;
   transferEligible: boolean;
+  /** The server refused moving any number here; a transfer control could never succeed. */
+  transferUnavailable: boolean;
   transferPending: boolean;
   operationError: string | null;
   className?: string;
@@ -28,15 +30,15 @@ type Props = {
 
 /** Explicit recovery choices; only fresh provider proof can enable transfer or deletion. */
 export function PhoneConflictRecovery(props: Props) {
-  const { busy, submissionBlocked, transferEligible, transferPending, conflict } = props;
+  const { busy, submissionBlocked, transferEligible, transferUnavailable, transferPending, conflict } = props;
   if (conflict === "delete") return <LinkedDeletionReview {...props} />;
   return <div className={cn("space-y-4", props.className)} style={props.style}>
     <h2 className={kaiAppCardTitleClassName}>{conflict === "choices" ? "This number is linked to another account" : "Use this number on this account?"}</h2>
-    <p className="text-sm text-muted-foreground">Moving the phone link keeps both accounts, files and vaults.</p>
+    {transferUnavailable ? null : <p className="text-sm text-muted-foreground">Moving the phone link keeps both accounts, files and vaults.</p>}
     {props.operationError ? <p role="alert" className="text-sm text-destructive">{props.operationError}</p> : null}
     {conflict === "choices" ? <>
-      <Button type="button" className="w-full" disabled={busy || submissionBlocked || !transferEligible} data-voice-control-id="phone-flow-transfer-review" onClick={props.reviewTransfer}>Use this number on this account</Button>
-      {!transferEligible ? <>
+      {transferUnavailable ? null : <Button type="button" className="w-full" disabled={busy || submissionBlocked || !transferEligible} data-voice-control-id="phone-flow-transfer-review" onClick={props.reviewTransfer}>Use this number on this account</Button>}
+      {!transferEligible && !transferUnavailable ? <>
         <p className="text-sm text-muted-foreground">Transfers require a fresh real SMS code. Test codes cannot transfer a number.</p>
         <Button type="button" variant="none" className="w-full" disabled={busy || submissionBlocked} data-voice-control-id="phone-flow-fresh-sms" onClick={() => void props.startFreshSms()}>Send a real SMS code</Button>
       </> : null}

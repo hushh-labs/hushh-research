@@ -182,7 +182,7 @@ class PendingActionStore:
             UPDATE one_voice_pending_actions
             SET status = 'expired', resolved_at = NOW(), args = {_SCRUB_PRIVATE}
             WHERE user_id = :user_id AND status = 'pending' AND expires_at < NOW()
-            """,  # nosec B608 - static fragment; every value is a bound parameter.
+            """,  # nosec B608 # static fragment; every value is a bound parameter.
             {"user_id": user_id},
         )
         # A process can die after the confirmation CAS and before the handler
@@ -210,7 +210,7 @@ class PendingActionStore:
                   AND expires_at < NOW() - make_interval(secs => :grace)
                 )
               )
-            """,  # nosec B608 - static tool-name constants; every value is a bound parameter.
+            """,  # nosec B608 # static tool-name constants; every value is a bound parameter.
             {"user_id": user_id, "grace": SCHEDULED_MAIL_RECOVERY_GRACE_SECONDS},
         )
         await self._execute(
@@ -223,7 +223,7 @@ class PendingActionStore:
             WHERE user_id = :user_id AND tool_name IN ({_MAIL_DRAFT_TOOLS_SQL})
               AND status = 'executed' AND result->>'status' = 'draft_open_requested'
               AND resolved_at < NOW() - make_interval(secs => :ttl)
-            """,  # nosec B608 - static tool-name constants; every value is a bound parameter.
+            """,  # nosec B608 # static tool-name constants; every value is a bound parameter.
             {"user_id": user_id, "ttl": MAIL_DRAFT_STEP_RECOVERY_SECONDS},
         )
 
@@ -239,7 +239,7 @@ class PendingActionStore:
               AND status = 'pending'
               AND (CAST(:except_id AS TEXT) IS NULL OR id <> CAST(:except_id AS UUID))
             RETURNING id
-            """,  # nosec B608 - static fragment; every value is a bound parameter.
+            """,  # nosec B608 # static fragment; every value is a bound parameter.
             {"user_id": user_id, "conversation_id": conversation_id, "except_id": except_id},
         )
         return len(rows)
@@ -277,7 +277,7 @@ class PendingActionStore:
               NOW() + make_interval(secs => :ttl)
             )
             RETURNING """
-            + _COLUMNS,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            + _COLUMNS,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {
                 "user_id": user_id,
                 "conversation_id": conversation_id,
@@ -299,7 +299,7 @@ class PendingActionStore:
             f"""
             SELECT {_COLUMNS} FROM one_voice_pending_actions
             WHERE id = CAST(:id AS UUID) AND user_id = :user_id
-            """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"id": pending_action_id, "user_id": user_id},
         )
         return PendingAction.from_row(row) if row else None
@@ -313,7 +313,7 @@ class PendingActionStore:
               AND conversation_id = CAST(:conversation_id AS UUID)
               AND status = 'pending'
             ORDER BY created_at DESC
-            """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"user_id": user_id, "conversation_id": conversation_id},
         )
         return [PendingAction.from_row(row) for row in rows]
@@ -325,7 +325,7 @@ class PendingActionStore:
             SET shown_at = COALESCE(shown_at, NOW())
             WHERE id = CAST(:id AS UUID) AND user_id = :user_id AND status = 'pending'
             RETURNING {_COLUMNS}
-            """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"id": pending_action_id, "user_id": user_id},
         )
         return PendingAction.from_row(row) if row else None
@@ -374,7 +374,7 @@ class PendingActionStore:
             WHERE id = CAST(:id AS UUID) AND user_id = :user_id
               AND status = 'pending' AND expires_at > NOW()
             RETURNING {_COLUMNS}
-            """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"id": pending_action_id, "user_id": user_id, "source": source},
         )
         if updated is None:
@@ -399,7 +399,7 @@ class PendingActionStore:
                 args = {_SCRUB_PRIVATE}
             WHERE id = CAST(:id AS UUID) AND user_id = :user_id AND status = 'confirmed'
             RETURNING {_COLUMNS}
-            """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {
                 "id": pending_action_id,
                 "user_id": user_id,
@@ -440,7 +440,7 @@ class PendingActionStore:
               AND tool_name IN ({_MAIL_DRAFT_TOOLS_SQL}) AND status = 'executed'
               AND result->>'status' = 'draft_open_requested'
             RETURNING {_COLUMNS}
-            """,  # nosec B608 - static fragments and bound values only.
+            """,  # nosec B608 # static fragments and bound values only.
             {
                 "id": pending_action_id,
                 "user_id": user_id,
@@ -457,7 +457,7 @@ class PendingActionStore:
             SET status = 'cancelled', resolved_at = NOW(), args = {_SCRUB_PRIVATE}
             WHERE id = CAST(:id AS UUID) AND user_id = :user_id AND status = 'pending'
             RETURNING {_COLUMNS}
-            """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"id": pending_action_id, "user_id": user_id},
         )
         return PendingAction.from_row(row) if row else None

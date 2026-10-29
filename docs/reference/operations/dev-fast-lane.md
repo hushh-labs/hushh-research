@@ -2,9 +2,9 @@
 
 > **Dev intake:** Main owns workflow authority and release approval. Protected
 > `dev` is the default application source after its baseline qualification.
-> UAT remains on its current selector until separately authorized;
-> its proposed branch path requires exact assembled-SHA Dev acceptance. Preserve
-> legacy train history. See
+> UAT retains its current Dev-acceptance gate. The approved direct-UAT path will
+> use exact assembled-SHA CI without requiring a Dev deployment once qualified.
+> Preserve legacy train history. See
 > [branch governance](./branch-governance.md#dev--uat-branch-preparation).
 
 > Dev is the first proving ground for an application revision. Main owns the

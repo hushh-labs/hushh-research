@@ -1,6 +1,7 @@
 """Hosted restoration continuation authority and current runtime regressions."""
 
 import copy
+import hashlib
 from contextlib import contextmanager
 import io
 import json
@@ -14,6 +15,7 @@ from zipfile import ZipFile
 
 import production_restoration_receipt as restoration
 import production_restoration_continuation as continuation
+from production_worker_basis_cases import _acceptance, _runtime, _tag
 
 
 @contextmanager
@@ -337,3 +339,102 @@ class RestorationContinuationCases:
                     with self.assertRaises((ValueError, restoration.receipts.retention.UnsafeState)):
                         continuation.serving_context(run, release, job, _archive(documents), **arguments)
 
+
+class HostedRestorationWorkerReaderCases:
+    def restoration_runtimes(self, original, documents, continuation, basis):
+        runtimes = {}
+        for lane, service in (("backend", "consent-protocol"), ("frontend", "hushh-webapp")):
+            identity = documents[continuation.ORIGIN]["runtime"][lane]
+            state, revision = _runtime(service, original["source"], "300", identity["uid"], identity["revision"])
+            state["metadata"]["uid"] = identity["service_uid"]
+            revision["spec"]["serviceAccountName"] = original["previous"][service]["runtimePrincipal"]
+            revision["spec"]["containers"][0]["image"] = identity["image"]
+            revision["status"]["imageDigest"] = identity["image"]
+            if lane == "backend":
+                revision["spec"]["containers"][0]["env"] += [
+                    {"name": key, "value": "false"} for key in (
+                        "AUTH_PHONE_RECOVERY_ENABLED", "WORKOS_SSO_ENABLED", "ACCOUNT_GENERATION_ADMISSION_ENABLED",
+                        "PROTECTED_DOCUMENT_DELIVERY_ENABLED", "DRIVE_WORK_DRAIN_ENABLED")]
+            runtimes[service] = state, revision
+        runtimes[basis.WORKER] = _runtime(basis.WORKER, "a" * 40, "200", "worker-uid", basis.WORKER + "-current")
+        runtime = SimpleNamespace(retention=SimpleNamespace(
+            service_state=lambda service, *_: runtimes[service][0],
+            revision_state=lambda service, *_: [runtimes[service][1]], traffic_state=self.maintenance.retention.traffic_state))
+        documents[continuation.ORIGIN]["runtime"] = continuation.runtime_pair(original, runtime)
+        return runtimes
+
+    def test_hosted_restoration_reaches_worker_basis_through_actual_release_readers(self):
+        import production_restoration_continuation as continuation
+        import production_worker_basis as basis
+
+        with _continuation_case(self) as (fixture, arguments):
+            original = continuation.load_original("300", 2, fixture["record"]["sourceSha"], **arguments)
+            run, release, job, documents = _fresh_continuation(self, original)
+            owner = self.maintenance
+            runtimes = self.restoration_runtimes(original, documents, continuation, basis)
+            documents.update({"prod-release-status.json": release,
+                              "prod-protected-document-release.json": {"configured": False, "enabled": False}})
+            archive = _archive(documents)
+            artifact = {**copy.deepcopy(self.artifact), "id": 102, "name": "prod-release-400",
+                        "size_in_bytes": len(archive), "digest": "sha256:" + hashlib.sha256(archive).hexdigest()}
+            artifact["workflow_run"]["id"] = 400
+            job = {**self.jobs["jobs"][0], **job, "run_id": 400, "run_attempt": 1, "steps": job["steps"] + [self.upload]}
+            acceptance, client, _ = _acceptance()
+            tag = _tag(SimpleNamespace(release=release))
+            tag = basis.proof.reference.tag_identity(tag["tag_object"].replace("runs/500", "runs/400"))
+
+            def api(repository, endpoint):
+                responses = {
+                    "runs/400": run, "runs/400/artifacts?per_page=100": {"total_count": 1, "artifacts": [artifact]},
+                    "runs/400/attempts/1/jobs?per_page=100": {"total_count": 1, "jobs": [job]},
+                    "workflows/deploy-production.yml/runs?branch=main&status=completed&per_page=50": {"workflow_runs": [run]},
+                }
+                return responses[endpoint] if endpoint in responses else arguments["api"](repository, endpoint)
+
+            def fetch(command, **kwargs):
+                if command[-1].endswith("/artifacts/102/zip"):
+                    return subprocess.CompletedProcess(command, 0, archive, b"")
+                return arguments["run_command"](command, **kwargs)
+
+            def download(*command):
+                destination = Path(command[command.index("--dir") + 1])
+                destination.mkdir(parents=True)
+                with ZipFile(io.BytesIO(archive)) as bundle:
+                    (destination / "prod-release-status.json").write_bytes(bundle.read("prod-release-status.json"))
+                return ""
+
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                mock.patch.object(owner, "api", side_effect=api), mock.patch.object(owner, "command", side_effect=download),
+                mock.patch.object(owner.retention, "run_command", side_effect=fetch),
+                mock.patch.object(owner.retention, "service_state", side_effect=lambda service, *_: copy.deepcopy(runtimes[service][0])),
+                mock.patch.object(owner.retention, "revision_state", side_effect=lambda service, *_: [copy.deepcopy(runtimes[service][1])]),
+                mock.patch.object(basis, "_owners", return_value=(owner, acceptance)),
+                mock.patch.object(acceptance, "GitHub", return_value=client),
+                mock.patch.object(basis.proof, "read_original", return_value=tag),
+            ):
+                found = owner.find_release(self.repo, "", Path(directory), environment="production")
+                self.assertEqual(found[0], 400)
+                self.assertTrue(owner.live_release_matches(found[1], environment="production"))
+                qualified = basis.load("f" * 40, release_run_id="400")
+                self.assertEqual(qualified["healthy"]["run_id"], "400")
+                self.assertEqual(qualified["backend"]["runtime_run_id"], "300")
+                self.assertEqual(
+                    qualified["backend"]["uid"],
+                    documents[continuation.ORIGIN]["runtime"]["backend"]["uid"],
+                )
+                baseline = copy.deepcopy(runtimes)
+                for defect in ("uid", "image", "run", "traffic"):
+                    with self.subTest(defect=defect):
+                        runtimes = copy.deepcopy(baseline)
+                        state, revision = runtimes["consent-protocol"]
+                        if defect == "uid":
+                            revision["metadata"]["uid"] = "replacement-uid"
+                        elif defect == "image":
+                            revision["status"]["imageDigest"] = "gcr.io/hushh-pda/consent-protocol@sha256:" + "e" * 64
+                        elif defect == "run":
+                            revision["metadata"]["labels"]["github-run-id"] = "400"
+                        else:
+                            state["status"]["traffic"][0]["percent"] = 50
+                        with self.assertRaises(owner.retention.UnsafeState):
+                            basis.load("f" * 40, release_run_id="400")
