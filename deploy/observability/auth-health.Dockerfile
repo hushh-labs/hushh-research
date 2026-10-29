@@ -8,4 +8,4 @@ COPY scripts/ci/process_group.py scripts/ci/process_group.py
 COPY deploy/observability/auth_health_job.py deploy/observability/auth_health_job.py
 ENV CLOUDSDK_CONFIG=/tmp/auth-health-gcloud
 USER 1000:1000
-ENTRYPOINT ["python3", "/app/deploy/observability/auth_health_job.py"]
+ENTRYPOINT ["/usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin/python3", "/app/deploy/observability/auth_health_job.py"]

@@ -216,7 +216,7 @@ export const FinanceSharingService = {
     requireFinanceSession(context);
     const current = await FinanceSharingService.view(context, grant.id);
     if (current.direction !== "received" || current.status !== "active" || !current.policy.model_processing.allowed
-      || current.revision !== grant.revision || current.contentHash !== grant.contentHash) throw new Error("Open the current shared view to check private-agent permission.");
+      || current.revision !== grant.revision || current.contentHash !== grant.contentHash) throw new Error("Open the current shared view to check Agent One review permission.");
     const projectionText = JSON.stringify(readFinanceProjection(projection, current.policy));
     if (await financeDigest(projectionText) !== current.contentHash) throw new Error("Shared information changed.");
     requireFinanceSession(context); signal.throwIfAborted();

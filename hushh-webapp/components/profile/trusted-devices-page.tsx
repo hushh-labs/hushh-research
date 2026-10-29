@@ -53,7 +53,7 @@ export default function TrustedDevicesPage({
           title="Trusted devices"
           // The pane's top bar already names this screen; one title per screen.
           titleVisuallyHidden
-          description={panePresentation ? undefined : "Computers connected as an extension of your private agent."}
+          description={panePresentation ? undefined : "Computers connected as an extension of Agent One."}
           className={panePresentation ? "sr-only" : undefined}
           accent="neutral"
         />

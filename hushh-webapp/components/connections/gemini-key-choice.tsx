@@ -256,7 +256,7 @@ export function GeminiKeyChoice({
                 {credentialValidation.message}
               </span>
             ) : privateCloud ? (
-              "Your private agent checks and uses this key. It is sealed directly to your agent."
+              "Agent One checks and uses this key. It is sealed directly to your agent."
             ) : (
               "Validate the key before confirming it."
             )}

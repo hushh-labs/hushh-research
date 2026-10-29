@@ -182,7 +182,6 @@ describe("CapabilityCinematicIntroGate", () => {
 
   it("keeps authored cinematic journeys on the shared, non-durable gate", () => {
     const surfaces = [
-      ["app/one/setup/kai/page.tsx", "finance"],
       ["app/ria/onboarding/page.tsx", "ria"],
       ["components/onboarding/setup/kyc-identity-preface.tsx", "email"],
       [
@@ -191,7 +190,7 @@ describe("CapabilityCinematicIntroGate", () => {
       ],
       // Location deliberately dropped the prologue (see the comment in
       // location-onboarding-setup-client.tsx: "five taps; it is now three"),
-      // so it is not on this list. AI access dropped it for the same reason.
+      // so it is not on this list. AI access and Finance enter directly too.
       // Calendar enters its connection body directly; its illustration is
       // limited to unfinished initial setup by the existing coordinator.
       ["app/one/setup/gmail/gmail-onboarding-setup-client.tsx", "gmail"],

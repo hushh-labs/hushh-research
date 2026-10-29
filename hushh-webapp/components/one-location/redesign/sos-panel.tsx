@@ -533,7 +533,7 @@ export function SosPanel({
                   ? "Cancel"
                   : holdTarget === "composer" && isHolding
                     ? `${remainingSeconds}s`
-                    : "Send"}
+                    : "Send · 2s"}
               </button>
             </div>
             <div className="mt-1 flex min-h-5 items-baseline justify-between gap-3">
@@ -550,7 +550,7 @@ export function SosPanel({
                 <HelperText id="sos-send-hint" as="p" className="text-[color:var(--sos-label)]">
                   {tapCountdownActive
                     ? `Sending in ${remainingSeconds}s · Tap Cancel`
-                    : "Tap Send (2s delay) or hold 2s"}
+                    : "Hold Send for 2 seconds, or tap to start a 2-second countdown"}
                 </HelperText>
               )}
               <HelperText
@@ -618,7 +618,7 @@ export function SosPanel({
           <AlertDialogHeader>
             <AlertDialogTitle>Stop Save My Soul alert?</AlertDialogTitle>
             <AlertDialogDescription>
-              Your emergency contacts will stop receiving your live location.
+              Your emergency contacts will stop receiving your live location. Each recipient dismisses their own alarm.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

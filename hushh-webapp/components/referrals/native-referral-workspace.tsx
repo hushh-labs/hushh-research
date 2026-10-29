@@ -135,7 +135,7 @@ function NativeReferralBody({ model, token, onFallback, onRetirementOwner }: { m
   } else if (model.showHowItWorks) {
     page = "rules"; title = "How it works";
     section("rules", resource("rules", "referral rules", model.policyRes, model.reloadPolicy, policy => [
-      read("rules-invite", "Invite a friend"), read("rules-setup", "They finish setup and use the private agent"), read("rules-earn", `Earn ${policy.points.qualified_referral_points} coins`),
+      read("rules-invite", "Invite a friend"), read("rules-setup", "They finish setup and use Agent One"), read("rules-earn", `Earn ${policy.points.qualified_referral_points} coins`),
       read("rules-circles", "Win with your circle", "Choose an existing Circle or create one, then explicitly join Circle Wars for the current week. Each member joins separately and chooses one Circle per week."),
       read("rules-qualification", "Qualified referrals", "Each new referral started after you join adds one team referral when it qualifies. Individual coins and lifetime rewards keep working independently. The weekly deadline follows the program timezone shown in Circle Wars."),
       read("rules-streak", "Keep your streak", `View your referral dashboard on ${policy.streak_rules.run_length_days} consecutive days · ${policy.streak_rules.bonus_points} coins`),

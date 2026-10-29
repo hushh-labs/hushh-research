@@ -159,7 +159,7 @@ Only Dev/UAT deployment acceptance is waived; all other release gates remain.
    traffic, applicable schema/semantic result, and live request or log evidence.
    UAT and production both require exact revision provenance and a consolidated
    release-status artifact; environment-specific semantic gates remain explicit
-   in their owning workflow and report.
+   in their owning workflow/report. Use [provider diagnosis](managed-provider-readiness.md) for readiness failures.
 4. Prefer workflow artifacts as authoritative proof. Local admin work as
    `kushal@hushh.ai` uses Application Default Credentials (ADC), independently of
    the selected gcloud CLI account. Refresh ADC, verify the expected

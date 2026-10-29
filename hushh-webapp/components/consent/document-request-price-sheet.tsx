@@ -236,7 +236,7 @@ function PriceSheet({
         description ??
         (paymentRequired
           ? `${payerLabel(requesterLabel)} pays this once matching files are found. Nothing is shared before payment.`
-          : "Your private agent finds the matching files and shares them.")
+          : "Agent One finds the matching files and shares them.")
       }
       headerTextOverflow="wrap"
       mobilePresentation="sheet"
