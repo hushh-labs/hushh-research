@@ -505,7 +505,7 @@ describe("PersonProfilePage native profile route", () => {
         (button) =>
           button.getAttribute("aria-label") || button.textContent?.trim(),
       ),
-    ).toEqual(["Request", "Share profile", "Ask about files", "Request a card", "Manage access"]);
+    ).toEqual(["Browse available information", "Share profile", "Ask about files", "Request a card", "Manage access"]);
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");
     expect(
@@ -527,7 +527,7 @@ describe("PersonProfilePage native profile route", () => {
     const cards = labels.map((name) => within(actions).getByRole("button", { name, exact: true }));
     expect(cards.every((card) => card.parentElement === cards[0].parentElement)).toBe(true);
     expect(Array.from(actions.querySelectorAll("button"), (button) => button.getAttribute("aria-label") || button.textContent?.trim()))
-      .toEqual(["Request", "Share profile", ...labels, "Manage access"]);
+      .toEqual(["Browse available information", "Share profile", ...labels, "Manage access"]);
     fireEvent.click(cards[0]);
     expect(await screen.findByRole("dialog", { name: "Request files", exact: true })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
@@ -590,7 +590,7 @@ describe("PersonProfilePage native profile route", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review request (1)" }));
     expect(
       screen.getByText(
-        "This includes all available information in this area, not just one detail.",
+        "Includes all available information in this area.",
       ),
     ).toBeInTheDocument();
     fireEvent.change(screen.getByTestId("person-profile-purpose"), {
@@ -653,10 +653,9 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
-    // The retry card carries the shipped copy ("We couldn't load your connection
-    // with <name> right now") and stays identity-scoped to this viewer.
+    // The retry card names the affected connection and stays identity-scoped.
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "couldn’t load your connection",
+      "Couldn’t load your connection with Actual Person.",
     );
     expect(
       screen.queryByRole("heading", { name: "Available to request" }),
@@ -836,7 +835,7 @@ describe("PersonProfilePage request catalog tools", () => {
     // will see, in the owner's words, and the radio carries the selection.
     expect(
       screen.getByText(
-        "They will see exactly what you asked for, why, and for how long.",
+        "They’ll see what you request, why, and for how long.",
       ),
     ).toBeTruthy();
     expect(duration).toHaveAttribute("aria-checked", "true");
@@ -1692,7 +1691,7 @@ describe("PersonProfilePage request catalog tools", () => {
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
     await screen.findByRole("heading", { name: "Shared with you" });
     await waitFor(() => expect(scrolled).toHaveBeenCalled());
-    expect(await screen.findByText("Unlock your private agent to reveal information shared with you.")).toBeInTheDocument();
+    expect(await screen.findByText("To view what they shared with you.")).toBeInTheDocument();
     vi.mocked(window.HTMLElement.prototype.scrollIntoView).mockRestore();
   });
 });

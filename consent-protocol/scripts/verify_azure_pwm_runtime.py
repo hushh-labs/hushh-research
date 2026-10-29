@@ -397,13 +397,16 @@ async def _probe_confirmed_guidance(gateway) -> None:
 
 
 async def _probe_managed_text() -> None:
+    from scripts.probe_drive_activity_planner import ActivityPlannerContractError
     from scripts.probe_managed_text import probe_managed_text
 
-    receipt = await probe_managed_text("azure_openai")
-    from scripts.probe_drive_activity_planner import probe_drive_activity_planner
-
-    planner_receipt = await probe_drive_activity_planner()
-    print(json.dumps({"drive_activity_planner_probe": planner_receipt}), flush=True)
+    try:
+        receipt = await probe_managed_text("azure_openai")
+    except ActivityPlannerContractError as error:
+        # The terminal verdict must retain semantic failure even when its
+        # earlier fixed-reason log has not reached Cloud Logging yet.
+        raise AzurePwmTrustError("Drive activity planner contract failed") from error
+    print(json.dumps({"drive_activity_planner_probe": receipt["activity_planner"]}), flush=True)
     print(json.dumps({"managed_text_provider_probe": receipt}), flush=True)
     print(
         json.dumps({"azure_managed_text_contract": "ok", "scopes": len(receipt["scopes"])}),

@@ -93,6 +93,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
         const hero = root.firstElementChild!;
         const cover = hero.firstElementChild!;
         const avatar = hero.querySelector('[data-slot="avatar"]')!;
+        const footer = hero.querySelector('[class*="heroFooter"]')!;
         const title = root.querySelector("h1")!;
         const section = root.querySelector("h2")!;
         const empty = [...root.querySelectorAll("section")].find(node => node.textContent === "Nothing shared yet")!;
@@ -105,6 +106,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
           return { left, width, height, top, bottom };
         };
         return { title: style(title), section: style(section), hero: style(hero), cover: rect(cover), avatar: rect(avatar),
+          footerBorder: getComputedStyle(footer).borderTopWidth,
           empty: rect(empty), shell: rect(root.parentElement!), heroBox: rect(hero), titleBox: rect(title),
           historyTitle: rect(root.querySelector('[class*="historyTitle"]')!),
           pagination: style(root.querySelector('[class*="pagination"] > span')!),
@@ -117,6 +119,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
       expect(geometry.cover.height).toBe(width < 768 ? 94 : 120);
       expect(geometry.avatar.width).toBe(width < 768 ? 64 : 76);
       expect(geometry.cover.bottom - geometry.avatar.top).toBe(width < 768 ? 24 : 30);
+      expect(geometry.footerBorder).toBe("0px");
       expect(geometry.titleBox.left - geometry.heroBox.left).toBe(width < 768 ? 17 : 25);
       expect(geometry.empty.height).toBe(width < 768 ? 62 : 68);
       expect(geometry.historyTitle.width).toBeGreaterThanOrEqual(160);
@@ -124,6 +127,9 @@ for (const width of [320, 393, 768, 1024, 1440]) {
       expect(geometry.pagination).toMatchObject({ size: "12px", line: "18px" });
       expect(geometry.shell.width).toBeLessThanOrEqual(880);
       const rect = await boxes(page);
+      expect(rect.connected.height).toBeGreaterThanOrEqual(44);
+      expect(rect.connected.top).toBeGreaterThanOrEqual(geometry.cover.bottom);
+      expect(rect.connected.right).toBeLessThanOrEqual(geometry.heroBox.left + geometry.heroBox.width);
       expect(rect.request.height).toBe(44);
       expect(rect.share.height).toBe(44);
       expect(Math.abs(rect.request.top - rect.share.top)).toBeLessThan(1);
@@ -142,7 +148,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
       expect(Math.abs(rect[taskIds[0]].top - rect[taskIds[1]].top)).toBeLessThan(1);
       if (width >= 1024) expect(Math.abs(rect[taskIds[0]].top - rect[taskIds[3]].top)).toBeLessThan(1);
       else expect(rect[taskIds[2]].top).toBeGreaterThanOrEqual(rect[taskIds[0]].bottom);
-      expect(rect.manage.top).toBeGreaterThanOrEqual(rect[taskIds[3]].bottom);
+      expect(rect.manage.top - rect[taskIds[3]].bottom).toBeGreaterThanOrEqual(12);
       expect(rect.manage.height).toBeGreaterThanOrEqual(44);
       expect(rect.review.height).toBe(44);
       expect(rect.review.width).toBeLessThan(250);
@@ -154,6 +160,88 @@ for (const width of [320, 393, 768, 1024, 1440]) {
       if (width === 393 && theme === "light") await page.screenshot({ path: testInfo.outputPath("profile-v16-lower.png") });
     });
   }
+}
+
+for (const width of [320, 1024]) {
+  test(`Connected menu stays usable below the cover at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    const trigger = page.getByRole("button", { name: "Connected, connection options" });
+    await trigger.click();
+    await expect(page.getByRole("menuitem", { name: "Remove connection" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+  });
+}
+
+for (const width of [320, 393]) {
+  test(`catalog checkbox stays beside its label at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    await page.getByRole("button", { name: "Open Professional" }).click();
+    const row = page.getByTestId("consent-scope-row-synthetic-Professional");
+    const title = row.locator('[data-slot="settings-row-title"]');
+    const checkbox = row.getByRole("checkbox", { name: "Professional details" });
+    await expect(checkbox).toBeVisible();
+    await title.evaluate((node) => { node.textContent = "Professional details with a much longer description"; });
+    const geometry = await row.evaluate((node) => {
+      const rect = (element: Element) => {
+        const { left, right, top, bottom } = element.getBoundingClientRect();
+        return { left, right, top, bottom };
+      };
+      return {
+        row: rect(node),
+        title: rect(node.querySelector('[data-slot="settings-row-title"]')!),
+        checkbox: rect(node.querySelector('input[type="checkbox"]')!),
+      };
+    });
+    expect(geometry.title.right).toBeLessThan(geometry.checkbox.left);
+    expect(Math.abs((geometry.title.top + geometry.title.bottom) / 2 - (geometry.checkbox.top + geometry.checkbox.bottom) / 2)).toBeLessThan(2);
+    expect(geometry.checkbox.right).toBeLessThan(geometry.row.right);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  });
+}
+
+for (const [width, height] of [[320, 568], [390, 844]]) {
+  test(`information review choices and long labels fit ${width}x${height}`, async ({ page }) => {
+    await openFixture(page, width);
+    await page.setViewportSize({ width, height });
+    await page.locator('[data-id="review"]').click();
+    const dialog = page.getByRole("dialog", { name: "Request information from Aarav Sharma" });
+    await expect(dialog).toBeVisible();
+    await expect.poll(() => dialog.evaluate((node) => node.getBoundingClientRect().width / node.offsetWidth)).toBeGreaterThan(0.999);
+    await expect(dialog.getByRole("group", { name: "Access duration" })).toBeVisible();
+    const selected = dialog.getByRole("radio", { name: "7 days" });
+    await expect(selected).toBeChecked();
+    const optionBoxes = await dialog.getByRole("radio").evaluateAll((inputs) => inputs.map((input) => {
+      const { left, right, top, bottom, height } = input.getBoundingClientRect();
+      return { left, right, top, bottom, height };
+    }));
+    expect(optionBoxes).toHaveLength(4);
+    expect(optionBoxes[0]!.height).toBeGreaterThanOrEqual(44);
+    expect(optionBoxes[0]!.top).toBeCloseTo(optionBoxes[1]!.top, 0);
+    expect(optionBoxes[2]!.top).toBeGreaterThanOrEqual(optionBoxes[0]!.bottom);
+    const geometry = await dialog.evaluate((node) => {
+      const dialogBox = node.getBoundingClientRect();
+      const row = node.querySelector('[data-testid="person-profile-scope-row-synthetic-wallet-summary"]')!;
+      const rowBox = row.getBoundingClientRect();
+      const label = row.firstElementChild!.getBoundingClientRect();
+      const pill = row.lastElementChild!.getBoundingClientRect();
+      return {
+        dialogLeft: dialogBox.left, dialogRight: dialogBox.right, dialogBottom: dialogBox.bottom,
+        labelLeft: label.left, labelRight: label.right, pillLeft: pill.left, pillRight: pill.right,
+        rowLeft: rowBox.left, rowRight: rowBox.right, rowOverflow: row.scrollWidth - row.clientWidth,
+      };
+    });
+    expect(geometry.dialogLeft).toBeGreaterThanOrEqual(0);
+    expect(geometry.dialogRight).toBeLessThanOrEqual(width);
+    expect(geometry.dialogBottom).toBeLessThanOrEqual(height);
+    expect(geometry.labelLeft).toBeGreaterThanOrEqual(geometry.rowLeft);
+    expect(geometry.labelRight).toBeLessThanOrEqual(geometry.pillLeft);
+    expect(geometry.pillRight).toBeLessThanOrEqual(geometry.rowRight);
+    expect(geometry.rowOverflow).toBeLessThanOrEqual(0);
+    await dialog.getByRole("radio", { name: "1 day", exact: true }).click();
+    await expect(dialog.getByRole("radio", { name: "1 day" })).toBeChecked();
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeInViewport();
+  });
 }
 
 test("long mixed-direction details, sparse actions and focus remain usable at 320px", async ({ page, browserName }) => {

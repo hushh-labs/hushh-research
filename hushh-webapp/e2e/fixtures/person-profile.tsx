@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { HelperText, RowLabel } from "@/components/app-ui/typography";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { PersonProfileHero, PersonProfileTaskContent, PersonProfileEmptyState } from "@/components/connections/person-profile-hero";
 import { PersonInformationRequestDialog } from "@/components/connections/person-information-request-dialog";
-import { FileText, MessageCircle, ShieldCheck, CreditCard, Share2, Settings, ChevronRight, LockKeyhole, Mail, Phone, MoreHorizontal } from "@/components/icons";
+import { FileText, MessageCircle, ShieldCheck, CreditCard, Share2, Settings, ChevronRight, ChevronDown, LockKeyhole, Mail, Phone } from "@/components/icons";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/lib/morphy-ux/button";
 import { SectionCard, StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import type { ConsentScopeItem } from "@/lib/consent/consent-scope-items";
+import type { RequestablePersonScope } from "@/lib/services/person-profile-service";
 import styles from "@/components/connections/person-profile-page.module.css";
 
 // Production presentation primitives and catalog, with synthetic public details.
@@ -21,6 +24,11 @@ const items: ConsentScopeItem[] = ["Professional", "Financial", "Location", "Int
   id: `synthetic-${label}-summary`, label: `${label} summary`, domainKey: label.toLowerCase(),
   domainLabel: label, pathSegments: ["summary"], searchText: `${label} summary`.toLowerCase(),
 }]);
+const reviewScope: RequestablePersonScope = {
+  scopeRef: "synthetic-wallet-summary",
+  label: "Wallet summary with a long unbroken reference 123456789012345678901234567890",
+  description: null, domain: "wallet", sensitivity: "VerySensitiveClassificationLabel", wildcard: true,
+};
 
 function Fixture() {
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
@@ -32,10 +40,19 @@ function Fixture() {
     <div className={styles.page} data-profile-fixture>
       <PersonProfileHero
         profile={{ displayName: "Aarav Sharma", verifiedRole: "Verified professional" }}
-        status={<StatusPill className={styles.status} tone="ready">Connected</StatusPill>}
-        options={<Button size="icon-touch" variant="none" effect="fade" className={styles.overflow} aria-label="Profile options"><MoreHorizontal /></Button>}
+        status={<DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <ShellActionSurface variant="pill" className={styles.connectionMenu} data-profile-role="action" aria-label="Connected, connection options" data-id="connected">
+              Connected
+              <ChevronDown className="h-3 w-3" aria-hidden="true" />
+            </ShellActionSurface>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem variant="destructive">Remove connection</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>}
         contacts={<><a href="mailto:aarav@example.test"><Mail aria-hidden="true" /><span dir="auto">aarav@example.test</span></a><a href="tel:+14155550100"><Phone aria-hidden="true" /><span dir="auto">+14155550100</span></a></>}
-        primaryActions={<><Button size="compact" data-id="request"><FileText aria-hidden="true" />Request</Button><Button size="compact" variant="none" effect="fade" className={styles.share} aria-label="Share profile" data-id="share"><Share2 aria-hidden="true" />Share</Button></>}
+        primaryActions={<><Button size="compact" data-id="request"><FileText aria-hidden="true" />Browse</Button><Button size="compact" variant="none" effect="fade" className={styles.share} aria-label="Share profile" data-id="share"><Share2 aria-hidden="true" />Share</Button></>}
         tasks={<>{[
           { id: "request-files", label: "Request files", Icon: FileText, tone: "blue" as const },
           { id: "ask-about-files", label: "Ask about files", Icon: MessageCircle, tone: "pink" as const },
@@ -54,7 +71,7 @@ function Fixture() {
         <PersonProfileEmptyState icon={<FileText />} label="No requests yet" />
         <SectionCard className={styles.historyGroup}>
           <div className={styles.historyRow}><div className="min-w-0 flex-1"><RowLabel as="p" className={`ui-text-row-label-emphasized ${styles.historyTitle}`}>Professional details</RowLabel><HelperText className={styles.historySupporting}>For an introduction</HelperText></div>
-            <div className={styles.historyActions}><StatusPill tone="neutral">Pending</StatusPill><Button size="compact" variant="none" effect="fade">Details</Button><Button size="compact" variant="none" effect="fade">Withdraw pending</Button></div>
+            <div className={styles.historyActions}><StatusPill tone="neutral">Pending</StatusPill><Button size="compact" variant="none" effect="fade">Details</Button><Button size="compact" variant="none" effect="fade">Withdraw request</Button></div>
           </div>
           <div className={styles.pagination}><Button size="compact" variant="none" effect="fade">Previous</Button><span className="text-muted-foreground">1 of 2</span><Button size="compact" variant="none" effect="fade">Next</Button></div>
         </SectionCard>
@@ -63,7 +80,7 @@ function Fixture() {
       {sent ? <p role="status">Sample request sent</p> : null}
     </div>
     <PersonInformationRequestDialog open={reviewOpen} onOpenChange={setReviewOpen} displayName="Aarav Sharma"
-      scopes={items.filter(item => selectedIds.has(item.id)).map(item => ({ scopeRef: item.id, label: item.label, domain: item.domainKey, description: null, sensitivity: "sensitive", wildcard: false }))}
+      scopes={selectedIds.size ? items.filter(item => selectedIds.has(item.id)).map(item => ({ scopeRef: item.id, label: item.label, domain: item.domainKey, description: null, sensitivity: "sensitive", wildcard: false })) : [reviewScope]}
       purpose={purpose} durationHours={durationHours} onPurposeChange={setPurpose} onDurationChange={setDurationHours}
       requesting={false} canSubmit={selectedIds.size > 0 && purpose.trim().length >= 8}
       onSubmit={() => { setSent(true); setReviewOpen(false); }} />

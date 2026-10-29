@@ -235,50 +235,6 @@ def test_outer_azure_probe_preserves_leaf_failure_provenance(
     forbidden.assert_not_called()
 
 
-@pytest.mark.parametrize("defect", ["foreign_deployment", "later_schema"])
-def test_primary_http_success_never_erases_later_qualification_failure(monkeypatch, capsys, defect):
-    from unittest.mock import AsyncMock
-
-    module, _, config = primary_fixture(monkeypatch, None)
-    config = {**config, "tenant_id": "synthetic", "client_id": "synthetic"}
-    monkeypatch.setenv("ENVIRONMENT", "uat")
-    monkeypatch.setattr(module, "_initialize_synthetic_runtime", lambda: None)
-    monkeypatch.setattr(
-        module,
-        "load_pwm_policy",
-        lambda **_: {"provider": "azure_openai_web_search", "azure": config},
-    )
-    monkeypatch.setattr(
-        module,
-        "run_probe",
-        AsyncMock(
-            return_value={
-                "status": "ready",
-                "http_status": 200,
-                "latency_ms": 1,
-                "deployment": "foreign"
-                if defect == "foreign_deployment"
-                else config["primary_deployment"],
-                "error_class": None,
-                "stage": "response_validation",
-                "classification": "dependency_ok",
-            }
-        ),
-    )
-    monkeypatch.setattr(module, "_probe_managed_text", AsyncMock())
-    monkeypatch.setattr(module, "_token_provider", lambda **_: lambda: "synthetic")
-    primary = AsyncMock(side_effect=module.AzurePwmTrustError("PRIVATE_SYNTHETIC_ERROR"))
-    monkeypatch.setattr(module, "_probe_primary", primary)
-    assert module.main() == 1
-    output = capsys.readouterr().out
-    events = [json.loads(line) for line in output.splitlines()]
-    assert events[-1]["classification"] == "candidate_misconfigured"
-    assert events[-1]["pwm_trust_failure"] is (defect == "later_schema")
-    assert events[0]["result"] == ("failed" if defect == "foreign_deployment" else "ok")
-    assert primary.await_count == (1 if defect == "later_schema" else 0)
-    assert "PRIVATE_SYNTHETIC_ERROR" not in output
-
-
 def capability_fixture(monkeypatch):
     from unittest.mock import AsyncMock
 

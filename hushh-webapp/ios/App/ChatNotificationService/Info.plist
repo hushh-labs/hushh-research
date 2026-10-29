@@ -3,6 +3,7 @@
 <plist version="1.0"><dict>
  <key>CFBundleDisplayName</key><string>Hussh Messages</string>
  <key>NotificationKeychainGroup</key><string>$(AppIdentifierPrefix)com.hussh.app.chatnotifications</string>
+ <key>NSAlarmKitUsageDescription</key><string>SMS safety alerts ring until you acknowledge them.</string>
  <key>NSUserActivityTypes</key><array><string>INSendMessageIntent</string></array>
  <key>NSExtension</key><dict>
   <key>NSExtensionPointIdentifier</key><string>com.apple.usernotifications.service</string>

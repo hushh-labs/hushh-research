@@ -861,9 +861,9 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           </>}
           primaryActions={<>
             {viewerProfile ? (
-              <Button type="button" size="compact" variant="blue-gradient" effect="fill" onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+              <Button type="button" size="compact" variant="blue-gradient" effect="fill" aria-label="Browse available information" onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
                 <FileText className="h-5 w-5" aria-hidden="true" />
-                Request
+                Browse
               </Button>
             ) : null}
             <Button
@@ -979,7 +979,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
         ) : null}
 
         {displayViewerProfile && viewerUnavailable ? <div role="status" className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
-          <span>Showing saved details. Some updates could not load.</span>
+          <span>Showing saved details. Couldn&rsquo;t refresh.</span>
           <Button type="button" variant="none" size="compact" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button>
         </div> : null}
         {user && !displayViewerProfile && !viewerUnavailable ? <section aria-label="Loading profile details" aria-busy="true" className="space-y-6">
@@ -1042,7 +1042,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
                 showDomainFilter
                 categorySelectionInDetail
                 rootLabel="All"
-                emptyText="This person has nothing available to ask for."
+                emptyText="Nothing available yet."
                 testIdPrefix="person-profile-scope"
                 selection={{
                   selectedIds: selectedScopeRefs,
@@ -1056,10 +1056,10 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
               </fieldset>
               {displayViewerProfile.scopeCatalog?.hasMore ? (
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <p className="text-muted-foreground">{allScopes.length} of {displayViewerProfile.scopeCatalog.totalCount} loaded. Search checks loaded information.</p>
+                  <p className="text-muted-foreground">{allScopes.length} of {displayViewerProfile.scopeCatalog.totalCount} loaded. Search covers loaded items.</p>
                   <Button type="button" size="compact" variant="none" effect="fade" disabled={catalogLoading}
                     onClick={() => void loadMoreScopes()}>
-                    {catalogLoading ? "Loading more…" : catalogError ? "Try loading more again" : "Load more information"}
+                    {catalogLoading ? "Loading more…" : catalogError ? "Try again" : "Load more"}
                   </Button>
                 </div>
               ) : null}
@@ -1068,7 +1068,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
             <section aria-labelledby="request-history" className={`${styles.section} ${styles.history}`}>
               <h2 id="request-history" className={styles.heading}>Request history</h2>
               {currentHistory?.failed ? (
-                <p role="status" className="text-sm text-muted-foreground">Older requests could not be loaded. Showing recent activity only.</p>
+                <p role="status" className="text-sm text-muted-foreground">Couldn&rsquo;t load older requests. Showing recent ones.</p>
               ) : null}
               {historyGroups.length ? (
                 <SectionCard className={styles.historyGroup}>
@@ -1117,7 +1117,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
                                 disabled={cancellingBundleId === bundleId}
                                 onClick={() => void cancelInformationRequest(bundleId)}
                               >
-                                {cancellingBundleId === bundleId ? "Withdrawing…" : "Withdraw pending"}
+                                {cancellingBundleId === bundleId ? "Withdrawing…" : "Withdraw request"}
                               </Button>
                             ) : null}
                           </div>
@@ -1168,7 +1168,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           <SectionCard className={styles.signIn}>
             <div role="alert" className="flex flex-col items-center justify-center space-y-2">
               <p className="text-sm font-semibold text-foreground">
-                We couldn&rsquo;t load your connection with {profile.displayName} right now.
+                Couldn&rsquo;t load your connection with {profile.displayName}.
               </p>
               <p className="sr-only">
                 Your connection status, what you can request, and anything shared with you will appear here once this loads.
@@ -1202,7 +1202,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           onOpenChange={setShowUnlockDialog}
           onSuccess={() => setShowUnlockDialog(false)}
           title="Unlock your vault"
-          description="Unlock your private agent to reveal information shared with you." presentationClassName="consent-presentation-surface"
+          description="To view what they shared with you." presentationClassName="consent-presentation-surface"
         />
       ) : null}
     </AppPageShell>

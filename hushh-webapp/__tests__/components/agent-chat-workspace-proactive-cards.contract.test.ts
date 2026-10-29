@@ -125,13 +125,14 @@ describe("Agent One chat workspace wiring contract", () => {
 
   it("keeps the One connector catalog reachable before any provider is connected", () => {
     expect(source).toContain("onOpenConnectors={!isPuppySurface");
-    expect(source).toContain("openHistoryConnectors();");
-    const historyConnectors = source.slice(source.indexOf("const openHistoryConnectors ="), source.indexOf("const handleHistoryDrawerOpenChange ="));
-    expect(historyConnectors).toContain('setDrawerMode("connections")');
-    expect(historyConnectors).toContain("setIsHistoryDrawerOpen(true)");
-    expect(source).toContain("<HistoryConnectorsPage");
+    expect(source).toContain("? openHistoryConnectors : undefined");
+    expect(source).toContain("openConnectors: openHistoryConnectors");
+    const historyConnectors = source.slice(source.indexOf("const openHistoryConnectors ="), source.indexOf("const [recoveryCheckedForUid,"));
+    expect(historyConnectors).toContain("openConnectorSurface(undefined,");
+    expect(historyConnectors).toContain("historyDrawerTriggerRef.current ?? historyDrawerFallbackRef.current");
+    expect(source).not.toContain("HistoryConnectorsPage");
     expect(source).not.toContain("connectionsAvailable");
-    // History owns its connector presentation; inline chat cards retain Profile.
+    // History, native History and inline Chat cards share Profile's destination.
     expect(source).toContain("profileConnectorsLocation(");
   });
 

@@ -22,7 +22,7 @@ export function PersonInformationRequestDialog({ open, onOpenChange, displayName
     <TaskDialogContent className="consent-presentation-surface">
       <TaskSurfaceHeader>
         <DialogTitle>Request information from {displayName}</DialogTitle>
-        <DialogDescription>They will see exactly what you asked for, why, and for how long.</DialogDescription>
+        <DialogDescription>They&rsquo;ll see what you request, why, and for how long.</DialogDescription>
       </TaskSurfaceHeader>
       <TaskSurfaceBody>
         <InformationRequestReviewFields {...fields} disabled={requesting || fields.disabled} />
