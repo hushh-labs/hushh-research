@@ -1148,6 +1148,13 @@ mode, configuration or Scheduler state fail closed. Qualified cleanup-only
 workflow failures retain the existing canonical health classifier; application
 failures and failed activation continuations remain ineligible.
 
+A retained document receipt may record effective delivery disabled separately
+from `stored_enabled`. Cold qualification, staging, standard reuse and same-source activation
+preserve that effective mode while checking both stored flags exactly. The stage
+or pending release is independently requalified; cold qualification revalidates
+the current healthy basis or its exact operational origin. Ordinary forward reader and
+rollback checks still run. This does not activate retained document intake.
+
 A frontend-only healthy release carries the unchanged backend's exact original
 run, source and revision identities as an untrusted selector. Maintenance and
 worker admission independently qualify that run's immutable ordinary backend

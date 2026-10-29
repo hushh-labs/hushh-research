@@ -779,11 +779,17 @@ jobs:
       - name: Resolve retained protected document maintenance
         id: document-mode
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STAGED_WORKER_RUN_ID: ${{ steps.staged-worker.outputs.run_id }}
         run: |
           set -euo pipefail
           restoration=()
+          retained=()
+          if [ -n "$STAGED_WORKER_RUN_ID" ]; then retained=(--staged-worker-run-id "$STAGED_WORKER_RUN_ID"); fi
+          if [ "$PHONE_DEPLOY_PHASE" = cold ]; then retained=(--cold-release-mode); fi
           if [ -n "${{ inputs.restoration_validation_run }}" ]; then restoration=(--production-restoration); fi
-          python3 deploy/drive/resolve_protected_document_release.py "${restoration[@]}" \
+          python3 deploy/drive/resolve_protected_document_release.py "${restoration[@]}" "${retained[@]}" \
             --project "${{ env.GCP_PROJECT_ID }}" --environment production \
             --target-sha "${{ github.event.inputs.sha }}" \
             --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/protected-document-reader-commit")" \
@@ -914,8 +920,14 @@ jobs:
       - name: Verify protected document reader and rollback compatibility
         if: steps.document-mode.outputs.configured == 'true'
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STAGED_WORKER_RUN_ID: ${{ steps.staged-worker.outputs.run_id }}
         run: |
           set -euo pipefail
+          retained=()
+          if [ -n "$STAGED_WORKER_RUN_ID" ]; then retained=(--staged-worker-run-id "$STAGED_WORKER_RUN_ID"); fi
+          if [ "$PHONE_DEPLOY_PHASE" = cold ]; then retained=(--cold-release-mode); fi
           if [ -n "${{ inputs.restoration_validation_run }}" ]; then
             python3 deploy/account-deletion/restoration_operation.py document-report \
               --sha "${{ inputs.sha }}" --run-id "$GITHUB_RUN_ID" \
@@ -924,7 +936,7 @@ jobs:
               --document-mode /tmp/prod-protected-document-release.json \
               --output /tmp/prod-document-reader-compatibility.json
           else
-          "${{ env.PROTOCOL_PYTHON }}" deploy/drive/resolve_protected_document_release.py \
+          "${{ env.PROTOCOL_PYTHON }}" deploy/drive/resolve_protected_document_release.py "${retained[@]}" \
             --project "${{ env.GCP_PROJECT_ID }}" --environment production \
             --target-sha "${{ github.event.inputs.sha }}" \
             --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/protected-document-reader-commit")" \
@@ -3293,6 +3305,7 @@ jobs:
           import os
           import subprocess
           import sys
+          from runpy import run_path
           sys.path.insert(0, "scripts/ci")
           import production_backend_successor_control as control
           import production_backend_successor_proof as proof
@@ -3314,9 +3327,9 @@ jobs:
                "--project=hushh-pda", "--environment=production"],
               capture_output=True, text=True, check=True, timeout=120,
           )
-          mode = json.loads(result.stdout)
-          if mode != expected_mode:
-              raise SystemExit("Protected document mode changed after worker qualification")
+          mode = run_path("deploy/drive/rebind_protected_document_backend.py")["unchanged_mode"](
+              json.loads(result.stdout), expected_mode,
+          )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as target:
               for key in ("configured", "enabled"):
                   if type(mode.get(key)) is not bool:
@@ -3598,6 +3611,7 @@ jobs:
           test -s /tmp/prod-protected-document-reader-commit
           "$PROTOCOL_PYTHON" deploy/drive/resolve_protected_document_release.py \
             --project "$GCP_PROJECT_ID" --environment production --target-sha "$TARGET_SHA" \
+            --activation-run-id "$ORIGINAL_RUN_ID" \
             --required-ancestor "$(cat /tmp/prod-protected-document-reader-commit)" \
             --github-output "$GITHUB_OUTPUT" | tee /tmp/prod-protected-document-release.json
 
@@ -3607,6 +3621,7 @@ jobs:
           set -euo pipefail
           "$PROTOCOL_PYTHON" deploy/drive/resolve_protected_document_release.py \
             --project "$GCP_PROJECT_ID" --environment production --target-sha "$TARGET_SHA" \
+            --activation-run-id "$ORIGINAL_RUN_ID" \
             --required-ancestor "$(cat /tmp/prod-protected-document-reader-commit)" \
             --verify-previous --json-output /tmp/prod-document-reader-compatibility.json
 
@@ -3884,6 +3899,7 @@ jobs:
           if [[ "${{ steps.document-mode.outputs.configured }}" == true ]]; then
             "$PROTOCOL_PYTHON" deploy/drive/resolve_protected_document_release.py \
               --project "$GCP_PROJECT_ID" --environment production --target-sha "$TARGET_SHA" \
+              --activation-run-id "$ORIGINAL_RUN_ID" \
               --required-ancestor "$(cat /tmp/prod-protected-document-reader-commit)" \
               --verify-previous --json-output /tmp/prod-document-reader-compatibility.json
             "$PROTOCOL_PYTHON" deploy/drive/resolve_protected_document_release.py \
