@@ -207,6 +207,7 @@ describe("foreground SMS alarm presentation and cancellation", () => {
     dispatchLocation({ type: "location_share_created", grant_id: "reload-alarm", share_kind: "sos" });
     dispatchLocation({ type: "location_share_revoked", grant_id: "reload-alarm" });
     first.unmount();
+    expect(mocks.stopEmergencySmsCue).not.toHaveBeenCalled();
     expect(isSmsAlarmAcknowledged("recipient-user", "reload-alarm")).toBe(false);
     mocks.toast.mockClear();
     const second = renderProvider();

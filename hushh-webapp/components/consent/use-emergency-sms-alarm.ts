@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { toast } from "sonner";
 
 import { HushhNotifications } from "@/lib/capacitor";
@@ -28,6 +28,7 @@ function useEmergencySmsAcknowledgements(
   userId: string | undefined,
   isNativePlatform: boolean,
   activeToastsRef: RefObject<Set<string>>,
+  currentOwnerRef: RefObject<string | undefined>,
   dismiss: (grantId: string) => void,
 ) {
   useEffect(() => {
@@ -67,18 +68,22 @@ function useEmergencySmsAcknowledgements(
       window.removeEventListener(ONE_LOCATION_GRANT_UNWATCHED_EVENT, onAcknowledged);
       window.removeEventListener("storage", onStorage);
       release();
-      if (isNativePlatform) void HushhNotifications.stopEmergencySmsCue({ userId }).catch(() => undefined);
+      // A renderer reload is not acknowledgement. Native alarms outlive it;
+      // only an explicit account withdrawal disposes the native owner here.
+      if (isNativePlatform && currentOwnerRef.current !== userId) void HushhNotifications.stopEmergencySmsCue({ userId }).catch(() => undefined);
       // Authentication teardown disposes runtime resources, never acknowledges
       // an alert the recipient has not opened or dismissed.
       for (const grantId of activeToasts) toast.dismiss(`one-location-share:${grantId}`);
       activeToasts.clear();
     };
-  }, [activeToastsRef, dismiss, isNativePlatform, userId]);
+  }, [activeToastsRef, currentOwnerRef, dismiss, isNativePlatform, userId]);
 }
 
 /** One authenticated provider owns foreground cue admission and disposal. */
 export function useEmergencySmsAlarm(userId: string | undefined, isNativePlatform: boolean, nativeSessionRevision: string | null = null) {
   const activeToastsRef = useRef(new Set<string>());
+  const currentOwnerRef = useRef(userId);
+  useLayoutEffect(() => { currentOwnerRef.current = userId; }, [userId]);
   const stopEmergencySms = useCallback((grantId: string) => {
     stopOneLocationNotificationSound(grantId);
     if (isNativePlatform) void HushhNotifications.stopEmergencySmsCue({ userId, grantId }).catch(() => undefined);
@@ -90,7 +95,7 @@ export function useEmergencySmsAlarm(userId: string | undefined, isNativePlatfor
     if (userId && !isSmsAlarmAcknowledged(userId, grantId)) acknowledgeSmsAlarm(userId, grantId);
   }, [stopEmergencySms, userId]);
 
-  useEmergencySmsAcknowledgements(userId, isNativePlatform, activeToastsRef, dismissEmergencySms);
+  useEmergencySmsAcknowledgements(userId, isNativePlatform, activeToastsRef, currentOwnerRef, dismissEmergencySms);
 
   const startEmergencySms = useCallback((grantId: string) => {
     if (!userId || isSmsAlarmAcknowledged(userId, grantId)) return false;
