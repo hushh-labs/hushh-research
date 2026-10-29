@@ -1,8 +1,7 @@
 """Offline guard for the first-tool harness: fixture shape, roster truth, scoring math.
 
-No model is called. The roster is built under TESTING=1 (tests/conftest.py sets
-it), so every expected tool name is checked against what the private agent
-actually offers, and every run_app_action id against the generated gateway.
+No model is called. Expected tools are checked against the TESTING=1 roster the private
+agent offers (tests/conftest.py), and run_app_action ids against the generated gateway.
 """
 
 from __future__ import annotations
@@ -32,6 +31,7 @@ FAMILY_MINIMUMS = {
     "delegation": 4,
     "calendar": 3,
     "drive": 2,
+    "receipts": 4,
 }
 ORIGINAL_CONSENT_PROMPTS = [
     "is there anything waiting for me to approve",

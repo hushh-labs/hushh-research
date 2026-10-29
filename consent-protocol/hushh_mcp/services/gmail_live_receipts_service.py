@@ -36,6 +36,9 @@ from hushh_mcp.agents.email.runtime import (
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.gmail_message_text import MessageTextError, cap_utf8, message_text
+from hushh_mcp.services.gmail_receipt_amounts import SUFFIX_TOTAL as _SUFFIX_TOTAL
+from hushh_mcp.services.gmail_receipt_amounts import TOTAL as _TOTAL
+from hushh_mcp.services.gmail_receipt_amounts import receipt_currency as _currency
 from hushh_mcp.services.gmail_receipt_continuity import (
     bootstrap_checkpoint,
     bootstrap_window,
@@ -74,20 +77,6 @@ _ORDER_ID = re.compile(
     r"(?:\s*(?:id|no|number)\b\s*[:#-]?\s*|\s*[#:.-]\s*)"
     r"((?!(?:order|invoice|receipt|transaction|confirmation|confirmed)\b)"
     r"[A-Z0-9][A-Z0-9._/-]{3,79})\b",
-    re.I,
-)
-_TOTAL = re.compile(
-    r"\b(grand\s+total|order\s+total|invoice\s+total|total\s+amount|"
-    r"total\s+(?:paid|charged)|amount\s+(?:paid|charged|due)|payment\s+(?:total|received)|"
-    r"total)\b\s*(?:is\s*)?[:=-]?\s*(?:(INR|USD|EUR|GBP)\s*)?"
-    r"([₹€£$])?\s*((?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12})"
-    r"(?:\.[0-9]{1,2})?)(?![0-9])(?:\s*(INR|USD|EUR|GBP))?",
-    re.I,
-)
-_SUFFIX_TOTAL = re.compile(
-    r"(?<![\w.,])(?:(INR|USD|EUR|GBP)\s*)?([₹€£$])?\s*"
-    r"((?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12})(?:\.[0-9]{1,2})?)"
-    r"(?:\s*(INR|USD|EUR|GBP))?\s+(Paid|Due)\b",
     re.I,
 )
 _REFUND = re.compile(r"\b(refund(?:ed|ing)?|return(?:ed|ing)|credit(?:ed|ing)?)\b", re.I)
@@ -260,17 +249,6 @@ def _iso_date(message: dict[str, Any], headers: dict[str, str]) -> str | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc).isoformat()
-
-
-def _currency(code_before: str | None, symbol: str | None, code_after: str | None) -> str | None:
-    explicit = (code_before or code_after or "").upper()
-    symbol_currency = {"₹": "INR", "€": "EUR", "£": "GBP"}.get(symbol, "")
-    if symbol == "$" and not explicit:
-        # Preserve the source symbol without guessing a dollar jurisdiction.
-        return "$"
-    if explicit and symbol_currency and explicit != symbol_currency:
-        return None
-    return explicit or symbol_currency or None
 
 
 def _preferred_total(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:

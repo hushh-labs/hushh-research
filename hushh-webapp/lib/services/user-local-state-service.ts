@@ -1,5 +1,6 @@
 "use client";
 
+import { forgetMailAttentionDismissals } from "@/lib/agent/mail-attention-dismissals";
 import { forgetFeedDeviceState } from "@/lib/feed/feed-clear-watermark";
 import { forgetLocationMemory } from "@/lib/one-location/location-grant-memory";
 import { KaiNavTourLocalService } from "@/lib/services/kai-nav-tour-local-service";
@@ -63,6 +64,9 @@ export class UserLocalStateService {
       // The account's Feed is gone on the server too. Sign-out keeps the sound
       // choice and any device-only clear not yet copied to the server.
       forgetFeedDeviceState(userId);
+      // Chat Mail nudge choices are opaque keys and times; like Feed's, they
+      // survive sign-out and leave with Reset or deletion.
+      forgetMailAttentionDismissals(userId);
     }
 
     OneSetupCompletionHintService.clear(userId);

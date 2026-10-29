@@ -15,6 +15,8 @@
  * - free time          -> `calendar_free_slots`
  * - thank-you draft    -> `open_gmail_email_draft` (draft always opens; sending needs Gmail)
  * - what you remember  -> One's memory packet
+ * - mail brief         -> `ask_email_agent` analysis (receipt with "Connect Gmail")
+ * - spending, overdue  -> device receipt functions (Connect or Sync card when unavailable)
  *
  * Deliberately absent until a tool backs them: Drive reads (never-connected
  * copy is wrong), bank spending (no Plaid tool), portfolio performance (the
@@ -36,6 +38,11 @@ const WELCOME_PROMPT_DECK: readonly (readonly AgentWelcomePrompt[])[] = [
     "Find 30 free minutes tomorrow afternoon",
     "Draft a thank-you email",
     "What do you remember about me?",
+  ],
+  [
+    "Brief me on my mail",
+    "What did I spend last month?",
+    "Any overdue invoices?",
   ],
 ] as const;
 

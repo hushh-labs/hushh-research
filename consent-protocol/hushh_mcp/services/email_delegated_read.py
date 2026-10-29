@@ -24,6 +24,11 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from hushh_mcp.agents.email.runtime import run_email_gene
+from hushh_mcp.services.email_mail_brief import (
+    AnalysisCategory,
+    MailAnalysisAnswer,
+    mail_analysis_outcome,
+)
 from hushh_mcp.services.gmail_metadata_reader import (
     MAX_ANALYSIS_MESSAGES,
     MAX_BODY_MESSAGES,
@@ -37,14 +42,6 @@ from hushh_mcp.services.gmail_personal_information_request_service import (
 )
 from hushh_mcp.services.gmail_receipts_service import GmailApiError
 from hushh_mcp.services.owner_time import owner_zone
-from hushh_mcp.services.receipt_memory_read import (
-    OPEN_RECEIPTS_ACTION_ID,
-    ReceiptIdentifierKind,
-    ReceiptPlanError,
-    ReceiptPlanFields,
-    ReceiptStatus,
-    read_receipt_memory,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -93,14 +90,7 @@ def mail_latency(stage: str, log: logging.Logger | None = None) -> Iterator[Mail
         )
 
 
-AnalysisCategory = Literal["personal_info", "action_items", "meetings"]
-_ANALYSIS_CATEGORIES = ("personal_info", "action_items", "meetings")
 _ANALYSIS_CATEGORY_DEADLINE = 25.0
-_CATEGORY_TITLES = {
-    "personal_info": "personal-information request",
-    "action_items": "action item",
-    "meetings": "meeting",
-}
 
 
 class MailReadPlan(BaseModel):
@@ -113,7 +103,9 @@ class MailReadPlan(BaseModel):
         "read_thread",
         "read_offered",
         "analyze_mail",
-        "read_receipts",
+        # A receipts, invoices or spending question. One answers it with its own
+        # receipt functions; this specialist reads nothing for it.
+        "use_receipt_functions",
         "clarify",
     ]
     query: str = Field(default="", max_length=512)
@@ -131,39 +123,7 @@ class MailReadPlan(BaseModel):
     limit: int | None = Field(default=None, ge=1, le=25)
     mailbox: Literal["inbox", "sent", "anywhere"] = "inbox"
     clarification: str = Field(default="", max_length=500)
-    categories: list[AnalysisCategory] = Field(default_factory=list, max_length=3)
-    # Only for read_receipts: the window and filters the planner chose from the
-    # person's own words, answered from their saved receipt memory and never
-    # from the inbox. Flat scalars and one array of enums on purpose; nested
-    # objects in a structured-output schema are what Vertex rejected for
-    # ``MailItemGist``. An empty value means "no such restriction".
-    receipt_since: str = Field(default="", max_length=10)
-    receipt_until: str = Field(default="", max_length=10)
-    receipt_statuses: list[ReceiptStatus] = Field(default_factory=list, max_length=4)
-    receipt_identifier_kinds: list[ReceiptIdentifierKind] = Field(
-        default_factory=list, max_length=4
-    )
-    receipt_merchant: str = Field(default="", max_length=80)
-    receipt_window_label: str = Field(default="", max_length=60)
-    # "Show more" / "next" / "older": continue the receipts list just shown.
-    receipt_more: bool = False
-
-    def receipt_fields(self) -> ReceiptPlanFields:
-        return ReceiptPlanFields(
-            since=self.receipt_since,
-            until=self.receipt_until,
-            statuses=tuple(self.receipt_statuses),
-            identifier_kinds=tuple(self.receipt_identifier_kinds),
-            merchant=self.receipt_merchant,
-            window_label=self.receipt_window_label,
-            more=self.receipt_more,
-        )
-
-    @property
-    def has_receipt_fields(self) -> bool:
-        fields = self.receipt_fields()
-        return fields.more or fields.has_filters or bool(fields.window_label)
-
+    categories: list[AnalysisCategory] = Field(default_factory=list, max_length=5)
     # The model must explicitly distinguish "newest" from a reference to the
     # last shown list. An absent anchor never silently becomes the newest mail.
     target_origin: Literal["newest", "offered"] | None = None
@@ -240,24 +200,6 @@ def make_mail_read_offer(raw: Any, *, owner_id: str, conversation_id: str) -> di
     except (ValidationError, TypeError, ValueError):
         return None
     return offer.model_dump(mode="json")
-
-
-class MailAnalysisFinding(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    category: Literal["action_items", "meetings"]
-    source_ref: str = Field(pattern=r"^mail:(?:[1-9]|1[0-9]|2[0-5])$")
-    # A later message in the same retrieved thread can resolve or cancel an
-    # earlier one. The analyzer cites every message it used for that conclusion.
-    update_refs: list[str] = Field(default_factory=list, max_length=12)
-    detail: str = Field(min_length=1, max_length=280)
-    state: Literal["active", "completed", "cancelled", "rescheduled", "unclear"]
-    due_at: str | None = Field(default=None, max_length=40)
-    event_at: str | None = Field(default=None, max_length=40)
-
-
-class MailAnalysisAnswer(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    findings: list[MailAnalysisFinding] = Field(default_factory=list, max_length=12)
 
 
 class MailItemGist(BaseModel):
@@ -414,7 +356,7 @@ async def _analyze_rows(
             tasks = [group.create_task(one(row)) for row in rows]
         return [result for task in tasks if (result := task.result()) is not None]
 
-    async def tasks_and_meetings(category: AnalysisCategory) -> list[dict[str, Any]]:
+    async def extracted(category: AnalysisCategory) -> list[dict[str, Any]]:
         parsed = MailAnalysisAnswer.model_validate(
             await gene_runner(
                 gene_id="agent_email_read_analyzer",
@@ -466,7 +408,7 @@ async def _analyze_rows(
         jobs.append((["personal_info"], personal()))
     for category in categories:
         if category != "personal_info":
-            jobs.append(([category], tasks_and_meetings(category)))
+            jobs.append(([category], extracted(category)))
     # Bound the whole category, including time queued behind the four-message
     # semaphore. Per-message timeouts otherwise permit three serial 25s waves.
     # A failed category cancels its own work while preserving finished siblings.
@@ -540,84 +482,35 @@ def _result(
     }
 
 
-_RECEIPT_ERRORS = {
-    "invalid_argument": (
-        "I couldn't turn that into a receipts request. "
-        "Try “show my receipts from the last 2 months”."
-    ),
-    "not_in_this_surface": (
-        "I can't read your saved receipts here yet. Ask in chat, or open Receipts in Mail."
-    ),
-}
+# What One is told when the Email planner chose ``use_receipt_functions``.
+RECEIPT_FUNCTIONS_TEXT = (
+    "Use your receipt functions for receipts, invoices, bills and purchases. No mail was read."
+)
+_RECEIPTS_NOT_IN_VOICE = (
+    "I can't read your saved receipts here yet. Ask in chat, or open Receipts in Mail."
+)
 
 
-def _answer_from_receipt_memory(
-    *,
-    conversation_id: str,
-    plan: MailReadPlan,
-    receipt_memory: object | None,
-    receipt_cursor: str | None,
-    receipt_reads: bool,
-    zone: ZoneInfo,
-    now: datetime,
+def _receipt_functions_result(
+    conversation_id: str, plan: MailReadPlan, typed_chat: bool
 ) -> dict[str, Any]:
-    """Answer a planned receipts question from the saved receipt memory alone.
+    """Hand a receipts question back to One without reading anything.
 
-    This path builds no Gmail reader and so cannot reach ``search_inbox``. The
-    planner chose the window and filters; the interpreter is not asked, because
-    every value in the answer is copied from the person's saved memory and
-    formatted by code, and a model re-writing a number is the failure to avoid.
-    That skip is logged, never silent.
+    One answers receipts, invoices and spending with its own receipt functions
+    over the owner's device snapshot. This path builds no Gmail reader, so it
+    cannot reach ``search_inbox``, and it proposes no navigation. The planner's
+    choice is honoured as a typed status; the skipped read is logged, not silent.
     """
-    if plan.categories:
+    if plan.categories or plan.ordinal is not None or plan.target_origin is not None:
         raise GmailMetadataError("invalid_argument")
-    if not receipt_reads:
-        # One Live Voice has no channel for the saved memory. Refuse plainly
-        # instead of falling back to a search of the inbox.
+    if not typed_chat:
+        # One Live Voice has no receipt functions. Refuse plainly instead of
+        # falling back to a search of the inbox.
         return _result(
-            conversation_id,
-            _RECEIPT_ERRORS["not_in_this_surface"],
-            "invalid_argument",
-            failure_stage="planning",
+            conversation_id, _RECEIPTS_NOT_IN_VOICE, "invalid_argument", failure_stage="planning"
         )
-    try:
-        with mail_latency("receipts"):
-            outcome = read_receipt_memory(
-                index_raw=receipt_memory,
-                plan=plan.receipt_fields(),
-                cursor_raw=receipt_cursor,
-                zone=zone,
-                now=now,
-            )
-    except ReceiptPlanError:
-        return _result(
-            conversation_id,
-            _RECEIPT_ERRORS["invalid_argument"],
-            "invalid_argument",
-            failure_stage="planning",
-        )
-    logger.info("one_voice.mail.latency stage=%s ms=%d status=%s", "interpret", 0, "skipped")
-    if outcome.drift:
-        logger.info("one_voice.mail.receipts drift=%s", ",".join(outcome.drift))
-    result = _result(
-        conversation_id,
-        outcome.text,
-        outcome.status,
-        truncated=outcome.has_more,
-        metadata_only=True,
-        coverage=outcome.coverage,
-    )
-    # Siblings of the strict shared receipt, like ``items`` and ``offer``: the
-    # caller persists the list position for "show more" and, when the memory is
-    # not ready, proposes the generated Open Receipts action to One.
-    result["receipt_cursor"] = {"action": outcome.cursor_action, "value": outcome.cursor}
-    if outcome.propose_open_receipts:
-        result["directive"] = {
-            "type": "receipts_open_proposal",
-            "actionId": OPEN_RECEIPTS_ACTION_ID,
-            "slots": {},
-        }
-    return result
+    logger.info("one_voice.mail.latency stage=%s ms=%d status=%s", "receipts", 0, "redirected")
+    return _result(conversation_id, RECEIPT_FUNCTIONS_TEXT, "receipt_functions_required")
 
 
 def _voice_recent_metadata_is_safe(
@@ -673,8 +566,10 @@ async def run_delegated_mail_read(
     message_ids: tuple[str, ...] = (),
     offer_mailbox: str = "inbox",
     expect_account: str = "",
+    # Retired receipt-memory inputs, still accepted from callers and never read.
     receipt_memory: object | None = None,
     receipt_cursor: str | None = None,
+    # True only for typed chat, where One owns receipt functions.
     receipt_reads: bool = False,
     read_offer: dict[str, Any] | None = None,
     require_explicit_latest: bool = False,
@@ -706,8 +601,8 @@ async def run_delegated_mail_read(
         async with asyncio.timeout(105):
             if not receipt_reads:
                 # Voice can only read the live mailbox. Refuse unavailable
-                # grants before spending a model round trip on planning. Typed
-                # receipt-memory reads remain usable without a Gmail grant.
+                # grants before spending a model round trip on planning. A typed
+                # receipts question is handed back to One without a Gmail grant.
                 try:
                     await gmail.assert_read_ready(user_id=user_id)
                 except GmailApiError as exc:
@@ -757,22 +652,9 @@ async def run_delegated_mail_read(
                     plan.clarification or "What would you like to find in your inbox?",
                     "input_required",
                 )
-            if plan.operation == "read_receipts":
-                # Receipt questions are answered from the saved receipt memory
-                # only. There is deliberately no branch from here to the reader.
-                if plan.ordinal is not None or plan.target_origin is not None:
-                    raise GmailMetadataError("invalid_argument")
-                return _answer_from_receipt_memory(
-                    conversation_id=conversation_id,
-                    plan=plan,
-                    receipt_memory=receipt_memory,
-                    receipt_cursor=receipt_cursor,
-                    receipt_reads=receipt_reads,
-                    zone=zone,
-                    now=clock(),
-                )
-            if plan.has_receipt_fields:
-                raise GmailMetadataError("invalid_argument")
+            if plan.operation == "use_receipt_functions":
+                # There is deliberately no branch from here to the reader.
+                return _receipt_functions_result(conversation_id, plan, receipt_reads)
             operation = plan.operation
             if operation == "read_offered":
                 if plan.query.strip() or plan.target_origin == "newest":
@@ -887,75 +769,30 @@ async def run_delegated_mail_read(
                         failure_stage="analysis",
                         analysis_failed=analysis_categories,
                     )
-                coverage = dict(metadata.get("coverage") or {})
-                coverage["assessed"] = len(readable)
-                coverage["analysis_unassessable"] = len(rows) - len(readable)
-                coverage["plan_source"] = "offer" if read_ids else "planner"
-                coverage["analysis_requested"] = list(plan.categories)
-                coverage["analysis_failed"] = failed
-                for category in _ANALYSIS_CATEGORIES:
-                    if category in plan.categories and category not in failed:
-                        coverage[f"findings_{category}"] = sum(
-                            finding["category"] == category for finding in findings
-                        )
-                by_ref: dict[str, list[dict[str, Any]]] = {}
-                for finding in findings:
-                    by_ref.setdefault(finding["source_ref"], []).append(finding)
-                items = [{**row, "analysis": by_ref.get(row["source_ref"], [])} for row in rows]
-                lines = [f"I checked {len(readable)} Mail messages in this bounded page."]
-                for category in plan.categories:
-                    title = _CATEGORY_TITLES[category]
-                    if category in failed:
-                        lines.append(f"I couldn't complete the {title} analysis.")
-                        continue
-                    matches = [item for item in findings if item["category"] == category]
-                    if not matches:
-                        lines.append(f"No {title}s found among the messages checked.")
-                    else:
-                        finding_title = (
-                            (
-                                "meeting finding in Mail"
-                                if len(matches) == 1
-                                else "meeting findings in Mail"
-                            )
-                            if category == "meetings"
-                            else title + ("" if len(matches) == 1 else "s")
-                        )
-                        lines.append(f"{len(matches)} {finding_title} found:")
-                        lines.extend(
-                            f"• {item['detail']} (email {item['source_ref'].split(':')[1]}; {item['state']})"
-                            for item in matches
-                        )
-                if "meetings" in plan.categories:
-                    lines.append("These are findings from Mail, not a check of your Calendar.")
-                if coverage.get("matches_beyond_page") or coverage.get("items_omitted"):
-                    lines.append("More matching mail may be outside this page.")
-                if coverage.get("content_shortened"):
-                    lines.append(
-                        "Some message text was shortened; open the original for the full text."
-                    )
-                if coverage["analysis_unassessable"]:
-                    lines.append("Some messages had no readable text and were not analyzed.")
-                cited = list(
-                    dict.fromkeys(
-                        ref
-                        for item in findings
-                        for ref in [item["source_ref"], *item["update_refs"]]
-                    )
+                # Counts are code over the validated findings; see email_mail_brief.
+                outcome = mail_analysis_outcome(
+                    rows=rows,
+                    analyzed=len(readable),
+                    findings=findings,
+                    failed=failed,
+                    requested=plan.categories,
+                    reader_coverage=metadata.get("coverage"),
+                    plan_source="offer" if read_ids else "planner",
+                    checked_at=clock(),
                 )
-                coverage["cited"] = len(cited)
                 offered_ids = reader.offered_message_ids()
-                return _result(
+                analysis = _result(
                     conversation_id,
-                    "\n\n".join(lines),
+                    outcome.text,
                     "ok",
                     sources=[
-                        {"source_ref": ref, "label": "Mail", "kind": "message"} for ref in cited
+                        {"source_ref": ref, "label": "Mail", "kind": "message"}
+                        for ref in outcome.cited
                     ],
                     truncated=metadata["truncated"],
                     metadata_only=False,
-                    items=items,
-                    coverage=coverage,
+                    items=outcome.items,
+                    coverage=outcome.coverage,
                     analysis_failed=tuple(failed),
                     offer=(
                         {
@@ -968,6 +805,10 @@ async def run_delegated_mail_read(
                         else None
                     ),
                 )
+                # A sibling of the strict shared receipt, like ``items``, for a
+                # surface to render as cards. It holds no body and no address.
+                analysis["brief"] = outcome.brief
+                return analysis
             # Coverage is server bookkeeping, not evidence. Handing counts to the
             # interpreter would invite it to author its own totals in prose, and
             # the whole point of computing them here is that prose cannot be
