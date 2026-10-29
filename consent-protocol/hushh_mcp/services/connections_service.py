@@ -3433,6 +3433,58 @@ class ConnectionsService:
             "audience": audience,
         }
 
+    def list_mutual_connections_page(
+        self, user_id: str, *, person_ref: str, page: int = 1, limit: int = 20
+    ) -> dict[str, Any]:
+        """Read shared identities through the same live directory eligibility gate."""
+        from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+        target = self._execute_one(
+            """SELECT user_id FROM actor_profiles
+               WHERE public_person_ref = CAST(:person_ref AS UUID)
+                 AND public_profile_status = 'active' LIMIT 1""",
+            {"person_ref": person_ref},
+        )
+        target_id = str((target or {}).get("user_id") or "")
+        profiles = (
+            self._directory_profiles(user_id, [target_id])
+            if target_id and target_id != user_id
+            else []
+        )
+        if not profiles:
+            raise ConnectionsError(
+                "MUTUAL_CONNECTIONS_UNAVAILABLE",
+                "This person's connections are unavailable.",
+                status_code=404,
+            )
+        result = OneLocationAgentService().search_directory_candidates(
+            owner_user_id=user_id,
+            mutual_target_user_id=target_id,
+            page=page,
+            limit=limit,
+        )
+        counts = self._execute_many(
+            MUTUAL_CONNECTIONS_SQL, {"user_id": user_id, "page_user_ids": [target_id]}
+        )
+        return {
+            "person": {
+                "publicPersonRef": person_ref,
+                "displayName": profiles[0].get("displayName"),
+            },
+            "items": [
+                {
+                    "publicPersonRef": person.get("publicPersonRef"),
+                    "displayName": person.get("displayName"),
+                    "photoUrl": person.get("photoUrl"),
+                }
+                for person in result["items"]
+                if person.get("publicPersonRef")
+            ],
+            "page": result["page"],
+            "hasMore": result["hasMore"],
+            "totalCount": max(0, int((counts[0] if counts else {}).get("mutual_count") or 0)),
+        }
+
     @staticmethod
     def _voice_preferences_payload(row: dict[str, Any] | None) -> dict[str, Any]:
         updated_at = (row or {}).get("updated_at")
