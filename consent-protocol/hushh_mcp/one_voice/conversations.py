@@ -139,7 +139,7 @@ class ConversationStore:
         except ValueError:
             raise ValueError("conversation_id must be a UUID") from None
         existing = await self._one(
-            f"SELECT {_COLUMNS} FROM one_voice_conversations WHERE id = CAST(:id AS UUID)",  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            f"SELECT {_COLUMNS} FROM one_voice_conversations WHERE id = CAST(:id AS UUID)",  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"id": cid},
         )
         if existing is not None:
@@ -154,7 +154,7 @@ class ConversationStore:
                     expires_at = NOW() + interval '2 hours'
                 WHERE id = CAST(:id AS UUID)
                 RETURNING {_COLUMNS}
-                """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+                """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
                 {"id": cid},
             )
             return Conversation.from_row(row or existing)
@@ -163,7 +163,7 @@ class ConversationStore:
             INSERT INTO one_voice_conversations (id, user_id, model_id, model_location, session_count)
             VALUES (CAST(:id AS UUID), :user_id, :model_id, :model_location, 1)
             RETURNING {_COLUMNS}
-            """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"id": cid, "user_id": user_id, "model_id": model_id, "model_location": model_location},
         )
         if row is None:
@@ -175,7 +175,7 @@ class ConversationStore:
             f"""
             SELECT {_COLUMNS} FROM one_voice_conversations
             WHERE id = CAST(:id AS UUID) AND user_id = :user_id
-            """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"id": str(conversation_id), "user_id": user_id},
         )
         return Conversation.from_row(row) if row else None
@@ -235,7 +235,7 @@ class ConversationStore:
             UPDATE one_voice_conversations
             SET {", ".join(assignments)}, last_seen_at = NOW()
             WHERE id = CAST(:id AS UUID) AND user_id = :user_id
-            """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
+            """,  # nosec B608 # static column/assignment fragments; every value is a bound parameter.
             {"id": str(conversation_id), "user_id": user_id, **params},
         )
 
