@@ -16,6 +16,69 @@ async function fixture() {
   return { ...identity, ...client };
 }
 describe("private product observation lifecycle", () => {
+  it("drains a burst after four in-flight reports without delaying product results", async () => {
+    const f = await fixture();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    mocks.fetch.mockImplementation(async (_url, options) => {
+      if (options.method === "POST") await gate;
+      return new Response(JSON.stringify(options.method === "POST" ? { recorded: true } : { enabled: true, generation: "original-epoch" }));
+    });
+    const values = Array.from({ length: 6 }, () => ({ status: "succeeded" }));
+    const operations = values.map((value) => f.observeDispatch("calendar.event.create", Promise.resolve(value)));
+    expect(await Promise.all(operations)).toEqual(values);
+    await vi.waitFor(() => expect(posts()).toHaveLength(4));
+    release();
+    await vi.waitFor(() => expect(posts()).toHaveLength(12));
+    const bodies = posts().map((call) => JSON.parse(call[1].body));
+    expect(new Set(bodies.map((body) => body.operationId)).size).toBe(6);
+    for (const id of new Set(bodies.map((body) => body.operationId))) {
+      expect(bodies.filter((body) => body.operationId === id).map((body) => body.phase)).toEqual(["started", "returned"]);
+    }
+    expect(bodies.every((body) => body.generation === "original-epoch")).toBe(true);
+  });
+  it.each(["switch", "reset"])("discards queued reports after owner %s", async (change) => {
+    const f = await fixture();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    mocks.fetch.mockImplementation(async (_url, options) => {
+      if (options.method === "POST") await gate;
+      return new Response(JSON.stringify(options.method === "POST" ? { recorded: true } : { enabled: true, generation: "capture-epoch" }));
+    });
+    for (let i = 0; i < 6; i++) f.observeProductAction("calendar.event.create", "started", `old-operation-${i}`);
+    await vi.waitFor(() => expect(posts()).toHaveLength(4));
+    if (change === "switch") f.publishValidatedAuthSessionOwner("owner-b");
+    else mocks.reset!("owner-a");
+    f.observeProductAction("calendar.event.create", "started", "current-operation");
+    release();
+    await vi.waitFor(() => expect(posts()).toHaveLength(5));
+    expect(posts().map((call) => JSON.parse(call[1].body).operationId)).toEqual([
+      "old-operation-0", "old-operation-1", "old-operation-2", "old-operation-3", "current-operation",
+    ]);
+  });
+  it.each(["capacity", "expiry"])("bounds queued observation retention by %s", async (limit) => {
+    const f = await fixture();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    mocks.fetch.mockImplementation(async (_url, options) => {
+      if (options.method === "POST") await gate;
+      return new Response(JSON.stringify(options.method === "POST" ? { recorded: true } : { enabled: true, generation: "capture-epoch" }));
+    });
+    for (let i = 0; i < (limit === "capacity" ? 1000 : 6); i++)
+      f.observeProductAction("calendar.event.create", "started", `bounded-operation-${i}`);
+    await vi.waitFor(() => expect(posts()).toHaveLength(4));
+    if (limit === "expiry") clock.mockReturnValue(now + 60_001);
+    release();
+    // A new report proves the drain finished; expired or overflowed records must
+    // not reappear after the transport becomes available.
+    await vi.waitFor(() => expect(posts()).toHaveLength(limit === "capacity" ? 68 : 4));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    f.observeProductAction("calendar.event.create", "returned", "fresh-operation");
+    await vi.waitFor(() => expect(posts()).toHaveLength(limit === "capacity" ? 69 : 5));
+    expect(JSON.parse(posts().at(-1)![1].body).operationId).toBe("fresh-operation");
+  });
   it("refreshes admission for new operations after a remote reset without rebinding pending terminal reports", async () => {
     const f = await fixture();
     const now = Date.now();
