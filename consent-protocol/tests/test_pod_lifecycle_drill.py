@@ -655,11 +655,10 @@ def test_the_receipt_passes_the_completion_judges_validator(tmp_path, monkeypatc
     assert valid, detail
     assert receipt["result"] == "pass" and receipt["exit_code"] == 0
     assert "<redacted>" in receipt["commands"][0]
-    # Validated machine metadata may coincidentally contain a short numeric canary.
     assert receipt["source_commit"] == git("rev-parse", "HEAD")
     assert receipt["source_sha256"] == {"probe.py": hashlib.sha256(probe.read_bytes()).hexdigest()}
-    metadata = ("source_commit", "source_sha256", "completed_at")
-    text = json.dumps({key: value for key, value in receipt.items() if key not in metadata})
+    validated_metadata = ("source_commit", "source_sha256", "completed_at")
+    text = json.dumps({k: v for k, v in receipt.items() if k not in validated_metadata})
     for private in ("Pushkin", "4269", "HA1RECEIPT"):
         assert private not in text
     # The judged number is never granted by the drill itself.
