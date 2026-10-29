@@ -575,6 +575,11 @@ def test_uat_semantic_provider_reaches_api_and_both_worker_revisions() -> None:
         in deployment["env"]
     )
     deployed_script = _read("scripts/deploy/backend-deploy.sh")
+    assert "scripts/ops/managed_ai_config.py --environment uat --format validate" in deployed_script
+    assert "scripts/ops/managed_ai_config.py --environment uat --format provider" in deployed_script
+    for name in ("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "HUSHH_UAT_MANAGED_AI_PROVIDER"):
+        assert f'"{name}=${{managed_provider}}"' in deployed_script
+        assert f'"{name}=azure_openai"' not in deployed_script
     assert f'"{flag}=${{_{flag}}}"' in deployed_script
     assert (
         '"DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}"'

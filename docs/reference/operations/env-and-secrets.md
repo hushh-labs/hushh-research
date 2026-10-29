@@ -323,6 +323,56 @@ It checks that:
 2. Each deployed environment resolves one active analytics measurement ID and one active GTM ID.
 3. Maintainer-only overlays are intentionally excluded from generated contributor runtime files.
 
+### Managed AI configuration and quota recovery
+
+Edit [the managed AI configuration](../../../consent-protocol/config/managed-ai-runtime.json)
+for supported fleet provider, model, deployment, endpoint, project and location changes.
+Keep credentials in the existing workload identity or secret owner. No chat, voice,
+connector, frontend or GitHub workflow edit is needed for these settings.
+
+| Setting in that file | Consumers and boundary |
+| --- | --- |
+| `managed_provider_selection.uat` | Packaged UAT provider default, currently `azure_openai`. The existing resolver supplies text, research, audio and embedding callers. Dev, production and local retain Vertex. |
+| `pwm_research_uat.azure` | Azure workload identity identifiers and endpoints; `primary_deployment` supplies general text/research. A replacement resource needs the existing identity's access and compatible deployments. |
+| `managed_runtime_uat.azure.one_text_root` | One chat's root deployment and generation budget. Changing only `primary_deployment` does not change this separate root binding. |
+| `managed_runtime_uat.azure` | Other Azure capability deployments: realtime, transcription, speech, embeddings and compact public search. Preserve model compatibility, the 768-dimension embedding contract and declared capability qualification. |
+| `environments.<environment>` | Vertex text, live audio and embedding model names, project and locations for that environment. |
+
+For exhausted Azure quota, choose a compatible provisioned Azure resource or
+deployment with available capacity and update the relevant entries in this file.
+Changing a deployment name alone does not create quota or provision a model.
+UAT One chat currently requires Azure: it has no Vertex fallback. The validator
+rejects `managed_provider_selection.uat = "vertex"` for a fleet release because
+that would break chat. Vertex diagnostic pins and the existing eligible Drive
+transport fallback remain available under their current contracts. A new fleet
+provider needs adapter and complete capability qualification before selection.
+
+Validate the complete file without model calls or credentials:
+
+```bash
+python3 scripts/ops/managed_ai_config.py --environment uat --format validate
+python3 scripts/ops/managed_ai_config.py --environment uat --format provider
+```
+
+The deployment compiler reads the packaged default and pins both existing
+`HUSHH_UAT_MANAGED_AI_PROVIDER` and `HUSHH_UAT_MANAGED_TEXT_PROVIDER` values on
+the candidate revision. These internal verification pins take precedence over
+the file at runtime; conflicting pins fail closed. Both Drive workers inherit
+the verified API binding. Operators should edit the file, rather than manually
+change those pins independently. The existing exact-image readiness and
+promotion gates remain mandatory; config validation proves shape and known
+compatibility restrictions, not live quota, model quality or availability.
+
+The file is packaged with the backend. A source edit takes effect through the
+normal authorized backend release/restart, including affected workers; it does
+not hot-reload deployed services or change an active voice session. Preserve
+saved job/provider bindings and their existing migration/recovery checks when
+changing processors. Roll back through the existing release owner to the prior
+qualified configuration/image. No user cohorts or per-account flags are added;
+the default applies to existing and new users in the authorized environment,
+with their existing permissions. BYOK, private owner-cloud placement and the
+coding assistant's own model subscription stay with their separate owners.
+
 ### Fleet text model switch (2026-09-02)
 
 Hosted text, Live Voice, research and embedding targets come from
@@ -453,7 +503,7 @@ Used by:
 | `CORS_ALLOWED_ORIGINS` | `server.py` | Yes (prod recommended) | Explicit comma-separated CORS allowlist |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes (auth) | Canonical Firebase Admin and Workspace DWD credential. Approved Workspace client ID: `109021324828349644970`. |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`; do not introduce for new config. |
-| `HUSHH_UAT_MANAGED_AI_PROVIDER` / `HUSHH_UAT_MANAGED_TEXT_PROVIDER` | `managed_ai_config.py`, `runtime_providers/managed_text.py` | UAT only | Both bind the same candidate-verified `azure_openai` (preferred) or `vertex`; disagreement fails closed. At least one complete application capability bundle must pass. API and both Drive workers inherit the exact binding. Non-UAT and BYOK selection remain unchanged. |
+| `HUSHH_UAT_MANAGED_AI_PROVIDER` / `HUSHH_UAT_MANAGED_TEXT_PROVIDER` | `managed_ai_config.py`, `runtime_providers/managed_text.py` | UAT only | Internal revision pins override `managed_provider_selection.uat` in the packaged config; disagreement fails closed. UAT One chat and fleet release qualification currently require Azure; a Vertex diagnostic/Drive transport is not a complete replacement. API and both Drive workers inherit the exact verified binding. Non-UAT and BYOK selection remain unchanged. |
 | `HUSHH_GENAI_AUTH_MODE` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Must be `vertex_adc`; hosted API-key mode is rejected. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `hushh_mcp/runtime_providers/factory.py` | Local only | Explicit `developer_api_key` compatibility mode only; never a hosted secret. |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Project metadata hosted; location override local only | Hosted text locations come from the packaged `config/managed-ai-runtime.json` profile; credentials come from workload ADC. `GOOGLE_CLOUD_LOCATION` is a local compatibility override, not a required hosted mount. |

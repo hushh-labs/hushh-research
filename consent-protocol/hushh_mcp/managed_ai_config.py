@@ -94,9 +94,57 @@ def load_private_drive_text_policy(path: Path = PROFILE_PATH) -> dict:
     return value
 
 
-def selected_managed_provider() -> str:
+def configured_managed_provider(environment: str, path: Path = PROFILE_PATH) -> str:
+    """Packaged fleet default; revision pins are resolved separately below.
+
+    Only UAT has an administrator-selected Azure/Vertex runtime. Other lanes
+    retain their existing Vertex contract; BYOK and owner-cloud routing are separate.
+    """
+    document = json.loads(path.read_text())
+    selection = document.get("managed_provider_selection")
+    if (
+        document.get("version") != 1
+        or not isinstance(selection, dict)
+        or set(selection) != {"uat"}
+        or not isinstance(selection["uat"], str)
+        or selection["uat"] not in {"azure_openai", "vertex"}
+    ):
+        raise ValueError("Invalid managed provider selection")
+    if environment not in document.get("environments", {}):
+        raise ValueError("Unknown managed AI runtime profile")
+    return selection["uat"] if environment == "uat" else "vertex"
+
+
+def validate_runtime_config(path: Path = PROFILE_PATH) -> dict:
+    """Validate all packaged settings without credentials, clients or inference.
+
+    Runtime diagnostics can still pin Vertex explicitly, but a fleet release
+    must retain One chat's existing Azure-only qualification boundary.
+    """
+    document = json.loads(path.read_text())
+    environments = ("local", "dev", "uat", "production")
+    if set(document.get("environments", {})) != set(environments):
+        raise ValueError("Managed AI configuration requires every environment")
+    providers = {}
+    for environment in environments:
+        load_profile(environment, path)
+        providers[environment] = configured_managed_provider(environment, path)
+    load_private_drive_text_policy(path)
+    load_pwm_policy(path, environment="production", provider="vertex")
+    load_pwm_policy(path, environment="uat", provider="azure_openai")
+    load_managed_runtime_policy(path, environment="uat", provider=providers["uat"])
+    if providers["uat"] != "azure_openai":
+        raise ValueError(
+            "UAT One chat requires qualified Azure processing; "
+            "Vertex is not a supported fleet replacement"
+        )
+    return {"valid": True, "providers": providers, "config_fingerprint": profile_hash(document)}
+
+
+def selected_managed_provider(path: Path = PROFILE_PATH) -> str:
+    configured = configured_managed_provider("uat", path)
     selected = os.getenv("HUSHH_UAT_MANAGED_AI_PROVIDER") or os.getenv(
-        "HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai"
+        "HUSHH_UAT_MANAGED_TEXT_PROVIDER", configured
     )
     if selected not in {"azure_openai", "vertex"} or (
         os.getenv("HUSHH_UAT_MANAGED_AI_PROVIDER")
@@ -151,7 +199,7 @@ def _validate_managed_azure_bindings(azure: dict, required: list[str]) -> None:
 
 
 def load_managed_runtime_policy(
-    path: Path = PROFILE_PATH, *, environment: str | None = None
+    path: Path = PROFILE_PATH, *, environment: str | None = None, provider: str | None = None
 ) -> dict | None:
     """UAT processor selection only; callers retain information/action authority.
 
@@ -188,7 +236,9 @@ def load_managed_runtime_policy(
     ):
         raise ValueError("Invalid managed capability inventory")
     _validate_managed_azure_bindings(value["azure"], required)
-    selected = selected_managed_provider()
+    selected = selected_managed_provider(path) if provider is None else provider
+    if selected not in {"azure_openai", "vertex"}:
+        raise ValueError("Invalid managed provider selection")
     digest = profile_hash(
         {
             "policy": value,
@@ -230,7 +280,7 @@ def load_pwm_policy(
     if provider is not None and provider not in {"azure_openai", "vertex"}:
         raise ValueError("Invalid research processor selection")
     selected = provider or (
-        selected_managed_provider() if runtime_environment == "uat" else "vertex"
+        selected_managed_provider(path) if runtime_environment == "uat" else "vertex"
     )
     value = dict(
         document["pwm_research_uat"]
