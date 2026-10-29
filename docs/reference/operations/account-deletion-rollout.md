@@ -1049,6 +1049,18 @@ migration adapter or roll back that client purge. Primary migration execution
 must retain the tombstone filters for migrations 135 and 428. Image, runtime,
 schema, fence and WorkOS checks remain independent.
 
+The forward cleanup upgrade from the whole-file bodies at `84b80bcab6` to
+`49dafdc2f1` is also reviewed as one coupled change: committed-erasure wakeup,
+the same supervised guarded drain, completion-notice support, the dormant 437
+legacy-settlement contract and its LangGraph lock update. All six files must
+match that ordered pair together, and migration 437 must match its reviewed
+source. A partial upgrade, edited body, reversed pair or unrelated consumer
+change refuses qualification. The existing 28-file consumer inventory and
+independent migration manifest remain authoritative. This supplies source
+compatibility only; it cannot change the original operational application's
+identity, replay an old migration adapter, enable phone recovery or settle
+production legacy generations.
+
 ## Phone recovery action admission (431)
 
 Migration `431_phone_recovery_actions.sql` adds bounded, non-authorizing recovery
@@ -1121,6 +1133,13 @@ operational backend reference from the exact immutable proof; its historical
 healthy commit/message remain unchanged. Preparation is read-only, the intent is
 uploaded before CAS, and uncertain Git/cloud mutations require readback. Later
 passes reuse the same reference rather than republishing or renewing it.
+Operational publication revalidates the installed database through the existing
+read-only owner. Its maintenance job prepares the frozen protocol Python runtime
+and the production lane's pinned Cloud SQL Auth Proxy before starting the
+five-minute cleanup budget, and uses that interpreter for publication and cleanup.
+System Python alone does not supply the declared database driver, and the Cloud
+SDK does not install this proxy. This setup changes no credential, lock, proof
+or drain authority.
 
 The `worker` phase prepares and immutably publishes the existing private worker
 intent, then stages exactly one zero-traffic revision. It preserves IAM, service

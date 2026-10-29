@@ -80,6 +80,15 @@ def new_semantic_search_policy_version() -> int:
     return SEMANTIC_SEARCH_POLICY_VERSION if enabled else 3
 
 
+def request_planner_processor_supported(binding: Any) -> bool:
+    """The current managed policy owns both qualified planner transports."""
+    return isinstance(binding, dict) and (
+        binding.get("provider") == "azure_openai"
+        or binding.get("provider") == "gemini"
+        and binding.get("authorization_basis") == "uat_policy"
+    )
+
+
 def new_semantic_model_binding(*, policy_version: int) -> dict | None:
     """Freeze the current processor and validate the new request's policy."""
     from hushh_mcp.runtime_providers.managed_text import managed_text_binding, managed_text_policy
@@ -92,7 +101,7 @@ def new_semantic_model_binding(*, policy_version: int) -> dict | None:
         if provider != "gemini":
             raise ValueError("Azure Documents requires the UAT administrator policy")
         binding = None
-    if policy_version == 4 and (binding is None or binding.get("provider") != "azure_openai"):
+    if policy_version == 4 and not request_planner_processor_supported(binding):
         raise DriveSharingError("provider_unavailable")
     return binding
 

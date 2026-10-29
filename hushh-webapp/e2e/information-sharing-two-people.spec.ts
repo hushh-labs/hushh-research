@@ -454,8 +454,8 @@ async function composeRequest(
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page
-    .getByTestId("person-profile-duration-select")
-    .selectOption(String(REQUESTED_HOURS));
+    .getByTestId(`person-profile-duration-${REQUESTED_HOURS}`)
+    .locator("xpath=..").click();
   await page.getByTestId("person-profile-purpose").fill(purpose);
 
   const created = waitForJsonResponse(
