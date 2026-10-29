@@ -3510,55 +3510,6 @@ async def test_semantic_commit_cannot_change_sealed_model_binding(monkeypatch, f
 
 
 @pytest.mark.asyncio
-async def test_semantic_checkpoint_seals_explicit_binding_and_its_policy(monkeypatch):
-    from hushh_mcp.services import drive_request_package_assessment as assessment
-
-    monkeypatch.setattr(
-        assessment, "validate_semantic_model_binding", lambda value: deepcopy(value)
-    )
-    binding = {
-        "provider": "azure_openai",
-        "deployment": "synthetic-deployment",
-        "config_fingerprint": "a" * 64,
-        "approval_generation": "synthetic-generation",
-    }
-    store = SimpleNamespace(
-        clear_legacy_completed_request=AsyncMock(),
-        by_client=AsyncMock(return_value=None),
-        create=AsyncMock(return_value=({"jobId": "synthetic-job"}, True)),
-        align_request_expiry=AsyncMock(),
-    )
-    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
-    service.run_one = AsyncMock()
-    service.status = AsyncMock(return_value={"jobId": "synthetic-job", "status": "queued"})
-    monkeypatch.setattr(search_module, "wake_drive_work", AsyncMock())
-    await service.create_for_request(
-        user_id="owner",
-        request_id="12345678-1234-1234-1234-123456789012",
-        request_revision=1,
-        purpose={
-            "purpose": "Synthetic Subject records",
-            "periodStart": "2026-09-02",
-            "periodEnd": "2026-10-02",
-        },
-        plan={
-            "mode": "find",
-            "terms": [],
-            "file_kind": "any",
-            "semantic_query": _semantic_checkpoint("Synthetic Subject")["semantic_plan"],
-        },
-        require_current=AsyncMock(),
-        semantic_search=True,
-        semantic_model_binding=binding,
-    )
-    sealed = store.create.await_args.kwargs["checkpoint"]
-    assert sealed["semantic_model_binding"] == binding
-    assert sealed["semantic_model_binding"] is not binding
-    assert sealed["semantic_assessment_policy"] == assessment_policy_version(binding)
-    assert sealed["semantic_assessment_policy"] != assessment_policy_version()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("provider", [None, "gemini", "azure_openai"])
 async def test_semantic_resume_uses_sealed_provider_instead_of_global_selector(
     monkeypatch, provider

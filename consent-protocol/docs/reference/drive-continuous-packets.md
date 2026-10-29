@@ -367,8 +367,9 @@ Production, voice, BYOK and content-analysis features are unchanged.
 ## Activity-date search-match delivery (policy v4)
 
 New enrolled UAT requests use semantic plan v2 and `drive_activity_union_v1`.
-One Azure planner interprets the request; the deterministic compiler freezes a
-primary query and, only for explicitly flagged positive entity-token groups,
+One centrally configured managed planner interprets the request. The authored
+instruction selects core-name tokens and flags eligible unquoted personal names;
+the deterministic compiler freezes a primary query and, only for flagged positive entity-token groups,
 one sparse fallback. The first primary page arms that fallback only below three
 validated distinct rows, before date filtering. Primary retrieval still exhausts
 all enabled corpora; each query has its own cursor and global file-ID deduplication.
