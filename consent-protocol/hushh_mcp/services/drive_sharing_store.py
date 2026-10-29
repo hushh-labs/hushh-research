@@ -32,17 +32,18 @@ from hushh_mcp.services.drive_owner_allowed import (
     LEGACY_DEFAULT_PRICE_CENTS,
     LEGACY_REQUEST_POLICY,
     OWNER_ALLOWED_KEY,
-    SEMANTIC_SEARCH_POLICY_VERSION,
     automatic_recipient_current,
     autoshare_enabled,
     autoshare_request,
+    new_semantic_model_binding,
+    new_semantic_search_policy_version,
     owner_allowed_marker,
     owner_allowed_price_cents,
     owner_allowed_record,
     package_allow_marker,
     request_has_document_scope,
     semantic_search_enrollment_enabled,
-    semantic_search_request,
+    semantic_search_policy_view,
     valid_owner_price_cents,
     valid_request_price_cents,
     whole_dollar_request,
@@ -98,16 +99,8 @@ def _new_requests_use_legacy_flow() -> bool:
 
 
 def _new_semantic_model_binding(connection, *, owner_user_id: str) -> dict | None:
-    """Freeze current owner approval or the scoped UAT administrator default."""
-
-    from hushh_mcp.runtime_providers.managed_text import managed_text_binding, managed_text_policy
-
-    if managed_text_policy() is not None:
-        return managed_text_binding()
-    provider = os.getenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini").strip().lower()
-    if provider == "gemini":
-        return None
-    raise ValueError("Azure Documents requires the UAT administrator policy")
+    """Compatibility facade for the existing enrollment-policy owner."""
+    return new_semantic_model_binding(policy_version=new_semantic_search_policy_version())
 
 
 def _period_conflict_view(private) -> dict:
@@ -1487,10 +1480,7 @@ class DriveSharingStore(DriveDocumentStore):
                 **background_consent.projection(private),
                 "trustedAuto": private.get("trusted_auto") is True,
                 "autoshare": autoshare_request(private),
-                "semanticSearch": semantic_search_request(private),
-                "providerResultsOnly": private.get("semantic_search_policy_version") == 3,
-                "discoveryDelivery": private.get("semantic_search_policy_version") in (2, 3)
-                and semantic_search_request(private),
+                **semantic_search_policy_view(private),
                 "semanticModelBinding": private.get("semantic_model_binding"),
                 "reusablePacket": private.get("reusable_packet"),
             }
@@ -1921,7 +1911,7 @@ class DriveSharingStore(DriveDocumentStore):
                         else {}
                     ),
                     **(
-                        {"semantic_search_policy_version": SEMANTIC_SEARCH_POLICY_VERSION}
+                        {"semantic_search_policy_version": new_semantic_search_policy_version()}
                         if enroll_semantic_search
                         else {}
                     ),

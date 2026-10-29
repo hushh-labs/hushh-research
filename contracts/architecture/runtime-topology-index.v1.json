@@ -1101,12 +1101,14 @@
         "drive_share_file_claims",
         "drive_share_events",
         "drive_query_events",
-        "drive_share_management_contexts"
+        "drive_share_management_contexts",
+        "drive_rest_owner_admission",
+        "drive_rest_call_leases"
       ],
       "id": "drive_original_sharing_coordination",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "PostgreSQL file-level mutation serialization, owner-only removal contexts and a finite metadata-only notification outbox worker. It emits only a closed document_share_* type plus opaque request/event IDs (drive_query_events carries the question-lane types for drive_live_query_requests); web/native derives its fixed local review route and the generic push adapter is called outside the lease transaction. No model/caller-controlled provider endpoint or request/provider URL is forwarded."
+      "primary_access_path": "PostgreSQL file-level mutation serialization, owner-only removal contexts and a finite metadata-only notification outbox worker. It emits only a closed document_share_* type plus opaque request/event IDs (drive_query_events carries the question-lane types for drive_live_query_requests); web/native derives its fixed local review route and the generic push adapter is called outside the lease transaction. No model/caller-controlled provider endpoint or request/provider URL is forwarded. Owner/generation-bound REST admission shares an application budget across replicas: ten starts per second, eight concurrent calls, or lower configured bounds. File claims also serialize bulk grants and removals."
     },
     {
       "data_class": "personal_encrypted",
@@ -7217,9 +7219,9 @@
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
     "action_gateway": "eca5b20202df56cb08e43928cf214de8c5745549a78a1cf2f4869270440efeeb",
-    "agent_registry": "1da3509a322fa60df561f20ad156896b14dde3438c1a349e99c2245364b14623",
+    "agent_registry": "b4504a5642ff4674f0032edebd4a4e9904132911a33f6735b3d9fc758521928f",
     "cache_manifest": "a53e42359c26801361b197fefc688eaea9b0cd9c693aabc6532c9f4cd84fdd32",
-    "data_plane": "69c12c7f59acb8105948d1832c1cdd276b3b19ddcb6734a9d29c80fc732a4ccc",
+    "data_plane": "7dd54e0fe286fe7b9d6f47eafe2ca509bc06f2145801a9867a175c5c60d2378b",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "33962bfacc382ed67ca1ca41cab12096f16abe9c9d60807083e2b9713121c68e",

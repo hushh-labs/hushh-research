@@ -92,11 +92,21 @@ def bulk(lifecycle, monkeypatch):
         # hide removed files. Mirror only the columns that check reads.
         connection.execute(
             text("""CREATE TABLE IF NOT EXISTS drive_request_bulk_removals (
+            removal_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             share_id UUID NOT NULL,
             position INTEGER NOT NULL,
             recipient_user_id TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'queued',lease_id UUID,safe_error_code TEXT,
             UNIQUE (share_id,position,recipient_user_id))""")
         )
+        connection.exec_driver_sql("""CREATE TABLE drive_share_file_claims(
+            file_lock_hmac TEXT PRIMARY KEY,operation_id UUID UNIQUE,erased_at TIMESTAMPTZ,
+            CONSTRAINT drive_file_claim_or_erased_fence CHECK((operation_id IS NULL)=(erased_at IS NOT NULL)))""")
+        for name in (
+            "439_drive_rest_owner_admission.sql",
+            "440_drive_permission_file_claim_lanes.sql",
+        ):
+            connection.exec_driver_sql((MIGRATIONS / name).read_text().replace("%", "%%"))
         connection.execute(
             text("""UPDATE external_mcp_connectors SET transport_kind='google_drive_rest',
             mcp_endpoint=:endpoint,capability_policy=CAST(:policy AS jsonb)
@@ -390,13 +400,19 @@ async def test_second_search_share_waits_for_stopped_inflight_grant(bulk):
     with pytest.raises(DriveSharingError, match="drive_share_in_progress"):
         await approve(reviews[1])
 
-    with bulk.db.engine.begin() as connection:
-        connection.execute(
-            text("""UPDATE drive_bulk_share_effects SET state='dispatching',
-              lease_id=:lease,lease_expires_at=clock_timestamp()+INTERVAL '120 seconds'
-              WHERE share_id=:share"""),
-            {"lease": str(uuid4()), "share": reviews[0]["shareId"]},
-        )
+    from sqlalchemy.exc import InternalError
+
+    # An old worker without the new common claim must fail before provider POST.
+    with pytest.raises(InternalError, match="DRIVE_FILE_CLAIM_REQUIRED"):
+        with bulk.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_bulk_share_effects SET state='dispatching' WHERE share_id=:share"
+                ),
+                {"share": reviews[0]["shareId"]},
+            )
+    claimed = await bulk.claim(**_row(reviews[0]["shareId"]))
+    await bulk.mark_dispatching(claimed)
     await bulk.stop(user_id="owner", share_id=reviews[0]["shareId"])
     with pytest.raises(DriveSharingError, match="drive_share_in_progress"):
         await approve(reviews[1])
@@ -640,19 +656,20 @@ def _viewer(file_id, *, role="reader"):
     }
 
 
-async def _approved_share(bulk, count=1):
+async def _approved_share(bulk, count=1, recipient_ids=(1,)):
     review = await bulk.create_review(
         user_id="owner",
         search_job_id=_seed_completed_search(bulk, count=count),
         client_request_id=str(uuid4()),
         recipients=[
             {
-                "userId": "recipient-1",
-                "name": "Recipient 1",
-                "email": "recipient1@example.com",
-                "subject": "subject-1",
+                "userId": f"recipient-{n}",
+                "name": f"Recipient {n}",
+                "email": f"recipient{n}@example.com",
+                "subject": f"subject-{n}",
                 "kind": "verified_email",
             }
+            for n in recipient_ids
         ],
         excluded=[],
     )
@@ -698,15 +715,23 @@ def _row(share, position=1):
 def _effect(bulk, share, position=1):
     with bulk.db.engine.begin() as connection:
         row = connection.execute(
-            text("""SELECT *,EXTRACT(EPOCH FROM next_at-clock_timestamp()) AS wait
-            FROM drive_bulk_share_effects WHERE share_id=:share AND position=:position"""),
+            text("""SELECT e.*,EXTRACT(EPOCH FROM GREATEST(e.next_at, a.sharing_cooldown_until)-clock_timestamp()) AS wait
+            FROM drive_bulk_share_effects e JOIN drive_bulk_shares b ON b.share_id=e.share_id
+            LEFT JOIN drive_rest_owner_admission a ON a.user_id=b.user_id AND a.connection_generation=b.connection_generation
+            WHERE e.share_id=:share AND e.position=:position"""),
             {"share": share, "position": position},
         ).mappings()
         return dict(row.one())
 
 
 def _due_now(bulk, share, position=1):
+    # Explicit synthetic time advancement of BOTH persisted pacing authorities.
     with bulk.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_rest_owner_admission SET sharing_cooldown_until=clock_timestamp()-INTERVAL '1 second'"
+            )
+        )
         connection.execute(
             text("""UPDATE drive_bulk_share_effects
             SET next_at=clock_timestamp()-INTERVAL '1 second'
@@ -885,8 +910,8 @@ async def test_sharing_rate_limit_waits_minutes_and_rechecks_absence_before_any_
     assert [call[0] for call in drive.calls[-2:]] == ["inspect", "list"]
     assert len(drive.creates()) == 1
 
-    # Each refusal waits longer (5, 10, 20, 40 minutes); a fifth settles.
-    for expected in (300, 600, 1200, 2400):
+    # Six quota attempts: 5m,30m,2h,6h, then the first-refusal24h boundary.
+    for expected in (300, 1800, 7200, 21600, 86400):
         _due_now(bulk, share, 2)
         before = len(drive.calls)
         assert await worker._effect(_row(share, 2)) == "queued"
@@ -899,7 +924,7 @@ async def test_sharing_rate_limit_waits_minutes_and_rechecks_absence_before_any_
         "failed",
         "sharing_rate_limited",
     )
-    assert len(drive.creates()) == 6
+    assert len(drive.creates()) == 7
     assert {call[2] for call in drive.creates()} == {"false"}
     summary = _requester_summary(bulk, share, total=2)
     assert summary["counts"]["alreadyShared"] == 1
@@ -1042,3 +1067,160 @@ async def test_owner_outcomes_keep_released_codes_with_the_exact_code_beside_the
         {"reasonCode": "permission_rejected", "count": 1},
     ]
     assert {item["reasonCode"] for item in view["issues"]} <= _RELEASED_CLIENT_REASONS
+
+
+@pytest.mark.asyncio
+async def test_two_replicas_share_owner_admission_across_connection_generations(bulk):
+    from hushh_mcp.services.drive_rest_admission import owner_scope, rest_admission
+
+    active, peak, starts = 0, 0, []
+    held, release = asyncio.Event(), asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    async def call(generation):
+        nonlocal active, peak
+        # Two independent context/store instances represent separate replicas.
+        async with owner_scope(db=bulk.db, owner="owner", generation=generation):
+            async with rest_admission():
+                starts.append(loop.time())
+                active += 1
+                peak = max(peak, active)
+                if active == 8:
+                    held.set()
+                await release.wait()
+                active -= 1
+
+    tasks = [asyncio.create_task(call(7 + i % 2)) for i in range(9)]
+    try:
+        await asyncio.wait_for(held.wait(), 5)
+        assert peak == 8 and len(starts) == 8
+        assert sorted(starts)[-1] - min(starts) >= 0.69
+        await asyncio.sleep(0.15)
+        assert len(starts) == 8  # Reconnect did not create eight additional slots.
+        tasks[-1].cancel()
+        release.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        with bulk.db.engine.begin() as connection:
+            assert (
+                connection.execute(text("SELECT count(*) FROM drive_rest_call_leases")).scalar_one()
+                == 0
+            )
+    finally:
+        release.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_same_file_claim_serializes_sibling_bulk_batches_and_retains_unknown(
+    bulk, monkeypatch
+):
+    first = await _approved_share(bulk, recipient_ids=(1, 2))
+    second_row = {**_row(first), "recipient_user_id": "recipient-2"}
+    job = await bulk.claim(**_row(first))
+    assert job is not None
+    assert await bulk.claim(**second_row) is None
+    await bulk.mark_dispatching(job)
+    await bulk.release(job, error="permission_outcome_unknown", uncertain=True)
+    assert await bulk.claim(**second_row) is None
+    with bulk.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_bulk_share_effects SET lease_expires_at=clock_timestamp()-INTERVAL '1 second' WHERE share_id=:share AND lease_id IS NOT NULL"
+            ),
+            {"share": first},
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_share_file_claims WHERE bulk_share_id=:share"),
+                {"share": first},
+            ).scalar_one()
+            == 1
+        )
+    assert await bulk.claim(**second_row) is None
+
+
+@pytest.mark.asyncio
+async def test_quota_recovery_persists_counters_and_migration_replay_does_not_reset(
+    bulk, monkeypatch
+):
+    share = await _approved_share(bulk)
+    _Drive(
+        monkeypatch,
+        create=lambda _: _google_error(403, "sharingRateLimitExceeded", "Rate Limit Exceeded"),
+    )
+    assert await _worker(bulk)._effect(_row(share)) == "queued"
+    before = _effect(bulk, share)
+    assert before["sharing_quota_attempts"] == 1 and before["ordinary_failure_attempts"] == 0
+    with bulk.db.engine.begin() as connection:
+        connection.exec_driver_sql(
+            (MIGRATIONS / "439_drive_rest_owner_admission.sql").read_text().replace("%", "%%")
+        )
+    after = _effect(bulk, share)
+    assert after["sharing_quota_attempts"] == before["sharing_quota_attempts"]
+    assert after["first_sharing_quota_at"] == before["first_sharing_quota_at"]
+    assert after["ordinary_failure_attempts"] == before["ordinary_failure_attempts"]
+    assert await DriveBulkShareStore(db=bulk.db).due() == []
+
+
+@pytest.mark.asyncio
+async def test_file_claim_constraint_survives_historical_and_current_migration_replay(bulk):
+    share = await _approved_share(bulk)
+    job = await bulk.claim(**_row(share))
+    assert job is not None
+    with bulk.db.engine.begin() as connection:
+        old = (MIGRATIONS / "234_drive_permission_management_retention.sql").read_text()
+        start = old.index("ALTER TABLE drive_share_file_claims ALTER COLUMN")
+        end = old.index("END $$;", start) + len("END $$;")
+        # Execute the actual historical replay section, not a copied constraint.
+        connection.exec_driver_sql(old[start:end].replace("%", "%%"))
+        for _ in range(2):
+            connection.exec_driver_sql(
+                (MIGRATIONS / "440_drive_permission_file_claim_lanes.sql")
+                .read_text()
+                .replace("%", "%%")
+            )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_share_file_claims WHERE bulk_share_id=:share"),
+                {"share": share},
+            ).scalar_one()
+            == 1
+        )
+    await bulk.require_current(job)
+
+
+@pytest.mark.asyncio
+async def test_owner_cooldown_and_pacing_lease_survive_reconnect(bulk):
+    from hushh_mcp.services.drive_rest_admission import (
+        DriveRestAdmission,
+        set_sharing_cooldown,
+        sharing_cooldown,
+    )
+
+    admission = DriveRestAdmission(db=bulk.db)
+    lease, _ = await admission.acquire("owner", 8)
+    with bulk.db.engine.begin() as connection:
+        until = connection.execute(
+            text("SELECT clock_timestamp()+INTERVAL '5 minutes'")
+        ).scalar_one()
+        set_sharing_cooldown(connection, "owner", 7, until)
+        assert sharing_cooldown(connection, "owner", 8) == until
+        connection.execute(
+            text(
+                "UPDATE drive_rest_call_leases SET expires_at=clock_timestamp()+INTERVAL '1 second' WHERE lease_id=:lease"
+            ),
+            {"lease": lease},
+        )
+    assert await admission.pace("owner", 8, lease) == 0
+    with bulk.db.engine.begin() as connection:
+        remaining = connection.execute(
+            text(
+                "SELECT EXTRACT(EPOCH FROM expires_at-clock_timestamp()) FROM drive_rest_call_leases WHERE lease_id=:lease"
+            ),
+            {"lease": lease},
+        ).scalar_one()
+        assert remaining > 110
+    await admission.release(lease)

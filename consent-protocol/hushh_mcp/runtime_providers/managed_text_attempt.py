@@ -18,6 +18,18 @@ async def prepare_text_attempt(owner, request, provider, index, current, stream)
     try:
         request = request.model_copy(deep=True)
         request.model = vertex.model
+        if request.config is not None and request.config.thinking_config is None:
+            from google.genai import types
+
+            from hushh_mcp.runtime_providers.gemini_config import thinking_config_for
+
+            request.config.thinking_config = thinking_config_for(
+                vertex.model,
+                "minimal"
+                if owner.default_reasoning_effort == "none"
+                else owner.default_reasoning_effort,
+                types,
+            )
         # Azure-private encrypted reasoning is not a native Gemini signature.
         for content in request.contents:
             content.parts = [

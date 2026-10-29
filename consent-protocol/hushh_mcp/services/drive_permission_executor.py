@@ -14,6 +14,7 @@ from hushh_mcp.services.drive_permission_store import (
     RECONCILED_CREATE_PROVENANCE,
     DrivePermissionStore,
 )
+from hushh_mcp.services.drive_rest_admission import scoped_job
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingError,
     VerifiedGoogleRecipient,
@@ -188,6 +189,11 @@ class DrivePermissionExecutor:
         job = await self.store.claim_grant(user_id=user_id, operation_id=operation_id)
         if job is None:
             return "not_claimed"
+        return await self._grant_job(job)
+
+    @scoped_job()
+    async def _grant_job(self, job):
+        user_id = job["user_id"]
         require_current = hub_content_check(user_id, partial(self.store.require_current, job))
         dispatched = False
         provider_succeeded = False
@@ -321,6 +327,10 @@ class DrivePermissionExecutor:
         )
         if job is None:
             return "not_claimed"
+        return await self._reconcile_job(job, credentials)
+
+    @scoped_job()
+    async def _reconcile_job(self, job, credentials):
         plan = self.store._plan(job)
         try:
             snapshot = await self.adapter.list_permissions(

@@ -116,6 +116,7 @@ class DrivePeriodPacketService:
             await require_current()
             return build["plan"], binding
         prompt = {
+            "semantic_plan_version": 1,
             "document_request": {
                 "purpose": CATEGORY_PURPOSES[job["category"]],
                 "periodStart": job["period_start"].isoformat(),

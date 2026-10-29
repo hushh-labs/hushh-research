@@ -5,6 +5,7 @@ import hashlib
 import time
 
 from hushh_mcp.services.document_delivery import background_objects
+from hushh_mcp.services.document_delivery.background_diagnostics import CopySourceChanged
 from hushh_mcp.services.document_delivery.background_source import CHUNK_BYTES
 from hushh_mcp.services.document_delivery.contracts import DeliveryError
 
@@ -54,9 +55,11 @@ async def verify(service, row, chunks, identity, deadline):
             sha.update(plaintext)
             md5.update(plaintext)
         del originals
-    if (
-        md5.hexdigest() != identity["md5Checksum"]
-        or identity.get("sha256Checksum", sha.hexdigest()) != sha.hexdigest()
-    ):
-        raise DeliveryError("source_changed")
+    mismatches = []
+    if md5.hexdigest() != identity["md5Checksum"]:
+        mismatches.append("md5")
+    if identity.get("sha256Checksum", sha.hexdigest()) != sha.hexdigest():
+        mismatches.append("sha256")
+    if mismatches:
+        raise CopySourceChanged("verify", mismatches)
     return {"sha256": sha.hexdigest(), "bytes": identity["size"]}

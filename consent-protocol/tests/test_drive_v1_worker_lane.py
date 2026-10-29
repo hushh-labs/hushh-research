@@ -155,6 +155,8 @@ def _revision() -> dict:
                         {"name": "DRIVE_WORKER_MODE", "value": "true"},
                         {"name": "DRIVE_WORKER_V1_ONLY", "value": "true"},
                         {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "value": "gemini"},
+                        {"name": "DRIVE_REQUEST_ACTIVITY_UNION_ENABLED", "value": "true"},
+                        {"name": "DRIVE_REQUEST_ACTIVITY_UNION_PAUSED", "value": "false"},
                         {"name": "ENVIRONMENT", "value": "uat"},
                         {"name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER", "value": "azure_openai"},
                         {"name": "HUSHH_UAT_MANAGED_AI_PROVIDER", "value": "azure_openai"},
