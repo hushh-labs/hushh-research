@@ -153,6 +153,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     if (previousRefreshRevision.current === refreshRevision) return;
     previousRefreshRevision.current = refreshRevision;
     refreshBudget.current = 5;
+    autoAdvance.current = 0;
     refresh();
   }, [refreshRevision, refresh]);
   useEffect(() => {
