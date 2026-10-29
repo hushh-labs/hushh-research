@@ -423,17 +423,8 @@ class SecurityRerunGateTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         workflow = (root / ".github/workflows/ci.yml").read_text().split("\n  ci-status:\n", 1)[1]
         self.assertIn("actions: read", workflow)
-        self.assertRegex(
-            workflow,
-            r"if: github.run_attempt > 1\n\s+run: python3 scripts/ci/github_security_receipt.py",
-        )
-        self.assertIn(
-            "CI_SECURITY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
-            workflow,
-        )
-        worker = (root / ".github/workflows/ci-security.yml").read_text()
-        self.assertIn("types: [requested]", worker)
-        self.assertNotIn("types: [in_progress]", worker)
+        self.assertNotIn("github_security_receipt.py", workflow)
+        self.assertFalse((root / ".github/workflows/ci-security.yml").exists())
         for scenario in ("valid", "old", "failed"):
             consumer, api, source, producer, _, _, receipt, raw, responses = receipt_fixture()
             title = f"Security alerts for 20 / {1 if scenario == 'old' else 2} / {HEAD}"

@@ -137,37 +137,39 @@ def verify_alert_reader_is_required() -> None:
         stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
         stub.chmod(0o700)
         reader = ci / "github-security-alerts.sh"
-        for state in ("present", "missing", "not_executable"):
-            if state != "missing":
-                # Git Bash infers executable scripts from a shebang even when
-                # Windows ignores chmod's POSIX execute bits. Use a plain file
-                # for this case so both filesystems exercise a real refusal.
-                content = ("#!/bin/sh\n" if state == "present" else "") + "exit 0\n"
-                reader.write_text(content, encoding="utf-8", newline="\n")
-                reader.chmod(0o700 if state == "present" else 0o600)
-            elif reader.exists():
-                reader.unlink()
-            environment = {
-                **os.environ,
-                "PATH": str(commands) + os.pathsep + os.environ["PATH"],
-                "SKIP_SECRET_SCAN": "0",
-                "GITLEAKS_LOG_OPTS": "HEAD",
-                "GITLEAKS_DEFAULT_BRANCH": "main",
-                "GITHUB_EVENT_NAME": "local",
-                "SECRET_SCAN_PR_NUMBER": "",
-            }
-            result = subprocess.run(
-                ["/bin/bash", str(ci / "secret-scan.sh")],
-                cwd=root,
-                env=environment,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if (result.returncode == 0) != (state == "present"):
-                raise AssertionError(
-                    f"required alert reader {state}: unexpected scanner clearance"
+        for hosted in ("false", "true"):
+            for state in ("present", "missing", "not_executable"):
+                if state != "missing":
+                    # Git Bash infers executable scripts from a shebang even when
+                    # Windows ignores chmod's POSIX execute bits. Use a plain file
+                    # for this case so both filesystems exercise a real refusal.
+                    content = ("#!/bin/sh\n" if state == "present" else "") + "exit 0\n"
+                    reader.write_text(content, encoding="utf-8", newline="\n")
+                    reader.chmod(0o700 if state == "present" else 0o600)
+                elif reader.exists():
+                    reader.unlink()
+                environment = {
+                    **os.environ,
+                    "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+                    "SKIP_SECRET_SCAN": "0",
+                    "GITLEAKS_LOG_OPTS": "HEAD",
+                    "GITLEAKS_DEFAULT_BRANCH": "main",
+                    "GITHUB_EVENT_NAME": "local",
+                    "GITHUB_ACTIONS": hosted,
+                    "SECRET_SCAN_PR_NUMBER": "",
+                }
+                result = subprocess.run(
+                    ["/bin/bash", str(ci / "secret-scan.sh")],
+                    cwd=root,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
+                if (result.returncode == 0) != (state == "present" or hosted == "true"):
+                    raise AssertionError(
+                        f"required alert reader {state}, hosted={hosted}: unexpected scanner clearance"
+                    )
 
 
 def verify_local_alert_policy() -> None:
