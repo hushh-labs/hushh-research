@@ -26,6 +26,7 @@ from hushh_mcp.services.drive_financial_packet_search_limits import (
 )
 from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, _open_url
 from hushh_mcp.services.drive_long_range_listing import _term_pattern
+from hushh_mcp.services.drive_owner_allowed import request_planner_processor_supported
 from hushh_mcp.services.drive_owner_index_port import MAX_LOCAL_CANDIDATES, default_owner_index
 from hushh_mcp.services.drive_owner_search_store import (
     DriveOwnerSearchStore,
@@ -1928,7 +1929,7 @@ class DriveOwnerSearchService:
         if activity_union_enabled and (
             semantic_plan is None
             or semantic_plan["version"] != 2
-            or semantic_model_binding.get("provider") != "azure_openai"
+            or not request_planner_processor_supported(semantic_model_binding)
         ):
             raise DriveReadError("invalid_argument")
         if (

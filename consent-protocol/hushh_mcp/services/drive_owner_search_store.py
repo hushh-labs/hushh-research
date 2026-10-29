@@ -114,8 +114,10 @@ def _semantic_binding_current(checkpoint):
     except (ValueError, TypeError, KeyError):
         raise DriveReadError("search_superseded") from None
     binding = checkpoint.get("semantic_model_binding")
-    if checkpoint.get("discovery_delivery_policy") == "drive_activity_union_v1" and (
-        not isinstance(binding, dict) or binding.get("provider") != "azure_openai"
+    from hushh_mcp.services.drive_owner_allowed import request_planner_processor_supported
+
+    if checkpoint.get("discovery_delivery_policy") == "drive_activity_union_v1" and not (
+        request_planner_processor_supported(binding)
     ):
         raise DriveReadError("search_superseded")
     if binding is None:
