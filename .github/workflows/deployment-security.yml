@@ -19,6 +19,9 @@ on:
         type: choice
         options: [auto, all, backend, frontend, native, package, validation]
   workflow_call:
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN:
+        required: true
     inputs:
       application_ref:
         required: true
