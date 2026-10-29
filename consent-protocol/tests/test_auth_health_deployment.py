@@ -352,3 +352,98 @@ def test_governed_image_build_cannot_create_or_adopt_foreign_resources(
         assert len(builds) == 1 and result == json.loads(receipt.read_text())
         assert result["mode"] == "image-only"
     assert closed == [True]
+
+
+@pytest.mark.parametrize(
+    "case", ["grant", "already-present", "replaced", "wrong-operation", "lost-response"]
+)
+def test_uat_runtime_access_is_exact_recoverable_and_service_scoped(tmp_path, monkeypatch, case):
+    module = load_health_setup()
+    operation, identity, project = "a" * 32, "112891356763771456056", "hushh-pda-uat"
+    checker = f"auth-health-check@{project}.iam.gserviceaccount.com"
+    policy = (
+        {"bindings": [{"role": "roles/run.viewer", "members": [f"serviceAccount:{checker}"]}]}
+        if case == "already-present"
+        else {"bindings": []}
+    )
+    calls = []
+    api = SimpleNamespace(close=lambda: calls.append(["close"]))
+
+    def cloud(args):
+        calls.append(args)
+        if args[:2] == ["projects", "describe"]:
+            return {"projectNumber": "123"}
+        if args[:3] == ["iam", "service-accounts", "describe"]:
+            return {
+                "uniqueId": "replaced" if case == "replaced" else identity,
+                "email": checker,
+                "projectId": project,
+                "description": f"Hussh auth-health operation {operation}",
+            }
+        if args[:3] == ["run", "services", "get-iam-policy"]:
+            return policy
+        assert args == [
+            "run",
+            "services",
+            "add-iam-policy-binding",
+            "consent-protocol",
+            "--region=us-central1",
+            f"--member=serviceAccount:{checker}",
+            "--role=roles/run.viewer",
+            "--condition=None",
+        ]
+        policy["bindings"].append(
+            {"role": "roles/run.viewer", "members": [f"serviceAccount:{checker}"]}
+        )
+        if case == "lost-response":
+            raise RuntimeError("transport unavailable")
+        return policy
+
+    monkeypatch.setattr(module, "_reviewed_source", lambda: "b" * 40)
+    monkeypatch.setattr(module, "_transport", lambda *args, **kwargs: (cloud, api))
+    monkeypatch.setattr(
+        module,
+        "_existing_resource",
+        lambda *args: {
+            "projectNumber": "123",
+            "labels": {"operation": "other" if case == "wrong-operation" else operation},
+        },
+    )
+    output = tmp_path / "receipt.json"
+    if case in {"replaced", "wrong-operation", "lost-response"}:
+        with pytest.raises(RuntimeError):
+            module.grant_runtime_observation(project, operation, identity, output)
+        assert not output.exists() and calls[-1] == ["close"]
+        if case != "lost-response":
+            assert not any("add-iam-policy-binding" in call for call in calls)
+            return
+    result = module.grant_runtime_observation(project, operation, identity, output)
+    assert result["mode"] == "runtime-access" and result["verified"] is True
+    assert calls[-1] == ["close"]
+    assert sum("add-iam-policy-binding" in call for call in calls) == (
+        0 if case == "already-present" else 1
+    )
+
+
+def test_runtime_observation_rejects_conditional_or_different_service_members():
+    module = load_health_setup()
+    assert not module._has_runtime_permission(
+        {
+            "bindings": [
+                {"role": "roles/run.viewer", "members": ["serviceAccount:other@example.invalid"]}
+            ]
+        },
+        "checker@example.invalid",
+    )
+    assert not module._has_runtime_permission(
+        {
+            "bindings": [
+                {
+                    "role": "roles/run.viewer",
+                    "members": ["serviceAccount:checker@example.invalid"],
+                    "condition": {"expression": "false"},
+                }
+            ]
+        },
+        "checker@example.invalid",
+    )

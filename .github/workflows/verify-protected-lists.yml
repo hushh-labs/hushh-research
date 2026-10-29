@@ -21,10 +21,20 @@ on:
   workflow_dispatch:
     inputs:
       health_build_operation:
-        description: "Build only the reviewed UAT health image for an existing operation (empty runs checks)"
+        description: "UAT health operation ID (empty runs checks)"
         required: false
         default: ""
         type: string
+      health_action:
+        description: "Manual UAT monitoring operation; never deploys the application"
+        type: choice
+        options: [build-image, runtime-access]
+        default: build-image
+      health_checker_unique_id:
+        description: "Recorded checker unique ID, required only for runtime-access"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -102,7 +112,7 @@ jobs:
             --project "${{ env.GCP_PROJECT_ID }}" --emit-health-log "$@"
 
   health-image:
-    name: "Build UAT health image (manual)"
+    name: "Prepare UAT health monitoring (manual)"
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.health_build_operation != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -117,9 +127,16 @@ jobs:
         env:
           OPERATOR: ${{ github.actor }}
           HEALTH_OPERATION: ${{ inputs.health_build_operation }}
+          HEALTH_ACTION: ${{ inputs.health_action }}
+          CHECKER_ID: ${{ inputs.health_checker_unique_id }}
         run: |
           set -euo pipefail
           [[ "$HEALTH_OPERATION" =~ ^[0-9a-f]{32}$ ]]
+          case "$HEALTH_ACTION" in
+            build-image) test -z "$CHECKER_ID" ;;
+            runtime-access) [[ "$CHECKER_ID" =~ ^[0-9]{15,24}$ ]] ;;
+            *) exit 1 ;;
+          esac
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$OPERATOR"
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
@@ -133,15 +150,23 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
       - uses: google-github-actions/setup-gcloud@v2
-      - name: Build reviewed monitoring image without application deployment
+      - name: Execute reviewed monitoring operation without application deployment
         env:
           HEALTH_OPERATION: ${{ inputs.health_build_operation }}
+          HEALTH_ACTION: ${{ inputs.health_action }}
+          CHECKER_ID: ${{ inputs.health_checker_unique_id }}
         run: |
+          set -euo pipefail
+          case "$HEALTH_ACTION" in
+            build-image) set -- --build-image ;;
+            runtime-access) set -- --grant-runtime-observation --checker-unique-id "$CHECKER_ID" ;;
+            *) exit 1 ;;
+          esac
           consent-protocol/.venv/bin/python deploy/observability/setup_auth_health.py --project hushh-pda-uat \
-            --build-image --operation "$HEALTH_OPERATION" --receipt health-image.json
+            "$@" --operation "$HEALTH_OPERATION" --receipt health-operation.json
       - uses: actions/upload-artifact@v6
         with:
-          name: auth-health-image-${{ github.run_id }}-${{ github.run_attempt }}
-          path: health-image.json
+          name: auth-health-operation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: health-operation.json
           if-no-files-found: error
           retention-days: 14

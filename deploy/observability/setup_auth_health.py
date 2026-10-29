@@ -9,6 +9,7 @@ import gzip
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import tarfile
@@ -165,8 +166,13 @@ def _identities(run, project: str, operation: str, bucket: str, runtime: bool, j
     run(["storage", "buckets", "add-iam-policy-binding", f"gs://{bucket}",
          f"--member=serviceAccount:{checker}", "--role=roles/storage.objectUser"])
     if runtime:
-        run(["run", "services", "add-iam-policy-binding", "consent-protocol", f"--region={REGION}",
-             f"--member=serviceAccount:{checker}", "--role=roles/run.viewer"])
+        if project == "hushh-pda-uat":
+            policy = run(["run", "services", "get-iam-policy", "consent-protocol", f"--region={REGION}"])
+            if not _has_runtime_permission(policy, checker):
+                raise RuntimeError("UAT health observation needs the governed runtime-access operation")
+        else:
+            run(["run", "services", "add-iam-policy-binding", "consent-protocol", f"--region={REGION}",
+                 f"--member=serviceAccount:{checker}", "--role=roles/run.viewer", "--condition=None"])
 
     return checker, scheduler
 
@@ -289,6 +295,51 @@ def _existing_resource(api, url: str, name: str):
     return observed
 
 
+def _has_runtime_permission(policy: dict, checker: str) -> bool:
+    return any(
+        binding.get("role") == "roles/run.viewer" and not binding.get("condition")
+        and f"serviceAccount:{checker}" in binding.get("members", [])
+        for binding in policy.get("bindings", [])
+    )
+
+
+def grant_runtime_observation(project: str, operation: str, unique_id: str, receipt: Path):
+    """Grant one service's read observation through UAT's existing governed identity."""
+    if (project != "hushh-pda-uat" or not re.fullmatch(r"[0-9a-f]{32}", operation)
+            or not re.fullmatch(r"[0-9]{15,24}", unique_id)):
+        raise ValueError("An existing UAT operation and exact checker identity are required")
+    source = _reviewed_source()
+    run, api = _transport(project, build_only=True)
+    try:
+        bucket = f"{project}-auth-health-ops"
+        observed = _existing_resource(api, f"https://storage.googleapis.com/storage/v1/b/{bucket}", bucket)
+        number = str(run(["projects", "describe", project])["projectNumber"])
+        if (observed is None or str(observed.get("projectNumber")) != number
+                or observed.get("labels", {}).get("operation") != operation):
+            raise RuntimeError("Health observation bucket has unverified ownership")
+        checker = f"auth-health-check@{project}.iam.gserviceaccount.com"
+        account = run(["iam", "service-accounts", "describe", checker])
+        if (account.get("uniqueId") != unique_id or account.get("email") != checker
+                or account.get("projectId") != project or account.get("disabled") is True
+                or account.get("description") != f"Hussh auth-health operation {operation}"):
+            raise RuntimeError("Health observation identity changed; no permission granted")
+        command = ["run", "services", "get-iam-policy", "consent-protocol", f"--region={REGION}"]
+        if not _has_runtime_permission(run(command), checker):
+            # gcloud preserves existing bindings and the policy etag during its read/modify/write.
+            run(["run", "services", "add-iam-policy-binding", "consent-protocol", f"--region={REGION}",
+                 f"--member=serviceAccount:{checker}", "--role=roles/run.viewer", "--condition=None"])
+        if not _has_runtime_permission(run(command), checker):
+            raise RuntimeError("Health observation permission readback failed")
+        result = {"project": project, "operation": operation, "source": source,
+                  "checker_unique_id": unique_id, "service": "consent-protocol", "role": "roles/run.viewer",
+                  "mode": "runtime-access", "verified": True, "run_id": os.environ.get("GITHUB_RUN_ID"),
+                  "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT")}
+        receipt.write_text(json.dumps(result, indent=2) + "\n")
+        return result
+    finally:
+        api.close()
+
+
 def build_image(project: str, operation: str, receipt: Path):
     """Build through UAT's governed WIF authority without changing deployed jobs."""
     if project != "hushh-pda-uat" or len(operation) != 32 or any(c not in "0123456789abcdef" for c in operation):
@@ -387,10 +438,20 @@ def main() -> int:
     parser.add_argument("--schedule", choices=["17 * * * *", "*/2 * * * *"], default="17 * * * *")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--build-image", action="store_true", help="Governed UAT WIF build only; no job, timer or IAM mutation")
-    parser.add_argument("--operation", help="Existing health ownership operation, for image-only builds")
+    parser.add_argument("--grant-runtime-observation", action="store_true",
+                        help="Governed UAT WIF service-level observation permission only")
+    parser.add_argument("--checker-unique-id", help="Recorded checker identity for runtime-access recovery")
+    parser.add_argument("--operation", help="Existing health ownership operation")
     parser.add_argument("--receipt", type=Path)
     parser.add_argument("--upgrade-from", help="Explicitly reviewed prior source SHA in this same operation journal")
     args = parser.parse_args()
+    if args.grant_runtime_observation:
+        if args.apply or args.build_image or not args.operation or not args.receipt or not args.checker_unique_id:
+            parser.error("Runtime access requires operation, checker identity and receipt, without apply/build")
+        print(json.dumps(grant_runtime_observation(args.project, args.operation, args.checker_unique_id, args.receipt)))
+        return 0
+    if args.checker_unique_id:
+        parser.error("--checker-unique-id is only valid for runtime access")
     if args.build_image:
         if args.apply or not args.operation or not args.receipt:
             parser.error("--build-image requires --operation and --receipt, without --apply")

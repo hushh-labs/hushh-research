@@ -346,11 +346,22 @@ only 404 permits creation, while denied or malformed observations refuse.
 UAT's deployment-authority deny policy intentionally blocks administrators from
 submitting Cloud Builds manually. Preserve that policy. For an existing recorded
 health operation, dispatch **Verify Protected Configuration** from Main with
-`health_build_operation` set to its opaque operation ID. This manual-only mode
-uses the existing governed UAT WIF identity to build the monitoring image; it
-does not deploy the application or change IAM, jobs or schedules. Its concurrency
-is separate from health checks, so neither clock nor manual runs cancel it.
-The protected-list checks remain the default when that input is empty.
+`health_build_operation` set to its opaque operation ID and
+`health_action=build-image`. This image-only action uses the existing governed
+UAT WIF identity. It never changes application services, IAM, jobs or schedules.
+Its concurrency is separate from checks; neither clock nor manual checks cancel
+it. The default with an empty operation input still runs the protected checks.
+
+UAT also denies local `run.services.setIamPolicy`. Before runtime-enabled local
+setup, use the same Main-only workflow with `health_action=runtime-access` and
+`health_checker_unique_id` copied from that operation's durable journal. This
+separate action checks the bucket operation and exact live checker identity,
+then grants only `roles/run.viewer` on UAT's `consent-protocol` service and reads
+it back. It preserves existing IAM bindings and never changes the deny policy,
+project-wide viewer access, application revision or traffic. A lost response is
+reconciled by reading the same binding; a replaced identity refuses. Local setup
+verifies this existing permission instead of retrying a denied IAM write.
+
 
 Read back the exact workflow source, actor, attempt, image-only artifact and
 successful native Cloud Build before resuming the original local ownership
