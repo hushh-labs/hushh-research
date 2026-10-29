@@ -27,16 +27,23 @@ REPOSITORY = "hushh-labs/hushh-research"
 SHA = re.compile(r"[0-9a-f]{40}")
 MAX_TREE_BYTES = 4 * 1024 * 1024
 
-# Fail closed when a UAT candidate changes CI's execution authority. Application
-# source need not match Main. The list is deliberately conservative until a
-# narrower transitive manifest is qualified.
+# Fail closed when a UAT candidate changes CI or release execution authority.
+# The Main-owned UAT workflow consumes Cloud Build recipes under deploy/ and
+# invokes a small set of candidate migration controllers with database access.
+# Those controllers remain reviewed Main authority; migration manifests and SQL
+# remain candidate content. Application source need not match Main.
 AUTHORITY_PATHS = (
     ".agents",
     ".github",
     "bin",
     "scripts",
+    "deploy",
     "consent-protocol/.github",
     "consent-protocol/scripts",
+    "consent-protocol/db/migrate.py",
+    "consent-protocol/db/migration_authority.py",
+    "consent-protocol/db/dev_migration_manifest.py",
+    "consent-protocol/hushh_mcp/services/hushh_tech_uat_database_attestation.py",
     "hushh-webapp/scripts",
     "hushh-webapp/playwright.config.ts",
     "hushh-webapp/vitest.config.ts",

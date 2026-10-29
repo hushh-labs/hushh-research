@@ -27,6 +27,7 @@ PREFIX = f"repos/{REPOSITORY}"
 UAT_WORKFLOW = ".github/workflows/deploy-uat.yml"
 CHAT_WORKFLOW = ".github/workflows/deploy-uat-one-chat.yml"
 READ_ONLY_WORKFLOWS = {
+    ".github/workflows/verify-protected-lists.yml",
     ".github/workflows/ship-ios-testflight.yml",
     ".github/workflows/resume-ios-testflight.yml",
     ".github/workflows/ios-voice-device.yml",

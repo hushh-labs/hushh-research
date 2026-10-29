@@ -352,10 +352,11 @@ UAT WIF identity. It never changes application services, IAM, jobs or schedules.
 Its concurrency is separate from checks; neither clock nor manual checks cancel
 it. The default with an empty operation input still runs the protected checks.
 
-Monitoring workflow jobs use protected environments with `deployment: false`.
-They retain environment authorization and WIF but do not create application
-release records. Monitoring results cannot masquerade as a new UAT/prod release
-or invalidate a correctly accepted no-op through a fictitious deployment.
+Protected-list and production backup-posture checks use protected environments
+with `deployment: false`. They retain environment authorization and WIF but do
+not create application release records. Monitoring results cannot masquerade as
+a new UAT/prod release or invalidate a correctly accepted no-op through a
+fictitious deployment.
 
 UAT also denies local `run.services.setIamPolicy`. Before runtime-enabled local
 setup, use the same Main-only workflow with `health_action=runtime-access` and

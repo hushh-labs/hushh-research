@@ -104,6 +104,63 @@ class ExactUatCiTest(unittest.TestCase):
             self.assertNotIn(("rev-parse", "origin/uat"), calls)
             self.assertFalse(any(call[0] == "fetch" for call in calls))
 
+    def test_changed_release_recipe_or_migration_controller_is_not_reviewed_main_authority(
+        self,
+    ):
+        candidate, base, authority = "a" * 40, "b" * 40, "c" * 40
+        changed_paths = (
+            "deploy/backend.cloudbuild.yaml",
+            "consent-protocol/db/migrate.py",
+            "consent-protocol/db/migration_authority.py",
+            "consent-protocol/db/dev_migration_manifest.py",
+            "consent-protocol/hushh_mcp/services/hushh_tech_uat_database_attestation.py",
+        )
+        for changed_path in changed_paths:
+            with self.subTest(path=changed_path):
+                calls = []
+
+                def observed(*args):
+                    calls.append(args)
+                    if args[:1] == ("ls-tree",):
+                        covers_path = any(
+                            changed_path == path
+                            or changed_path.startswith(path.rstrip("/") + "/")
+                            for path in args[5:]
+                        )
+                        entries = [b"100644 blob stable\t.github/workflows/ci.yml\n"]
+                        if covers_path:
+                            blob = "1" * 40 if args[3] == authority else "2" * 40
+                            entries.append(
+                                f"100644 blob {blob}\t{changed_path}\n".encode()
+                            )
+                        return b"".join(entries)
+                    if args[:1] == ("rev-parse",):
+                        return ("e" * 40).encode()
+                    return b""
+
+                with (
+                    patch.object(subject, "git", side_effect=observed),
+                    patch.object(subject, "verify_invocation_authority"),
+                    self.assertRaisesRegex(
+                        subject.Refused, "authority differs from reviewed Main"
+                    ),
+                ):
+                    subject.verify_git_authority(
+                        candidate, base, authority, current=False
+                    )
+
+                tree_reads = [call for call in calls if call[0] == "ls-tree"]
+                self.assertEqual(len(tree_reads), 2)
+                for call in tree_reads:
+                    covered = any(
+                        changed_path == path
+                        or changed_path.startswith(path.rstrip("/") + "/")
+                        for path in call[5:]
+                    )
+                    self.assertTrue(
+                        covered, f"{changed_path} is not in the authority tree"
+                    )
+
     def test_protected_tip_and_serving_revision_cannot_change_after_approval(self):
         candidate, base = "a" * 40, "b" * 40
         api = SimpleNamespace(read=lambda _: {"protected": True, "commit": {"sha": candidate}})

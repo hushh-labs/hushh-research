@@ -107,6 +107,11 @@ For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
 with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. These identify the
 application, validation attempt and comparison base separately. Do not substitute
 a PR merge-tree check, another attempt or a branch status for that exact run.
+Candidate `deploy/` release recipes must match reviewed Main; changes to those
+Cloud Build recipes require a Main-reviewed operations PR. The Main-owned
+workflow also pins `consent-protocol/db/migrate.py`, `db/migration_authority.py`,
+`db/dev_migration_manifest.py`, and the UAT database target-attestation helper
+to Main. Candidate migration manifests and SQL remain application content.
 Current support requires the selected services to share that tested serving base;
 a mixed or unknown baseline refuses before mutation. Historical UAT receipt
 retention remains finite; expired evidence is not an exemption.
