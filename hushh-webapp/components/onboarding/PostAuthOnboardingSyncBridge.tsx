@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
+import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -21,6 +22,7 @@ export function PostAuthOnboardingSyncBridge() {
   const pathname = usePathname();
   const activeSignatureRef = useRef<string | null>(null);
   const lastSyncedSignatureRef = useRef<string | null>(null);
+  const lastRejectedSignatureRef = useRef<string | null>(null);
   const pendingRef = useRef<{
     signature: string;
     params: { userId: string; vaultKey: string; vaultOwnerToken: string; beforeEffect: () => Promise<void> };
@@ -59,6 +61,7 @@ export function PostAuthOnboardingSyncBridge() {
       shouldSkipReviewerBackgroundWritesForAutomation()
     ) {
       eligibleSignatureRef.current = null;
+      lastRejectedSignatureRef.current = null;
       pendingRef.current = null;
       cancelScheduledRetry();
       return;
@@ -76,11 +79,12 @@ export function PostAuthOnboardingSyncBridge() {
     }
 
     const signature = `${userId}:${vaultOwnerToken}:${vaultKey}`;
+    if (lastRejectedSignatureRef.current !== signature) lastRejectedSignatureRef.current = null;
     if (eligibleSignatureRef.current !== signature) {
       cancelScheduledRetry();
     }
     eligibleSignatureRef.current = signature;
-    if (lastSyncedSignatureRef.current === signature) {
+    if (lastSyncedSignatureRef.current === signature || lastRejectedSignatureRef.current === signature) {
       return;
     }
     if (retryTimerRef.current !== null) {
@@ -129,9 +133,13 @@ export function PostAuthOnboardingSyncBridge() {
           }
         })
         .catch((error) => {
-          const retryDelay = POST_UNLOCK_RETRY_DELAYS_MS[next.attempt];
+          const terminal = error instanceof PkmStoreDomainError && error.status === 422;
+          if (terminal && eligibleSignatureRef.current === next.signature) lastRejectedSignatureRef.current = next.signature;
+          const retryDelay = terminal ? undefined : POST_UNLOCK_RETRY_DELAYS_MS[next.attempt];
           console.warn(
-            retryDelay === undefined
+            terminal
+              ? "[PostAuthOnboardingSyncBridge] Post-unlock sync validation failed; pending information retained:"
+              : retryDelay === undefined
               ? "[PostAuthOnboardingSyncBridge] Post-unlock sync failed after bounded retries:"
               : "[PostAuthOnboardingSyncBridge] Post-unlock sync failed, retrying:",
             error,
