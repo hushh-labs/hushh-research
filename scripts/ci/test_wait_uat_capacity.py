@@ -438,6 +438,20 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn("group: " + group, source)
         self.assertIn("steps.retention.outputs.checkpoint_ready == 'true'", source)
 
+    def test_manual_inspection_runs_at_each_boundary_without_forcing_the_clock(self):
+        source = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
+        guards = [line.strip() for line in source.splitlines() if "--force-inspection" in line]
+        self.assertEqual(len(guards), 6)  # Select, under-lock recheck, execution; both environments.
+        for guard in guards:
+            for event in ["workflow_dispatch", "schedule", "repository_dispatch"]:
+                with self.subTest(guard=guard, event=event):
+                    result = subprocess.run(
+                        ["/bin/bash", "-eu", "-c", 'flags=(); ' + guard + '; printf "%s" "${flags[*]-}"'],
+                        env={"GITHUB_EVENT_NAME": event}, capture_output=True, text=True, timeout=5,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "--force-inspection" if event == "workflow_dispatch" else "")
+
 
 if __name__ == "__main__":
     unittest.main()
