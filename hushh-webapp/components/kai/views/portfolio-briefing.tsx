@@ -24,7 +24,7 @@ function largestPosition(model?: DashboardViewModel) {
 export function PortfolioBriefing({ model, onOpen, advisorAction }: { model?: DashboardViewModel; onOpen?: () => void; advisorAction?: ReactNode }) {
   const largest = largestPosition(model);
   const leadingSector = model?.quality.sectorReady ? model.equity_sector_allocation[0] : undefined;
-  return <SurfaceCard data-testid="portfolio-briefing">
+  return <SurfaceCard className={styles.insightShell} data-testid="portfolio-briefing">
     <SurfaceCardContent className={styles.insightCard}>
       <SectionLabel role="heading" aria-level={2}>One’s briefing</SectionLabel>
       <ul className="space-y-3 text-sm leading-6 text-muted-foreground">
