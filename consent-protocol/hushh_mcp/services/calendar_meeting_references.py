@@ -39,7 +39,7 @@ def _attachment_refs(event):
     return refs
 
 
-def _library_attachment_refs(event):
+def library_attachment_refs(event):
     """Exact occurrence links, admitted only with a provider-style file label.
 
     Calendar permits arbitrary attachments, so an ordinary Doc or video must
@@ -326,7 +326,7 @@ async def _discover(
 async def meeting_references(
     service, user_id, grant, event, calendar_id, *, for_chat, inspect_token, meet_scopes
 ):
-    refs = _attachment_refs(event) if for_chat else _library_attachment_refs(event)
+    refs = _attachment_refs(event) if for_chat else library_attachment_refs(event)
     attachment_truncated = not for_chat and len(refs) > 25
     if attachment_truncated:
         refs = refs[:25]
