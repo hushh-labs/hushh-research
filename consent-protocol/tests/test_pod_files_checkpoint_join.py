@@ -97,7 +97,7 @@ async def test_cancelled_proxy_before_start_cannot_run_callback(monkeypatch):
     assert not executed and getcoroutinestate(coroutine) == CORO_CLOSED
 
 
-def test_timeout_then_prestart_proxy_cancel_unblocks_the_join(monkeypatch):
+def test_timeout_cancels_unstarted_supervisor_without_waiting_forever(monkeypatch):
     loop = asyncio.new_event_loop()
     submitted: Future = Future()
     original_submit = asyncio.run_coroutine_threadsafe
@@ -125,11 +125,8 @@ def test_timeout_then_prestart_proxy_cancel_unblocks_the_join(monkeypatch):
             pending = executor.submit(provider)
             proxy = submitted.result(timeout=1)
             with pytest.raises(TimeoutError):
-                pending.result(timeout=0.05)
-            assert not pending.done() and proxy.cancel()
-            with pytest.raises(TimeoutError):
                 pending.result(timeout=1)
-            assert pending.done()
+            assert pending.done() and proxy.cancelled()
     finally:
         for supervisor in supervisors:
             supervisor.close()

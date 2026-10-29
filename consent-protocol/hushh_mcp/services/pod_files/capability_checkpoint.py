@@ -244,6 +244,10 @@ def publish_on_owner_loop(
     try:
         proxy.result(timeout=timeout)
     except FutureTimeout:
+        # A queued supervisor may never start if the owner loop has stopped.
+        # Cancellation atomically fences an unstarted callback; a started one
+        # retains the independent exit latch until its child finishes.
+        proxy.cancel()
         try:
             exited.result()
         except FutureCancelled:

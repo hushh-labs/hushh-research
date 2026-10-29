@@ -7,7 +7,7 @@ operation settled or that an erasure is safe to complete.
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import Future
+from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextvars import copy_context
 from functools import partial
 from typing import Any, Callable, TypeVar
@@ -16,10 +16,15 @@ from hushh_mcp.services.compute_backend import PodSpec
 from hushh_mcp.services.hosted_gcp_authority import HostedGcpAuthority
 
 _Result = TypeVar("_Result")
+_FILES_PROVIDER_EXECUTOR = ThreadPoolExecutor(max_workers=3, thread_name_prefix="hosted-files")
 
 
 async def _joined_thread(
-    operation: Callable[..., _Result], *args: Any, stop: Callable[[], None], **kwargs: Any
+    operation: Callable[..., _Result],
+    *args: Any,
+    stop: Callable[[], None],
+    executor: Executor | None = None,
+    **kwargs: Any,
 ) -> _Result:
     loop = asyncio.get_running_loop()
     execution: Future[None] = Future()
@@ -33,7 +38,7 @@ async def _joined_thread(
         finally:
             execution.set_result(None)
 
-    worker = loop.run_in_executor(None, partial(copy_context().run, invoke))
+    worker = loop.run_in_executor(executor, partial(copy_context().run, invoke))
     try:
         return await asyncio.shield(worker)
     except asyncio.CancelledError:
@@ -66,7 +71,13 @@ async def upgrade_thread(
         or authority.files_work_stopped.is_set()
     ):
         raise ValueError("Managed Files work requires its bound upgrade authority")
-    return await _joined_thread(operation, *args, stop=authority.files_work_stopped.set, **kwargs)
+    return await _joined_thread(
+        operation,
+        *args,
+        stop=authority.files_work_stopped.set,
+        executor=_FILES_PROVIDER_EXECUTOR,
+        **kwargs,
+    )
 
 
 async def database_thread(

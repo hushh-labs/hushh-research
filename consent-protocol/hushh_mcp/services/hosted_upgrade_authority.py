@@ -20,7 +20,7 @@ async def _files_current(current, registry: Any) -> None:
     from hushh_mcp.services.pod_files.capability_contract import hosted_schema_ready
 
     await current()
-    if not await hosted_schema_ready(registry):
+    if not await hosted_schema_ready(registry, join_on_cancel=True):
         raise ProvisionReconciliationRequired("Managed Files recovery schema is not ready")
 
 
@@ -62,7 +62,12 @@ async def bind_managed_upgrade(
     approval = metadata["upgradeApproval"]
 
     async def current() -> None:
-        observed = await registry.get(placement.owner_id)
+        managed_files = spec.files_upgrade_plan is not None
+        observed = await (
+            registry.get(placement.owner_id, join_on_cancel=True)
+            if managed_files
+            else registry.get(placement.owner_id)
+        )
         if (
             not lease
             or observed is None
@@ -75,7 +80,11 @@ async def bind_managed_upgrade(
             or retained_hosted_placement(observed) != placement
             or not upgrade_approval_matches(observed, source, allow_unresolved=inspecting)
             or not await registry.hosted_upgrade_current(
-                owner_id=placement.owner_id, lease=lease, observed=observed, work=not inspecting
+                owner_id=placement.owner_id,
+                lease=lease,
+                observed=observed,
+                work=not inspecting,
+                join_on_cancel=managed_files,
             )
         ):
             raise ProvisionReconciliationRequired("Managed update authority changed")
@@ -85,13 +94,15 @@ async def bind_managed_upgrade(
         deployment,
         source,
         placement.bootstrap_sa,
-        _worker_guard(current, loop, owner_thread),
+        _worker_guard(
+            current, loop, owner_thread, join_on_timeout=spec.files_upgrade_plan is not None
+        ),
         operation="inspect" if inspecting else "upgrade",
         execute=True,
         installed_image=metadata.get("image"),
         operation_id=approval["operationId"],
         files_work_check=_worker_guard(
-            lambda: _files_current(current, registry), loop, owner_thread
+            lambda: _files_current(current, registry), loop, owner_thread, join_on_timeout=True
         )
         if spec.files_upgrade_plan is not None and not inspecting
         else None,

@@ -7,11 +7,102 @@ from threading import Event
 
 import pytest
 
+from hushh_mcp.services.hosted_gcp_admission import _worker_guard
 from hushh_mcp.services.hosted_gcp_backend import HostedGcpBackend
 from hushh_mcp.services.hosted_tier_guard import HostedTierNotPermittedError
 from hushh_mcp.services.pod_files.managed_worker import upgrade_thread
+from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 from tests.test_hosted_files_authority import _hosted_files_operation
+
+
+async def test_timed_out_managed_files_admission_joins_actual_database_read():
+    from threading import get_ident
+
+    started, release, exited = Event(), Event(), Event()
+    loop = asyncio.get_running_loop()
+
+    def read():
+        started.set()
+        try:
+            release.wait()
+        finally:
+            exited.set()
+
+    async def admission():
+        await asyncio.to_thread(read)
+
+    guard = _worker_guard(admission, loop, get_ident(), join_on_timeout=True, timeout=0.01)
+    worker = asyncio.create_task(asyncio.to_thread(guard))
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        await asyncio.sleep(0.05)
+        assert not worker.done() and not exited.is_set()
+    finally:
+        release.set()
+    with pytest.raises(ProvisionReconciliationRequired, match="timed out"):
+        await asyncio.wait_for(worker, 1)
+    assert exited.is_set()
+
+
+async def test_cancelled_admission_task_joins_its_placement_database_read():
+    from threading import get_ident
+
+    from hushh_mcp.services.placement_observation import read_placement_row
+
+    started, release, exited = Event(), Event(), Event()
+    loop = asyncio.get_running_loop()
+
+    class Query:
+        def table(self, *_args):
+            return self
+
+        select = eq = limit = table
+
+        def execute(self):
+            started.set()
+            try:
+                release.wait()
+                return type("Response", (), {"data": []})()
+            finally:
+                exited.set()
+
+    async def admission():
+        await read_placement_row(Query(), "personal_agent_registry", "owner", join_on_cancel=True)
+
+    guard = _worker_guard(admission, loop, get_ident(), join_on_timeout=True, timeout=1)
+    worker = asyncio.create_task(asyncio.to_thread(guard))
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        children = [task for task in asyncio.all_tasks() if task.get_coro().__name__ == "admission"]
+        assert len(children) == 1 and children[0].cancel()
+        await asyncio.sleep(0.05)
+        assert not worker.done() and not exited.is_set()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(worker, 1)
+    assert exited.is_set()
+
+
+async def test_provider_does_not_starve_admission_with_one_default_worker(monkeypatch):
+    from threading import get_ident
+
+    _, spec = _hosted_files_operation(monkeypatch, "upgrade", lambda: None)
+    loop = asyncio.get_running_loop()
+    executor = ThreadPoolExecutor(max_workers=1)
+    loop.set_default_executor(executor)
+    read_finished = Event()
+
+    async def admission():
+        await asyncio.to_thread(read_finished.set)
+
+    guard = _worker_guard(admission, loop, get_ident(), join_on_timeout=True, timeout=0.5)
+    try:
+        await asyncio.wait_for(upgrade_thread(spec, guard), 1)
+        assert read_finished.is_set()
+    finally:
+        executor.shutdown(wait=True)
 
 
 async def test_cancelled_provider_thread_is_joined_and_new_work_is_fenced(monkeypatch):
@@ -84,11 +175,14 @@ async def test_cancelled_executor_proxy_waits_for_the_real_thread(monkeypatch):
 
 
 async def test_queued_provider_call_cannot_start_after_cancellation(monkeypatch):
+    from hushh_mcp.services.pod_files import managed_worker
+
     _, spec = _hosted_files_operation(monkeypatch, "upgrade", lambda: None)
     started, release, entered = Event(), Event(), Event()
     loop = asyncio.get_running_loop()
     executor = ThreadPoolExecutor(max_workers=1)
     loop.set_default_executor(executor)
+    monkeypatch.setattr(managed_worker, "_FILES_PROVIDER_EXECUTOR", executor)
 
     def occupied():
         started.set()

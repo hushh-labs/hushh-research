@@ -311,10 +311,20 @@ class PersonalAgentRegistryRepo:
             raise RuntimeError("personal agent provision admission unavailable") from None
 
     async def hosted_upgrade_current(
-        self, *, owner_id: str, lease: str, observed: dict, work: bool = True
+        self,
+        *,
+        owner_id: str,
+        lease: str,
+        observed: dict,
+        work: bool = True,
+        join_on_cancel: bool = False,
     ) -> bool:
         return await self._hosted_journal().upgrade_current(
-            owner_id=owner_id, lease=lease, observed=observed, work=work
+            owner_id=owner_id,
+            lease=lease,
+            observed=observed,
+            work=work,
+            join_on_cancel=join_on_cancel,
         )
 
     async def hosted_cleanup_current(self, *, owner_id: str, reservation: dict) -> bool:
@@ -497,18 +507,22 @@ class PersonalAgentRegistryRepo:
         )
         return bool(response.data and response.data[0].get("retained") is True)
 
-    async def files_upgrade_admission_ready(self) -> bool:
-        available = await asyncio.to_thread(
+    async def files_upgrade_admission_ready(self, *, join_on_cancel: bool = False) -> bool:
+        from hushh_mcp.services.pod_files.managed_worker import database_thread
+
+        available = await database_thread(
             self._db().execute_raw,
             "SELECT to_regprocedure('public.files_upgrade_admission_ready()') IS NOT NULL AS ready",
             {},
+            join_on_cancel=join_on_cancel,
         )
         if not (available.data and available.data[0].get("ready") is True):
             return False
-        result = await asyncio.to_thread(
+        result = await database_thread(
             self._db().execute_raw,
             "SELECT public.files_upgrade_admission_ready() AS ready",
             {},
+            join_on_cancel=join_on_cancel,
         )
         return bool(result.data and result.data[0].get("ready") is True)
 
@@ -1136,8 +1150,10 @@ class PersonalAgentRegistryRepo:
                 hushh_id=hushh_id,
             )
 
-    async def get(self, user_id: str) -> Optional[dict]:
-        return await read_placement_row(self._db(), _REGISTRY, user_id)
+    async def get(self, user_id: str, *, join_on_cancel: bool = False) -> Optional[dict]:
+        return await read_placement_row(
+            self._db(), _REGISTRY, user_id, join_on_cancel=join_on_cancel
+        )
 
     async def set_space_name(self, *, user_id: str, space_name: str) -> bool:
         """Update only an existing owner's handle, preserving lifecycle authority.

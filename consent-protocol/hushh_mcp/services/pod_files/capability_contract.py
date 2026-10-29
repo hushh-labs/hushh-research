@@ -35,15 +35,17 @@ async def admission_ready(repo, plan) -> bool:
     return await schema_ready(repo, plan.version)
 
 
-async def schema_ready(repo, version: int) -> bool:
+async def schema_ready(repo, version: int, *, join_on_cancel: bool = False) -> bool:
     if version == 1:
         check = getattr(repo, "files_upgrade_admission_ready", None)
-        return check is not None and await check()
+        return check is not None and await (
+            check(join_on_cancel=True) if join_on_cancel else check()
+        )
     check = getattr(repo, "files_capability_admission_ready", None)
     return check is not None and await check(version)
 
 
-async def hosted_schema_ready(repo) -> bool:
+async def hosted_schema_ready(repo, *, join_on_cancel: bool = False) -> bool:
     """Fail closed until hosted Files and interrupted erasure share a reviewed contract.
 
     A late provider receipt does not by itself prove that every upgrade executor
@@ -53,7 +55,7 @@ async def hosted_schema_ready(repo) -> bool:
     """
     from db.hosted_custody_adoption import QUALIFIED
 
-    if not await schema_ready(repo, 1):
+    if not await schema_ready(repo, 1, join_on_cancel=join_on_cancel):
         return False
     signatures = (
         "private_gcp_coordinates(jsonb)",
@@ -81,7 +83,11 @@ async def hosted_schema_ready(repo) -> bool:
         "= digest), false) AS ready FROM (VALUES " + values + ") AS required(signature, digest)"
     )
     try:
-        result = await asyncio.to_thread(repo._db().execute_raw, query, params)
+        from .managed_worker import database_thread
+
+        result = await database_thread(
+            repo._db().execute_raw, query, params, join_on_cancel=join_on_cancel
+        )
     except Exception:
         return False
     return bool(result.data and result.data[0].get("ready") is True)

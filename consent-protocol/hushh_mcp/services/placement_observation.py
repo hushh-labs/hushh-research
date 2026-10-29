@@ -25,7 +25,9 @@ class PlacementReader(Protocol):
     def _db(self) -> Any: ...
 
 
-async def read_placement_row(client: Any, table: PlacementTable, user_id: str) -> dict | None:
+async def read_placement_row(
+    client: Any, table: PlacementTable, user_id: str, *, join_on_cancel: bool = False
+) -> dict | None:
     """Strict owner-scoped repository read, with blocking I/O off the event loop."""
     if table not in _TABLES:
         raise ValueError("unsupported placement store")
@@ -33,7 +35,9 @@ async def read_placement_row(client: Any, table: PlacementTable, user_id: str) -
     def read():
         return client.table(table).select("*").eq("user_id", user_id).limit(1).execute()
 
-    response = await asyncio.to_thread(read)
+    from hushh_mcp.services.pod_files.managed_worker import database_thread
+
+    response = await database_thread(read, join_on_cancel=join_on_cancel)
     return dict(response.data[0]) if response.data else None
 
 
