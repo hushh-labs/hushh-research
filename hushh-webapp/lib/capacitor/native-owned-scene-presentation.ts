@@ -31,6 +31,7 @@ export class NativeOwnedScenePresentation<I, P extends I & OwnedEditorState, E e
   private highestUpdate = 0;
   private seenAction = 0;
   private disposed = false;
+  get retired(): boolean { return this.disposed; }
   private listening = false;
   private ready = false;
   private withdrawal: Promise<boolean> | null = null;

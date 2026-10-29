@@ -36,6 +36,12 @@ can leave its retirement barrier blocked. A recovery must also prove that the
 previous owned presenter has actually detached. Keep the custom shell gated
 until that behavior and the other acceptance requirements below are verified.
 
+The local follow-up also fences overlapping retirements and recovers a late,
+identity-matched dismissal receipt. It does not yet reconcile a lost or
+rejected receipt through native readback, or prove predecessor dismissal across
+document replacement. These changes have focused test evidence only; they do
+not qualify a new device candidate.
+
 Other known gaps include the native hard Vault, complete AI-provider ownership,
 full route and nested-state coverage, and physical visual, accessibility and
 performance acceptance. Cross-device phone-claim ordering and reconciliation of

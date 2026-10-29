@@ -1700,6 +1700,23 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(container.acquireContentPane(next, viewport: container.bounds.size), "Same-document retirement still rejects late acquisition")
     }
 
+    func testContentPaneRetirementCompletionCannotReleaseANewerPendingLifetime() {
+        let first = NativeContentPaneIdentity(document: "public", ownerEpoch: "first", generation: 1, privacyGeneration: 0)
+        let next = NativeContentPaneIdentity(document: "public", ownerEpoch: "next", generation: 2, privacyGeneration: 0)
+        var fence = NativeContentPaneFence()
+        XCTAssertTrue(fence.beginRetirement(first))
+        XCTAssertTrue(fence.release(first))
+        XCTAssertTrue(fence.beginRetirement(next))
+        XCTAssertFalse(fence.beginRetirement(first))
+        XCTAssertFalse(fence.release(first), "A delayed completion cannot release the next pending retirement")
+        XCTAssertTrue(fence.retiring)
+        XCTAssertFalse(fence.acquire(next), "A late acquisition stays fenced until the matching retirement completes")
+        let later = NativeContentPaneIdentity(document: "public", ownerEpoch: "later", generation: 3, privacyGeneration: 0)
+        XCTAssertFalse(fence.acquire(later), "A newer acquisition cannot bypass an empty but retiring fence")
+        XCTAssertTrue(fence.release(next))
+        XCTAssertFalse(fence.retiring)
+    }
+
     @MainActor
     func testPendingNativeCloseSurvivesContentRefreshAndUncoversTheSameWebViewOnlyAfterAcknowledgement() async throws {
         let state = privateDrawerState(family: "history")

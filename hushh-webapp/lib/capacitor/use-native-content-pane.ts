@@ -10,9 +10,55 @@ import { useNativeNavigationBlocked } from "./native-navigation";
 let generation = 0;
 // Serialize plane retirement, not product operations. An uncertain retirement
 // rejects the next admission; it never restores a duplicate or retries a send.
-let retirement: Promise<unknown> = Promise.resolve();
-/** Explicit handoff waits for the retiring focused WebView plane. */
-export function awaitNativeContentPaneRetirement(): Promise<unknown> { return retirement; }
+export class NativeContentPaneRetirementBarrier {
+  private pending = new Set<Promise<unknown>>();
+  private uncertain = new Set<object>();
+  private listeners = new Set<() => void>();
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  track(retirement: Promise<unknown>, lateConfirmation?: Promise<boolean>): void {
+    const lifetime = { confirmed: false };
+    this.pending.add(retirement);
+    void retirement.then(
+      () => { this.pending.delete(retirement); this.listeners.forEach(listener => listener()); },
+      () => {
+        if (!lifetime.confirmed) this.uncertain.add(lifetime);
+        this.pending.delete(retirement);
+        this.listeners.forEach(listener => listener());
+      },
+    );
+    if (lateConfirmation) void lateConfirmation.then(confirmed => {
+      if (confirmed) {
+        lifetime.confirmed = true;
+        if (this.uncertain.delete(lifetime)) this.listeners.forEach(listener => listener());
+      }
+    }, () => undefined);
+  }
+
+  async wait(): Promise<void> {
+    while (this.pending.size) {
+      await Promise.allSettled([...this.pending]);
+    }
+    if (this.uncertain.size) throw new Error("NATIVE_CONTENT_PANE_RETIRE_UNCONFIRMED");
+  }
+
+  async afterRetirement<T>(start: () => Promise<T>): Promise<T> {
+    do { await this.wait(); } while (this.pending.size || this.uncertain.size);
+    // Check and issue the bridge call in the same JavaScript turn.
+    return start();
+  }
+  get clear(): boolean { return this.pending.size === 0 && this.uncertain.size === 0; }
+}
+const retirementBarrier = new NativeContentPaneRetirementBarrier();
+/** Explicit handoff waits for every retiring focused WebView plane. */
+export function awaitNativeContentPaneRetirement(): Promise<void> { return retirementBarrier.wait(); }
+export function afterNativeContentPaneRetirement<T>(start: () => Promise<T>): Promise<T> { return retirementBarrier.afterRetirement(start); }
+export function nativeContentPaneRetirementClear(): boolean { return retirementBarrier.clear; }
+export function subscribeNativeContentPaneRetirement(listener: () => void): () => void { return retirementBarrier.subscribe(listener); }
 export function contentPaneAcknowledged(receipt: NativeContentPaneReceipt, identity: NativeContentPaneIdentity, phase: "active" | "retired") {
   return receipt?.phase === phase && receipt.documentId === identity.documentId && receipt.ownerEpoch === identity.ownerEpoch &&
     receipt.generation === identity.generation && receipt.privacyGeneration === identity.privacyGeneration;
@@ -43,11 +89,11 @@ export function useNativeContentPane(node: HTMLElement | null, owner: string | n
     const release = () => {
       if (!identity || releasing) return releasing;
       const captured = identity;
-      releasing = nativeDrawerAcknowledged(nativeChrome.releaseContentPane(captured)).then(receipt => {
+      const operation = nativeChrome.releaseContentPane(captured);
+      releasing = nativeDrawerAcknowledged(operation).then(receipt => {
         if (!contentPaneAcknowledged(receipt, captured, "retired")) throw new Error("NATIVE_CONTENT_PANE_RETIRE_UNCONFIRMED");
       });
-      retirement = releasing;
-      void releasing.catch(() => undefined);
+      retirementBarrier.track(releasing, operation.then(receipt => contentPaneAcknowledged(receipt, captured, "retired")));
       return releasing;
     };
     let capable = false;
@@ -63,16 +109,19 @@ export function useNativeContentPane(node: HTMLElement | null, owner: string | n
         const preparing = preparationCapable && !!preparation && nativePrivacyCanPrepareProfile(privacy) &&
           privacy.preparationBody === "pane" && privacy.preparationVisitId === preparation.visitId;
         if (!privacy.appIsActive || privacy.shielded && !preparing) { setState({ phase: "blocked" }); return; }
-        await retirement;
+        await awaitNativeContentPaneRetirement();
         if (!live || ordinal !== request) return;
         const next = { ...lifetime, privacyGeneration: privacy.generation };
         const width = window.innerWidth, height = window.innerHeight;
         const visit = privacy.shielded && preparing ? preparation?.visitId : undefined;
         if (!acknowledged || acknowledged.privacy !== privacy.generation || acknowledged.width !== width ||
             acknowledged.height !== height || visit && acknowledged.visit !== visit) {
-          identity = next; // Reserve cleanup authority before asynchronous admission.
-          const receipt = await nativeDrawerAcknowledged(nativeChrome.acquireContentPane({ ...next,
-            viewport: { width, height }, ...(visit ? { preparationVisitId: visit } : {}) }));
+          const receipt = await afterNativeContentPaneRetirement(() => {
+            if (!live || ordinal !== request) throw new Error("NATIVE_CONTENT_PANE_ADMISSION_STALE");
+            identity = next; // Reserve cleanup authority immediately before native admission.
+            return nativeDrawerAcknowledged(nativeChrome.acquireContentPane({ ...next,
+              viewport: { width, height }, ...(visit ? { preparationVisitId: visit } : {}) }));
+          });
           if (!live) { release(); return; }
           if (ordinal !== request) return;
           if (!contentPaneAcknowledged(receipt, next, "active")) throw new Error("NATIVE_CONTENT_PANE_UNCONFIRMED");
@@ -104,6 +153,7 @@ export function useNativeContentPane(node: HTMLElement | null, owner: string | n
     };
     const refresh = () => { if (live && capable) void reconcile(); };
     refreshRef.current = refresh;
+    const unsubscribeRetirement = retirementBarrier.subscribe(refresh);
     const unsubscribe = subscribeNativePrivacyObservation(refresh);
     setState({ phase: "preparing" });
     void (async () => {
@@ -121,7 +171,7 @@ export function useNativeContentPane(node: HTMLElement | null, owner: string | n
       } catch { if (live) setState({ phase: "blocked" }); }
     })();
     window.addEventListener("resize", refresh);
-    return () => { live = false; request++; refreshRef.current = () => undefined; unsubscribe(); release(); void observer?.remove(); window.removeEventListener("resize", refresh); };
+    return () => { live = false; request++; refreshRef.current = () => undefined; unsubscribeRetirement(); unsubscribe(); release(); void observer?.remove(); window.removeEventListener("resize", refresh); };
   }, [node, owner, enabled]);
   return state;
 }

@@ -16,7 +16,8 @@ import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appea
 import { nativePrivacyObservation, subscribeNativePrivacyObservation, getNativeSessionPrivacyState } from "@/lib/capacitor/session-privacy";
 import type { PluginListenerHandle } from "@capacitor/core";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
-import { awaitNativeContentPaneRetirement, useNativeContentPane } from "@/lib/capacitor/use-native-content-pane";
+import { afterNativeContentPaneRetirement, awaitNativeContentPaneRetirement, nativeContentPaneRetirementClear,
+  subscribeNativeContentPaneRetirement, useNativeContentPane } from "@/lib/capacitor/use-native-content-pane";
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import { cardNetworkLabel } from "./card-network-mark";
 import type { CardBrand } from "@/lib/wallet/card-validation";
@@ -65,6 +66,14 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
   const appearance = useNativeControlAppearance("secondary"), pathname = usePathname();
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
   const [phase, setPhase] = useState("preparing"), [edit, setEdit] = useState({ revision: 0, composing: false });
+  const [retirementRevision, setRetirementRevision] = useState(0);
+  const blockedOnRetirement = useRef(false);
+  useEffect(() => subscribeNativeContentPaneRetirement(() => {
+    if (blockedOnRetirement.current && nativeContentPaneRetirementClear()) {
+      blockedOnRetirement.current = false;
+      setRetirementRevision(value => value + 1);
+    }
+  }), []);
   const live = useRef({ form, ownerId, appearance, privacy, edit, onCancel, onMedia, onFallback });
   useLayoutEffect(() => { live.current = { form, ownerId, appearance, privacy, edit, onCancel, onMedia, onFallback }; });
   const installation = useRef<{ identity: OwnedChoiceIdentity; presentation: Presentation; sequence: number; fingerprint: string | null; draftRevision: number; discardFinal: boolean } | null>(null);
@@ -143,9 +152,15 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
         const capabilities = await nativeDrawerAcknowledged(plugin.getCapabilities());
         if (!isCurrent()) return;
         if (!capabilities.walletCardForms || !plugin.applyWalletCardScene || !plugin.confirmWalletCardAction ||
-            !plugin.settleWalletCardAction || !plugin.retireWalletCardScene) { live.current.onFallback(); return; }
+            !plugin.settleWalletCardAction || !plugin.retireWalletCardScene) {
+          await afterNativeContentPaneRetirement(async () => { if (isCurrent()) live.current.onFallback(); });
+          return;
+        }
         presentation = new NativeOwnedScenePresentation(identity, {
-          source: plugin, apply: state => plugin.applyWalletCardScene!(state), confirm: async event => {
+          source: plugin, apply: state => afterNativeContentPaneRetirement(() => {
+            if (!isCurrent() || !presentation || presentation.retired) throw new Error("NATIVE_WALLET_ADMISSION_STALE");
+            return plugin.applyWalletCardScene!(state);
+          }), confirm: async event => {
             const result = await plugin.confirmWalletCardAction!(event);
             if (result.valid && event.action === "cancel" && installation.current?.identity === identity) installation.current.discardFinal = true;
             return result;
@@ -153,7 +168,12 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
           settle: event => plugin.settleWalletCardAction!(event), retire: async id => { const receipt = await plugin.retireWalletCardScene!(id); await finalReconciliation; return receipt; },
           edits: callback => plugin.addListener("walletCardEdit", callback), choices: callback => plugin.addListener("walletCardAction", callback),
         }, new NativeWalletCardFence(identity), validNativeWalletCardProjection, isCurrent,
-        next => { if (current) { setPhase(next); if (next === "fallback") live.current.onFallback(); } },
+        next => { if (current) {
+          if (next === "fallback" && !nativeContentPaneRetirementClear()) {
+            blockedOnRetirement.current = true; setPhase("blocked"); return;
+          }
+          setPhase(next); if (next === "fallback") live.current.onFallback();
+        } },
         true, state => ({ ...state, draft: { ...state.draft } }), isCurrent, sameOwnedChoice);
         const entry = { identity, presentation, sequence: 0, fingerprint: null, draftRevision: 0, discardFinal: false };
         installation.current = entry;
@@ -179,8 +199,15 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
         setEdit(live.current.edit);
         if (await presentation.listen() && isCurrent()) publish();
       } catch {
-        if (presentation) { if (await presentation.retire() && isCurrent()) live.current.onFallback(); }
-        else if (isCurrent()) live.current.onFallback();
+        if (presentation) {
+          if (await presentation.retire() && isCurrent()) {
+            if (!nativeContentPaneRetirementClear()) { blockedOnRetirement.current = true; setPhase("blocked"); }
+            else live.current.onFallback();
+          }
+        }
+        else if (isCurrent() && !nativeContentPaneRetirementClear()) {
+          blockedOnRetirement.current = true; setPhase("blocked");
+        } else if (isCurrent()) live.current.onFallback();
       }
     })();
     return () => {
@@ -188,7 +215,7 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
       if (presentation) void presentation.retire().then(async retired => { await finalReconciliation; if (retired || !retainedOwner()) releaseFinal(); });
       else releaseFinal();
     };
-  }, [active, generation, ownerId, ownerKey, epoch, publish]);
+  }, [active, generation, ownerId, ownerKey, epoch, publish, retirementRevision]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const entry = installation.current;
