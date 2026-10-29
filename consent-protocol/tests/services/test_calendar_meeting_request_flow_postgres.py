@@ -3,6 +3,7 @@
 # ruff: noqa: F811 -- imported pytest fixtures are injected by name.
 
 import base64
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -441,3 +442,35 @@ def test_calendar_client_lookup_and_binding_separate_accounts(monkeypatch):
     assert cipher.recipient_binding(recipient()) != cipher.recipient_binding(
         recipient(account_id="calendar-C", grant_id="c" * 64)
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("current_email", ["organizer@example.invalid", "stale@example.invalid"])
+async def test_calendar_organizer_requires_current_verified_peer(monkeypatch, current_email):
+    from hushh_mcp.services import calendar_meeting_request_service as service
+
+    connection = SimpleNamespace(
+        fetch=AsyncMock(return_value=[{"peer": "owner"}]),
+        fetchval=AsyncMock(return_value=False),
+    )
+
+    @asynccontextmanager
+    async def acquire():
+        yield connection
+
+    monkeypatch.setattr(
+        service, "get_pool", AsyncMock(return_value=SimpleNamespace(acquire=acquire))
+    )
+    sync = AsyncMock(return_value={"email_verified": True, "email": current_email})
+    monkeypatch.setattr(
+        service, "ActorIdentityService", lambda: SimpleNamespace(sync_from_firebase=sync)
+    )
+
+    if current_email == "organizer@example.invalid":
+        assert await service._connected_organizer("recipient", current_email) == "owner"
+    else:
+        with pytest.raises(DriveSharingError, match="calendar_organizer_unavailable"):
+            await service._connected_organizer("recipient", "organizer@example.invalid")
+
+    assert connection.fetch.await_args.args[1:] == ("recipient", "organizer@example.invalid")
+    sync.assert_awaited_once_with("owner", force=True, require_success=True)

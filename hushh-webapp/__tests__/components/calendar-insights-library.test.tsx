@@ -12,6 +12,7 @@ vi.mock("@/lib/services/calendar-insights-service", () => ({
 }));
 
 import { CalendarInsights } from "@/components/calendar/calendar-insights";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 function insights(onAllowMeetingFiles?: (accountId: string) => void) {
@@ -77,7 +78,7 @@ describe("Calendar Insights meeting library", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back to recordings and notes" }));
     expect(screen.getByText("Not available yet (5)")).toBeInTheDocument();
     accessVerified = true;
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    act(() => dispatchFeedStateChanged("arrived"));
     expect(await screen.findByText("Available (1)")).toBeInTheDocument();
     expect(screen.getByText("Not available yet (4)")).toBeInTheDocument();
   });
