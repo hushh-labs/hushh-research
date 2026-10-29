@@ -618,6 +618,14 @@ def test_the_receipt_passes_the_completion_judges_validator(tmp_path, monkeypatc
     )
     assert result.passed
     target = {"mode": "local", "environment": "synthetic"}
+    completed_at = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)
+
+    class ReceiptClock:
+        @staticmethod
+        def now(zone):
+            return completed_at.astimezone(zone)
+
+    monkeypatch.setattr(drill, "datetime", ReceiptClock)
     receipt = drill.write_receipt(
         tmp_path / "receipt.json",
         result=result,
@@ -657,8 +665,20 @@ def test_the_receipt_passes_the_completion_judges_validator(tmp_path, monkeypatc
     )
     assert valid, detail
     assert receipt["result"] == "pass" and receipt["exit_code"] == 0
+    assert receipt["completed_at"] == completed_at.isoformat()
     assert "<redacted>" in receipt["commands"][0]
-    text = json.dumps(receipt)
+    # Validate provenance exactly; random hex digests can contain a short canary.
+    assert receipt["source_commit"] == git("rev-parse", "HEAD")
+    assert receipt["source_sha256"] == {
+        "probe.py": hashlib.sha256((tmp_path / "probe.py").read_bytes()).hexdigest()
+    }
+    text = json.dumps(
+        {
+            key: value
+            for key, value in receipt.items()
+            if key not in ("source_commit", "source_sha256")
+        }
+    )
     for private in ("Pushkin", "4269", "HA1RECEIPT"):
         assert private not in text
     # The judged number is never granted by the drill itself.
