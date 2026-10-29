@@ -188,7 +188,8 @@ These paths should remain deterministic by design:
   stored result is `content_redacted` (its arguments emptied), an earlier private
   receipt answer, a call that never got its result and an Azure reasoning item
   left without the call or answer it preceded. Replayed, the model copied `ask_email_agent({})` for every
-  later mail request (UAT, 2026-10-29). Stored history keeps its redaction.
+  later mail request (UAT, 2026-10-29). Stored history keeps its redaction. Each
+  request that loses parts logs `one.history_hygiene removed=<n>`, a count only.
 
 These are safety and infrastructure concerns, not semantic classification concerns.
 

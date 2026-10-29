@@ -211,7 +211,9 @@ Native tool messages, encrypted session history and restored answers contain
 value-free receipts. Receipt-result invocations cannot execute further tools.
 A continuation carries only its receipt results: the hub and owner-pod ingress
 keep just the admitted tool-result messages, and the device sends no others, so
-the bridge resumes the paused turn instead of running the question again. A call
+the bridge resumes the paused turn instead of running the question again. Each
+admitted continuation logs `one.receipt_resume results=<n> dropped=<n>`, where
+`dropped` counts messages an older app resent. A call
 whose arguments fail the closed schema is removed from the model's response
 before the bridge can defer it, so it never reaches the device; when the
 response holds nothing else, the turn fails closed. Earlier receipt calls and private

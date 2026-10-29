@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ag_ui.core import (
@@ -37,6 +38,8 @@ from hushh_mcp.services.chat_key import (
     CHAT_KEY_RECOVERY_MESSAGE,
     CHAT_KEY_REQUIRED_CODE,
 )
+
+logger = logging.getLogger(__name__)
 
 CHAT_KEY_RUN_ERROR = RunErrorEvent(message=CHAT_KEY_RECOVERY_MESSAGE, code=CHAT_KEY_REQUIRED_CODE)
 CHAT_HISTORY_UPGRADING_RUN_ERROR = RunErrorEvent(
@@ -335,4 +338,6 @@ def drop_replayed_tool_placeholders(llm_request: Any) -> int:
         elif kept:
             kept_contents.append(content.model_copy(update={"parts": kept}))
     llm_request.contents = kept_contents
+    if removed:
+        logger.info("one.history_hygiene removed=%d", removed)
     return removed
