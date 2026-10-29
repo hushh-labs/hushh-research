@@ -1088,6 +1088,11 @@ partial migration cannot be retried as a new empty first rollout. The bounded
 health-tag lease is retired and the actual cold revision is revalidated before
 publishing the operational proof.
 
+Its explicit backend scope selects qualification work without moving primary
+traffic. The subsequent standard release still applies the ordinary
+account-lifecycle atomicity gate across the actual serving backend and frontend
+sources; a lifecycle change requires both services.
+
 The production capacity owner counts every retained backend and worker revision,
 readiness jobs and reserve. Keep its existing300-slot limit and pools. Under the
 shared deployment lock, capacity maintenance may publish a separately typed
