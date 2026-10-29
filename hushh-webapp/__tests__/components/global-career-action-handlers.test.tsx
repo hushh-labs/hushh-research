@@ -8,7 +8,7 @@ const load = vi.fn();
 const recordApplication = vi.fn();
 let unlocked = true;
 
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "u1" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "u1" }, userId: "u1" }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultKey: "k", vaultOwnerToken: "t", isVaultUnlocked: unlocked }),
 }));

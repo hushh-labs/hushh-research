@@ -45,7 +45,7 @@ function matches(role: CareerRole, slots: Record<string, unknown> | null | undef
 }
 
 export function GlobalCareerActionHandlers() {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
 
   useLocalOnboardingActionHandler(
@@ -96,11 +96,11 @@ export function GlobalCareerActionHandlers() {
       if (!slug) {
         return { status: "failed" as const, summary: "Tell me which role, and I'll apply." };
       }
-      if (!user?.uid) return { status: "failed" as const, summary: "Sign in first." };
+      if (!userId) return { status: "failed" as const, summary: "Sign in first." };
       if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
         return { status: "failed" as const, summary: "Unlock your private agent first, then ask me again." };
       }
-      const write = { userId: user.uid, vaultKey, vaultOwnerToken };
+      const write = { userId, vaultKey, vaultOwnerToken };
 
       let role: CareerRole | undefined;
       try {
