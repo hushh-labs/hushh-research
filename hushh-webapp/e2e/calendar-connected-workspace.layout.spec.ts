@@ -521,7 +521,7 @@ for (const width of [390, 1280]) {
         { id: "notes", calendar_id: "primary", account_id: "default", occurrence_id: "a".repeat(64), grant_id: "b".repeat(64), sources: [{ calendar_id: "primary", event_id: "notes" }], title: "QA Design review", start: { dateTime: "2026-10-14T09:00:00Z" }, artifact_kinds: ["notes"] },
         { id: "video", calendar_id: "primary", account_id: "default", occurrence_id: "c".repeat(64), grant_id: "b".repeat(64), sources: [{ calendar_id: "primary", event_id: "video" }], title: "QA Product demo", start: { dateTime: "2026-10-14T08:00:00Z" }, artifact_kinds: ["recording"] },
       ];
-      return route.fulfill({ json: { complete: true, next_cursor: null, limitations: [], checked_events: 2, account_id: "default", date: body.date, time_zone: body.time_zone, meetings: rows.filter(row => (body.kind === "all" || row.artifact_kinds.includes(body.kind)) && row.title.toLowerCase().includes((body.query || "").toLowerCase())) } });
+      return route.fulfill({ json: { complete: true, next_cursor: null, limitations: [], checked_events: 2, meeting_file_access: "ready", account_id: "default", date: body.date, time_zone: body.time_zone, meetings: rows.filter(row => (body.kind === "all" || row.artifact_kinds.includes(body.kind)) && row.title.toLowerCase().includes((body.query || "").toLowerCase())) } });
     });
     await page.route("**/api/one/calendar/meetings/detail", route => route.fulfill({ json: { complete: true, discovery: "checked", calendar_id: "primary", event: { title: "QA Design review" }, artifacts: [
       { file_id: "qa-doc", kind: "notes", state: "available", title: "QA Meeting notes", url: "https://docs.google.com/document/d/qa-doc", text: "Synthetic browser fixture only.", text_format: "plain", can_download: true },
@@ -554,6 +554,37 @@ for (const width of [390, 1280]) {
     await page.getByRole("button", { name: "Back to recordings and notes" }).click();
     await expect(page.getByRole("searchbox")).toHaveValue("Design");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(fixture.errors).toEqual([]);
+  });
+}
+
+for (const width of [390, 1280]) {
+  test(`Calendar meeting grant stays ready across an empty day and denied Meet day at ${width}px`, async ({ page }) => {
+    const fixture = await openFixture(page, width);
+    await page.route("**/api/one/calendar/insights", route => route.fulfill({ json: {
+      complete: true, meeting_count: 0, meeting_minutes: 0, overlaps: 0, back_to_back: 0,
+      time_zone: "Asia/Kolkata", days: [], recurring: [], focus: [],
+    } }));
+    await page.route("**/api/one/calendar/meetings", route => {
+      const body = route.request().postDataJSON() as { date: string; time_zone: string };
+      const denied = body.date !== "2026-10-14";
+      return route.fulfill({ json: {
+        complete: !denied, next_cursor: null, limitations: denied ? ["resource_denied"] : [],
+        checked_events: denied ? 1 : 0, meeting_file_access: "ready", meetings: [],
+        account_id: "default", date: body.date, time_zone: body.time_zone,
+      } });
+    });
+    await page.getByRole("tab", { name: "Insights", exact: true }).click();
+    await page.getByRole("button", { name: /Recordings & Notes/ }).click();
+    await expect(page.getByText("No recordings or notes for this day.")).toBeVisible();
+    await page.getByRole("button", { name: "Next day" }).click();
+    await expect(page.getByText(/Google denied access to one or more meeting files/)).toBeVisible();
+    await expect(page.getByText("No recordings or notes for this day.")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Allow recording and notes access" })).toHaveCount(0);
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-denied-with-ready-grant-${width}.png`) });
+    await page.getByRole("button", { name: "Previous day" }).click();
+    await expect(page.getByText("No recordings or notes for this day.")).toBeVisible();
+    await expect(page.getByTestId("calendar-action")).toBeEmpty();
     expect(fixture.errors).toEqual([]);
   });
 }

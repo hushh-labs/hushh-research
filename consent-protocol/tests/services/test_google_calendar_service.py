@@ -392,9 +392,18 @@ def test_calendar_access_token_rejects_partial_granted_scopes(shared_hub_owner) 
         )
 
 
+@pytest.mark.parametrize(
+    "expiry,force_refresh",
+    [
+        ("2000-01-01T00:00:00+00:00", False),
+        ("2999-01-01T00:00:00+00:00", True),
+    ],
+)
 def test_calendar_refresh_does_not_restore_a_token_after_disconnect(
     monkeypatch: pytest.MonkeyPatch,
     shared_hub_owner,
+    expiry: str,
+    force_refresh: bool,
 ) -> None:
     class _RefreshRaceDb(_Db):
         def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
@@ -406,7 +415,7 @@ def test_calendar_refresh_does_not_restore_a_token_after_disconnect(
                             "status": "connected",
                             "refresh_token_ciphertext": "old-refresh-envelope",
                             "refresh_token_iv": "not-used",
-                            "access_token_expires_at": "2000-01-01T00:00:00+00:00",
+                            "access_token_expires_at": expiry,
                             "service_status": "connected",
                             "service_access_level": "read",
                             "service_scope_csv": "https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/calendar.freebusy",
@@ -446,7 +455,14 @@ def test_calendar_refresh_does_not_restore_a_token_after_disconnect(
     )
 
     with pytest.raises(GoogleConnectionError, match="no longer active") as exc_info:
-        asyncio.run(service.access_token(user_id="user-1", service="calendar", access_level="read"))
+        asyncio.run(
+            service.access_token(
+                user_id="user-1",
+                service="calendar",
+                access_level="read",
+                force_refresh=force_refresh,
+            )
+        )
 
     assert exc_info.value.status_code == 409
     token_write = next(sql for sql, _ in db.calls if "access_token_ciphertext" in sql)
@@ -510,7 +526,12 @@ def test_calendar_stale_callback_cannot_reenable_a_disconnected_service_grant(
         asyncio.run(
             service._store_authorized_connection(
                 user_id="user-1",
-                token={"access_token": "access", "refresh_token": "refresh", "expires_in": 3600},
+                token={
+                    "access_token": "access",
+                    "refresh_token": "refresh",
+                    "expires_in": 3600,
+                    "scope": " ".join(GoogleConnectionService.scopes("calendar", "read")),
+                },
                 service="calendar",
                 requested_scopes=GoogleConnectionService.scopes("calendar", "read"),
                 oauth_started_at=datetime(2026, 1, 1, tzinfo=UTC),

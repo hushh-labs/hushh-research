@@ -101,17 +101,28 @@ def test_webhook_signature_agrees_with_the_vendor_sdk():
         )
 
 
-def test_state_binds_the_org_and_refuses_tampering_and_expiry():
-    state = sign_state(API_KEY, "org_01")
-    assert verify_state(API_KEY, state) == "org_01"  # negative control
+def test_state_binds_the_org_and_refuses_tampering_and_expiry(monkeypatch):
+    # This synthetic state ends in AA. Replacing those last characters with
+    # AA, as the old test did, would submit the original valid signature.
+    monkeypatch.setattr(
+        "hushh_mcp.services.enterprise_sso.workos_adapter.secrets.token_urlsafe",
+        lambda _: "fixture-2660",
+    )
+    issued = 1_700_000_000
+    state = sign_state(API_KEY, "org_01", now=issued)
+    assert verify_state(API_KEY, state, now=issued) == "org_01"  # negative control
     payload, _, signature = state.partition(".")
-    for bad in (f"{payload}.{signature[:-2]}AA", f"x{payload}.{signature}", "", "nodot"):
+    assert signature.endswith("AA")
+    altered_signature = ("B" if signature[0] == "A" else "A") + signature[1:]
+    tampered = f"{payload}.{altered_signature}"
+    assert tampered != state
+    for bad in (tampered, f"x{payload}.{signature}", "", "nodot"):
         with pytest.raises(EnterpriseSsoError):
-            verify_state(API_KEY, bad)
+            verify_state(API_KEY, bad, now=issued)
     with pytest.raises(EnterpriseSsoError):
-        verify_state("a_different_key", state)
+        verify_state("a_different_key", state, now=issued)
     with pytest.raises(EnterpriseSsoError):
-        verify_state(API_KEY, sign_state(API_KEY, "org_01", now=time.time() - 3600))
+        verify_state(API_KEY, state, now=issued + 3600)
 
 
 def test_routes_answer_404_while_the_flag_is_off(monkeypatch):

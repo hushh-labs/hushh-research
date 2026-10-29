@@ -254,7 +254,7 @@ def closed_submissions(owner: dict, *, start: str, source_anchor: str) -> dict:
         ):
             raise ValueError("phone_schema_prior_submit_source_unknown")
         for number in range(producer["run_attempt"], 0, -1):
-            attempt, _result, job = history._attempt(REPOSITORY, producer, number, api)
+            attempt, _result, job = history._attempt(REPOSITORY, producer, number, api, source)
             if job is None:
                 # The shared reader permits this only for a queued workflow
                 # with no admitted deploy job; it cannot yet submit a build.

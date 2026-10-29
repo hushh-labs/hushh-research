@@ -3,8 +3,11 @@
 """Current application selection must not inherit historical workflow success."""
 
 import importlib
+import subprocess
+import sys
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -116,6 +119,80 @@ def test_selection_rechecks_current_attempt_before_noop(monkeypatch):
 
     acceptance.read = racing_read
     assert not module.current_application(repository, acceptance, SHA, "all")["noop"]
+
+
+@pytest.mark.parametrize(
+    ("remote_tip", "expected_status"),
+    [
+        ("same", 0),
+        ("changed", 2),
+        ("missing", 2),
+        ("malformed", 2),
+        ("unreachable", 2),
+        ("timeout", 2),
+    ],
+)
+def test_selection_rechecks_uat_tip_before_output(
+    monkeypatch, tmp_path, remote_tip, expected_status
+):
+    module, repository, acceptance, _, _ = fixture(monkeypatch)
+    events = []
+    output = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setattr(sys, "argv", ["selector", "--github-output", "--allow-no-op"])
+
+    def run(args, **_kwargs):
+        events.append(("fetch", args))
+
+    def check_output(args, **_kwargs):
+        if args[:2] == ["git", "rev-parse"]:
+            events.append(("snapshot", args))
+            return SHA + "\n"
+        events.append(("recheck", args))
+        if remote_tip == "unreachable":
+            raise subprocess.CalledProcessError(128, args)
+        if remote_tip == "timeout":
+            raise subprocess.TimeoutExpired(args, 30)
+        return {
+            "same": f"{SHA}\trefs/heads/uat\n",
+            "changed": f"{'d' * 40}\trefs/heads/uat\n",
+            "missing": "",
+            "malformed": f"{SHA}\trefs/heads/other\n",
+        }[remote_tip]
+
+    def current(*_args):
+        events.append(("inventory", None))
+        return {"waiting": False, "noop": True, "reason": "verified"}
+
+    monkeypatch.setattr(
+        module,
+        "subprocess",
+        SimpleNamespace(
+            run=run,
+            check_output=check_output,
+            SubprocessError=subprocess.SubprocessError,
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "importlib",
+        SimpleNamespace(
+            import_module=lambda _name: SimpleNamespace(GitHub=lambda: acceptance),
+        ),
+    )
+    monkeypatch.setattr(module, "GitHub", lambda *_args: None)
+    monkeypatch.setattr(module, "ObservedRepository", lambda _api: repository)
+    monkeypatch.setattr(module, "current_application", current)
+
+    assert module.main() == expected_status
+    assert [event[0] for event in events] == ["fetch", "snapshot", "inventory", "recheck"]
+    assert events[0][1] == ["git", "fetch", "--no-tags", "origin", "refs/heads/uat"]
+    assert events[1][1] == ["git", "rev-parse", "--verify", "FETCH_HEAD^{commit}"]
+    assert events[3][1] == ["git", "ls-remote", "--refs", "origin", "refs/heads/uat"]
+    if expected_status == 0:
+        assert f"uat_actual_sha={SHA}\n" in output.read_text()
+    else:
+        assert not output.exists()
 
 
 def test_bounded_pagination_never_changes_page_size_or_skips_records(monkeypatch):

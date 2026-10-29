@@ -185,7 +185,10 @@ export function readGoogleOAuthPopupAttempt(): GoogleOAuthPopupAttempt | null {
       (parsed.expectedSubjectSha256 === undefined || /^[a-f0-9]{64}$/.test(parsed.expectedSubjectSha256)) &&
       (parsed.priorGrantGeneration === undefined || typeof parsed.priorGrantGeneration === "string" && parsed.priorGrantGeneration.length <= 128) &&
       (parsed.meetingReturn === undefined || validCalendarMeetingReturn(parsed.meetingReturn)) &&
-      (!parsed.meetingFiles || (parsed.service === "calendar" && parsed.targetAccountId === parsed.meetingReturn?.accountId)) &&
+      (!parsed.meetingFiles || (parsed.service === "calendar" &&
+        (parsed.targetAccountId === undefined
+          ? parsed.meetingReturn === undefined
+          : parsed.targetAccountId === parsed.meetingReturn?.accountId))) &&
       Date.now() - parsed.startedAt >= 0 &&
       Date.now() - parsed.startedAt <= MAX_AGE_MS
     )

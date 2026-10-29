@@ -98,6 +98,11 @@ Verification:
 8. Push once per finished, locally verified change, not once per edit. Each push to a PR cancels its running `PR Validation` and starts about 19 jobs on the hosted-runner pool that every team in the organization shares (20 jobs, 5 of them macOS). On 2026-10-14, 47% of PR runs were cancelled by a newer push (64% on agent branches), burning roughly 3,000-4,000 runner-minutes that day. Never push, or dispatch `PR Validation`, on a timer or in a loop to watch CI. Retry failed validation through `./bin/hushh codex ci-rerun` so its exact-attempt protected security worker follows the retry; use the existing CI runbook for bounded recovery.
 9. Never loosen, skip or weaken a real gate to go faster; make the check cheaper instead.
 
+For a local core run, supply `CI_IMPACT_BASE_SHA` only when the actual PR target
+and its merge base are verified. The canonical selector then runs the PKM
+rehearsal only when the changed contract needs it. If that base is unknown,
+keep the conservative default; do not set the gate result by hand.
+
 Communication:
 
 1. Be concise, direct, and technically rigorous.

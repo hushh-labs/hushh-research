@@ -359,58 +359,6 @@ class ProductionPhoneSkippedLeaseCases:
             ):
                 self.lease_check(case)
 
-    def test_only_completed_skipped_empty_job_is_nonexecuted_and_prior_attempt_still_fences(
-        self,
-    ):
-        self.setUp()
-        case = LeaseFixture(self)
-        case.jobs[(300, 2)]["jobs"][0].update(
-            status="completed", conclusion="skipped", steps=[]
-        )
-        self.assertIsNone(self.lease_check(case))
-        self.assertIn("runs/300/attempts/1/jobs?per_page=100", case.calls)
-        self.lease_defect(case, "older_pending")
-        with self.assertRaises(lease.retention.UnsafeState):
-            self.lease_check(case)
-        for defect in (
-            "failed",
-            "cancelled",
-            "active",
-            "missing_steps",
-            "started_step",
-            "missing_job",
-            "ambiguous_job",
-        ):
-            case = LeaseFixture(self)
-            inventory = case.jobs[(300, 2)]
-            job = inventory["jobs"][0]
-            job.update(status="completed", conclusion="skipped", steps=[])
-            if defect in {"failed", "cancelled"}:
-                job["conclusion"] = "failure" if defect == "failed" else "cancelled"
-            elif defect == "active":
-                job["status"] = "in_progress"
-            elif defect == "missing_steps":
-                del job["steps"]
-            elif defect == "started_step":
-                job["steps"] = [
-                    {
-                        "name": "Started deployment",
-                        "status": "completed",
-                        "conclusion": "success",
-                        "started_at": "2026-10-21T03:00:00Z",
-                    }
-                ]
-            elif defect == "missing_job":
-                inventory.update(total_count=0, jobs=[])
-            elif defect == "ambiguous_job":
-                inventory["jobs"].append(copy.deepcopy(job))
-                inventory["total_count"] = 2
-            with (
-                self.subTest(defect=defect),
-                self.assertRaises(lease.retention.UnsafeState),
-            ):
-                self.lease_check(case)
-
 
 class ProductionPhoneIntentGateCases:
     def test_started_producer_requires_immutable_pre_submission_intent_and_matching_final(

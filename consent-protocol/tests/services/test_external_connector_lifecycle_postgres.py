@@ -40,23 +40,19 @@ from hushh_mcp.services.external_connector_registry_service import (
     ExternalConnectorRegistryService,
     ExternalMcpConnectorDefinition,
 )
+from tests.helpers.isolated_postgres import is_isolated_command_url
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / "db" / "migrations"
 
 
 @pytest.fixture(scope="module")
 def connector_postgres_url():
-    # The existing CI service is explicitly test-only. Refuse any runtime URL,
-    # Cloud SQL proxy, non-local host, or non-test database/user even if supplied.
+    # The standard CI service is isolated by its runner. Nonstandard local
+    # ports require an attested task-owned server; a URL alone proves neither.
     supplied = os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
     if supplied:
         url = make_url(supplied)
-        if (
-            url.host not in {"127.0.0.1", "localhost"}
-            or url.database != "command_test"
-            or url.username != "command_test"
-            or url.port not in {None, 5432}
-        ):
+        if not is_isolated_command_url(url):
             pytest.fail("Connector tests refuse a non-isolated PostgreSQL target")
         # Schemas do not isolate database-wide advisory locks or public guard
         # tables. Parallel modules use the same synthetic owners, so each needs

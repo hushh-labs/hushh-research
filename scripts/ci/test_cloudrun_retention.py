@@ -2119,10 +2119,9 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             if name in allowed:
                 return
             if name == "release-cadence.yml":
-                # The downstream observer may receive the existing broadcast,
-                # but cannot become another clock/tick producer or alter its wait.
+                # A future enabled observer may receive exactly the existing
+                # broadcast, but cannot become another clock/tick producer.
                 subscription = "  repository_dispatch:\n    types: [capacity-maintenance-clock]\n"
-                self.assertIn(subscription, text)
                 text = text.replace(subscription, "", 1)
             self.assertNotIn("capacity-maintenance-tick", text)
             self.assertNotIn("capacity-maintenance-clock", text)
@@ -2133,11 +2132,11 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
         observer = (workflows / "release-cadence.yml").read_text()
         for broken in (observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-clock\n",
                        observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-tick\n",
-                       observer.replace("types: [capacity-maintenance-clock]", "types: [capacity-maintenance-clock, another]")):
+                       observer + "\n  repository_dispatch:\n    types: [capacity-maintenance-clock, another]\n"):
             with self.assertRaises(AssertionError):
                 check_policy("release-cadence.yml", broken)
         with self.assertRaises(AssertionError):
-            check_policy("deploy-uat.yml", observer)
+            check_policy("deploy-uat.yml", observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-clock\n")
 
     def test_direct_deployment_capacity_checks_have_bounded_process_groups(self):
         workflow_dir = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"

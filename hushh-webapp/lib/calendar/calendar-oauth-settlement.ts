@@ -13,6 +13,7 @@ export type UnsettledCalendarPopup = {
   additional: boolean;
   meetingFiles?: boolean;
   targetAccountId?: string;
+  previousAccountIds?: string[];
   expectedSubjectSha256?: string;
   priorGrantGeneration?: string;
   callbackRecorded: boolean;
@@ -63,8 +64,18 @@ export async function reconcileUnsettledCalendarPopup(
     return;
   }
   if (
-    !input.meetingFiles && !input.additional && currentStatus?.connected &&
+    !input.targetAccountId && !input.additional && currentStatus?.connected &&
     (input.accessLevel !== "manage" || currentStatus.access_level === "manage")
+  ) {
+    if (!input.callbackRecorded) trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
+    morphyToast.success("Google Calendar connected.");
+    return;
+  }
+  if (
+    !input.targetAccountId && input.additional && currentStatus?.accounts?.some(account =>
+      account.connected && account.status === "connected" &&
+      !input.previousAccountIds?.includes(account.account_id) &&
+      (input.accessLevel !== "manage" || account.access_level === "manage"))
   ) {
     if (!input.callbackRecorded) trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
     morphyToast.success("Google Calendar connected.");

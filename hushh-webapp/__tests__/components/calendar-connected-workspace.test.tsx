@@ -362,7 +362,7 @@ describe("CalendarConnectedWorkspace", () => {
     mocks.insights.mockImplementation(async (path: string, body: { date: string; time_zone: string; account_id: string }) => path === "meetings" ? {
       date: body.date, time_zone: body.time_zone, account_id: body.account_id,
       meetings: [], checked_events: 0,
-      complete: false, next_cursor: null, limitations: ["permission_required"],
+      complete: false, next_cursor: null, limitations: ["permission_required"], meeting_file_access: "missing",
     } : { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0, time_zone: "UTC" });
     render(<CalendarConnectedWorkspace userId="owner" status={status} busy={false}
       getIdToken={mocks.getIdToken} onConnect={mocks.onConnect} onChat={mocks.onChat}

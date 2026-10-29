@@ -1301,13 +1301,17 @@ jobs:
           HUSHH_DEVELOPER_TOKEN: "test_hushh_developer_token_for_ci"
 
   protocol-database-check:
-    name: "Protocol Database"
+    name: "Protocol Database (${{ matrix.shard }}/2)"
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     permissions:
       contents: read
     services:
@@ -1344,12 +1348,14 @@ jobs:
           test -f /usr/share/postgresql/16/extension/vector.control
           echo 'HUSHH_TEST_PG_BIN=/usr/lib/postgresql/16/bin' >> "$GITHUB_ENV"
       - name: Run serial database contracts
-        # Same manifest classifier; no xdist or duplicated lint/type/import pass.
+        # Each matrix job has its own database; files remain serial per shard.
         working-directory: consent-protocol
         timeout-minutes: 32
         run: bash scripts/run-test-ci.sh
         env:
           PROTOCOL_TEST_PARTITION: database
+          PROTOCOL_DATABASE_SHARD_COUNT: "2"
+          PROTOCOL_DATABASE_SHARD_INDEX: "${{ matrix.shard }}"
           CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
@@ -1444,22 +1450,6 @@ jobs:
           name: ci-verification-plan
           path: ${{ runner.temp }}/ci-verification-plan.json
           if-no-files-found: error
-
-  # ============================================================================
-  # Upstream Sync Check (one-directional: warns if upstream has unpulled commits)
-  # ============================================================================
-  subtree-sync-check:
-    name: "Upstream Sync"
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Check if upstream consent-protocol has unpulled commits
-        continue-on-error: true
-        run: bash scripts/ci/subtree-sync-check.sh
 
   main-freshness-gate:
     name: "Base Freshness Gate"

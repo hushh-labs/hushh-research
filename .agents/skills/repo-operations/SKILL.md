@@ -97,6 +97,7 @@ local core mirror once on the completed candidate; GitHub owns the full web and
 browser suites. The dedicated `pre-pr-readiness` workflow retains its full local
 gate. `codex pre-pr` already invokes `./bin/hushh ci`; do not run both separately
 or require either for every incremental commit.
+For local core, set `CI_IMPACT_BASE_SHA` only to the verified PR merge base; unknown bases stay conservative.
 
 ```bash
 ./bin/hushh codex ci-status

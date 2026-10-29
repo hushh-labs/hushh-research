@@ -2,5 +2,6 @@
 
 
 class ArtifactUnavailable(Exception):
-    def __init__(self, state):
+    def __init__(self, state, *, retryable=False):
         self.state = state
+        self.retryable = retryable

@@ -222,7 +222,7 @@ function GoogleOAuthReturnContent() {
     const isVerifiedCalendarConnection = (connection: GoogleConnectionCompletion | null) => {
       if (attempt?.calendarAdditional && !connection?.completed_account_id) return false;
       const completedId = connection?.completed_account_id || "default";
-      if (attempt?.meetingFiles && completedId !== attempt.targetAccountId) return false;
+      if (attempt?.targetAccountId && completedId !== attempt.targetAccountId) return false;
       const account = connection?.accounts?.find(item => item.account_id === completedId);
       const completedAccount = account || (completedId === "default" ? connection : null);
       return Boolean(
@@ -232,7 +232,7 @@ function GoogleOAuthReturnContent() {
           completedAccount.status === "connected" &&
           (requestedAccessLevel !== "manage" ||
             completedAccount.access_level === "manage") &&
-          (!attempt?.meetingFiles || hasCalendarMeetingFileGrant(
+          (!attempt?.targetAccountId || hasCalendarMeetingFileGrant(
             connection!, attempt.targetAccountId || "", attempt.expectedSubjectSha256, attempt.priorGrantGeneration,
           )),
       );

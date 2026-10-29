@@ -47,7 +47,8 @@ or opt in for a single push:
 CONSENT_PRE_PUSH_SYNC_CHECK=1 git push
 ```
 
-CI keeps the advisory mirror-sync check as an informational evidence lane.
+The optional advisory mirror check is available through the explicit command;
+ordinary PR validation does not run it on every change.
 Actual `sync` and `push` operations remain explicit maintainer commands, are
 never performed by the pre-push hook, and never gate merge, release, or deploy.
 

@@ -66,6 +66,18 @@ describe("openGoogleOAuthPopup", () => {
     window.sessionStorage.removeItem("one_google_oauth_popup_attempt_v1");
   });
 
+  it("accepts optional meeting scopes on first connection without inventing a selected account", () => {
+    const attempt = { version: 1, attemptId: "synthetic-first-meeting-attempt",
+      service: "calendar", startedAt: Date.now(), ownerId: "synthetic-owner",
+      meetingFiles: true };
+    window.sessionStorage.setItem("one_google_oauth_popup_attempt_v1", JSON.stringify(attempt));
+    expect(readGoogleOAuthPopupAttempt()).toEqual(attempt);
+    window.sessionStorage.setItem("one_google_oauth_popup_attempt_v1", JSON.stringify({
+      ...attempt, targetAccountId: "default",
+    }));
+    expect(readGoogleOAuthPopupAttempt()).toBeNull();
+  });
+
   it("persists and identifies the same-window Calendar fallback", () => {
     const attempt = {
       version: 1 as const, attemptId: "synthetic-same-window-attempt",

@@ -53,7 +53,7 @@ Non-owned surfaces:
 ## Workflow
 
 1. Keep monorepo authority and optional-mirror status explicit, and keep subtree mechanics out of normal contributor onboarding.
-2. Treat subtree sync metadata drift as advisory unless a maintainer has explicitly elected a mirror publication operation.
+2. Treat subtree sync metadata drift as advisory; inspect it on maintainer request or an elected mirror publication, not on every PR.
 3. Keep root and subtree license and onboarding contracts aligned when the same policy spans both.
 4. Run a second docs/governance parity check after edits; run subtree sync only for an elected mirror update.
 5. For cross-repo contract changes that affect release authority, contributor docs, or licensing, run a third verification before calling the subtree contract stable.

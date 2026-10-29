@@ -6,6 +6,8 @@
 Selection grants no deployment authority. Existing source CI, capacity, exact
 Dev acceptance, schema and runtime gates still run in the deployment workflow.
 Only a pinned, current per-service receipt can establish a read-only no-op.
+The caller must recheck the selected tip under its mutation admission lock; a
+selection-time observation cannot prevent a later branch update.
 """
 
 from __future__ import annotations
@@ -246,6 +248,17 @@ def ancestor(before: str, after: str) -> bool:
     )
 
 
+def require_unchanged_uat_tip(target: str) -> None:
+    """Refuse a selection if the remote tip changed during evidence collection."""
+    require(bool(re.fullmatch(r"[0-9a-f]{40}", target)), "UAT tip is invalid")
+    remote = subprocess.check_output(
+        ["git", "ls-remote", "--refs", "origin", "refs/heads/uat"],
+        text=True,
+        timeout=30,
+    ).strip()  # noqa: S603
+    require(remote == f"{target}\trefs/heads/uat", "UAT tip changed or is unavailable")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scope", default="auto")
@@ -255,10 +268,10 @@ def main() -> int:
     args = parser.parse_args()
     try:
         subprocess.run(
-            ["git", "fetch", "--no-tags", "origin", "uat"], check=True, timeout=30
+            ["git", "fetch", "--no-tags", "origin", "refs/heads/uat"], check=True, timeout=30
         )
         target = subprocess.check_output(
-            ["git", "rev-parse", "--verify", "origin/uat^{commit}"],
+            ["git", "rev-parse", "--verify", "FETCH_HEAD^{commit}"],
             text=True,
             timeout=10,
         ).strip()  # noqa: S603
@@ -270,6 +283,7 @@ def main() -> int:
             ObservedRepository(api), acceptance, target, args.scope, args.limit
         )
         result = choose(target, current, args.allow_no_op, ancestor=ancestor)
+        require_unchanged_uat_tip(target)
         if args.github_output:
             with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
                 for key in ("sha", "decision", "uat_actual_sha", "reason"):

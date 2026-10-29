@@ -21,6 +21,7 @@ from hushh_mcp.services.scope_commerce.provider_config import (
     CountryPayoutPolicy,
     ScopeCommerceProviderConfig,
 )
+from tests.helpers.isolated_postgres import is_isolated_command_url
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / "db" / "migrations"
 PUBLIC_KEY = base64.b64encode(b"k" * 32).decode()
@@ -35,12 +36,7 @@ def isolated_commerce_dsn():
             from sqlalchemy.engine import make_url
 
             url = make_url(supplied)
-            if (
-                url.host not in {"127.0.0.1", "localhost"}
-                or url.database != "command_test"
-                or url.username != "command_test"
-                or url.port not in {None, 5432}
-            ):
+            if not is_isolated_command_url(url):
                 pytest.fail("Scope commerce tests refuse a non-isolated PostgreSQL target")
             dsn = url.set(drivername="postgresql").render_as_string(hide_password=False)
     if not dsn:
