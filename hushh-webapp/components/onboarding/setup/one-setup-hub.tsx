@@ -576,7 +576,7 @@ export function OneSetupHub() {
     })
       .catch((error) => {
         console.warn(
-          "[OneSetupHub] Could not finish moving buffered details into the private agent:",
+          "[OneSetupHub] Could not finish moving buffered details into Agent One:",
           error instanceof Error ? error.name : "UnknownError",
         );
       })
@@ -727,7 +727,7 @@ export function OneSetupHub() {
           setLocalFirstStage("guided_connection");
           return {
             status: "succeeded" as const,
-            summary: "Continue to connect your private agent.",
+            summary: "Continue to connect Agent One.",
           };
         }
         // No screen in between. Finish setup opens the lock step itself; the
@@ -860,7 +860,7 @@ export function OneSetupHub() {
                   id="cloud"
                   title={
                     cloudComplete && runtimeChoiceComplete
-                      ? "Agent home" : "Set up your private agent"
+                      ? "Agent home" : "Set up Agent One"
                   }
                   description={
                     cloudComplete

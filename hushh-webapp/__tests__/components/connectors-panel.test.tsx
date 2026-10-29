@@ -53,7 +53,7 @@ describe('private Google transition owner review', () => {
     const result = vi.fn();
     render(<ReviewHarness ownerId="owner-a" epoch={snapshotVaultSessionEpoch()} result={result} />);
     fireEvent.click(screen.getByText('Review Google'));
-    expect(screen.getByText(/Existing Google connections, including your private agent/)).toBeInTheDocument();
+    expect(screen.getByText(/Existing Google connections, including Agent One/)).toBeInTheDocument();
     expect(result).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Replace and sign in' }));
     await waitFor(() => expect(result).toHaveBeenCalledWith(true));
@@ -1267,7 +1267,7 @@ describe("supported connector catalog", () => {
 
     expect(
       await within(calendar).findByText(
-        "Your private agent can help schedule meetings. You approve every change.",
+        "Agent One can help schedule meetings. You approve every change.",
       ),
     ).toBeInTheDocument();
     expect(within(calendar).getByText("Connected")).toBeInTheDocument();
@@ -1288,7 +1288,7 @@ describe("supported connector catalog", () => {
 
     expect(
       await within(calendar).findByText(
-        "Your private agent can check your availability.",
+        "Agent One can check your availability.",
       ),
     ).toBeInTheDocument();
   });

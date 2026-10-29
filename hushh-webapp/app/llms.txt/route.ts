@@ -18,7 +18,7 @@ const BODY = `# Hussh
 ## Agent ontology
 
 - Hussh: platform, trust model, consent, scoped access, BYOK, zero-knowledge vault, PKM, developer access, audit.
-- One: the top private agent and relationship layer. One listens (only after scope is granted), remembers, decides across domains, and acts inside consent. One delegates specialist work.
+- One: the top Agent One and relationship layer. One listens (only after scope is granted), remembers, decides across domains, and acts inside consent. One delegates specialist work.
 - Kai: finance specialist. Portfolio context, market intelligence, investing and RIA/investor workflows.
 - Nav: privacy and consent guardian. Scope review, vault, deletion, suspicious-access explanations.
 - KYC: identity workflow specialist. Verification requirements, missing-document state, structured PKM writeback.

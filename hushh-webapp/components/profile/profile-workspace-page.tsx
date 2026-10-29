@@ -2302,7 +2302,7 @@ function ProfilePageContent({
       {
         id: "profile_preferences",
         label: PROFILE_LABELS.preferences,
-        purpose: "opens appearance and private-agent preferences.",
+        purpose: "opens appearance and Agent One preferences.",
         actionId: "route.profile_preferences_panel",
         role: "card",
         voiceAliases: ["preferences", "appearance", "settings"],
@@ -2343,7 +2343,7 @@ function ProfilePageContent({
         id: "profile_trusted_devices",
         label: "Trusted devices",
         purpose:
-          "opens devices connected as an extension of your private agent.",
+          "opens devices connected as an extension of Agent One.",
         actionId: "route.profile_trusted_devices",
         role: "card",
         voiceAliases: ["trusted devices", "connected devices", "devices"],
@@ -4252,7 +4252,7 @@ function ProfilePageContent({
       title: activePanel === "hosting" ? "Hosting" : "Software updates",
       description:
         activePanel === "hosting"
-          ? "Where your private agent runs."
+          ? "Where Agent One runs."
           : "Your version and available updates.",
       content: <AgentSettingsPanel kind={activePanel} userId={applicationOwnerId} controller={agentSettings} />,
     });
@@ -4602,7 +4602,7 @@ function ProfilePageContent({
       profileStackEntries.push({
         key: "detail:trusted-devices",
         title: "Trusted devices",
-        description: "Devices connected to your private agent.",
+        description: "Devices connected to Agent One.",
         content: <TrustedDevicesPage panePresentation={isPanePresentation} model={devicesModel} />,
       });
     }
