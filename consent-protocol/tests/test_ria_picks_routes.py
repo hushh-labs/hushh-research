@@ -23,6 +23,7 @@ def test_ria_picks_returns_only_active_package(monkeypatch):
         assert user_id == "user_test_123"
 
     monkeypatch.setattr(RIAIAMService, "require_ria_verified", _allow_verified)
+
     async def _mock_get(self, user_id: str):
         assert user_id == "user_test_123"
         return {
@@ -64,6 +65,7 @@ def test_ria_picks_post_syncs_share_artifacts(monkeypatch):
         assert user_id == "user_test_123"
 
     monkeypatch.setattr(RIAIAMService, "require_ria_verified", _allow_verified)
+
     async def _mock_sync(self, user_id: str, **kwargs):  # noqa: ANN003
         assert user_id == "user_test_123"
         assert kwargs["source_data_version"] == 7
@@ -102,6 +104,7 @@ def test_ria_picks_parse_requires_csv(monkeypatch):
         assert user_id == "user_test_123"
 
     monkeypatch.setattr(RIAIAMService, "require_ria_verified", _allow_verified)
+
     async def _mock_parse(self, **kwargs):  # noqa: ANN003
         raise AssertionError("parse_ria_pick_csv should not be called when csv_content is missing")
 
@@ -111,6 +114,7 @@ def test_ria_picks_parse_requires_csv(monkeypatch):
     response = client.post("/api/ria/picks/parse", json={})
 
     assert response.status_code == 422
+
 
 @pytest.mark.parametrize(
     ("method", "path", "body"),
@@ -136,4 +140,3 @@ def test_ria_picks_refuses_people_who_are_not_verified_rias(monkeypatch, method,
     response = client.request(method, path, json=body)
 
     assert response.status_code == 403
-
