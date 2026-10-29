@@ -50,7 +50,9 @@ jobs:
     name: "UAT lists"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: uat
+    environment:
+      name: uat
+      deployment: false
     env:
       GCP_PROJECT_ID: hushh-pda-uat
       AUTH_PHONE_RUNTIME_HEALTH_ENABLED: ${{ vars.AUTH_PHONE_RUNTIME_HEALTH_ENABLED || 'false' }}
@@ -83,7 +85,9 @@ jobs:
     name: "Production lists"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: production
+    environment:
+      name: production
+      deployment: false
     env:
       GCP_PROJECT_ID: hushh-pda
       AUTH_PHONE_RUNTIME_HEALTH_ENABLED: ${{ vars.AUTH_PHONE_RUNTIME_HEALTH_ENABLED || 'false' }}
@@ -116,7 +120,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.health_build_operation != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    environment: uat
+    environment:
+      name: uat
+      deployment: false
     steps:
       - uses: actions/checkout@v6
         with:

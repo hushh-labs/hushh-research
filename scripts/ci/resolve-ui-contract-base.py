@@ -27,7 +27,13 @@ def resolve():
     else:
         base = event.get("merge_group", {}).get("base_sha", "")
         if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch" and not base:
-            return ""  # Preserve manual validation's requirement for its own receipts.
+            inputs = event.get("inputs") or {}
+            if os.environ.get("GITHUB_REF") == "refs/heads/uat" and inputs.get("scope") == "all":
+                base = inputs.get("uat_base_sha", "")
+                if base and git("rev-parse", "HEAD") != os.environ.get("GITHUB_SHA"):
+                    raise ValueError("UAT review base requires the exact checked-out source")
+            if not base:
+                return ""  # Preserve ordinary manual validation's own receipts.
     if not re.fullmatch(r"[0-9a-f]{40}", base):
         raise ValueError("Missing valid UI review base")
     subprocess.run(["git", "merge-base", "--is-ancestor", base, "HEAD"], check=True)

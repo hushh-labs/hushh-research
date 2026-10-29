@@ -53,7 +53,7 @@ Functional chapters retain their existing layout and wire contracts. Any local c
 
 Current evidence and exact contracts:
 
-- [Complete text, accessible copy, CTA, branch and wire coverage](./location-coverage.md): exact source templates; route/state/entry; handler and endpoint or explicit no request; portal/CSS owner; source role and target breakpoints; disposition; computed evidence or exact gap.
+- [Coverage owners and historical text/action inventory](./location-coverage.md): exact source templates; route/state/entry; handler and endpoint or explicit no request; portal/CSS owner; source role and target breakpoints; disposition; computed evidence or exact gap.
 - [Role comparison and effective typography](./location-typography-roles.md).
 - [Implementation and verification report](./location-verification.md): changed files, header before/after, widths/themes, behavior and missing evidence.
 
@@ -2725,7 +2725,7 @@ The final named-circle literal sweep found **no additional unmatched copy in the
 
 The shared bottom navigation encountered from Location remains **Chat**, **One**, **Connect**, **Feed**, with the existing private-agent control. Chat navigates to the authored `/` route; the voice/private-agent launcher uses its existing shared owner and availability gates. This pass does not restyle the destination Chat/Connect/Feed/Profile applications. Their internal text is not an additional Location tab.
 
-Current mounted labels, availability, handlers, command/tool routes and no-request distinctions are recorded in the core lane of [the coverage ledger](./location-coverage.md). [Shared navigation](./navigation.md), [Connect](./connect.md) and [Feed](./feed.md) own the destination experiences. Typed/voice tool APIs do not become a mounted Location CTA merely because the service or semantic action exists. Location Circle props do not mount Chat/photo/custom-type controls.
+Current mounted labels, availability, handlers, command/tool routes and no-request distinctions are recorded in the core lane of [the historical coverage inventory](./location-coverage.md). [Shared navigation](./navigation.md), [Connect](./connect.md) and [Feed](./feed.md) own the destination experiences. Typed/voice tool APIs do not become a mounted Location CTA merely because the service or semantic action exists. Location Circle props do not mount Chat/photo/custom-type controls.
 
 ## API authority and wire contract
 
@@ -3586,7 +3586,7 @@ Conditional upgrades and retained task receipt schemas remain owned by the exist
 
 ## Typography, responsive geometry and layering
 
-The maintained numerical role comparison is [Location typography roles](./location-typography-roles.md). The complete site/state/CTA ledger is [Location coverage](./location-coverage.md). Source declarations, effective computed browser values and native/provider gaps are separate fields. A source-aligned role is not a claim that an unrendered state passed acceptance.
+The maintained numerical role comparison is [Location typography roles](./location-typography-roles.md). The complete site/state/CTA ledger is [Location coverage provenance](./location-coverage.md). Source declarations, effective computed browser values and native/provider gaps are separate fields. A source-aligned role is not a claim that an unrendered state passed acceptance.
 
 The shared `AppTopShell` owns `[Back] Location [Profile]`. The noninteractive current breadcrumb is 17/22/600, beside the existing Back control with the same baseline, gap and responsive inset as Connect. Location's root body title is an accessible `h1.sr-only`. The existing switch/status stays in a compact row above Now/People/Links; its handler, accessible label, 44px label target, 54×24px track and thumb remain unchanged. No second fixed header, route-local Back or avatar is added.
 
@@ -3639,7 +3639,7 @@ This is presentation-only. API paths/payloads/auth, consent, owner/vault guards,
 
 ## QA ledger and verification boundary
 
-See the current [verification report](./location-verification.md), [effective role comparison](./location-typography-roles.md), [human-readable action matrix](./location-action-coverage.md) and [complete per-text ledger](./location-coverage.md).
+See the current [verification report](./location-verification.md), [effective role comparison](./location-typography-roles.md), [human-readable action matrix](./location-action-coverage.md) and [historical per-text inventory](./location-coverage.md).
 
 Coverage is rebuilt from actual production returns and caller props. All A–P families have a source disposition; every rendered text site and accessible-only template in the fresh inventory has a role/disposition and either linked observations or a precise verification gap. Excluded retained, hidden capability and container-only nodes remain separate. The source audit is not a claim that every conditional branch was rendered.
 

@@ -21,7 +21,19 @@ on:
           - backend
           - frontend
       sha:
-        description: "Exact green main SHA to deploy (blank defaults to latest origin/main)"
+        description: "Exact CI-qualified application SHA (blank selects protected UAT)"
+        required: false
+        type: string
+      ci_run_id:
+        description: "Exact full UAT validation run, required for direct UAT admission"
+        required: false
+        type: string
+      ci_run_attempt:
+        description: "Current successful attempt of that UAT validation run"
+        required: false
+        type: string
+      ci_base_sha:
+        description: "Serving UAT application SHA used for exact-source validation"
         required: false
         type: string
       backend_image_source:
@@ -153,7 +165,7 @@ jobs:
           # Explicit selection does not read history. Automatic selection and
           # the later admission job retain full history for ancestry/deltas.
           fetch-depth: ${{ inputs.sha != '' && 1 || 0 }}
-          ref: main
+          ref: ${{ github.sha }}
 
 
       - name: Assert manual UAT dispatch actor policy
@@ -176,7 +188,8 @@ jobs:
             echo "decision=DEPLOY_EXACT_SHA" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          node hushh-webapp/scripts/ci/select-uat-target.mjs --limit 20 --github-output --allow-no-op
+          python3 scripts/ci/uat_application_selection.py \
+            --scope "${{ inputs.scope }}" --github-output --allow-no-op
 
       - name: Validate one-time Vertex probe exception
         if: inputs.skip_managed_vertex_probe_once
@@ -228,9 +241,11 @@ jobs:
         shell: bash
         env:
           SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+          SECURITY_SHA: ${{ needs.deployment-security.outputs.application_sha }}
+          APPLICATION_SHA: ${{ needs.select-target.outputs.sha }}
         run: |
           set -euo pipefail
-          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" || "$SECURITY_SHA" != "$APPLICATION_SHA" ]]; then
             echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
             exit 1
           fi
@@ -238,7 +253,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Authenticate for read-only UAT capacity inventory
         uses: google-github-actions/auth@v2
@@ -282,9 +297,11 @@ jobs:
         shell: bash
         env:
           SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+          SECURITY_SHA: ${{ needs.deployment-security.outputs.application_sha }}
+          APPLICATION_SHA: ${{ needs.select-target.outputs.sha }}
         run: |
           set -euo pipefail
-          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" || "$SECURITY_SHA" != "$APPLICATION_SHA" ]]; then
             echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
             exit 1
           fi
@@ -301,7 +318,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Require reconciled maintenance mutations under deployment lock
         env:
@@ -342,7 +359,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       # Stable receipt-reader identity. Main retains its smoke requirement;
-      # UAT-only content also retains the exact Dev acceptance gate below.
+      # direct UAT source requires exact branch CI while Dev-backed promotion remains available.
       - name: Validate deployment SHA against main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -366,6 +383,7 @@ jobs:
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
@@ -644,24 +662,47 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
-      - name: Require exact-SHA dev acceptance
+      - name: Require exact-SHA predecessor acceptance
         id: predecessor-acceptance
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_BRANCH: ${{ steps.application-authority.outputs.branch }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          CI_ATTEMPT: ${{ inputs.ci_run_attempt }}
+          CI_BASE_SHA: ${{ inputs.ci_base_sha }}
+          AUTHORITY_SHA: ${{ github.sha }}
         run: |
-          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
-            --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
-            --scope "${{ steps.scope.outputs.scope }}" --output /tmp/uat-predecessor-acceptance.json
+          set -euo pipefail
+          if [[ "$SOURCE_BRANCH" == uat || -n "$CI_RUN_ID" ]]; then
+            [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ && "$CI_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+            [[ "$CI_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+            python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" direct-uat \
+              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --scope "${{ steps.scope.outputs.scope }}" --base-sha "$CI_BASE_SHA" \
+              --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
+              --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
+              --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+              --output /tmp/uat-predecessor-acceptance.json
+          else
+            python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
+              --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --scope "${{ steps.scope.outputs.scope }}" --output /tmp/uat-predecessor-acceptance.json
+          fi
 
       - name: Resolve the exact accepted Dev backend image
         if: steps.scope.outputs.deploy_backend == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" backend-image \
-            --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
-            --predecessor /tmp/uat-predecessor-acceptance.json \
-            --output /tmp/uat-dev-backend-image.json
+          set -euo pipefail
+          if [[ "$(python3 -c 'import json; print(json.load(open("/tmp/uat-predecessor-acceptance.json")).get("kind", ""))')" == uat-exact-ci ]]; then
+            printf '{}\n' > /tmp/uat-dev-backend-image.json
+          else
+            python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" backend-image \
+              --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --predecessor /tmp/uat-predecessor-acceptance.json \
+              --output /tmp/uat-dev-backend-image.json
+          fi
 
       - name: Resolve retained protected document maintenance
         id: document-mode
@@ -975,6 +1016,34 @@ jobs:
           # the private gcloud-to-Python pipe and are reduced to a boolean.
           echo "Verified ENABLED One Location retention scheduler: ${scheduler_job}."
 
+      - name: Recheck direct UAT authority and serving baseline before mutation
+        id: recheck-direct-uat-secrets
+        if: steps.application-authority.outputs.branch == 'uat' || inputs.ci_run_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_BRANCH: ${{ steps.application-authority.outputs.branch }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          CI_ATTEMPT: ${{ inputs.ci_run_attempt }}
+          CI_BASE_SHA: ${{ inputs.ci_base_sha }}
+          AUTHORITY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$SOURCE_BRANCH" == uat || -n "$CI_RUN_ID" ]]; then
+            [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ && "$CI_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+            [[ "$CI_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+            python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" direct-uat \
+              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --scope "${{ steps.scope.outputs.scope }}" --base-sha "$CI_BASE_SHA" \
+              --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
+              --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
+              --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+              --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
+          else
+            python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
+              --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --scope "${{ steps.scope.outputs.scope }}" --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
+          fi
+
       - name: Sync canonical hosted runtime secrets
         shell: bash
         # These repository variables are UAT-only rollout controls. Passing them
@@ -1165,7 +1234,7 @@ jobs:
                 image_source=promote-from-dev
               else
                 image_source=build-from-source
-                echo "::notice title=Historical Dev acceptance::No image proof was recorded; building this backend from source."
+                echo "::notice title=Historical Dev acceptance::No accepted Dev image proof is available; building the selected UAT backend from source."
               fi
               ;;
             build-from-source|promote-from-dev) image_source="${BACKEND_IMAGE_SOURCE}" ;;
@@ -1211,6 +1280,34 @@ jobs:
           fi
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
           echo "image_source=${image_source}" >> "$GITHUB_OUTPUT"
+
+      - name: Recheck direct UAT authority and serving baseline before mutation
+        id: recheck-direct-uat
+        if: steps.application-authority.outputs.branch == 'uat' || inputs.ci_run_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_BRANCH: ${{ steps.application-authority.outputs.branch }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          CI_ATTEMPT: ${{ inputs.ci_run_attempt }}
+          CI_BASE_SHA: ${{ inputs.ci_base_sha }}
+          AUTHORITY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$SOURCE_BRANCH" == uat || -n "$CI_RUN_ID" ]]; then
+            [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ && "$CI_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+            [[ "$CI_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+            python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" direct-uat \
+              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --scope "${{ steps.scope.outputs.scope }}" --base-sha "$CI_BASE_SHA" \
+              --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
+              --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
+              --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+              --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
+          else
+            python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
+              --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --scope "${{ steps.scope.outputs.scope }}" --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
+          fi
 
       - name: Refuse an already failed frontend image before lifecycle migration
         id: check-frontend-image
