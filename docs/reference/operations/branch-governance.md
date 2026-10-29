@@ -29,19 +29,29 @@ default remains staged until its historical baseline and predecessor gates are
 qualified together. Main remains the release-control source; this transition
 does not rewind application source or database history.
 
-The approved direction for UAT-focused work is direct admission after CI on the
-exact selected application, without requiring a preceding Dev deployment. That
-path is not yet implemented: the current UAT workflow still requires a Dev
-receipt. It must gain a qualified exact-source CI proof and a distinct receipt
-before that requirement can change. Production continues to require acceptance
-of the same application and services in UAT.
+UAT-focused work can use exact-source CI without a preceding Dev deployment.
+The application must be the protected UAT tip. Full CI runs on that exact commit
+with `scope=all` and the observed serving application as `uat_base_sha`; the
+Main-owned deployment records a typed `uat-exact-ci` predecessor. It verifies
+canonical workflow authority, reviewed invocation configuration, complete current
+attempts, service scope and the actual serving baseline under the deployment
+lock. It refreshes refs and repeats admission before runtime-secret changes and
+after image builds. A later failed CI rerun, moved tip or changed baseline refuses.
+Reviewed application tests and dependencies may evolve; this follows the existing
+protected-branch trust model, not malicious-code containment.
 
-The future direct receipt must identify the protected UAT application commit and
-tree, the trusted Main-owned validation workflow and its current run attempt,
-the exact security evidence, and the selected services. A PR merge-tree result or
-an older successful attempt alone is not proof of the selected application.
-Historical Dev-backed receipts must remain verifiable. If no qualified Dev image
-exists, UAT builds the selected source with its own environment configuration.
+The UAT selector retains the existing healthy, current full-service receipt checks
+before declaring `NO_OP`. Unknown or in-flight baseline evidence refuses. A direct
+candidate also on Main can use its explicit UAT CI evidence; an ordinary historical
+Main release can retain Dev-backed admission. Missing Dev image evidence selects
+a source build; explicit `promote-from-dev` still requires the real accepted image.
+Historical Dev-backed receipts and direct-CI UAT receipts remain distinct and
+verifiable. Production requires the accepted UAT application and selected services;
+its historical reader does not require today's UAT tip to equal an old release.
+
+Source implementation is not a live qualification receipt. Reconcile the retained
+UAT history, run exact-candidate CI and verify admission before first use. No
+application deployment is authorized by this operations change.
 
 The capability graph's committed comparison metadata currently depends on the
 target base: the Dev sync has already produced different metadata from Main for
@@ -83,14 +93,10 @@ On 26 October 2026, Dev was created from Main `b819614ccc` and both prepared
 branches' protection passed live readback. UAT history reconciliation and the
 selective-promotion authority remain separate from this protection checkpoint.
 
-Explicit UAT candidates can use a CI-qualified commit in the protected `uat`
-history, with exact-SHA Dev acceptance still required before deployment. Main
-candidates retain mandatory Main smoke. Automatic selection retains its current
-Main baseline until the UAT selector and historical baseline are qualified. The
-prepared UAT-tip selector refuses unknown, concurrent or non-forward baselines.
-Its selection-time snapshot rechecks the remote UAT tip after reading receipts.
-Before activation, the deployment admission must recheck that same tip under
-the mutation lock; selection alone cannot fence a later branch update.
+Blank-SHA manual UAT selection uses the protected UAT tip through the existing
+`uat_application_selection.py` owner. Explicit historical Main candidates retain
+Main smoke and Dev-backed acceptance. For direct UAT, supply the validation run,
+current attempt and serving base; source selection alone is never admission.
 
 For production, `sha` remains the UAT-accepted application. When approval landed
 as a different Main merge, `main_approval_sha` requires that merge's Main smoke,

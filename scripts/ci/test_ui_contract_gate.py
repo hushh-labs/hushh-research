@@ -19,10 +19,11 @@ def job_block(workflow, name):
 
 def validate(workflow):
     ui = job_block(workflow, "ui-contracts")
-    if ("fetch-depth: 2" not in ui or "base=\"$(python3 scripts/ci/resolve-ui-contract-base.py)\"" not in ui
+    depth = "fetch-depth: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}"
+    if (depth not in ui or "base=\"$(python3 scripts/ci/resolve-ui-contract-base.py)\"" not in ui
             or "UI_CONTRACT_BASE_SHA: ${{ steps.ui-base.outputs.sha }}" not in ui):
         raise ValueError("UI review inheritance requires the verified tested merge base and its history")
-    if "fetch-depth: 2" not in job_block(workflow, "web-core-check"):
+    if depth not in job_block(workflow, "web-core-check"):
         raise ValueError("Web Core must retain the target base for the same UI check")
     if re.search(r"^\s+(if|needs|continue-on-error):", ui, re.M):
         raise ValueError("UI contracts must run independently with failures enforced")
@@ -62,7 +63,7 @@ class UiGateTests(unittest.TestCase):
         self.assertNotIn("  search-web-contracts:", self.workflow)
 
     def test_skip_and_failure_suppression_are_rejected(self):
-        for old, new in (("fetch-depth: 2", "fetch-depth: 1"), ("UI_CONTRACT_BASE_SHA:", "UNPINNED_BASE:")):
+        for old, new in (("&& '0' || '2'", "&& '1' || '1'"), ("UI_CONTRACT_BASE_SHA:", "UNPINNED_BASE:")):
             with self.assertRaises(ValueError):
                 validate(self.workflow.replace(old, new))
         for rule in ("if: false", "needs: [paths]", "continue-on-error: true"):
@@ -152,6 +153,16 @@ class UiGateTests(unittest.TestCase):
             self.assertNotEqual(run(payload).returncode, 0)
             env["GITHUB_EVENT_NAME"] = "workflow_dispatch"
             self.assertEqual(run({}).stdout.strip(), "")
+            env.update(GITHUB_REF="refs/heads/uat", GITHUB_SHA=head)
+            uat = {"inputs": {"scope": "all", "uat_base_sha": old}}
+            self.assertEqual(run(uat).stdout.strip(), old)
+            uat["inputs"]["uat_base_sha"] = base
+            self.assertNotEqual(run(uat).returncode, 0)
+            uat["inputs"]["uat_base_sha"] = "invalid"
+            self.assertNotEqual(run(uat).returncode, 0)
+            uat["inputs"]["uat_base_sha"] = old
+            env["GITHUB_SHA"] = merge
+            self.assertNotEqual(run(uat).returncode, 0)
 
     def test_web_core_uses_the_same_verified_review_base(self):
         source = (ROOT / "scripts/ci/web-core-check.sh").read_text()

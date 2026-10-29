@@ -1,8 +1,8 @@
 # CI Configuration Reference
 
 > **Branch state:** `dev` is the protected development intake and default Dev
-> deployment source. The protected `uat` branch and its future default selector
-> remain staged; UAT keeps its existing selection until separately qualified.
+> deployment source. UAT selects its protected branch independently, with exact
+> candidate CI; first use still requires baseline/history qualification.
 > Main owns release workflows. Branch state does not prove what is serving; see
 > [branch preparation](./branch-governance.md#dev--uat-branch-preparation).
 
@@ -46,7 +46,9 @@ flowchart TB
   queue --> queueci
   queueci --> devbranch -->|"exact CI-green SHA"| devdeploy
   queueci --> main --> smoke --> green
-  devdeploy -->|"acceptance required; separate authorization"| uat
+  devdeploy -.->|"legacy accepted-image path"| uat
+  feat -->|"UAT-focused reviewed changes"| uatbranch["Protected uat"]
+  uatbranch --> exactuat["Exact UAT commit CI"] --> uat
   green -->|"Main smoke; separate authorization"| uat
   uat -->|"UAT acceptance; separate approval"| prod
   green -.->|"qualified emergency; separate authorization"| prod
@@ -83,10 +85,36 @@ Canonical pre-PR command:
 
 This command runs the same blocking local CI surface that feeds GitHub `PR Validation` and `CI Status Gate`. Use `./bin/hushh codex pre-pr --include-advisory` only when you intentionally want the wider non-blocking readiness lane too.
 
+## Manual deployment paths
+
+| Developer intent | Source | Required proof | Deployment |
+| --- | --- | --- | --- |
+| Feature integration | Feature PR into `dev` | Destination freshness and authoritative changed-surface CI | Explicit Dev dispatch |
+| UAT-focused release | Reviewed protected `uat` candidate | Full exact-commit CI, current attempt, serving-base and protected security checks | Direct UAT; no prior Dev deployment |
+| Historical Dev-backed release | Existing accepted application | Exact Dev receipt and verified image, or source build | Existing UAT path |
+| Production release | UAT-accepted application plus reviewed Main approval | Matching UAT receipt, Main smoke, exact-tree equivalence and rollback | Explicit production dispatch |
+| Emergency production | Exact incident-approved source | Governed operator, focused CI, security, schema and qualified rollback | Manual incident route only |
+| Operations/hotfix source | Reviewed Main PR | CI, Admin/queue procedure and landed smoke | Merge does not deploy an application |
+
+Stable fixes move downward through manual reviewed Main → UAT/Dev and UAT → Dev
+sync PRs. No sync bot, scheduled release cadence or automatic production dispatch
+is installed. The standalone CI Security Alerts workflow is retired; source secret
+scanning remains in PR validation and privileged unresolved-secret clearance runs
+only in an explicit Main-owned deployment's protected job.
+
+For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
+`uat` with `scope=all` and `uat_base_sha`, then dispatch `deploy-uat.yml` from Main
+with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. These identify the
+application, validation attempt and comparison base separately. Do not substitute
+a PR merge-tree check, another attempt or a branch status for that exact run.
+Current support requires the selected services to share that tested serving base;
+a mixed or unknown baseline refuses before mutation. Historical UAT receipt
+retention remains finite; expired evidence is not an exemption.
+
 ## Recorded production restoration — 26 October 2026
 
 Normal releases keep their exact application SHA and environment acceptance chain:
-Dev acceptance before UAT; UAT acceptance before production. A normal manually
+Exact UAT CI or historical Dev acceptance before UAT; UAT acceptance before production. A normal manually
 requested Main smoke must test the dispatch commit itself. Its check cannot
 certify another checkout. Release checks verify the canonical producer, current
 attempt, complete bounded inventory and job identity; later failed reruns refuse
@@ -1014,7 +1042,7 @@ Tests follow the same economy: add a test only for a real regression, a trust bo
 
 Deploy to UAT is expected to behave as a closed-loop release lane:
 
-1. start from an explicitly chosen, qualified application SHA and its required Dev acceptance
+1. start from an explicitly chosen, qualified application SHA and its exact UAT CI or retained Dev acceptance
 2. sync canonical secrets
 3. capture last healthy revisions
 4. deploy changed surfaces

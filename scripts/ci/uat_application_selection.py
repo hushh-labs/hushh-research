@@ -4,7 +4,7 @@
 """Select the exact protected UAT tip, keeping workflow/application identities separate.
 
 Selection grants no deployment authority. Existing source CI, capacity, exact
-Dev acceptance, schema and runtime gates still run in the deployment workflow.
+predecessor acceptance, schema and runtime gates still run in the deployment workflow.
 Only a pinned, current per-service receipt can establish a read-only no-op.
 The caller must recheck the selected tip under its mutation admission lock; a
 selection-time observation cannot prevent a later branch update.
@@ -229,7 +229,7 @@ def choose(target: str, current: dict, allow_noop: bool, *, ancestor) -> dict:
         "decision": "DEPLOY_EXACT_SHA",
         "sha": target,
         "uat_actual_sha": "",
-        "reason": "Selected the exact protected UAT tip; source CI and Dev acceptance remain required",
+        "reason": "Selected the exact protected UAT tip; exact source CI and deployment admission remain required",
     }
 
 
