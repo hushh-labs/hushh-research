@@ -134,7 +134,7 @@ function Fixture() {
     </section>
     <section data-testid="portfolio-overview-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
       <p className="mb-4 text-xs text-muted-foreground">Design verification · Sample figures only</p>
-      <PortfolioOverview briefing={<PortfolioBriefing model={sampleModel} onOpen={() => setAction("Open analysis")} />} model={sampleModel} portfolio={samplePortfolio} source="Sample" period="Sample statement · October 2026" onImport={() => setAction("Import portfolio")} onOpenSection={section => setAction(`Open ${section}`)} action={<PortfolioReportAction model={sampleModel} source="Sample" period="October 2026" onExport={() => setAction("Export report")} />} />
+      <PortfolioOverview briefing={<PortfolioBriefing model={sampleModel} portfolio={samplePortfolio} onOpen={() => setAction("Open analysis")} />} model={sampleModel} portfolio={samplePortfolio} source="Sample" period="Sample statement · October 2026" onImport={() => setAction("Import portfolio")} onOpenSection={section => setAction(`Open ${section}`)} action={<PortfolioReportAction model={sampleModel} source="Sample" period="October 2026" onExport={() => setAction("Export report")} />} />
       <button className="mt-4 min-h-11" onClick={() => setHoldingOpen(true)}>Open sample holding</button>
       <HoldingDetailsDrawer loadHistory={loadSampleHistory} open={holdingOpen} onOpenChange={setHoldingOpen} holding={toHoldingViewModel({ ...samplePortfolio.holdings![0]!, client_id: "sample" }, 24680.42)} onEdit={() => setAction("Edit sample")} onToggleDelete={() => setAction("Delete sample")} />
     </section>
