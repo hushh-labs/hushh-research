@@ -19110,7 +19110,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py",
       "symbol": null,
-      "value": 1196
+      "value": 1202
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29692,7 +29692,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/calendar/calendar-connected-workspace.tsx",
       "symbol": null,
-      "value": 502
+      "value": 503
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -87130,6 +87130,28 @@
         "source_sha256": "5a7088c84a3981978d1d25272bc2c9d906766a2ef3946e175dce29645186e275",
         "reviewer": "independent read-only architecture fitness and security/consent review",
         "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      }
+    ]
+  },
+  "calendar_meeting_file_request_rebase_review_20261029": {
+    "base_revision": "dff0be5e125fe2096f616e916b194a6b4940ed40",
+    "scope": "Two exact post-rebase size ceilings only; preserves the previously reviewed 32 Calendar findings, all scanner behavior, exclusions, and global 500/250/80 budgets. A further line remains a regression.",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py||module exceeds the advisory operon budget",
+        "before": 1196,
+        "after": 1202,
+        "source_sha256": "4a4e7f9a0173f3b3dd5cba870c4af708bd07f11810e72951c9c6a12a9d0c48a1",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Feed projection checks optional key availability before typed Calendar enrichment; generic metadata remains readable without the key and encrypted corruption still fails closed."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/calendar/calendar-connected-workspace.tsx||module exceeds the advisory operon budget",
+        "before": 502,
+        "after": 503,
+        "source_sha256": "a510cf7d472a06bcf67ec8eed6623c9370de13c1388634eb65339f93c6065421",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "One selected vault-token getter is forwarded to the existing Calendar Insights child after the Main booking composition; no new Calendar route or authority is created."
       }
     ]
   }
