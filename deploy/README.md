@@ -419,6 +419,8 @@ require canonical source-policy, producer-absence and scoped Git equality checks
 they gain no phone-reader or rollback authority. Build inventory uses metadata
 listing plus bounded full readback, and joins every synchronous submission to its
 exact governed workflow attempt. The reviewed legacy workflow is pinned in full.
+Cold receipts retain the staged fallback producer separately from the primary
+source/image probed by that same build; a probe never invents a serving revision.
 Completed skipped steps may have equal valid start/end timestamps; unmatched
 builds and incomplete or active producers still refuse qualification.
 

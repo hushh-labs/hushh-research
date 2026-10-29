@@ -5,12 +5,16 @@
 import copy
 import hashlib
 import importlib
+from types import SimpleNamespace
 
 import pytest
 
 from tests.test_phone_rollback_release import IMAGE, ROOT
+from tests.test_phone_schema_origin import _timestamp
+from tests.test_phone_schema_origin import submission as shared_submission
 
 pytestmark = pytest.mark.feature_auth_reliability
+submission = shared_submission
 SOURCE = "7d5546e471f2e168a898cd21c9abd7f1e8aaa9cc"
 BUILD = "01234567-0123-0123-0123-0123456789ab"
 
@@ -127,7 +131,14 @@ def history(monkeypatch):
     proof = {
         "qualification": "passed",
         "acknowledged_attempts": [
-            {"run_id": "40286563192", "build_id": BUILD, "image": IMAGE, "source": SOURCE}
+            {
+                "run_id": "40286563192",
+                "build_id": BUILD,
+                "image": IMAGE,
+                "source": SOURCE,
+                "probe_source": SOURCE,
+                "probe_image": IMAGE,
+            }
         ],
     }
     return module, producer, events, proof
@@ -305,6 +316,62 @@ def test_current_probe_does_not_admit_unqualified_capable_historical_image(
             action()
 
 
+@pytest.mark.parametrize("changed", [None, "swapped", "unqualified", "wrong-build"])
+def test_cold_receipt_separates_primary_probe_from_staged_fallback(
+    history, submission, monkeypatch, changed
+):
+    module, producer, events, proof = history
+    origin, attempt, _job, build = submission
+    primary = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
+    fallback = "4452c7121c80ef73e8e6d43cd7af19b20f679a83"
+    primary_image = "gcr.io/hushh-pda/consent-protocol@sha256:" + "f" * 64
+    build["substitutions"].update(
+        _DEPLOY_SHA=primary, _IMAGE_REFERENCE=primary_image, _PHONE_ROLLBACK_SHA=fallback
+    )
+    receipt = origin._build_binding(build, attempt, _timestamp)
+    assert (receipt["source"], receipt["image"]) == (fallback, IMAGE)
+    assert (receipt["probe_source"], receipt["probe_image"]) == (primary, primary_image)
+    for event in events:
+        payload = event["protoPayload"]
+        row = payload.get("response") or payload["request"].get("job")
+        if not row:
+            continue
+        task = row["spec"]["template"]["spec"]
+        if "template" in task:
+            task = task["template"]["spec"]
+        task["containers"][0]["image"] = primary_image
+    monkeypatch.setattr(producer, "source_capable", lambda _sha: True)
+    proof["acknowledged_attempts"] = [receipt]
+    images = {IMAGE: fallback, primary_image: primary}
+    if changed == "swapped":
+        receipt.update(probe_source=fallback, probe_image=IMAGE)
+    elif changed == "unqualified":
+        images.pop(primary_image)
+    elif changed == "wrong-build":
+        receipt["build_id"] = "fedcba98-0123-0123-0123-0123456789ab"
+
+    def action():
+        return module.review(
+            events,
+            {},
+            images,
+            "2026-10-26T03:00:00Z",
+            submissions=lambda: proof,
+            project_number="1006304528804",
+            probe_images=frozenset({(primary, primary_image), (fallback, IMAGE)}),
+        )
+
+    if changed:
+        with pytest.raises(ValueError):
+            action()
+    else:
+        assert action()["closed_jobs"][0]["executions"][0]["source"] == primary
+        schema = importlib.import_module("schema_qualification")
+        monkeypatch.setattr(schema, "source_capable", lambda _sha: True)
+        snapshot = {"revisions": {"fallback": {"run_id": "42", "source": fallback, "image": IMAGE}}}
+        assert schema._submissions(SimpleNamespace(submissions=lambda: proof), snapshot) == proof
+
+
 @pytest.mark.parametrize("changed", [None, "unplanned", "other-image", "other-source", "body"])
 def test_approved_probe_exception_is_bound_to_exact_selected_source_and_image(
     history, monkeypatch, changed
@@ -326,7 +393,7 @@ def test_approved_probe_exception_is_bound_to_exact_selected_source_and_image(
     elif changed == "other-source":
         source = "e" * 40
         planned = frozenset({(source, IMAGE)})
-    proof["acknowledged_attempts"][0]["source"] = source
+    proof["acknowledged_attempts"][0].update(source=source, probe_source=source)
 
     def action():
         return module.review(

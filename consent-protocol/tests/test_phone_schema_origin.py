@@ -109,6 +109,7 @@ def submission(monkeypatch):
             "_GITHUB_RUN_ID": "42",
             "_GITHUB_RUN_ATTEMPT": "2",
             "_DEPLOY_SHA": PRIMARY,
+            "_IMAGE_REFERENCE": IMAGE,
             "_PHONE_DEPLOY_PHASE": "cold",
             "_PHONE_ROLLBACK_SHA": FALLBACK,
             "_PHONE_ROLLBACK_IMAGE_REFERENCE": IMAGE,
@@ -163,6 +164,8 @@ def test_only_exact_acknowledged_terminal_attempt_can_close_a_submission(submiss
             "build_id": build["id"],
             "source": FALLBACK,
             "image": IMAGE,
+            "probe_source": PRIMARY,
+            "probe_image": IMAGE,
         }
 
 

@@ -185,8 +185,10 @@ def _build_binding(build: dict, attempt: dict, timestamp) -> dict:
         if phase == "cold"
         else settings.get("_IMAGE_REFERENCE")
     )
-    if not re.fullmatch(r"[0-9a-f]{40}", str(source)) or not re.fullmatch(
-        r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}", str(image)
+    probe_source, probe_image = settings["_DEPLOY_SHA"], settings.get("_IMAGE_REFERENCE")
+    pattern = r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}"
+    if not re.fullmatch(r"[0-9a-f]{40}", str(source)) or not all(
+        re.fullmatch(pattern, str(value)) for value in (image, probe_image)
     ):
         raise ValueError("phone_schema_prior_submission_image_unknown")
     return {
@@ -195,6 +197,8 @@ def _build_binding(build: dict, attempt: dict, timestamp) -> dict:
         "build_id": build["id"],
         "source": source,
         "image": image,
+        "probe_source": probe_source,
+        "probe_image": probe_image,
     }
 
 

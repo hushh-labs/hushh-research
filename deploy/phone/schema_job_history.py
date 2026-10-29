@@ -67,8 +67,8 @@ def _launcher(name, uid, container, source, bindings, probe_images, qualified_im
             r
             for r in bindings
             if name == "genai-ready-" + r["build_id"]
-            and r["image"] == container["image"]
-            and r["source"] == source
+            and r["probe_image"] == container["image"]
+            and r["probe_source"] == source
         ]
         require(len(matches) == 1 and args == ["scripts/verify_managed_vertex_runtime.py"])
         body = run(
@@ -347,8 +347,12 @@ def review(events, jobs, images, until, *, submissions, project_number, probe_im
     qualified_images = dict(images)
     images = dict(images)
     for row in bindings:
-        require(images.get(row["image"], row["source"]) == row["source"])
-        images[row["image"]] = row["source"]
+        for source, image in (
+            (row["source"], row["image"]),
+            (row["probe_source"], row["probe_image"]),
+        ):
+            require(images.get(image, source) == source)
+            images[image] = source
     births, seen, previous = {}, set(), closed._instant(HISTORY_START)
     for event in events:
         payload, lane, stamp = _scope(event, HISTORY_START, until)
