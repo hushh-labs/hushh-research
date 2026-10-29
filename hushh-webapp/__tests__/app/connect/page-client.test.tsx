@@ -8,10 +8,12 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({
   messageSelection: vi.fn(),
   searchDirectory: vi.fn(),
+  listMutualConnections: vi.fn(),
   listConnections: vi.fn(),
   listConnectionsPage: vi.fn(),
   listRequests: vi.fn(),
@@ -134,8 +136,10 @@ vi.mock("@/hooks/use-debounced-value", () => ({
 }));
 
 vi.mock("@/lib/services/connections-service", () => ({
+  ConnectionsServiceRequestError: class extends Error { constructor(readonly status: number, message: string) { super(message); } },
   ConnectionsService: {
     searchDirectory: mocks.searchDirectory,
+    listMutualConnections: mocks.listMutualConnections,
     listConnections: mocks.listConnections,
     listConnectionsPage: mocks.listConnectionsPage,
     listRequests: mocks.listRequests,
@@ -435,8 +439,11 @@ describe("Location command connection prerequisite", () => {
 });
 
 beforeEach(() => {
+  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionOwner("me");
   vi.clearAllMocks();
   mocks.searchDirectory.mockReset();
+  mocks.listMutualConnections.mockReset();
   mocks.user = { uid: "me", getIdToken: async () => "id-token" };
   mocks.getPersonContext.mockReset();
   mocks.routerReplace.mockImplementation((href: string) => {
@@ -1568,6 +1575,98 @@ describe("Connect — People", () => {
       expect(screen.queryByText("Find by name, email or phone.")).toBeNull(),
     );
     expect(screen.queryByLabelText("People per page")).toBeNull();
+  });
+
+  it("keeps directory and mutual-list memory through profile visits, including paged peers and failed refresh", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&view=connections&q=Original");
+    const target = { userId: "kushal", publicPersonRef: "person-kushal", displayName: "Kushal", photoUrl: null, email: null,
+      relationship: "connected", mutualConnectionCount: 3, mutualConnectionPreview: null };
+    mocks.searchDirectory.mockResolvedValue({ items: [target], page: 1, hasMore: false });
+    mocks.listMutualConnections.mockImplementation(async ({ page }: { page: number }) => ({
+      person: { publicPersonRef: "person-kushal", displayName: "Kushal" }, page, hasMore: page === 1, totalCount: 3,
+      items: page === 1 ? [{ publicPersonRef: "person-alex", displayName: "Alex", photoUrl: null }, { publicPersonRef: "person-manish", displayName: "Manish", photoUrl: null }]
+        : [{ publicPersonRef: "person-second", displayName: "Second mutual", photoUrl: null }],
+    }));
+    const root = document.createElement("div");
+    root.dataset.appScrollRoot = "true";
+    document.body.appendChild(root);
+    const view = render(<ConnectPageClient />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Find people" }), { button: 0, ctrlKey: false });
+    await screen.findByText("Kushal");
+    fireEvent.change(screen.getByLabelText("Search people"), { target: { value: "Kushal" } });
+    chooseDirectory("RIAs");
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenLastCalledWith(expect.objectContaining({ query: "Kushal", audience: "ria" })));
+    root.scrollTop = 480;
+    fireEvent.click(screen.getByRole("button", { name: "View all 3 mutual connections with Kushal" }));
+    const listHref = mocks.routerPush.mock.calls.at(-1)?.[0] as string;
+    expect(listHref).toContain("mutuals=person-kushal");
+    expect(listHref).toContain("q=Kushal");
+    expect(listHref).not.toContain("view=connections");
+    mocks.searchParams = new URLSearchParams(listHref.split("?")[1]);
+    view.rerender(<ConnectPageClient />);
+    await screen.findByRole("button", { name: "Open Manish's profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Load more mutual connections" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Second mutual's profile" }));
+    const profileHref = mocks.routerPush.mock.calls.at(-1)?.[0] as string;
+    expect(new URL(profileHref, "https://app.test").searchParams.get("from")).toBe(listHref);
+    view.unmount();
+    // Returning from a profile rehydrates both pages while fresh reads run.
+    mocks.listMutualConnections.mockRejectedValue(new Error("offline"));
+    const returned = render(<ConnectPageClient />);
+    expect(screen.getByRole("button", { name: "Open Manish's profile" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Open Second mutual's profile" })).toBeVisible();
+    await screen.findByRole("alert");
+    mocks.searchParams = new URLSearchParams("tab=all");
+    returned.rerender(<ConnectPageClient />);
+    expect((screen.getByLabelText("Search people") as HTMLInputElement).value).toBe("Kushal");
+    expect(screen.getByRole("button", { name: /Current directory: RIAs/ })).toBeVisible();
+    await waitFor(() => expect(root.scrollTop).toBe(480));
+    returned.unmount();
+    root.remove();
+  });
+
+  it("opens a single mutual directly with the directory return destination", async () => {
+    mocks.searchDirectory.mockResolvedValue({ items: [{ userId: "andrew", publicPersonRef: "person-andrew", displayName: "Andrew", photoUrl: null,
+      relationship: "pending_outgoing", mutualConnectionCount: 1,
+      mutualConnectionPreview: { publicPersonRef: "person-manish", displayName: "Manish", photoUrl: null } }], page: 1, hasMore: false });
+    render(<ConnectPageClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open mutual connection Manish's profile" }));
+    expect(mocks.routerPush).toHaveBeenCalledWith("/people/person-manish?from=%2Fone%2Fconnect%3Ftab%3Dall", { scroll: false });
+    expect(mocks.listMutualConnections).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a disconnect to one mutual without redirecting, and rejects late results across accounts", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&mutuals=person-target");
+    const response = (name: string) => ({ person: { publicPersonRef: "person-target", displayName: "Target" },
+      items: [{ publicPersonRef: "person-peer", displayName: name, photoUrl: null }], page: 1, hasMore: false, totalCount: 1 });
+    mocks.listMutualConnections.mockResolvedValue(response("Remaining peer"));
+    const view = render(<ConnectPageClient />);
+    await screen.findByRole("button", { name: "Open Remaining peer's profile" });
+    expect(screen.getByTestId("mutual-connections-list")).toBeVisible();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+    let finishOld!: (value: ReturnType<typeof response>) => void;
+    mocks.listMutualConnections.mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }));
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("hushh:connection-graph-changed", { detail: { userId: "me", changedAt: 100 } }));
+    });
+    await waitFor(() => expect(finishOld).toBeTypeOf("function"));
+    publishValidatedAuthSessionOwner("other-owner");
+    mocks.user = { uid: "other-owner", getIdToken: async () => "other-token" };
+    mocks.listMutualConnections.mockResolvedValue(response("Other account peer"));
+    view.rerender(<ConnectPageClient />);
+    await screen.findByRole("button", { name: "Open Other account peer's profile" });
+    await act(async () => finishOld(response("Stale private peer")));
+    expect(screen.queryByText("Stale private peer")).toBeNull();
+    expect(screen.queryByText("Remaining peer")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open Other account peer's profile" }));
+    const { ConnectionsServiceRequestError } = await import("@/lib/services/connections-service");
+    mocks.listMutualConnections.mockRejectedValue(new ConnectionsServiceRequestError(404, "Unavailable"));
+    await act(async () => { window.dispatchEvent(new CustomEvent("hushh:connection-graph-changed", { detail: { userId: "other-owner", changedAt: 200 } })); });
+    await screen.findByRole("alert");
+    expect(screen.queryByText("Other account peer")).toBeNull();
+    view.unmount();
+    render(<ConnectPageClient />);
+    expect(screen.queryByText("Other account peer")).toBeNull();
   });
 
   it("restores a typed search query after the page remounts", async () => {
@@ -2848,11 +2947,11 @@ describe("Connect — inviting someone who is not on One yet", () => {
     return screen.findByText(`No one matches "${query}"`);
   }
 
-  it("offers an invite instead of stopping at the dead end", async () => {
-    // No matches does not prove the person lacks an account. The optional
-    // invite must not make that claim.
-    await searchForNobody();
-
+  it("offers an invite when People hands off a search with no matches", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&q=Bob%20Kanjilal");
+    mocks.searchDirectory.mockResolvedValue({ items: [], hasMore: false, page: 1 });
+    render(<ConnectPageClient />);
+    expect(await screen.findByText('No one matches "Bob Kanjilal"')).toBeTruthy();
     expect(await screen.findByText("Invite them to One")).toBeTruthy();
     expect(
       screen.getByText("Share an invite link with them."),

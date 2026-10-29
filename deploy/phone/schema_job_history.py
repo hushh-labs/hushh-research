@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from runpy import run_path
 
 import workos_rollout as closed
 from revision_qualification import PROJECT, REGION
@@ -334,9 +335,9 @@ def _activity(event, births, jobs, stamp):
 
 def review(
     events, jobs, images, until, *, submissions, project_number,
-    probe_images=frozenset(), non_sql=None,
+    probe_images=frozenset(), observers=None,
 ):
-    from schema_producers import HISTORY_START
+    from schema_producers import HISTORY_START, ROOT
 
     require(
         isinstance(events, list)
@@ -356,15 +357,19 @@ def review(
         ):
             require(images.get(image, source) == source)
             images[image] = source
+    owner = run_path(str(ROOT / "deploy/observability/auth_health_inventory.py"))
+    observers = observers or {}
+    require(not observers or set(observers) == {owner["NAME"]})
+    observer_events = []
     births, seen, previous = {}, set(), closed._instant(HISTORY_START)
-    non_sql_events = []
     for event in events:
         payload, lane, stamp = _scope(event, HISTORY_START, until)
         require(stamp >= previous and event.get("insertId") and event["insertId"] not in seen)
         seen.add(event["insertId"])
         previous = stamp
-        if non_sql is not None and non_sql.matches(event):
-            non_sql_events.append(event)
+        if event.get("resource", {}).get("labels", {}).get("job_name") == owner["NAME"]:
+            require(owner["NAME"] in observers)
+            observer_events.append(event)
             continue
         if lane.endswith("system_event"):
             if payload.get("methodName") == "/Jobs.RunJob":
@@ -387,7 +392,15 @@ def review(
     )
     return {
         "event_count": len(events),
-        **({"verified_non_sql_job": non_sql.review_history(non_sql_events)} if non_sql else {}),
+        **(
+            {
+                "observers": owner["review_history"](
+                    observer_events, observers[owner["NAME"]]
+                )
+            }
+            if observers
+            else {}
+        ),
         "closed_jobs": [
             {
                 "job": name,
@@ -401,7 +414,7 @@ def review(
     }
 
 
-def qualify(jobs, images, until, *, submissions, probe_images, non_sql=None):
+def qualify(jobs, images, until, *, submissions, probe_images, observers=None):
     from schema_producers import HISTORY_START
 
     query = (
@@ -424,7 +437,13 @@ def qualify(jobs, images, until, *, submissions, probe_images, non_sql=None):
         ]
     )
     project = closed._document(
-        ["gcloud", "projects", "describe", PROJECT, "--format=json(projectId,projectNumber)"]
+        [
+            "gcloud",
+            "projects",
+            "describe",
+            PROJECT,
+            "--format=json(projectId,projectNumber)",
+        ]
     )
     require(project.get("projectId") == PROJECT)
     return review(
@@ -435,5 +454,5 @@ def qualify(jobs, images, until, *, submissions, probe_images, non_sql=None):
         submissions=submissions,
         project_number=str(project.get("projectNumber", "")),
         probe_images=probe_images,
-        non_sql=non_sql,
+        observers=observers,
     )

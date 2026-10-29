@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import importlib.util
 import ipaddress
-import hashlib
-import sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from runpy import run_path
+from typing import Any, NamedTuple
 
 _SCOPE_SPEC = importlib.util.spec_from_file_location(
     "runtime_capacity_target_scope",
@@ -31,32 +30,36 @@ non_target_rows = _scope.non_target_rows
 _non_target_routing = _scope.non_target_routing
 
 
-def _health_module():
-    # File-import consumers retain their own checkout without ambient PYTHONPATH.
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "deploy/observability/auth_health_non_sql.py"
+class VerifiedObserverJobs(NamedTuple):
+    """Collector-owned proof; local JSON cannot replace active inspection."""
+
+    jobs: tuple[dict[str, Any], ...]
+
+
+def auth_health_owner():
+    return run_path(
+        str(
+            Path(__file__).resolve().parents[2]
+            / "deploy/observability/auth_health_inventory.py"
+        )
     )
-    name = "_hussh_auth_health_" + hashlib.sha256(str(path).encode()).hexdigest()[:12]
-    module = sys.modules.get(name)
-    if module is None:
-        spec = importlib.util.spec_from_file_location(name, path)
-        assert spec and spec.loader
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module
-        spec.loader.exec_module(module)
-    assert Path(module.__file__).resolve() == path
-    return module
 
 
-def observability_rows(inventory, environment):
-    proof = inventory.get("verified_non_sql_job")
+def observer_rows(inventory, project):
+    owner = auth_health_owner()
+    proof = inventory.get("observer_jobs")
     if proof is None:
         return []
-    try:
-        return _health_module().capacity_rows(proof, inventory["jobs"], environment)
-    except ValueError as error:
-        raise BudgetError("protected configuration job is unqualified") from error
+    if type(proof) is not VerifiedObserverJobs or project != owner["PROJECT"] or len(proof.jobs) != 1:
+        raise BudgetError("observer job classification is outside its reviewed scope")
+    job = inventory["jobs"].get(owner["NAME"], {})
+    expected = owner["qualify_job"](job)
+    row = proof.jobs[0]
+    if any(row.get(key) != value for key, value in expected.items()) or not isinstance(
+        row.get("checked_active_executions"), list
+    ):
+        raise BudgetError("observer job classification changed after collection")
+    return [row]
 
 
 def positive_int(value: Any, label: str, *, zero_ok: bool = False) -> int:
@@ -386,15 +389,9 @@ def collect_inventory(
     )
     jobs = _job_inventory(read, opts, parallel)
     result = {"database_max_connections": maximum, "services": services, "jobs": jobs}
-    if environment == "production" and project == "hushh-pda":
-        health = _health_module()
-        if health.NAME in jobs:
-            try:
-                result["verified_non_sql_job"] = health.qualify(jobs[health.NAME], read)
-            except ValueError as error:
-                raise BudgetError(
-                    "protected configuration job is unqualified"
-                ) from error
+    owner = auth_health_owner()
+    if project == owner["PROJECT"] and owner["NAME"] in jobs:
+        result["observer_jobs"] = VerifiedObserverJobs((owner["collect"](jobs[owner["NAME"]], read, opts),))
     if not isolated:
         return result
     zero_jobs = _non_target_jobs(
