@@ -8,6 +8,7 @@ import {
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { KaiNavTourLocalService } from "@/lib/services/kai-nav-tour-local-service";
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
+import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 
 type OnboardingPayload = {
   completed: boolean;
@@ -175,6 +176,7 @@ export class KaiProfileSyncService {
           `[KaiProfileSyncService] Sync attempt ${attempt + 1}/${retryDelays.length} failed:`,
           error,
         );
+        if (error instanceof PkmStoreDomainError && error.status === 422) break;
       }
     }
     if (lastError) {

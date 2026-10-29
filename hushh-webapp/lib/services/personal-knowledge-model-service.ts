@@ -1,6 +1,5 @@
 import { canonicalPkmSegmentId, pkmStorageSegmentId } from "@/lib/personal-knowledge-model/segmentation";
 import { assertWalletSecurityCodeWrite, type WalletSecurityCodeChange } from "@/lib/wallet/card-security-code";
-// hushh-webapp/lib/services/personal-knowledge-model-service.ts
 /**
  * Personal Knowledge Model service for PKM operations.
  *
@@ -38,6 +37,7 @@ import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import type { PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
 import { AuthService } from "./auth-service";
 import { ApiService } from "./api-service";
+import { PkmStoreDomainError } from "./pkm-store-domain-error";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "./cache-service";
 import { DeviceResourceCacheService } from "./device-resource-cache-service";
 import {
@@ -2416,7 +2416,7 @@ export class PersonalKnowledgeModelService {
           errorMessage = [loc, msg].filter(Boolean).join(": ") || undefined;
         }
       }
-      throw new Error(
+      throw new PkmStoreDomainError(response.status,
         `Failed to store domain data: ${response.status}` +
           (errorCode || errorMessage
             ? ` - ${[errorCode, errorMessage].filter(Boolean).join(": ")}`

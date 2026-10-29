@@ -86,6 +86,8 @@ jobs:
   deployment-security:
     name: Deployment security
     uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
     with:
       application_ref: ${{ inputs.sha || inputs.ref || 'dev' }}
       environment_name: dev

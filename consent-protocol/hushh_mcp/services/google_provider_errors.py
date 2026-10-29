@@ -8,6 +8,14 @@ import httpx
 
 ERROR_RESPONSE_LIMIT = 16 * 1024
 RETRYABLE_403_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
+NON_REASON_DETAILS = frozenset(
+    {
+        "type.googleapis.com/google.rpc.Help",
+        "type.googleapis.com/google.rpc.LocalizedMessage",
+        "type.googleapis.com/google.rpc.RetryInfo",
+        "type.googleapis.com/google.rpc.RequestInfo",
+    }
+)
 
 
 async def classify_google_forbidden_response(
@@ -50,9 +58,17 @@ async def classify_google_forbidden_response(
         if not isinstance(values, list) or len(values) > 16:
             return "resource_denied"
         for item in values:
-            if not isinstance(item, dict) or not isinstance(item.get("reason"), str):
+            if not isinstance(item, dict):
                 return "resource_denied"
-            reasons.add(item["reason"].replace("_", "").replace("-", "").upper())
+            reason = item.get("reason")
+            if isinstance(reason, str):
+                reasons.add(reason.replace("_", "").replace("-", "").upper())
+            elif (
+                key != "details"
+                or reason is not None
+                or item.get("@type") not in NON_REASON_DETAILS
+            ):
+                return "resource_denied"
     if (
         not strict_drive_retry
         and reasons

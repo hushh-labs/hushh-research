@@ -80,6 +80,8 @@ jobs:
       - name: Check production
         id: production
         continue-on-error: true
+        env:
+          HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR: "true"
         run: |
           python3 scripts/ci/uat-retention-maintenance.py --environment production \
             --verify-source-only --state-dir "$RUNNER_TEMP/production-retention-source"

@@ -78,13 +78,13 @@ def _is_truthy(raw_value: str) -> bool:
 
 
 def _resolve_vertex_mode() -> bool:
-    # Vertex-only by default for Kai (legacy non-Vertex path intentionally disabled).
+    # Vertex compatibility branch when the managed Azure policy is not selected.
     raw_value = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
     return _is_truthy(raw_value)
 
 
 def _initialize_gemini_client(force: bool = False) -> None:
-    """Initialize or refresh the shared Gemini Vertex client."""
+    """Initialize managed text from the selected Azure or Vertex policy."""
     global _gemini_client
     global _gemini_unavailable_reason
     global _gemini_model_name
