@@ -446,8 +446,12 @@ def test_pr_lane_fetches_full_history_and_exports_the_base_ref(job: str) -> None
     )
     lane_step = _step_running(steps, *PR_LANES_REACHING_THE_GRAPH_CHECK[job])
     base_ref = str(lane_step.get("env", {}).get("CAPABILITY_GRAPH_BASE_REF") or "")
-    assert base_ref.startswith("origin/") and "github.base_ref" in base_ref, (
-        f"{job} must export CAPABILITY_GRAPH_BASE_REF as origin/<PR base ref>"
+    assert (
+        "format('origin/{0}'" in base_ref
+        and "github.base_ref || 'main'" in base_ref
+        and "inputs.uat_base_sha" in base_ref
+    ), (
+        f"{job} must use origin/<PR base ref> for pull requests and the explicit UAT base for direct CI"
     )
 
 

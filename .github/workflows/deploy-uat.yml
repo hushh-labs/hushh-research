@@ -359,7 +359,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       # Stable receipt-reader identity. Main retains its smoke requirement;
-      # UAT-only content also retains the exact Dev acceptance gate below.
+      # direct UAT source requires exact branch CI while Dev-backed promotion remains available.
       - name: Validate deployment SHA against main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
