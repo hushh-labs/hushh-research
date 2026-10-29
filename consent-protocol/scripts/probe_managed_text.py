@@ -18,7 +18,7 @@ from hushh_mcp.runtime_providers.managed_text import (
 async def probe_managed_text(provider: Literal["azure_openai", "vertex"]) -> dict:
     scopes = {}
     next_start = 0.0
-    for scope in sorted(TEXT_SCOPES if provider == "azure_openai" else {"drive_document_requests"}):
+    for scope in sorted(TEXT_SCOPES):
         if provider == "vertex" and next_start > time.monotonic():
             await asyncio.sleep(next_start - time.monotonic())
         next_start = time.monotonic() + 30
