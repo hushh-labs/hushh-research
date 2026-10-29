@@ -189,41 +189,12 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
         elif not self.allow_fallback:
             providers = providers[:1]
         for index, provider in enumerate(providers):
-            owned_vertex = None
-            observed = completed = False
-            request = llm_request
-            model_name, location = self.model, ""
-            if provider == "azure_openai":
-                primary = self.model_copy(update={"require_current": current})
-                source = AzureOpenAIAdkModel.generate_content_async(
-                    primary, request, stream=stream or self.response_observer is not None
-                )
-                seconds = self._primary_timeout(request)
-            else:
-                vertex = self.fallback_model
-                if vertex is None:
-                    if self.fallback_factory is None:
-                        raise ValueError("Managed Vertex alternate is not configured")
-                    vertex = self.fallback_factory()
-                    owned_vertex = vertex
-                request = llm_request.model_copy(deep=True)
-                request.model = vertex.model
-                # Provider-private encrypted reasoning cannot cross providers.
-                for content in request.contents:
-                    content.parts = [
-                        part
-                        for part in content.parts or []
-                        if not (part.thought_signature or b"").startswith(b"azure-responses-v1:")
-                    ]
-                request.contents = [content for content in request.contents if content.parts]
-                source = vertex.generate_content_async(
-                    request, stream=stream or self.response_observer is not None
-                )
-                model_name = vertex.model
-                from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
+            from hushh_mcp.runtime_providers.managed_text_attempt import prepare_text_attempt
 
-                location = ManagedGeminiRuntimeBinding.from_environment().primary_location
-                seconds = self._primary_timeout(request) if not index else self.fallback_seconds
+            observed = completed = False
+            source, model_name, location, seconds, owned_vertex = await prepare_text_attempt(
+                self, llm_request, provider, index, current, stream
+            )
             logger.info(
                 "managed_text.selection scope=%s policy=%s provider=%s attempt=%s first_output_budget_ms=%s",
                 self.processing_scope,

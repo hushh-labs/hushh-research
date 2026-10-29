@@ -7,6 +7,30 @@ import pytest
 from tests.test_uat_deploy_no_traffic_contract import _managed_provider_gate, _provider_fixture
 
 
+def _execution_fixture(value, expected, environment):
+    return {
+        "metadata": {"ownerReferences": [{"name": value["job"]}]},
+        "spec": {
+            "template": {
+                "spec": {
+                    "serviceAccountName": expected["runtime_account"],
+                    "containers": [
+                        {
+                            "image": expected["image"],
+                            "command": ["python3"],
+                            "args": ["scripts/verify_managed_vertex_runtime.py"],
+                            "env": [
+                                {"name": name, "value": item} for name, item in environment.items()
+                            ],
+                        }
+                    ],
+                }
+            }
+        },
+        "status": {"conditions": [{"type": "Completed", "status": "True"}]},
+    }
+
+
 def _record_vertex(monkeypatch, scope):
     gate = _managed_provider_gate()
     expected, value = _provider_fixture(gate, "vertex")
@@ -45,27 +69,7 @@ def _record_vertex(monkeypatch, scope):
         (gate.ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text()
     )
     environment["GENAI_GOOGLE_CLOUD_PROJECT"] = document["environments"]["uat"]["project"]
-    execution = {
-        "metadata": {"ownerReferences": [{"name": value["job"]}]},
-        "spec": {
-            "template": {
-                "spec": {
-                    "serviceAccountName": expected["runtime_account"],
-                    "containers": [
-                        {
-                            "image": expected["image"],
-                            "command": ["python3"],
-                            "args": ["scripts/verify_managed_vertex_runtime.py"],
-                            "env": [
-                                {"name": name, "value": item} for name, item in environment.items()
-                            ],
-                        }
-                    ],
-                }
-            }
-        },
-        "status": {"conditions": [{"type": "Completed", "status": "True"}]},
-    }
+    execution = _execution_fixture(value, expected, environment)
 
     def cloud(arguments):
         if arguments[:4] == ["run", "jobs", "executions", "list"]:

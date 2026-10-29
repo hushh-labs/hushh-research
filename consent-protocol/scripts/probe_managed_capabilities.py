@@ -11,14 +11,14 @@ import base64
 import io
 import json
 import secrets
-import struct
 import time
 import wave
-import zlib
 
 from google.genai import types
 
 from scripts.capability_probe_failure import failure_reason, settle_recording
+from scripts.managed_probe_media import _pdf, _png, _wav16
+from scripts.probe_vertex_research import probe_vertex_research as _probe_vertex_research
 
 
 def _synthetic_public_search_agent(root, *, compact: bool = False):
@@ -75,59 +75,6 @@ def _synthetic_public_search_agent(root, *, compact: bool = False):
         tools=child.tools,
         generate_content_config=child.generate_content_config,
     )
-
-
-def _png(rgb: bytes) -> bytes:
-    def chunk(kind: bytes, body: bytes) -> bytes:
-        return (
-            struct.pack("!I", len(body))
-            + kind
-            + body
-            + struct.pack("!I", zlib.crc32(kind + body) & 0xFFFFFFFF)
-        )
-
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack("!2I5B", 128, 128, 8, 2, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress((b"\x00" + rgb * 128) * 128))
-        + chunk(b"IEND", b"")
-    )
-
-
-def _pdf(text: str) -> bytes:
-    stream = f"BT /F1 20 Tf 40 100 Td ({text}) Tj ET".encode()
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
-    ]
-    output = bytearray(b"%PDF-1.4\n")
-    offsets = []
-    for index, obj in enumerate(objects, 1):
-        offsets.append(len(output))
-        output.extend(str(index).encode() + b" 0 obj\n" + obj + b"\nendobj\n")
-    xref = len(output)
-    output.extend(b"xref\n0 6\n0000000000 65535 f \n")
-    for offset in offsets:
-        output.extend(f"{offset:010d} 00000 n \n".encode())
-    output.extend(
-        b"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF\n"
-    )
-    return bytes(output)
-
-
-def _wav16(pcm24: bytes) -> bytes:
-    samples = [item[0] for item in struct.iter_unpack("<h", pcm24)]
-    downsampled = [samples[index] for index in range(len(samples)) if index % 3 != 1]
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as recording:
-        recording.setnchannels(1)
-        recording.setsampwidth(2)
-        recording.setframerate(16000)
-        recording.writeframes(struct.pack(f"<{len(downsampled)}h", *downsampled))
-    return buffer.getvalue()
 
 
 async def _probe_public_search(*, compact: bool = False):
@@ -190,102 +137,6 @@ async def _probe_public_search(*, compact: bool = False):
             raise ValueError("Compact Search failed a requested synthetic public fact")
         proof["synthetic_content_verified"] = True
     return proof
-
-
-async def _probe_vertex_research(client) -> dict:
-    """Qualify native research task completion and the shared attribution corpus.
-
-    Search budget is already exhausted for this fictional invocation. Only its
-    final native task/schema call is admitted; no owner store or search runs.
-    """
-    from hushh_mcp.one_adk import world_model
-    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
-    from scripts.verify_azure_pwm_runtime import _ATTRIBUTION_CASES, _production_contract_examples
-
-    examples, _ = _production_contract_examples()
-    charged = []
-
-    async def current():
-        return None
-
-    async def charge(slots):
-        charged.extend(slots)
-
-    slots = world_model.MAX_SEARCHES + world_model.MAX_MODEL_CALLS
-    result = await world_model.run_world_model(
-        identity={
-            "full_name": "Synthetic Example",
-            "email": "synthetic@example.test",
-            "phone_number": None,
-        },
-        user_id="synthetic-research-reader",
-        consent_token="",
-        require_access=current,
-        attempts_used=range(1, slots),
-        on_attempts_start=charge,
-        work={"assessment": examples["assessment"], "sources": {}, "attempts": {}},
-        owner_research_context={
-            "confirmed": ["I authored the fictional LumenForge Transit Atlas."],
-            "permitted_public_research": True,
-        },
-    )
-    if (
-        result.get("status") != "offered"
-        or result.get("pkm_written") is not False
-        or result.get("report", {}).get("sections")
-        or result.get("grounded_answers")
-        or result.get("research", {}).get("provider") != "vertex_google_search"
-        or charged != [slots]
-    ):
-        raise ValueError("Vertex native research completion contract failed")
-    response = await client.aio.models.generate_content(
-        model=resolve_fleet_model_name(world_model.manifest().model.name),
-        contents=json.dumps(
-            {
-                "cases": [
-                    {"case_id": key, "excerpt": excerpt, "statement": statement}
-                    for key, excerpt, statement, _ in _ATTRIBUTION_CASES
-                ]
-            }
-        ),
-        config=types.GenerateContentConfig(
-            system_instruction=(
-                "Evaluate each fictional statement against only its own excerpt. "
-                "A source or account's claim does not establish linkage to the owner. "
-                "Reject unsupported identity, ownership and completion claims; accept "
-                "accurately attributed self-reports and explicit metadata. Return each case once."
-            ),
-            response_mime_type="application/json",
-            response_json_schema={
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {"case_id": {"type": "string"}, "supported": {"type": "boolean"}},
-                    "required": ["case_id", "supported"],
-                    "additionalProperties": False,
-                },
-            },
-            max_output_tokens=2048,
-        ),
-    )
-    if not response.candidates or response.candidates[0].finish_reason != types.FinishReason.STOP:
-        raise ValueError("Vertex research attribution response did not complete")
-    rows = json.loads(response.text or "null")
-    expected = {key: supported for key, _, _, supported in _ATTRIBUTION_CASES}
-    if (
-        not isinstance(rows, list)
-        or len(rows) != len(expected)
-        or any(
-            not isinstance(row, dict)
-            or set(row) != {"case_id", "supported"}
-            or type(row["supported"]) is not bool
-            or row["case_id"] not in expected
-            for row in rows
-        )
-        or {row["case_id"]: row["supported"] for row in rows} != expected
-    ):
-        raise ValueError("Vertex research attribution contract failed")
-    return {"research_contracts": 1, "attribution_cases": len(expected)}
 
 
 async def probe_managed_capabilities(provider: str, *, deadline: float | None = None) -> dict:

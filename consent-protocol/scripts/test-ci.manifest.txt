@@ -1585,3 +1585,8 @@ tests/services/test_document_delivery_background.py
 tests/services/test_document_delivery_background_exports.py
 # The owner's review decides whether the production Allow route accepts a One copy.
 tests/services/test_document_delivery_owner_allow.py
+
+# Managed provider switch and complete synthetic Vertex qualification.
+tests/services/test_managed_chat_provider_switch.py
+tests/services/test_one_vertex_search_contract.py
+tests/test_vertex_capability_probe.py
