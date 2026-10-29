@@ -952,7 +952,7 @@ describe("LocationImmersiveMap demo experience", () => {
       "3 people sharing with you. Fit them all on the map.",
     );
     fireEvent.click(jordanButton);
-    expect(jordanButton).toHaveClass(
+    expect(jordanButton.parentElement).toHaveClass(
       "bg-[var(--app-accent)]",
       "text-[var(--app-accent-fg)]",
     );
