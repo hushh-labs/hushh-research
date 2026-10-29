@@ -1,6 +1,6 @@
 """Bounded synthetic qualification of the authored v2 planner; no Drive I/O.
 
-Invoked by the existing UAT candidate readiness job under its real Azure workload
+Invoked by the existing UAT candidate readiness job under its real workload
 identity. This exercises generated plans, not hand-authored expected answers.
 It establishes neither Google UI parity nor production-corpus recall.
 """
@@ -12,6 +12,7 @@ import hashlib
 import json
 import time
 from functools import partial
+from typing import Literal
 
 
 def _probe_event(case, stage, result, **metrics):
@@ -116,11 +117,10 @@ def grade_plan(plan, case):
     return queries
 
 
-async def probe_drive_activity_planner():
-    from hushh_mcp.services.drive_request_package_assessment import (
-        build_semantic_request_azure_model,
-        semantic_request_model_binding,
-    )
+async def probe_drive_activity_planner(
+    provider: Literal["azure_openai", "vertex"] = "azure_openai",
+):
+    from hushh_mcp.runtime_providers.managed_text import build_managed_text_model
     from hushh_mcp.services.drive_suggestion_service import (
         interpret_semantic_live_search,
         plan_semantic_live_search,
@@ -129,12 +129,9 @@ async def probe_drive_activity_planner():
     async def synthetic_authority():
         return None  # Authored fictional text only; no owner state or tools.
 
-    binding = semantic_request_model_binding()
-    if binding["provider"] != "azure_openai":
-        raise ValueError("activity_planner_requires_azure")
-    model = build_semantic_request_azure_model(
-        require_current=synthetic_authority, model_binding=binding
-    )
+    model = build_managed_text_model(
+        scope="drive_document_requests", require_current=synthetic_authority, provider=provider
+    ).model_copy(update={"allow_fallback": False})
     rows = []
     for case, purpose in (
         ("ordinary", "resume consist Cedar Rowan Vale"),
@@ -183,7 +180,7 @@ async def probe_drive_activity_planner():
     return {
         "schema": "drive.activity_planner.probe.v1",
         "passed": True,
-        "provider": "azure_openai",
+        "provider": provider,
         "cases": rows,
         "drive_calls": 0,
         "per_item_model_calls": 0,

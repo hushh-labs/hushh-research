@@ -2598,6 +2598,7 @@ async def test_checkout_uses_supported_stripe_parameters_and_binds_sdk_session(m
     assert create.call_args.kwargs["expires_at"] == binding["expires"]
     timings = [r.getMessage() for r in caplog.records if "drive_stage.timing" in r.getMessage()]
     for stage in (
+        "checkout_total",
         "checkout_state",
         "checkout_acceptance",
         "checkout_reserve",
