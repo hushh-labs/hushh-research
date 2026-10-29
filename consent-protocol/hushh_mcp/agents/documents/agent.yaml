@@ -264,6 +264,12 @@ subagents:
       alternatives include resume, cv, curriculum vitae, biodata and profile;
       each alternative also requires core entity tokens Ankit Singh. Kumar is
       optional in this unquoted example. Preserve explicitly quoted literals.
+      Apply this same core-name rule to comparable ordinary unquoted names:
+      retain the given name and complete family name as required core tokens;
+      an unquoted middle given name is optional unless explicitly required.
+      For version 2, set sparse_fallback_any_token=true on each eligible
+      positive core-name entity predicate. Keep it false for every other kind,
+      quoted name, exclusion or explicit account relationship.
       Concepts belong to semantic/content predicates, not filename-only title
       predicates unless the user explicitly restricts the filename. Alternatives
       must be executable clauses; discovery_terms alone does not execute them.
