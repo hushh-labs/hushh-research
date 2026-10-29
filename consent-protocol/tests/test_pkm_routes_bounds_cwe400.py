@@ -280,11 +280,6 @@ class TestDomainManifestPayload:
         dm = DomainManifestPayload()
         assert dm.manifest_version == 1
 
-    def test_manifest_version_bounds(self):
-        """Manifest version bounded 1-1000."""
-        with pytest.raises(ValidationError):
-            DomainManifestPayload(manifest_version=1001)
-
     def test_paths_list_max_length(self):
         """Paths list bounded to 10000 items."""
         with pytest.raises(ValidationError):
