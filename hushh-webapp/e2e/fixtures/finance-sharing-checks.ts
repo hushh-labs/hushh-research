@@ -60,7 +60,7 @@ test("Finance sharing swipes retain one fixed frame across resize and reduced mo
 });
 
 for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
-  test(`Finance sharing approval ${width}px ${theme}`, async ({ page }) => {
+  test(`Finance sharing layout and preview ${width}px ${theme}`, async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await mount(page, width);
@@ -110,6 +110,23 @@ for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
     const confirm = preview.getByRole("button", { name: "Share with 1 person", exact: true });
     expect((await confirm.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.screenshot({ path: test.info().outputPath(`finance-sharing-${width}-${theme}.png`) });
+    await expect(page.locator("body")).not.toHaveAttribute("data-finance-publishes");
+    expect(errors).toEqual([]);
+  });
+  test(`Finance sharing approval ${width}px ${theme}`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await mount(page, width);
+    await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
+    await page.getByRole("button", { name: "Open sample Finance sharing", exact: true }).click();
+    const edit = page.getByRole("dialog", { name: "Share Finance", exact: true });
+    await edit.getByRole("checkbox", { name: /Sample connection/ }).check();
+    await edit.getByRole("button", { name: "Continue", exact: true }).click();
+    await edit.getByRole("button", { name: "Continue", exact: true }).click();
+    await edit.getByRole("button", { name: "Preview", exact: true }).click();
+    const preview = page.getByRole("dialog", { name: "Review before sharing", exact: true });
+    await expect(page.locator("body")).not.toHaveAttribute("data-finance-publishes");
+    const confirm = preview.getByRole("button", { name: "Share with 1 person", exact: true });
     await confirm.click();
     await expect(page.locator("body")).toHaveAttribute("data-finance-publishes", "1");
     const sent = page.getByRole("dialog", { name: "Finance shared", exact: true });
