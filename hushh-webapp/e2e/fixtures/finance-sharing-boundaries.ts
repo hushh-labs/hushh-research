@@ -13,6 +13,7 @@ export function useFinanceShareContext() { return { capture, session: "synthetic
 export async function readSavedFinance() { return { model: sharingModel, source: { kind: "statement" as const, snapshotId: null }, sourceFence: "a".repeat(64) }; }
 export function pendingFinanceShare() { return null; }
 const people = [{ userId: "synthetic-recipient", displayName: "Sample connection", publicPersonRef: "11111111-1111-4111-8111-111111111111", keyId: "synthetic-key", publicKeyJwk: { kty: "EC" } }];
+people.push(...Array.from({ length: 24 }, (_, index) => ({ ...people[0]!, userId: `synthetic-${index}`, displayName: `Other connection ${index + 1}` })));
 const basePolicy: FinancePolicy = { version: 1, mode: "snapshot", sections: ["allocation", "performance"], showAmounts: false, selectionHash: "a".repeat(64), model_processing: { version: 1, allowed: true }, durationSeconds: 86400 };
 const stamp = new Date().toISOString();
 function grant(direction: "outgoing" | "received", policy = basePolicy): FinanceGrant {

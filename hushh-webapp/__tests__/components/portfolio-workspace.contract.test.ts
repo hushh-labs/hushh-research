@@ -36,14 +36,14 @@ describe("Portfolio workspace hierarchy", () => {
     });
   });
 
-  it("uses one compact KPI index without an optimize action", () => {
+  it("uses the dedicated portfolio cards without duplicate navigation", () => {
     const dashboard = read("components/kai/views/dashboard-master-view.tsx");
 
     expect(dashboard).toContain("<PortfolioOverview");
     const overview = read("components/kai/views/portfolio-overview.tsx");
-    expect(overview).toContain('testId="portfolio-overview-options"');
+    expect(overview).not.toContain("<SettingsGroup");
     for (const title of ["Holdings", "Allocation", "Performance"]) {
-      expect(overview).toContain(`title: "${title}"`);
+      expect(overview).toContain(`>${title}</SectionLabel>`);
     }
     expect(overview).not.toContain('title: "Portfolio source"');
     expect(overview).toContain('onOpenSection("sources")}>Manage portfolio');
