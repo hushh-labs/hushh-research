@@ -5,6 +5,7 @@ show which gate held a payment back. A refusal now carries one reason from the
 closed set below, and checkout logs it once, as
 ``drive_request_checkout.refused reason=<reason> code=<public code>``.
 A line holds only these fixed words: never a request, person, file or Drive ID.
+Correlated elapsed times use the caller's separate stage logger.
 The public error code a caller sees is unchanged.
 """
 
@@ -17,6 +18,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+from hushh_mcp.services.drive_telemetry import drive_logger, drive_stage
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 logger = logging.getLogger(__name__)
@@ -148,10 +150,13 @@ def logs_checkout_refusals(
 ) -> Callable[..., Awaitable[_Result]]:
     """Log each refused checkout once, then re-raise it unchanged."""
 
+    timing_logger = drive_logger(function.__module__)
+
     @functools.wraps(function)
     async def checkout(*args: Any, **kwargs: Any) -> _Result:
         try:
-            return await function(*args, **kwargs)
+            with drive_stage(timing_logger, "checkout_total"):
+                return await function(*args, **kwargs)
         except DriveReadError as error:
             log_checkout_refusal(error)
             raise
