@@ -1,9 +1,11 @@
+import { reviewBoardBooking, type CalendarBoardBookingInput, type CalendarBoardBookingReview, type CalendarExecution } from "@/lib/calendar/calendar-board-booking";
+export type { CalendarBoardBookingInput, CalendarBoardBookingReview, CalendarExecution } from "@/lib/calendar/calendar-board-booking";
 import { ownerContentIsPrivate } from './private-agent-specialist-chat';
 import { privateGoogleStatus, disconnectPrivateGoogle, confirmPrivateGoogleAction, requireSharedGoogleExchange, PrivateGoogleUnsupportedError } from './private-google-connections';
 import { ApiService } from "@/lib/services/api-service";
 import type { GoogleConnectionStatus } from "@/lib/services/google-connection-service";
 import { GoogleCalendarError, calendarError, scheduleRead, scheduleRequest, type CalendarSource } from "@/lib/services/google-calendar-transport";
-export { GoogleCalendarError } from "@/lib/services/google-calendar-transport";
+export { GoogleCalendarError, calendarFailure } from "@/lib/services/google-calendar-transport";
 export type { CalendarReadRecovery, CalendarSource } from "@/lib/services/google-calendar-transport";
 
 export type GoogleCalendarAccount = {
@@ -40,19 +42,6 @@ type NativeOAuthStart = {
   include_calendar_list?: boolean;
   include_guest_photos?: boolean;
   include_meeting_files?: boolean;
-};
-
-export type CalendarExecution = {
-  action: "create" | "reschedule" | "cancel";
-  event: {
-    id?: string | null;
-    title?: string | null;
-    start?: { dateTime?: string; date?: string } | null;
-    end?: { dateTime?: string; date?: string } | null;
-    status?: string | null;
-    conference_url?: string | null;
-    conference_status?: string | null;
-  };
 };
 
 export type CalendarEventTime = { dateTime?: string; date?: string; timeZone?: string } | null;
@@ -327,11 +316,17 @@ export class GoogleCalendarService {
     return status;
   }
 
-  /** Execute one short-lived Calendar proposal after an owner confirms it in chat. */
+  /** Prepare a Board booking through the existing short-lived Calendar proposal ledger. */
+  static reviewBoardBooking(params: CalendarBoardBookingInput): Promise<CalendarBoardBookingReview> {
+    return reviewBoardBooking(params);
+  }
+
+  /** Execute one short-lived Calendar proposal after an owner confirms it. */
   static async executeProposal(params: {
     vaultOwnerToken: string;
     userId: string;
     proposalId: string;
+    accountId?: string;
   }): Promise<CalendarExecution> {
     if (await ownerContentIsPrivate()) {
       const value = await confirmPrivateGoogleAction(params.proposalId, 'calendar');
@@ -349,6 +344,7 @@ export class GoogleCalendarService {
         body: JSON.stringify({
           user_id: params.userId,
           proposal_id: params.proposalId,
+          ...(params.accountId ? { account_id: params.accountId } : {}),
         }),
       },
     );

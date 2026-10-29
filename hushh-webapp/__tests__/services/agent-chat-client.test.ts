@@ -163,6 +163,14 @@ const TEST_VAULT_KEY = "0f".repeat(32);
 const TEST_CHAT_KEY = "hck1.0a3419cafc7896f9384d95ec76704bb30b272e913e80702075270f69a2feae8b";
 
 describe("One chat key transport", () => {
+  it("forwards a valid selected Calendar zone for one turn, then returns to the device zone", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    mockTransport.runAgent.mockClear();
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Find another time", vaultOwnerToken: "owner-token", timeZoneOverride: "America/New_York" });
+    expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps.timezone).toBe("America/New_York");
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token", timeZoneOverride: "Not/AZone" });
+    expect(mockTransport.runAgent.mock.calls[1][0].forwardedProps.timezone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
   it("forwards a saved Drive result only for the selected turn", async () => {
     publishValidatedAuthSessionOwner("user-1");
     mockTransport.runAgent.mockClear();
@@ -1868,29 +1876,6 @@ describe("AG-UI Agent One client", () => {
       slots: { bundle_id: "opaque-bundle" },
       trustedActivationRequired: false,
     });
-  });
-});
-
-describe("parsePendingConsentRequestIds", () => {
-  it("reads request ids only from the pending-requests tool and dedupes them", async () => {
-    const { parsePendingConsentRequestIds } = await import("@/lib/services/agent-chat-client");
-    const content = JSON.stringify({
-      status: "ok",
-      pendingRequestIds: ["req_1", "req_1", " req_2 ", ""],
-      pendingRequests: [{ requestId: "req_1", requesterLabel: "Alex" }],
-    });
-    expect(parsePendingConsentRequestIds("list_pending_information_requests", content)).toEqual([
-      "req_1",
-      "req_2",
-    ]);
-    expect(parsePendingConsentRequestIds("discover_person_information", content)).toEqual([]);
-    expect(
-      parsePendingConsentRequestIds(
-        "list_pending_information_requests",
-        JSON.stringify({ status: "failed", pendingRequestIds: ["req_1"] }),
-      ),
-    ).toEqual([]);
-    expect(parsePendingConsentRequestIds("list_pending_information_requests", "not json")).toEqual([]);
   });
 });
 

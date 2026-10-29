@@ -3,6 +3,7 @@
 import { CheckCircle, MapPin } from "@/components/icons";
 import { admittedPortraitSource } from "@/lib/profile/provider-avatar";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
+import { CalendarJoinLink } from "./calendar-join-link";
 import type { CalendarInvitation } from "@/lib/services/google-calendar-service";
 import type { InvitationPerson } from "@/lib/calendar/invitation-people";
 import { CalendarMeetingIcon, eventTime } from "./calendar-schedule-presentation";
@@ -50,7 +51,7 @@ function guestStatus(status?: string | null) {
   return "Response unavailable";
 }
 
-export function CalendarInvitationDetail({ event, zone, people = new Map(), workspaceLayout = false }: { event: CalendarInvitation; zone: string; people?: InvitationPeople; workspaceLayout?: boolean }) {
+export function CalendarInvitationDetail({ event, zone, people = new Map(), workspaceLayout = false, accountEmail }: { event: CalendarInvitation; zone: string; people?: InvitationPeople; workspaceLayout?: boolean; accountEmail?: string | null }) {
   const organizerEmail = event.organizer?.email?.trim().toLowerCase();
   const organizerPerson = invitationPerson(people, event.organizer?.email);
   const organizerName = event.organizer?.displayName || organizerPerson?.displayName || event.organizer?.email || "Organizer";
@@ -76,7 +77,7 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), work
     <div className={styles.detailHeading}>
       <InvitationDate event={event} zone={zone} />
       <div className={styles.copy}><h2>{event.title}</h2><p className={styles.muted}>{eventTime(event, zone)}</p>
-        {join ? <div className={styles.meeting}><CalendarMeetingIcon provider={provider} /><span>{provider}</span><a href={join} target="_blank" rel="noopener noreferrer">Join meeting</a></div> : null}
+        {join ? <div className={styles.meeting}><CalendarMeetingIcon provider={provider} /><span>{provider}</span><CalendarJoinLink url={join} accountEmail={event.account_email || accountEmail} /></div> : null}
       </div>
     </div>
     {workspaceLayout ? <>
