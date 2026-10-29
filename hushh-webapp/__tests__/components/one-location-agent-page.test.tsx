@@ -3398,8 +3398,9 @@ describe("OneLocationAgentPage", () => {
       "true",
     );
     expect(
-      within(alreadySharing).queryByRole("button"),
+      within(alreadySharing).queryByRole("button", { name: /^Select / }),
     ).toBeNull();
+    expect(within(alreadySharing).getByRole("button", { name: "View Trusted B's profile" })).toBeEnabled();
   });
 
   it("keeps one flat list when nobody can see you yet", async () => {
@@ -4575,7 +4576,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: /Trusted B/i }),
+      await screen.findByRole("button", { name: "Select Trusted B", exact: true }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
@@ -7238,9 +7239,9 @@ describe("OneLocationAgentPage", () => {
       name: /Select Advisor C/i,
     });
     expect(advisorAction).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(within(advisorAction).getByText("Advisor C"));
+    fireEvent.click(advisorAction);
     expect(advisorAction).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(within(advisorAction).getByText("Advisor C"));
+    fireEvent.click(advisorAction);
     expect(advisorAction).toHaveAttribute("aria-pressed", "false");
     expect(advisorAction.querySelector("button")).toBeNull();
     const advisorRow = advisorAction.closest('[role="listitem"]');
@@ -8170,8 +8171,9 @@ describe("OneLocationAgentPage", () => {
     await switchLocationTab("People", "People");
 
     const search = await screen.findByPlaceholderText(/Search people/i);
-    const person = await screen.findByText("Trusted B");
-    expect(screen.getByTestId("one-location-people-list")).not.toHaveClass(
+    const peopleList = await screen.findByTestId("one-location-people-list");
+    expect(within(peopleList).getByText("Trusted B")).toBeTruthy();
+    expect(peopleList).not.toHaveClass(
       "overflow-y-auto",
     );
 
@@ -8179,7 +8181,7 @@ describe("OneLocationAgentPage", () => {
     // buttons, which read as page search rather than list search. Nothing
     // focusable may sit between the field and the list it filters.
     expect(
-      search.compareDocumentPosition(person) & Node.DOCUMENT_POSITION_FOLLOWING,
+      search.compareDocumentPosition(peopleList) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     const addPeople = screen.getByRole("button", {
       name: /Add or manage people/i,
@@ -8190,9 +8192,9 @@ describe("OneLocationAgentPage", () => {
       (el) =>
         el !== search &&
         el !== addPeople &&
-        !el.contains(person) &&
+          !peopleList.contains(el) &&
         search.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING &&
-        person.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING,
+          peopleList.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING,
     );
     expect(between).toHaveLength(0);
 

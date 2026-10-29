@@ -41,7 +41,7 @@ export function CirclePersonSelectionRow({
       title={name}
       description={connectPersonSelectionDetail(person)}
       ariaPressed={selected}
-      ariaLabel={ariaLabel}
+      ariaLabel={ariaLabel ?? `${selected ? "Deselect" : "Select"} ${name}`}
       describeContent
       disabled={disabled}
       trailing={

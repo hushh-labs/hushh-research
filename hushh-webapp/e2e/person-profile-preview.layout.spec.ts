@@ -43,10 +43,11 @@ for (const width of [393, 1280]) {
     await source.getByRole("button", { name: "View Aarav Sharma's profile" }).click();
     await profile.getByRole("button", { name: "Request information" }).click();
     await expect(page.getByRole("dialog", { name: "Review information request", exact: true })).toBeVisible();
-    await page.goBack();
+    // Back may be consumed by the dialog without a navigation/load event.
+    await page.evaluate(() => history.back());
     await expect(page.getByRole("dialog", { name: "Review information request", exact: true })).toHaveCount(0);
     await expect(profile).toBeVisible();
-    await page.goBack();
+    await page.evaluate(() => history.back());
     await expect(profile).toHaveCount(0);
     await expect(source).toBeVisible();
     await expect(source.getByRole("textbox", { name: "Search connections" })).toHaveValue("Aar");
