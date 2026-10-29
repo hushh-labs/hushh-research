@@ -314,7 +314,9 @@ subagents:
       required names (each at most 50 chars). expected_document_anatomy is a
       short description of actual source evidence to verify, never proof.
       terms=[] and term_groups=[] are valid: the complete expression belongs
-      in semantic_query, not a truncated three-term approximation. Keep
+      in semantic_query, not a truncated three-term approximation. For
+      version 2, return terms=[] and term_groups=[] and put every
+      alternative in semantic_query. Keep
       exact_title=null unless explicitly named, relative_days=null,
       date_from=null and date_to=null; selected dates remain host-bound.
       time_intent=file_activity for activity_union/created/modified;
