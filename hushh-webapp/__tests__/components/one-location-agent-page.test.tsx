@@ -3393,10 +3393,8 @@ describe("OneLocationAgentPage", () => {
     const activeRecipientRow = within(alreadySharing)
       .getByText("Trusted B")
       .closest('[data-testid="settings-row"]');
-    expect(activeRecipientRow?.firstElementChild).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
+    // Selection is unavailable, while the independent portrait remains enabled.
+    expect(activeRecipientRow?.firstElementChild).not.toHaveAttribute("aria-disabled", "true");
     expect(
       within(alreadySharing).queryByRole("button", { name: /^Select / }),
     ).toBeNull();

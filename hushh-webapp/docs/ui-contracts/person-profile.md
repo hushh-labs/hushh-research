@@ -1,7 +1,7 @@
 # Person Profile UI Contract
 
-Status: current source-backed contract, updated for Profile v16 on 21 October
-2026, based on `f64c890498dd4aa9bd1fe8bb3ac35c6445948f47`.
+Status: current source-backed contract, updated for Profile v16 and shared
+connected-person previews on 29 October 2026.
 Owner: frontend design system and the existing consent/wallet feature owners.
 Classification: `canonical`, package-local. This is **another person's profile**
 opened from Connect or Messages, not the signed-in person's [Profile settings](./profile.md).
@@ -58,6 +58,27 @@ Sources: [route](../../app/people/[personRef]/page.tsx),
 | `?request=1` | Scrolls to Available to request after viewer state is ready. |
 | `?section=shared` | Scrolls to Shared with you; opens existing vault unlock if locked. |
 | Back | Shell Back uses normalized `from`. An entry without a trusted origin has no authored parent. Do not replace this with arbitrary browser history. |
+
+### Profiles opened from connected-person lists
+
+Connected-person portraits and in-app identity links use the shared
+`PersonProfilePreview` mounted in the application shell. This embeds the same
+profile page above the calling screen; it does not navigate away or unmount an
+open picker. The direct-route contract above remains available for URLs and
+modified clicks. The source/identity coverage is listed in
+[Connect](./connect.md#connected-person-profile-access).
+
+In an embedded profile, Back dismisses the top nested request dialog first,
+then the profile, restoring the source sheet, search, selected people, scroll
+and opener focus. Browser Back consumes the preview's owned same-URL history
+entry. Native overlay Back and Escape use the existing dialog owner. No person
+identity or private source state is persisted in browser history.
+
+The supplied person reference remains authoritative on iOS while embedded;
+source-page `request` and `section` query parameters do not drive the profile.
+Share uses the canonical person-profile URL. A failed identity lookup leaves a
+dismissible unavailable state. Closing, changing routes or changing accounts
+retires pending reads; returning to the source cannot revive an old profile.
 
 Document order: **hero → Available packets (when enabled) → Shared with you →
 Available to request → Request history → Review request**. The signed-out

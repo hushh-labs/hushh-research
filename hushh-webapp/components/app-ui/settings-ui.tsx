@@ -892,7 +892,7 @@ export function SettingsRow({
       <div className={rowShellClassName} {...rowDataProps}>
         <Comp
           {...(!resolvedAsChild
-            ? { "aria-disabled": disabled || undefined }
+            ? { "aria-disabled": (disabled && !leadingInteractive) || undefined }
             : {})}
           className={sharedClassName}
           {...voiceProps}
@@ -924,7 +924,7 @@ export function SettingsRow({
               "aria-label": ariaLabel,
               "aria-describedby": descriptionId,
             }
-          : { "aria-disabled": disabled || undefined })}
+          : { "aria-disabled": (disabled && !leadingInteractive) || undefined })}
         className={sharedClassName}
         {...voiceProps}
       >
