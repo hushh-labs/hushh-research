@@ -42,6 +42,7 @@ from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_PREFERENCE_DEFAULT,
     CONTACT_SYNC_PREFERENCE_ENABLED,
     contact_sync_preference_state,
+    resolve_revoked_contact_match,
 )
 from hushh_mcp.services.people_search_sql import (
     directory_search_rank,
@@ -4100,25 +4101,17 @@ class ConnectionsService:
                     # edge. New and revoked pairs remain undisclosed.
                     continue
                 elif existing_status == "revoked" and existing is not None:
-                    # A fresh explicit sync can undo only this requester's own
-                    # earlier disconnect. Episode equality also fails closed
-                    # after an older binary writes a newer revocation.
-                    revoked_at = existing.get("revoked_at")
-                    if (
-                        allow_reconnect
-                        and existing.get("revoked_by_user_id") == requester_id
-                        and isinstance(revoked_at, datetime)
-                        and revoked_at.tzinfo is not None
-                        and existing.get("revoked_by_at") == revoked_at
-                        and sync_started_at is not None
-                        and revoked_at < sync_started_at
-                    ):
+                    outcome, revoked_at = resolve_revoked_contact_match(
+                        existing,
+                        requester_id=requester_id,
+                        sync_started_at=sync_started_at,
+                        allow_reconnect=allow_reconnect,
+                    )
+                    if outcome == "auto_connected":
                         activations.append(
                             {**directory_activation, "reconnect_revoked_at": revoked_at}
                         )
                         activation_required_target_ids.add(target_user_id)
-                    else:
-                        outcome = "suppressed"
                 else:
                     # Matching materializes the social relationship only. It
                     # does not activate a pending scope proposal or create a

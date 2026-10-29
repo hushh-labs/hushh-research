@@ -95,3 +95,14 @@
 
 
 .detailPane { scroll-margin-top: max(64px, var(--app-top-content-offset, 64px)); }
+
+.timeFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; min-width: 0; }
+.timeField, .dateField { display: grid; gap: var(--app-form-field-gap, 6px); min-width: 0; }
+.dateField { grid-column: 1 / -1; }
+.timeFields input { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; min-height: 48px; }
+.offerMessage { min-height: 104px; padding: 14px 16px; }
+.mailRecovery { display: grid; gap: 8px; font-size: 13px; }
+.actions .acceptAction { color: var(--app-success-deep) !important; border-color: var(--app-success-border) !important; }
+.actions .declineAction { color: var(--app-destructive) !important; border-color: var(--app-destructive) !important; }
+.organizer .avatar { width: 40px; height: 40px; }
+@media (max-width: 480px) { .timeFields { grid-template-columns: minmax(0, 1fr); } .review { min-width: 0; padding: 14px; } .review > div:last-child { min-width: 0; } }

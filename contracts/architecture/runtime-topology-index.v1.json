@@ -3885,7 +3885,11 @@
           "market.stock.quote.retry",
           "market.stocks.retry",
           "route.back",
-          "route.kai_home"
+          "route.kai_home",
+          "route.kai_portfolio_allocation",
+          "route.kai_portfolio_holdings",
+          "route.kai_portfolio_performance",
+          "route.kai_portfolio_sources"
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai"
@@ -7216,14 +7220,14 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "eca5b20202df56cb08e43928cf214de8c5745549a78a1cf2f4869270440efeeb",
-    "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
+    "action_gateway": "747d2e38292a197daf91c18f103880a76c76249c522323c3c4c3595815190ee0",
+    "agent_registry": "aada7524e3d1bafee331519236c7079ee060a54c167eac84595ae640e2389533",
     "cache_manifest": "a53e42359c26801361b197fefc688eaea9b0cd9c693aabc6532c9f4cd84fdd32",
     "data_plane": "69c12c7f59acb8105948d1832c1cdd276b3b19ddcb6734a9d29c80fc732a4ccc",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "2811aaf1379cba5d962b960db0c9b47ae61320eafcbe050f96fca466068f44ae",
-    "route_layout": "ae60c541f96584d07522ee912820dcc5e04389fb65b6a7a37d54427a46481cf0",
+    "route_index": "bcd2bbc2786dd4eef4695fc624b1cd22d6a414382c811bc4c9de287575b2cec7",
+    "route_layout": "cc9e99de1ece3003cb3f21e63258964b2f230c5bb11c20324f269c8bf2694f34",
     "surface_map": "7f84d934bbaaf7859a000bb1383fefa4e9316fb6ae923239baf62be5061fa896",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"

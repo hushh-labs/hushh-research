@@ -2353,7 +2353,7 @@ export function DashboardMasterView({
                     </span>
                     <ChevronDown
                       className={cn(
-                        "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                        "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-decelerate)] motion-reduce:transition-none",
                         portfolioDetailOpen && "rotate-180",
                       )}
                     />

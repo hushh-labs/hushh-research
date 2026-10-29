@@ -124,11 +124,13 @@ describe("three-account Calendar board", () => {
     render(page());
     fireEvent.click(screen.getByRole("tab", { name: "Insights" }));
     const insights = screen.getByRole("region", { name: "Calendar insights" });
-    const selector = within(insights).getByRole("combobox", { name: "Calendar account" });
+    const selector = () => within(insights).getByRole("button", { name: /^Calendar account:/ });
     expect(within(insights).getByTestId("insights-account")).toHaveTextContent("default");
-    fireEvent.change(selector, { target: { value: "second" } });
+    fireEvent.keyDown(selector(), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /second@example.com/ }));
     expect(within(insights).getByTestId("insights-account")).toHaveTextContent("second");
-    fireEvent.change(selector, { target: { value: "third" } });
+    fireEvent.keyDown(selector(), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /third@example.com/ }));
     expect(within(insights).getByTestId("insights-account")).toHaveTextContent("third");
     expect(within(insights).queryByText("Across your connected accounts today")).toBeNull();
   });
@@ -137,7 +139,7 @@ describe("three-account Calendar board", () => {
     markCalendarMeetingOAuthReturn("owner", { accountId: "second", day: "2026-10-14", timeZone: "UTC", filter: "notes", query: "Growth" });
     render(page());
     const insights = screen.getByRole("region", { name: "Calendar insights" });
-    expect(within(insights).getByRole("combobox", { name: "Calendar account" })).toHaveValue("second");
+    expect(within(insights).getByRole("button", { name: "Calendar account: second@example.com" })).toBeTruthy();
     expect(within(insights).getByTestId("insights-restored-day")).toHaveTextContent("2026-10-14");
     fireEvent.click(screen.getByRole("tab", { name: "Board" }));
     fireEvent.click(screen.getByRole("tab", { name: "Insights" }));

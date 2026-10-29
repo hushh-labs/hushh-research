@@ -1,15 +1,19 @@
 .layout { display: grid; gap: 24px; min-width: 0; }
 .group { border: 1px solid var(--border); border-radius: 18px; background: var(--card); padding: 18px; min-width: 0; }
-.heading { font-size: 20px; line-height: 27px; font-weight: 600; letter-spacing: -.025em; }
+.heading { font-size: 16px; line-height: 22px; font-weight: 600; letter-spacing: -.025em; }
 .caption { color: var(--muted-foreground); font-size: 12px; line-height: 18px; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 14px; min-height: 48px; font-size: 14px; line-height: 21px; border-bottom: 1px solid var(--border); }
 .row:last-child { border-bottom: 0; }
-.choice { display: flex; align-items: flex-start; gap: 12px; min-height: 44px; padding-block: 12px; cursor: pointer; font-size: 14px; line-height: 21px; }
+.choice { position: relative; isolation: isolate; display: flex; align-items: flex-start; gap: 12px; min-height: 44px; border-radius: 8px; padding-block: 12px; cursor: pointer; font-size: 14px; line-height: 21px; }
+.choice::before { position: absolute; z-index: -1; inset: 0; border-radius: inherit; background: var(--app-accent); opacity: 0; pointer-events: none; content: ""; }
+.choice:has(input:checked)::before { opacity: .06; }
 .choice input { margin-top: 4px; width: 18px; height: 18px; accent-color: var(--primary); flex-shrink: 0; }
 .choice small { display: block; color: var(--muted-foreground); font-size: 12px; line-height: 18px; margin-top: 3px; }
 .mode { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.mode button { padding: 14px; text-align: left; border: 1px solid var(--border); border-radius: 14px; min-height: 80px; font-size: 14px; line-height: 21px; }
-.mode button[aria-pressed="true"] { border-color: var(--primary); background: var(--accent-surface); color: var(--accent-strong); }
+.mode button { position: relative; isolation: isolate; overflow: hidden; padding: 14px; text-align: left; border: 1px solid var(--border); border-radius: 14px; min-height: 80px; font-size: 14px; line-height: 21px; }
+.mode button::before { position: absolute; z-index: -1; inset: 0; border-radius: inherit; background: var(--accent-surface); opacity: 0; pointer-events: none; content: ""; }
+.mode button[aria-pressed="true"] { border-color: var(--primary); color: var(--accent-strong); }
+.mode button[aria-pressed="true"]::before { opacity: 1; }
 .mode small { display: block; margin-top: 4px; font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 7px 11px; background: var(--muted); font-size: 12px; line-height: 18px; }
 .person { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding-block: 12px; border-bottom: 1px solid var(--border); }
@@ -18,9 +22,49 @@
 .section { display: grid; gap: 14px; }
 .bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--muted); }
 .value { font-size: 30px; line-height: 38px; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
-.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.toolbar { width: 100%; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 @media(min-width: 1024px) {
   .layout { grid-template-columns: minmax(0,1.05fr) minmax(0,1fr); align-items: start; gap: 28px; }
   .surface { max-width: min(1040px,calc(100vw - 80px)) !important; }
 }
-@media(prefers-reduced-motion: no-preference) { .mode button { transition: background-color 150ms ease,border-color 150ms ease; } }
+@media(prefers-reduced-motion: no-preference) {
+  .mode button::before, .choice::before { transition: opacity var(--motion-duration-sm) var(--motion-ease-decelerate); }
+}
+@media (hover: hover) and (pointer: fine) {
+  .choice:not(:has(input:disabled)):hover::before { opacity: .04; }
+  .choice:has(input:checked):hover::before { opacity: .1; }
+}
+
+/* Keep the connection roster and both option cards within the same desktop frame. */
+.editLayout { display: grid; gap: 16px; min-width: 0; }
+.peopleGroup { display: flex; flex-direction: column; min-height: 0; }
+.recipientList { min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin-top: 12px; }
+.optionsColumn { display: grid; gap: 16px; min-height: 0; min-width: 0; }
+.optionGroup { display: flex; flex-direction: column; min-height: 0; }
+.optionBody { min-height: 0; margin-top: 12px; }
+.optionBody .privacy { margin-top: 12px; padding: 0; background: transparent; }
+.peopleGroup[hidden], .optionsColumn[hidden] { display: none; }
+.toolbar > span > button { min-height: 44px; }
+.forward { margin-inline-start: auto; }
+.primaryAction { background: var(--app-accent) !important; border-color: transparent !important; color: var(--app-accent-fg) !important; box-shadow: none !important; }
+.primaryAction:hover { background: var(--app-accent-hover) !important; }
+@media (min-width: 768px) {
+  .editLayout { grid-template-columns: minmax(0,1fr) minmax(0,1fr); height: min(640px, calc(85dvh - 180px)); }
+  .peopleGroup { height: 100%; }
+  .recipientList { flex: 1; }
+  .optionsColumn { grid-template-rows: minmax(0,1fr) minmax(0,1.15fr); }
+  .optionBody { overflow-y: auto; overscroll-behavior: contain; }
+}
+@media (max-width: 767px) {
+  .recipientList { max-height: 48dvh; }
+}
+
+@media (min-width: 768px) {
+  .optionBody .choice { align-items: center; min-height: 44px; padding-block: 8px; }
+  .optionBody .choice input { margin-top: 0; }
+  .optionBody .choice > span { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+  .optionBody .choice small { margin-top: 0; }
+}
+.recipientList, .optionBody { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.recipientList::-webkit-scrollbar, .optionBody::-webkit-scrollbar { width: 6px; }
+.recipientList::-webkit-scrollbar-thumb, .optionBody::-webkit-scrollbar-thumb { border-radius: 3px; background: var(--border); }

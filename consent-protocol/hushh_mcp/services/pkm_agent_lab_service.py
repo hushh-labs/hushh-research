@@ -52,6 +52,14 @@ from hushh_mcp.services.domain_contracts import (
 )
 from hushh_mcp.services.generated_contracts import shared_config_path
 from hushh_mcp.services.pkm_preview_continuation import PreviewContinuation, contract_fingerprint
+from hushh_mcp.services.pkm_source_quote import (  # noqa: F401 - compatible names
+    _QUOTE_EQUIVALENTS,
+    _QUOTE_MARKUP,
+    locate_source_quote,
+)
+from hushh_mcp.services.pkm_source_quote import (  # noqa: F401 - compatible name
+    fold_for_quote_match as _fold_for_quote_match,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -629,24 +637,6 @@ _STRUCTURE_PREVIEW_SCHEMA = {
 }
 
 
-# A quote the model returned with its Markdown cleaned or a dash or quotation
-# mark normalized is still the owner's text. These fold away before matching,
-# and the match maps back to the ORIGINAL characters, so the stored quote and
-# its offsets are always an exact span of what the owner wrote.
-_QUOTE_EQUIVALENTS = {
-    "\u2010": "-",
-    "\u2011": "-",
-    "\u2012": "-",
-    "\u2013": "-",
-    "\u2014": "-",
-    "\u2212": "-",
-    "\u2018": "'",
-    "\u2019": "'",
-    "\u201c": '"',
-    "\u201d": '"',
-    "\u00a0": " ",
-}
-_QUOTE_MARKUP = frozenset("*_`#>\\")
 _MAX_CONTEXT_QUOTES = 4
 # Protocol namespace names a person could use for a SUBJECT of their work ("our
 # agents", "the MCP server", "system architecture"). A fact the model filed
@@ -655,55 +645,6 @@ _MAX_CONTEXT_QUOTES = 4
 # refused: they name storage and authority, never a topic.
 _REMAPPABLE_PROTOCOL_DOMAIN_NAMES = frozenset({"agent", "agents", "mcp", "system"})
 _MAX_CONTEXT_QUOTE_CHARS = 400
-
-
-def _fold_for_quote_match(text: str) -> tuple[str, list[int]]:
-    """Fold markup, dash and quote variants and whitespace runs.
-
-    Returns the folded text and, for each folded character, the index of the
-    source character it came from.
-    """
-    folded: list[str] = []
-    origin: list[int] = []
-    pending_space = False
-    for index, raw_char in enumerate(text):
-        char = _QUOTE_EQUIVALENTS.get(raw_char, raw_char)
-        if char in _QUOTE_MARKUP:
-            continue
-        if char.isspace():
-            pending_space = bool(folded)
-            continue
-        if pending_space:
-            folded.append(" ")
-            origin.append(index)
-            pending_space = False
-        folded.append(char)
-        origin.append(index)
-    return "".join(folded), origin
-
-
-def locate_source_quote(message: str, quote: str) -> tuple[int, int] | None:
-    """The exact span of ``message`` a model quote refers to, or None.
-
-    An exact substring wins. Otherwise the quote matches when it equals a part
-    of the message once Markdown emphasis, heading and code marks, dash and
-    quotation-mark variants and whitespace runs are folded on both sides. The
-    span returned is always in the original message, so the caller keeps the
-    owner's own characters and offsets, never the model's rewrite.
-    """
-    if not isinstance(quote, str) or not quote.strip():
-        return None
-    index = message.find(quote)
-    if index >= 0:
-        return index, index + len(quote)
-    folded_quote, _ = _fold_for_quote_match(quote)
-    if not folded_quote:
-        return None
-    folded_message, origin = _fold_for_quote_match(message)
-    at = folded_message.find(folded_quote)
-    if at < 0:
-        return None
-    return origin[at], origin[at + len(folded_quote) - 1] + 1
 
 
 def _manifest_model_name(manifest: Any) -> str:

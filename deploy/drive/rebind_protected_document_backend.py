@@ -119,3 +119,93 @@ def restoration_mode(
         "qualify_source"
     ](target)
     return {**mode, "stored_enabled": mode["enabled"], "enabled": False}
+
+def unchanged_mode(observed: dict, expected: dict) -> dict:
+    """Compare stored policy with an independently qualified effective receipt."""
+    fields = {"configured", "enabled"}
+    if (
+        not isinstance(observed, dict)
+        or not isinstance(expected, dict)
+        or set(observed) != fields
+        or set(expected) not in (fields, fields | {"stored_enabled"})
+        or any(type(value) is not bool for value in (*observed.values(), *expected.values()))
+        or (observed["enabled"] and not observed["configured"])
+        or ("stored_enabled" in expected and expected["enabled"] is not False)
+        or observed
+        != {
+            "configured": expected["configured"],
+            "enabled": expected.get("stored_enabled", expected["enabled"]),
+        }
+    ):
+        raise ValueError("Protected document mode changed after release qualification")
+    return dict(expected)
+
+
+def retained_worker_mode(
+    observed: dict, *, target: str, stage_run: str = "", activation_run: str = "",
+    cold_release: bool = False,
+) -> dict:
+    """Requalify the existing release origin before selecting its effective mode."""
+    import sys
+
+    if (
+        type(cold_release) is not bool
+        or sum(map(bool, (stage_run, activation_run, cold_release))) != 1
+        or (not cold_release and not re.fullmatch(r"[1-9][0-9]*", stage_run or activation_run))
+        or not re.fullmatch(r"[0-9a-f]{40}", target)
+    ):
+        raise ValueError("Retained document origin is invalid")
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts/ci"))
+    import production_backend_successor_control as control
+    import production_backend_successor_proof as proof
+
+    owner = control.authority()
+    anchor = control.record_anchor(proof.read_original())
+    if anchor is not None:
+        control.live(anchor)
+    ports = {
+        "api": owner.api,
+        "governed": owner.governed_dispatch,
+        "timestamp": owner._github_timestamp,
+        "run_command": owner.retention.run_command,
+        "timeout": 60,
+    }
+    if cold_release:
+        import production_worker_basis as basis
+
+        if anchor is None:
+            expected = basis.load(target)["protected_documents"]
+        else:
+            sealed = anchor["sealed_boundary"]
+            if sealed["checkpoint"]["plan"]["primary_sha"] != target:
+                raise ValueError("Retained document cold origin belongs to another source")
+            expected = sealed["document_mode"]
+    elif stage_run:
+        import production_staged_worker as worker
+        import production_worker_basis as basis
+
+        arguments = (
+            {} if anchor is not None else {"healthy_release_run_id": basis.current_release_run_id()}
+        )
+        selected = worker.load_worker(stage_run, anchor, **ports, **arguments)["context"]
+        if selected["source"] != target:
+            raise ValueError("Retained document worker belongs to another source")
+        expected = (
+            selected["basis"]["protected_documents"]
+            if "basis" in selected
+            else anchor["sealed_boundary"]["document_mode"]
+        )
+    else:
+        import production_activation_continuation as continuation
+
+        if anchor is None:
+            raise ValueError("Retained document activation has no operational origin")
+        selected = continuation.load_original(
+            activation_run,
+            target,
+            repository=proof.REPOSITORY,
+            operational_anchor=anchor,
+            **ports,
+        )
+        expected = selected["protected_documents"]["mode"]
+    return unchanged_mode(observed, expected)

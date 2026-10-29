@@ -815,12 +815,14 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                     return container.contentPaneAdmits(identity) && container.preparationBaseIsConcealed &&
                         container.window != nil && container.window === host.window && container.bounds.size == viewport
                 }) else {
-                    if !retained {
-                        shield.retireProfilePanePreparation(identity)
-                        _ = compositor.rollbackContentPaneAcquisition(identity)
-                        self.notifyPaneHandoffChanged()
+                    if retained {
+                        call.reject("NATIVE_CONTENT_PANE_PREPARATION_REFUSED"); return
                     }
-                    call.reject("NATIVE_CONTENT_PANE_PREPARATION_REFUSED"); return
+                    let rolledBack = self.rollbackUnacknowledgedContentPaneAcquisition(identity, compositor: compositor)
+                    call.reject(rolledBack
+                        ? "NATIVE_CONTENT_PANE_PREPARATION_REFUSED"
+                        : "NATIVE_CONTENT_PANE_ROLLBACK_UNCONFIRMED")
+                    return
                 }
             }
             self.interactionGeneration += 1
@@ -922,6 +924,24 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func trackPanePresenterRetirement(_ presenter: HushhNativeChromePresenter) {
         retiringPanePresenters.retire(presenter)
+    }
+    @discardableResult
+    func rollbackUnacknowledgedContentPaneAcquisition(
+        _ identity: NativeContentPaneIdentity,
+        compositor: NativePresentationContainer
+    ) -> Bool {
+        guard compositor.contentPane == identity, !compositor.contentPaneRetiring else { return false }
+        HushhSessionPrivacyShield.shared.retireProfilePanePreparation(identity)
+        let matchingSlots = slots.filter { $0.value.contentPane?.sameLifetime(as: identity) == true }
+        for (controlId, slot) in matchingSlots {
+            slot.state.invalidate()
+            if let presenter = slot.presenter { trackPanePresenterRetirement(presenter) }
+            removeHosting(slot)
+            slots.removeValue(forKey: controlId)
+        }
+        let rolledBack = compositor.rollbackContentPaneAcquisition(identity)
+        notifyPaneHandoffChanged()
+        return rolledBack
     }
     private var paneHandoffObstructed: Bool {
         guard let compositor, bridge?.viewController != nil else { return true }

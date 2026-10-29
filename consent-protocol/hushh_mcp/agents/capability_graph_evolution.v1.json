@@ -2226,6 +2226,70 @@
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.kai_portfolio_holdings",
+      "from_revision": "a2b80c4cd47f7fc6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.kai_portfolio_allocation",
+      "from_revision": "a2b80c4cd47f7fc6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.kai_portfolio_performance",
+      "from_revision": "a2b80c4cd47f7fc6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.kai_portfolio_sources",
+      "from_revision": "a2b80c4cd47f7fc6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.kai_portfolio_holdings",
+      "from_revision": "a6f024675114ad63",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.kai_portfolio_allocation",
+      "from_revision": "a6f024675114ad63",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.kai_portfolio_performance",
+      "from_revision": "a6f024675114ad63",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.kai_portfolio_sources",
+      "from_revision": "a6f024675114ad63",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
     }
   ]
 }

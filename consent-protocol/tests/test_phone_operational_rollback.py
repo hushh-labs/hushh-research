@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import subprocess
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
-from tests.test_phone_rollback_release import FALLBACK, IMAGE, PRIMARY, _verify_args
+from tests.test_phone_rollback_release import FALLBACK, IMAGE, PRIMARY, ROOT, _verify_args
 from tests.test_phone_rollback_release import release_plan as release_plan
 
 pytestmark = pytest.mark.feature_auth_reliability
@@ -157,6 +160,68 @@ def test_only_canonical_absence_allows_independent_cold_plan(operational_plan):
     assert state.plan.prepare(state.args)["mode"] == "cold"
     assert state.reference_calls == ["read", "record"]
     assert any(call[:4] == ["gcloud", "container", "images", "add-tag"] for call in state.calls)
+
+
+@pytest.mark.parametrize(
+    "phase,scope,allowed",
+    [("cold", "backend", True), ("standard", "backend", False)]
+    + [("cold", scope, False) for scope in ("all", "frontend", "auto")],
+)
+def test_cold_scope_selects_qualification_without_waiving_ordinary_atomicity(
+    tmp_path, phase, scope, allowed
+):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    steps = {step["name"]: step for step in workflow["jobs"]["deploy"]["steps"]}
+    script = steps["Resolve deployment scope"]["run"]
+    values = {
+        "github.event.inputs.scope": scope,
+        "github.event.inputs.sha": PRIMARY,
+        "steps.predeploy-state.outputs.backend_sha": FALLBACK,
+        "steps.predeploy-state.outputs.frontend_sha": "d" * 40,
+        "inputs.cadence_origin != ''": "false",
+    }
+    for key, value in values.items():
+        script = script.replace("${{ " + key + " }}", value)
+    assert "${{" not in script
+    tools = tmp_path / "release-tools"
+    tools.mkdir()
+    calls = tmp_path / "resolver-calls.json"
+    (tools / "resolve-deploy-scope.py").write_text(
+        "import json,os,sys\nfrom pathlib import Path\n"
+        "Path(os.environ['RESOLVER_CALLS']).write_text(json.dumps(sys.argv[1:]))\n"
+        "sys.exit('A narrow manual deploy would split the account-lifecycle boundary')\n"
+    )
+    output = tmp_path / "outputs"
+    result = subprocess.run(  # noqa: S603 - Actual workflow shell with a rejecting scope-owner port.
+        ["bash", "-euo", "pipefail", "-c", script],
+        env={
+            **os.environ,
+            "PHONE_DEPLOY_PHASE": phase,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "RESOLVER_CALLS": str(calls),
+        },
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+    assert (result.returncode == 0) is allowed, result.stderr
+    if allowed:
+        assert dict(line.split("=", 1) for line in output.read_text().splitlines()) == {
+            "scope": "backend",
+            "deploy_backend": "true",
+            "deploy_frontend": "false",
+            "reason": "cold:qualification",
+        }
+    else:
+        assert not output.exists()
+    if phase == "standard":
+        args = json.loads(calls.read_text())
+        assert args[args.index("--backend-base-sha") + 1] == FALLBACK
+        assert args[args.index("--frontend-base-sha") + 1] == "d" * 40
+        assert "account-lifecycle boundary" in result.stderr
+    else:
+        assert not calls.exists()
 
 
 @pytest.mark.parametrize(

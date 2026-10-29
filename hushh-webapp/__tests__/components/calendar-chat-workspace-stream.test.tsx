@@ -586,7 +586,6 @@ it("rejects a changed Google account even if the model returns the same invitati
   expect(screen.queryByText(/The connected Calendar account changed/)).toBeNull();
 });
 
-
 it("binds invitation reconnect to the unlocked owner and retires its capability on unmount", async () => {
   vi.spyOn(GoogleCalendarService, "invitations").mockRejectedValue(new GoogleCalendarError("Connect Calendar", "calendar_not_connected", 409));
   vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", { directive: {
@@ -646,27 +645,31 @@ it.each(["navigation", "vault lock", "owner change", "verification required"])(
   15_000,
 );
 
-it("reports incomplete memory preparation instead of silently treating it as no new facts", async () => {
-  const ingestion = await import("@/lib/pkm/pkm-natural-language-ingestion");
-  const markdown = await import("@/lib/pkm/markdown-memory");
-  const { morphyToast } = await import("@/lib/morphy-ux/morphy");
-  const failure = vi.spyOn(morphyToast, "error");
-  fixture.captureReady = true;
-  vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({
-    cards: [], previews: [], sourceCoverage: [{
-      sourceBlockId: "profile", preparationIssue: "preparation_timeout",
-      disposition: "review_required", detectedFactCount: 0, accountedFactCount: 0,
-    }],
-  } as never);
+it.each(["capture", "read", "locked"] as const)("keeps a background memory %s failure out of the answer unless the vault is locked", async failure => {
+  const [ingestion, markdown, { morphyToast }, observability] = await Promise.all([import("@/lib/pkm/pkm-natural-language-ingestion"),
+    import("@/lib/pkm/markdown-memory"), import("@/lib/morphy-ux/morphy"), import("@/lib/observability/client")]);
+  const [failureToast, track] = [vi.spyOn(morphyToast, "error"), vi.spyOn(observability, "trackEvent")];
+  Object.assign(fixture, { captureReady: true, memoryReadFails: failure !== "capture" });
+  if (failure === "locked") fixture.vault.vaultKey = null as never;
+  const preparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({ cards: [], previews: [], sourceCoverage: [{ sourceBlockId: "profile",
+    preparationIssue: "preparation_timeout", disposition: "review_required", detectedFactCount: 0, accountedFactCount: 0 }] } as never);
   const stage = vi.spyOn(markdown, "stageMarkdownMemoryFacts");
-  vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
+  const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
   workspace();
-  const composer = await screen.findByRole("textbox", { name: "Message One" });
-  fireEvent.change(composer, { target: { value: "I study robotics at Example University." } });
+  fireEvent.change(await screen.findByRole("textbox", { name: "Message One" }), { target: { value: "I study robotics at Example University." } });
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-  await screen.findByRole("button", { name: "Schedule meeting" });
-  expect(stage).not.toHaveBeenCalled();
-  expect(failure).toHaveBeenCalledWith("One couldn't update memory.md. Your message is still in chat; try saving it again.");
+  const blocked = "One couldn't load your private memory for this turn. Keep your vault unlocked and try again.";
+  await (failure === "locked" ? screen.findByText(blocked) : screen.findByRole("button", { name: "Schedule meeting" }));
+  expect(preparation).toHaveBeenCalledTimes(failure === "capture" ? 1 : 0);
+  expect(stage).not.toHaveBeenCalled(); expect(failureToast).not.toHaveBeenCalled();
+  if (failure === "capture") expect(track).toHaveBeenCalledWith("agent_pkm_save_confirmation_completed", expect.objectContaining({ result: "error" }));
+  expect(stream).toHaveBeenCalledTimes(failure === "locked" ? 0 : 1);
+  expect(Boolean(screen.queryByText(blocked))).toBe(failure === "locked");
+  expect(screen.queryByText(/memory\.md status/)).toBeNull(); expect(Boolean(screen.queryByText("Private memory could not load."))).toBe(failure === "read");
+  if (failure === "read") expect(JSON.parse(String(stream.mock.calls[0][1]?.body)).forwardedProps.pkmContext)
+    .toContain("memory.md status: could not be read for this turn; its contents are unknown, not empty.");
+  if (failure !== "capture") expect(track).toHaveBeenCalledWith("agent_pkm_context_unavailable",
+    expect.objectContaining({ reason: failure === "read" ? "load_failed" : "vault_locked" }));
 });
 
 it("meeting context continues the current conversation with source attachments and no automatic PKM capture", async () => {
@@ -919,7 +922,6 @@ it("does not borrow an active Mail reply workflow for a meeting turn", async () 
   expect(JSON.stringify(next.context)).not.toContain("mail-workflow");
   expect(next.gmailInformationRequestWorkflowId).toBeUndefined();
 });
-
 
 it.each([false, true])("reports authorized Calendar/Mail settlement without repeating effects (history retry: %s)", async retryHistory => {
   const { snapshotVaultSessionEpoch } = await import("@/lib/vault/session-epoch");

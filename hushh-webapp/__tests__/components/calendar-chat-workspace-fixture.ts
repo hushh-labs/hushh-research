@@ -12,7 +12,7 @@ const fixture = vi.hoisted(() => {
   const tokenAccess = { available: true };
   return {
     tokenAccess,
-    captureReady: false,
+    captureReady: false, memoryReadFails: false,
     nameOnboarding: false,
     auth: { user, loading: false, sessionVerificationRequired: false },
     vault: { isVaultUnlocked: true, vaultKey: "12".repeat(32), vaultOwnerToken: "test-owner-token", tokenExpiresAt: Date.now() + 3600000, getVaultOwnerToken: (): string | null => tokenAccess.available ? "test-owner-token" : null },
@@ -45,7 +45,7 @@ vi.mock("@/lib/agent/use-one-display-name", () => ({ useOneDisplayName: () => "O
 vi.mock("@/lib/services/model-preference-service", () => ({ ModelPreferenceService: { get: async () => ({ choices: [], effective_model: "test" }) } }));
 vi.mock("@/lib/agent/use-entry-welcome", () => ({ useEntryWelcome: () => null }));
 vi.mock("@/lib/agent/agent-pkm-capture-runtime", async importOriginal => { const actual = await importOriginal<typeof import("@/lib/agent/agent-pkm-capture-runtime")>(); return { ...actual, isAgentPkmProcessingReady: (...args: Parameters<typeof actual.isAgentPkmProcessingReady>) => fixture.captureReady && actual.isAgentPkmProcessingReady(...args) }; });
-vi.mock("@/lib/agent/agent-pkm-memory", async importOriginal => ({ ...await importOriginal<object>(), loadAgentPkmContext: async () => fixture.memory, peekAgentPkmContext: () => fixture.memory, warmAgentPkmContext: async () => fixture.memory }));
+vi.mock("@/lib/agent/agent-pkm-memory", async importOriginal => ({ ...await importOriginal<object>(), loadAgentPkmContext: async () => { if (fixture.memoryReadFails) throw new Error("read failed"); return fixture.memory; }, peekAgentPkmContext: () => fixture.memoryReadFails ? null : fixture.memory, warmAgentPkmContext: async () => fixture.memory }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useSearchParams: () => fixture.search, useRouter: () => fixture.router }));
 
 
@@ -57,7 +57,7 @@ export function resetCalendarChatFixture() {
   useOneConversationSession.getState().clearSession();
   Element.prototype.scrollTo = vi.fn();
   vi.mocked(globalThis.fetch).mockImplementation(async () => Response.json({}));
-  fixture.captureReady = false;
+  Object.assign(fixture, { captureReady: false, memoryReadFails: false }); fixture.vault.vaultKey = "12".repeat(32);
   fixture.tokenAccess.available = true;
   fixture.nameOnboarding = false;
   useChatOnboardingSession.getState().reset(null);

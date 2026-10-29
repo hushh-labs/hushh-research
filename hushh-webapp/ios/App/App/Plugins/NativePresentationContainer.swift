@@ -447,8 +447,18 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         return true
     }
     func rollbackContentPaneAcquisition(_ identity: NativeContentPaneIdentity) -> Bool {
-        guard !controls.values.contains(where: { $0.pane?.sameLifetime(as: identity) == true }),
-              contentPaneFence.rollbackAcquisition(identity) else { return false }
+        guard contentPaneFence.identity == identity, !contentPaneFence.retiring else { return false }
+        // A pane whose preparation was refused never transferred presentation
+        // authority. Remove any child controls staged for that exact lifetime
+        // before reopening admission for a retry.
+        let stagedControls = controls.compactMap { id, control in
+            control.pane?.sameLifetime(as: identity) == true ? id : nil
+        }
+        for id in stagedControls {
+            setAdmission(id, admitted: false)
+            remove(id)
+        }
+        guard contentPaneFence.rollbackAcquisition(identity) else { return false }
         underlay.layer.zPosition = contentBackedPresentation ? 0 : -1
         NotificationCenter.default.post(name: Self.isolationDidChange, object: self)
         return true

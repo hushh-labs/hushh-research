@@ -2122,7 +2122,11 @@
         "market.stock.quote.retry",
         "market.stocks.retry",
         "route.back",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2184,7 +2188,11 @@
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2246,7 +2254,11 @@
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2308,7 +2320,11 @@
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2368,7 +2384,11 @@
         "market.stock.quote.retry",
         "market.stocks.retry",
         "route.back",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {

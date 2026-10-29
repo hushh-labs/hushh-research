@@ -128,6 +128,7 @@ export function KaiMarketHubPage() {
         <PageHeader
           title="Finance"
           titleRole="agent"
+          titleVisuallyHidden
         />
         <TopShellTabs
           tabSet={{ ...FINANCE_TAB_DEFINITION, activeValue: visibleTab }}

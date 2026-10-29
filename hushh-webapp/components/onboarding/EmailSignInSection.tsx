@@ -9,6 +9,7 @@ import styles from "./AuthStepLight.module.css";
 import { cn } from "@/lib/utils";
 import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import { ApiService } from "@/lib/services/api-service";
+import { LEGAL_CONTACT_EMAIL } from "@/lib/legal/legal-documents";
 import { startJourneyTrace } from "@/lib/observability/journey-trace";
 import {
   createEmailBrowserBinding, EmailAuthRequestError,
@@ -195,11 +196,14 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
           ? "Previous account cleanup needs review before you can start fresh."
           : "Account recovery is not ready yet. Wait a minute, then request a new code."}
       </p>}
-      <Button type="button" variant="ghost" className={styles.emailQuietAction}
-        disabled={busy || disabled || remaining > 0}
-        onClick={() => { requestKey.current = null; void requestCode(); }}>
-        {remaining > 0 ? `Request a new code in ${remaining}s` : "Request a new code"}
-      </Button>
+      {/* Support-led cleanup never changes on a new code, so support replaces that dead end. */}
+      {registration.registration.state === "action_required"
+        ? <a className={cn(styles.providerButton, styles.emailSubmit)} href={`mailto:${LEGAL_CONTACT_EMAIL}`}>Email {LEGAL_CONTACT_EMAIL}</a>
+        : <Button type="button" variant="ghost" className={styles.emailQuietAction}
+          disabled={busy || disabled || remaining > 0}
+          onClick={() => { requestKey.current = null; void requestCode(); }}>
+          {remaining > 0 ? `Request a new code in ${remaining}s` : "Request a new code"}
+        </Button>}
     </div> : null}
     {notice ? <p role="alert" className="text-sm text-destructive">{notice}</p> : null}
     <Button type="button" variant="ghost" className={styles.emailQuietAction} disabled={busy || disabled}

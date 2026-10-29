@@ -3,53 +3,11 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { describe, expect, it, vi } from "vitest";
 
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
-import type { OneLocationContactSignalResult } from "@/lib/one-location/contact-signals";
+import { contactSyncResult as result } from "@/__tests__/fixtures/contact-sync-results";
 
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
-
-function result(
-  overrides: Partial<OneLocationContactSignalResult> = {},
-): OneLocationContactSignalResult {
-  return {
-    matches: [
-      {
-        lookupId: "lookup_1",
-        userId: "user_1",
-        displayName: "Asha Rao",
-        photoUrl: null,
-        outcome: "auto_connected",
-      },
-    ],
-    matchedUserIds: ["user_1"],
-    totalContacts: 1200,
-    readContactCount: 1200,
-    checkedContactCount: 1200,
-    matchedContactCount: 1,
-    unmatchedContactCount: 1199,
-    uncheckableContactCount: 0,
-    excludedSelfContactCount: 0,
-    lookupLimitedContactCount: 0,
-    lookupLimitExceeded: false,
-    unknownContactCount: 0,
-    mutationOutcomeUnknown: false,
-    uncheckedContactCount: 0,
-    inviteCandidateCount: 1199,
-    autoConnectedCount: 1,
-    alreadyConnectedCount: 0,
-    requestRequiredCount: 0,
-    suppressedCount: 0,
-    completedBatchCount: 2,
-    totalBatchCount: 2,
-    partial: false,
-    sourcePlatform: "android",
-    region: "IN",
-    limited: false,
-    truncated: false,
-    ...overrides,
-  };
-}
 
 describe("ContactSyncResultsSheet", () => {
   it("uses the Location onboarding measure for its decision CTAs", () => {
@@ -559,12 +517,32 @@ describe("ContactSyncResultsSheet", () => {
     ).toBeInTheDocument();
   });
 
-  it("explains contacts skipped because they contain only the signed-in user's number", () => {
+  it("counts matched people consistently with the list and omits the own-number notice", () => {
+    const matches = Array.from({ length: 9 }, (_, index) => ({
+      lookupId: `lookup_${index + 1}`,
+      userId: `user_${index + 1}`,
+      displayName: `Matched person ${index + 1}`,
+      photoUrl: null,
+      outcome: index < 6 ? "already_connected" as const : "request_required" as const,
+    }));
     render(
       <ContactSyncResultsSheet
         open
         onOpenChange={vi.fn()}
-        result={result({ excludedSelfContactCount: 2 })}
+        result={result({
+          sourcePlatform: "ios",
+          matches,
+          matchedUserIds: matches.map((match) => match.userId),
+          // Two address-book entries resolve to the same account; the own
+          // card is excluded before matching and must not create a tenth row.
+          checkedContactCount: 42,
+          matchedContactCount: 10,
+          unmatchedContactCount: 32,
+          excludedSelfContactCount: 1,
+          autoConnectedCount: 0,
+          alreadyConnectedCount: 6,
+          requestRequiredCount: 3,
+        })}
         syncing={false}
         onSyncAgain={vi.fn()}
         onInvite={vi.fn()}
@@ -572,11 +550,11 @@ describe("ContactSyncResultsSheet", () => {
       />,
     );
 
-    expect(
-      screen.getByText(
-        /2 contact entries containing your own number were skipped/i,
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Matched").parentElement).toHaveTextContent("9Matched");
+    expect(screen.getByText("Connected").parentElement).toHaveTextContent("6Connected");
+    expect(screen.getAllByRole("listitem")).toHaveLength(9);
+    expect(screen.getAllByRole("button", { name: /send a connection request to/i })).toHaveLength(3);
+    expect(screen.queryByText(/containing your own number/i)).not.toBeInTheDocument();
   });
 
   it("resets progressive rendering when a fresh result arrives", async () => {

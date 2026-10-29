@@ -1785,12 +1785,45 @@ final class NativeSupportTests: XCTestCase {
         let identity = NativeContentPaneIdentity(document: "document", ownerEpoch: "owner", generation: 1,
             privacyGeneration: HushhSessionPrivacyShield.shared.snapshot().generation)
         XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size))
+        let stagedHeader = UIButton(frame: CGRect(x: 16, y: 60, width: 44, height: 44))
+        container.install(stagedHeader, id: "unacknowledged-profile-back", group: nil, pane: identity)
+        container.setAdmission("unacknowledged-profile-back", admitted: true)
+        XCTAssertTrue(stagedHeader.isUserInteractionEnabled)
         XCTAssertTrue(container.rollbackContentPaneAcquisition(identity))
         XCTAssertNil(container.contentPane)
+        XCTAssertNil(stagedHeader.superview, "Unacknowledged child controls are discarded with their pane")
         XCTAssertFalse(container.contentPaneRetiring)
         XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size))
         XCTAssertTrue(container.beginContentPaneRetirement(identity))
         XCTAssertTrue(container.releaseContentPane(identity))
+    }
+
+    @MainActor
+    func testPreparationRefusalCleanupCanRetryWithoutTouchingReplacement() {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        container.frame = web.frame
+        let identity = NativeContentPaneIdentity(document: "document", ownerEpoch: "owner", generation: 1,
+            privacyGeneration: HushhSessionPrivacyShield.shared.snapshot().generation)
+        XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size))
+        let stagedControl = UIButton(frame: CGRect(x: 16, y: 60, width: 44, height: 44))
+        container.install(stagedControl, id: "unacknowledged-header", group: nil, pane: identity)
+        container.setAdmission("unacknowledged-header", admitted: true)
+        let plugin = HushhNativeChromePlugin()
+        XCTAssertTrue(plugin.rollbackUnacknowledgedContentPaneAcquisition(identity, compositor: container),
+            "A refused, unacknowledged preparation must confirm its cleanup")
+        XCTAssertNil(container.contentPane)
+        XCTAssertNil(stagedControl.superview)
+        XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size),
+            "The same pane lifetime may retry after confirmed rollback")
+        XCTAssertTrue(container.beginContentPaneRetirement(identity))
+        XCTAssertTrue(container.releaseContentPane(identity))
+        let replacement = NativeContentPaneIdentity(document: "document", ownerEpoch: "owner", generation: 2,
+            privacyGeneration: identity.privacyGeneration)
+        XCTAssertTrue(container.acquireContentPane(replacement, viewport: container.bounds.size))
+        XCTAssertFalse(plugin.rollbackUnacknowledgedContentPaneAcquisition(identity, compositor: container),
+            "A stale cleanup cannot claim that a replacement pane was rolled back")
+        XCTAssertEqual(container.contentPane, replacement)
     }
 
     @MainActor

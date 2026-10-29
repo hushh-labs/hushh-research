@@ -42503,10 +42503,12 @@
       "navigation": {
         "fallback": "/one/kai/portfolio/holdings",
         "routes": [
-          "/one/kai/portfolio/holdings"
+          "/one/kai/portfolio/holdings",
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
-          "kai_portfolio_holdings"
+          "kai_portfolio_holdings",
+          "kai_portfolio_dashboard"
         ]
       },
       "outputSchema": {
@@ -42641,10 +42643,12 @@
       "navigation": {
         "fallback": "/one/kai/portfolio/allocation",
         "routes": [
-          "/one/kai/portfolio/allocation"
+          "/one/kai/portfolio/allocation",
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
-          "kai_portfolio_allocation"
+          "kai_portfolio_allocation",
+          "kai_portfolio_dashboard"
         ]
       },
       "outputSchema": {
@@ -42778,10 +42782,12 @@
       "navigation": {
         "fallback": "/one/kai/portfolio/performance",
         "routes": [
-          "/one/kai/portfolio/performance"
+          "/one/kai/portfolio/performance",
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
-          "kai_portfolio_performance"
+          "kai_portfolio_performance",
+          "kai_portfolio_dashboard"
         ]
       },
       "outputSchema": {
@@ -43054,10 +43060,12 @@
       "navigation": {
         "fallback": "/one/kai/portfolio/sources",
         "routes": [
-          "/one/kai/portfolio/sources"
+          "/one/kai/portfolio/sources",
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
-          "kai_portfolio_sources"
+          "kai_portfolio_sources",
+          "kai_portfolio_dashboard"
         ]
       },
       "outputSchema": {
@@ -50925,7 +50933,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "5cba8c015caaecab06a3e2efed5a3d2120be765ad766179973ad4882510f5b50",
+      "projection_digest": "17e65049ad9abb4e6d07528044930eb795e9c40e047475b5a6210e55c6142a5d",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50935,7 +50943,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "71d4b20d76e9ffc3b09cbad3fd72af83da7274aad456ba101f4e32c9ab8ca18e",
+        "capability_graph_evolution": "3f68e77fcb3be8f47a232256d3d90881eec6495826996132949617a07021303f",
         "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -50944,7 +50952,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "517d9f0e4b778683",
+      "source_revision": "6e5adfcaac095f5e",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -52462,7 +52470,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "517d9f0e4b778683",
+    "source_revision": "6e5adfcaac095f5e",
     "web": {
       "actions": [
         {
@@ -52505,7 +52513,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "acbe39a8fbff32ae03d87311c81bdd11935e861d734b711571e1f452e04e8f2b",
+      "projection_digest": "116d7bf83bfb9d3ac14403fc8d482f95e70b0506c76af7b12a3ccc4fe581dea7",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52515,7 +52523,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "71d4b20d76e9ffc3b09cbad3fd72af83da7274aad456ba101f4e32c9ab8ca18e",
+        "capability_graph_evolution": "3f68e77fcb3be8f47a232256d3d90881eec6495826996132949617a07021303f",
         "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -52524,7 +52532,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "517d9f0e4b778683",
+      "source_revision": "6e5adfcaac095f5e",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -54081,7 +54089,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "517d9f0e4b778683",
+  "revision": "6e5adfcaac095f5e",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -54579,7 +54587,11 @@
         "market.stock.quote.retry",
         "market.stocks.retry",
         "route.back",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "capability_id": "screen:/one/kai",
       "kind": "screen",
@@ -54762,7 +54774,11 @@
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "capability_id": "screen:/one/kai?tab=analysis",
       "kind": "screen",
@@ -54790,7 +54806,11 @@
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "capability_id": "screen:/one/kai?tab=analysis&focus=active",
       "kind": "screen",
@@ -54818,7 +54838,11 @@
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "capability_id": "screen:/one/kai?tab=analysis&view=history",
       "kind": "screen",
@@ -54844,7 +54868,11 @@
         "market.stock.quote.retry",
         "market.stocks.retry",
         "route.back",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "capability_id": "screen:/one/kai?tab=portfolio",
       "kind": "screen",
@@ -56076,9 +56104,24 @@
   "semantic_diff": {
     "added": [],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "actions:route.kai_portfolio_allocation",
+      "actions:route.kai_portfolio_holdings",
+      "actions:route.kai_portfolio_performance",
+      "actions:route.kai_portfolio_sources",
+      "screens:screen:/one/kai",
+      "screens:screen:/one/kai?tab=analysis",
+      "screens:screen:/one/kai?tab=analysis&focus=active",
+      "screens:screen:/one/kai?tab=analysis&view=history",
+      "screens:screen:/one/kai?tab=portfolio"
+    ],
     "compatible": [],
-    "deprecated": [],
+    "deprecated": [
+      "actions:route.kai_portfolio_allocation",
+      "actions:route.kai_portfolio_holdings",
+      "actions:route.kai_portfolio_performance",
+      "actions:route.kai_portfolio_sources"
+    ],
     "from_revision": "a6f024675114ad63",
     "migrated": [],
     "removed": []
@@ -58385,21 +58428,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "71d4b20d76e9ffc3b09cbad3fd72af83da7274aad456ba101f4e32c9ab8ca18e",
+    "capability_graph_evolution": "3f68e77fcb3be8f47a232256d3d90881eec6495826996132949617a07021303f",
     "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "eca5b20202df56cb08e43928cf214de8c5745549a78a1cf2f4869270440efeeb",
+    "kai_action_gateway": "747d2e38292a197daf91c18f103880a76c76249c522323c3c4c3595815190ee0",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
-    "route_orchestration_index": "2811aaf1379cba5d962b960db0c9b47ae61320eafcbe050f96fca466068f44ae",
+    "product_agent_registry": "aada7524e3d1bafee331519236c7079ee060a54c167eac84595ae640e2389533",
+    "route_orchestration_index": "bcd2bbc2786dd4eef4695fc624b1cd22d6a414382c811bc4c9de287575b2cec7",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "517d9f0e4b778683",
+  "source_revision": "6e5adfcaac095f5e",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "517d9f0e4b778683",
+    "current_graph_revision": "6e5adfcaac095f5e",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

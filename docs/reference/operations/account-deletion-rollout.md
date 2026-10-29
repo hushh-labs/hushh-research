@@ -1088,6 +1088,11 @@ partial migration cannot be retried as a new empty first rollout. The bounded
 health-tag lease is retired and the actual cold revision is revalidated before
 publishing the operational proof.
 
+Its explicit backend scope selects qualification work without moving primary
+traffic. The subsequent standard release still applies the ordinary
+account-lifecycle atomicity gate across the actual serving backend and frontend
+sources; a lifecycle change requires both services.
+
 The production capacity owner counts every retained backend and worker revision,
 readiness jobs and reserve. Keep its existing300-slot limit and pools. Under the
 shared deployment lock, capacity maintenance may publish a separately typed
@@ -1147,6 +1152,13 @@ retention can drain the older cold reader. Changed tags, attempts, UIDs, image,
 mode, configuration or Scheduler state fail closed. Qualified cleanup-only
 workflow failures retain the existing canonical health classifier; application
 failures and failed activation continuations remain ineligible.
+
+A retained document receipt may record effective delivery disabled separately
+from `stored_enabled`. Cold qualification, staging, standard reuse and same-source activation
+preserve that effective mode while checking both stored flags exactly. The stage
+or pending release is independently requalified; cold qualification revalidates
+the current healthy basis or its exact operational origin. Ordinary forward reader and
+rollback checks still run. This does not activate retained document intake.
 
 A frontend-only healthy release carries the unchanged backend's exact original
 run, source and revision identities as an untrusted selector. Maintenance and

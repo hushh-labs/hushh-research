@@ -298,6 +298,8 @@ tests/test_pass_assets_reach_the_deployed_image.py
 tests/test_hushh_adk_single_turn.py
 tests/services/test_pkm_agent_lab_service.py
 tests/services/test_pkm_preview_outcomes.py
+# A model quote with copy drift maps onto the owner's exact characters, or fails closed.
+tests/services/test_pkm_source_quote.py
 # A pasted context transfer is kept whole (Phase 4): recorded server answers.
 tests/services/test_context_transfer_is_kept.py
 tests/test_ria_claim_flow.py

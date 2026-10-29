@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 
 export type FullscreenFlowShellWidth =
   | "reading"
+  | "agent"
   | "standard"
   | "expanded"
   | "narrow"
@@ -15,6 +16,7 @@ export type FullscreenFlowShellWidth =
 
 const WIDTH_CLASS_MAP: Record<FullscreenFlowShellWidth, string> = {
   reading: "54rem",
+  agent: "880px",
   standard: "90rem",
   expanded: "96rem",
   narrow: "54rem",

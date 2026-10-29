@@ -347,7 +347,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   } | null>(null);
   const activeSessionValidationPromiseRef = useRef<Promise<void> | null>(null);
   // A forced validation waiting behind another; later forced calls join it until it starts.
-  const queuedSessionValidationRef = useRef<Promise<void> | null>(null);
+  const queuedSessionValidationRef = useRef<{ operation: Promise<void>; epoch: number } | null>(null);
   // A web auth observer can validate a new identity while an explicit recovery
   // check for the previously published identity is still settling. Only the
   // current observer may release this gate; otherwise the old Vault can flash
@@ -1205,9 +1205,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const force = options?.force === true;
       const predecessor = activeSessionValidationPromiseRef.current;
 
-      // At most one validation runs and one waits, however often Refresh is pressed:
-      // the waiting one has not read any state yet, so joining it loses nothing.
-      if (predecessor && (!force || queuedSessionValidationRef.current === predecessor)) {
+      // At most one validation runs and one waits, however often Refresh is pressed. The waiting one has
+      // read nothing yet, so joining it loses nothing, but only in its own sign-in (settlement) epoch.
+      if (predecessor && (!force || queuedSessionValidationRef.current?.operation === predecessor
+          && queuedSessionValidationRef.current.epoch === postAuthSettlementEpochRef.current)) {
         if (force) traceSession("validation_joined");
         return predecessor;
       }
@@ -1232,7 +1233,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const settlementEpoch = postAuthSettlementEpochRef.current;
       let operation!: Promise<void>;
       const runValidation = async () => {
-        if (queuedSessionValidationRef.current === operation) queuedSessionValidationRef.current = null;
+        if (queuedSessionValidationRef.current?.operation === operation) queuedSessionValidationRef.current = null;
         // Resolve the identity after the predecessor settles so an auth switch
         // can never make this queued operation validate a stale User object.
         const currentUser = userRef.current;
@@ -1252,7 +1253,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const started = performance.now();
         const validation = await validateAccountSession(currentUser);
         traceSession("validation_completed", { forced: force, outcome: validation.outcome, duration_ms: Math.round(performance.now() - started),
-          registration: validation.outcome === "unavailable" ? validation.registration?.state ?? null : null });
+          registration: validation.outcome === "unavailable" ? validation.registration?.state ?? null : null,
+          stale: settlementEpoch !== postAuthSettlementEpochRef.current || episode !== getAuthSessionGeneration() });
         const firebaseUserId = !IS_NATIVE
           ? (AuthService.getCurrentUser()?.uid ?? null)
           : null;
@@ -1308,7 +1310,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         : Promise.resolve();
       operation = predecessorSettled.then(runValidation);
       activeSessionValidationPromiseRef.current = operation;
-      if (predecessor) queuedSessionValidationRef.current = operation;
+      if (predecessor) queuedSessionValidationRef.current = { operation, epoch: settlementEpoch };
 
       const clearCompletedOperation = () => {
         if (activeSessionValidationPromiseRef.current !== operation) return;

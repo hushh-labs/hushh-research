@@ -34,6 +34,14 @@ focused lifecycle tests passed on the iPhone 16e and simulator in Debug. This
 verifies retry and document-authority contracts, not Profile route behavior,
 visual transitions or Release performance.
 
+The 2026-10-29 integration follow-up also retires native child controls staged
+for a refused, unacknowledged pane before confirming rollback. A stale rollback
+cannot remove a replacement pane. The five-case lifecycle suite passed on the
+physical iPhone 16e and the iPhone 16e simulator in Debug (iOS 27.1 SDK); the
+Finance Back regression passed 10/10, and the combined UI-contract gate passed.
+These results verify the current rollback and route contracts only. They do not
+qualify all Profile destinations, visual transitions or Release performance.
+
 Every main-frame document receives a random identity at document start. Native
 presentation and privacy actions stay disabled while navigation is pending,
 then require WebKit readback of the exact identity after commit. A new committed

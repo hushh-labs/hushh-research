@@ -112,10 +112,15 @@ def test_segmentation_preserves_exact_multiline_context_without_rewriting():
         message=message,
     )
     assert actual[0]["source_text"] == message
+    recased = PKMAgentLabService._sanitize_segmented_messages(
+        {"segments": [{"source_text": message.upper()}]}, message=message
+    )
+    # A re-cased quote maps back to the owner's own text, end punctuation included.
+    assert recased[0]["source_text"] == message
     assert (
         PKMAgentLabService._sanitize_segmented_messages(
             {
-                "segments": [{"source_text": message.upper()}],
+                "segments": [{"source_text": "Earlier role: I ran a team at Example Labs."}],
             },
             message=message,
         )
@@ -242,3 +247,29 @@ async def test_mixed_valid_and_invented_quotes_are_not_certified_as_complete(mon
     downstream.assert_awaited_once()
     assert downstream.await_args.kwargs["message"] == "I prefer tea."
     assert not _PREVIEW_CACHE
+
+
+@pytest.mark.asyncio
+async def test_sentence_cased_quote_keeps_the_owners_lowercase_text(monkeypatch):
+    service = PKMAgentLabService()
+    run = AsyncMock(
+        return_value={**EMPTY_SELECTION, "segments": [{"source_text": "I prefer tea."}]}
+    )
+    downstream = AsyncMock(
+        return_value={
+            "intent_frame": {"save_class": "durable", "intent_class": "preference"},
+            "candidate_payload": {"preferences": {"drink": "tea"}},
+            "structure_decision": {"action": "create_domain", "target_domain": "preferences"},
+            "write_mode": "confirm_first",
+            "validation_hints": [],
+            "used_fallback": False,
+        }
+    )
+    monkeypatch.setattr(service, "_run_agent_contract", run)
+    monkeypatch.setattr(service, "_generate_single_structure_preview", downstream)
+    result = await service.generate_structure_preview(
+        user_id="fixture-owner", message="i prefer tea"
+    )
+    assert result["used_fallback"] is False
+    assert "segment_quote_unmatched" not in result["validation_hints"]
+    assert [card["source_text"] for card in result["preview_cards"]] == ["i prefer tea"]

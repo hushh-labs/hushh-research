@@ -3730,7 +3730,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "986484d23fd29d580af592486446da6ea70696e08c17e8d697940e81864eeb48",
+      "system_instruction_sha256": "a5b7bda20d105a653ed4ddbf4d6f80949de65ed5b838fc3961e0107a3fb8c51c",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
