@@ -25,9 +25,9 @@ export type EmailDeliveryHistoryItem = {
 type EmailDeliveryHistoryCardProps = {
   item: EmailDeliveryHistoryItem;
   /**
-   * Repairs a legacy Gmail connection that does not include its send grant.
-   * On success the caller reopens this reviewed draft; nothing is sent until
-   * the person sends it again.
+   * Connects Gmail in place, or repairs a legacy connection that lacks its
+   * send grant. On success the caller reopens this reviewed draft; nothing is
+   * sent until the person sends it again.
    */
   onEnableGmailSend?: (item: EmailDeliveryHistoryItem) => void;
   /** True while this item's Google sign-in window is open. */
@@ -67,9 +67,14 @@ export function EmailDeliveryHistoryCard({
   checkingStatus = false,
 }: EmailDeliveryHistoryCardProps) {
   const canRetry = item.status === "failed" && !item.restoredOnly;
+  // A never-connected mailbox needs a first connection; retrying alone would fail again.
+  const needsGmailConnect = item.errorCode === "GMAIL_NOT_CONNECTED";
+  // A revoked or expired Google grant (GMAIL_REAUTH_REQUIRED) recovers the same way.
   const needsGmailReconnect =
     item.errorCode === "GMAIL_SEND_DISABLED" ||
-    item.errorCode === "GMAIL_SEND_PERMISSION_REQUIRED";
+    item.errorCode === "GMAIL_SEND_PERMISSION_REQUIRED" ||
+    item.errorCode === "GMAIL_REAUTH_REQUIRED";
+  const gmailAction = needsGmailConnect ? "Connect Gmail" : "Reconnect Mail";
 
   return (
     <details
@@ -187,7 +192,7 @@ export function EmailDeliveryHistoryCard({
           ) : null}
         {canRetry ? (
           <div className="flex flex-wrap gap-2">
-            {needsGmailReconnect ? (
+            {needsGmailConnect || needsGmailReconnect ? (
               onEnableGmailSend ? (
                 <>
                   <Button
@@ -197,7 +202,7 @@ export function EmailDeliveryHistoryCard({
                     disabled={enablingGmailSend}
                     onClick={() => onEnableGmailSend(item)}
                   >
-                    {enablingGmailSend ? "Waiting for Google…" : "Reconnect Mail"}
+                    {enablingGmailSend ? "Waiting for Google…" : gmailAction}
                   </Button>
                   {enablingGmailSend && onCancelEnableGmailSend ? (
                     <Button type="button" variant="ghost" size="sm" onClick={onCancelEnableGmailSend}>
@@ -207,7 +212,7 @@ export function EmailDeliveryHistoryCard({
                 </>
               ) : (
                 <Button asChild type="button" variant="outline" size="sm">
-                  <Link href="/one/gmail">Reconnect Mail</Link>
+                  <Link href="/one/gmail">{gmailAction}</Link>
                 </Button>
               )
             ) : null}

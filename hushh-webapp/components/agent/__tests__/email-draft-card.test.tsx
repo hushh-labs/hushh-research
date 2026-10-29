@@ -882,7 +882,7 @@ describe("EmailDraftCard", () => {
     const onRequireVault = vi.fn();
     render(
       <EmailDraftCard
-        initialInstruction="Draft this"
+        initialInstruction="Draft this" initialDraft={{ to: "pat@example.com", cc: "", bcc: "", subject: "", body: "Draft this" }}
         getAuth={getAuth}
         onRequireVault={onRequireVault}
         onDismiss={vi.fn()}
