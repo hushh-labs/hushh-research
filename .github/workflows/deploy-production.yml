@@ -389,6 +389,8 @@ jobs:
             "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"
           cp scripts/ci/runtime_capacity_inventory.py \
             "${RUNNER_TEMP}/release-tools/runtime_capacity_inventory.py"
+          mkdir -p "${RUNNER_TEMP}/release-tools/observability"
+          cp deploy/observability/auth_health_inventory.py "${RUNNER_TEMP}/release-tools/observability/"
           cp scripts/ci/runtime_capacity_cli.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/runtime_capacity_target_scope.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/runtime_capacity_volume.py "${RUNNER_TEMP}/release-tools/"
@@ -468,6 +470,8 @@ jobs:
             scripts/ci/runtime-capacity-budget.py
           cp "${RUNNER_TEMP}/release-tools/runtime_capacity_inventory.py" \
             scripts/ci/runtime_capacity_inventory.py
+          mkdir -p deploy/observability
+          cp "${RUNNER_TEMP}/release-tools/observability/auth_health_inventory.py" deploy/observability/
           cp "${RUNNER_TEMP}/release-tools/runtime_capacity_cli.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/runtime_capacity_target_scope.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/runtime_capacity_volume.py" scripts/ci/

@@ -50925,7 +50925,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "46654da2a99ce9154f2e463a16658a2c3d0ec82592e929e58d8ffcadc22ad4b5",
+      "projection_digest": "acbb9553abded96441aaa07ea5f46e7334f75634b7022552b0b8b67b3bd092a3",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50944,7 +50944,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "aee5093562958f50",
+      "source_revision": "6f64b2b5731c4d8d",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -52462,7 +52462,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "aee5093562958f50",
+    "source_revision": "6f64b2b5731c4d8d",
     "web": {
       "actions": [
         {
@@ -52505,7 +52505,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "1f3b7b7d92469c40b7f98588c2c91b5190a2add2836c793cd36cda07c27e1089",
+      "projection_digest": "f6f652fcef0c0f7d5cf15b8fa81fa71207753afc73fba8238ab34d0cdbeae130",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52524,7 +52524,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "aee5093562958f50",
+      "source_revision": "6f64b2b5731c4d8d",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -54081,7 +54081,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "aee5093562958f50",
+  "revision": "6f64b2b5731c4d8d",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -56077,15 +56077,14 @@
     "added": [],
     "breaking": [],
     "changed": [
-      "actions:kai.setup.launch_dashboard",
-      "actions:setup.open_cloud"
+      "services:service.connections",
+      "workflows:workflow.setup.connections"
     ],
-    "compatible": [],
-    "deprecated": [
-      "actions:kai.setup.launch_dashboard",
-      "actions:setup.open_cloud"
+    "compatible": [
+      "workflows:workflow.setup.connections"
     ],
-    "from_revision": "92de5fb3a6624f72",
+    "deprecated": [],
+    "from_revision": "aee5093562958f50",
     "migrated": [],
     "removed": []
   },
@@ -56391,6 +56390,16 @@
         {
           "authorization": "firebase_auth",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.get.list_mutual_connections",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "list_mutual_connections",
+          "path": "/api/one/connections/mutuals",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.connections.get.list_connection_requests",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -56499,7 +56508,7 @@
       "executor_hierarchy": [
         {
           "action_ids": [],
-          "discovered_endpoint_count": 16,
+          "discovered_endpoint_count": 17,
           "kind": "backend_api",
           "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
           "status": "adapter_required"
@@ -58399,13 +58408,13 @@
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "a07d5bbc3e6f540fc45fa5c54ef3548c064e08809d93e40b9c1badee4b8e984d",
-    "route_orchestration_index": "7d497a97e7c950bc4486200ad349a27bca70a0f9b5479d54ef5de8047e290547",
+    "product_agent_registry": "15d3f3f40cadc46d92d13b5eb63674bd57865abe8e205eb182980d54ba09f1c7",
+    "route_orchestration_index": "ffe75c5510a85caf73899377826e0ffc3f467d5f556d165f7a787c76353f336b",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "aee5093562958f50",
+  "source_revision": "6f64b2b5731c4d8d",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "aee5093562958f50",
+    "current_graph_revision": "6f64b2b5731c4d8d",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -58647,6 +58656,7 @@
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
           "ad3f61d47487e20e",
+          "aee5093562958f50",
           "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
@@ -58846,6 +58856,7 @@
           "a70ab77c9974866f",
           "aaec4987307cbdee",
           "ad3f61d47487e20e",
+          "aee5093562958f50",
           "bf818f0b3141079a",
           "c19f96c7fd08b9c1",
           "c39f0674bed1fca1",
@@ -58944,6 +58955,7 @@
           "a70ab77c9974866f",
           "aaec4987307cbdee",
           "ad3f61d47487e20e",
+          "aee5093562958f50",
           "c19f96c7fd08b9c1",
           "c39f0674bed1fca1",
           "c9235cd9b5598475",
@@ -59208,7 +59220,7 @@
           "fbac9497545a7c39",
           "fe7124ad349b7300"
         ],
-        "workflow_digest": "a57e6d6053f930b2d585a5e583b194c63d3b8bb5f8a8a33aff7e2b0a22dbfeb4",
+        "workflow_digest": "c76bf652175be4095c4643f3c5be960ce43c6c86552d731f26f57b1dc150b819",
         "workflow_id": "workflow.setup.connections",
         "workflow_version": 1
       },
@@ -59402,6 +59414,7 @@
           "aaec4987307cbdee",
           "aba61480c43d7e56",
           "ad3f61d47487e20e",
+          "aee5093562958f50",
           "af06ae26b8943fb1",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
@@ -59807,6 +59820,7 @@
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
           "ad3f61d47487e20e",
+          "aee5093562958f50",
           "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
@@ -60171,6 +60185,7 @@
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
           "ad3f61d47487e20e",
+          "aee5093562958f50",
           "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
@@ -60535,6 +60550,7 @@
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
           "ad3f61d47487e20e",
+          "aee5093562958f50",
           "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
@@ -60897,6 +60913,7 @@
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
           "ad3f61d47487e20e",
+          "aee5093562958f50",
           "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
@@ -61503,6 +61520,16 @@
         {
           "authorization": "firebase_auth",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.get.list_mutual_connections",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "list_mutual_connections",
+          "path": "/api/one/connections/mutuals",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.connections.get.list_connection_requests",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -61637,7 +61664,7 @@
         "executor_hierarchy": [
           {
             "action_ids": [],
-            "discovered_endpoint_count": 16,
+            "discovered_endpoint_count": 17,
             "kind": "backend_api",
             "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
             "status": "adapter_required"
