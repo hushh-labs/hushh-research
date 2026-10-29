@@ -290,18 +290,16 @@ class SecurityRerunTest(unittest.TestCase):
             else:
                 retry.rerun_validation(read_job, write, expected, job_id=50)
                 self.assertTrue(writes[0][0].endswith("/actions/jobs/50/rerun"))
-                self.assertEqual(len(writes), 2)
+                self.assertEqual(len(writes), 1)
 
     def test_one_rerun_and_exact_observed_attempt_dispatch(self):
         for all_jobs in (False, True):
             retry, expected, _, read, write, writes = rerun_fixture()
             result = retry.rerun_validation(read, write, expected, all_jobs=all_jobs)
             self.assertEqual(result["attempt"], 3)
-            self.assertEqual(len(writes), 2)
+            self.assertEqual(len(writes), 1)
             self.assertTrue(writes[0][0].endswith("/rerun" if all_jobs else "/rerun-failed-jobs"))
-            self.assertEqual(writes[1][1], {"ref": "main", "inputs": {
-                "source_run_id": "20", "source_attempt": "3", "source_sha": HEAD,
-            }})
+            self.assertFalse(any(path.endswith("/dispatches") for path, _ in writes))
 
     def test_ungoverned_stale_or_running_source_refuses_before_mutation(self):
         for scenario in ("actor", "attempt", "running", "successful"):
@@ -327,22 +325,16 @@ class SecurityRerunTest(unittest.TestCase):
                 raise retry.Refused("lost response")
 
         self.assertEqual(retry.rerun_validation(read, uncertain, expected)["attempt"], 3)
-        self.assertEqual(len(writes), 2)
+        self.assertEqual(len(writes), 1)
 
-    def test_attempt_race_or_uncertain_security_dispatch_never_replays(self):
-        for scenario in ("race", "dispatch"):
-            retry, expected, source, read, write, writes = rerun_fixture()
-
-            def uncertain(path, body):
-                write(path, body)
-                if scenario == "race":
-                    source["run_attempt"] = 4
-                elif path.endswith("/dispatches"):
-                    raise retry.Refused("lost response")
-
-            with self.subTest(scenario=scenario), self.assertRaises(retry.Refused):
-                retry.rerun_validation(read, uncertain, expected)
-            self.assertEqual(len(writes), 1 if scenario == "race" else 2)
+    def test_attempt_race_never_replays_or_dispatches_another_workflow(self):
+        retry, expected, source, read, write, writes = rerun_fixture()
+        def race(path, body):
+            write(path, body)
+            source["run_attempt"] = 4
+        with self.assertRaises(retry.Refused):
+            retry.rerun_validation(read, race, expected)
+        self.assertEqual(len(writes), 1)
 
     def test_unobserved_rerun_has_a_bound_and_no_second_post(self):
         retry, expected, _, read, _, writes = rerun_fixture()

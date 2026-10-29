@@ -1,0 +1,21 @@
+{
+  "displayName": "[Managed] Protected Configuration Job Failed",
+  "documentation": {
+    "content": "The protected-configuration-health Cloud Run Job failed. This covers startup, lease, IAM, timeout and non-phone protected-list failures independently of the phone-health heartbeat. Inspect only execution status and bounded count/status output. Never copy secret values into incident evidence. Runbook: deploy/observability/README.md#auth-availability",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": false,
+  "notificationChannels": [],
+  "userLabels": {"managed_by": "repo_observability", "scope": "auth", "incident_purpose": "diagnostic"},
+  "conditions": [{
+    "displayName": "Protected health execution failed",
+    "conditionThreshold": {
+      "filter": "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"protected-configuration-health\" AND metric.type=\"run.googleapis.com/job/completed_execution_count\" AND metric.labels.result=\"failed\"",
+      "aggregations": [{"alignmentPeriod": "3600s", "perSeriesAligner": "ALIGN_SUM", "crossSeriesReducer": "REDUCE_SUM"}],
+      "comparison": "COMPARISON_GT", "thresholdValue": 0, "duration": "0s", "trigger": {"count": 1}
+    }
+  }],
+  "severity": "ERROR",
+  "alertStrategy": {"notificationPrompts": ["OPENED", "CLOSED"]}
+}

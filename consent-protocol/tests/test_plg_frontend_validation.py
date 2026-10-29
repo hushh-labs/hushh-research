@@ -168,21 +168,32 @@ def security_worker(id, status="completed", conclusion="success", updated="2026-
 
 
 def test_security_requires_latest_exact_success(monkeypatch):
-    rows = [security_worker(1)]
+    current = {"event": "pull_request"}
+    gate = {
+        "name": "CI Status Gate",
+        "run_id": 11,
+        "head_sha": v.source.SOURCE_SHA,
+        "status": "completed",
+        "conclusion": "success",
+    }
+    run_status = {"status": "completed", "conclusion": "success"}
 
     class Client:
         def read(self, path):
-            if "/runs?" in path:
-                return {"total_count": len(rows), "workflow_runs": rows}
-            return {"id": 7}
+            if "/jobs?" in path:
+                return {"total_count": 1, "jobs": [gate]}
+            return run_status
 
-    monkeypatch.setattr(v.security_authority, "verify_source", lambda *a: {"source": "verified"})
-    monkeypatch.setattr(v.security_receipt, "consume", lambda *a: {"result": "passed"})
+    monkeypatch.setattr(v.security_authority, "verify_source", lambda *a: current)
     client = Client()
     assert v.verify_security(11, 1, v.source.SOURCE_SHA, client)["source"]["run_id"] == 11
     with pytest.raises(v.Refused):
         v.verify_security(11, 1, "0" * 40, client)
-    rows.append(security_worker(2, "queued", None, "2026-10-28T00:01:00Z"))
+    gate["conclusion"] = "failure"
+    with pytest.raises(v.Refused):
+        v.verify_security(11, 1, v.source.SOURCE_SHA, client)
+    gate["conclusion"] = "success"
+    run_status["status"] = "in_progress"
     with pytest.raises(v.Refused):
         v.verify_security(11, 1, v.source.SOURCE_SHA, client)
 
@@ -264,19 +275,34 @@ def test_workflow_separates_untrusted_build_from_authority():
 
     assert "deploy/plg/frontend_validation_contract.py" in v.AUTHORITY_PATHS
     document = yaml.safe_load((ROOT / v.WORKFLOW).read_text(encoding="utf-8"))
-    assert set(document["jobs"]) == {"admit", "frontend", "gate"}
-    for job in document["jobs"].values():
+    assert set(document["jobs"]) == {"admit", "frontend", "gate", "deployment-security"}
+    for key, job in document["jobs"].items():
+        if key == "deployment-security":
+            assert job["uses"] == "./.github/workflows/deployment-security.yml"
+            continue
         assert {step["name"] for step in job["steps"]} == v.JOB_STEPS[job["name"]]
     candidate = document["jobs"]["frontend"]
-    assert candidate["needs"] == ["admit"]
+    assert set(candidate["needs"]) == {"admit", "deployment-security"}
     assert all("GH_TOKEN" not in step.get("env", {}) for step in candidate["steps"])
-    checkout = candidate["steps"][0]
+    checkout = next(
+        step for step in candidate["steps"] if step["name"] == "Checkout pinned frontend source"
+    )
     assert checkout["with"]["path"] == "source"
     assert checkout["with"]["persist-credentials"] is False
     assert "web-core-check.sh" in next(
         step["run"] for step in candidate["steps"] if step["name"] == "Run canonical web core"
     )
     gate = document["jobs"]["gate"]
-    assert set(gate["needs"]) == {"admit", "frontend"}
-    assert gate["steps"][0]["with"]["path"] == "authority"
-    assert gate["steps"][0]["with"]["persist-credentials"] is False
+    assert set(gate["needs"]) == {"admit", "frontend", "deployment-security"}
+    assert (
+        next(step for step in gate["steps"] if step["name"] == "Checkout Main authority")["with"][
+            "path"
+        ]
+        == "authority"
+    )
+    assert (
+        next(step for step in gate["steps"] if step["name"] == "Checkout Main authority")["with"][
+            "persist-credentials"
+        ]
+        is False
+    )

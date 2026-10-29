@@ -10,6 +10,10 @@
 .guests { display: flex; flex-wrap: wrap; gap: .35rem; list-style: none; padding: 0; }
 .guests li { display: flex; align-items: center; gap: .3rem; padding: .25rem .3rem .25rem .6rem; border-radius: 999px; background: var(--app-accent-surface); color: var(--app-accent); font-size: 12px; }
 .guests button { min-width: 32px; min-height: 32px; border-radius: 50%; font-size: 20px; }
+.accountIdentity { display: flex; align-items: center; gap: .5rem; min-width: 0; color: var(--app-secondary-label); font-size: 13px; font-weight: 400; }
+.accountIdentity :global([data-slot="avatar"]) { width: 1.75rem; height: 1.75rem; flex: none; background: var(--app-accent-surface); }
+.accountIdentity :global([data-slot="avatar-fallback"]) { color: var(--app-accent); background: transparent; font-size: .75rem; }
+.accountIdentity > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .description { font-size: 14px; }
 .description summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
 .description textarea { margin-top: .2rem; }
@@ -21,6 +25,6 @@
 .alternatives { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-size: 13px; }
 .alternatives p { width: 100%; font-weight: 600; }
 .alternatives button { min-height: 44px; }
-.actions { position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: .5rem; padding-top: .5rem; background: var(--app-card-surface-default-solid); }
+.actions { position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: center; flex-wrap: wrap; gap: .5rem; padding-top: .5rem; background: var(--app-card-surface-default-solid); }
 .actions button { min-height: 44px; }
 @media (max-width: 480px) { .dialog { width: calc(100vw - 1rem); max-height: min(88dvh, 48rem); border-radius: 1rem; padding-bottom: max(1.2rem, env(safe-area-inset-bottom)); } .timeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .timeGrid label:last-child { grid-column: 1 / -1; } .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .actions button:last-child:nth-child(3) { grid-column: 1 / -1; height: auto; padding-block: .6rem; white-space: normal; line-height: 1.2; } }

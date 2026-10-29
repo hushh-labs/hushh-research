@@ -166,6 +166,9 @@ def test_incident_admission_precedes_runtime_mutation_and_keeps_ordinary_uat_gat
         assert "Recheck manual incident" in guard["name"]
         assert '"${RUNNER_TEMP}/release-tools/require-deploy-sha-on-main.sh"' in guard["run"]
         assert '"${RUNNER_TEMP}/release-tools/production_emergency.py" recheck' in guard["run"]
-    for job in workflow["jobs"].values():
+    for name, job in workflow["jobs"].items():
+        if name == "deployment-security":
+            assert job["uses"] == "./.github/workflows/deployment-security.yml"
+            continue
         boundary = next(step for step in job["steps"] if step.get("id") == "dispatch-authority")
         assert "production_emergency.py dispatch" in boundary["run"]

@@ -1,17 +1,8 @@
 name: Deploy to Production
-run-name: ${{ inputs.cadence_origin && format('Cadence {0} deploy · {1}', inputs.cadence_ordinal, inputs.cadence_origin) || 'Deploy to Production' }}
 
 on:
   workflow_dispatch:
     inputs:
-      cadence_origin:
-        description: Internal exact-run release cadence authority (leave blank for manual deploys)
-        type: string
-        default: ""
-      cadence_ordinal:
-        description: Internal successful UAT deployment ordinal
-        type: string
-        default: ""
       sha:
         description: "Exact green main SHA to deploy"
         required: true
@@ -166,13 +157,32 @@ concurrency:
   queue: max
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    with:
+      application_ref: ${{ inputs.sha || github.sha }}
+      environment_name: production
+      scope: ${{ inputs.scope || 'all' }}
+
   deploy:
+    needs: deployment-security
     name: ${{ (inputs.phone_phase == 'activate' || inputs.restoration_activation_run_id != '') && 'Ordinary production deploy (not selected)' || 'Deploy Production Scope' }}
     runs-on: ubuntu-24.04
     if: github.event_name == 'workflow_dispatch' && inputs.phone_phase != 'worker' && inputs.phone_phase != 'activate' && inputs.restoration_activation_run_id == ''
     environment: production
 
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert manual dispatch originates from main
         shell: bash
         env:
@@ -244,7 +254,7 @@ jobs:
           APPLICATION_SHA: ${{ inputs.sha }}
           APPROVAL_SHA: ${{ inputs.main_approval_sha }}
           RESTORATION_RUN: ${{ inputs.restoration_validation_run }}
-          CADENCE_ORIGIN: ${{ inputs.cadence_origin }}
+          CADENCE_ORIGIN: ""
           OTHER_OPERATION: ${{ inputs.restoration_activation_run_id }}${{ inputs.restoration_activation_attempt }}${{ inputs.phone_activation_run_id }}${{ inputs.phone_worker_stage_run_id }}${{ inputs.phone_schema_origin_run_id }}${{ inputs.phone_schema_origin_attempt }}${{ inputs.phone_rollback_sha }}
         run: |
           set -euo pipefail
@@ -269,11 +279,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RECOVERY_RUN: ${{ inputs.restoration_validation_run }}
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
           IMAGE_SOURCE: ${{ inputs.backend_image_source }}
           DRIVE_MODE: ${{ inputs.drive_live_mode }}
-          CADENCE_ORIGIN: ${{ inputs.cadence_origin }}
+          CADENCE_ORIGIN: ""
           PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
           EMAIL_KYC: ${{ inputs.enable_one_email_kyc }}
         run: |
@@ -657,7 +667,7 @@ jobs:
             --target-sha "${{ github.event.inputs.sha }}" \
             --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
-            --forward-only "${{ inputs.cadence_origin != '' }}" \
+            --forward-only false \
             --github-output "$GITHUB_OUTPUT" \
             --json
 
@@ -3120,6 +3130,7 @@ jobs:
           echo "✅ Production release healthy; new revisions serving traffic."
 
   stage-drive-worker:
+    needs: deployment-security
     name: Stage qualified production Drive worker
     if: github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'worker' && inputs.restoration_activation_run_id == ''
     runs-on: ubuntu-24.04
@@ -3130,14 +3141,24 @@ jobs:
       actions: read
       id-token: write
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert manual dispatch originates from main
         shell: bash
         env:
           REQUESTED_PHASE: ${{ inputs.phone_phase }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
           REQUESTED_DRIVE_MODE: ${{ inputs.drive_live_mode }}
-          CADENCE_ORIGIN: ${{ inputs.cadence_origin }}
-          CADENCE_ORDINAL: ${{ inputs.cadence_ordinal }}
+          CADENCE_ORIGIN: ""
+          CADENCE_ORDINAL: ""
           MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha }}
         run: |
           set -euo pipefail
@@ -3447,6 +3468,7 @@ jobs:
 
 
   complete-phone-activation:
+    needs: deployment-security
     name: ${{ inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == '' && 'Deploy Production Scope' || 'Activation continuation not selected' }}
     if: github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == ''
     runs-on: ubuntu-24.04
@@ -3460,10 +3482,20 @@ jobs:
       REQUESTED_SCOPE: ${{ inputs.scope }}
       REQUESTED_DRIVE_MODE: ${{ inputs.drive_live_mode }}
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert manual activation continuation originates from main
         shell: bash
         env:
-          CADENCE_ORIGIN: ${{ inputs.cadence_origin }}
+          CADENCE_ORIGIN: ""
           PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
           SCHEMA_ORIGIN_RUN: ${{ inputs.phone_schema_origin_run_id }}
           SCHEMA_ORIGIN_ATTEMPT: ${{ inputs.phone_schema_origin_attempt }}
@@ -4076,6 +4108,7 @@ jobs:
           PY
 
   complete-restoration-activation:
+    needs: deployment-security
     name: ${{ inputs.restoration_activation_run_id != '' && 'Deploy Production Scope' || 'Restoration continuation not selected' }}
     if: github.event_name == 'workflow_dispatch' && inputs.restoration_activation_run_id != ''
     runs-on: ubuntu-24.04
@@ -4087,11 +4120,21 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       PYTHONPATH: ${{ github.workspace }}/scripts/ci
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Admit manual restoration verification only
         env:
           REQUESTED_SCOPE: ${{ inputs.scope }}
           DRIVE_MODE: ${{ inputs.drive_live_mode }}
-          OTHER_ORIGINS: ${{ inputs.restoration_validation_run }}${{ inputs.phone_activation_run_id }}${{ inputs.phone_worker_stage_run_id }}${{ inputs.phone_schema_origin_run_id }}${{ inputs.phone_schema_origin_attempt }}${{ inputs.phone_rollback_sha }}${{ inputs.cadence_origin }}${{ inputs.cadence_ordinal }}${{ inputs.main_approval_sha }}
+          OTHER_ORIGINS: ${{ inputs.restoration_validation_run }}${{ inputs.phone_activation_run_id }}${{ inputs.phone_worker_stage_run_id }}${{ inputs.phone_schema_origin_run_id }}${{ inputs.phone_schema_origin_attempt }}${{ inputs.phone_rollback_sha }}${{ inputs.main_approval_sha }}
           EMAIL_KYC: ${{ inputs.enable_one_email_kyc }}
         run: |
           set -euo pipefail
