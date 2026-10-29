@@ -183,8 +183,8 @@ async def test_same_paid_sale_generic_original_stream_and_revoke(flow, copies, m
     policy, schema = reader_inventory(flow)
     await sale(flow)
     original_order, original_effect_count = flow.order(), flow.effect_count()
-    # Real incident: the permission grant changed only the provider's metadata
-    # timestamp, with the same bytes, SHA-256 and head content revision.
+    # Recorded incident pattern: fresh metadata has a different modification time.
+    # Captured content identity and copied bytes must remain authoritative.
     original.facts_value["modifiedTime"] = "2026-10-28T16:36:19.171Z"
     assert len(original.data) > 4 * 1024 * 1024
     assert (await service.run())["outcomes"] == {"released": 1}
