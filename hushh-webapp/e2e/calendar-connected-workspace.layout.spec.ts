@@ -707,11 +707,11 @@ test("quiet loading preserves same-context previews and exposes real failures", 
   await page.screenshot({ path: path.join(screenshotDirectory, "insights-background-refresh.png") });
   release();
   await expect(page.getByRole("alert")).toBeVisible();
-  await expect(page.getByText("Scheduled events", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Scheduled events", { exact: true })).toBeVisible();
   gate = new Promise<void>(resolve => { release = resolve; });
   await page.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect(page.getByText("Scheduled events", { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("Snapshot loading")).toBeVisible();
+  await expect(page.getByText("Scheduled events", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Snapshot loading")).toHaveCount(0);
   release();
   await expect(page.getByRole("alert")).toBeVisible();
 });
