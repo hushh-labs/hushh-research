@@ -3356,6 +3356,26 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(bridge.retire.mock.calls.length).toBeGreaterThan(retired));
     view.unmount();
   });
+  it("does not let an obsolete Back invalidation retire a newer mounted Back", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true,
+      documentScopedLifecycleEvents: true, leaseScopedInvalidationEvents: true });
+    const oldAction = vi.fn(), currentAction = vi.fn();
+    const old = render(<Harness owner="old-owner" onBack={oldAction} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const oldIdentity = bridge.prepare.mock.calls.at(-1)![0];
+    const current = render(<Harness owner="current-owner" onBack={currentAction} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
+    const currentIdentity = bridge.prepare.mock.calls.at(-1)![0];
+    const retirements = bridge.retire.mock.calls.length;
+    act(() => bridge.callbacks.get("invalidated")?.({ documentId: bridge.documentId, controls: [oldIdentity] }));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(bridge.retire).toHaveBeenCalledTimes(retirements);
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...currentIdentity, sequence: 1, privacyGeneration: 0 }));
+    await waitFor(() => expect(currentAction).toHaveBeenCalledOnce());
+    expect(oldAction).not.toHaveBeenCalled();
+    old.unmount(); current.unmount();
+  });
 
   function ProfileBackControl({ context, action, owner, suppressed, eligible }: {
     context: string; action: () => void; owner: string; suppressed: boolean; eligible: boolean;

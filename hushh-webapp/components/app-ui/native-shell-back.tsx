@@ -164,8 +164,8 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
           // Uncertainty, owner, overlay or actual geometry changes require
           // removal. Cached capability never authorizes keeping a stale view.
           // Inactive cleanup cannot take authority from a newer mounted slot.
-          if (projection) await retireNativeChrome(activeEpoch);
-          else if (retiring) await retireOwnedNativeChrome(retiring.projection);
+          if (retiring) await retireOwnedNativeChrome(retiring.projection);
+          else if (projection) await retireNativeChrome(activeEpoch);
           if (cancelled) return;
           // A successful but delayed acknowledgement cannot overtake a newer
           // mounted owner that prepared after this removal reserved its fence.

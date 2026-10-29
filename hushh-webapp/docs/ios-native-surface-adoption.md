@@ -48,6 +48,8 @@ retain the previous behavior. This prevents a delayed notification from
 invalidating a replacement control; it does not prove presenter dismissal.
 An invalidation during listener installation still requires an acknowledged
 state reconciliation before a retained host can be trusted.
+An existing Back lease now retires only its own installation; the no-lease
+remount path still needs reservation-ordering proof for concurrent mounts.
 
 Other known gaps include the native hard Vault, complete AI-provider ownership,
 full route and nested-state coverage, and physical visual, accessibility and
@@ -64,6 +66,11 @@ work is [#7824 Complete and qualify the native iPhone experience](https://github
 | Profile and nested settings | Typed native scenes where admitted; existing React feature owners and fallback elsewhere | Earlier read-only journeys covered several entries, not full-family acceptance. Verify every destination and its nested states on the candidate. |
 | Wallet, menus and sheets | Existing feature owners; bounded native presentations where capability and ownership are admitted | Earlier Wallet presentation checks did not prove payment mutations or current-candidate acceptance. Rich or unsupported content retains its complete React handoff. |
 | Hard Vault | React `VaultFlow` and existing auth/vault services | The locked gate is not a native Profile password sheet. A complete native gate covering creation, unlock, recovery and deletion is not yet implemented or qualified. |
+| Memory, World Model, Connect and consent | Existing feature owners with selected native Profile scenes and React content | Complete route and nested-state coverage, including consent actions and return paths, remains unverified. |
+| Mail, Calendar, Drive and onboarding | Existing React and provider-authorization owners | Native controls, authorization returns and nested states need current-candidate qualification. |
+| Finance, Kai, Marketplace and RIA | Existing workspace and service owners; selected Wallet and referral scenes are native | Route-specific native presentation, real sandbox operations and return paths remain unverified. |
+| Location, Feed, Search, messages and tasks | Existing map, search and feature owners | Check shared controls, overlays, tabs and keyboard behavior across each route on the candidate. |
+| Hosted documents | Browser handoff for the hosted reader | Native encrypted-byte reading, PDF display, Save/Share cancellation and cleanup are not qualified. |
 | Web, Android, older wrappers and iPad | Their established renderer unless a supported qualification path is explicitly selected | Do not infer iPad or Android acceptance from an iPhone result. |
 
 ### Route coverage and device admission
