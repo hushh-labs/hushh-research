@@ -215,6 +215,41 @@ class ProductionPhoneLeaseCases:
 
 
 class ProductionPhoneSkippedLeaseCases:
+    def restoration_lease(self, conclusion="success", *, active=False):
+        case = LeaseFixture(self)
+        case.intent_protocol()
+        text = case.sources[case.runs[0]["head_sha"]]
+        case.sources.update({"origin/main": text, "e" * 40: text})
+        job = case.jobs[(300, 2)]["jobs"][0]
+        case.artifacts = [item for item in case.artifacts if item["id"] in {901, 1901}]
+        admission = {
+            "name": lease.RESTORATION_ADMIT,
+            "status": "completed",
+            "conclusion": "success",
+        }
+        if active:
+            environment = case.active_guard()
+            environment.update(
+                GITHUB_JOB=lease.RESTORATION_JOB, GITHUB_SHA=case.runs[0]["head_sha"]
+            )
+            job["steps"].insert(0, admission)
+        else:
+            environment = {"GITHUB_SHA": "e" * 40}
+            case.runs[0]["conclusion"] = conclusion
+            case.attempts[(300, 2)]["conclusion"] = conclusion
+            job.update(
+                conclusion=conclusion,
+                steps=[
+                    admission,
+                    {
+                        "name": "Verify unchanged restoration serving pair",
+                        "status": "completed",
+                        "conclusion": conclusion,
+                    },
+                ],
+            )
+        return case, environment
+
     def test_restoration_nonproducer_keeps_current_metadata_and_every_older_lease(self):
         self.setUp()
         for conclusion, admission, historical in (

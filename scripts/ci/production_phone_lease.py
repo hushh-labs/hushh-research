@@ -26,8 +26,6 @@ INTENT = "Publish initial cold health-tag intent"
 BUILD_IF = "steps.scope.outputs.deploy_backend == 'true' && (env.PHONE_DEPLOY_PHASE != 'cold' || (steps.cold-lease.outcome == 'success' && steps.cold-lease-intent.outcome == 'success'))"
 RESTORATION_JOB = nonproducer.JOB_ID
 RESTORATION_ADMIT = nonproducer.ADMISSION_STEP
-STAGE_JOB = nonproducer.STAGE_JOB
-STAGE_SKIPPED_JOBS = nonproducer.STAGE_SKIPPED_JOBS
 
 
 def _require(condition, reason):
@@ -182,18 +180,7 @@ def _source(args, port):
         ) from error
 
 
-def _stage_only(repository, attempt, result, text, trusted):
-    try:
-        nonproducer.qualify_worker_only(
-            repository, attempt, result, text, trusted, guard=GUARD
-        )
-    except ValueError as error:
-        raise retention.UnsafeState(
-            f"Cold health lease reconciliation required: {error}"
-        ) from error
-
-
-def _attempt(repository, run, number, api, text, trusted):
+def _attempt(repository, run, number, api, workflow):
     attempt = api(repository, f"runs/{run['id']}/attempts/{number}")
     _require(
         isinstance(attempt, dict)
@@ -229,16 +216,9 @@ def _attempt(repository, run, number, api, text, trusted):
         "pending",
     }:
         return attempt, result, None
-    if (
-        not matches
-        and receipts.production_evidence_repair_enabled()
-        and any(job.get("name") == STAGE_JOB for job in jobs)
-    ):
-        _stage_only(repository, attempt, result, text, trusted)
-        return attempt, result, None
     if not matches:
         try:
-            skipped_name = nonproducer.skipped_primary_name(text)
+            skipped_name = nonproducer.skipped_primary_name(workflow)
         except ValueError as error:
             raise retention.UnsafeState(
                 "Cold health lease reconciliation required: primary job source is ambiguous"
@@ -463,7 +443,7 @@ def assert_reconciled(
                 return
             continue
         for number in range(run["run_attempt"], 0, -1):
-            attempt, result, job = _attempt(repository, run, number, api, text, trusted)
+            attempt, result, job = _attempt(repository, run, number, api, text)
             if (
                 job is None
                 or _steps(

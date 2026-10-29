@@ -1358,17 +1358,19 @@ was never crossed. This proves no provider mutation; it grants no cleanup or
 release-health authority. Unknown source, incomplete logs, cancellation and failed
 checkpoint uploads remain blocked. Every attempt is inspected, including earlier
 attempts of a currently running retry; never delete failed runs to clear admission.
-The production evidence repair is off unless the trusted workflow explicitly sets
-`HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR=true`; enabling it requires a
-separately authorized production operation. With that repair enabled, for the
-reviewed production worker-only workflow shape, an exact attempt with
-all three deployment jobs recorded as skipped and unstarted can prove that no
-cold phone-health lease was created. The worker's result is not a healthy-release
-receipt; unknown source or job shapes still stop reconciliation. Production
-release status is read from the current attempt's digest-verified artifact, not a
-local cache. The reader accepts the historical `tmp/prod-release-status.json`
-layout only as an unambiguous alternative to the root status file, and rechecks
-the run and artifact inventory without the maintenance-pass cache.
+The reviewed workflow source can identify a skipped primary deployment job even
+when GitHub reports its unevaluated name. The job must be uniquely bound to the
+exact attempt, completed, skipped and unstarted; earlier attempts still require
+reconciliation. This does not establish a healthy release. A new producer in a
+different job requires a separate source-authority review.
+
+The historical production status-reader repair is off unless the trusted workflow
+explicitly sets `HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR=true`; enabling it
+requires a separately authorized production operation. When enabled, production
+status comes from the current attempt's digest-verified artifact, not a local
+cache. The reader accepts `tmp/prod-release-status.json` only as an unambiguous
+alternative to the root status file, and rechecks the run and artifact inventory
+without the maintenance-pass cache.
 A saved maintenance checkpoint may precede the README writer. Only the existing
 attempt/job/source-qualified saved-checkpoint path may restore that shape; legacy
 pending-drain archives still require the marker. Artifact ID, size, digest, bounded
