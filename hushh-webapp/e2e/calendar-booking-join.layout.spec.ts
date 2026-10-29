@@ -67,6 +67,8 @@ test("Board booking reviews account B and refreshes its event and free time afte
   await dialog.getByRole("button", { name: "Add" }).click();
   await dialog.getByRole("button", { name: "Review meeting" }).click();
   await expect(dialog.getByRole("region", { name: "Meeting review" })).toContainText("guest@example.com");
+  await expect(dialog.getByRole("region", { name: "Meeting review" })).toContainText("UTC+05:30");
+  await expect(dialog).not.toContainText("Asia/Kolkata");
   const mobileBounds = (await dialog.boundingBox())!;
   expect(mobileBounds.x).toBeGreaterThanOrEqual(0);
   expect(mobileBounds.y).toBeGreaterThanOrEqual(0);

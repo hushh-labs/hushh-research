@@ -398,7 +398,7 @@ memory; there is no settings-save endpoint or localStorage preference write.
 | Header/menu/footer element | Exact content and action |
 | --- | --- |
 | Page title and account | **Calendar**; `google_email` or **Connected Google account**; green **Connected**, or lock/**Reconnect required** for event/availability connect/reconnect recovery. |
-| Zone | **Times shown in {zone}**. Device IANA zone or UTC, not provider calendar's default zone. Account replacement restores device-zone ownership and adjusts selected dates only if they represented the former today. |
+| Zone | **Times shown in UTC±hh:mm** for the selected civil day; show both offsets if that day crosses a clock change. The device IANA zone or UTC remains internal, independent of the provider calendar's default zone. Account replacement restores device-zone ownership and adjusts selected dates only if they represented the former today. |
 | Provider icon | Accessible **Open Google Calendar**. External `https://calendar.google.com/calendar/u/0/r/day/{year}/{month}/{day}`, `authuser={email}` when supplied. No internal route/API mutation. |
 | Three dots | Accessible **Calendar settings and actions**; disabled busy/submitting. Menu **Settings**, **Refresh Calendar**, **Open Google Calendar**, **Disconnect Calendar**. Opening/dismissing menu has no API call. |
 | **Settings** | Clone current zone, alternative hours and account-scoped availability overrides into local draft; open settings dialog. |
@@ -452,7 +452,7 @@ Owners: [workspace](../../components/calendar/calendar-connected-workspace.tsx),
 | More than3 windows | **Showing 3 of {full_count} available windows.** No mounted Load more control; count and returned window cap are different. |
 | Every successful/preview list | **Availability can change. These times aren't reserved.** |
 | Helper card | **Need a different time?**; **Just ask One to find time, schedule a meeting or reschedule for you.** |
-| Helper click | Memory prompt **Help me find a different time on {date} in {zone} for a {duration}-minute meeting. Check the full selected local day.** → existing conversation; no mutation. |
+| Helper click | Memory prompt **Help me find a different time on {date} in {city and selected-day UTC offset} for a {duration}-minute meeting. Check the full selected local day.** → existing conversation; the exact IANA zone travels as a one-turn machine field, clears if the queued prompt is edited, and never appears in visible copy. No mutation. |
 
 ### Read refresh, failure and retry
 
@@ -490,7 +490,7 @@ mutation retry. The API section specifies status/reason classification.
 | Step/control | Exact copy, draft and branch outcome |
 | --- | --- |
 | Dialog | **Calendar settings**; **Time zone and calendars for this session. Free time checks the whole selected day.** |
-| Zone | Label/accessibility **Time zone**; text input, no authored placeholder. Defaults device zone or UTC. |
+| Zone | Label/accessibility **Time zone**; native selector shows a city and date-specific UTC offset. The selected IANA value stays internal for daylight-saving calculations. Defaults to the device zone or UTC. |
 | Alternative hours | **Alternative meeting hours**; **From**, **Until**, accessible **Availability window start**, **Availability window end**. Initial `09:00`–`17:00`; used for attendance alternative review, not full-day Free time. |
 | Calendar group | **Calendars used for Free time**; **Google holiday feeds are informational by default. These choices only affect Free time; calendars stay visible in Schedule.** |
 | Catalog empty | **Open Free time to load your calendars.** |
@@ -501,7 +501,7 @@ mutation retry. The API section specifies status/reason classification.
 | **Keep included** | Clears pending confirmation, keeps draft included. |
 | **Confirm exclusion** | Sets only local draft false, clears pending; still not applied until Save. |
 | **Save settings** | Validate, then commit trimmed zone, alternative hours and scoped overrides in component memory. Remove stale catalog-ID overrides only on explicit Save. Closes and triggers affected reads through key changes; no settings HTTP mutation or success toast. |
-| Invalid zone | **Enter a valid IANA time zone, such as Asia/Kolkata.** |
+| Invalid zone | **Choose a valid time zone.** |
 | Invalid hours | **Availability end must be after start.** |
 | Account changed | **Calendar account changed. Reopen settings.** |
 | Excluded every catalog item | **Choose at least one calendar for availability.** |
@@ -606,7 +606,7 @@ Sources: [detail](../../components/calendar/calendar-invitation-detail.tsx),
 
 | Content/control | Exact projection and outcome |
 | --- | --- |
-| Article | Accessible **Invitation details: {title}**; event title, formatted time/duration and selected IANA zone. |
+| Article | Accessible **Invitation details: {title}**; event title and time/duration formatted in the selected time zone. No raw zone identifier is shown. |
 | Date block | Start `dateTime`, or date-only at noon UTC. Accessible full localized date. Visual English abbreviated uppercase month, numeric day, English abbreviated weekday. Invalid date omits block. Date-only uses UTC so the day does not shift. |
 | Time | Missing timed start/end → **All day**; otherwise locale range, ` · ` and elapsed duration: **{h} hr**, **{h} hr {m} min**, **{m} min**. |
 | Conference | Safe `conference_url` → provider name/hostname and **Join meeting**, new external tab with `noopener noreferrer`. No app meeting change or join API. Helper accepts absolute HTTPS without URL credentials; it is not a fixed provider-host allowlist. |
@@ -758,8 +758,8 @@ the current page's retry can reuse its memory-held capability.
 | Missing capability | **This rescheduling link is incomplete. Ask the sender for a new link.**; no request. |
 | Loading | **Checking offered times…**, role status. |
 | Error | **Availability could not be checked.** plus surfaced message; fallback same sentence. **Try again** clears old options and re-reads the same memory capability. Expired/failed checks never retain former suggestions as free. |
-| Success | **Time zone: {time_zone}**. `openings` supplies each offered start/end. |
-| Offered opening | **Suggest {full localized date/time}** → encoded `mailto:{reply_to}`, subject **Another meeting time**, body below. No app send, reservation, selected-time mutation or booking API. |
+| Success | `openings` supplies each offered start/end; the zone identifier remains internal. |
+| Offered opening | **Suggest {full localized date/time} · UTC±hh:mm**, using each opening's offset → encoded `mailto:{reply_to}`, subject **Another meeting time**, body below. No app send, reservation, selected-time mutation or booking API. |
 | Suggestion body | **I suggest {label} ({zone}), for {elapsed rounded minutes} minutes. Please confirm whether this works; I can then update the invitation.** Optional blank line then **Meeting: {safe event_link}**. |
 | No live openings | **The offered times are no longer available. Reply to the sender to request new options.** |
 | Footnote | **These times were checked just now and aren't reserved. Selecting a time opens your email app; the meeting changes only when the organizer updates it.** |

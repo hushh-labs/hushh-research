@@ -1176,6 +1176,8 @@ export async function streamAgentChat(input: {
   /** Pasted text sent as separate document parts, never folded into `message`. */
   attachments?: readonly AgentTextAttachment[];
   conversationId?: string | null;
+  /** Selected Calendar zone for this turn; falls back to the device zone if invalid. */
+  timeZoneOverride?: string;
   vaultOwnerToken: string;
   /** Unlocked vault key. Only the chat key derived from it is sent. */
   vaultKey: string;
@@ -1241,7 +1243,11 @@ export async function streamAgentChat(input: {
     // Fixed names only: no prompt, owner, conversation, key or connector detail.
     performance.mark(`hushh:agent-chat:${phase}`);
   };
-  const timezone = resolveBrowserTimeZone();
+  let timezone = resolveBrowserTimeZone();
+  if (input.timeZoneOverride) {
+    try { new Intl.DateTimeFormat("en-US", { timeZone: input.timeZoneOverride }).format(); timezone = input.timeZoneOverride; }
+    catch { /* An invalid handoff must not change the turn's time zone. */ }
+  }
   // Closed to the server's schema here, so a stale branch never refuses the turn.
   const communicationPreferences = ownerStyleRequestField(input.communicationPreferences);
   const threadId = input.conversationId || crypto.randomUUID();

@@ -15,6 +15,7 @@ import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/use-chat-o
 import { reduceChatOnboarding } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { calendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
 
 const fixture = vi.hoisted(() => {
   const user = { uid: "owner", email: "owner@example.com", displayName: "Owner", getIdToken: async () => "test-id-token" };
@@ -512,7 +513,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     const confirm = await screen.findByRole("button", { name: "Schedule meeting" }, { timeout: 15000 });
     expect(fetchStream).toHaveBeenCalledOnce();
     expect(screen.getByTestId("agent-calendar-proposal-card")).toHaveTextContent("guest@example.com");
-    expect(screen.getByTestId("agent-calendar-proposal-card")).toHaveTextContent("Asia/Kolkata · 30 min");
+    expect(screen.getByTestId("agent-calendar-proposal-card")).toHaveTextContent("UTC+05:30 · 30 min");
     expect(screen.queryByRole("button", { name: "Allow Calendar scheduling" })).toBeNull();
     expect(execute).not.toHaveBeenCalled();
     fireEvent.click(confirm); fireEvent.click(confirm);
@@ -910,6 +911,44 @@ it.each(["untouched", "edited-and-cleared", "edited-inflight", "owner-replaced",
   expect(sourceText).toContain("Fresh recovery source");
   expect(sourceText).not.toContain("Private recovery source");
 });
+
+it("keeps the selected Calendar zone in the wire while the visible request uses UTC offsets", async () => {
+  const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
+  workspace();
+  await screen.findByRole("textbox", { name: "Message One" });
+  act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: {
+    ownerId: "owner", request: "Find another time on Nov 1 in New York (UTC-04:00 → UTC-05:00).", timeZone: "America/New_York",
+  } }); });
+  await waitFor(() => expect(stream).toHaveBeenCalledOnce());
+  const wire = JSON.parse(String(stream.mock.calls[0][1]?.body));
+  expect(wire.forwardedProps.timezone).toBe("America/New_York");
+  expect(JSON.stringify(wire.messages.at(-1).content)).not.toContain("America/New_York");
+  expect(JSON.stringify(wire.messages.at(-1).content)).toContain("UTC-04:00");
+});
+
+it("does not retry a restored Calendar day search in the device time zone", async () => {
+  const { noteChatKeyAccepted } = await import("@/lib/vault/one-chat-key");
+  const { morphyToast } = await import("@/lib/morphy-ux/morphy");
+  noteChatKeyAccepted();
+  const notice = vi.spyOn(morphyToast, "info");
+  const { rememberInAppChat } = await import("@/lib/agent/in-app-chat-selection");
+  rememberInAppChat("owner", "same-conversation");
+  clearAgentChatHistoryCache("owner");
+  const request = calendarDaySearchRequest("2026-11-01", "America/New_York", 30);
+  vi.mocked(ApiService.listAgentChatConversations).mockResolvedValue(Response.json({ conversations: [
+    { id: "same-conversation", title: "Calendar chat", status: "active", message_count: 2 },
+  ] }));
+  vi.mocked(ApiService.getAgentChatHistory).mockResolvedValue(Response.json({ messages: [
+    { id: "calendar-day-user", conversation_id: "same-conversation", role: "user", status: "complete", content: request },
+    { id: "calendar-day-answer", conversation_id: "same-conversation", role: "assistant", status: "complete", content: "I found an opening." },
+  ] }));
+  const stream = vi.spyOn(ApiService, "apiFetchStream");
+  workspace();
+  await screen.findByText(request);
+  fireEvent.click((await screen.findAllByRole("button", { name: "Try again" })).at(-1)!);
+  expect(notice).toHaveBeenCalledWith("Open Calendar and choose the day again.");
+  expect(stream).not.toHaveBeenCalled();
+}, 15_000);
 
 it("does not borrow an active Mail reply workflow for a meeting turn", async () => {
   const { CalendarInsightsService } = await import("@/lib/services/calendar-insights-service");
