@@ -9,6 +9,8 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { startTransition } from "react";
+import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import { CirclePhotoEditor } from "@/components/connect/circles/circle-photo-editor";
 
@@ -195,6 +197,82 @@ describe("named Circle flows", () => {
     act(() => result.current.add("person-20"));
     await act(async () => result.current.finish(true));
     expect(props.onAddPeople).toHaveBeenCalledWith("new-circle", people.slice(1).map(person => person.userId));
+  });
+
+  it("rejects a stale person selection immediately when the search changes", async () => {
+    const props = createProps();
+    const { result } = renderHook(() => useCreateCirclePeopleModel({
+      circleId: "new-circle", circleName: "Roommates", active: true,
+      onLoad: props.onLoadPeople, onAdd: props.onAddPeople, onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.people).toHaveLength(1));
+    const stale = result.current;
+    act(() => { stale.changeQuery("different"); stale.changeQuery(""); stale.add("asha"); });
+    expect(result.current.selected).toEqual([]);
+    await act(async () => result.current.finish(true));
+    expect(props.onAddPeople).not.toHaveBeenCalled();
+    await waitFor(() => expect(props.onLoadPeople).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.add("asha"));
+    expect(result.current.selected).toEqual(["asha"]);
+  });
+
+  it("rejects stale selection and completion callbacks across changes of circle", async () => {
+    const props = createProps();
+    let resolveAdd!: () => void;
+    props.onAddPeople.mockImplementationOnce(() => new Promise<void>(resolve => { resolveAdd = resolve; }));
+    const { result, rerender } = renderHook(({ circleId }) => useCreateCirclePeopleModel({
+      circleId, circleName: "Roommates", active: true, onLoad: props.onLoadPeople,
+      onAdd: props.onAddPeople, onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+    }), { initialProps: { circleId: "A" } });
+    await waitFor(() => expect(result.current.people).toHaveLength(1));
+    act(() => result.current.add("asha"));
+    const staleFinish = result.current.finish;
+    act(() => result.current.remove("asha"));
+    await act(async () => staleFinish(true));
+    expect(props.onAddPeople).not.toHaveBeenCalled();
+    act(() => result.current.add("asha"));
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.finish(true); });
+    expect(props.onAddPeople).toHaveBeenCalledWith("A", ["asha"]);
+    rerender({ circleId: "B" });
+    rerender({ circleId: "A" });
+    await act(async () => { resolveAdd(); await pending; });
+    expect(props.onComplete).not.toHaveBeenCalled();
+  });
+
+  it("rejects old results during an interrupted search render", async () => {
+    const props = createProps();
+    const { result, rerender } = renderHook(({ marker }) => {
+      void marker;
+      return useCreateCirclePeopleModel({
+        circleId: "A", circleName: "Roommates", active: true, onLoad: props.onLoadPeople,
+        onAdd: props.onAddPeople, onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+      });
+    }, { initialProps: { marker: 0 } });
+    await waitFor(() => expect(result.current.people).toHaveLength(1));
+    act(() => {
+      startTransition(() => result.current.changeQuery("bob"));
+      flushSync(() => rerender({ marker: 1 }));
+      result.current.add("asha");
+    });
+    expect(result.current.selected).toEqual([]);
+  });
+
+  it("does not skip a page when load more is invoked twice before rendering", async () => {
+    const props = createProps();
+    const loadPeople = vi.fn(async (_circleId: string, options: { page: number; limit: number; query?: string }) => ({
+      eligibleConnections: [{ connectionId: `c-${options.page}`, userId: `person-${options.page}`, displayName: "Person", isRia: false }],
+      pendingInvites: [], remainingCapacity: 99, page: options.page, hasMore: true, totalCount: 3,
+    }));
+    const { result } = renderHook(() => useCreateCirclePeopleModel({
+      circleId: "A", circleName: "Roommates", active: true, onLoad: loadPeople,
+      onAdd: props.onAddPeople, onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => { result.current.more(); result.current.more(); });
+    await waitFor(() => expect(loadPeople).toHaveBeenCalledTimes(2));
+    expect(loadPeople.mock.calls.map(([, options]) => options.page)).toEqual([1, 2]);
   });
 
   it.each([true, false])("settles the retained people model before creating another Circle (add selected: %s)", async (addSelected) => {
