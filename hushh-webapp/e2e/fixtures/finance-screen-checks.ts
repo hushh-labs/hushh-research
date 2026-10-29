@@ -87,6 +87,15 @@ export function registerFinanceScreenChecks(
           const briefing = await overview.getByTestId("portfolio-briefing").boundingBox();
           expect(Math.abs(value!.y - briefing!.y)).toBeLessThanOrEqual(2);
           expect(value!.x + value!.width).toBeLessThanOrEqual(briefing!.x);
+          const buttonInsets = await overview.evaluate(element => {
+            const names = ["View analysis", "View performance", "View allocation"];
+            return names.map(name => {
+              const button = [...element.querySelectorAll("button")].find(item => item.textContent?.trim() === name)!;
+              const card = button.closest('[data-slot="card"]')!;
+              return card.getBoundingClientRect().bottom - button.getBoundingClientRect().bottom;
+            });
+          });
+          for (const inset of buttonInsets) expect(Math.abs(inset - 24)).toBeLessThanOrEqual(2);
         }
         await overview.screenshot({ path: test.info().outputPath(`overview-${width}-${theme}.png`) });
         await overview.getByRole("button", { name: "Share portfolio PDF" }).click();
