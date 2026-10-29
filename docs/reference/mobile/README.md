@@ -46,8 +46,12 @@ for the current renderer scope, qualification-only native composition study
 and separate physical evidence. Session/vault
 gates, keyboard navigation hiding and the full-window privacy shield retain
 their concealment contracts.
-The native bar and web voice slot stay pinned together without per-frame
-bridge traffic. The DOM reservation excludes the native home-indicator inset;
+On supported iPhones, the shared scroll owner now sends bounded, latest-wins
+progress updates to the native bar, including the ordinary Capacitor host. The
+React voice slot keeps its existing CSS scroll owner. This bridge delivery does
+not prove synchronous visual motion; see the adoption inventory for the current
+physical checks and remaining transition evidence. The DOM reservation excludes
+the native home-indicator inset;
 the existing shared bottom shell reserves the reported native inset once, not
 the web fallback's compact inset. Custom persistent Chat history publishes its
 authored open state; default non-modal dialog contents also isolate native tabs.

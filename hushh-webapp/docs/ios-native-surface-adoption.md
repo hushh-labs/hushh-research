@@ -10,67 +10,124 @@ The [webapp documentation map](./README.md#visual-map) places this guide in the
 shared frontend/native shell. One Capacitor host retains the WebView; native
 controls present actions owned by React and existing services.
 
-## Current implementation
+## Resume handoff
 
-**Status as of 2026-10-29:** native work is in progress. Ordinary builds use the
-established interface for custom controls; the existing iOS bottom navigation
-has its own native owner. The custom native shell is available only in a
-qualification build or an explicitly opted-in Debug session. Source or
-simulator evidence does not qualify a family for release. The current task
-targets Dev only.
+**Validated 2026-10-29.** Continue in the current root worktree on
+`claude/hushh-infrastructure-analysis-7o991c`. The implementation snapshot is
+`a38cf0480ada538ef659a07070e056abba6f2978`. Native integration is partial and
+not release-ready. Track the existing
+[#7824](https://github.com/hushh-labs/hushh-research/issues/7824); keep this file
+as the single maintained handoff and coverage record.
 
-The current document-authority candidate was built from `5947b7b89f` with the
-Dev runtime profile and `ENABLE_TESTABILITY=YES`. Three focused lifecycle tests
-passed on both the physical iPhone 16e and the iPhone 16e simulator. The
-physical Debug Dev app was installed and launched. These checks verify document
-replacement, restart invalidation, fail-closed identity matching and Capacitor
-navigation-delegate forwarding; they do not qualify product routes, visual
-transitions or Release performance.
+Against fetched `origin/main` at `b889c7fd520540811c2b53392c50728d64c1d344`,
+the implementation snapshot is **24 commits behind and 99 ahead**. Main has newer Contact,
+Calendar, Drive/document and managed-AI changes. Integrate current main before
+preparing another combined candidate; preserve team behavior and resolve files
+selectively. Do not switch back to the old ADK worktree or reset this root tree.
+Another agent has local `.agents`, documentation, CI/release-script and TypeScript
+configuration edits, plus `.build/` work. Refresh `git status --short` before
+editing or committing; preserve those files and their processes.
 
-The follow-up at `fd6cd9cc87` fixes a refused Profile-pane preparation leaving a
-new, unacknowledged pane lifetime fenced in native state. Rollback is limited to
-that exact acquisition; acknowledged or retired lifetimes remain fenced. Five
-focused lifecycle tests passed on the iPhone 16e and simulator in Debug. This
-verifies retry and document-authority contracts, not Profile route behavior,
-visual transitions or Release performance.
+The agreed scope remains native navigation, controls, forms, menus and sheets
+across every reachable product journey, with suitable rich content staying in
+React. iPhone is the physical acceptance target; iPad layout uses simulator
+support unless separately requested. Continue through **Dev-only** delivery.
+Keep ordinary-build fallback and the qualification flag unchanged; UAT,
+TestFlight and production promotion are outside this continuation.
 
-The 2026-10-29 integration follow-up also retires native child controls staged
-for a refused, unacknowledged pane before confirming rollback. A stale rollback
-cannot remove a replacement pane. The five-case lifecycle suite passed on the
-physical iPhone 16e and the iPhone 16e simulator in Debug (iOS 27.1 SDK); the
-Finance Back regression passed 10/10, and the combined UI-contract gate passed.
-These results verify the current rollback and route contracts only. They do not
-qualify all Profile destinations, visual transitions or Release performance.
-The tested source snapshot is `81d2078580`; the later main sync at
-`214808d067` changes phone-restoration workflows, not iOS sources.
-The owned-presenter dismissal test also passed on the physical iPhone 16e
-(1/1), confirming UIKit retains an alert or sheet owner until dismissal. This
-does not exercise the complete routed Profile handoff.
+## Validated work and evidence limits
 
-Every main-frame document receives a random identity at document start. Native
-presentation and privacy actions stay disabled while navigation is pending,
-then require WebKit readback of the exact identity after commit. A new committed
-document retires the previous one. The navigation observer forwards optional
-callbacks to Capacitor's existing delegate without retaining it. Restart clears
-committed identity until the replacement document commits. Focused tests cover
-these boundaries on simulator and physical device.
+| Work | Evidence | Limit |
+| --- | --- | --- |
+| Committed-document authority (`5947b7b89f`) | Three lifecycle tests previously passed on physical iPhone and simulator; document identity gates native actions and forwards Capacitor navigation callbacks | Debug lifecycle evidence, not protected-route acceptance |
+| Refused pane cleanup (`0884291101`, `fd6cd9cc87`, `81d2078580`) | Identity-bound retirement readback, failed-acquisition rollback and staged-child cleanup exist; five lifecycle cases previously passed on phone/simulator | Recheck integrated Profile navigation and resume; do not reimplement the existing readback contract |
+| Owned presenter dismissal (`0884291101`, evidence `ed439cc275`) | One physical UIKit dismissal test previously passed | Does not qualify the complete routed Profile handoff |
+| Standard-host bottom scrolling (`a38cf0480a`) | Previously observed physical run: Chat drawer continuity and three scroll hide/reveal cycles passed; draft, keyboard and single-WebView checks passed. Focused native test passed on phone/simulator; generic iOS Release build passed | The device journey used the ordinary React dock (`native_dock=false`), not the custom SwiftUI dock. Exact installed executable/source provenance and Release frame pacing still need a retained receipt |
+| Current lightweight checks | Re-run for this handoff: static Capacitor/Siri checks, plugin parity (25 plugins), all 26 native-navigation JavaScript tests and `git diff --check` pass | These checks do not qualify visuals, accessibility or the complete app |
+| Complete route reports | Re-run `verify:capacitor:reports`: **fails**. Current inventory has 147 routes, 119 required. iOS has 13 results (12 pass, 1 fail) while declaring 91 audited; Android has 57 results (45 pass, 12 fail) while declaring 103 audited | Reports are stale/incomplete; query tabs and nested states also need explicit coverage |
 
-Native Chrome lifecycle notifications now identify their document and affected
-control revisions when the wrapper advertises that capability. Older wrappers
-retain the previous behavior. This prevents a delayed notification from
-invalidating a replacement control; it does not prove presenter dismissal.
-An invalidation during listener installation still requires an acknowledged
-state reconciliation before a retained host can be trusted.
-An existing Back lease now retires only its own installation; the no-lease
-remount path still needs reservation-ordering proof for concurrent mounts.
+Prior device/build results above were observed in the preceding execution,
+not rerun for this documentation handoff. Temporary XCTest bundles and logs
+were removed after extracting their results. Their summarized outcomes are
+not retained visual artifacts. Future combined acceptance needs a compact,
+sanitized source/build/environment receipt before temporary cleanup. No push
+or deployment of `a38cf0480a` occurred in that execution; live Dev serving
+provenance was not checked in this handoff.
 
-Other known gaps include the native hard Vault, complete AI-provider ownership,
-full route and nested-state coverage, and physical visual, accessibility and
-Release performance acceptance. The focused run is not whole-app UI automation.
-Listener-installation reconciliation, Back reservation ordering, cross-device
-phone-claim ordering and uncertain deletion/claim outcomes still need separate
-evidence. The tracked work is [#7824 Complete and qualify the native iPhone
-experience](https://github.com/hushh-labs/hushh-research/issues/7824).
+The docs verifier passes runtime/link/governance/brand/diagram checks but fails
+the shareable-link scan on five existing `tmp/` handoffs with absolute paths.
+Coordinate that cleanup with the active documentation lane; do not delete
+another agent's handoff or weaken the check. This handoff creates no duplicate
+temporary artifact.
+
+**Open visual finding:** an earlier scroll run measured the dock bottom at
+852 points against a viewport bottom of 844. The final test replaced the
+no-clipping assertion with a 160-point travel bound. Its pass therefore proves
+movement and restoration, not an unclipped dock or synchronized transition
+frames. Compare the authored web behavior and native candidate before deciding
+whether this is intended hiding or a defect; do not mark it visually accepted.
+
+The read-only native review found two further evidence gaps. The scroll test
+allows five seconds to reach an endpoint, so it cannot detect transient
+React/UIKit separation. The new ordinary-host press observer also lacks direct
+press/release/cancel and momentum-selection coverage; the test's claim that
+touch tracking already has native unit coverage is unsupported. Follow up in
+[the UI test](../ios/App/AppUITests/AppUITests.swift),
+[the scroll plugin](../ios/App/App/Plugins/HushhNativeNavigationPlugin.swift)
+and [NativeSupportTests](../ios/App/AppTests/NativeSupportTests.swift).
+Establish intended clearance, restore the appropriate geometry assertion with
+a failing negative case, then verify one selection and resumed scrolling after
+press cancellation. These are open validation findings, not newly proven
+runtime crashes.
+
+## Continue in this order
+
+1. **Integrate and pin.** Re-read root instructions and the mobile workflow,
+   refresh main, preserve concurrent edits, then record the integrated SHA.
+   Reuse valid evidence only when its dependencies are unchanged.
+2. **Close shared presentation risks.** Review the clipping finding above and
+   the recorded listener-installation reconciliation / Back reservation-ordering
+   gaps. Exercise failed admission followed by retry, document replacement,
+   actual popup dismissal and Control Center/background recovery. Keep coverage
+   until the same current owner/document is ready; no operation replay.
+3. **Finish the hard Vault and Profile journeys.** The main locked gate still
+   uses React `VaultFlow`; existing native Profile password scenes do not replace
+   creation/unlock/recovery. Reuse Vault operation owners and typed private scenes.
+   Traverse every current Profile entry and nested editor/menu/confirmation,
+   including Software Updates, Hosting, providers, photo and Legal paths.
+4. **Finish the remaining shared families.** Use the inventory below for
+   Chat/History, Memory/World Model/Connect/consent, Mail/Calendar/Drive,
+   Finance/Wallet/linked workspaces, and Location/Feed/Search/messages/tasks.
+   Route markers establish reachability only. Record actual saves, cancellation,
+   failure, destructive fixture outcomes and return paths for each nested state.
+5. **Qualify and deliver one combined candidate.** Separate installation from
+   warm tests. Check transition frames, touch, keyboard/IME, themes, accessibility
+   and three physical Release performance runs. Run canonical core once before
+   push, require CI on the exact head, then follow the existing Admin SOP for
+   landing and Dev delivery with serving provenance. Do not weaken failed gates.
+
+### Practical resume details
+
+- The iPhone 16e was available/paired at this validation; selected tools are
+  Xcode 27.1 (`27A9275`). The earlier physical run reported iOS 27.2. No XCTest
+  worker is being kept alive. Recheck transport, device lock, XCTest permission
+  and Vault admission independently before a new run.
+- Use the existing environment-wired reviewer and process-only credentials.
+  The user has authorized candidate installs/restarts with possible draft loss;
+  repeated approval requests are unnecessary. Keep real mutations on disposable
+  Dev fixtures and financial activity sandboxed; preserve the shared reviewer.
+- Foundation owners: [pane retirement](../lib/capacitor/use-native-content-pane.ts),
+  [Chrome contract](../lib/capacitor/native-chrome.ts),
+  [native presenter](../ios/App/App/Plugins/HushhNativeChromePresenter.swift),
+  [drawer owner](../ios/App/App/Plugins/HushhNativeDrawersPlugin.swift),
+  [Profile adapters](../components/profile/use-native-profile-features.ts), and
+  [hard Vault](../components/vault/vault-flow.tsx).
+- Focused scroll cases live in `NativeSupportTests.testNativeBottomScrollMovesTheStandardReleaseTabBarWithoutACompositor`
+  and `AppUITests.testLocalSessionNativeBottomChromeFollowsTheSharedScrollOwner`;
+  the adjacent warm check is `testLocalSessionChatDrawerDoesNotReplaceThePage`.
+  Rebuild only the runner for harness-only changes; avoid repeated whole-app installs.
+- Keep results concise here, retain history in Git, and clean only identified
+  task-owned artifacts. No new handoff copy, route registry or test framework.
 
 ## Shared component inventory
 
@@ -178,7 +235,7 @@ physical transition pass.
 5. Run three physical iPhone Release performance passes against the
    [render-performance charter](../../docs/reference/mobile/render-performance-charter.md):
    target median hitch ratio ≤5 ms/s and no gesture frames over 50 ms. The
-   testability-enabled candidate above cannot establish distribution performance.
+   earlier Debug/testability-enabled evidence cannot establish distribution performance.
 6. Run canonical core on the completed candidate before pushing, then require
    exact-head CI for the pushed candidate. Merge and delivery follow the Admin SOP.
 
