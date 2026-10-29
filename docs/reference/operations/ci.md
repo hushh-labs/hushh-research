@@ -111,6 +111,15 @@ Current support requires the selected services to share that tested serving base
 a mixed or unknown baseline refuses before mutation. Historical UAT receipt
 retention remains finite; expired evidence is not an exemption.
 
+Manual capacity dry runs are named **revision inspection**, separate from mutation
+jobs, and never publish mutation checkpoints. Failed inspections cannot masquerade
+as interrupted deletions. After the existing history guard and source validation,
+a new apply can publish a version-3 `preparing` journal before looking up the latest
+deployment. Its observation is explicitly unknown, it remains due, and it never
+certifies completion or replaces orphaned state. Existing custody is retained.
+Failures before this boundary still require verified pre-mutation evidence; a
+missing checkpoint never establishes successful cleanup.
+
 ## Recorded production restoration — 26 October 2026
 
 Normal releases keep their exact application SHA and environment acceptance chain:

@@ -1585,7 +1585,7 @@ def checkpoint(args, run_id, observed, pending, status):
         receipt_file,
         {
             "schema_version": 1,
-            "checkpoint_version": 2,
+            "checkpoint_version": 3 if status == "preparing" else 2,
             "environment": args.environment,
             "project": LANES[args.environment]["project"],
             "release_run_id": run_id,

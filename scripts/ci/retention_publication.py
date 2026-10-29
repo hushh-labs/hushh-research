@@ -369,13 +369,14 @@ def assert_published(owner, repository, environment):
 
 def begin(owner, args, repository, run_id):
     """Publish an unfinished existing journal before live health; preserve restored intents."""
-    observed = (
-        owner.latest_deploy_observation(repository, args.environment)
-        if args.apply
-        else None
-    )
     services = owner.production_retention_context.services(owner, args)
     pending = list(services)
+    if args.apply and completion_receipt(owner, args.state_dir, args.environment) is None:
+        if any(path.name != "README.txt" or path.is_symlink() or not path.is_file()
+               for path in args.state_dir.iterdir()):
+            raise owner.retention.UnsafeState("Unsettled cleanup files require reconciliation before preparation")
+        owner.checkpoint(args, run_id, None, pending, "preparing")
+    observed = owner.latest_deploy_observation(repository, args.environment) if args.apply else None
     if args.apply:
         (args.state_dir / "README.txt").write_text(
             f"{args.environment} drain evidence; never deployment authority.\n"
@@ -401,18 +402,21 @@ def completion_receipt(owner, directory, environment):
         or completed.get("schema_version") != 1
         or completed.get("environment") != environment
         or completed.get("project") != owner.LANES[environment]["project"]
-        or type(completed.get("observed_run_id")) is not int
+        or not (
+            type(completed.get("observed_run_id")) is int and completed["observed_run_id"] > 0
+            or completed.get("pass_status") == "preparing" and completed.get("checkpoint_version") == 3
+            and "observed_run_id" in completed and completed["observed_run_id"] is None
+        )
         or type(completed.get("release_run_id")) is not int
-        or completed["observed_run_id"] < 1
         or completed["release_run_id"] < 1
     ):
         raise owner.retention.UnsafeState(f"invalid {environment} completion receipt")
     status = completed.get("pass_status", "complete")
-    if status not in {"complete", "in_progress", "deferred", "unresolved"}:
+    if status not in {"complete", "in_progress", "deferred", "unresolved", "preparing"}:
         raise owner.retention.UnsafeState("invalid cleanup checkpoint status")
     if status != "complete":
         if (
-            completed.get("checkpoint_version") != 2
+            completed.get("checkpoint_version") != (3 if status == "preparing" else 2)
             or not isinstance(completed.get("pending_services"), list)
             or not set(completed["pending_services"]).issubset(
                 owner.LANES[environment]["services"]
