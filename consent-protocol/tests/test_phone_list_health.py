@@ -345,6 +345,12 @@ def test_health_journal_is_atomic_and_serializes_recovery(tmp_path, monkeypatch)
         recovered, _ = module._journal("hushh-pda-uat", "a" * 40, path)
         assert recovered["operation"] == journal["operation"]
         assert recovered["phase"] == "configured"
+        with pytest.raises(RuntimeError, match="source changed"):
+            module._journal("hushh-pda-uat", "b" * 40, path)
+        upgraded, _ = module._journal("hushh-pda-uat", "b" * 40, path, upgrade_from="a" * 40)
+        assert upgraded["operation"] == recovered["operation"]
+        assert upgraded["previous_source"] == "a" * 40
+        assert upgraded["phase"] == "upgrading"
 
 
 @pytest.mark.parametrize("existing", [False, True])
@@ -369,7 +375,7 @@ def test_health_build_and_timer_use_supported_cloud_cli_contracts(existing):
                     next(a.split("=", 1)[1] for a in args if a.startswith("--config="))
                 ).read_text()
             )
-            assert config["tags"] == [f"auth-health-{operation}"]
+            assert config["tags"] == [f"auth-health-{operation}", "auth-health-source-source"]
             assert config["images"] == image["images"]
             assert config["timeout"] == "600s"
             assert not any(a.startswith("--tags=") for a in args)

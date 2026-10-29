@@ -330,7 +330,10 @@ separate from owner Files storage.
 `setup_auth_health.py` defaults to a read-only plan. Applying requires reviewed
 Main source, verified `kushal@hushh.ai` ADC and a durable local `--receipt` ownership
 journal. Never adopt a pre-existing service account, bucket, job or schedule by
-name alone. The checker gets only its declared secret-version permissions,
+name alone. Retries retain recorded workload identity IDs. Later reviewed source
+updates reuse that same locked journal with explicit `--upgrade-from <recorded-sha>`;
+builds are reconciled per operation and source revision. Atomic journal replacement
+preserves repair authority on interruption. The checker gets only its declared secret-version permissions,
 log publication, its lease bucket and optional service metadata observation.
 The clock identity gets only job invocation. Existing runtime-check rollout stays
 independent for UAT and production.

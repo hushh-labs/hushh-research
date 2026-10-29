@@ -14,6 +14,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 
+SECURITY_STEP = "Require current-attempt deployment security"
+FROZEN_REQUEST_SHA = "${{ inputs.sha || needs.deployment-security.outputs.application_sha }}"
+
+
 def _workflow(name: str) -> dict:
     return yaml.safe_load((ROOT / ".github/workflows" / name).read_text(encoding="utf-8"))
 
@@ -64,7 +68,7 @@ def test_android_release_is_green_main_uat_backed_and_fail_closed() -> None:
     steps = _steps(workflow, "ship")
     assert all("${{" not in step.get("run", "") for step in steps)
     names = [step["name"] for step in steps]
-    assert names[:2] == ["Require current-attempt deployment security", "Validate target track"]
+    assert names[:2] == [SECURITY_STEP, "Validate target track"]
     assert names.index("Resolve release SHA") < names.index("Check out exact release SHA")
     assert names.index("Check out exact release SHA") < names.index("Assert source SHA")
     assert names.index("Assert source SHA") < names.index(
@@ -89,10 +93,7 @@ def test_android_release_is_green_main_uat_backed_and_fail_closed() -> None:
     resolve = _named(steps, "Resolve release SHA")
     assert resolve["env"]["REQUIRE_CI_SUCCESS"] == "1"
     assert resolve["env"]["REQUIRED_CHECK_NAME"] == "Main Post-Merge Smoke Gate"
-    assert (
-        resolve["env"]["REQUESTED_SHA"]
-        == "${{ inputs.sha || needs.deployment-security.outputs.application_sha }}"
-    )
+    assert resolve["env"]["REQUESTED_SHA"] == FROZEN_REQUEST_SHA
     assert "^[0-9a-f]{40}$" in resolve["run"]
     assert 'require-deploy-sha-on-main.sh "$SHA"' in resolve["run"]
 

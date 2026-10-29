@@ -97,6 +97,9 @@ class DeploymentSecurityTest(unittest.TestCase):
                         continue
                     self.assertEqual(job["steps"][0]["name"], "Require current-attempt deployment security")
         reusable = (root / ".github/workflows/deployment-security.yml").read_text()
+        for name in gate.CALLERS - {"deployment-security.yml"}:
+            jobs = yaml.safe_load((root / ".github/workflows" / name).read_text())
+            self.assertEqual(jobs["permissions"].get("actions"), "read", name)
         self.assertIn("environment: ci-security", reusable)
         self.assertIn("ref: ${{ github.sha }}", reusable)
         self.assertNotIn("application_ref }}\n          persist", reusable)

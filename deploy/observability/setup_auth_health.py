@@ -62,15 +62,13 @@ def _reviewed_source() -> str:
     return source
 
 
-def _journal(project: str, source: str, journal_path: Path):
+def _journal(project: str, source: str, journal_path: Path, upgrade_from: str | None = None):
     journal = json.loads(journal_path.read_text()) if journal_path.exists() else {
         "project": project, "operation": uuid.uuid4().hex, "phase": "prepared", "source": source,
     }
     operation = journal.get("operation", "")
     if journal.get("project") != project or len(operation) != 32 or any(c not in "0123456789abcdef" for c in operation):
         raise RuntimeError("Health resource journal does not match this project")
-    if journal.get("source") != source:
-        raise RuntimeError("Health resource journal belongs to another reviewed source")
     def save(**values):
         updated = {**journal, **values}
         temporary = None
@@ -92,7 +90,12 @@ def _journal(project: str, source: str, journal_path: Path):
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
-    save()
+    if journal.get("source") != source:
+        if upgrade_from is None or upgrade_from != journal.get("source"):
+            raise RuntimeError("Health source changed; review and supply --upgrade-from with the journal source")
+        save(source=source, previous_source=upgrade_from, previous_image=journal.get("image"), phase="upgrading")
+    else:
+        save()
     return journal, save
 
 
@@ -164,7 +167,8 @@ def _identities(run, project: str, operation: str, bucket: str, runtime: bool, j
 
 def _image(run, project: str, operation: str, source: str, bucket: str, save):
     tag = f"gcr.io/{project}/auth-health-job:{source}"
-    matches = run(["builds", "list", f"--filter=tags:auth-health-{operation}", "--limit=2"])
+    revision_tag = f"auth-health-source-{source}"
+    matches = run(["builds", "list", f"--filter=tags:auth-health-{operation} AND tags:{revision_tag}", "--limit=2"])
     if len(matches) > 1:
         raise RuntimeError("Multiple health builds require reconciliation")
     if matches and tag not in matches[0].get("images", []):
@@ -179,7 +183,7 @@ def _image(run, project: str, operation: str, source: str, bucket: str, save):
         config = stage / "cloudbuild.json"
         config.write_text(json.dumps({
             "steps": [{"name": "gcr.io/cloud-builders/docker", "args": ["build", "--tag", tag, "."]}],
-            "images": [tag], "tags": [f"auth-health-{operation}"], "timeout": "600s",
+            "images": [tag], "tags": [f"auth-health-{operation}", revision_tag], "timeout": "600s",
             "options": {"logging": "GCS_ONLY"},
         }))
         build = matches[0] if matches else run(["builds", "submit", str(stage), f"--config={config}", "--async",
@@ -238,16 +242,16 @@ def _operation_lock(path: Path):
         os.close(descriptor)
 
 
-def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> dict:
+def apply(project: str, *, runtime: bool, schedule: str, journal_path: Path, upgrade_from: str | None = None) -> dict:
     with _operation_lock(journal_path):
-        return _apply_locked(project, runtime=runtime, schedule=schedule, journal_path=journal_path)
+        return _apply_locked(project, runtime=runtime, schedule=schedule, journal_path=journal_path, upgrade_from=upgrade_from)
 
 
-def _apply_locked(project: str, *, runtime: bool, schedule: str, journal_path: Path) -> dict:
+def _apply_locked(project: str, *, runtime: bool, schedule: str, journal_path: Path, upgrade_from: str | None = None) -> dict:
     if project not in PROJECTS:
         raise ValueError("Ungoverned health project")
     source = _reviewed_source()
-    journal, save = _journal(project, source, journal_path)
+    journal, save = _journal(project, source, journal_path, upgrade_from)
     operation = journal["operation"]
     run, api = _transport(project)
     try:
@@ -271,6 +275,7 @@ def main() -> int:
     parser.add_argument("--schedule", choices=["17 * * * *", "*/2 * * * *"], default="17 * * * *")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--receipt", type=Path)
+    parser.add_argument("--upgrade-from", help="Explicitly reviewed prior source SHA in this same operation journal")
     args = parser.parse_args()
     if not args.apply:
         print(json.dumps({"project": args.project, "job": JOB, "schedule": args.schedule,
@@ -278,7 +283,7 @@ def main() -> int:
         return 0
     if not args.receipt:
         parser.error("--apply requires --receipt for durable resource ownership and retry")
-    receipt = apply(args.project, runtime=args.check_phone_runtime, schedule=args.schedule, journal_path=args.receipt)
+    receipt = apply(args.project, runtime=args.check_phone_runtime, schedule=args.schedule, journal_path=args.receipt, upgrade_from=args.upgrade_from)
     print(json.dumps(receipt))
     return 0
 
