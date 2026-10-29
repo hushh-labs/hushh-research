@@ -103,15 +103,48 @@ def test_approved_ordinary_note_uses_selected_metadata_scope_without_content_rea
     ref = {"file_id": "approvednote123", "kind": "notes", "provenance": "approved_request"}
     result = run(svc._file("owner", grant, ref, content=True))
     assert result["state"] == "available"
-    assert result["can_download"] is can_download
-    if not can_download:
-        assert result["download_url"] is None
-        assert result["pdf_export_url"] is None
+    assert result["can_download"] is False
+    assert result["download_reason"] == ("app_permission" if can_download else "owner_restricted")
+    assert result["download_url"] is None
+    assert result["pdf_export_url"] is None
     assert drive.get_file_facts.await_count == 2
     drive.read_live_bytes.assert_not_awaited()
     with pytest.raises(artifacts_module.ArtifactUnavailable) as caught:
         run(svc._selected_token("owner", grant))
     assert caught.value.state == "permission_required"
+
+
+@pytest.mark.parametrize(
+    "provenance,allowed",
+    [(None, True), ("calendar_linked", False)],
+)
+def test_meet_content_scope_only_enables_download_for_verified_meet_file(
+    monkeypatch, provenance, allowed
+):
+    _, svc, drive = setup()
+    monkeypatch.setattr(
+        artifacts_module,
+        "inspect_token",
+        AsyncMock(
+            return_value=artifacts_module.MEET_SCOPES
+            | {"https://www.googleapis.com/auth/drive.meet.readonly"}
+        ),
+    )
+    drive.get_file_facts.return_value = {
+        "mimeType": "video/mp4",
+        "title": "Recording",
+        "viewUrl": "https://drive.google.com/file/d/recording123/view",
+        "downloadUrl": "https://drive.google.com/uc?id=recording123&export=download",
+        "capabilities": {"canDownload": True},
+    }
+    ref = {"file_id": "recording123", "kind": "recording"}
+    if provenance:
+        ref["provenance"] = provenance
+    result = run(svc._file("owner", GRANT, ref, content=False))
+    assert result["state"] == "available"
+    assert result["can_download"] is allowed
+    assert bool(result["download_url"]) is allowed
+    assert result["download_reason"] == (None if allowed else "app_permission")
 
 
 def test_approved_note_revoked_from_selected_account_is_not_available(monkeypatch):

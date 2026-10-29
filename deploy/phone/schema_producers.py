@@ -415,17 +415,25 @@ class Runtime:
         }
 
     def reference(self) -> dict:
+        authority = _authorities()
+        from production_worker_basis import current_release_run_id
+
+        selected_run_id = current_release_run_id()
         with tempfile.TemporaryDirectory(prefix="phone-schema-serving-") as temporary:
-            found = _authorities().find_release(
+            found = authority.find_release(
                 REPOSITORY,
-                "",
+                selected_run_id,
                 Path(temporary),
                 require_live=True,
                 environment="production",
             )
-        if found is None:
-            raise ValueError("phone_schema_healthy_serving_reference_missing")
-        run_id, release = found
+            if found is None or str(found[0]) != selected_run_id:
+                raise ValueError("phone_schema_healthy_serving_reference_missing")
+            run_id, release = found
+            # An explicit run selects provenance; the legacy reader does not
+            # check serving traffic on that path, even with require_live=True.
+            if not authority.live_release_matches(release, environment="production"):
+                raise ValueError("phone_schema_healthy_serving_reference_not_live")
         return {
             "run_id": str(run_id),
             "source": release["sha"],
