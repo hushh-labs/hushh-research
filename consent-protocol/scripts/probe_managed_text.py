@@ -30,11 +30,15 @@ async def probe_managed_text(provider: Literal["azure_openai", "vertex"]) -> dic
     policy = managed_text_policy()
     if policy is None:
         raise ValueError("Managed text readiness requires UAT policy")
+    from scripts.probe_drive_activity_planner import probe_drive_activity_planner
+
+    activity_planner = await probe_drive_activity_planner(provider)
     return {
         "schema": "managed_text_probe.v1",
         "provider": provider,
         "ready": True,
         "scopes": scopes,
+        "activity_planner": activity_planner,
         "policy_generation": policy["generation"],
         "config_fingerprint": profile_hash(json.loads(PROFILE_PATH.read_text())),
     }

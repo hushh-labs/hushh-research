@@ -344,6 +344,10 @@ Changing a deployment name alone does not create quota or provision a model.
 To move UAT to Vertex, set `managed_provider_selection.uat` to `vertex`; set it
 back to `azure_openai` to restore Azure. One chat, its specialists and Search,
 voice and the existing managed capability ports use the selected provider.
+New Drive activity-date requests use the same selected managed planner and preserve
+their existing single interpretation stage, native retrieval and deterministic date
+checks. Both providers must pass the authored v2 planner qualification. Saved
+requests retain their processor binding and its current-authority validation.
 Chat stays on that one provider for the invocation: an outage does not replay
 its tools or output through another model. The existing eligible Drive transport
 fallback retains its separate contract. A new fleet provider needs an adapter
