@@ -60,6 +60,7 @@ from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
 from hushh_mcp.services.feed_service import FeedService
 from hushh_mcp.services.stripe_connect_bank_payouts import StripeConnectBankPayouts
+from tests.helpers.drive_permission_claims import hold_uncertain_bulk_effect
 from tests.services.test_drive_request_bulk_postgres import (  # noqa: F401
     FILE_ACTIVITY_SELECTION,
     _recipient,
@@ -3719,16 +3720,7 @@ async def test_withdraw_and_decline_refuse_a_paid_or_shared_request(sharing, mon
 
     # A grant Google may already have applied is never withdrawable.
     with sharing.db.engine.begin() as connection:
-        connection.execute(
-            text("""INSERT INTO drive_share_file_claims(file_lock_hmac,bulk_share_id,bulk_position,bulk_recipient_user_id)
-              VALUES (:lock,:share,1,'recipient')"""),
-            {"lock": sharing.sharing_cipher.file_lock("standup-file-1"), "share": share_id},
-        )
-        connection.execute(
-            text("""UPDATE drive_bulk_share_effects SET state='dispatching'
-              WHERE share_id=:share AND position=1"""),
-            {"share": share_id},
-        )
+        hold_uncertain_bulk_effect(connection, sharing.sharing_cipher, share_id)
     for decision in ("cancelled", "declined"):
         with pytest.raises(DriveSharingError, match="request_paid"):
             await close(decision)
