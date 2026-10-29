@@ -1,5 +1,20 @@
 # Contact sync investigation — 29 October 2026
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  match["Verified eligible contact match"] --> active["Active: keep connected"]
+  match --> legacy["Revoked with missing actor history"]
+  legacy --> request["User chooses Request"]
+  request --> accept["Recipient accepts"]
+  accept --> active
+  match --> removed["Known peer or concurrent removal: preserve"]
+```
+
+Missing historical attribution permits a fresh request; it does not authorize
+automatic reconnection. The Matched summary and result rows count the same unique people.
+
 ## Confirmed findings
 
 The results sheet counted matching address-book entries in **Matched**, but
