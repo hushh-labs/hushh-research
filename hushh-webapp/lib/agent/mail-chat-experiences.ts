@@ -38,10 +38,12 @@ export type MailBriefItem = {
 export type MailBriefExperience = {
   type: typeof MAIL_BRIEF_EXPERIENCE_TYPE;
   checkedAt: string;
-  counts: Partial<Record<MailBriefCategory, number>>;
+  requested: MailBriefCategory[];
   failed: MailBriefCategory[];
   items: MailBriefItem[];
   moreMailOutsidePage: boolean;
+  someUnreadable: boolean;
+  textShortened: boolean;
 };
 
 export type ReceiptSetupExperience = {
@@ -59,6 +61,13 @@ function text(value: unknown, limit: number): string | null {
 
 function category(value: unknown): MailBriefCategory | null {
   return MAIL_BRIEF_CATEGORIES.find((name) => name === value) ?? null;
+}
+
+/** A list of known categories; one unknown name rejects the whole list. */
+function categories(value: unknown): MailBriefCategory[] | null {
+  if (!Array.isArray(value)) return null;
+  const names = value.map(category);
+  return names.every((name) => name !== null) ? names : null;
 }
 
 function briefItem(value: unknown): MailBriefItem | null {
@@ -98,20 +107,31 @@ export function parseMailBriefExperience(result: Json | null): MailBriefExperien
   if (brief?.schema_version !== "mail_brief.v1" || !Array.isArray(brief.items)) return null;
   const checkedAt = text(brief.checked_at, 40);
   const rawCounts = record(brief.counts_by_category);
-  if (!checkedAt || !rawCounts || brief.items.length > 60) return null;
+  const requested = categories(brief.requested);
+  const failed = categories(brief.failed);
+  const coverage = record(brief.coverage);
+  if (!checkedAt || !rawCounts || !requested?.length || !failed || !coverage || brief.items.length > 60) return null;
+  // A failed kind was always requested, and some requested kind finished; anything else can't be summarized truthfully.
+  if (failed.some((name) => !requested.includes(name)) || requested.every((name) => failed.includes(name))) return null;
   const counts: Partial<Record<MailBriefCategory, number>> = {};
   for (const [name, count] of Object.entries(rawCounts)) {
     const kind = category(name);
     if (!kind || !Number.isInteger(count) || (count as number) < 0) return null;
     counts[kind] = count as number;
   }
-  const failed = Array.isArray(brief.failed) ? brief.failed.map(category).filter((name) => name !== null) : [];
+  const items = brief.items.map(briefItem).filter((item) => item !== null);
+  // The card counts open items, so the items must carry every finding the server counted.
+  const mismatched = (name: MailBriefCategory) =>
+    items.filter((item) => item.category === name).length !== (counts[name] ?? 0);
+  if (MAIL_BRIEF_CATEGORIES.some(mismatched)) return null;
   return {
     type: MAIL_BRIEF_EXPERIENCE_TYPE,
     checkedAt,
-    counts,
+    requested,
     failed,
-    items: brief.items.map(briefItem).filter((item) => item !== null),
-    moreMailOutsidePage: record(brief.coverage)?.more_mail_outside_page === true,
+    items,
+    moreMailOutsidePage: coverage.more_mail_outside_page === true,
+    someUnreadable: typeof coverage.unreadable === "number" && coverage.unreadable > 0,
+    textShortened: coverage.text_shortened === true,
   };
 }

@@ -293,9 +293,8 @@ async def test_actual_one_runner_allows_only_reviewable_draft_after_read():
             "status": "blocked",
             "reason": "connector_read_complete",
             "message": (
-                "A connector read already ran in this chat turn. Answer from that result, "
-                "or ask the owner for a new message if another read is needed. "
-                "This blocked call did not reach the provider."
+                "Answer from what this chat turn already returned, or ask the owner for a "
+                "new message. This blocked call did not reach the provider."
             ),
         }
     finally:

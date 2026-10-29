@@ -11,8 +11,8 @@ import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import type { GmailConnectionStatus } from "@/lib/services/gmail-receipts-service";
 import { cn } from "@/lib/utils";
 
-/** What stands between a draft and a working Send: a connection, or the send grant. */
-export type GmailSendGap = "connect" | "allow";
+/** What stands between a draft and a working Send: a connection, a renewed one, or the send grant. */
+export type GmailSendGap = "connect" | "reconnect" | "allow";
 
 type LiveGmailStatus = Pick<
   GmailConnectionStatus,
@@ -21,37 +21,50 @@ type LiveGmailStatus = Pick<
 
 const NOTICE: Record<GmailSendGap, { message: string; action: string }> = {
   connect: { message: "Connect Gmail to send this.", action: "Connect Gmail" },
+  reconnect: { message: "Reconnect Gmail to send this.", action: "Reconnect Gmail" },
   allow: { message: "Allow One to send from Gmail.", action: "Allow sending" },
 };
 
+/** The gap each server answer reports; `ready` and `unknown` report none. */
+const HINT_GAP: Partial<Record<GmailSendReadiness, GmailSendGap>> = {
+  connect_required: "connect",
+  reconnect_required: "reconnect",
+  send_permission_required: "allow",
+  send_disabled: "allow",
+};
+
+function liveGap(live: LiveGmailStatus): GmailSendGap | null {
+  if (live.needs_reauth) return "reconnect";
+  if (!live.connected) return "connect";
+  return live.send_permission_granted === true ? null : "allow";
+}
+
 /**
- * The live connector status decides once it is known. It cannot see a
- * switched-off send, so the server's draft-time answer keeps that gap until
- * the owner finishes a connect from the card. Unknown shows nothing: the
- * server still checks every Send.
+ * A gap the live connector status shows always wins. Its all-clear counts
+ * only once read after the card opened: the status cached then can be
+ * minutes old, the server's answer seconds. It cannot see a switched-off
+ * send, so that answer keeps its gap until the host drops it after a
+ * confirmed connect. Unknown shows nothing: the server still checks every Send.
  */
 export function gmailSendGap(
   hint: GmailSendReadiness | null,
   live: LiveGmailStatus | null,
-  connectFinished: boolean,
+  cachedAtOpen: boolean,
 ): GmailSendGap | null {
-  const advisory = connectFinished ? null : hint;
-  if (live) {
-    if (!live.connected || live.needs_reauth) return "connect";
-    if (live.send_permission_granted !== true) return "allow";
-    return advisory === "send_disabled" ? "allow" : null;
-  }
-  if (advisory === "connect_required") return "connect";
-  return advisory === "send_permission_required" || advisory === "send_disabled"
-    ? "allow"
-    : null;
+  const reported = hint ? (HINT_GAP[hint] ?? null) : null;
+  if (!live) return reported;
+  const shown = liveGap(live);
+  if (shown) return shown;
+  if (cachedAtOpen) return reported;
+  return hint === "send_disabled" ? "allow" : null;
 }
 
 /**
- * The owner's Gmail send gap for a draft card. The in-place connect reports
- * no outcome here, so the status is re-read when its window closes, and once
- * on open when Send looks blocked: a connect made elsewhere leaves this store
- * as it was.
+ * The owner's Gmail send gap for a draft card. The host owns the in-place
+ * connect, so it clears `hint` once a connect is confirmed; a cancelled or
+ * failed one keeps it. The status is re-read once on open when Send looks
+ * blocked, and when Google's window closes: a connect made elsewhere leaves
+ * this store as it was.
  */
 export function useGmailSendGap(
   hint: GmailSendReadiness | null,
@@ -61,8 +74,10 @@ export function useGmailSendGap(
   const idToken = useCallback(() => user?.getIdToken() ?? Promise.resolve(""), [user]);
   const gmail = useGmailConnectorStatus({ userId, idTokenProvider: user ? idToken : null });
   const refreshStatus = gmail.refreshStatus;
-  const [connectFinished, setConnectFinished] = useState(false);
-  const gap = gmailSendGap(hint, gmail.status, connectFinished);
+  // The store swaps its status object only when a new status lands, so a
+  // failed re-read leaves the open-time cache, and the server's gap, in place.
+  const [openedWith] = useState(gmail.status);
+  const gap = gmailSendGap(hint, gmail.status, gmail.status === openedWith);
   const verifyOnOpen = useRef(gap !== null);
   const wasEnabling = useRef(enabling);
   useEffect(() => {
@@ -72,7 +87,6 @@ export function useGmailSendGap(
   }, [refreshStatus]);
   useEffect(() => {
     if (wasEnabling.current && !enabling) {
-      setConnectFinished(true);
       void refreshStatus({ force: true, reconcile: false }).catch(() => undefined);
     }
     wasEnabling.current = enabling;

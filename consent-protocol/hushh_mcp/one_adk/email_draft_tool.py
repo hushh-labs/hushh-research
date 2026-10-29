@@ -43,11 +43,15 @@ def draft_field_refusal(fields: dict[str, Any], drive_file_id: Any) -> dict[str,
 async def draft_opened_result(
     user_id: str, envelope: dict[str, Any], *, prefilled: bool
 ) -> dict[str, Any]:
-    """The live card's envelope plus Gmail send readiness.
+    """The draft-opened result: resolved envelope, matched names and send readiness.
 
-    Durable history redacts this tool's result
-    (``external_read_projection._PRIVATE_DRAFT_TOOLS``), so resolved addresses
-    reach only the live card.
+    One reads this result for the current turn, and the live card takes its
+    recipients and send readiness from it. Durable history keeps neither this
+    call's draft fields nor its result: ``external_read_projection`` empties
+    the call's arguments and replaces its result with a redaction marker before
+    a session is stored. The request text and any Drive file ID remain in the
+    pending directive (``hussh:pending_directive:gmail_email_draft``), which is
+    stored with the session.
     """
     gmail_send = await gmail_send_readiness(user_id)
     return {

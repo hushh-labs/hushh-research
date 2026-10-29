@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 
@@ -26,9 +27,12 @@ const MAX_PEEKS = 2;
 type MailAttentionStackProps = {
   onAskOne: (prompt: string) => void;
   onOpenItem?: (item: MailAttentionItem) => void;
+  /** Called when an action leaves nothing to show, so the owner can place focus. */
+  onEmpty?: () => void;
 };
 
-type ItemAction = (item: MailAttentionItem, choice: "later" | "done") => void;
+/** `keyboard` is true for Enter/Space activation, which fires a click with detail 0. */
+type ItemAction = (item: MailAttentionItem, choice: "later" | "done", keyboard: boolean) => void;
 
 function ItemIcon({ item }: { item: MailAttentionItem }) {
   const Icon = item.source === "receipt" ? Receipt : UserRound;
@@ -80,12 +84,12 @@ function AttentionCard({ item, onOpenItem, onAct }: {
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <Button type="button" variant="secondary" size="compact" aria-label={`Remind me later: ${item.title}`}
-          onClick={() => onAct(item, "later")}>
+          onClick={(event) => onAct(item, "later", event.detail === 0)}>
           <Bell aria-hidden="true" />
           Remind me later
         </Button>
         <Button type="button" variant="default" size="compact" aria-label={`Mark as done: ${item.title}`}
-          onClick={() => onAct(item, "done")}>
+          onClick={(event) => onAct(item, "done", event.detail === 0)}>
           <Check aria-hidden="true" />
           Mark as done
         </Button>
@@ -136,31 +140,43 @@ function CollapsedStack({ items, onOpenItem, onAct }: {
  * nothing unless something qualifies. Choices are per viewer on this device;
  * Mail itself is unchanged.
  */
-export function MailAttentionStack({ onAskOne, onOpenItem }: MailAttentionStackProps) {
+export function MailAttentionStack({ onAskOne, onOpenItem, onEmpty }: MailAttentionStackProps) {
   const { items, remindLater, markDone } = useMailAttention();
   const pathname = usePathname() || "/";
   const [expanded, setExpanded] = useState(false);
   const headingId = useId();
   const regionId = useId();
+  const sectionRef = useRef<HTMLElement>(null);
   const regionRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const canExpand = items.length > 1;
   const isExpanded = expanded && canExpand;
-  const collapse = useCallback(() => {
-    setExpanded(false);
-    return true;
+  const setListExpanded = useCallback((next: boolean) => {
+    // The region's content is replaced; focus inside it would drop to the page.
+    if (regionRef.current?.contains(document.activeElement)) toggleRef.current?.focus({ preventScroll: true });
+    setExpanded(next);
   }, []);
+  const collapse = useCallback(() => {
+    setListExpanded(false);
+    return true;
+  }, [setListExpanded]);
   useBackLayer(pathname, isExpanded ? 1 : 0, collapse);
-  const act = useCallback<ItemAction>((item, choice) => {
-    const undo = choice === "later" ? remindLater(item) : markDone(item);
-    // The acted-on card unmounts; keep keyboard focus inside the stack.
-    regionRef.current?.focus({ preventScroll: true });
+  const act = useCallback<ItemAction>((item, choice, keyboard) => {
+    // Commit before placing focus: the write re-reads storage, so it can bring
+    // items back as well as hide the last one.
+    const undo = flushSync(() => (choice === "later" ? remindLater(item) : markDone(item)));
+    // The acted-on card is gone. Keep focus in the stack, or, for keyboard use,
+    // let its owner place focus once the whole stack has unmounted. A tap leaves
+    // it: focusing a text field there would open the phone's keyboard.
+    if (sectionRef.current) regionRef.current?.focus({ preventScroll: true });
+    else if (keyboard) onEmpty?.();
     toast(choice === "later" ? "Hidden for 24 hours" : "Marked as done", {
       action: { label: "Undo", onClick: () => undo() },
     });
-  }, [remindLater, markDone]);
+  }, [onEmpty, remindLater, markDone]);
   if (!items.length) return null;
   return (
-    <section aria-labelledby={headingId} data-testid="mail-attention-stack" className="mx-auto mt-3 w-full max-w-2xl px-1 sm:px-2">
+    <section ref={sectionRef} aria-labelledby={headingId} data-testid="mail-attention-stack" className="mx-auto mt-3 w-full max-w-2xl px-1 sm:px-2">
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="min-w-0">
           <h3 id={headingId} data-profile-role="group-label">Mail</h3>
@@ -184,8 +200,8 @@ export function MailAttentionStack({ onAskOne, onOpenItem }: MailAttentionStackP
       </div>
       {canExpand ? (
         <div className="mt-3 flex justify-center">
-          <Button type="button" variant="secondary" size="compact" aria-expanded={isExpanded} aria-controls={regionId}
-            onClick={() => setExpanded(!isExpanded)}>
+          <Button ref={toggleRef} type="button" variant="secondary" size="compact" aria-expanded={isExpanded} aria-controls={regionId}
+            onClick={() => setListExpanded(!isExpanded)}>
             {isExpanded ? "Hide" : "Show all"}
             {isExpanded ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
           </Button>

@@ -4,16 +4,27 @@ One decides that the person wants to email someone and passes the addresses
 and names it heard. This module only validates addresses with the Gmail
 delivery path's own normalizer and matches names against the owner's active
 connections (backend-semantic-boundary.md: the host resolves and validates the
-connected person). It never reads the directory or pending requests, never
-invents an address and never sends. Refusals name the person as said and never
-carry an email address. Send readiness is advisory: prepare stays the
-authority when the owner taps Send.
+connected person, and never guesses). It never reads the directory or pending
+requests, never invents an address and never sends.
+
+A name addresses the draft only when exactly one connection matches it under
+the shared spoken-name rule (connections sharing one mailbox count once) and
+the name as said is that connection's whole name or whole words of it; a
+display name holding an address has no such words. Anything else is a question
+for One, never a pick: a partial or misspelled match asks whether they mean the
+closest name, and several names ask which one. Where repeating a name could not
+single the connection out (several share one name under the spoken-name rule,
+one has no name to show, or the name as said is one's whole name and part of
+another's), One asks for the email address instead. Refusals name the person as
+said and never carry an email address. Send readiness is advisory: prepare
+stays the authority when the owner taps Send.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -29,7 +40,12 @@ from hushh_mcp.services.spoken_name_resolver import (
 logger = logging.getLogger(__name__)
 
 GmailSendReadiness = Literal[
-    "ready", "connect_required", "send_permission_required", "send_disabled", "unknown"
+    "ready",
+    "connect_required",
+    "reconnect_required",
+    "send_permission_required",
+    "send_disabled",
+    "unknown",
 ]
 
 # The delivery path's own limit (normalize_draft refuses more than 50), so a
@@ -91,10 +107,15 @@ def _display_name(row: dict[str, Any]) -> str:
     return str(row.get("displayName") or "").strip()
 
 
+def _holds_address(text: str) -> bool:
+    """An at-sign of any width (a full-width "＠" too) marks an address, never a name."""
+    return "@" in unicodedata.normalize("NFKC", text)
+
+
 def _shown_name(row: dict[str, Any]) -> str:
     """The name to show; a display name holding an address is never shown."""
     name = _display_name(row)
-    return name if name and "@" not in name else _UNNAMED_CONNECTION
+    return name if name and not _holds_address(name) else _UNNAMED_CONNECTION
 
 
 def _split_field(value: str) -> list[str]:
@@ -139,14 +160,29 @@ def _parse(fields: tuple[tuple[str, str], ...]) -> list[_Entry] | dict[str, Any]
 
 
 def _has_whole_word(row: dict[str, Any], name: str) -> bool:
-    return f" {normalize_spoken_name(name)} " in f" {normalize_spoken_name(_display_name(row))} "
+    display_name = _display_name(row)
+    # A display name holding an address is no name: a word of it ("gmail", an
+    # employer) must not fill the draft without asking.
+    if _holds_address(display_name):
+        return False
+    return f" {normalize_spoken_name(name)} " in f" {normalize_spoken_name(display_name)} "
 
 
-def _one_per_mailbox(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Connections that share one usable email are one recipient."""
+def _broad_matches(rows: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
+    """Every connection the shared spoken-name rule matches, substring or fuzzy."""
+    resolution = resolve_spoken_names(rows, name, _display_name)
+    return [*resolution.resolved, *(row for miss in resolution.unresolved for row in miss.matches)]
+
+
+def _one_per_mailbox(rows: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
+    """Connections that share one usable email are one recipient; whole-word matches first.
+
+    A whole-word match stands for its mailbox, so a name that is one of those
+    connections' whole names is not mistaken for a partial match.
+    """
     kept: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for row in rows:
+    for row in sorted(rows, key=lambda match: not _has_whole_word(match, name)):
         address = _usable_address(row.get("email"))
         if address in seen:
             continue
@@ -156,44 +192,86 @@ def _one_per_mailbox(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return kept
 
 
-def _tie_break(rows: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
-    """One mailbox wins; otherwise only the single match holding the name as whole words."""
-    if len(rows) == 1:
-        return rows[0]
-    hits = [row for row in rows if _has_whole_word(row, name)]
-    return hits[0] if len(hits) == 1 else None
+def _distinct_names(candidates: list[dict[str, Any]]) -> list[str]:
+    """Names to show, once each under the spoken-name rule, in the first spelling."""
+    names: dict[str, str] = {}
+    for row in candidates:
+        shown = _shown_name(row)
+        names.setdefault(normalize_spoken_name(shown), shown)
+    return list(names.values())
 
 
-def _candidate_names(rows: list[dict[str, Any]], name: str) -> list[str]:
-    """Up to four display names, whole-word matches first. Never an email."""
-    ordered = sorted(rows, key=lambda row: not _has_whole_word(row, name))
-    return [_shown_name(row) for row in ordered[:_MAX_CANDIDATES]]
+def _choice_message(candidates: list[dict[str, Any]], names: list[str], name: str) -> str:
+    """What One asks. A connection no name can single out is asked for by address."""
+    if names == [_UNNAMED_CONNECTION]:
+        return f"No connection is named {name} exactly. Ask for their email address."
+    if len(names) == 1:
+        shown, count = names[0], len(candidates)
+        if _has_whole_word(candidates[0], name):
+            return (
+                f"{count} connections are named {shown}. "
+                "Ask for the email address of the one they mean."
+            )
+        if count == 1:
+            return (
+                f"No connection is named {name} exactly; the closest is {shown}. "
+                f"Ask whether they mean {shown}."
+            )
+        # Without the "closest" framing One would take the misspelling as meant.
+        return (
+            f"No connection is named {name} exactly; the closest are {count} connections "
+            f"named {shown}. Ask whether they mean {shown} and, if so, for the email "
+            "address of the one they mean."
+        )
+    said = normalize_spoken_name(name)
+    # Saying a whole name that also matches others ("Raj" beside "Raj Kumar")
+    # again would only bring back this question, and a connection without a
+    # name can't be named back at all.
+    by_address = [shown for shown in names if normalize_spoken_name(shown) == said]
+    if _UNNAMED_CONNECTION in names:
+        by_address.append("one without a name")
+    if len(by_address) == len(names):
+        # Every option ends in an email question, so ask for it now.
+        return (
+            f"More than one connection matches {name}, and none can be told apart by "
+            "name. Ask for the email address of the one they mean."
+        )
+    if any(_has_whole_word(row, name) for row in candidates):
+        question = f"More than one connection matches {name}. Ask which one they mean"
+    else:
+        # As above: without the "closest" framing One would take a misspelling as meant.
+        labels = [n if n != _UNNAMED_CONNECTION else "a connection without a name" for n in names]
+        listing = ", ".join(labels[:-1]) + " and " + labels[-1]
+        question = (
+            f"No connection is named {name} exactly; the closest are {listing}. "
+            "Ask which one they mean"
+        )
+    if by_address:
+        return f"{question}; if it's {' or '.join(by_address)}, ask for the email address."
+    return f"{question}."
 
 
 def _match_one(rows: list[dict[str, Any]], name: str) -> _Match | dict[str, Any]:
-    resolution = resolve_spoken_names(rows, name, _display_name)
-    if resolution.resolved:
-        row = resolution.resolved[0]
-    else:
-        unresolved = resolution.unresolved[0]
-        if unresolved.kind != "ambiguous":
-            return _refusal(
-                "recipient_not_found",
-                f"{name} isn't one of your connections. Ask for their email address.",
-                reason="not_found",
-                name=name,
-            )
-        candidates = _one_per_mailbox(list(unresolved.matches))
-        picked = _tie_break(candidates, name)
-        if picked is None:
-            return _refusal(
-                "recipient_choice_needed",
-                f"More than one connection matches {name}. Ask which one they mean.",
-                reason="choice_needed",
-                name=name,
-                candidates=_candidate_names(candidates, name),
-            )
-        row = picked
+    candidates = _one_per_mailbox(_broad_matches(rows, name), name)
+    if not candidates:
+        return _refusal(
+            "recipient_not_found",
+            f"{name} isn't one of your connections. Ask for their email address.",
+            reason="not_found",
+            name=name,
+        )
+    if len(candidates) > 1 or not _has_whole_word(candidates[0], name):
+        # The host never picks: a partial or misspelled match, or several, is a question.
+        # The message speaks only of the names One is shown.
+        names = _distinct_names(candidates)[:_MAX_CANDIDATES]
+        return _refusal(
+            "recipient_choice_needed",
+            _choice_message(candidates, names, name),
+            reason="choice_needed",
+            name=name,
+            candidates=names,
+        )
+    row = candidates[0]
     address = _usable_address(row.get("email"))
     if address is None:
         display_name = _shown_name(row)
@@ -280,13 +358,17 @@ async def resolve_draft_recipients(
     an address, validated by the delivery normalizer and kept as supplied; any
     other token is a name for that role. ``recipient_names`` adds names for To
     and ``cc_names`` for Cc. Connections are read once, and only when there
-    are names. Every outcome carries ``status``; every refusal a ``message``:
+    are names. A name resolves only to the one connection it matches whole
+    (see the module docstring). Every outcome carries ``status``; every
+    refusal a ``message``:
 
     - ``ok``: ``to``, ``cc``, ``bcc`` (", "-joined, each mailbox once in its
       first role) and ``recipients``, one ``{name, role}`` per connection
       matched from a name. Supplied addresses carry no name.
     - ``invalid_recipient`` or ``too_many_recipients``, before any lookup.
-    - ``recipient_choice_needed`` (``name``, ``candidates``: display names),
+    - ``recipient_choice_needed`` (``name``, ``candidates``: up to four
+      display names, distinct under the spoken-name rule, whole-word matches
+      first),
       ``recipient_not_found`` (``name``), ``recipient_email_unavailable``
       (``name``, ``display_name``), first problem in To, Cc, Bcc order.
     - ``recipient_lookup_unavailable`` when connections can't be read.
@@ -316,23 +398,41 @@ async def resolve_draft_recipients(
     return _envelope(parsed, dict(zip(names, outcome, strict=True)))
 
 
-async def gmail_send_readiness(user_id: str, *, timeout_seconds: float = 2.5) -> GmailSendReadiness:
-    """Advisory Gmail send state from the DB-only admission check.
+async def _send_readiness(owner: str) -> GmailSendReadiness:
+    service = get_gmail_receipts_service()
+    try:
+        await service.assert_send_ready(user_id=owner)
+    except GmailApiError as exc:
+        code = str(exc.code or "")
+        # Admission reports a connection that needs re-authorisation as not
+        # connected; the status read tells it apart from no connection at all.
+        if code == "GMAIL_NOT_CONNECTED":
+            status = await service.get_status(user_id=owner)
+            if status.get("connection_state") == "needs_reauth":
+                return "reconnect_required"
+        return _READINESS_BY_CODE.get(code, "unknown")
+    return "ready"
 
-    Never raises and never refreshes or returns a token. Any failure other
-    than a known admission code, including the timeout, is ``unknown``.
+
+async def gmail_send_readiness(user_id: str, *, timeout_seconds: float = 2.5) -> GmailSendReadiness:
+    """Advisory Gmail send state from DB-only reads that share one time budget.
+
+    The admission check runs first; only when it reports Gmail not connected
+    does a status read separate ``reconnect_required`` from
+    ``connect_required``. Neither read calls Google or refreshes or returns a
+    token. Never raises: any failure other than a known admission code,
+    including the timeout, is ``unknown``.
     """
     owner = str(user_id or "").strip()
     if not owner:
         return "unknown"
+    readiness = asyncio.ensure_future(_send_readiness(owner))
     try:
-        await asyncio.wait_for(
-            get_gmail_receipts_service().assert_send_ready(user_id=owner),
-            timeout=timeout_seconds,
-        )
-    except GmailApiError as exc:
-        return _READINESS_BY_CODE.get(str(exc.code or ""), "unknown")
+        # Shielded, the budget holds even when a read defers cancellation: the
+        # status read's account check finishes its database call first.
+        return await asyncio.wait_for(asyncio.shield(readiness), timeout=timeout_seconds)
     except Exception as exc:  # noqa: BLE001 - advisory readiness never blocks a draft
         logger.warning("one.gmail_send_readiness outcome=unknown error=%s", type(exc).__name__)
         return "unknown"
-    return "ready"
+    finally:
+        readiness.cancel()

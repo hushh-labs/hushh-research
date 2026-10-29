@@ -354,7 +354,10 @@ Reviewed mailbox changes (archive, labels, read state, Trash) go through One's
 `propose_gmail_mailbox_change` card, never through this read path. After a read, only exact-call-reviewed MCP tools, One's
 `suggest_follow_ups` (which reads and changes nothing), and One's
 client-only editable Gmail draft remain callable in the same invocation; the
-draft cannot run in the original parallel read batch and cannot send. Its
+draft cannot run in the original parallel read batch and cannot send. When the
+Email agent hands a receipts request back, the barrier stays and that invocation
+also admits only One's device receipt functions and `get_current_time`, never in
+the original read batch. Its
 interpreter has no tools; durable tool history contains a redacted receipt,
 not mailbox metadata or draft fields. Reviewed sending and receipt sync are
 not admitted through this lane. Connected Systems remains

@@ -4140,6 +4140,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }),
       (outcome, { cancelled }) => {
         if (outcome === "connected") {
+          setEmailDraftGmailSend(null); // A confirmed grant supersedes the draft-time hint.
           toast.success(inPlaceConnectCopy("gmail_send", outcome));
           if (item) retryEmailDelivery(item);
         } else if (outcome === "failed") {
@@ -10106,7 +10107,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     onPromptSelect={handleWelcomePromptSelect}
                   />
                   {!isPuppySurface ? (
-                    <MailAttentionStack onAskOne={handleWelcomePromptSelect}
+                    <MailAttentionStack onAskOne={handleWelcomePromptSelect} onEmpty={() => composerTextareaRef.current?.focus()}
                       onOpenItem={(item) => router.push(buildGmailWorkspaceRoute(item.source === "receipt" ? "receipts" : "kyc"))} />
                   ) : null}
                   {chatOnboarding.dailyTip ? (

@@ -4225,11 +4225,14 @@ Calendar) or the system authentication browser with an app-link return (Drive); 
 does not reload. Callback URIs and scopes are unchanged.
 
 The in-chat cards use the same path through `lib/connections/google-connect-in-place.ts`:
-the Gmail send upgrade on a failed delivery, the Gmail modify card and the Calendar card One
-shows. Each opens Google's window inside the click, stays cancellable while it is open, and
-decides success only from an owner status read that checks the requested permission. A
-successful send upgrade reopens the reviewed draft, and nothing is sent until the person sends
-it again. The Gmail modify and Calendar cards clear with a confirmation, as the old redirect
+the Gmail send upgrade on a failed delivery or on the email draft card, the Gmail modify card
+and the Calendar card One shows. Each opens Google's window inside the click and decides
+success only from an owner status read that checks the requested permission. Status cannot
+see a switched-off send, so a cancelled or failed Gmail send callback ends the attempt as not
+connected even when status already shows the send scope. The delivery, Gmail modify and
+Calendar cards stay cancellable while the window is open; the draft card does not offer Cancel
+sign-in yet. A successful send upgrade reopens the reviewed draft, and nothing is sent until
+the person sends it again. The Gmail modify and Calendar cards clear with a confirmation, as the old redirect
 return did. Native Gmail modify is still web-only. `/one/calendar` settles through the same
 handler and no longer reads `popup.closed`, which Google's opener policy makes unreliable. It
 ends on the callback, an explicit Cancel sign-in, or a bounded expiry.

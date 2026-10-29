@@ -19,6 +19,7 @@ import {
   type MailBriefCategory,
   type MailBriefExperience,
   type MailBriefItem,
+  type MailBriefState,
   type ReceiptSetupExperience,
 } from "@/lib/agent/mail-chat-experiences";
 import { formatRelativeTime } from "@/lib/format/relative-time";
@@ -31,12 +32,16 @@ import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import styles from "./mail-attention-stack.module.css";
 
 const MAX_PEEKS = 2;
-const LABELS: Record<MailBriefCategory, { label: string; one: string; many: string }> = {
-  action_items: { label: "Needs you", one: "needs you", many: "need you" },
-  personal_info: { label: "Asks for your details", one: "asks for your details", many: "ask for your details" },
-  payments_due: { label: "Payment due", one: "payment due", many: "payments due" },
-  security_alerts: { label: "Security", one: "security notice", many: "security notices" },
-  meetings: { label: "Meeting", one: "meeting", many: "meetings" },
+// How each category reads: its item label, "1 {one}", "2 {many}", and "No {kind}" or "Couldn't check for {kind}".
+const LABELS: Record<MailBriefCategory, { label: string; one: string; many: string; kind: string }> = {
+  action_items: { label: "Needs you", one: "needs you", many: "need you", kind: "action items" },
+  personal_info: {
+    label: "Asks for your details", one: "asks for your details", many: "ask for your details",
+    kind: "requests for your details",
+  },
+  payments_due: { label: "Payment due", one: "payment due", many: "payments due", kind: "payments due" },
+  security_alerts: { label: "Security", one: "security notice", many: "security notices", kind: "security notices" },
+  meetings: { label: "Meeting", one: "meeting", many: "meetings", kind: "meetings" },
 };
 const ICONS = {
   action_items: CircleAlert,
@@ -45,20 +50,57 @@ const ICONS = {
   security_alerts: ShieldAlert,
   meetings: CalendarClock,
 } satisfies Record<MailBriefCategory, unknown>;
+// How a settled item ended, which its row shows in place of its category.
+const SETTLED_LABELS: Partial<Record<MailBriefState, string>> = { completed: "Done", cancelled: "Cancelled" };
 
-/** "2 need you · 1 payment due", in category order; zero counts are left out. */
-export function summarizeMailBrief(experience: MailBriefExperience): string {
-  const parts = MAIL_BRIEF_CATEGORIES.flatMap((name) => {
-    const count = experience.counts[name] ?? 0;
-    return count ? [`${count} ${count === 1 ? LABELS[name].one : LABELS[name].many}`] : [];
-  });
-  if (!parts.length) return "Nothing needs you in the mail checked.";
-  return parts.join(" · ") + (experience.failed.length ? " · Some checks didn't finish" : "");
+/** Completed and cancelled items stay as context with a neutral icon and are never counted as open. */
+function settled(item: MailBriefItem): boolean {
+  return SETTLED_LABELS[item.state] !== undefined;
 }
 
-/** An unreadable date is left out rather than shown as "Due null". */
+/** Categories in card order: "meetings", "payments due or meetings", "a, b or c". */
+function kinds(names: MailBriefCategory[]): string {
+  const words = MAIL_BRIEF_CATEGORIES.filter((name) => names.includes(name)).map((name) => LABELS[name].kind);
+  return words.length > 1 ? `${words.slice(0, -1).join(", ")} or ${words.at(-1)}` : words.join("");
+}
+
+/** The headline with nothing open. Only a brief that checked every category can say nothing needs you. */
+function nothingOpen(requested: MailBriefCategory[], failed: MailBriefCategory[], anySettled: boolean): string {
+  const broad = MAIL_BRIEF_CATEGORIES.every((name) => requested.includes(name));
+  const finished = requested.filter((name) => !failed.includes(name));
+  // A narrower brief names the kinds it finished checking; "open" keeps a Done row below from contradicting it.
+  if (!broad && finished.length) return `No ${anySettled ? "open " : ""}${kinds(finished)} in the mail checked`;
+  return failed.length ? "The checks that finished found nothing that needs you" : "Nothing needs you in the mail checked";
+}
+
+/** "2 need you · 1 payment due" over open items, in category order; zero counts are left out. */
+export function summarizeMailBrief({ requested, failed, items }: MailBriefExperience): string {
+  const parts = MAIL_BRIEF_CATEGORIES.flatMap((name) => {
+    const count = items.filter((item) => item.category === name && !settled(item)).length;
+    return count ? [`${count} ${count === 1 ? LABELS[name].one : LABELS[name].many}`] : [];
+  });
+  const found = parts.length ? parts.join(" · ") : nothingOpen(requested, failed, items.some(settled));
+  if (failed.length) {
+    // An unfinished check may have missed something, so nothing is cleared; past two names it stays generic.
+    const unfinished = failed.length > 2 ? "Some checks didn't finish" : `Couldn't check for ${kinds(failed)}`;
+    return `${found} · ${unfinished}`;
+  }
+  // Standing alone, the quiet headline is a sentence.
+  return parts.length ? found : `${found}.`;
+}
+
+/** What the check couldn't see, so a quiet brief never reads as complete. */
+function coverageNotes(experience: MailBriefExperience): string[] {
+  return [
+    experience.moreMailOutsidePage && "Only recent mail was checked.",
+    experience.someUnreadable && "Some messages couldn't be read.",
+    experience.textShortened && "Some messages were only partly read.",
+  ].filter((note) => note !== false);
+}
+
+/** An unreadable date is left out rather than shown as "Due null", and a settled item is no longer due. */
 function when(item: MailBriefItem): string {
-  const due = item.dueAt ? formatLocalDateTime(item.dueAt, { month: "short", day: "numeric" }) : null;
+  const due = item.dueAt && !settled(item) ? formatLocalDateTime(item.dueAt, { month: "short", day: "numeric" }) : null;
   if (due) return `Due ${due}`;
   const event = item.eventAt ? formatLocalDateTime(item.eventAt) : null;
   if (event) return event;
@@ -67,9 +109,10 @@ function when(item: MailBriefItem): string {
 
 function BriefItem({ item, top }: { item: MailBriefItem; top: boolean }) {
   const Icon = ICONS[item.category];
-  const settled = item.state === "completed" || item.state === "cancelled";
-  const role = SEMANTIC_ROLE_CLASSES[settled ? "neutral" : "warning"];
-  const meta = [LABELS[item.category].label, item.senderName, when(item)].filter(Boolean).join(" · ");
+  const role = SEMANTIC_ROLE_CLASSES[settled(item) ? "neutral" : "warning"];
+  // A settled row says how it ended, not what it asked, so it never reads as open under the headline.
+  const label = SETTLED_LABELS[item.state] ?? LABELS[item.category].label;
+  const meta = [label, item.senderName, when(item)].filter(Boolean).join(" · ");
   return (
     <div data-testid="mail-brief-item" className={cn(styles.surface, top && styles.card, "flex min-w-0 items-start gap-3 p-3")}>
       <span aria-hidden="true" className={cn(styles.tile, role.tile, role.glyph)}>
@@ -93,8 +136,8 @@ function MailBriefCard({ experience }: { experience: MailBriefExperience }) {
   const [expanded, setExpanded] = useState(false);
   const regionId = useId();
   // Open items first; a completed or cancelled one is context, not a nudge.
-  const items = [...experience.items].sort((a, b) =>
-    Number(a.state === "completed" || a.state === "cancelled") - Number(b.state === "completed" || b.state === "cancelled"));
+  const items = [...experience.items].sort((a, b) => Number(settled(a)) - Number(settled(b)));
+  const notes = coverageNotes(experience);
   const isExpanded = expanded && items.length > 1;
   const collapse = useCallback(() => {
     setExpanded(false);
@@ -131,8 +174,10 @@ function MailBriefCard({ experience }: { experience: MailBriefExperience }) {
           </Button>
         </div>
       ) : null}
-      {experience.moreMailOutsidePage ? (
-        <p data-profile-role="description" className="mt-2">Only recent mail was checked.</p>
+      {notes.length ? (
+        <div className="mt-2">
+          {notes.map((note) => <p key={note} data-profile-role="description">{note}</p>)}
+        </div>
       ) : null}
     </section>
   );

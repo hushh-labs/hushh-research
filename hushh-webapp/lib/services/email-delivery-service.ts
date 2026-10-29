@@ -219,7 +219,7 @@ function safeErrorMessage(code: string | null, status: number): string {
     return "Enable Gmail drafts in Connectors, then review this draft again.";
   }
   if (code === "GMAIL_NOT_CONNECTED") {
-    return "Connect Gmail to send. Your draft is still here.";
+    return "Connect Gmail to continue. Your draft is still here.";
   }
   if (code === "MISSING_RECIPIENT" || code === "INVALID_RECIPIENTS") {
     return code === "MISSING_RECIPIENT" ? "Add a recipient before sending." : "Use a full email address for each recipient.";

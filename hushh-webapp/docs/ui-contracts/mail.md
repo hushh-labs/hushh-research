@@ -712,8 +712,8 @@ projection bounds, not editor/server validation limits.
 | Recipient read | Ordinary editable mode calls `ConnectionsService.listConnections`; failure permits typing. Bound replies do not load connections. No per-suggestion API. |
 | Generation | `autoDraft` once per mount → draft API; busy status **Drafting your mail.** / **One is preparing your mail draft...**; editor replaced by skeleton. Existing recipient/subject and explicit edits survive gap fill. |
 | Missing fields | **One still needs: {labels joined comma-space}.** This warning alone does not disable Send. |
-| Named recipients | One passes a person named without an address as `recipient_names`/`cc_names`; the server matches the owner's active connections and returns the resolved `envelope`, which prefills To/Cc/Bcc. An ambiguous name, unknown name or connection without an address opens no card: One asks one question in chat. Masked or guessed addresses are never filled. |
-| Send readiness | `EmailDraftGmailNotice` above Send: **Connect Gmail to send this.** + **Connect Gmail**, or **Allow One to send from Gmail.** + **Allow sending**; busy **Waiting for Google…**. The live connector status decides once known; the server's draft-time `gmail_send` hint covers a switched-off send until a connect finishes from the card. Status is re-read once on open when Send looks blocked and again when Google's window closes. Unknown shows nothing; the server still checks every Send. |
+| Named recipients | One passes a person named without an address as `recipient_names`/`cc_names`; the server matches the owner's active connections and returns the resolved `envelope`, which prefills To/Cc/Bcc. It addresses the draft only when exactly one connection matches and the name as said is that connection's whole name or whole words of it; a display name that is an email address never counts as a name. A partial or misspelled match, several matches, connections sharing one name, an unknown name or a connection without an address opens no card: One asks the one question the result names (which person, whether they meant the closest match, or for an email address). Masked or guessed addresses are never filled. The model sees resolved addresses for that turn; durable history empties the tool's inputs and results, but the request text and any Drive file ID stay in the stored pending directive. |
+| Send readiness | `EmailDraftGmailNotice` above Send: **Connect Gmail to send this.** + **Connect Gmail** for a mailbox never connected, **Reconnect Gmail to send this.** + **Reconnect Gmail** for live `needs_reauth` or `gmail_send: reconnect_required`, or **Allow One to send from Gmail.** + **Allow sending**; busy **Waiting for Google…**. A gap the live connector status shows wins. Its all-clear counts only once a status is read after the card opened, so a cached status never hides a gap the server's draft-time `gmail_send` hint reported. The hint covers a switched-off send until a connect from the card is confirmed; a cancelled or denied consent keeps it. Status is re-read once on open when Send looks blocked and again when the connect attempt ends. Unknown shows nothing; the server still checks every Send. |
 | Generation error | **Try drafting again** only ordinary `autoDraft` mode; repeats generation, never sends. |
 | First-connect recovery | **Connect Gmail** opens existing connections drawer when callback provided, otherwise `/one/gmail`. |
 | Send-grant recovery | **Reconnect Mail** links `/one/gmail`; connection itself does not retry Send. |
@@ -768,7 +768,7 @@ Sources: [draft card and all action handlers](../../components/agent/email-draft
 | Unknown warning | **We cannot confirm whether Gmail sent it. Check Sent Mail before sending again.** |
 | **Check status** / **Checking…** | Sending/unknown with action ID; POST same action status, no provider resend. Confirmed sent→sent; failed/expired/cancelled→failure **Mail was not sent.**; unresolved **Check Gmail Sent Mail before sending again.**; read failure **Could not check Mail right now.** |
 | **Edit and retry** | Only definite failed item with retained in-memory draft. Reopens exact draft/instruction/binding at original turn; no immediate send. Unknown/restored-only cannot retry this way. |
-| **Reconnect Mail** / **Waiting for Google…** | Send-permission failure, in-place Google upgrade; **Cancel sign-in** cancels waiting. Verified reconnect reopens review; still needs Send. |
+| **Connect Gmail** / **Reconnect Mail** / **Waiting for Google…** | **Connect Gmail** for a never-connected mailbox (`GMAIL_NOT_CONNECTED`); **Reconnect Mail** for a send-permission, switched-off send or revoked/expired grant failure. In-place Google connect or upgrade; **Cancel sign-in** cancels waiting. Verified connect reopens review; still needs Send. |
 | Restored sent | **Gmail confirmed this earlier send. Draft details are not saved here.** |
 | Restored failed | **Gmail did not send this email. Draft details are not saved here.** |
 | Restored unknown | **This earlier send attempt has no draft saved here. Check Gmail Sent Mail before sending it again.** |
@@ -805,7 +805,9 @@ code without a mapping falls through to the ordinary safe fallback.
 | Send permission required | **Reconnect Mail to grant mail sending permission.** |
 | Send disabled, or Google grant revoked/expired (`GMAIL_REAUTH_REQUIRED`) | **Reconnect Mail to continue. Your draft is still here.** Activity offers **Reconnect Mail**. |
 | Compose permission required | **Enable Gmail drafts in Connectors, then review this draft again.** |
-| Not connected | **Connect Mail before you draft or send mail.** |
+| Not connected | **Connect Gmail to continue. Your draft is still here.** |
+| Missing recipient | **Add a recipient before sending.** |
+| Invalid recipients | **Use a full email address for each recipient.** |
 | Draft invalid | **One could not make a usable draft. Try drafting again or edit it yourself.** |
 | Draft/delivery unavailable or504 | **One could not finish the draft right now. Please try again.** |
 | Action expired | **This mail review expired. Review the unchanged draft again.** |
@@ -1308,21 +1310,42 @@ owner's details. Nothing is predicted or inferred from mail text.
 | Header | Group label **Mail**; count summary such as **1 overdue payment · 2 requests for your details**. |
 | **Brief me** | Accessible **Brief me on my mail**; sends the fixed prompt **Brief me on my mail** to One, never item text. |
 | Collapsed stack | Top card plus up to two decorative peeks. Card shows subtitle and relative time, then title; tapping the text opens Mail Receipts for a receipt or Mail KYC for a request. |
-| **Remind me later** / **Mark as done** | Per item, accessible **Remind me later: {title}** / **Mark as done: {title}**. Later hides for 24 hours; done hides until the item's state changes. Toast **Hidden for 24 hours** / **Marked as done** with **Undo**. Focus stays in the stack. |
-| **Show all** / **Hide** | Only with two or more items; expanded rows show a local date. The expanded state registers a Back layer that collapses it. |
-| Choices storage | Device-local per owner (`hushh.mail_attention.v1.<ownerId>`); Mail itself is unchanged. Cleared on Reset or account deletion, kept across sign-out. |
+| **Remind me later** / **Mark as done** | Per item, accessible **Remind me later: {title}** / **Mark as done: {title}**. Later hides for 24 hours; done hides until the item's state changes. Toast **Hidden for 24 hours** / **Marked as done** with **Undo**. Focus is placed once the choice is applied, since applying it re-reads the device record and can bring other items back: it moves to the stack while any item is left; when none is, the stack is removed and keyboard use moves focus to the composer (**Message One**), while a tap leaves it so no phone keyboard opens. |
+| **Show all** / **Hide** | Only with two or more items; expanded rows show a local date. The expanded state registers a Back layer that collapses it. Collapsing from the toggle or Back moves focus from a removed row to the toggle. |
+| Choices storage | Device-local per owner (`hushh.mail_attention.v1.<ownerId>`), opaque state keys and times only; Mail itself is unchanged. Each choice builds on the record as stored at that moment, so another tab's choice or Reset is kept, and open tabs pick up another tab's change even while the stack is unmounted. If storage refuses a write (full or disabled), the choice still holds in this tab until it reloads and is saved with this tab's next successful write. Cleared on Reset or account deletion, kept across sign-out. |
 | Refresh | Mount, focus, visible return, Feed changes and a visible-only 2-minute task, coalesced at least 15 seconds apart and vault-epoch fenced. Loading or failure shows nothing. |
 
 In a One turn, an `ask_email_agent` result carrying the Email specialist's
-`mail_brief` renders as the **Mail brief** card (`one.mail_brief.v1`): open
-items first; category labels **Needs you**, **Asks for your details**,
-**Payment due**, **Security**, **Meeting**; a count summary such as
-**2 need you · 1 payment due** (empty: **Nothing needs you in the mail
-checked.**); **Show all {n}** / **Hide**; and **Only recent mail was checked.**
-when more mail sat outside the page. Durable history redacts the brief. A
-receipt function the device cannot answer becomes the existing Gmail connector
-card when Gmail is not connected, or **Receipts aren't synced on this device
-yet.** with **Open receipts** (`one.receipt_setup.v1`) when it is.
+`mail_brief` renders as the **Mail brief** card (`one.mail_brief.v1`). A brief
+that fails validation (counts that don't match its items, a failed kind it
+didn't request, or every requested kind failed) falls back to the Mail read
+receipt when the result carries one, otherwise no card. The headline counts open
+items only (any state but completed or cancelled), in category order, such as
+**2 need you · 1 payment due**. With nothing open and every check finished, a
+full brief (one that asked for every category) says **Nothing needs you in the
+mail checked.** and a narrower one names what it checked, such as **No meetings
+in the mail checked.**, or **No open meetings in the mail checked.** when a
+settled row is shown. An unfinished check never clears anything: the headline
+ends with **· Couldn't check for {kinds}** (past two kinds, **· Some checks
+didn't finish**) after the open counts or, with nothing open, after **The checks
+that finished found nothing that needs you** for a full brief or **No {finished
+kinds} in the mail checked** for a narrower one. Kinds read **action items**,
+**requests for your details**, **payments due**, **security notices** and
+**meetings**, in card order, joined with commas and **or**. Rows show open items
+first, labelled **Needs you**, **Asks for your details**, **Payment due**,
+**Security** or **Meeting**; a completed item reads **Done** and a cancelled one
+**Cancelled**, with a neutral icon, never counted and never shown with a due
+date. **Show all {n}** / **Hide** appears with two or more items, and the
+expanded list registers a Back layer that collapses it. Footers say what the
+check couldn't see: **Only recent mail was checked.** when more mail sat outside
+the page, **Some messages couldn't be read.** when any message had no readable
+text, and **Some messages were only partly read.** when message text was
+shortened. Durable history redacts the brief. A
+receipt function the device cannot answer because it holds no saved receipts
+becomes the existing Gmail connector card when the connector status already
+says Gmail is disconnected, or otherwise (including an unknown status)
+**Receipts aren't synced on this device yet.** with **Open receipts**
+(`one.receipt_setup.v1`). Any other unavailable receipt answer shows no card.
 
 Sources: [attention stack](../../components/agent/mail-attention-stack.tsx),
 [attention read model](../../lib/agent/use-mail-attention.ts),
@@ -1393,6 +1416,8 @@ Sources: [setup state service](../../lib/services/pre-vault-user-state-service.t
 | Direct KYC review | Errors outside open modal; no universal busy dismissal guard, no displayed expiry, unavailable private-field labels ignored, partial scan counters not surfaced, incomplete direct-section race/dedupe protection. These are source findings, not fixes delivered by this contract. |
 | Disconnect wording | Server artifacts are cleared; verified encrypted device snapshot can remain, with distinct success text. Private-memory statements are separate. |
 | Native compose | Service type declares compose purpose but native-start parser accepts read/send; native compose is not verified supported merely from the type. |
+| Draft send consent closed without an answer | The draft card offers no **Cancel sign-in**, and the popup wait ignores a closed window, so the attempt ends at expiry (about 10 minutes). The connector status cannot see a switched-off send, so that path can report sending allowed until Send is refused with `GMAIL_SEND_DISABLED`, which offers **Reconnect Mail**. Adding `send_enabled` to the status payload closes it. |
+| Receipt attention filter | The hub admits the list filter `attention`, but clients keep declaring the pre-attention schema until every hub and owner pod admits it; overdue or due items come from each row's status, newest 25 at most. |
 | Font/AlertDialog cascade | Source values and conflicts are documented. Definitive compiled max-width, full-product wrapping, long-content keyboard access, screen-reader and physical Dynamic Type need runtime proof. |
 | Founder Wiki | No authenticated Founder Wiki refresh/read capability was available in this task. No private wiki content was copied or future-state claim promoted. Current-source documentation does not depend on a wiki implementation claim. |
 

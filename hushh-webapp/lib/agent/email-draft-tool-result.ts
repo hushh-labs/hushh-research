@@ -8,6 +8,7 @@
 export const GMAIL_SEND_READINESS = [
   "ready",
   "connect_required",
+  "reconnect_required",
   "send_permission_required",
   "send_disabled",
   "unknown",

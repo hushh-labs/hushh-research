@@ -162,8 +162,12 @@ These paths should remain deterministic by design:
 - typed-chat draft recipients: One decides to write an email and passes a named
   person in `recipient_names` or `cc_names`; `one_adk/email_draft_recipients.py`
   matches that name against the owner's active connections with the shared
-  spoken-name rule. It never guesses: an ambiguous, unknown or address-less name
-  opens no draft and returns a typed status for One to ask about.
+  spoken-name rule. It never guesses: it addresses the draft only when exactly
+  one connection matches and the name as said is that connection's whole name
+  or whole words of it; a display name holding an address never counts as a
+  name. A partial or misspelled match, several matches, people sharing one name,
+  or an unknown or address-less name opens no draft and returns a typed status
+  whose message names the one question One asks.
 
 These are safety and infrastructure concerns, not semantic classification concerns.
 
@@ -854,10 +858,14 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   mailbox; a plan carrying categories, an ordinal or a target is refused as
   `invalid_argument`. The skip is recorded (`one_voice.mail.latency stage=receipts
   status=redirected`). One's `_specialist_turn` adds a fixed next step to answer
-  with its on-device receipt functions, and `after_external_read_tool` lifts the
-  typed-chat read barrier for this status only, because no provider text entered
-  the turn. Host code never runs an Email proposal, including the retired Open
-  Receipts action.
+  with its on-device receipt functions. `after_external_read_tool` never clears
+  the typed-chat read barrier: it records a separate marker for this invocation,
+  and the barrier then also admits only One's device receipt tools and
+  `get_current_time`, because another read in the same turn may have set the
+  barrier with provider text. Receipt results return in a new turn where every
+  tool is refused, checked against the closed result schema.
+  Host code never runs an Email proposal, including the retired Open Receipts
+  action.
 - Receipt functions: the owner's device computes lists and per-currency totals
   over its encrypted snapshot (`hushh-webapp/lib/mail/receipt-analysis.ts`). The
   hub validates the closed request and result (`receipt_client_tools.py`,

@@ -1523,7 +1523,8 @@ def _with_dependency(payload: dict[str, Any], trace: Any) -> dict[str, Any]:
 
 
 # What One is told when the Email specialist hands a receipts request back. No
-# mail was read, so the read barrier is lifted for this same turn.
+# mail was read. The read barrier stays; this invocation also admits only One's
+# receipt functions and get_current_time (external_read_boundary).
 _RECEIPT_FUNCTIONS_STEP = (
     "No mail was read. Answer this request now with your receipt functions, and never "
     "say mail was searched."
@@ -1953,8 +1954,8 @@ async def open_gmail_email_draft(
     an ambiguous or unknown name instead of opening the draft. A selected Drive
     file goes in drive_file_id exactly; the app reviews it before Send. The result
     says whether Gmail can send. This client-only draft never contacts Gmail or
-    sends; its fields never enter persisted state, and only the owner's Send tap
-    sends.
+    sends; its recipients, subject and body never enter persisted state, and only
+    the owner's Send tap sends.
     """
 
     user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
@@ -1970,11 +1971,11 @@ async def open_gmail_email_draft(
             "message": "Ask for the email you want to draft.",
         }
 
-    # The model performs the semantic decision to call this tool. Keep only the
-    # current explicit instruction in ephemeral client state; no draft values or
-    # recipients are persisted by this directive. Bounded optional fields are
-    # accepted for the active client tool event only, where the owner can edit
-    # them before the existing prepare/send confirmation boundary.
+    # The model performs the semantic decision to call this tool. The pending
+    # directive keeps only the explicit instruction and any Drive file ID, stored
+    # with the session; no draft values or recipients are persisted by it. Bounded
+    # optional fields are accepted for the active client tool event only, where
+    # the owner can edit them before the existing prepare/send confirmation boundary.
     from hushh_mcp.one_adk.email_draft_recipients import resolve_draft_recipients
     from hushh_mcp.one_adk.email_draft_tool import draft_field_refusal, draft_opened_result
 
@@ -2062,7 +2063,7 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
 
     Covers recent or unread mail, mail from someone, possible replies, what an email
     says, and briefs of what needs them: action items, requests for their details,
-    bills due, security notices and meetings. Spending, receipts and invoices use
+    security notices and meetings. Spending, receipts, invoices and bills use
     One's receipt functions, never this tool. Never sends mail or syncs receipts.
     """
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled

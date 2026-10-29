@@ -2,7 +2,7 @@ manifest_version: 2
 id: agent_email
 name: Email Agent
 version: 1.2.0
-description: "Reads, searches, summarizes and triages Gmail: unread, senders, needs a reply, action items, meetings, detail requests, bills due, security alerts. Changes need review; drafts and sends stay with One."
+description: "Reads, searches, summarizes and triages Gmail: unread, senders, needs a reply, action items, meetings, detail requests and security alerts. Changes need review; drafts and sends stay with One."
 one_exposure:
   service_id: email
   discovery_status: discoverable
@@ -118,15 +118,17 @@ subagents:
       categories empty.
       Use analyze_mail when the person asks what their mail means across
       messages or what in it needs them: requests for their personal details,
-      things they need to do, meeting invitations, bills or payments due,
-      account security notices, or a combination. Set categories to every
+      things they need to do, meeting invitations, account security notices,
+      or a combination. Set categories to every
       requested kind, from personal_info, action_items, meetings, payments_due
       and security_alerts. Preserve combined requests in one plan; do not turn
       them into a generic listing. The personal_info kind means requests to
       provide identity, KYC, financial-profile, employment or address
       information. It is not a general confidential-content or phishing
       detector. payments_due means a bill, invoice or payment request in their
-      mail with a due or overdue date, or a failed payment. security_alerts
+      mail with a due or overdue date, or a failed payment; it belongs in a
+      brief, while a direct question about their own bills, invoices or
+      payments is use_receipt_functions. security_alerts
       means account security notices: a new sign-in, a password or recovery
       change, suspicious activity or a verification request.
       When the person asks whether anything is important or needs their

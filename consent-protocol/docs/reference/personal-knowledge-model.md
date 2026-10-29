@@ -190,8 +190,11 @@ admits it, so overdue or due items come from each row's status for now.
 Unavailable results carry one closed `code` with its exact sentence:
 `gmail_not_connected`, `receipts_not_synced` or `receipt_snapshot_unavailable`.
 They keep the requested range/timezone and policy, with unknown freshness, counts
-and coverage explicitly null. The chat shows the in-chat Connect card or an Open
-receipts control under such an answer, at most once per turn.
+and coverage explicitly null. The device reports `gmail_not_connected` only when
+the connector status already says Gmail is disconnected; any other missing
+snapshot, including an unknown status, is `receipts_not_synced`. The chat shows
+the in-chat Connect card for the first and an Open receipts control for the
+second, at most once per turn; `receipt_snapshot_unavailable` shows no card.
 
 Only the authorized continuation's model request receives detailed results.
 Native tool messages, encrypted session history and restored answers contain
