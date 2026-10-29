@@ -17,7 +17,7 @@ export function HostedDocumentsPage() {
   const { user } = useAuth(); const { isVaultUnlocked } = useVault(); const [unlock, setUnlock] = useState(false);
   const valid = /^[0-9a-f-]{36}$/.test(requestId);
   return <AppPageShell width="reading">
-    <AppPageHeaderRegion><PageHeader title="Protected documents" description="Your approved copy in One" /></AppPageHeaderRegion>
+    <AppPageHeaderRegion><PageHeader title="Documents" /></AppPageHeaderRegion>
     <AppPageContentRegion>
       {!valid ? <HelperText>This protected document link is unavailable.</HelperText> : !user ? <>
         <HelperText>Sign in to the One account this document was shared with.</HelperText>

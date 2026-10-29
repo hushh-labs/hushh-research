@@ -64,7 +64,7 @@ import {
 } from "@/lib/consent";
 
 import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
-import { DocumentShareReview } from "@/components/consent/document-share-review";
+import { DocumentRequestReviewRouter } from "@/components/consent/calendar-meeting-review-card";
 import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
 import { AnswerRequestCard } from "@/components/consent/answer-request-card";
 import {
@@ -4103,10 +4103,9 @@ export function ConsentCenterPage() {
             )
           ) : isDocumentSelection ? (
             selectedDocumentRequestId ? (
-              <DocumentShareReview
+              <DocumentRequestReviewRouter
                 requestId={selectedDocumentRequestId}
                 onChanged={reconcileDocumentRequest}
-                surface="sheet"
                 counterpartLabel={selectedEntry?.counterpart_label ?? null}
               />
             ) : (

@@ -15,16 +15,19 @@ from tests.test_uat_deploy_no_traffic_contract import (
 )
 
 
-def _provider_capture_fixture(monkeypatch, azure=True, vertex=False):
+def _provider_capture_fixture(monkeypatch, azure=True, vertex=False, configured="azure_openai"):
     monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/ci"))
     collector = importlib.import_module("capture_managed_provider_receipt")
     gate = _managed_provider_gate()
-    expected, a = _provider_fixture(gate, "azure_openai")
-    _, v = _provider_fixture(gate, "vertex")
-    aggregate = gate.evaluate(
-        {"azure_openai": a if azure else None, "vertex": v if vertex else None}, expected
-    )
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    document["managed_provider_selection"]["uat"] = configured
+    expected, a = _provider_fixture(gate, "azure_openai", document=document)
+    _, v = _provider_fixture(gate, "vertex", document=document)
+    aggregate = gate.evaluate(
+        {"azure_openai": a if azure else None, "vertex": v if vertex else None},
+        expected,
+        document=document,
+    )
     selection = {
         "context": expected,
         "managed_provider_selection": {
@@ -83,20 +86,17 @@ def _provider_capture_fixture(monkeypatch, azure=True, vertex=False):
 
 
 @pytest.mark.parametrize(
-    "azure,vertex,preferred",
-    [
-        (True, False, "azure_openai"),
-        (False, True, None),
-        (True, True, "azure_openai"),
-        (False, False, None),
-    ],
+    "azure,vertex",
+    [(True, False), (False, True), (True, True), (False, False)],
 )
+@pytest.mark.parametrize("configured", ["azure_openai", "vertex"])
 def test_uploaded_provider_receipt_uses_exact_remote_build_without_stdout(
-    monkeypatch, azure, vertex, preferred
+    monkeypatch, azure, vertex, configured
 ):
     collector, expected, document, label, entries, build = _provider_capture_fixture(
-        monkeypatch, azure, vertex
+        monkeypatch, azure, vertex, configured
     )
+    preferred = configured if (azure if configured == "azure_openai" else vertex) else None
     calls = []
 
     def read(arguments, deadline):

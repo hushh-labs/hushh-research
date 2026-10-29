@@ -18,8 +18,83 @@ LIVE_ASSERTION_PATH = PROTOCOL_ROOT.parent / "scripts" / "ci" / "assert_one_voic
 SUMMARY_PATH = PROTOCOL_ROOT.parent / "scripts" / "ci" / "summarize_uat_managed_vertex_logs.py"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ready", [True, False])
+async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_probes(
+    monkeypatch, ready
+):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.managed_ai_config import PROFILE_PATH, load_profile
+    from hushh_mcp.one_voice.config import OneVoiceLiveConfig
+    from scripts import probe_managed_capabilities, probe_managed_text, verify_azure_pwm_runtime
+    from tests.test_uat_deploy_no_traffic_contract import _capability_results_fixture
+
+    spec = importlib.util.spec_from_file_location("full_uat_readiness", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "full")
+    profile = load_profile("uat")
+    binding = SimpleNamespace(project=profile["project"])
+    monkeypatch.setattr(module, "_readiness_bindings", lambda: (binding, binding.project, binding))
+    monkeypatch.setattr(module, "_managed_manifest_models", lambda: (profile["text_model"],))
+    monkeypatch.setattr(
+        module, "_run_paced_probes", lambda *_a, **_k: pytest.fail("duplicate probes")
+    )
+    monkeypatch.setattr(verify_azure_pwm_runtime, "_initialize_synthetic_runtime", lambda: None)
+    core = {
+        "scopes": {
+            scope: {
+                "ready": True,
+                "model": profile["text_model"],
+                "location": profile["text_locations"][0],
+            }
+            for scope in ("one_text_chat", "drive_document_requests")
+        }
+    }
+    text_probe = AsyncMock(return_value=core)
+    monkeypatch.setattr(probe_managed_text, "probe_managed_text", text_probe)
+    capabilities = _capability_results_fixture(
+        json.loads(PROFILE_PATH.read_text())["managed_runtime_uat"]
+    )
+    if not ready:
+        capabilities["one_text_root"] = {
+            "ready": False,
+            "elapsed_ms": 3,
+            "classification": "candidate_misconfigured",
+            "error_type": "ValueError",
+            "failure_reason": "root.roundtrip_failed",
+        }
+    complete = AsyncMock(return_value={"ready": ready, "capabilities": capabilities})
+    monkeypatch.setattr(probe_managed_capabilities, "probe_managed_capabilities", complete)
+    monkeypatch.setattr(
+        OneVoiceLiveConfig,
+        "from_environment",
+        lambda: SimpleNamespace(
+            model_id=profile["live_model"],
+            location=profile["live_location"],
+            vertex_project=binding.project,
+        ),
+    )
+    report = await module.main()
+    text_probe.assert_awaited_once_with("vertex")
+    complete.assert_awaited_once()
+    assert (
+        complete.call_args.kwargs["deadline"] <= module.monotonic() + module.PROBE_SEQUENCE_SECONDS
+    )
+    assert report["one_chat_probe_ok"] is True
+    assert report["ok"] is report["managed_runtime_capabilities_ready"] is ready
+    if not ready:
+        assert (
+            next(p for p in report["probes"] if p["probe"] == "capability:one_text_root")["ok"]
+            is False
+        )
+
+
 @pytest.mark.parametrize("transport", ["textPayload", "jsonPayload", "prefixed_text"])
-def test_vertex_log_summary_emits_only_validated_diagnostic_fields(tmp_path, transport):
+@pytest.mark.parametrize("probe_name", ["one_chat:gemini-test@global", "capability:one_text_root"])
+def test_vertex_log_summary_emits_only_validated_diagnostic_fields(tmp_path, transport, probe_name):
     marker = "SYNTHETIC_PRIVATE_ERROR_DO_NOT_PRINT"
     receipt = {
         "check": "managed_vertex_runtime",
@@ -32,7 +107,7 @@ def test_vertex_log_summary_emits_only_validated_diagnostic_fields(tmp_path, tra
         "owner": marker,
         "probes": [
             {
-                "probe": "one_chat:gemini-test@global",
+                "probe": probe_name,
                 "ok": False,
                 "classification": "provider_unavailable",
                 "resource_exhausted": True,
@@ -94,7 +169,7 @@ def test_vertex_log_summary_emits_only_validated_diagnostic_fields(tmp_path, tra
             "error_type": "ClientError",
             "probes": [
                 {
-                    "probe": "one_chat:gemini-test@global",
+                    "probe": probe_name,
                     "ok": False,
                     "classification": "provider_unavailable",
                     "resource_exhausted": True,

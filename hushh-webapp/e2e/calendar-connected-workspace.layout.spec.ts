@@ -516,12 +516,12 @@ for (const width of [390, 1280]) {
       recurring: [{ title: "QA weekly review", minutes: 60 }], focus: [{ start_at: "2026-10-15T09:30:00Z", end_at: "2026-10-15T11:30:00Z" }],
     } }));
     await page.route("**/api/one/calendar/meetings", route => {
-      const body = route.request().postDataJSON() as { date: string; time_zone: string; kind: string; query: string };
+      const body = route.request().postDataJSON() as { date: string; time_zone: string; query: string };
       const rows = [
-        { id: "notes", calendar_id: "primary", account_id: "default", occurrence_id: "a".repeat(64), grant_id: "b".repeat(64), sources: [{ calendar_id: "primary", event_id: "notes" }], title: "QA Design review", start: { dateTime: "2026-10-14T09:00:00Z" }, artifact_kinds: ["notes"] },
-        { id: "video", calendar_id: "primary", account_id: "default", occurrence_id: "c".repeat(64), grant_id: "b".repeat(64), sources: [{ calendar_id: "primary", event_id: "video" }], title: "QA Product demo", start: { dateTime: "2026-10-14T08:00:00Z" }, artifact_kinds: ["recording"] },
+        { id: "notes", calendar_id: "primary", account_id: "default", occurrence_id: "a".repeat(64), grant_id: "b".repeat(64), sources: [{ calendar_id: "primary", event_id: "notes" }], title: "QA Design review", start: { dateTime: "2026-10-14T09:00:00Z" }, artifact_kinds: ["notes"], availability: { notes: "available" }, discovery: "checked", file_state: "available" },
+        { id: "video", calendar_id: "primary", account_id: "default", occurrence_id: "c".repeat(64), grant_id: "b".repeat(64), sources: [{ calendar_id: "primary", event_id: "video" }], title: "QA Product demo", start: { dateTime: "2026-10-14T08:00:00Z" }, artifact_kinds: ["recording"], availability: { recording: "available" }, discovery: "checked", file_state: "available" },
       ];
-      return route.fulfill({ json: { complete: true, next_cursor: null, limitations: [], checked_events: 2, meeting_file_access: "ready", account_id: "default", date: body.date, time_zone: body.time_zone, meetings: rows.filter(row => (body.kind === "all" || row.artifact_kinds.includes(body.kind)) && row.title.toLowerCase().includes((body.query || "").toLowerCase())) } });
+      return route.fulfill({ json: { complete: true, calendar_complete: true, next_cursor: null, limitations: [], checked_events: 2, meeting_file_access: "ready", account_id: "default", date: body.date, time_zone: body.time_zone, meetings: rows.filter(row => row.title.toLowerCase().includes((body.query || "").toLowerCase())) } });
     });
     await page.route("**/api/one/calendar/meetings/detail", route => route.fulfill({ json: { complete: true, discovery: "checked", calendar_id: "primary", event: { title: "QA Design review" }, artifacts: [
       { file_id: "qa-doc", kind: "notes", state: "available", title: "QA Meeting notes", url: "https://docs.google.com/document/d/qa-doc", text: "Synthetic browser fixture only.", text_format: "plain", can_download: true },
@@ -536,7 +536,8 @@ for (const width of [390, 1280]) {
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-entry-${width}.png`) });
     await libraryEntry.click();
     await page.getByRole("tab", { name: "Notes", exact: true }).click();
-    await expect(page.getByRole("button", { name: /QA Product demo/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /QA Product demo/ })).toBeVisible();
+    await expect(page.getByText(/Notes access is not verified/)).toBeVisible();
     await page.getByRole("searchbox").fill("Design");
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-library-${width}.png`), fullPage: true });
     await page.getByRole("button", { name: /QA Design review/ }).click();
@@ -568,22 +569,30 @@ for (const width of [390, 1280]) {
     await page.route("**/api/one/calendar/meetings", route => {
       const body = route.request().postDataJSON() as { date: string; time_zone: string };
       const denied = body.date !== "2026-10-14";
+      const meetings = denied ? [{
+        id: "restricted", calendar_id: "primary", account_id: "default",
+        occurrence_id: "d".repeat(64), grant_id: "b".repeat(64),
+        sources: [{ calendar_id: "primary", event_id: "restricted" }],
+        title: "QA Restricted meeting", start: { dateTime: "2026-10-15T09:00:00Z" },
+        artifact_kinds: [], availability: {}, discovery: "resource_denied", file_state: "provider_policy",
+      }] : [];
       return route.fulfill({ json: {
-        complete: !denied, next_cursor: null, limitations: denied ? ["resource_denied"] : [],
-        checked_events: denied ? 1 : 0, meeting_file_access: "ready", meetings: [],
+        complete: !denied, calendar_complete: true, next_cursor: null, limitations: denied ? ["resource_denied"] : [],
+        checked_events: denied ? 1 : 0, meeting_file_access: "ready", meetings,
         account_id: "default", date: body.date, time_zone: body.time_zone,
       } });
     });
     await page.getByRole("tab", { name: "Insights", exact: true }).click();
     await page.getByRole("button", { name: /Recordings & Notes/ }).click();
-    await expect(page.getByText("No recordings or notes for this day.")).toBeVisible();
+    await expect(page.getByText("No timed meetings for this day.")).toBeVisible();
     await page.getByRole("button", { name: "Next day" }).click();
     await expect(page.getByText(/Google denied access to one or more meeting files/)).toBeVisible();
-    await expect(page.getByText("No recordings or notes for this day.")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /QA Restricted meeting/ })).toBeVisible();
+    await expect(page.getByText("No timed meetings for this day.")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Allow recording and notes access" })).toHaveCount(0);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-denied-with-ready-grant-${width}.png`) });
     await page.getByRole("button", { name: "Previous day" }).click();
-    await expect(page.getByText("No recordings or notes for this day.")).toBeVisible();
+    await expect(page.getByText("No timed meetings for this day.")).toBeVisible();
     await expect(page.getByTestId("calendar-action")).toBeEmpty();
     expect(fixture.errors).toEqual([]);
   });

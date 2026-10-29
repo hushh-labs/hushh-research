@@ -769,6 +769,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         if call.getBool("includeMeetingFiles") == true {
             calendarScopes.append("https://www.googleapis.com/auth/meetings.space.readonly")
             calendarScopes.append("https://www.googleapis.com/auth/drive.meet.readonly")
+            calendarScopes.append("https://www.googleapis.com/auth/drive.metadata.readonly")
         }
         GIDSignIn.sharedInstance.signIn(
             withPresenting: viewController,

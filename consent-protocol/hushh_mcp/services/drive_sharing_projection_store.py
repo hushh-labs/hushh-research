@@ -22,6 +22,97 @@ from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 
 class DriveSharingProjectionStore(DriveRevocationStore):
+    async def calendar_request_snapshot(
+        self, *, user_id: str, account_id: str, occurrence_id: str
+    ) -> list[dict]:
+        """Internal requester-only exact-file associations from existing receipts.
+
+        The service rechecks each sealed Calendar recipient before releasing this
+        result. No candidate or uncertain operation enters the file list.
+        """
+        client_ids = [
+            str(
+                self.sharing_cipher.calendar_client_id(
+                    user_id,
+                    account_id,
+                    occurrence_id,
+                    types,
+                )
+            )
+            for types in (("recording",), ("notes",), ("recording", "notes"))
+        ]
+
+        def operation(connection):
+            rows = list(
+                connection.execute(
+                    text("""SELECT * FROM drive_share_requests
+                WHERE recipient_user_id=:user AND client_request_id IN (:one,:two,:both)"""),
+                    {
+                        "user": user_id,
+                        "one": client_ids[0],
+                        "two": client_ids[1],
+                        "both": client_ids[2],
+                    },
+                ).mappings()
+            )
+            result = []
+            for row in rows:
+                private = self._open_request(row)
+                calendar = private.get("calendar")
+                if (
+                    private.get("request_type") != "calendar_meeting"
+                    or not isinstance(calendar, dict)
+                    or calendar.get("account_id") != account_id
+                    or calendar.get("occurrence_id") != occurrence_id
+                ):
+                    continue
+                files = []
+                if row.get("access_stop_requested_at") is None:
+                    grants = list(
+                        connection.execute(
+                            text("""SELECT g.*,
+                        (SELECT r.state FROM drive_share_permission_operations r
+                         WHERE r.parent_operation_id=g.operation_id AND r.kind='revoke'
+                         ORDER BY r.created_at DESC,r.operation_id DESC LIMIT 1) AS revoke_state
+                        FROM drive_share_permission_operations g
+                        WHERE g.request_id=:request AND g.kind='grant'
+                        ORDER BY g.created_at,g.operation_id LIMIT :limit"""),
+                            {"request": row["request_id"], "limit": MAX_FILES + 1},
+                        ).mappings()
+                    )
+                    if len(grants) > MAX_FILES:
+                        raise DriveSharingError("sharing_storage_unavailable")
+                    for grant in grants:
+                        if grant["state"] not in {
+                            "succeeded",
+                            "preexisting",
+                            "present_unattributed",
+                        }:
+                            continue
+                        if grant["revoke_state"] in {"succeeded", "absent"}:
+                            continue
+                        plan = self._plan(grant)
+                        if (
+                            plan.get("request_type") == "calendar_meeting"
+                            and plan.get("artifact_kind") in calendar["requested_types"]
+                            and isinstance(plan.get("file_id"), str)
+                            and FILE_ID.fullmatch(plan["file_id"])
+                        ):
+                            files.append(
+                                {"file_id": plan["file_id"], "kind": plan["artifact_kind"]}
+                            )
+                result.append(
+                    {
+                        **self._summary(row, recipient=True),
+                        "requestedTypes": calendar["requested_types"],
+                        "recipient": private["recipient"],
+                        "files": files,
+                    }
+                )
+            return result
+
+        return await self._transaction(operation)
+
     @staticmethod
     def _access_stop_status(connection, request_id):
         """One request-wide verdict; only verified owned removals count as done."""

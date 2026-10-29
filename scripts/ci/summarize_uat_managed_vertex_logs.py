@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from managed_capability_proof import (
+    CAPABILITY_PROBES,
     ERROR_TYPES,
     FIXED_PROBES,
     PROBE_NAME,
@@ -107,7 +108,10 @@ def summarize_receipt(raw: str) -> dict[str, Any]:
         if (
             not isinstance(name, str)
             or name in seen
-            or (name not in FIXED_PROBES and not PROBE_NAME.fullmatch(name))
+            or (
+                name not in FIXED_PROBES | CAPABILITY_PROBES
+                and not PROBE_NAME.fullmatch(name)
+            )
         ):
             raise ValueError("Invalid probe name")
         seen.add(name)

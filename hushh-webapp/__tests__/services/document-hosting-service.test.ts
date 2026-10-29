@@ -28,6 +28,7 @@ import { OneCopyPresentationService } from "@/lib/services/one-copy-presentation
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { OneCopyService } from "@/lib/services/one-copy-service";
 import { DocumentHostingService } from "@/lib/services/document-hosting-service";
+import { REQUEST_ID_HEADER } from "@/lib/observability/request-id";
 
 describe("hosted document transport and consent projection boundaries", () => {
   const userId = "document-owner";
@@ -101,11 +102,22 @@ describe("hosted document transport and consent projection boundaries", () => {
 describe("background One-copy authenticated transport", () => {
   const requestId = "11111111-1111-4111-8111-111111111111";
   const fileRef = "22222222-2222-4222-8222-222222222222";
-  it("uses the current owner token and exact content disposition without provider URLs", async () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it.each(["uat", "production"])("uses the current owner token and exact content disposition with %s diagnostic admission", async environment => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", environment);
+    vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENV", "");
+    vi.stubEnv("NEXT_PUBLIC_ENVIRONMENT_MODE", "");
     const session = { userId: "b", vaultKey: "vault", vaultOwnerToken: "HCT:synthetic", isCurrent: () => true };
     vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3])));
     expect(await OneCopyService.content(session, requestId, fileRef, "download", new AbortController().signal)).toEqual(new Uint8Array([1, 2, 3]));
-    expect(ApiService.apiFetch).toHaveBeenLastCalledWith(`/api/connectors/google_drive/sharing/requests/${requestId}/one-copy/files/${fileRef}/content?disposition=download`, expect.objectContaining({ cache: "no-store", responseType: "arraybuffer", headers: { Authorization: "Bearer HCT:synthetic" } }));
+    expect(ApiService.apiFetch).toHaveBeenLastCalledWith(`/api/connectors/google_drive/sharing/requests/${requestId}/one-copy/files/${fileRef}/content?disposition=download`, {
+      method: "GET", cache: "no-store", responseType: "arraybuffer",
+      signal: expect.any(AbortSignal), isEffectCurrent: session.isCurrent,
+      headers: {
+        Authorization: "Bearer HCT:synthetic",
+        ...(environment === "uat" ? { [REQUEST_ID_HEADER]: expect.stringMatching(/^[a-zA-Z0-9_.:-]{8,128}$/) } : {}),
+      },
+    });
   });
   it.each(["timeout", "abort", "session"])("cancels a hanging original body on %s and erases received chunks", async reason => {
     vi.useFakeTimers();

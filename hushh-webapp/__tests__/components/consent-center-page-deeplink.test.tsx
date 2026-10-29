@@ -80,6 +80,12 @@ vi.mock("@/components/consent/document-share-review", () => ({
   DocumentShareReview: ({ requestId }: { requestId: string }) => <div data-testid="private-document-review">{requestId}</div>,
 }));
 
+// This suite checks Consent Center deep-link routing. The typed review router
+// has its own tests; keep this fixture independent of Drive status transport.
+vi.mock("@/components/consent/calendar-meeting-review-card", () => ({
+  DocumentRequestReviewRouter: ({ requestId }: { requestId: string }) => <div data-testid="private-document-review">{requestId}</div>,
+}));
+
 vi.mock("@/components/consent/answer-request-card", () => ({
   AnswerRequestCard: ({ requestId }: { requestId: string }) => (
     <div data-testid="answer-request-card">{requestId}</div>

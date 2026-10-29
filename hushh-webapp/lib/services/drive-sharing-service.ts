@@ -31,6 +31,7 @@ import {
 } from "@/lib/services/drive-search-service";
 
 export type SharingStatus = DocumentRequestSetup & {
+  requestType?: "calendar_meeting";
   oneCopyRequested?: boolean;
   requestId: string;
   status: string;
@@ -141,6 +142,7 @@ export function validDocumentRequestTerms(
   );
 }
 export type SharingReview = DocumentRequestSetup & {
+  requestType?: "calendar_meeting";
   oneCopyRequested?: boolean;
   agentPackage?: AgentDocumentPackage;
   /** Live request evaluation lane; packet catalog requests use the legacy package view. */
@@ -1210,11 +1212,14 @@ export class DriveSharingService {
     if (requestedAccessDays === 0 || approvedAccessDays === 0 ||
       approvedAccessDays !== null && (requestedAccessDays === null || approvedAccessDays > requestedAccessDays))
       throw new DriveSharingError("invalid_response");
+    if (result.requestType !== undefined && result.requestType !== "calendar_meeting")
+      throw new DriveSharingError("invalid_response");
     const view: SharingStatus = {
       requestId,
       revision: revision(result.revision),
       status: string(result.status, 80),
       direction: result.direction,
+      ...(result.requestType === "calendar_meeting" ? { requestType: "calendar_meeting" as const } : {}),
       ...(typeof result.oneCopyRequested === "boolean" ? { oneCopyRequested: result.oneCopyRequested } : {}),
       ...(result.delivery && typeof result.delivery === "object" && ["one", "both"].includes((result.delivery as Record<string, unknown>).receiveThrough as string) ? { hostedDelivery: true as const } : {}),
       ...(typeof result.outcomeReason === "string" && ["no_matching_files", "matching_files_unshareable"].includes(result.outcomeReason)
@@ -1467,7 +1472,10 @@ export class DriveSharingService {
     const ownerPayout = result.ownerPayout == null
       ? null
       : parseOwnerPayout(result.ownerPayout, requestId);
+    if (result.requestType !== undefined && result.requestType !== "calendar_meeting")
+      throw new DriveSharingError("invalid_response");
     const view: SharingReview = {
+      ...(result.requestType === "calendar_meeting" ? { requestType: "calendar_meeting" as const } : {}),
       ...(result.agentPackage === undefined ? {} : { agentPackage: parseAgentDocumentPackage(result.agentPackage) }),
       revision: revision(result.revision),
       status: string(result.status, 80),
@@ -1806,6 +1814,7 @@ export class DriveSharingService {
     documentIds: string[],
     trustFutureRequests = false,
     trustScope?: "any_requested_drive_file",
+    calendarOccurrenceConfirmed = false,
   ) {
     if (
       !review.canApprove ||
@@ -1826,6 +1835,7 @@ export class DriveSharingService {
       reviewDigest: review.reviewDigest,
       documentIds,
       confirmed: true,
+      ...(calendarOccurrenceConfirmed ? { calendarOccurrenceConfirmed: true } : {}),
       ...(trustFutureRequests ? {trustFutureRequests: true} : {}),
       ...(trustScope ? {trustScope, trustDisclosureVersion: "drive-any-requested-file-including-future-v1"} : {}),
     });

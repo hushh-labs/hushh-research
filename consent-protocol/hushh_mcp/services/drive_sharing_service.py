@@ -118,6 +118,34 @@ class DriveSharingService:
     async def requester_context(self, **kwargs):
         return await self.store.requester_context(**kwargs)
 
+    async def calendar_snapshots(self, *, user_id, account_id, occurrence_id):
+        """Only the selected Calendar identity may see settled associations."""
+        before = await self.store.calendar_request_snapshot(
+            user_id=user_id, account_id=account_id, occurrence_id=occurrence_id
+        )
+        if not before:
+            return []
+        for item in before:
+            try:
+                await self.verify_recipient(item["recipient"])
+            except DriveSharingError:
+                item["files"] = []
+                item["identityStatus"] = "unverified"
+        after = await self.store.calendar_request_snapshot(
+            user_id=user_id, account_id=account_id, occurrence_id=occurrence_id
+        )
+        by_id = {item["requestId"]: item for item in after}
+        result = []
+        for item in before:
+            current = by_id.get(item["requestId"])
+            if not current or current["recipient"] != item["recipient"]:
+                continue
+            if item.get("identityStatus"):
+                current["files"] = []
+                current["identityStatus"] = item["identityStatus"]
+            result.append(current)
+        return result
+
     async def review(self, **kwargs):
         return await self.store.owner_review(**kwargs)
 

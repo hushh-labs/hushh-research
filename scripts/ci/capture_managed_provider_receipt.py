@@ -151,7 +151,12 @@ def from_entries(entries, expected, document, step_label):
         and all(type(providers[p].get("ready")) is bool for p in providers),
         "provider_flags_invalid",
     )
-    preferred = "azure_openai" if providers["azure_openai"]["ready"] else None
+    if hasattr(readiness, "configured_provider"):
+        configured = readiness.configured_provider(document)
+        preferred = configured if providers[configured]["ready"] else None
+    else:
+        # Historical candidate tooling had an Azure-only release contract.
+        preferred = "azure_openai" if providers["azure_openai"]["ready"] else None
     require(
         preferred is not None
         and aggregate.get("ready") is True

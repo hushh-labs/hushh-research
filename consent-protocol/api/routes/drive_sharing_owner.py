@@ -49,6 +49,10 @@ async def _content_owner(response: Response, token: dict = Depends(hub_content_o
 
 # Authored responses only: raw provider, SQL and credential text never crosses this boundary.
 _SHARING_ERRORS = {
+    "calendar_organizer_unavailable": (
+        409,
+        "This organizer cannot receive a One request. Copy your request to share it directly.",
+    ),
     "request_unavailable": (404, "This request is unavailable."),
     "verify_google_identity_required": (
         409,

@@ -1517,6 +1517,9 @@ tests/services/test_calendar_schedule_boundaries.py
 tests/services/test_calendar_attendance_service.py
 tests/services/test_calendar_invitations.py
 tests/services/test_calendar_meeting_artifacts.py
+tests/services/test_calendar_meeting_grant_access.py
+tests/services/test_calendar_meeting_library_paging.py
+tests/services/test_calendar_meeting_request_flow_postgres.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.
@@ -1596,3 +1599,8 @@ tests/services/test_document_delivery_background.py
 tests/services/test_document_delivery_background_exports.py
 # The owner's review decides whether the production Allow route accepts a One copy.
 tests/services/test_document_delivery_owner_allow.py
+
+# Managed provider switch and complete synthetic Vertex qualification.
+tests/services/test_managed_chat_provider_switch.py
+tests/services/test_one_vertex_search_contract.py
+tests/test_vertex_capability_probe.py

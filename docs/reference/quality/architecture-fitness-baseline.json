@@ -4924,7 +4924,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_live_reader.py",
       "symbol": "DriveLiveReader",
-      "value": 1108
+      "value": 1109
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5041,7 +5041,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
       "symbol": "DriveSharingProjectionStore",
-      "value": 461
+      "value": 552
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5050,7 +5050,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "DriveSharingStore",
-      "value": 3372
+      "value": 3585
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5059,7 +5059,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_suggestion_service.py",
       "symbol": "DriveSuggestionService",
-      "value": 403
+      "value": 428
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -10045,7 +10045,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_live_reader.py",
       "symbol": "bind_matches",
-      "value": 86
+      "value": 90
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10369,7 +10369,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "_store_live_observations",
-      "value": 88
+      "value": 105
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10387,7 +10387,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "approve_review",
-      "value": 181
+      "value": 189
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10423,7 +10423,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "operation",
-      "value": 194
+      "value": 211
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10432,7 +10432,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "operation",
-      "value": 193
+      "value": 199
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10441,7 +10441,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "operation",
-      "value": 155
+      "value": 162
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10477,7 +10477,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "owner_review",
-      "value": 209
+      "value": 215
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10486,7 +10486,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "prepare_review",
-      "value": 224
+      "value": 242
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10504,7 +10504,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_suggestion_service.py",
       "symbol": "run_one",
-      "value": 361
+      "value": 386
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18046,7 +18046,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/drive_sharing.py",
       "symbol": null,
-      "value": 1441
+      "value": 1446
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19038,7 +19038,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_live_reader.py",
       "symbol": null,
-      "value": 1243
+      "value": 1245
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19110,7 +19110,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py",
       "symbol": null,
-      "value": 1145
+      "value": 1202
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19119,7 +19119,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": null,
-      "value": 3514
+      "value": 3722
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19128,7 +19128,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_suggestion_service.py",
       "symbol": null,
-      "value": 1042
+      "value": 1068
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22530,7 +22530,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/consent-center-page-deeplink.test.tsx",
       "symbol": null,
-      "value": 2483
+      "value": 2489
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29161,7 +29161,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/calendar_meeting_artifacts.py",
       "symbol": "CalendarMeetingArtifacts",
-      "value": 308
+      "value": 366
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29692,7 +29692,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/calendar/calendar-connected-workspace.tsx",
       "symbol": null,
-      "value": 502
+      "value": 503
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -32420,6 +32420,114 @@
       "path": "consent-protocol/tests/test_private_agent_adoption_postgres.py",
       "symbol": null,
       "value": 508
+    },
+    {
+      "kind": "class_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_suggestion_store.py",
+      "detail": "class exceeds the advisory operon budget",
+      "value": 292,
+      "limit": 250,
+      "symbol": "DriveSuggestionStore",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_suggestion_store.py|DriveSuggestionStore|class exceeds the advisory operon budget"
+    },
+    {
+      "kind": "class_size",
+      "path": "consent-protocol/hushh_mcp/services/calendar_meeting_request_service.py",
+      "detail": "class exceeds the advisory operon budget",
+      "value": 285,
+      "limit": 250,
+      "symbol": "CalendarMeetingRequestService",
+      "key": "class_size|consent-protocol/hushh_mcp/services/calendar_meeting_request_service.py|CalendarMeetingRequestService|class exceeds the advisory operon budget"
+    },
+    {
+      "kind": "class_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_service.py",
+      "detail": "class exceeds the advisory operon budget",
+      "value": 271,
+      "limit": 250,
+      "symbol": "DriveSharingService",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_service.py|DriveSharingService|class exceeds the advisory operon budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 135,
+      "limit": 80,
+      "symbol": "create_calendar_request",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|create_calendar_request|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/calendar_meeting_library.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 106,
+      "limit": 80,
+      "symbol": "_scan_event",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_meeting_library.py|_scan_event|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/calendar_meeting_artifacts.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 99,
+      "limit": 80,
+      "symbol": "detail",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_meeting_artifacts.py|detail|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 90,
+      "limit": 80,
+      "symbol": "calendar_request_snapshot",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|calendar_request_snapshot|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_suggestion_store.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 83,
+      "limit": 80,
+      "symbol": "claim_preparation",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_suggestion_store.py|claim_preparation|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/api/routes/one/calendar_workspace.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 623,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/api/routes/one/calendar_workspace.py||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 575,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "hushh-webapp/components/calendar/calendar-insights.tsx",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 558,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|hushh-webapp/components/calendar/calendar-insights.tsx||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/hushh_mcp/services/calendar_meeting_artifacts.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 501,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/hushh_mcp/services/calendar_meeting_artifacts.py||module exceeds the advisory operon budget"
     }
   ],
   "inspected_files": 6625,
@@ -86759,6 +86867,291 @@
         "source_sha256": "107a7e2eedfc420bb3698d94a128c0edf7a4f801121df2de2a143c2c62c09b53",
         "reviewer": "legacy settlement design review; four-lens adversarial workflow",
         "review": "Two forward-recovery rollback stems (437, 438) added to the existing refusal loop."
+      }
+    ]
+  },
+  "calendar_meeting_file_request_review_20261029": {
+    "base_revision": "042ab64697d2b2337c87eb0ad4139d974d8376a8",
+    "scope": "32 exact size ceilings only: 20 worsened and 12 new. The independent review found cohesive owner responsibilities and no reason to split atomic authority or transaction paths solely for line counts. No scanner, exclusion, or global 500/250/80 budget change.",
+    "evidence": "Architecture review reproduced all 32 and checked exact-ceiling negative controls. Security review closed typed account identity, Feed privacy, exact-file ownership, stale approval, native optional consent, and denied download. Focused tests and native static export passed; live sharing remains untested.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|DriveSharingStore|class exceeds the advisory operon budget",
+        "before": 3372,
+        "after": 3585,
+        "source_sha256": "a13168f8f017fcfd701386b3fd6a373a30476f1b85a1df9cfb54ed4d8e2fbda3",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_live_reader.py|DriveLiveReader|class exceeds the advisory operon budget",
+        "before": 1108,
+        "after": 1109,
+        "source_sha256": "0c1b1426cf56f17c202fb0c7990e793850274ac3463252c2c4f886656979c6f9",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|DriveSharingProjectionStore|class exceeds the advisory operon budget",
+        "before": 461,
+        "after": 552,
+        "source_sha256": "2f7d856235ab7c90468dd60d1e758afbe55b76ac5a304ac85a8602f44a662a7f",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_suggestion_service.py|DriveSuggestionService|class exceeds the advisory operon budget",
+        "before": 403,
+        "after": 428,
+        "source_sha256": "4c40f291dea735d8abf1630f0f49643b7e8f1e45421745d097e42a40047e88bd",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/calendar_meeting_artifacts.py|CalendarMeetingArtifacts|class exceeds the advisory operon budget",
+        "before": 308,
+        "after": 366,
+        "source_sha256": "5a7088c84a3981978d1d25272bc2c9d906766a2ef3946e175dce29645186e275",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_suggestion_store.py|DriveSuggestionStore|class exceeds the advisory operon budget",
+        "before": null,
+        "after": 292,
+        "source_sha256": "c6f9bd3aecf46b8d9a13fc267da81e69b61c2e213ef2ed693c390f471f85c6e4",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/calendar_meeting_request_service.py|CalendarMeetingRequestService|class exceeds the advisory operon budget",
+        "before": null,
+        "after": 285,
+        "source_sha256": "2cf50c620ecfaf5a978b8b6333ea285d51064a42f8ba05ff3d698e6a2628bb6c",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_service.py|DriveSharingService|class exceeds the advisory operon budget",
+        "before": null,
+        "after": 271,
+        "source_sha256": "7664057e927ccc21464427e7f0a82030f6c706c93e564f8ff085aec043bdb16b",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_suggestion_service.py|run_one|function exceeds the advisory gene budget",
+        "before": 361,
+        "after": 386,
+        "source_sha256": "4c40f291dea735d8abf1630f0f49643b7e8f1e45421745d097e42a40047e88bd",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "before": 194,
+        "after": 211,
+        "source_sha256": "a13168f8f017fcfd701386b3fd6a373a30476f1b85a1df9cfb54ed4d8e2fbda3",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "before": 193,
+        "after": 199,
+        "source_sha256": "a13168f8f017fcfd701386b3fd6a373a30476f1b85a1df9cfb54ed4d8e2fbda3",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "before": 155,
+        "after": 162,
+        "source_sha256": "a13168f8f017fcfd701386b3fd6a373a30476f1b85a1df9cfb54ed4d8e2fbda3",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|prepare_review|function exceeds the advisory gene budget",
+        "before": 224,
+        "after": 242,
+        "source_sha256": "a13168f8f017fcfd701386b3fd6a373a30476f1b85a1df9cfb54ed4d8e2fbda3",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|owner_review|function exceeds the advisory gene budget",
+        "before": 209,
+        "after": 215,
+        "source_sha256": "a13168f8f017fcfd701386b3fd6a373a30476f1b85a1df9cfb54ed4d8e2fbda3",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|approve_review|function exceeds the advisory gene budget",
+        "before": 181,
+        "after": 189,
+        "source_sha256": "a13168f8f017fcfd701386b3fd6a373a30476f1b85a1df9cfb54ed4d8e2fbda3",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|create_calendar_request|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 135,
+        "source_sha256": "a13168f8f017fcfd701386b3fd6a373a30476f1b85a1df9cfb54ed4d8e2fbda3",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_meeting_library.py|_scan_event|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 106,
+        "source_sha256": "4139596d1880c9475b7d5c4fe8aa5118608e93c811430c8790133c771c430848",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|_store_live_observations|function exceeds the advisory gene budget",
+        "before": 88,
+        "after": 105,
+        "source_sha256": "a13168f8f017fcfd701386b3fd6a373a30476f1b85a1df9cfb54ed4d8e2fbda3",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_meeting_artifacts.py|detail|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 99,
+        "source_sha256": "5a7088c84a3981978d1d25272bc2c9d906766a2ef3946e175dce29645186e275",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_live_reader.py|bind_matches|function exceeds the advisory gene budget",
+        "before": 86,
+        "after": 90,
+        "source_sha256": "0c1b1426cf56f17c202fb0c7990e793850274ac3463252c2c4f886656979c6f9",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|calendar_request_snapshot|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 90,
+        "source_sha256": "2f7d856235ab7c90468dd60d1e758afbe55b76ac5a304ac85a8602f44a662a7f",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_suggestion_store.py|claim_preparation|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 83,
+        "source_sha256": "c6f9bd3aecf46b8d9a13fc267da81e69b61c2e213ef2ed693c390f471f85c6e4",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py||module exceeds the advisory operon budget",
+        "before": 3514,
+        "after": 3722,
+        "source_sha256": "a13168f8f017fcfd701386b3fd6a373a30476f1b85a1df9cfb54ed4d8e2fbda3",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/consent-center-page-deeplink.test.tsx||module exceeds the advisory operon budget",
+        "before": 2483,
+        "after": 2489,
+        "source_sha256": "29602f57fcfdb772bba75bb5e9680006038e5eb0d6c5ee482540749205273816",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/drive_sharing.py||module exceeds the advisory operon budget",
+        "before": 1441,
+        "after": 1446,
+        "source_sha256": "e3466545482df8d154a1b35c0af7db6990888109d527cacc10d9e65a55fca314",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_live_reader.py||module exceeds the advisory operon budget",
+        "before": 1243,
+        "after": 1245,
+        "source_sha256": "0c1b1426cf56f17c202fb0c7990e793850274ac3463252c2c4f886656979c6f9",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py||module exceeds the advisory operon budget",
+        "before": 1145,
+        "after": 1196,
+        "source_sha256": "5840106c58bdbc07105fe26d8be2cdfab2fc31a7411711db8401ead5b46952b0",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_suggestion_service.py||module exceeds the advisory operon budget",
+        "before": 1042,
+        "after": 1068,
+        "source_sha256": "4c40f291dea735d8abf1630f0f49643b7e8f1e45421745d097e42a40047e88bd",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/one/calendar_workspace.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 623,
+        "source_sha256": "383c5dcead54539bdc0dec4587858fbbb7d8fdc3df119ce2b5d01c84f11c93ad",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 575,
+        "source_sha256": "2f7d856235ab7c90468dd60d1e758afbe55b76ac5a304ac85a8602f44a662a7f",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/calendar/calendar-insights.tsx||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 558,
+        "source_sha256": "175eacbbb065394f9c38fb01cb2cf6fb1a9f9342a46364d3ec8c17e2d372b28d",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/calendar_meeting_artifacts.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 501,
+        "source_sha256": "5a7088c84a3981978d1d25272bc2c9d906766a2ef3946e175dce29645186e275",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Calendar-specific integration in the existing Drive/Feed and Calendar owners. The exact source-hashed ceiling retains the global budgets and scanner. Synthetic negative controls cover account identity, wrong owner, stale approval, file sharing capability, and denied download."
+      }
+    ]
+  },
+  "calendar_meeting_file_request_rebase_review_20261029": {
+    "base_revision": "dff0be5e125fe2096f616e916b194a6b4940ed40",
+    "scope": "Two exact post-rebase size ceilings only; preserves the previously reviewed 32 Calendar findings, all scanner behavior, exclusions, and global 500/250/80 budgets. A further line remains a regression.",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py||module exceeds the advisory operon budget",
+        "before": 1196,
+        "after": 1202,
+        "source_sha256": "4a4e7f9a0173f3b3dd5cba870c4af708bd07f11810e72951c9c6a12a9d0c48a1",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "Feed projection checks optional key availability before typed Calendar enrichment; generic metadata remains readable without the key and encrypted corruption still fails closed."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/calendar/calendar-connected-workspace.tsx||module exceeds the advisory operon budget",
+        "before": 502,
+        "after": 503,
+        "source_sha256": "a510cf7d472a06bcf67ec8eed6623c9370de13c1388634eb65339f93c6065421",
+        "reviewer": "independent read-only architecture fitness and security/consent review",
+        "review": "One selected vault-token getter is forwarded to the existing Calendar Insights child after the Main booking composition; no new Calendar route or authority is created."
       }
     ]
   }

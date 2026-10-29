@@ -37,6 +37,31 @@ class CalendarMeetingDownload(CalendarMeetingSelection):
     file_id: str = Field(min_length=10, max_length=255)
 
 
+class CalendarMeetingFileRequest(CalendarMeetingSelection):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_grant: str = Field(min_length=64, max_length=64)
+    occurrence_id: str = Field(min_length=64, max_length=64)
+    date: str = Field(min_length=10, max_length=10)
+    time_zone: str = Field(min_length=1, max_length=128)
+    requested_types: list[Literal["recording", "notes"]] = Field(min_length=1, max_length=2)
+
+
+class CalendarMeetingRequiredSelection(CalendarMeetingSelection):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_grant: str = Field(min_length=64, max_length=64)
+    occurrence_id: str = Field(min_length=64, max_length=64)
+    date: str = Field(min_length=10, max_length=10)
+    time_zone: str = Field(min_length=1, max_length=128)
+
+
+class CalendarMeetingStatusBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    meetings: list[CalendarMeetingRequiredSelection] = Field(min_length=1, max_length=20)
+
+
 class CalendarOpeningWindow(CalendarDay):
     start_time: str = Field(default="09:00", max_length=5)
     end_time: str = Field(default="17:00", max_length=5)

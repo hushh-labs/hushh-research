@@ -7,8 +7,10 @@ import httpx
 import pytest
 
 from hushh_mcp.services import calendar_meeting_artifacts as artifacts_module
+from hushh_mcp.services.google_calendar_meeting_grant import CALENDAR_SHARED_DRIVE_METADATA_SCOPE
 from hushh_mcp.services.google_calendar_service import GoogleCalendarService
 from hushh_mcp.services.google_connection_service import CalendarGrantIdentity
+from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.helpers.calendar_meeting_artifact_fixtures import (
     BINDING,
     EVENT,
@@ -19,15 +21,21 @@ from tests.helpers.calendar_meeting_artifact_fixtures import (
 )
 
 
-def test_missing_meet_or_drive_scope_is_explicit_even_without_calendar_events(monkeypatch):
+def test_missing_meet_or_drive_scope_keeps_calendar_meetings_visible(monkeypatch):
     insights, svc, _ = setup()
+    insights.calendar.list_events.return_value = {
+        "events": [GoogleCalendarService._event_summary(EVENT)],
+        "next_page_token": None,
+    }
     monkeypatch.setattr(artifacts_module, "inspect_token", AsyncMock(return_value=set()))
     result = run(insights.library(user_id="owner", date="2026-10-14", time_zone="UTC"))
     assert result["complete"] is False
     assert result["meeting_file_access"] == "missing"
     assert result["limitations"] == ["permission_required"]
-    assert result["meetings"] == []
-    insights.calendar.list_events.assert_not_called()
+    assert len(result["meetings"]) == 1
+    assert result["meetings"][0]["file_state"] == "permission_required"
+    assert result["calendar_complete"] is True
+    insights.calendar.list_events.assert_awaited_once()
 
 
 def test_expired_cached_bearer_is_refreshed_before_scope_decision(monkeypatch):
@@ -75,6 +83,59 @@ def test_selected_account_grant_is_used_for_library(monkeypatch, account_id):
     insights.calendar.list_events.assert_awaited_once()
 
 
+@pytest.mark.parametrize("can_download", [True, False])
+def test_approved_ordinary_note_uses_selected_metadata_scope_without_content_read(
+    monkeypatch, can_download
+):
+    _, svc, drive = setup("calendar-2")
+    grant = CalendarGrantIdentity("owner", "calendar-2", "google-subject", BINDING)
+    monkeypatch.setattr(
+        artifacts_module,
+        "inspect_token",
+        AsyncMock(return_value={CALENDAR_SHARED_DRIVE_METADATA_SCOPE}),
+    )
+    drive.get_file_facts.return_value = {
+        "mimeType": "application/vnd.google-apps.document",
+        "title": "Approved note",
+        "viewUrl": "https://docs.google.com/document/d/approvednote123/edit",
+        "capabilities": {"canDownload": can_download},
+    }
+    ref = {"file_id": "approvednote123", "kind": "notes", "provenance": "approved_request"}
+    result = run(svc._file("owner", grant, ref, content=True))
+    assert result["state"] == "available"
+    assert result["can_download"] is can_download
+    if not can_download:
+        assert result["download_url"] is None
+        assert result["pdf_export_url"] is None
+    assert drive.get_file_facts.await_count == 2
+    drive.read_live_bytes.assert_not_awaited()
+    with pytest.raises(artifacts_module.ArtifactUnavailable) as caught:
+        run(svc._selected_token("owner", grant))
+    assert caught.value.state == "permission_required"
+
+
+def test_approved_note_revoked_from_selected_account_is_not_available(monkeypatch):
+    _, svc, drive = setup("calendar-3")
+    grant = CalendarGrantIdentity("owner", "calendar-3", "google-subject", BINDING)
+    monkeypatch.setattr(
+        artifacts_module,
+        "inspect_token",
+        AsyncMock(return_value={CALENDAR_SHARED_DRIVE_METADATA_SCOPE}),
+    )
+    drive.get_file_facts.side_effect = DriveReadError(
+        "resource_denied", status_code=403, provider_reason="insufficientFilePermissions"
+    )
+    result = run(
+        svc._file(
+            "owner",
+            grant,
+            {"file_id": "approvednote123", "kind": "notes", "provenance": "approved_request"},
+            content=False,
+        )
+    )
+    assert result["state"] != "available"
+
+
 def test_scope_lost_during_discovery_changes_account_readiness_without_hiding_partial_results(
     monkeypatch,
 ):
@@ -103,9 +164,9 @@ def test_scope_lost_during_discovery_changes_account_readiness_without_hiding_pa
         ),
     )
     result = run(insights.library(user_id="owner", date="2026-10-14", time_zone="UTC"))
-    assert result["meeting_file_access"] == "missing"
+    assert result["meeting_file_access"] == "ready"
     assert result["complete"] is False
-    assert "permission_required" in result["limitations"]
+    assert "files_incomplete" in result["limitations"]
     assert len(result["meetings"]) == 1
     assert result["meetings"][0]["artifact_kinds"] == ["notes"]
 

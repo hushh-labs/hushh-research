@@ -3,6 +3,9 @@ import { scopeCommerceStatusCopy } from "@/lib/services/scope-commerce-service";
 import { isLocationConsent, locationConsentSummary } from "@/lib/consent/location-consent";
 
 export function consentSummary(entry: ConsentCenterEntry): string {
+  if (entry.metadata?.calendar_meeting === true) {
+    return "Review recording and notes for this meeting. Choose exact files and confirm the recipient.";
+  }
   if (entry.metadata?.commercial_required === true) {
     return scopeCommerceStatusCopy(entry.metadata.commerce_status);
   }

@@ -3,6 +3,7 @@
 import pytest
 from sqlalchemy import text
 
+from hushh_mcp.services.google_calendar_meeting_grant import CALENDAR_SHARED_DRIVE_METADATA_SCOPE
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_LIST_READ_SCOPE,
     CALENDAR_MEET_DRIVE_READ_SCOPE,
@@ -15,7 +16,16 @@ pytest_plugins = ("tests.google_oauth_postgres_support",)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "meeting_scopes", [(), (CALENDAR_MEET_READ_SCOPE, CALENDAR_MEET_DRIVE_READ_SCOPE)]
+    "meeting_scopes",
+    [
+        (),
+        (CALENDAR_MEET_READ_SCOPE, CALENDAR_MEET_DRIVE_READ_SCOPE),
+        (
+            CALENDAR_MEET_READ_SCOPE,
+            CALENDAR_MEET_DRIVE_READ_SCOPE,
+            CALENDAR_SHARED_DRIVE_METADATA_SCOPE,
+        ),
+    ],
 )
 async def test_new_calendar_grant_persists_actual_optional_meeting_scopes(
     pg_service, meeting_scopes

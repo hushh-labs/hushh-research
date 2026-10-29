@@ -1,14 +1,18 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ insights: vi.fn(), fileAction: vi.fn(), getIdToken: vi.fn() }));
+const mocks = vi.hoisted(() => ({ insights: vi.fn(), fileAction: vi.fn(), getIdToken: vi.fn(),
+  requestFiles: vi.fn(), requestStatuses: vi.fn(), approvedDetail: vi.fn(), approvedFileAction: vi.fn() }));
 vi.mock("@/lib/services/calendar-insights-service", () => ({
-  CalendarInsightsService: { read: mocks.insights, fileAction: mocks.fileAction },
-  CalendarInsightsRequestError: class extends Error { constructor(message: string, readonly status: number) { super(message); } },
+  CalendarInsightsService: { read: mocks.insights, fileAction: mocks.fileAction,
+    requestFiles: mocks.requestFiles, requestStatuses: mocks.requestStatuses,
+    approvedDetail: mocks.approvedDetail, approvedFileAction: mocks.approvedFileAction },
+  CalendarInsightsRequestError: class extends Error { constructor(message: string, readonly status: number, readonly code?: string) { super(message); } },
   safeMeetingProviderUrl: (value: unknown) => typeof value === "string" && /^https:\/\/(docs|drive)\.google\.com\//.test(value) ? value : null,
 }));
 
 import { CalendarInsights } from "@/components/calendar/calendar-insights";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 function insights(onAllowMeetingFiles?: (accountId: string) => void) {
@@ -19,10 +23,11 @@ const meetingGrant = "b".repeat(64);
 function meetingRow(id: string, title: string, kinds: ("recording" | "notes")[]) {
   return { id, title, calendar_id: "primary", account_id: "default", occurrence_id: id.repeat(64).slice(0, 64), grant_id: meetingGrant,
     sources: [{ calendar_id: "primary", event_id: id }], artifact_kinds: kinds,
+    availability: {}, discovery: "checked", file_state: kinds.length ? "available" : "unknown",
     start: { dateTime: "2026-10-14T10:00:00Z" } };
 }
 function meetingPage(meetings: ReturnType<typeof meetingRow>[], complete = true, date = "2026-10-14", timeZone = "UTC") {
-  return { complete, next_cursor: null, date, time_zone: timeZone, account_id: "default",
+  return { complete, calendar_complete: complete, next_cursor: null, date, time_zone: timeZone, account_id: "default",
     limitations: complete ? [] : ["processing"], checked_events: meetings.length, meetings,
     meeting_file_access: "ready" as const };
 }
@@ -35,6 +40,48 @@ describe("Calendar Insights meeting library", () => {
     mocks.getIdToken.mockResolvedValue("firebase-owner-token");
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
+
+  it.each(["calendar-B", "calendar-C"])("requests from selected %s without making approval look available", async accountId => {
+    const account = { account_id: accountId, google_email: `${accountId.toLowerCase()}@example.invalid`,
+      status: "connected" as const, connected: true, access_level: "read" as const,
+      calendar_list_access: true, grant_generation: accountId };
+    const rows = ["a", "b", "c", "d", "e"].map((id, index) => ({
+      ...meetingRow(id, `Meeting ${index + 1}`, []), account_id: accountId,
+    }));
+    let accessVerified = false;
+    mocks.insights.mockImplementation(async (path: string, body: { account_id: string; date: string; time_zone: string }) =>
+      path === "meetings" ? { ...meetingPage(rows, true, body.date, body.time_zone), account_id: body.account_id } :
+      { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 });
+    mocks.approvedDetail.mockResolvedValue({ event: { title: "Meeting 1" }, discovery: "checked", complete: true, artifacts: [] });
+    mocks.requestStatuses.mockImplementation(async (selections: { occurrence_id: string }[]) => selections.map(selection => ({
+      occurrence_id: selection.occurrence_id,
+      requests: accessVerified && selection.occurrence_id === rows[0]?.occurrence_id ?
+        [{ requestId: "11111111-1111-4111-8111-111111111111", status: "completed", requestedTypes: ["notes"] }] : [],
+      artifacts: accessVerified && selection.occurrence_id === rows[0]?.occurrence_id ? [{ kind: "notes", state: "available" }] : [],
+    })));
+    mocks.requestFiles.mockResolvedValue({ requestId: "11111111-1111-4111-8111-111111111111",
+      recipientEmail: account.google_email, status: "pending" });
+    render(<CalendarInsights userId="owner" account={account} today="2026-10-14" zone="UTC"
+      getIdToken={mocks.getIdToken} getVaultOwnerToken={() => "vault-owner-token"} />);
+    fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
+    expect(await screen.findByText("Not available yet (5)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Meeting 1/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Request recording or notes" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Notes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review request" }));
+    expect(screen.getByText(account.google_email)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() => expect(mocks.requestFiles).toHaveBeenCalledWith(
+      expect.objectContaining({ account_id: accountId, event_id: "a", occurrence_id: rows[0]?.occurrence_id,
+        expected_grant: meetingGrant }), ["notes"], "firebase-owner-token", "vault-owner-token",
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Back to recordings and notes" }));
+    expect(screen.getByText("Not available yet (5)")).toBeInTheDocument();
+    accessVerified = true;
+    act(() => dispatchFeedStateChanged("arrived"));
+    expect(await screen.findByText("Available (1)")).toBeInTheDocument();
+    expect(screen.getByText("Not available yet (4)")).toBeInTheDocument();
+  });
 
   it.each(["second", "third"])("binds %s account list, detail, open and download to its day and grant", async accountId => {
     const account = { account_id: accountId, google_email: `${accountId}@example.com`,
@@ -123,19 +170,18 @@ describe("Calendar Insights meeting library", () => {
     render(insights());
     fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
     expect(await screen.findByRole("button", { name: "Continue checking this day" })).toBeInTheDocument();
-    expect(screen.queryByText("No recordings or notes for this day.")).toBeNull();
+    expect(screen.queryByText("No timed meetings for this day.")).toBeNull();
     await act(async () => { finish(meetingPage([], true)); });
-    expect(await screen.findByText("No recordings or notes for this day.")).toBeInTheDocument();
+    expect(await screen.findByText("No timed meetings for this day.")).toBeInTheDocument();
     expect(screen.queryByText("More meetings remain to be checked. Continue this day.")).toBeNull();
   });
 
-  it("queries the selected local day and filters verified rows on the server", async () => {
+  it("queries the selected local day and keeps meetings visible when focusing a file type", async () => {
     mocks.getIdToken.mockResolvedValue("firebase-owner-token");
     const notes = meetingRow("n", "Design review", ["notes"]);
     const recording = meetingRow("r", "Product demo", ["recording"]);
     mocks.insights.mockImplementation(async (path: string, body: { date: string; time_zone: string; kind: string; query: string }) => {
       if (path === "meetings") return meetingPage([notes, recording].filter(row =>
-        (body.kind === "all" || row.artifact_kinds.includes(body.kind as "notes" | "recording")) &&
         row.title.toLowerCase().includes((body.query || "").toLowerCase())), true, body.date, body.time_zone);
       if (path === "meetings/detail") return { discovery: "permission_required", complete: false, event: { title: "Design review" }, artifacts: [{ file_id: "revoked", kind: "notes", state: "permission_required" }] };
       return { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 };
@@ -145,7 +191,7 @@ describe("Calendar Insights meeting library", () => {
     await screen.findByRole("button", { name: /Design review/ });
     expect(mocks.insights).toHaveBeenCalledWith("meetings", expect.objectContaining({ account_id: "default", date: "2026-10-14", time_zone: expect.any(String) }), "firebase-owner-token", expect.any(AbortSignal));
     fireEvent.click(screen.getByRole("tab", { name: "Notes", exact: true }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: /Product demo/ })).toBeNull());
+    expect(await screen.findByRole("button", { name: /Product demo/ })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Design" } });
     fireEvent.click(await screen.findByRole("button", { name: /Design review/ }));
     expect(await screen.findByText(/Allow recording and notes access/)).toBeInTheDocument();
@@ -165,9 +211,9 @@ describe("Calendar Insights meeting library", () => {
     await screen.findByRole("button", { name: "Allow recording and notes access" });
     fireEvent.click(screen.getByRole("button", { name: "Allow recording and notes access" }));
     expect(allow).toHaveBeenCalledWith("default", expect.objectContaining({ day: "2026-10-14", timeZone: "UTC" }));
-    expect(screen.queryByText("No recordings or notes for this day.")).toBeNull();
+    expect(screen.getByText("No timed meetings for this day.")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Recording and notes date"), { target: { value: "2026-10-15" } });
-    expect(await screen.findByText("No recordings or notes for this day.")).toBeInTheDocument();
+    expect(await screen.findByText("No timed meetings for this day.")).toBeInTheDocument();
     expect(mocks.insights).toHaveBeenCalledWith("meetings", expect.objectContaining({ date: "2026-10-15" }), expect.any(String), expect.any(AbortSignal));
   });
 
@@ -180,7 +226,7 @@ describe("Calendar Insights meeting library", () => {
     fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
     expect(await screen.findByText(/Google denied access/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Allow recording and notes access" })).toBeNull();
-    expect(screen.queryByText("No recordings or notes for this day.")).toBeNull();
+    expect(screen.queryByText("No timed meetings for this day.")).toBeNull();
     expect(allow).not.toHaveBeenCalled();
   });
 

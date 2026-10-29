@@ -833,12 +833,20 @@ and completed pass counts in the release receipt. A failed pass stops that
 rehearsal; it does not change the existing advisory rollback policy.
 
 UAT backend provider admission runs Azure and Vertex synthetic checks in parallel.
-Azure's complete application capability bundle must pass; Vertex results remain
-diagnostic and cannot replace Azure qualification. The bundle includes streamed structured text, images, PDFs,
+The provider selected by `managed_provider_selection.uat` in the packaged
+managed AI config must pass its complete application capability bundle. A healthy
+alternate cannot override that choice. Both Azure and Vertex require One chat
+and Drive text proof. The bundle includes streamed structured text, images, PDFs,
 public search/source receipts, Location transcription/semantics, narration, Live
 audio with a function round trip, and application-compatible embeddings. Explicit
 PWM attribution/schema failures still block independently. Receipts bind the exact
 candidate image, runtime identity, provider generation and configuration.
+Vertex also exercises the production native research task with fictional,
+search-exhausted input and the shared attribution regression corpus. This proves
+task/schema and attribution boundaries without owner access; it does not claim
+that a real person's research journey was run. The UAT Vertex job uses one complete
+bundle within its existing sequence deadline and records undispatched capabilities
+as failures. General non-UAT manifest probes retain their existing gates.
 The one-request Azure readiness leaf records its failed stage, elapsed time and
 sanitized exception class. Transport deadlines and network failures retain their
 provider-unavailable classification; that classification does not make a failed

@@ -22,14 +22,22 @@ async def _root_contract() -> tuple[Any, str, list[types.FunctionDeclaration]]:
     policy = load_managed_runtime_policy()
     descriptor = policy["azure"]["one_text_root"] if policy else None
     model = root.model
+    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+
+    vertex = policy is not None and policy["provider"] == "vertex"
     if (
         not isinstance(model, ManagedPrimaryTextModel)
         or descriptor is None
+        or model.primary_provider != policy["provider"]
+        or model.allow_web_search
         or (
-            model.model != descriptor["deployment"]
-            or model.default_reasoning_effort != descriptor["reasoning_effort"]
-            or model.text_verbosity != descriptor["text_verbosity"]
-            or model.allow_web_search
+            model.model != resolve_fleet_model_name("gemini-default")
+            if vertex
+            else (
+                model.model != descriptor["deployment"]
+                or model.default_reasoning_effort != descriptor["reasoning_effort"]
+                or model.text_verbosity != descriptor["text_verbosity"]
+            )
         )
     ):
         raise ValueError("Root qualification did not select its exact admitted model")

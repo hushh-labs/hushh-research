@@ -15,6 +15,7 @@ from hushh_mcp.services.calendar_meeting_common import ArtifactUnavailable
 from hushh_mcp.services.calendar_meeting_provider import collect_meet_pages, meet_request
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
+from hushh_mcp.services.google_calendar_meeting_grant import CALENDAR_SHARED_DRIVE_METADATA_SCOPE
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_MEET_DRIVE_READ_SCOPE,
     CALENDAR_MEET_READ_SCOPE,
@@ -140,7 +141,7 @@ class CalendarMeetingArtifacts:
         # separately verified Drive connector authority.
         self.oauth = oauth or get_external_connector_oauth_service().drive()
 
-    async def _selected_token(self, user_id, grant, *, force_refresh=False):
+    async def _selected_token(self, user_id, grant, *, force_refresh=False, approved=False):
         """Verify the selected account's live scopes, refreshing one rejected bearer."""
         await self.insights.calendar._check_read_binding(user_id, grant.binding)
         token = await self.insights.calendar.connections.access_token(
@@ -166,7 +167,19 @@ class CalendarMeetingArtifacts:
                     "temporarily_unavailable" if second.state == "token_rejected" else second.state
                 ) from None
         await self.insights.calendar._check_read_binding(user_id, grant.binding)
-        if CALENDAR_MEET_READ_SCOPE not in scopes or CALENDAR_MEET_DRIVE_READ_SCOPE not in scopes:
+        metadata_scopes = {
+            CALENDAR_SHARED_DRIVE_METADATA_SCOPE,
+            "https://www.googleapis.com/auth/drive.metadata",
+            "https://www.googleapis.com/auth/drive.readonly",
+            "https://www.googleapis.com/auth/drive",
+        }
+        if (approved and not scopes.intersection(metadata_scopes)) or (
+            not approved
+            and (
+                CALENDAR_MEET_READ_SCOPE not in scopes
+                or CALENDAR_MEET_DRIVE_READ_SCOPE not in scopes
+            )
+        ):
             raise ArtifactUnavailable("permission_required")
         return token
 
@@ -277,7 +290,8 @@ class CalendarMeetingArtifacts:
                 await self.insights.calendar._check_read_binding(user_id, grant.binding)
 
             await check()
-            token = await self._selected_token(user_id, grant)
+            approved = ref.get("provenance") == "approved_request"
+            token = await self._selected_token(user_id, grant, approved=approved)
             await check()
             try:
                 (
@@ -300,7 +314,9 @@ class CalendarMeetingArtifacts:
                 elif str(error) != "reconnect_required":
                     raise
                 else:
-                    token = await self._selected_token(user_id, grant, force_refresh=True)
+                    token = await self._selected_token(
+                        user_id, grant, force_refresh=True, approved=approved
+                    )
                     (
                         source_facts,
                         facts,
@@ -335,7 +351,7 @@ class CalendarMeetingArtifacts:
                 if can_download
                 else None,
             )
-            if content and ref["kind"] == "notes" and can_download:
+            if content and not approved and ref["kind"] == "notes" and can_download:
                 await self._preview_browse_note(ref, token, check, result, shortcut_source)
             # A file can stay viewable when download or text extraction is prohibited.
             if await self.drive.get_file_facts(**target_kwargs) != facts or (
@@ -365,6 +381,7 @@ class CalendarMeetingArtifacts:
         time_zone=None,
         content=True,
         for_chat=False,
+        include_approved=False,
     ):
         grant, event = await self.insights.raw_event(
             user_id=user_id,
@@ -384,6 +401,20 @@ class CalendarMeetingArtifacts:
         refs, discovery, states = await self._references(
             user_id, grant, event, calendar_id, for_chat=for_chat
         )
+        requests = []
+        if include_approved and occurrence_id and not for_chat:
+            from hushh_mcp.services.drive_sharing_service import DriveSharingService
+
+            requests = await DriveSharingService().calendar_snapshots(
+                user_id=user_id, account_id=grant.account_id, occurrence_id=occurrence_id
+            )
+            seen = {(item["file_id"], item["kind"]) for item in refs}
+            for request in requests:
+                for file in request["files"]:
+                    key = (file["file_id"], file["kind"])
+                    if key not in seen:
+                        refs.append({**file, "provenance": "approved_request"})
+                        seen.add(key)
         artifacts = []
         if len(refs) > 1000:
             discovery = "temporarily_unavailable"
@@ -421,4 +452,50 @@ class CalendarMeetingArtifacts:
             "artifacts": artifacts,
             "account_id": grant.account_id,
             "grant_id": expected_grant,
+            **(
+                {
+                    "requests": [
+                        {
+                            key: value
+                            for key, value in request.items()
+                            if key not in {"recipient", "files"}
+                        }
+                        for request in requests
+                    ]
+                }
+                if include_approved
+                else {}
+            ),
+        }
+
+    async def approved_status(self, *, user_id, **selection):
+        """One exact occurrence's private request outcomes and selected-account reads."""
+        grant, _ = await self.insights.raw_event(user_id=user_id, **selection)
+        from hushh_mcp.services.drive_sharing_service import DriveSharingService
+
+        requests = await DriveSharingService().calendar_snapshots(
+            user_id=user_id,
+            account_id=grant.account_id,
+            occurrence_id=selection["occurrence_id"],
+        )
+        artifacts = []
+        seen = set()
+        for request in requests:
+            for file in request["files"]:
+                key = (file["file_id"], file["kind"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                artifacts.append(
+                    await self._file(
+                        user_id, grant, {**file, "provenance": "approved_request"}, content=False
+                    )
+                )
+        return {
+            "occurrence_id": selection["occurrence_id"],
+            "requests": [
+                {key: value for key, value in request.items() if key not in {"recipient", "files"}}
+                for request in requests
+            ],
+            "artifacts": [{"kind": item["kind"], "state": item["state"]} for item in artifacts],
         }

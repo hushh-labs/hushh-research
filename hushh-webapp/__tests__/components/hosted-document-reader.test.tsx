@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ open: vi.fn(), artifact: vi.fn(), verify: vi.fn(), package: vi.fn(), activity: vi.fn(), download: vi.fn(), loadPdf: vi.fn(), renderPdf: vi.fn(), current: true, copyStatus: vi.fn(), copyContent: vi.fn(), copyActivity: vi.fn(), copyRevoke: vi.fn(), native: false, share: vi.fn() }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/one/documents/open" }));
@@ -19,6 +19,7 @@ import { CacheService } from "@/lib/services/cache-service";
 import { BackgroundDocumentActivity } from "@/components/consent/background-document-activity";
 import { BackgroundDocumentFilesBody } from "@/components/consent/background-document-files";
 import { HostedDocumentReader } from "@/components/consent/hosted-document-reader";
+import { HostedPdfCanvas } from "@/components/consent/hosted-pdf-canvas";
 const session = { userId: "b", vaultKey: "vault", vaultOwnerToken: "token", isCurrent: () => state.current };
 const value = () => ({ package: { accessExpiresAt: new Date(Date.now() + 3000).toISOString(), packageDigest: "digest", interactionId: "interaction", artifacts: [{ artifactId: "original" }, { artifactId: "preview" }] }, manifest: { version: 1, files: [{ fileRef: "ref", name: "Private.pdf", sourceRevision: "v1", originalArtifactId: "original", watermarkedArtifactId: "preview" }] } });
 const flush = async () => { await act(async () => { await Promise.resolve(); await Promise.resolve(); }); };
@@ -84,6 +85,11 @@ describe("background One copies in the existing file flow", () => {
     render(<BackgroundDocumentFilesBody session={session} requestId="request" owner={actorRole === "recipient"} />); await flush();
     expect(Boolean(screen.queryByRole("button", { name: "Stop One access" }))).toBe(actorRole === "owner");
     expect(Boolean(screen.queryByRole("button", { name: "Activity", exact: true }))).toBe(actorRole === "owner");
+    if (actorRole === "owner") {
+      const access = screen.getByRole("region", { name: "Document access" });
+      expect(within(access).getByRole("button", { name: "Stop One access" })).toBeVisible();
+      expect(within(access).getByRole("button", { name: "Activity", exact: true })).toBeVisible();
+    }
   });
   it("requires the authored confirmation and cancels through Back without revoking", async () => {
     const { useBackLayer } = await import("@/lib/navigation/back-layers");
@@ -156,6 +162,46 @@ describe("background One copies in the existing file flow", () => {
     expect(state.share.mock.calls[0][0].isEffectCurrent()).toBe(true);
     await act(async () => rejectShare(new Error("synthetic cancellation"))); await flush();
     expect(screen.queryByText("Handed to system.")).not.toBeInTheDocument();
+  });
+});
+
+describe("protected PDF page navigation and cleanup", () => {
+  it("parses once across page changes and destroys the document when access ends", async () => {
+    const destroy = vi.fn();
+    const pdf = { numPages: 3, loadingTask: { destroy } };
+    state.loadPdf.mockResolvedValue(pdf);
+    const controller = new AbortController();
+    const rendered = vi.fn();
+    const view = render(<HostedPdfCanvas bytes={new Uint8Array([1])} signal={controller.signal} onRendered={rendered} />);
+    await flush(); await flush();
+    expect(state.loadPdf).toHaveBeenCalledOnce();
+    expect(state.renderPdf).toHaveBeenLastCalledWith(pdf, 1, expect.any(HTMLCanvasElement), expect.any(AbortSignal));
+    fireEvent.click(screen.getByRole("button", { name: "Next page" })); await flush(); await flush();
+    expect(state.loadPdf).toHaveBeenCalledOnce();
+    expect(state.renderPdf).toHaveBeenLastCalledWith(pdf, 2, expect.any(HTMLCanvasElement), expect.any(AbortSignal));
+    expect(destroy).not.toHaveBeenCalled();
+    screen.getByLabelText("Document preview, page 2").setAttribute("width", "100");
+    state.renderPdf.mockRejectedValueOnce(new Error("synthetic page failure"));
+    fireEvent.click(screen.getByRole("button", { name: "Next page" })); await flush(); await flush();
+    expect(screen.getByRole("alert")).toHaveTextContent("Preview unavailable");
+    expect(screen.getByLabelText("Document preview, page 3")).toHaveAttribute("width", "0");
+    expect(rendered).toHaveBeenCalledTimes(2);
+    act(() => controller.abort());
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("Document preview, page 3")).toHaveAttribute("width", "0");
+    view.unmount(); expect(destroy).toHaveBeenCalledOnce();
+  });
+
+  it("destroys a late load after unmount without rendering or reporting completion", async () => {
+    let release!: (pdf: unknown) => void;
+    const destroy = vi.fn(); const rendered = vi.fn();
+    state.loadPdf.mockImplementation(() => new Promise(done => { release = done; }));
+    const view = render(<HostedPdfCanvas bytes={new Uint8Array([1])} signal={new AbortController().signal} onRendered={rendered} />);
+    view.unmount();
+    await act(async () => release({ numPages: 2, loadingTask: { destroy } }));
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(state.renderPdf).not.toHaveBeenCalled();
+    expect(rendered).not.toHaveBeenCalled();
   });
 });
 

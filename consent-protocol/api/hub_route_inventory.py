@@ -7,6 +7,10 @@ _Classification = TypeVar("_Classification", bound=StrEnum)
 
 CONNECTOR_INVENTORY = """
 [CONTENT]
+GET /api/connectors/google_drive/sharing/calendar-requests/{request_id}
+GET /api/connectors/google_drive/sharing/calendar-requests/{request_id}/linked-files
+POST /api/connectors/google_drive/sharing/calendar-requests/{request_id}/files
+POST /api/connectors/google_drive/sharing/calendar-requests/{request_id}/review
 GET /api/connectors/google_drive/sharing/requests/{request_id}/one-copy/files/{file_ref}/content
 GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/source-selection
 POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/approve

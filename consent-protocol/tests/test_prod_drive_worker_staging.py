@@ -7,11 +7,15 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
+
+from tests.helpers.deployment_cli import executable_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
@@ -451,3 +455,46 @@ def test_public_activation_reuses_staged_revision_and_existing_rollback(tmp_path
     if failure == "scheduler":
         assert any(call[0] == "python3" and "restore" in call for call in calls)
         assert any(call[0] == "bash" and call[1].endswith("cloudrun-rollback.sh") for call in calls)
+
+
+@pytest.mark.parametrize("auth_failure", [False, True])
+def test_recurring_worker_inspects_with_registry_auth_or_stops(tmp_path, auth_failure):
+    bash = shutil.which("bash")
+    assert bash is not None
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    steps = workflow["jobs"]["stage-drive-worker"]["steps"]
+    body = next(
+        step["run"]
+        for step in steps
+        if step.get("name") == "Pin accepted image for recurring worker release"
+    )
+    manifest, digest = executable_manifest()
+    (tmp_path / "worker-stage").mkdir()
+    guards = (
+        'registry_authenticated=0; gcloud() { case "$1 $2" in '
+        "'container images') return 0 ;; "
+        f"'auth configure-docker') {'return 7' if auth_failure else 'registry_authenticated=1'} ;; "
+        "*) return 95 ;; esac; };\n"
+        'docker() { [ "$registry_authenticated" = 1 ] || return 19; '
+        f"printf '%s' '{manifest}'; }};\n"
+        f"python3() {{ '{Path(sys.executable).as_posix()}' \"$@\"; }};\n"
+    )
+    environment = {
+        **os.environ,
+        "RUNNER_TEMP": tmp_path.as_posix(),
+        "IMAGE_REFERENCE": "gcr.io/hushh-pda/consent-protocol@" + digest,
+        "DEPLOY_SHA": "f" * 40,
+    }
+    environment.pop("BASH_ENV", None)
+    result = subprocess.run(  # noqa: S603 - authored workflow with guarded registry commands
+        [bash, "-c", guards + body],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        timeout=20,
+    )
+    assert result.returncode == (7 if auth_failure else 0), result.stderr
+    evidence = tmp_path / "worker-stage/image.json"
+    assert evidence.exists() is (not auth_failure)
+    if not auth_failure:
+        assert json.loads(evidence.read_text())["image_reference"] == environment["IMAGE_REFERENCE"]

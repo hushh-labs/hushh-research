@@ -1,9 +1,51 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const requestId = "11111111-1111-4111-8111-111111111111";
 const documentId = "22222222-2222-4222-8222-222222222222";
 const guard = () => {};
+beforeEach(() => { vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat"); vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENV", ""); vi.stubEnv("NEXT_PUBLIC_ENVIRONMENT_MODE", ""); });
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("@feature_drive_request @trace_loop console diagnostics", () => {
+  it.each(["production", "", "unknown"])("suppresses verbose records in %s without changing the operation", async environment => {
+    const { traceDriveRequest, observeDriveRequestState } = await import("@/lib/consent/drive-request-diagnostics");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", environment); vi.stubEnv("NEXT_PUBLIC_DEBUG", "true");
+    vi.stubGlobal("crypto", { randomUUID: () => documentId, subtle: { digest: async () => new ArrayBuffer(32) } });
+    const logs = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const path = `/api/connectors/google_drive/sharing/requests/${documentId}/allow`;
+      await expect(traceDriveRequest(path, "POST", async (_headers, observe) => {
+        observe(new Response(null, { status: 200 })); return "allowed";
+      }, { oneCopyAccepted: true })).resolves.toBe("allowed");
+      observeDriveRequestState(path, { status: "paid" }, guard);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(logs).not.toHaveBeenCalled(); expect(warnings).not.toHaveBeenCalled();
+    } finally { logs.mockRestore(); warnings.mockRestore(); }
+  });
+
+  it("traces preview/download headers without exposing the file locator or claiming transfer completion", async () => {
+    const { traceDriveRequest } = await import("@/lib/consent/drive-request-diagnostics");
+    const logs = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      for (const disposition of ["preview", "download"]) {
+        await traceDriveRequest(`/api/connectors/google_drive/sharing/requests/${requestId}/one-copy/files/${documentId}/content?disposition=${disposition}`, "GET", async (_headers, observe) => {
+          observe(new Response(null, { status: 200 })); return "headers";
+        });
+        await vi.waitFor(() => expect(logs).toHaveBeenCalledWith(`[DRIVE_REQUEST][ONE_COPY_${disposition.toUpperCase()}]`, expect.objectContaining({ outcome: "http_returned", http_status: 200 })));
+      }
+      const serialized = JSON.stringify(logs.mock.calls);
+      expect(serialized).not.toContain(documentId); expect(serialized).not.toContain(requestId);
+      expect(serialized).not.toContain("stream_completed");
+      await traceDriveRequest(`/api/connectors/google_drive/sharing/requests/${requestId}/one-copy/files/${documentId}/content?disposition=download`, "GET", async (_headers, observe) => {
+        observe(new Response(null, { status: 200 }));
+      });
+      await vi.waitFor(() => expect(logs.mock.calls.filter(call => call[0] === "[DRIVE_REQUEST][ONE_COPY_DOWNLOAD]")).toHaveLength(2));
+      // A conflicting production label must also deny verbose diagnostics.
+      logs.mockClear(); vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENV", "production");
+      await traceDriveRequest(`/api/connectors/google_drive/sharing/requests/${requestId}/allow`, "POST", async () => "allowed");
+      await new Promise(resolve => setTimeout(resolve, 0)); expect(logs).not.toHaveBeenCalled();
+    } finally { logs.mockRestore(); }
+  });
   it("projects rejection reasons without private inputs and preserves the refused transaction", async () => {
     const { traceDriveRequest } = await import("@/lib/consent/drive-request-diagnostics");
     const logs = vi.spyOn(console, "info").mockImplementation(() => {});

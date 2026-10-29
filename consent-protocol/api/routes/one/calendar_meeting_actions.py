@@ -7,7 +7,9 @@ import asyncio
 from fastapi import HTTPException
 
 
-async def meeting_detail(payload, response, firebase_uid, *, artifacts, http_error):
+async def meeting_detail(
+    payload, response, firebase_uid, *, artifacts, http_error, include_approved=False
+):
     response.headers["Cache-Control"] = "private, no-store"
     if not payload.date or not payload.time_zone:
         raise HTTPException(
@@ -16,7 +18,9 @@ async def meeting_detail(payload, response, firebase_uid, *, artifacts, http_err
     try:
         async with asyncio.timeout(38):
             return await artifacts(payload.account_id).detail(
-                user_id=firebase_uid, **payload.model_dump(exclude={"account_id"})
+                user_id=firebase_uid,
+                **payload.model_dump(exclude={"account_id"}),
+                **({"include_approved": True} if include_approved else {}),
             )
     except TimeoutError as exc:
         raise HTTPException(
@@ -26,7 +30,9 @@ async def meeting_detail(payload, response, firebase_uid, *, artifacts, http_err
         raise http_error(exc) from exc
 
 
-async def meeting_file_action(payload, response, firebase_uid, *, download, artifacts, http_error):
+async def meeting_file_action(
+    payload, response, firebase_uid, *, download, artifacts, http_error, include_approved=False
+):
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
     if (
@@ -44,6 +50,7 @@ async def meeting_file_action(payload, response, firebase_uid, *, download, arti
                 user_id=firebase_uid,
                 **payload.model_dump(exclude={"account_id", "file_id"}),
                 content=False,
+                **({"include_approved": True} if include_approved else {}),
             )
         file = next(
             (
