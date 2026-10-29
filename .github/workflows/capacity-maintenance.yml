@@ -150,9 +150,11 @@ jobs:
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
         run: |
+          flags=()
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment uat \
             --verify-source-only --release-run-id "$RELEASE_RUN_ID" \
-            --state-dir "$RUNNER_TEMP/uat-retention-source"
+            --state-dir "$RUNNER_TEMP/uat-retention-source" "${flags[@]}"
       - name: Verify due production source
         id: production
         if: github.event_name == 'schedule' || github.event.action == 'capacity-maintenance-tick' || github.event.action == 'capacity-maintenance-tick-production' || inputs.environment == 'production'
@@ -166,7 +168,7 @@ jobs:
           CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
         run: |
           flags=()
-          if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags=(--force-inspection); fi
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment production \
             --verify-source-only --release-run-id "$RELEASE_RUN_ID" \
             --qualified-cold-checkpoint-run-id "$COLD_CHECKPOINT_RUN_ID" \
@@ -233,9 +235,11 @@ jobs:
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
         run: |
+          flags=()
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment uat \
             --verify-source-only --release-run-id "$RELEASE_RUN_ID" \
-            --state-dir "$RUNNER_TEMP/uat-retention-state"
+            --state-dir "$RUNNER_TEMP/uat-retention-state" "${flags[@]}"
       - name: Authenticate to uat
         if: steps.locked-source.outputs.cleanup_ready == 'true'
         uses: google-github-actions/auth@v2
@@ -258,6 +262,7 @@ jobs:
           set -euo pipefail
           flags=()
           if [ "$APPLY" = true ]; then flags=(--apply); fi
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags+=(--force-inspection); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment uat \
             --release-run-id "$RELEASE_RUN_ID" \
             --state-dir "$RUNNER_TEMP/uat-retention-state" "${flags[@]}"
@@ -346,7 +351,7 @@ jobs:
           CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
         run: |
           flags=()
-          if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags=(--force-inspection); fi
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment production \
             --verify-source-only --release-run-id "$RELEASE_RUN_ID" \
             --qualified-cold-checkpoint-run-id "$COLD_CHECKPOINT_RUN_ID" \
@@ -388,7 +393,7 @@ jobs:
           flags=()
           if [ "$APPLY" = true ]; then flags=(--apply); fi
           if [[ "$CAPACITY_BRIDGE" = true ]]; then flags+=(--production-capacity-bridge); fi
-          if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags+=(--force-inspection); fi
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags+=(--force-inspection); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment production \
             --release-run-id "$RELEASE_RUN_ID" \
             --qualified-cold-checkpoint-run-id "$COLD_CHECKPOINT_RUN_ID" \
