@@ -49,4 +49,3 @@ it("opens map profiles independently and retains map/share actions @feature_conn
       expect(screen.queryByRole("button", { name: /^View .*profile$/ })).toBeNull();
     } finally { window.removeEventListener("hussh:person-profile-preview", preview); }
   });
-
