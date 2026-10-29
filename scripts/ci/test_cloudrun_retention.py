@@ -2120,7 +2120,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
         for path in sorted(workflows.glob("*.y*ml")):
             with self.subTest(workflow=path.name):
                 check_policy(path.name, path.read_text())
-        observer = (workflows / "release-cadence.yml").read_text()
+        observer = "name: Retired observer\non: {}\n"
         for broken in (observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-clock\n",
                        observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-tick\n",
                        observer + "\n  repository_dispatch:\n    types: [capacity-maintenance-clock, another]\n"):

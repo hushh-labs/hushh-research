@@ -13,11 +13,21 @@ on:
           - latest
 
 permissions:
+  actions: read
   contents: read
   id-token: write
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    with:
+      application_ref: ${{ github.sha }}
+      environment_name: package
+      scope: ${{ 'package' }}
+
   publish:
+    needs: deployment-security
     runs-on: ubuntu-latest
     environment: npm-publish
     env:
@@ -27,6 +37,16 @@ jobs:
       HUSHH_MCP_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert main-only release dispatch
         shell: bash
         run: |
@@ -36,7 +56,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ needs.deployment-security.outputs.application_sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v6

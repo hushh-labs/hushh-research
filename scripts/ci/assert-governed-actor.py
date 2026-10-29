@@ -30,10 +30,7 @@ def main() -> int:
     event = json.loads(Path(event_path).read_text()) if event_path else {}
     inputs = event.get("inputs") or {}
     if inputs.get("cadence_origin") or inputs.get("cadence_ordinal"):
-        from release_cadence_github import authorize_current
-        authorize_current(args.surface, args.actor)
-        print(f"{args.surface} exact-run release cadence authority verified.")
-        return 0
+        raise SystemExit("Automatic release cadence is retired; use an explicit manual release.")
     if args.actor not in allowed:
         joined = ", ".join(allowed) if allowed else "<none>"
         raise SystemExit(

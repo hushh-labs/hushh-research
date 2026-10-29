@@ -16,7 +16,6 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import github_security_authority as security_authority  # noqa: E402
-import github_security_receipt as security_receipt  # noqa: E402
 
 
 def _load(name: str, path: Path):
@@ -59,9 +58,9 @@ AUTHORITY_PATHS = (
     "deploy/plg/frontend-source.json",
     "deploy/plg/release_source.py",
     "deploy/plg/production-source.json",
-    ".github/workflows/ci-security.yml",
+    ".github/workflows/deployment-security.yml",
+    "scripts/ci/deployment_security.py",
     "scripts/ci/github_security_authority.py",
-    "scripts/ci/github_security_receipt.py",
     "scripts/ci/verify-predecessor-acceptance.py",
     "scripts/ci/process_group.py",
     "scripts/ci/release_acceptance_provenance.py",
@@ -184,58 +183,33 @@ def _run_identity(run: dict) -> tuple:
 
 
 def verify_security(run_id: int, attempt: int, sha: str, api=None) -> dict:
-    """Recheck the newest protected worker for this exact CI source attempt."""
-    require(
-        type(run_id) is int and run_id > 0 and type(attempt) is int and attempt > 0,
-        "Invalid security source identity",
-    )
-    require(
-        sha == source.SOURCE_SHA, "Security source is not the pinned frontend candidate"
-    )
-    client = api or security_authority.GitHub(
-        REPOSITORY, os.environ.get("GH_TOKEN", "")
-    )
+    """Require the exact current source CI; repository alerts gate this release separately."""
+    require(type(run_id) is int and run_id > 0 and type(attempt) is int and attempt > 0,
+            "Invalid security source identity")
+    require(sha == source.SOURCE_SHA, "Security source is not the pinned frontend candidate")
+    client = api or security_authority.GitHub(REPOSITORY, os.environ.get("GH_TOKEN", ""))
     expected = {"run_id": run_id, "attempt": attempt, "head_sha": sha}
     try:
-        verified_source = security_authority.verify_source(
-            client.read, REPOSITORY, expected
-        )
-        root = f"repos/{REPOSITORY}/actions"
-        workflow = client.read(f"{root}/workflows/ci-security.yml")
-        query = f"{root}/workflows/ci-security.yml/runs?branch=main"
-        title = f"Security alerts for {run_id} / {attempt} / {sha}"
-        matches = _matching_runs(_inventory(client.read, query), title)
-        require(bool(matches), "Protected security worker is missing")
-        newest = matches[0]
-        require(
-            newest.get("status") == "completed"
-            and newest.get("conclusion") == "success",
-            "Latest security worker is not successful",
-        )
-        receipt = None
-        for run in matches:
-            require(
-                run.get("status") == "completed" and run.get("conclusion") == "success",
-                "Security receipt predecessor is not successful",
-            )
-            try:
-                receipt = security_receipt.consume(
-                    client, verified_source, run, workflow
-                )
-                break
-            except security_receipt.MissingReceipt:
-                security_receipt.verify_reused_worker(client, run)
-        require(isinstance(receipt, dict), "Protected security receipt is missing")
-        again = _matching_runs(_inventory(client.read, query), title)
-        require(
-            bool(again) and _run_identity(again[0]) == _run_identity(newest),
-            "Security worker changed during verification",
-        )
+        verified = security_authority.verify_source(client.read, REPOSITORY, expected)
+        root = f"repos/{REPOSITORY}/actions/runs/{run_id}"
+        run = client.read(root)
+        require(run.get("status") == "completed" and run.get("conclusion") == "success",
+                "Current source validation is not successful")
+        inventory = client.read(f"{root}/attempts/{attempt}/jobs?per_page=100")
+        rows, count = inventory.get("jobs"), inventory.get("total_count")
+        require(type(count) is int and isinstance(rows, list) and len(rows) == count
+                and 0 < count <= 100 and all(isinstance(row, dict) for row in rows),
+                "Source validation job inventory is incomplete")
+        gate_name = "CI Status Gate" if verified["event"] == "pull_request" else "Branch Validation Gate"
+        gates = [row for row in rows if row.get("name") == gate_name]
+        require(len(gates) == 1 and all(gates[0].get(key) == value for key, value in {
+            "run_id": run_id, "head_sha": sha, "status": "completed", "conclusion": "success",
+        }.items()), "Source validation gate is not successful")
+        require(security_authority.verify_source(client.read, REPOSITORY, expected) == verified,
+                "Source validation changed during verification")
     except security_authority.Refused:
-        raise Refused(
-            "Exact protected security receipt could not be verified"
-        ) from None
-    return {"source": expected, "receiptSha256": _digest(receipt)}
+        raise Refused("Exact source validation could not be verified") from None
+    return {"source": expected, "receiptSha256": _digest({"source": verified, "gate": gate_name})}
 
 
 def admission(sha: str, security_run: int, security_attempt: int, api=None) -> dict:
