@@ -119,6 +119,8 @@ permissions:
   id-token: write
 
 env:
+  # This explicitly authorized production lane requires immutable status proof.
+  HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR: "true"
   PHONE_DEPLOY_PHASE: ${{ inputs.phone_phase || 'standard' }}
   GCP_PROJECT_ID: hushh-pda
   GCP_REGION: us-central1
