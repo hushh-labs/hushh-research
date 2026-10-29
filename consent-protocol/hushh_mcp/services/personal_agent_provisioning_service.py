@@ -1597,6 +1597,7 @@ class PersonalAgentProvisioningService:
             admit_capabilities,
             approved_update_browser_qualification,
             await_update_publication,
+            retain_late_update,
         )
 
         files_capability, browser_capability = await admit_capabilities(
@@ -1879,9 +1880,9 @@ class PersonalAgentProvisioningService:
                 )
 
             async def retain_files(checkpoint: dict) -> None:
-                retain = getattr(self._registry, "retain_erasure_files_upgrade_observation", None)
-                if retain is not None:
-                    await retain(user_id=user_id, lease=lease, observation=checkpoint)
+                await retain_late_update(
+                    self._registry, spec, user_id, lease, checkpoint, files=True
+                )
 
             spec = replace(
                 spec,
@@ -1921,8 +1922,7 @@ class PersonalAgentProvisioningService:
                     retain_lease=True,
                 )
 
-            future = asyncio.run_coroutine_threadsafe(persist(), owner_loop)
-            await_update_publication(future, spec)
+            await_update_publication(persist(), owner_loop, spec)
 
         if approval_operation_id:
             spec = replace(spec, on_upgrade_idle=persist_handoff_idle)
@@ -1964,15 +1964,13 @@ class PersonalAgentProvisioningService:
                     )
                     persisted_acknowledgement = dict(bound)
                 except RuntimeError:
-                    retain = getattr(self._registry, "retain_erasure_upgrade_ack", None)
-                    if retain is not None and await retain(
-                        user_id=user_id, lease=lease, receipt=bound
+                    if await retain_late_update(
+                        self._registry, spec, user_id, lease, bound, files=False
                     ):
                         raise RuntimeError("upgrade acknowledgement retained for erasure") from None
                     raise
 
-            future = asyncio.run_coroutine_threadsafe(persist(), owner_loop)
-            await_update_publication(future, spec)
+            await_update_publication(persist(), owner_loop, spec)
 
         spec = replace(spec, on_upgrade_ack=persist_acknowledgement)
         old_meta = dict(row.get("backend_metadata") or {})

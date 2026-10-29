@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
+from concurrent.futures import CancelledError as FutureCancelled
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
 from copy import deepcopy
+from threading import Lock
+from typing import Any
 
 from hushh_mcp.services.byoc_substrate import SubstrateReceipt, plan_digest
 from hushh_mcp.services.pod_files.capability_bootstrap import FilesCapabilityBootstrap
@@ -175,20 +178,83 @@ class FilesUpgradeCheckpoint:
         )
 
 
-def await_owned_publication(future: Future, *, join_on_timeout: bool, timeout: float = 30) -> None:
-    """Wait after a timeout because the owner-loop callback may still be writing.
+def publish_on_owner_loop(
+    coroutine: Coroutine[Any, Any, None],
+    *,
+    owner_loop: asyncio.AbstractEventLoop,
+    join_on_timeout: bool,
+    timeout: float = 30,
+) -> None:
+    """Join a managed callback's actual task after bridge timeout or cancellation.
 
-    This does not prove worker exit or provider settlement: cancellation of the
-    bridge future can precede termination of the underlying operation.
+    The callback's database operations must also join their real workers. This
+    local join is not durable executor-exit or provider-settlement proof.
     """
+    if not join_on_timeout:
+        asyncio.run_coroutine_threadsafe(coroutine, owner_loop).result(timeout=timeout)
+        return
+    exited: Future[None] = Future()
+
+    async def supervise() -> None:
+        if not exited.set_running_or_notify_cancel():
+            return
+        try:
+            child = asyncio.create_task(coroutine)
+        except BaseException:
+            coroutine.close()
+            exited.set_result(None)
+            raise
+        try:
+            await asyncio.shield(child)
+        except asyncio.CancelledError:
+            while not child.done():
+                try:
+                    await asyncio.shield(child)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:  # noqa: BLE001 - preserve the supervisor cancellation
+                    break
+            if not child.cancelled():
+                try:
+                    child.result()
+                except Exception:  # noqa: BLE001 - preserve the proxy cancellation
+                    pass
+            raise
+        finally:
+            exited.set_result(None)
+
+    supervisor = supervise()
     try:
-        future.result(timeout=timeout)
+        proxy = asyncio.run_coroutine_threadsafe(supervisor, owner_loop)
+    except RuntimeError:
+        supervisor.close()
+        coroutine.close()
+        raise
+
+    cancellation = Lock()
+
+    def cancel_unstarted(completed: Future) -> None:
+        if not completed.cancelled():
+            return
+        with cancellation:
+            if not exited.done() and exited.cancel():
+                coroutine.close()
+
+    proxy.add_done_callback(cancel_unstarted)
+    try:
+        proxy.result(timeout=timeout)
     except FutureTimeout:
-        if join_on_timeout and not future.done():
-            try:
-                future.result()
-            except Exception:  # noqa: BLE001 - retain the original timeout after joining
-                pass
+        try:
+            exited.result()
+        except FutureCancelled:
+            pass
+        raise
+    except FutureCancelled:
+        cancel_unstarted(proxy)
+        try:
+            exited.result()
+        except FutureCancelled:
+            pass
         raise
 
 
@@ -214,8 +280,7 @@ def bind_checkpoint_persistence(
                 # Retaining obligations after erasure never permits another step.
                 raise
 
-        future = asyncio.run_coroutine_threadsafe(write(), owner_loop)
-        await_owned_publication(future, join_on_timeout=join_on_timeout)
+        publish_on_owner_loop(write(), owner_loop=owner_loop, join_on_timeout=join_on_timeout)
         checkpoint.acknowledge(observation)
         if phase == "observed" and completed[-1].get("ok") is not True:
             raise RuntimeError("Files activation requires reconciliation")

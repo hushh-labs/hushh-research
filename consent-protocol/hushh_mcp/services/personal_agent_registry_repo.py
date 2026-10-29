@@ -469,23 +469,31 @@ class PersonalAgentRegistryRepo:
         inventory = result.data[0].get("inventory") if result.data else None
         return inventory if isinstance(inventory, dict) else None
 
-    async def retain_erasure_upgrade_ack(self, *, user_id: str, lease: str, receipt: dict) -> bool:
+    async def retain_erasure_upgrade_ack(
+        self, *, user_id: str, lease: str, receipt: dict, join_on_cancel: bool = False
+    ) -> bool:
         """Append late provider evidence without reopening the reserved owner."""
-        response = await asyncio.to_thread(
+        from hushh_mcp.services.pod_files.managed_worker import database_thread
+
+        response = await database_thread(
             self._db().execute_raw,
             "SELECT public.retain_erasure_upgrade_ack(:owner, :lease, CAST(:receipt AS jsonb)) AS retained",
             {"owner": user_id, "lease": lease, "receipt": json.dumps(receipt)},
+            join_on_cancel=join_on_cancel,
         )
         return bool(response.data and response.data[0].get("retained") is True)
 
     async def retain_erasure_files_upgrade_observation(
-        self, *, user_id: str, lease: str, observation: dict
+        self, *, user_id: str, lease: str, observation: dict, join_on_cancel: bool = False
     ) -> bool:
         """Preserve the last Files result without reopening the reserved owner."""
-        response = await asyncio.to_thread(
+        from hushh_mcp.services.pod_files.managed_worker import database_thread
+
+        response = await database_thread(
             self._db().execute_raw,
             "SELECT public.retain_erasure_files_upgrade_observation(:owner,:lease,CAST(:receipt AS jsonb)) AS retained",
             {"owner": user_id, "lease": lease, "receipt": json.dumps(observation)},
+            join_on_cancel=join_on_cancel,
         )
         return bool(response.data and response.data[0].get("retained") is True)
 

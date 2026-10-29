@@ -236,8 +236,12 @@ async def _assert_late_evidence(pg, fixture, state, row, intent, completed, call
     assert not await retain(user_id=fixture.owner, lease=state.lease, observation=foreign)
     assert not await retain(user_id=fixture.owner, lease="wrong-lease", observation=late)
     assert not await retain(user_id="foreign-owner", lease=state.lease, observation=late)
-    assert await retain(user_id=fixture.owner, lease=state.lease, observation=late)
-    assert await retain(user_id=fixture.owner, lease=state.lease, observation=late)
+    assert await retain(
+        user_id=fixture.owner, lease=state.lease, observation=late, join_on_cancel=True
+    )
+    assert await retain(
+        user_id=fixture.owner, lease=state.lease, observation=late, join_on_cancel=True
+    )
     assert fixture.reservation()["registrySnapshot"] == frozen
     assert not pg.execute(
         "SELECT valid_erasure_memory_binding(%s::jsonb,%s::jsonb)",

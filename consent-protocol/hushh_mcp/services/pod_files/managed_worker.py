@@ -67,3 +67,12 @@ async def upgrade_thread(
     ):
         raise ValueError("Managed Files work requires its bound upgrade authority")
     return await _joined_thread(operation, *args, stop=authority.files_work_stopped.set, **kwargs)
+
+
+async def database_thread(
+    operation: Callable[..., _Result], *args: Any, join_on_cancel: bool
+) -> _Result:
+    """Join a late managed receipt's SQL worker if its callback is cancelled."""
+    if not join_on_cancel:
+        return await asyncio.to_thread(operation, *args)
+    return await _joined_thread(operation, *args, stop=lambda: None)
