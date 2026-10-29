@@ -97,7 +97,7 @@ def _log(owner, job):
     return raw.decode("utf-8-sig")
 
 
-def _source(owner, repository, sha):
+def _source(owner, repository, sha, paths=None):
     def read(path, revision):
         return json.loads(
             owner.command(
@@ -109,6 +109,8 @@ def _source(owner, repository, sha):
             )
         )
 
+    if paths is not None:
+        return {path: read(path, sha) for path in paths}
     first = read(evidence.OWNER, sha)
     profile = evidence.SOURCE_PROFILES.get(first.get("sha"))
     _require(owner, profile is not None, "maintenance pre-mutation source is unknown")
@@ -118,9 +120,15 @@ def _source(owner, repository, sha):
 
 
 def qualify(owner, repository, environment, run, job):
-    """Bound I/O only; the existing pure evidence owner makes the proof decision."""
-    if environment != "uat" or repository != REPOSITORY:
+    """Bound I/O only; the existing pure evidence owners make the proof decision."""
+    if environment not in {"uat", "production"} or repository != REPOSITORY:
         return None
+    # Production's reviewed guard-only proof loads only on its own path.
+    production = (
+        importlib.import_module("retention_production_evidence")
+        if environment == "production"
+        else None
+    )
     number = run.get("run_attempt", 1)
     attempt = owner.api(repository, f"runs/{run['id']}/attempts/{number}")
     _require(
@@ -141,9 +149,11 @@ def qualify(owner, repository, environment, run, job):
     )
     _legacy_actor(owner, attempt, run, number, environment)
     log = _log(owner, job)
-    checkout = evidence.actual_checkout(log, job)
+    checkout = (production or evidence).actual_checkout(log, job)
     _require(owner, checkout is not None, "maintenance runner or checkout is unproved")
-    blobs = _source(owner, repository, checkout)
+    blobs = _source(
+        owner, repository, checkout, production.SOURCE_PATHS if production else None
+    )
     workflow = json.loads(
         owner.command(
             "gh",
@@ -153,6 +163,10 @@ def qualify(owner, repository, environment, run, job):
             "{sha,size}",
         )
     )
+    if production is not None:
+        return production.qualify_guard_run(
+            repository, environment, attempt, job, log, blobs, workflow
+        )
     return evidence.qualify_preflight_run(
         repository, environment, attempt, job, log, blobs, workflow
     )
