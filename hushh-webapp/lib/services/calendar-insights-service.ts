@@ -32,6 +32,7 @@ export type MeetingArtifact = {
   file_id: string; kind: "recording" | "notes" | "transcript"; state: string;
   title?: string; url?: string; text?: string; text_format?: "plain" | "markdown";
   truncated?: boolean; can_download?: boolean; mime_type?: string; preview_state?: string;
+  download_reason?: "owner_restricted" | "app_permission" | "link_unavailable";
   provenance?: "calendar_linked" | "approved_request";
 };
 export type MeetingDetail = {
@@ -178,7 +179,11 @@ export class CalendarInsightsService {
     const value: unknown = await response.json().catch(() => null);
     if (!response.ok) {
       const detail = record(value) && record(value.detail) ? value.detail : null;
-      throw new Error(detail && typeof detail.message === "string" ? detail.message : "Download could not be checked. Try again.");
+      throw new CalendarInsightsRequestError(
+        detail && typeof detail.message === "string" ? detail.message : "Google file access could not be checked. Try again.",
+        response.status,
+        detail && typeof detail.code === "string" ? detail.code : undefined,
+      );
     }
     const url = safeMeetingProviderUrl(record(value) ? value.url : null);
     if (!url) throw new Error("Google did not return a safe download link.");
