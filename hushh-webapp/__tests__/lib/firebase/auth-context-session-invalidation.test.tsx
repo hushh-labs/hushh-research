@@ -280,7 +280,7 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
       await waitFor(() => expect(karma()).toContainEqual(expect.stringMatching(
         line("registration\\.shown state=fresh_identity_required reason=null verification=unavailable session=phone controls=sign_out"))));
       expect(karma()).toContainEqual(expect.stringMatching(
-        line("session\\.validation_completed forced=true outcome=unavailable duration_ms=\\d+ registration=fresh_identity_required")));
+        line("session\\.validation_completed forced=true outcome=unavailable duration_ms=\\d+ registration=fresh_identity_required stale=false")));
       // The fixture's uid, email and phone number never reach a console line.
       for (const entry of karma()) expect(entry).not.toMatch(/account-owner|owner@example\.test|14155550100/);
     }
