@@ -5,7 +5,7 @@ import { admittedPortraitSource } from "@/lib/profile/provider-avatar";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { CalendarJoinLink } from "./calendar-join-link";
 import type { CalendarInvitation } from "@/lib/services/google-calendar-service";
-import type { InvitationPerson } from "@/lib/calendar/invitation-people";
+import type { CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
 import { CalendarMeetingIcon, eventTime } from "./calendar-schedule-presentation";
 import { CalendarPersonAvatar } from "./calendar-person-avatar";
 import styles from "./calendar-invitations.module.css";
@@ -27,20 +27,18 @@ export function InvitationDate({ event, zone }: { event: CalendarInvitation; zon
   </span>;
 }
 
-export type InvitationPeople = ReadonlyMap<string, InvitationPerson>;
+export type InvitationPeople = CalendarHusshPeople;
 
 export function invitationPerson(people: InvitationPeople, email?: string | null) {
   return people.get(email?.trim().toLowerCase() || "");
 }
 
-export function InvitationAvatar({ name, email, photoUrl, photoSource }: { name: string; email?: string | null; photoUrl?: string | null; photoSource?: "hussh" }) {
+export function InvitationAvatar({ name, email, photoUrl }: { name: string; email?: string | null; photoUrl?: string | null }) {
   const identity = (email?.trim().toLowerCase() || name.trim().toLowerCase());
   const tone = [...identity].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 4;
   const cleanPhoto = photoUrl?.trim() || "";
-  const safePhoto = photoSource === "hussh"
-    ? admittedPortraitSource(cleanPhoto) ? cleanPhoto : null
-    : cleanPhoto.startsWith("https://") || (cleanPhoto.startsWith("/") && !cleanPhoto.startsWith("//")) ? cleanPhoto : null;
-  return <CalendarPersonAvatar name={name} photoUrl={safePhoto} className={styles.avatar} fallbackClassName={styles.avatarFallback} tone={tone} source={photoSource} />;
+  const safePhoto = admittedPortraitSource(cleanPhoto) ? cleanPhoto : null;
+  return <CalendarPersonAvatar name={name} photoUrl={safePhoto} className={styles.avatar} fallbackClassName={styles.avatarFallback} tone={tone} source="hussh" />;
 }
 
 function guestStatus(status?: string | null) {
@@ -94,7 +92,7 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), work
         const photo = person?.photoUrl;
         return <li key={`${attendee.email || "guest"}:${index}`} title={attendee.email || undefined}>
           <span className={styles.guestAvatar} data-guest-avatar>
-            <InvitationAvatar name={name} email={attendee.email} photoUrl={photo} photoSource="hussh" />
+            <InvitationAvatar name={name} email={attendee.email} photoUrl={photo} />
             {attendee.response_status === "accepted" ? <CheckCircle aria-hidden="true" weight="fill" data-accepted-indicator className={styles.guestAccepted} /> : null}
           </span>
           <span className={styles.guestCopy}><span>{name}</span>{photo ? <span className="sr-only">HUSSH profile photo</span> : null}{organizer && attendee.email && name !== attendee.email ? <small>{attendee.email}</small> : null}<small>{organizer ? `Organiser · ${guestStatus(attendee.response_status)}` : guestStatus(attendee.response_status)}</small></span>

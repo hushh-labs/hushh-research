@@ -103,6 +103,7 @@ tests/services/test_calendar_native_optional_scope.py
 tests/services/test_google_calendar_guest_photo_token.py
 tests/services/test_google_calendar_event_type.py
 tests/services/test_google_calendar_profile_photos.py
+tests/services/test_calendar_directory_portraits.py
 tests/services/test_google_calendar_completion.py
 tests/services/test_gmail_oauth_callbacks.py
 tests/services/test_oauth_redirect_policy.py

@@ -224,9 +224,17 @@ async def invitations(
 ):
     try:
         response.headers["Cache-Control"] = "private, no-store"
-        return await _selected_schedule(payload.account_id).invitations(
+        result = await _selected_schedule(payload.account_id).invitations(
             user_id=firebase_uid, **payload.model_dump(exclude={"account_id"}, exclude_none=True)
         )
+        from hushh_mcp.services.calendar_directory_portraits import calendar_directory_portraits
+
+        return {
+            **result,
+            "people": await calendar_directory_portraits(
+                owner_user_id=firebase_uid, events=result.get("events")
+            ),
+        }
     except Exception as exc:
         raise _http(exc) from exc
 

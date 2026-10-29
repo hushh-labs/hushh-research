@@ -1,0 +1,184 @@
+"""Calendar event portraits reuse Connect eligibility without opening email search."""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+from fastapi import Response
+
+import hushh_mcp.services.calendar_directory_portraits as portraits
+from api.routes.one import calendar_workspace
+from api.routes.one.calendar_workspace_models import CalendarInvitationsWindow
+
+
+def test_event_lookup_uses_only_exact_provider_attendees_and_organizer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict] = []
+
+    class Directory:
+        def search_directory_candidates(self, **kwargs: object) -> dict:
+            calls.append(kwargs)
+            return {
+                "items": [
+                    {
+                        "email": "manish@example.test",
+                        "userId": "manish",
+                        "photoUrl": "data:image/png;base64,aGVsbG8=",
+                    },
+                    {
+                        "email": "stranger@example.test",
+                        "userId": "stranger",
+                        "photoUrl": "data:image/png;base64,aGVsbG8=",
+                    },
+                    {"email": "priya@example.test", "userId": "priya", "photoUrl": ""},
+                ],
+                "hasMore": False,
+            }
+
+    monkeypatch.setattr(portraits, "OneLocationAgentService", Directory)
+    monkeypatch.setattr(
+        portraits,
+        "verified_directory_emails",
+        lambda _ids: {
+            "manish": "manish@example.test",
+            "stranger": "stranger@example.test",
+            "priya": "priya@example.test",
+        },
+    )
+    result = asyncio.run(
+        portraits.calendar_directory_portraits(
+            owner_user_id="owner",
+            events=[
+                {
+                    "organizer": {"email": "PRIYA@example.test"},
+                    "attendees": [
+                        {"email": "Manish@Example.Test", "display_name": "Manish"},
+                        {"email": "manish@example.test"},
+                        {"email": "not-an-address"},
+                    ],
+                }
+            ],
+        )
+    )
+    assert calls == [
+        {
+            "owner_user_id": "owner",
+            "verified_email_lookup": ["manish@example.test", "priya@example.test"],
+            "limit": portraits.MAX_PORTRAIT_EMAILS,
+        }
+    ]
+    assert result == {
+        "manish@example.test": {"userId": "manish", "photoUrl": "data:image/png;base64,aGVsbG8="}
+    }
+
+
+def test_ambiguous_or_partial_directory_lookup_keeps_initials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows = [
+        {"email": "manish@example.test", "userId": "one", "photoUrl": "photo-one"},
+        {"email": "MANISH@example.test", "userId": "two", "photoUrl": "photo-two"},
+    ]
+
+    class Directory:
+        def search_directory_candidates(self, **_kwargs: object) -> dict:
+            return {"items": rows, "hasMore": False}
+
+    monkeypatch.setattr(portraits, "OneLocationAgentService", Directory)
+    current = {"one": "manish@example.test", "two": "manish@example.test"}
+    monkeypatch.setattr(portraits, "verified_directory_emails", lambda _ids: current)
+    assert portraits._visible_portraits("owner", ["manish@example.test"]) == {}
+    rows.pop()
+    assert portraits._visible_portraits("owner", ["manish@example.test"]) == {
+        "manish@example.test": {"userId": "one", "photoUrl": "photo-one"}
+    }
+    current["one"] = "changed@example.test"
+    assert portraits._visible_portraits("owner", ["manish@example.test"]) == {}
+
+    class PartialDirectory:
+        def search_directory_candidates(self, **_kwargs: object) -> dict:
+            return {"items": rows, "hasMore": True}
+
+    monkeypatch.setattr(portraits, "OneLocationAgentService", PartialDirectory)
+    assert portraits._visible_portraits("owner", ["manish@example.test"]) == {}
+
+
+def test_lookup_failure_does_not_fail_calendar_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    class UnavailableDirectory:
+        def search_directory_candidates(self, **_kwargs: object) -> dict:
+            raise RuntimeError("directory unavailable")
+
+    monkeypatch.setattr(portraits, "OneLocationAgentService", UnavailableDirectory)
+    assert (
+        asyncio.run(
+            portraits.calendar_directory_portraits(
+                owner_user_id="owner",
+                events=[{"attendees": [{"email": "manish@example.test"}]}],
+            )
+        )
+        == {}
+    )
+
+
+def test_current_firebase_email_failure_keeps_initials(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Directory:
+        def search_directory_candidates(self, **_kwargs: object) -> dict:
+            return {
+                "items": [
+                    {"email": "manish@example.test", "userId": "manish", "photoUrl": "photo"}
+                ],
+                "hasMore": False,
+            }
+
+    monkeypatch.setattr(portraits, "OneLocationAgentService", Directory)
+    monkeypatch.setattr(
+        portraits,
+        "verified_directory_emails",
+        lambda _ids: (_ for _ in ()).throw(RuntimeError("auth unavailable")),
+    )
+    assert (
+        asyncio.run(
+            portraits.calendar_directory_portraits(
+                owner_user_id="owner",
+                events=[{"attendees": [{"email": "manish@example.test"}]}],
+            )
+        )
+        == {}
+    )
+
+
+def test_event_lookup_is_bounded_and_never_searches_arbitrary_payloads() -> None:
+    events = [{"attendees": [{"email": f"person{index}@example.test"} for index in range(120)]}]
+    assert len(portraits._event_emails(events)) == portraits.MAX_PORTRAIT_EMAILS
+    assert portraits._event_emails({"attendees": [{"email": "manish@example.test"}]}) == []
+    assert portraits._event_emails([{"attendees": "manish@example.test"}]) == []
+
+
+def test_invitations_route_adds_photos_to_the_owner_bound_event_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    event = {
+        "organizer": {"email": "priya@example.test"},
+        "attendees": [{"email": "manish@example.test"}],
+    }
+
+    class Schedule:
+        async def invitations(self, **kwargs: object) -> dict:
+            assert kwargs == {"user_id": "owner", "time_zone": "UTC"}
+            return {"events": [event], "pending_count": 1}
+
+    async def photo_lookup(**kwargs: object) -> dict:
+        assert kwargs == {"owner_user_id": "owner", "events": [event]}
+        return {"manish@example.test": {"userId": "manish", "photoUrl": "photo"}}
+
+    monkeypatch.setattr(calendar_workspace, "_selected_schedule", lambda _account_id: Schedule())
+    monkeypatch.setattr(portraits, "calendar_directory_portraits", photo_lookup)
+    response = Response()
+    result = asyncio.run(
+        calendar_workspace.invitations(CalendarInvitationsWindow(), response, firebase_uid="owner")
+    )
+    assert result["events"] == [event]
+    assert result["people"] == {"manish@example.test": {"userId": "manish", "photoUrl": "photo"}}
+    assert response.headers["Cache-Control"] == "private, no-store"

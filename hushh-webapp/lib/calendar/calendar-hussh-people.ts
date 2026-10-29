@@ -20,7 +20,7 @@ function admittedPhoto(value: string | null | undefined): string | null {
   return photo && admittedPortraitSource(photo) ? photo : null;
 }
 
-/** Calendar may use only active Connections and the owner's proven addresses. */
+/** Known Calendar people from active Connections and the owner's proven addresses. */
 export function calendarHusshPeople({
   connections, ownerId, ownerEmail, ownerEmailVerified, ownerPhotoUrl, ownerAliases = [],
 }: {
@@ -66,6 +66,28 @@ export function calendarHusshPeople({
 
 export function calendarHusshPerson(people: CalendarHusshPeople, email: string | null | undefined): CalendarHusshPerson | null {
   return people.get(exactEmail(email) || "") ?? null;
+}
+
+/** Join only server-verified, Connect-visible event matches to Calendar people. */
+export function calendarEventPeople(
+  known: CalendarHusshPeople,
+  visible: Record<string, { userId: string; photoUrl: string }> | undefined,
+): CalendarHusshPeople {
+  if (!visible) return known;
+  const people = new Map(known);
+  for (const [address, person] of Object.entries(visible)) {
+    const email = exactEmail(address);
+    const photoUrl = admittedPhoto(person?.photoUrl);
+    if (!email || !person?.userId || !photoUrl) continue;
+    const prior = people.get(email);
+    if (prior && prior.userId !== person.userId) continue;
+    people.set(email, {
+      userId: person.userId,
+      displayName: prior?.displayName ?? null,
+      photoUrl,
+    });
+  }
+  return people;
 }
 
 export function verifiedCalendarAccountPhoto(

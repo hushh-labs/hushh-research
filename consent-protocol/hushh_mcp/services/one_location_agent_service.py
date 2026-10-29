@@ -4710,6 +4710,7 @@ class OneLocationAgentService:
         candidate_user_ids: list[str] | None = None,
         audience: str = "all",
         name_only: bool = False,
+        verified_email_lookup: list[str] | None = None,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
 
@@ -4776,6 +4777,24 @@ class OneLocationAgentService:
         # here, so it cannot use this to request an unbounded directory.
         limit = max(1, min(int(limit or 20), 100))
         offset = (page - 1) * limit
+        # Internal Calendar enrichment only. The public directory never exposes
+        # a person's exact email, and a name hit cannot identify an attendee.
+        lookup_emails = (
+            None
+            if verified_email_lookup is None
+            else sorted({str(email).strip().lower() for email in verified_email_lookup if email})
+        )
+        if lookup_emails is not None:
+            if (
+                query
+                or candidate_user_id
+                or candidate_user_ids
+                or page != 1
+                or len(lookup_emails) > 100
+            ):
+                raise ValueError("Invalid verified-email directory lookup")
+            if not lookup_emails:
+                return {"items": [], "page": 1, "hasMore": False}
         # Fold the typed query exactly the way the stored name is folded.
         #
         # Only one side of the comparison used to be folded. The statement
@@ -4861,6 +4880,26 @@ class OneLocationAgentService:
             WHERE (' ' || {_DIRECTORY_SEPARATOR_SQL}) NOT LIKE query_token.pattern ESCAPE '!'
         )"""  # nosec B608 # static SQL fragments only; every value is a bound parameter.
 
+        # This clause applies to named and recovered-name rows alike. It uses
+        # the same contact-listing rule as Connect's email search, and rejects
+        # conflicting verified claims before the directory projection is cut.
+        verified_email_clause = (
+            ""
+            if lookup_emails is None
+            else """
+              a.contact_listed = TRUE
+              AND a.email_verified = TRUE
+              AND LOWER(BTRIM(a.email)) = ANY(CAST(:verified_emails AS TEXT[]))
+              AND NOT EXISTS (
+                SELECT 1 FROM actor_identity_cache duplicate
+                WHERE duplicate.user_id <> a.user_id
+                  AND duplicate.email_verified = TRUE
+                  AND LOWER(BTRIM(duplicate.email)) = LOWER(BTRIM(a.email))
+              )
+              AND
+        """
+        )
+
         # Use the same technical-label contract as the projection. A legacy
         # raw UID/UUID must not hide a usable marketplace or adviser name.
         def usable_name(column: str) -> str:
@@ -4890,7 +4929,7 @@ class OneLocationAgentService:
                   {usable_name("ria.display_name")},
                   ''
                 ) AS display_name,
-                identity.email,
+                identity.email, COALESCE(identity.email_verified, FALSE) AS email_verified,
                 CASE WHEN identity.phone_verified = TRUE
                   THEN identity.phone_number ELSE NULL END AS phone_number,
                 COALESCE(identity.phone_verified, FALSE) AS phone_verified,
@@ -4996,7 +5035,7 @@ class OneLocationAgentService:
               ORDER BY created_at DESC
               LIMIT 1
             ) k ON TRUE
-            WHERE (
+            WHERE {verified_email_clause} (
               (:missing_names_only = TRUE AND a.display_name = '')
               OR (:missing_names_only = FALSE AND a.display_name <> '' AND a.contact_listed AND (
                 LOWER(BTRIM(a.email)) LIKE :email_contains ESCAPE '!'
@@ -5058,6 +5097,8 @@ class OneLocationAgentService:
             "fetch_limit": 100,
             "offset": 0,
         }
+        if lookup_emails is not None:
+            params["verified_emails"] = lookup_emails
         # The cache is not account authority. Scan ordered SQL batches until
         # the requested logical page plus one current account is available.
         # Applying auth filtering after SQL OFFSET would permanently skip real
@@ -5134,6 +5175,26 @@ class OneLocationAgentService:
         )
         has_more = len(eligible_rows) > offset + limit
         page_rows = eligible_rows[offset : offset + limit]
+        if lookup_emails is not None:
+            # Exact emails stay inside this server-side Calendar read. They are
+            # never added to Connect's public directory response.
+            return {
+                "items": [
+                    {
+                        "userId": payload["userId"],
+                        "email": str(row.get("email") or "").strip().lower(),
+                        "displayName": payload["displayName"],
+                        "photoUrl": payload["photoUrl"],
+                    }
+                    for row, payload in (
+                        (row, self._recipient_payload(row, directory_phone_mask=True))
+                        for row in page_rows
+                    )
+                    if payload
+                ],
+                "page": page,
+                "hasMore": has_more,
+            }
         recipients = [
             payload
             for row in page_rows
