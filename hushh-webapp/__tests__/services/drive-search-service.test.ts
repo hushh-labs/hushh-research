@@ -15,6 +15,18 @@ const page = { jobId, revision: 1, matched: 1, nextCursor: "opaque+/=",
     modifiedTime: null, openUrl: "https://docs.google.com/document/d/file-one/edit" }] };
 beforeEach(() => { vi.resetAllMocks(); });
 describe("owner Drive search API boundary", () => {
+  it("retains the deployed provider-query coverage and its real file-page count", async () => {
+    const coverage = { corpora: ["user", "member_shared_drives"], fileKind: "any",
+      requestedPeriod: { start: "2026-06-02", end: "2026-10-02", timezone: "Asia/Calcutta" },
+      dateBasis: "provider_query", datePushdown: "not_expressed", timeIntent: "file_activity",
+      ownerReviewRequired: false, contentPeriodVerified: false, providerRowsScanned: 25,
+      providerFilePages: 8, excludedByDateCount: 0, deduplicatedCount: 0,
+      unavailableShortcutCount: 0, providerPagesExhausted: true, shareabilityVerified: true };
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, status: "completed", matched: 25, unshareableCount: 13, coverage }));
+    expect((await DriveSearchService.get("owner", jobId, () => undefined)).coverage).toEqual(coverage);
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, coverage: { ...coverage, datePushdown: "private-unrecognized-value" } }));
+    await expect(DriveSearchService.get("owner", jobId, () => undefined)).rejects.toMatchObject({ code: "invalid_response" });
+  });
   it("retains unverified document periods for owner review and rejects automatic coverage claims", async () => {
     const coverage = { corpora: ["user"], fileKind: "document",
       requestedPeriod: { start: "2026-01-01", end: "2026-06-30", timezone: "Asia/Kolkata" },
@@ -228,4 +240,52 @@ describe("owner Drive search progress stream", () => {
       expect(onStatus).not.toHaveBeenCalled();
     }
   });
+});
+
+it("@feature_drive_request parses activity union coverage, raw counts and scheduled retries", async () => {
+  const coverage = { corpora: ["user"], fileKind: "any",
+    requestedPeriod: { start: "2026-06-02", end: "2026-10-02", timezone: "Asia/Kolkata" },
+    dateBasis: "activity_union", datePolicy: "drive_activity_union_v1", dateGateApplied: true,
+    fallbackActivated: true, contentPeriodVerified: false, providerRowsScanned: 25001,
+    providerFilePages: 251, excludedByDateCount: 20000, deduplicatedCount: 0,
+    unavailableShortcutCount: 0, providerPagesExhausted: false };
+  api.fetch.mockResolvedValueOnce(Response.json({ ...status, matched: 5001, coverage }));
+  expect((await DriveSearchService.get("owner", jobId, () => {})).coverage).toEqual(coverage);
+  for (const change of [{ datePolicy: undefined }, { dateGateApplied: false }, { fallbackActivated: "true" }, { requestedPeriod: null }, { providerRowsScanned: 1000001 }, { providerFilePages: 1001 }]) {
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, coverage: { ...coverage, ...change } }));
+    await expect(DriveSearchService.get("owner", jobId, () => {})).rejects.toMatchObject({ code: "invalid_response" });
+  }
+  const retry = { status: "queued", nextRetryAt: "2026-09-27T00:05:00Z", retryReason: "provider_unavailable" };
+  api.fetch.mockResolvedValueOnce(Response.json({ ...status, ...retry }));
+  expect(await DriveSearchService.get("owner", jobId, () => {})).toMatchObject(retry);
+  for (const change of [{ nextRetryAt: "private" }, { retryReason: "private" }, { status: "running" }, { retryReason: undefined }]) {
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, ...retry, ...change }));
+    await expect(DriveSearchService.get("owner", jobId, () => {})).rejects.toMatchObject({ code: "invalid_response" });
+  }
+});
+
+it("@feature_drive_request preserves bounded frozen queries only in private diagnostics", async () => {
+  const diagnostics = { policy: "drive_activity_union_v1", planVersion: 2,
+    planDigest: "a".repeat(64), dateBasis: "activity_union",
+    period: { start: "2026-06-02", end: "2026-10-02", timezone: "Asia/Kolkata" },
+    fallbackDecision: { armed: true, first_page_valid_distinct_count: 2, futurePrivateKey: "discard-me" },
+    queries: [
+      { index: 0, role: "primary", query: "name contains 'synthetic'", queryDigest: "b".repeat(64), enabled: true },
+      { index: 1, role: "frozen_fallback", query: "fullText contains 'synthetic'", queryDigest: "c".repeat(64), enabled: true },
+    ] };
+  api.fetch.mockResolvedValueOnce(Response.json({ ...status, diagnostics }));
+  const parsed = await DriveSearchService.get("owner", jobId, () => {});
+  expect(parsed.diagnostics?.queries).toEqual(diagnostics.queries);
+  expect(parsed.diagnostics?.fallbackDecision).toEqual({ armed: true, first_page_valid_distinct_count: 2 });
+  for (const change of [
+    { queries: [...diagnostics.queries, diagnostics.queries[0]] },
+    { queries: [{ ...diagnostics.queries[0], query: "x".repeat(1801) }] },
+    { fallbackDecision: { armed: false, first_page_valid_distinct_count: 2 } },
+    { planDigest: "untrusted" },
+  ]) {
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, diagnostics: { ...diagnostics, ...change } }));
+    await expect(DriveSearchService.get("owner", jobId, () => {})).rejects.toMatchObject({ code: "invalid_response" });
+  }
+  api.fetch.mockResolvedValueOnce(Response.json(status));
+  expect((await DriveSearchService.get("owner", jobId, () => {})).diagnostics).toBeUndefined();
 });

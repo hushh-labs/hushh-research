@@ -27,6 +27,7 @@ from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
 logger = logging.getLogger(__name__)
 TEXT_SCOPES = frozenset({"one_text_chat", "drive_document_requests"})
 ONE_TOOL_FIRST_OUTPUT_SECONDS = 30.0
+ONE_NATIVE_SEARCH_FIRST_OUTPUT_SECONDS = 60.0
 ManagedProvider = Literal["azure_openai", "vertex"]
 
 
@@ -122,6 +123,8 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                 for tool in request.config.tools or []
             )
         )
+        if native_search and self.primary_provider == "vertex":
+            return ONE_NATIVE_SEARCH_FIRST_OUTPUT_SECONDS
         # Native search can be silent while searching. A tool response starts a
         # new model call, but is already inside the user's bounded active turn.
         return (
@@ -318,7 +321,9 @@ def build_managed_text_model(
         # The outer first-output budget is independent of the SDK's read-idle
         # budget after output starts. Never kill a healthy stream at 10 seconds.
         timeout_seconds=60 if chat else 30,
-        primary_seconds=10 if chat else 30,
+        # Native Gemini may complete a unary tool-selection call before its
+        # first event; give it the same bounded window as native Search.
+        primary_seconds=10 if azure_chat else 30,
         fallback_seconds=8 if chat else 20,
         default_reasoning_effort="minimal" if chat else None,
     )

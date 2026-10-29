@@ -177,6 +177,7 @@ tests/services/test_drive_sharing_center.py
 tests/services/test_drive_feed_projection.py
 tests/services/test_google_drive_mcp_service.py
 tests/services/test_drive_bulk_share_postgres.py
+tests/test_drive_claim_adoption_postgres.py
 tests/services/test_drive_bulk_share_service.py
 tests/services/test_drive_bulk_share_worker.py
 tests/services/test_drive_provider_delivery.py
@@ -1562,6 +1563,9 @@ tests/test_phone_transfer_authority.py
 tests/test_phone_bootstrap.py
 tests/test_phone_schema_qualification.py
 tests/test_phone_schema_origin.py
+tests/test_phone_schema_history_compatibility.py
+tests/test_phone_schema_legacy_job.py
+tests/test_phone_schema_job_history.py
 
 # Phone recovery authority, packaged rollback reader and provider receipts.
 # Full phone UI/SQL proof runs in the mandatory Integration browser gate.
@@ -1590,6 +1594,7 @@ tests/test_hosted_private_runtime.py
 tests/test_pod_runtime_writer.py
 # Additive server-readable copies preserve legacy sale authority.
 tests/services/test_document_delivery_background.py
+tests/services/test_document_delivery_background_source.py
 tests/services/test_document_delivery_background_exports.py
 # The owner's review decides whether the production Allow route accepts a One copy.
 tests/services/test_document_delivery_owner_allow.py
