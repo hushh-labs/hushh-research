@@ -33,7 +33,7 @@ export function PersonProfilePreview() {
   const active = entry && entry.owner === user?.uid && entry.generation === getAuthSessionGeneration() && entry.route === route ? entry : null;
 
   const close = useCallback(() => {
-    if (entry) closePersonPreviewHistory(entry.key);
+    if (entry && closePersonPreviewHistory(entry.key)) return;
     setEntry(null);
   }, [entry]);
 
@@ -42,7 +42,7 @@ export function PersonProfilePreview() {
     if (!active) return;
     // Onboarding is an existing fullscreen takeover. Lift the standard dialog
     // layer only while viewing a person there, including nested request dialogs.
-    const takeover = document.querySelector<HTMLElement>('[data-testid="one-location-onboarding"]');
+    const takeover = document.querySelector<HTMLElement>('[data-one-onboarding-design="location-agent-v3"]');
     if (!takeover) return;
     const sourceLayer = Number(getComputedStyle(takeover).zIndex);
     const body = document.body;

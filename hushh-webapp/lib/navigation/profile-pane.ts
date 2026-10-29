@@ -593,7 +593,10 @@ export function requestProfilePaneOpen(
 // Same-document person previews reuse this reviewed history owner. The entry
 // contains only a transient counter, never a person or source's private state.
 const PERSON_PREVIEW_HISTORY_KEY = "__hushhPersonPreview";
-function traverseOwnedHistory(delta: number): void { window.history.go(delta); }
+function traverseOwnedHistory(delta: number): void {
+  if (delta === -1) window.history.back();
+  else window.history.go(delta);
+}
 export function personPreviewHistoryEntry(state: unknown): number | null {
   if (!state || typeof state !== "object") return null;
   const value = (state as Record<string, unknown>)[PERSON_PREVIEW_HISTORY_KEY];
@@ -603,7 +606,8 @@ export function openPersonPreviewHistory(entry: number): void {
   window.history.pushState({ ...window.history.state, [PERSON_PREVIEW_HISTORY_KEY]: entry }, "", window.location.href);
   emitHistoryUpdate();
 }
-export function closePersonPreviewHistory(entry: number): void {
-  if (personPreviewHistoryEntry(window.history.state) !== entry) return;
+export function closePersonPreviewHistory(entry: number): boolean {
+  if (personPreviewHistoryEntry(window.history.state) !== entry) return false;
   traverseOwnedHistory(-1);
+  return true;
 }

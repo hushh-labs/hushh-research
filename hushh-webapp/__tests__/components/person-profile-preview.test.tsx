@@ -30,7 +30,7 @@ function Source({ settings = false }: { settings?: boolean }) {
     <PersonProfilePreview /></>;
 }
 
-describe("person profile return memory", () => {
+describe("person profile return memory @feature_connected_profiles @trace_loop", () => {
   beforeEach(() => {
     state.user = { uid: "viewer", getIdToken: vi.fn(async () => "token") };
     state.pathname = "/one/location"; state.search = "action=share&step=people"; state.generation = 1;
