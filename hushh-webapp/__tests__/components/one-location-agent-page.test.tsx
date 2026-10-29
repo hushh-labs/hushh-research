@@ -4705,6 +4705,7 @@ describe("OneLocationAgentPage", () => {
     const stop = screen.getByRole("button", { name: "Stop Save My Soul alert" });
     expect(stop).toBeEnabled();
     fireEvent.click(stop);
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop Save My Soul alert?" })).getByRole("button", { name: "Stop alert" }));
     await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByRole("button", { name: "Stop Save My Soul alert" })).toBeNull());
     const calls = vi.mocked(toast.success).mock.calls.length;
@@ -4753,6 +4754,8 @@ describe("OneLocationAgentPage", () => {
     await act(async () => { releasePassive({ state: "prompt", precise: null, background: "foreground-only", locationServicesEnabled: true }); });
     expect(mockCreateGrant).toHaveBeenCalledTimes(grantsAfter);
     fireEvent.click(screen.getByRole("button", { name: "Stop Save My Soul alert" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop Save My Soul alert?" })).getByRole("button", { name: "Stop alert" }));
+    await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByRole("button", { name: "Stop Save My Soul alert" })).toBeNull());
   });
 
