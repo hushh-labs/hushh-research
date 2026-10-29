@@ -12,7 +12,7 @@ controls present actions owned by React and existing services.
 
 ## Current implementation
 
-**Status as of 2026-10-28:** native work is in progress. Ordinary builds use the
+**Status as of 2026-10-29:** native work is in progress. Ordinary builds use the
 established interface for custom controls; the existing iOS bottom navigation
 has its own native owner. The custom native shell is available only in a
 qualification build or an explicitly opted-in Debug session. Source or
@@ -26,6 +26,13 @@ physical Debug Dev app was installed and launched. These checks verify document
 replacement, restart invalidation, fail-closed identity matching and Capacitor
 navigation-delegate forwarding; they do not qualify product routes, visual
 transitions or Release performance.
+
+The follow-up at `fd6cd9cc87` fixes a refused Profile-pane preparation leaving a
+new, unacknowledged pane lifetime fenced in native state. Rollback is limited to
+that exact acquisition; acknowledged or retired lifetimes remain fenced. Five
+focused lifecycle tests passed on the iPhone 16e and simulator in Debug. This
+verifies retry and document-authority contracts, not Profile route behavior,
+visual transitions or Release performance.
 
 Every main-frame document receives a random identity at document start. Native
 presentation and privacy actions stay disabled while navigation is pending,
