@@ -16,7 +16,7 @@ enum SmsAlarmLedger {
         if let account { item[kSecAttrAccount as String] = account }
         return item
     }
-    enum LedgerError: Error { case unavailable, ended, deleted }
+    enum LedgerError: Error { case unavailable, ended, deleted, keychain(OSStatus) }
     private static func ownerPrefix(_ user: String) -> String {
         SHA256.hash(data: Data(user.utf8)).map { String(format: "%02x", $0) }.joined() + ":"
     }
@@ -28,9 +28,14 @@ enum SmsAlarmLedger {
         item[kSecAttrService as String] = "hussh.sms.deleted.v1"
         return item
     }
-    private static func deletedOwner(_ owner: String) -> Bool {
-        guard let item = try? deletionQuery(owner: owner) else { return true }
-        return SecItemCopyMatching(item as CFDictionary, nil) != errSecItemNotFound
+    private static func deletedOwner(_ owner: String) throws -> Bool {
+        let item = try deletionQuery(owner: owner)
+        let status = SecItemCopyMatching(item as CFDictionary, nil)
+        switch status {
+        case errSecSuccess: return true
+        case errSecItemNotFound: return false
+        default: throw LedgerError.keychain(status)
+        }
     }
     static func id(user: String, grant: String) -> UUID {
         let bytes = Array(SHA256.hash(data: Data("\(user)\u{0}\(grant)".utf8)).prefix(16))
@@ -39,15 +44,17 @@ enum SmsAlarmLedger {
     }
     private static func add(account: String, data: Data) throws {
         let owner = String(account.prefix(65))
-        guard !deletedOwner(owner) else { throw LedgerError.deleted }
+        guard !(try deletedOwner(owner)) else { throw LedgerError.deleted }
         var item = try query(account: account)
         item[kSecValueData as String] = data
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(item as CFDictionary, nil)
         guard status == errSecSuccess || status == errSecDuplicateItem else { throw LedgerError.unavailable }
         // Deletion can run in the other process between admission and SecItemAdd.
-        if deletedOwner(owner) {
-            SecItemDelete(try query(account: account) as CFDictionary)
+        // An unavailable fence still refuses admission. It must not erase a
+        // committed ACK or first-event decision, including duplicate writes.
+        if try deletedOwner(owner) {
+            if let cleanup = try? query(account: account) { SecItemDelete(cleanup as CFDictionary) }
             throw LedgerError.deleted
         }
     }

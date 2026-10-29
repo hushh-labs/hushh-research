@@ -21,6 +21,16 @@ final class NativeSupportTests: XCTestCase {
         let ended = UUID().uuidString
         let admitted = UUID().uuidString
         let group = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "NotificationKeychainGroup") as? String)
+        let probe: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "hussh.sms.entitlement-test", kSecAttrAccessGroup as String: group,
+            kSecAttrAccount as String: UUID().uuidString]
+        var insertion = probe
+        insertion[kSecValueData as String] = Data([1])
+        let writable = SecItemAdd(insertion as CFDictionary, nil)
+        defer { SecItemDelete(probe as CFDictionary) }
+        XCTAssertEqual(writable, errSecSuccess,
+            "SMS shared Keychain requires an entitled simulator test host; OSStatus=\(writable)")
+        guard writable == errSecSuccess else { return }
         defer {
             for grant in [ended, admitted] {
                 for suffix in ["first", "pending", "ack"] {

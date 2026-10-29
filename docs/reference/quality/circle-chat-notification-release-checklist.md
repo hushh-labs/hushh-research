@@ -87,6 +87,10 @@ Local PostgreSQL/provider mocks establish queue, replay, authority and retry
 behavior. They do not establish APNs/FCM physical receipt. Record fresh signed
 TestFlight and Android physical-device results before native acceptance.
 
+Simulator Keychain tests use an ad-hoc signed App host and assert a real write
+to its configured shared group. Unexpected fence-read OSStatus values refuse
+admission and must preserve committed acknowledgements and first-event records.
+
 ## Platform boundaries
 
 Sound depends on notification permission, Focus/Do Not Disturb, Android channel

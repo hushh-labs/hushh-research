@@ -1,4 +1,7 @@
 /** Coordinate-free, account-scoped receipt state. Share expiry is not an ack. */
+// Like Location's opened/unwatched markers and sender incident, these browser
+// receipts contain opaque grant IDs and state only: no message, position or key.
+// They must survive reloads and notify other tabs without requiring vault unlock.
 export const SMS_ALARM_ACKNOWLEDGED_EVENT = "hushh:sms-alarm-acknowledged";
 const prefix = (userId: string) => `one_location_sms_alarm_v1:${encodeURIComponent(userId)}:`;
 const key = (userId: string, grantId: string) => `${prefix(userId)}${encodeURIComponent(grantId)}`;
@@ -10,15 +13,15 @@ function write(userId: string, grantId: string, state: "pending" | "acknowledged
   // rewrite pending, but can never overwrite the recipient's acknowledgement.
   const storageKey = `${key(userId, grantId)}${state === "acknowledged" ? ":ack" : ""}`;
   memory.set(storageKey, state);
-  try { localStorage.setItem(storageKey, state); failedWrites.delete(storageKey); }
+  try { window.localStorage.setItem(storageKey, state); failedWrites.delete(storageKey); }
   catch { failedWrites.add(storageKey); }
 }
 
 export function pendingSmsAlarms(userId: string): string[] {
   const namespace = prefix(userId);
   try {
-    const stored = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
-      .filter((storageKey): storageKey is string => !!storageKey?.startsWith(namespace) && localStorage.getItem(storageKey) === "pending")
+    const stored = Array.from({ length: window.localStorage.length }, (_, i) => window.localStorage.key(i))
+      .filter((storageKey): storageKey is string => !!storageKey?.startsWith(namespace) && window.localStorage.getItem(storageKey) === "pending")
       .map((storageKey) => decodeURIComponent(storageKey.slice(namespace.length)));
     const unsaved = [...failedWrites].filter((storageKey) => storageKey.startsWith(namespace) && memory.get(storageKey) === "pending")
       .map((storageKey) => decodeURIComponent(storageKey.slice(namespace.length)));
@@ -33,7 +36,7 @@ export function pendingSmsAlarms(userId: string): string[] {
 export function isSmsAlarmAcknowledged(userId: string, grantId: string): boolean {
   const storageKey = `${key(userId, grantId)}:ack`;
   if (failedWrites.has(storageKey) && memory.get(storageKey) === "acknowledged") return true;
-  try { return localStorage.getItem(storageKey) === "acknowledged"; }
+  try { return window.localStorage.getItem(storageKey) === "acknowledged"; }
   catch { return memory.get(storageKey) === "acknowledged"; }
 }
 
@@ -54,8 +57,8 @@ export function forgetSmsAlarms(userId: string): void {
   for (const storageKey of memory.keys()) if (storageKey.startsWith(namespace)) {
     memory.delete(storageKey); failedWrites.delete(storageKey);
   }
-  for (let index = localStorage.length - 1; index >= 0; index--) {
-    const storageKey = localStorage.key(index);
-    if (storageKey?.startsWith(namespace)) localStorage.removeItem(storageKey);
+  for (let index = window.localStorage.length - 1; index >= 0; index--) {
+    const storageKey = window.localStorage.key(index);
+    if (storageKey?.startsWith(namespace)) window.localStorage.removeItem(storageKey);
   }
 }
