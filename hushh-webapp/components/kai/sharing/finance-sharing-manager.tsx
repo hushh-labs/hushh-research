@@ -86,7 +86,7 @@ export function FinanceSharingManager({ open, onOpenChange, hasPortfolio = true 
   };
   return <>
     <KaiControlSurface open={open} onOpenChange={onOpenChange} title="Finance sharing" description="Review access person by person." surfaceClassName={finance.detail}>
-      <div className={styles.managerTabs} role="group" aria-label="Sharing direction"><ShellActionSurface variant="pill" disabled={!canManageOutgoing} aria-pressed={direction === "outgoing"} onClick={() => setDirection("outgoing")}>Shared by you</ShellActionSurface><ShellActionSurface variant="pill" aria-pressed={direction === "received"} onClick={() => setDirection("received")}>Shared with you</ShellActionSurface></div>
+      <div className={styles.managerTabs} role="group" aria-label="Sharing direction"><ShellActionSurface variant="pill" wrapperClassName="w-full" className="w-full min-h-11 justify-center" disabled={!canManageOutgoing} aria-pressed={direction === "outgoing"} onClick={() => setDirection("outgoing")}>Shared by you</ShellActionSurface><ShellActionSurface variant="pill" wrapperClassName="w-full" className="w-full min-h-11 justify-center" aria-pressed={direction === "received"} onClick={() => setDirection("received")}>Shared with you</ShellActionSurface></div>
       {!hasPortfolio ? <p className={`${styles.caption} mt-3`}>{canManageOutgoing ? "Add a portfolio to share again. You can still manage previous shares." : "Add a portfolio to share."}</p> : null}
       {error ? <div role="alert" className="my-4 text-sm text-destructive"><p>{error}</p><ShellActionSurface variant="pill" onClick={() => setReload(n => n + 1)}>Retry</ShellActionSurface></div> : null}
       {busy && !items.length ? <p role="status" className="py-8 text-sm">Checking access…</p> : null}
