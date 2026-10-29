@@ -1,5 +1,6 @@
 import { subscribeAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { CacheService } from "@/lib/services/cache-service";
+import type { MeetingLibrary } from "@/lib/services/calendar-insights-service";
 import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const PREFIX = "calendar_insights_";
@@ -71,4 +72,33 @@ export function storeInsightsSnapshot<T>(key: string, value: T) {
 
 export function invalidateInsightsSnapshots(owner: string) {
   CacheService.getInstance().invalidatePattern(`${PREFIX}${owner}_`);
+}
+
+export function mergeLibrary(previous: MeetingLibrary | null, incoming: MeetingLibrary): MeetingLibrary {
+  if (!previous) return incoming;
+  const meetings = new Map(previous.meetings.map(meeting => [meeting.occurrence_id, meeting]));
+  for (const meeting of incoming.meetings) {
+    const older = meetings.get(meeting.occurrence_id);
+    if (!older) { meetings.set(meeting.occurrence_id, meeting); continue; }
+    const sources = new Map([...older.sources, ...meeting.sources].map(source => [source.calendar_id + ":" + source.event_id, source]));
+    const artifactKinds = Array.from(new Set([...older.artifact_kinds, ...meeting.artifact_kinds]));
+    meetings.set(meeting.occurrence_id, {
+      ...older, artifact_kinds: artifactKinds,
+      availability: Object.fromEntries((["recording", "notes"] as const).map(kind => [kind,
+        artifactKinds.includes(kind) ? "available" : meeting.availability[kind] || older.availability[kind] || "unverified"])),
+      discovery: meeting.discovery === "checked" ? meeting.discovery : older.discovery,
+      file_state: artifactKinds.length ? "available" : meeting.file_state,
+      sources: Array.from(sources.values()),
+    });
+  }
+  const limitationSet = new Set([...previous.limitations, ...incoming.limitations]);
+  if (!incoming.next_cursor) limitationSet.delete("request_budget");
+  const limitations = Array.from(limitationSet);
+  return {
+    ...incoming, meetings: Array.from(meetings.values()).sort((left, right) =>
+      Date.parse(right.start?.dateTime || "") - Date.parse(left.start?.dateTime || "")),
+    limitations,
+    complete: incoming.complete && limitations.length === 0,
+    checked_events: previous.checked_events + incoming.checked_events,
+  };
 }

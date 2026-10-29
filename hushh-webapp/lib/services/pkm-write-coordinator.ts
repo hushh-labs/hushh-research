@@ -3,8 +3,7 @@
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
-import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
-import { PkmMetadataReviewRequired } from "@/lib/personal-knowledge-model/manifest";
+import { PkmMetadataReviewRequired, type DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import {
   buildConfirmedPkmMutationPlanV2,
   isAutomaticPkmWriteAuthorization,
@@ -28,14 +27,14 @@ import {
   reservedEntryFor,
   type ReservedRefusal,
 } from "@/lib/pkm/reserved-branches";
-import type {
-  EncryptedDomainBlob,
-  PkmMergeDecision,
-  PkmSyncCheckpointMetadata,
-  PkmUpgradeContext,
-  PkmWriteProjection,
+import {
+  PersonalKnowledgeModelService,
+  type EncryptedDomainBlob,
+  type PkmMergeDecision,
+  type PkmSyncCheckpointMetadata,
+  type PkmUpgradeContext,
+  type PkmWriteProjection,
 } from "@/lib/services/personal-knowledge-model-service";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { PkmUpgradeService } from "@/lib/services/pkm-upgrade-service";
 import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
@@ -62,7 +61,6 @@ async function serializeDomainWrite<T>(userId: string, domain: string, run: () =
   try { return await write; }
   finally { if (domainWrites.get(key) === write) domainWrites.delete(key); }
 }
-
 
 export type PkmWriteCoordinatorSaveState =
   | "saved"
@@ -110,7 +108,6 @@ export type PkmWriteCoordinatorResult = {
   idempotentReplay?: boolean;
   conflict?: boolean;
   message?: string;
-  /** Status only; callers may stop replaying a terminal server rejection. */
   httpStatus?: number;
   dataVersion?: number;
   updatedAt?: string;

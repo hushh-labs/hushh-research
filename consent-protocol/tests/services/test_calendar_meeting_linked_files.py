@@ -112,6 +112,8 @@ def test_meet_and_recording_denials_do_not_hide_an_independently_linked_note(mon
         ("notes", "available"),
     ]
     assert result["discovery"] == "meet_discovery_denied" and result["complete"] is False
+    assert result["availability"]["notes"] == "available"
+    assert result["availability"]["recording"] == "resource_denied"
     assert result["artifacts"][1]["url"].endswith("/edit")
     assert result["artifacts"][1]["can_download"] is False
     assert result["artifacts"][1]["download_reason"] == "app_permission"

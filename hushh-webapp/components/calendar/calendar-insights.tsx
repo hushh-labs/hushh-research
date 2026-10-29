@@ -18,10 +18,10 @@ import type { GoogleCalendarAccount } from "@/lib/services/google-calendar-servi
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
 import { CalendarCompactAction } from "./calendar-compact-action";
-import { coalescedInsightsRead, insightsResourceKey, insightsSnapshot, invalidateInsightsSnapshots, storeInsightsSnapshot } from "@/lib/calendar/calendar-insights-resource";
+import { coalescedInsightsRead, insightsResourceKey, insightsSnapshot, invalidateInsightsSnapshots, mergeLibrary, storeInsightsSnapshot } from "@/lib/calendar/calendar-insights-resource";
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
-import { focusedStatus, meetingTime } from "./calendar-insights-presentation";
+import { focusedStatus, limitationText, meetingTime } from "./calendar-insights-presentation";
 import { FEED_STATE_CHANGED_EVENT, feedStateChangeReason } from "@/lib/feed/feed-events";
 import { buildInviteToOneUrl } from "@/lib/connect/invite-to-one";
 import type { CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
@@ -31,24 +31,6 @@ import styles from "./calendar-insights.module.css";
 const hours = (minutes: number) => String(Math.round(minutes / 6) / 10) + " hr";
 const noVaultToken = () => null;
 type SourcedArtifact = MeetingArtifact & { source?: MeetingSource };
-const limitationText: Record<string, string> = {
-  permission_required: "Allow recording and notes access for this Google account.",
-  resource_denied: "Google denied access to an exact linked file. Check its sharing or organization policy.",
-  meet_discovery_denied: "Google denied the Meet discovery check. Whether a recording or notes exist is unknown.",
-  account_mismatch: "The selected Google account no longer matches this meeting grant. Refresh the account.",
-  provider_configuration: "Google's meeting-file service is not available for this connection. Check the provider configuration.",
-  provider_policy: "Your Google organization does not allow this meeting-file check.",
-  processing: "Google is still preparing meeting files. Refresh later.",
-  temporarily_unavailable: "Google could not finish checking meeting files. Try again.",
-  unverified: "A reused meeting link could not be matched to one occurrence.",
-  files_incomplete: "Some meeting files could not be checked.",
-  calendar_unreadable: "Some subscribed calendars do not share event details.",
-  calendar_incomplete: "Calendar returned an incomplete page.",
-  request_budget: "More meetings remain to be checked. Continue this day.",
-  provider_retention: "Google Meet records for this older day may have expired; coverage cannot be confirmed.",
-  attendee_discovery_limited: "An attendee's shared meeting files may be missing from this check.",
-};
-
 function NotePreview({ item }: { item: MeetingArtifact }) {
   if (!item.text) return null;
   if (item.text_format !== "markdown") return <div className={styles.notes}>{item.text}</div>;
@@ -71,35 +53,6 @@ function Artifact({ item, onOpen, onDownload }: { item: MeetingArtifact; onOpen:
     {item.truncated ? <p className={styles.muted}>Preview shortened. Open or download the full note.</p> : null}
     {item.preview_state && !item.text ? <p className={styles.muted}>Preview unavailable. Open the source to read it.</p> : null}
   </div>;
-}
-
-function mergeLibrary(previous: MeetingLibrary | null, incoming: MeetingLibrary): MeetingLibrary {
-  if (!previous) return incoming;
-  const meetings = new Map(previous.meetings.map(meeting => [meeting.occurrence_id, meeting]));
-  for (const meeting of incoming.meetings) {
-    const older = meetings.get(meeting.occurrence_id);
-    if (!older) { meetings.set(meeting.occurrence_id, meeting); continue; }
-    const sources = new Map([...older.sources, ...meeting.sources].map(source => [source.calendar_id + ":" + source.event_id, source]));
-    const artifactKinds = Array.from(new Set([...older.artifact_kinds, ...meeting.artifact_kinds]));
-    meetings.set(meeting.occurrence_id, {
-      ...older, artifact_kinds: artifactKinds,
-      availability: Object.fromEntries((["recording", "notes"] as const).map(kind => [kind,
-        artifactKinds.includes(kind) ? "available" : meeting.availability[kind] || older.availability[kind] || "unverified"])),
-      discovery: meeting.discovery === "checked" ? meeting.discovery : older.discovery,
-      file_state: artifactKinds.length ? "available" : meeting.file_state,
-      sources: Array.from(sources.values()),
-    });
-  }
-  const limitationSet = new Set([...previous.limitations, ...incoming.limitations]);
-  if (!incoming.next_cursor) limitationSet.delete("request_budget");
-  const limitations = Array.from(limitationSet);
-  return {
-    ...incoming, meetings: Array.from(meetings.values()).sort((left, right) =>
-      Date.parse(right.start?.dateTime || "") - Date.parse(left.start?.dateTime || "")),
-    limitations,
-    complete: incoming.complete && limitations.length === 0,
-    checked_events: previous.checked_events + incoming.checked_events,
-  };
 }
 
 export function CalendarInsights({ userId, account, today, zone, connectionRevision, refreshRevision = 0, refreshControl = "inline", initialLibrary, getIdToken, getVaultOwnerToken = noVaultToken, onAllowMeetingFiles }: {

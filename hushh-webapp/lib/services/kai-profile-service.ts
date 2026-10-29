@@ -895,11 +895,9 @@ export class KaiProfileService {
       }),
     });
 
-    if (!result.success) {
-      if (result.httpStatus) throw new PkmStoreDomainError(result.httpStatus, result.message || "Vault sync failed.");
-      throw new Error("Failed to persist combined financial.profile sync state");
-    }
-
+    if (!result.success) throw result.httpStatus
+      ? new PkmStoreDomainError(result.httpStatus, result.message || "Vault sync failed.")
+      : new Error("Failed to persist combined financial.profile sync state");
     CacheService.getInstance().set(CACHE_KEYS.KAI_PROFILE(params.userId), next, CACHE_TTL.SESSION);
     return next;
   }
