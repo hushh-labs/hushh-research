@@ -11,15 +11,6 @@ it against the files the CI-run test actually touches.
 The login route now imports post-sign-in setup screens. The render path's
 transitive imports are traced so the iOS filter covers those screens too.
 
-It also pins the checkout depth and base-ref env of every lane that reaches
-the capability graph check (`generate_capability_graph.py --check`), which
-must diff against the pull request base and fails closed under CI when that
-base is not in the clone: `protocol-check` and `web-full-suite-check` (whose
-`verify:one-voice` runs the check) on PR Validation. Queue Validation is a
-pass-through that reuses the PR Validation result and runs no lane, so it has
-no base ref to resolve; that is pinned here too, so a lane re-added there
-cannot silently skip the graph check.
-
 The macOS editor latency steps get the same
 guard from its own `editor:` filter, which replaced scheduling it on every
 frontend change. Its inputs are derived from the job itself: the npm script it
@@ -45,10 +36,6 @@ ROOT = Path(__file__).resolve().parents[2]
 MONO_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 UPSTREAM_WORKFLOW_PATH = ROOT / "consent-protocol" / ".github" / "workflows" / "ci.yml"
 QUEUE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "queue-validation.yml"
-PR_LANES_REACHING_THE_GRAPH_CHECK = {
-    "protocol-check": ("orchestrate.sh protocol", "protocol-check.sh"),
-    "web-full-suite-check": ("orchestrate.sh web-full-suite",),
-}
 WEBAPP_DIR = ROOT / "hushh-webapp"
 UI_TESTS_PATH = WEBAPP_DIR / "ios" / "App" / "AppUITests" / "AppUITests.swift"
 RENDER_ROOTS = (WEBAPP_DIR / "app", WEBAPP_DIR / "components")
@@ -433,25 +420,6 @@ def test_every_marker_the_ci_run_xcuitest_expects_is_rendered_by_a_filtered_file
             )
     assert not problems, "Grow the ios: path filter, do not shrink this check:\n" + "\n".join(
         problems
-    )
-
-
-@pytest.mark.parametrize("job", sorted(PR_LANES_REACHING_THE_GRAPH_CHECK))
-def test_pr_lane_fetches_full_history_and_exports_the_base_ref(job: str) -> None:
-    steps = _steps(_load_workflow(MONO_WORKFLOW_PATH), job)
-    checkout = _first_step_using(steps, "actions/checkout")
-    assert checkout.get("with", {}).get("fetch-depth") == 0, (
-        f"{job} must check out full history so the capability graph "
-        "check can diff against the PR base ref"
-    )
-    lane_step = _step_running(steps, *PR_LANES_REACHING_THE_GRAPH_CHECK[job])
-    base_ref = str(lane_step.get("env", {}).get("CAPABILITY_GRAPH_BASE_REF") or "")
-    assert (
-        "format('origin/{0}'" in base_ref
-        and "github.base_ref || 'main'" in base_ref
-        and "inputs.uat_base_sha" in base_ref
-    ), (
-        f"{job} must use origin/<PR base ref> for pull requests and the explicit UAT base for direct CI"
     )
 
 

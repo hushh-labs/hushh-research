@@ -1,12 +1,39 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hussh
-"""Direct UAT preserves exact application authority and historical acceptance."""
+"""Direct UAT pins its CI base and preserves historical acceptance authority."""
 
+from pathlib import Path
 from unittest import mock
 
 import pytest
+import yaml
 
 from tests.helpers.predecessor_acceptance import SHA, _acceptance_fixture
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize("job", ["protocol-check", "web-full-suite-check"])
+def test_direct_uat_ci_lanes_fetch_full_history_and_resolve_the_reviewed_base(
+    job: str,
+) -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    steps = workflow["jobs"][job]["steps"]
+    checkout = next(
+        step for step in steps if (step.get("uses") or "").startswith("actions/checkout@")
+    )
+    assert checkout.get("with", {}).get("fetch-depth") == 0
+    graph_steps = [step for step in steps if "CAPABILITY_GRAPH_BASE_REF" in (step.get("env") or {})]
+    assert len(graph_steps) == 1
+    base_ref = graph_steps[0]["env"]["CAPABILITY_GRAPH_BASE_REF"]
+    assert all(
+        fragment in base_ref
+        for fragment in (
+            "format('origin/{0}'",
+            "github.base_ref || 'main'",
+            "inputs.uat_base_sha",
+        )
+    ), f"{job} must resolve the reviewed PR or exact direct-UAT base"
 
 
 def predecessor():
