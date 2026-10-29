@@ -47,6 +47,7 @@ from api.routes.one.calendar_workspace_models import (
 from api.routes.one.calendar_workspace_models import (
     CalendarOpeningWindow as CalendarOpeningWindow,
 )
+from hushh_mcp.services.calendar_directory_portraits import invitation_response_with_portraits
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
 from hushh_mcp.services.owner_placement_guard import (
     admit_hub_content,
@@ -58,8 +59,7 @@ from hushh_mcp.services.owner_placement_guard import (
 router = APIRouter(prefix="/api/one/calendar", tags=["One Calendar Workspace"])
 
 
-# First-party Schedule reads use Firebase identity plus the owner-bound Google
-# Calendar OAuth grant enforced by CalendarScheduleService on every provider call.
+# Schedule reads require Firebase identity and the owner's Google Calendar grant.
 # Calendar mutations below have separate, explicit Firebase + Google grant
 # boundaries; read authority alone never grants a mutation.
 def _schedule(account_id: str = "default"):
@@ -224,17 +224,9 @@ async def invitations(
 ):
     try:
         response.headers["Cache-Control"] = "private, no-store"
-        result = await _selected_schedule(payload.account_id).invitations(
-            user_id=firebase_uid, **payload.model_dump(exclude={"account_id"}, exclude_none=True)
+        return await invitation_response_with_portraits(
+            firebase_uid, _selected_schedule(payload.account_id), payload
         )
-        from hushh_mcp.services.calendar_directory_portraits import calendar_directory_portraits
-
-        return {
-            **result,
-            "people": await calendar_directory_portraits(
-                owner_user_id=firebase_uid, events=result.get("events")
-            ),
-        }
     except Exception as exc:
         raise _http(exc) from exc
 

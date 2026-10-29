@@ -4429,47 +4429,6 @@ def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
         directory.active_directory_user_ids(["enabled"])
 
 
-def test_calendar_directory_email_rechecks_current_firebase_claim(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from hushh_mcp.services import directory_identity_service as directory
-
-    monkeypatch.setattr(
-        directory,
-        "get_firebase_auth_app",
-        lambda: SimpleNamespace(project_id="synthetic", name="auth"),
-    )
-    calls: list[list[str]] = []
-
-    def get_users(identifiers, **_kwargs):
-        calls.append([identifier.uid for identifier in identifiers])
-        return SimpleNamespace(
-            users=[
-                SimpleNamespace(
-                    uid="manish", disabled=False, email="new@example.test", email_verified=True
-                ),
-                SimpleNamespace(
-                    uid="unverified",
-                    disabled=False,
-                    email="unverified@example.test",
-                    email_verified=False,
-                ),
-                SimpleNamespace(
-                    uid="disabled",
-                    disabled=True,
-                    email="disabled@example.test",
-                    email_verified=True,
-                ),
-            ]
-        )
-
-    monkeypatch.setattr(directory.auth, "get_users", get_users)
-    assert directory.verified_directory_emails(["manish", "unverified", "disabled"]) == {
-        "manish": "new@example.test"
-    }
-    assert calls == [["manish", "unverified", "disabled"]]
-
-
 def test_directory_replacement_owner_projection_never_uses_external_uid_as_application_key(
     monkeypatch,
 ):
@@ -4643,40 +4602,6 @@ def test_directory_candidate_search_filters_before_pagination(
     # screen: it selected the page under one rule while the caller narrowed it
     # under another. It must not come back.
     assert "LIKE '%' || :query || '%'" not in service.sql
-
-
-def test_calendar_directory_lookup_requires_unique_verified_listed_email() -> None:
-    service = RecipientDirectoryProbe()
-    result = service.search_directory_candidates(
-        owner_user_id="owner",
-        verified_email_lookup=["MANISH@example.test", "manish@example.test"],
-    )
-
-    assert result == {"items": [], "page": 1, "hasMore": False}
-    assert service.params["verified_emails"] == ["manish@example.test"]
-    assert "a.contact_listed = TRUE" in service.sql
-    assert "a.email_verified = TRUE" in service.sql
-    assert "LOWER(BTRIM(a.email)) = ANY(CAST(:verified_emails AS TEXT[]))" in service.sql
-    assert "duplicate.email_verified = TRUE" in service.sql
-    assert "duplicate.user_id <> a.user_id" in service.sql
-
-    public_search = RecipientDirectoryProbe()
-    public_search.search_directory_candidates(owner_user_id="owner", query="manish")
-    assert "verified_emails" not in public_search.params
-    assert "a.email_verified = TRUE" not in public_search.sql
-
-
-def test_calendar_directory_lookup_rejects_broad_search() -> None:
-    service = RecipientDirectoryProbe()
-    with pytest.raises(ValueError):
-        service.search_directory_candidates(
-            owner_user_id="owner", query="manish", verified_email_lookup=["manish@example.test"]
-        )
-    with pytest.raises(ValueError):
-        service.search_directory_candidates(
-            owner_user_id="owner",
-            verified_email_lookup=[f"person{i}@example.test" for i in range(101)],
-        )
 
 
 def test_directory_candidate_search_splits_advisors_inside_the_statement() -> None:

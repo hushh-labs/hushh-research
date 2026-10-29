@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
+from typing import Any, Protocol
 
 from hushh_mcp.services.directory_identity_service import verified_directory_emails
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
 MAX_PORTRAIT_EMAILS = 100
+
+
+class InvitationReader(Protocol):
+    async def invitations(self, *, user_id: str, **window: Any) -> dict[str, Any]: ...
+
+
+class InvitationWindow(Protocol):
+    def model_dump(self, *, exclude: set[str], exclude_none: bool) -> dict[str, Any]: ...
 
 
 def _event_emails(events: object) -> list[str]:
@@ -81,3 +90,19 @@ async def calendar_directory_portraits(
         )
     except Exception:
         return {}
+
+
+async def invitation_response_with_portraits(
+    owner_user_id: str, schedule: InvitationReader, window: InvitationWindow
+) -> dict[str, Any]:
+    """Add owner-scoped portrait projection without changing the agent read."""
+    result = await schedule.invitations(
+        user_id=owner_user_id,
+        **window.model_dump(exclude={"account_id"}, exclude_none=True),
+    )
+    return {
+        **result,
+        "people": await calendar_directory_portraits(
+            owner_user_id=owner_user_id, events=result.get("events")
+        ),
+    }
