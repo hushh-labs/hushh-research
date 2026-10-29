@@ -17,6 +17,32 @@ describe("connected Calendar transport authority", () => {
     vi.useRealTimers();
   });
 
+  it("passes an exact Board review and selected-account confirmation without replaying either mutation", async () => {
+    const input = {
+      vaultOwnerToken: "vault-owner", userId: "owner", accountId: "second",
+      checkedAccountIds: ["default", "second", "third"], selectedDate: "2030-10-21",
+      title: "Bug Bash", startAt: "2030-10-21T12:00:00Z", endAt: "2030-10-21T13:00:00Z",
+      timeZone: "UTC", attendees: ["guest@example.com"], description: "", meetingType: "external_link" as const,
+      meetingLink: "https://discord.com/channels/123456/987654", location: "",
+    };
+    apiFetch.mockResolvedValueOnce(Response.json({ proposal_id: "gcal_board", plan: { account_id: "second" } }));
+    await GoogleCalendarService.reviewBoardBooking(input);
+    const [reviewUrl, reviewOptions] = apiFetch.mock.calls[0];
+    expect(reviewUrl).toBe("/api/one/calendar/proposals");
+    expect(reviewOptions.headers.Authorization).toBe("Bearer vault-owner");
+    expect(JSON.parse(reviewOptions.body)).toEqual(expect.objectContaining({
+      user_id: "owner", action: "create", booking_source: "board", account_id: "second",
+      checked_account_ids: ["default", "second", "third"], selected_date: "2030-10-21",
+      meeting_type: "external_link", meeting_link: "https://discord.com/channels/123456/987654",
+      attendees: ["guest@example.com"], send_updates: true,
+    }));
+    apiFetch.mockResolvedValueOnce(Response.json({ action: "create", event: { id: "created" } }));
+    await GoogleCalendarService.executeProposal({ vaultOwnerToken: "vault-owner", userId: "owner", proposalId: "gcal_board", accountId: "second" });
+    expect(apiFetch.mock.calls[1][0]).toBe("/api/one/calendar/proposals/execute");
+    expect(JSON.parse(apiFetch.mock.calls[1][1].body)).toEqual({ user_id: "owner", proposal_id: "gcal_board", account_id: "second" });
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+  });
+
   it.each(["review", "confirm"])("sends matching Firebase/vault authority and the current-lifetime guard for %s", async kind => {
     if (kind === "confirm") apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ calendar: "declined", email: "sent", calendar_error: null, email_error: null }), { status: 200 }));
     const current = vi.fn(() => true);

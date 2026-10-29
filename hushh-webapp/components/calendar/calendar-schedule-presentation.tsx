@@ -6,6 +6,7 @@ import { CalendarDays, ChevronRight, MapPin, MoreHorizontal } from "@/components
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SurfaceCard } from "@/components/app-ui/surfaces";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
+import { CalendarJoinLink } from "./calendar-join-link";
 import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 import type { CalendarEventSummary } from "@/lib/services/google-calendar-service";
 import styles from "./calendar-schedule.module.css";
@@ -155,7 +156,7 @@ export function CalendarTimelineRow({ event, accountEmail, zone, active, ongoing
       {calendarResponse(event, accountEmail) === "declined" ? <span className={styles.declined}>Declined</span> : null}
     </div>
     <div className={styles.rowActions}>
-      {join && !ended ? <a aria-label={`Join meeting: ${event.title}`} href={join} target="_blank" rel="noopener noreferrer" className={styles.joinButton}>Join</a> : null}
+      {join && !ended ? <CalendarJoinLink ariaLabel={`Join meeting: ${event.title}`} url={join} accountEmail={accountEmail} className={styles.joinButton} label="Join" /> : null}
       <DropdownMenu><DropdownMenuTrigger asChild><button type="button" className={styles.overflowButton} aria-label={`More options: ${event.title}`}><MoreHorizontal aria-hidden /></button></DropdownMenuTrigger><DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={() => { if (detailsTrigger.current) onOpen(event, detailsTrigger.current); }}>View details</DropdownMenuItem>
         {safeMeetingUrl(event.html_link) ? <DropdownMenuItem asChild><a href={safeMeetingUrl(event.html_link)!} target="_blank" rel="noopener noreferrer">Open in Google Calendar</a></DropdownMenuItem> : null}
