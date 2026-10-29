@@ -303,6 +303,9 @@ async def test_supplied_addresses_pass_through_untouched_without_a_lookup(connec
         {"cc": "Priya Shah, priya@@example"},
         {"bcc": "s***@example.com"},
         {"to": "sharu@example.com dev"},
+        # The card nulls a field with a control character and falls back to the
+        # model's recipients, so the server refuses it first.
+        {"to": '"Sharu\tKumar" <sharu@example.com>'},
     ],
 )
 async def test_an_invalid_address_is_refused_without_echo_or_lookup(connections, arguments):
@@ -349,6 +352,26 @@ async def test_too_many_recipients_are_refused_before_a_lookup(connections):
 
     assert result["status"] == "too_many_recipients"
     assert connections.reads == []
+
+
+@pytest.mark.parametrize(
+    ("argument", "label"), [("recipient_names", "To"), ("cc_names", "Cc"), ("bcc", "Bcc")]
+)
+async def test_a_field_the_draft_card_cannot_hold_is_refused(connections, argument, label):
+    # Thirty names fit the tool's bounds, but their addresses join past the 2048
+    # characters the card accepts per field; it would open on the model's arguments.
+    connections.rows = [
+        _row(f"Person {index:02d}", f"person.{index:02d}.{'a' * 50}@example.com")
+        for index in range(30)
+    ]
+    names = ", ".join(row["displayName"] for row in connections.rows)
+
+    result = await recipients.resolve_draft_recipients(OWNER, **{argument: names})
+
+    assert result == {
+        "status": "too_many_recipients",
+        "message": f"The {label} field can't fit that many addresses. Ask which ones to keep.",
+    }
 
 
 async def test_a_failed_connections_read_is_a_refusal_not_a_guess(monkeypatch):

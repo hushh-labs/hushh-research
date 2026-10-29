@@ -29,6 +29,8 @@ type MailAttentionStackProps = {
   onOpenItem?: (item: MailAttentionItem) => void;
   /** Called when an action leaves nothing to show, so the owner can place focus. */
   onEmpty?: () => void;
+  /** True while the owner cannot take a prompt. Only Brief me sends one, so only it waits. */
+  briefDisabled?: boolean;
 };
 
 /** `keyboard` is true for Enter/Space activation, which fires a click with detail 0. */
@@ -140,7 +142,7 @@ function CollapsedStack({ items, onOpenItem, onAct }: {
  * nothing unless something qualifies. Choices are per viewer on this device;
  * Mail itself is unchanged.
  */
-export function MailAttentionStack({ onAskOne, onOpenItem, onEmpty }: MailAttentionStackProps) {
+export function MailAttentionStack({ onAskOne, onOpenItem, onEmpty, briefDisabled }: MailAttentionStackProps) {
   const { items, remindLater, markDone } = useMailAttention();
   const pathname = usePathname() || "/";
   const [expanded, setExpanded] = useState(false);
@@ -183,7 +185,7 @@ export function MailAttentionStack({ onAskOne, onOpenItem, onEmpty }: MailAttent
           <p data-profile-role="description" className="break-words">{summarizeMailAttention(items)}</p>
         </div>
         <Button type="button" variant="ghost" size="compact" className="shrink-0" aria-label="Brief me on my mail"
-          onClick={() => onAskOne(MAIL_BRIEF_PROMPT)}>
+          disabled={briefDisabled} onClick={() => onAskOne(MAIL_BRIEF_PROMPT)}>
           Brief me
         </Button>
       </div>

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
 
+import pytest
 from google.adk.tools import FunctionTool
 
 from hushh_mcp.one_adk import agent_tree
@@ -15,7 +17,11 @@ from hushh_mcp.one_adk.external_read_boundary import (
     after_external_read_tool,
     before_external_read_tool,
 )
-from hushh_mcp.one_adk.mail_instruction import draft_opened_message, owner_clock_line
+from hushh_mcp.one_adk.mail_instruction import (
+    STATE_EMAIL_DRAFT_ENVELOPE,
+    draft_opened_message,
+    owner_clock_line,
+)
 
 
 def _typed_chat_instruction(**state) -> str:
@@ -55,6 +61,59 @@ def test_draft_message_names_the_send_blocker_only_when_there_is_one():
     assert "Allow sending" in draft_opened_message("send_permission_required")
     assert draft_opened_message("ready") == draft_opened_message("unknown")
     assert "Connect" not in draft_opened_message("ready")
+
+
+@pytest.mark.parametrize("contract", [None, 1, 2])
+async def test_only_a_draft_contract_2_app_gets_names_resolved(monkeypatch, contract):
+    """Installed apps bundle their web client. One before contract 2 shows the call's
+    own To and opens a card for every result, so it must get addresses, never names."""
+    from api.routes.one import agent_chat
+    from api.routes.one.pod_agent_chat import trusted_state
+    from hushh_mcp.one_adk import email_draft_recipients, email_draft_tool
+    from tests.test_one_agent_chat_ingress import incoming, request
+
+    forwarded = {} if contract is None else {"emailDraftContract": contract}
+    hub = await agent_chat._extract_state(request(), incoming(forwarded_props=dict(forwarded)))
+    token = SimpleNamespace(local_token=lambda claims: "synthetic-token")
+    owner = SimpleNamespace(owner="owner", claims={}, authority=token)
+    pod, _ = trusted_state(incoming(forwarded_props=dict(forwarded)), owner)
+    capable = hub[STATE_EMAIL_DRAFT_ENVELOPE]
+    assert capable is pod[STATE_EMAIL_DRAFT_ENVELOPE] is (contract == 2)
+    composed = _typed_chat_instruction(**{STATE_EMAIL_DRAFT_ENVELOPE: capable})
+    address_first = "call list_my_connections first and put their actual email in to"
+    assert (address_first in composed) is not capable
+
+    reads: list[str] = []
+    rows = [{"displayName": "Sharu Kumar", "email": "sharu@example.com"}]
+    connections = SimpleNamespace(list_connections=lambda owner: reads.append(owner) or rows)
+    monkeypatch.setattr(email_draft_recipients, "ConnectionsService", lambda: connections)
+    monkeypatch.setattr(email_draft_tool, "gmail_send_readiness", AsyncMock(return_value="ready"))
+    state = {
+        agent_tree.STATE_USER_ID: "owner",
+        agent_tree.STATE_EXECUTION_SURFACE: "typed_chat",
+        STATE_EMAIL_DRAFT_ENVELOPE: capable,
+    }
+    context = SimpleNamespace(state=state)
+    parked = f"{agent_tree.STATE_PENDING_DIRECTIVE}:gmail_email_draft"
+    result = await agent_tree.open_gmail_email_draft("Mail Sharu", context, recipient_names="Sharu")
+    if capable:
+        assert result["envelope"]["to"] == "sharu@example.com" and parked in state
+        return
+    # Negative control: before the handshake this name resolved for an older app, which
+    # then opened a card with no recipient.
+    assert result["status"] == "recipient_address_required"
+    assert "list_my_connections" in result["message"]
+    assert parked not in state and reads == []
+    named_to = await agent_tree.open_gmail_email_draft("Mail Sharu", context, to="Sharu")
+    assert named_to["status"] == "recipient_address_required" and parked not in state
+    addressed = await agent_tree.open_gmail_email_draft("Mail", context, to="sharu@example.com")
+    assert addressed["envelope"]["to"] == "sharu@example.com" and parked in state
+    # Surfaces without the typed-chat address rule (Live voice, scheduled tasks) keep names.
+    elsewhere = SimpleNamespace(state={agent_tree.STATE_USER_ID: "owner"})
+    spoken = await agent_tree.open_gmail_email_draft(
+        "Mail Sharu", elsewhere, recipient_names="Sharu"
+    )
+    assert spoken["status"] == "draft_opened"
 
 
 def test_a_receipts_handback_admits_only_the_receipt_functions():

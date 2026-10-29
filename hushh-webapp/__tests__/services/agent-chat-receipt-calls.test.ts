@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
 import { webcrypto } from "node:crypto";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { unavailableReceiptAnalysis } from "@/lib/mail/receipt-availability";
 import { receiptCallRequest, receiptCallRunner } from "@/lib/services/agent-chat-receipt-calls";
+import { sendChatTurn } from "@/lib/services/pod-chat-turn-transport";
 
 const connector = vi.hoisted(() => ({ status: null as null | { configured: boolean; connected: boolean; revoked: boolean } }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({ getConnectorView: () => ({ status: connector.status }) }));
@@ -42,6 +44,24 @@ describe("receipt calls on a device with no saved receipts", () => {
     await expect(receiptCallRunner({ ...session, vaultOwnerToken: "" }, setup)("list_recent_receipts", list))
       .resolves.toMatchObject({ code: "receipt_snapshot_unavailable" });
     expect(setup).not.toHaveBeenCalled();
+  });
+
+  it("sends a version 1 owner pod the generic result and still offers setup; the hub gets the exact code", async () => {
+    connector.status = disconnected;
+    const setup = vi.fn();
+    const result = await receiptCallRunner(session, setup)("list_recent_receipts", list);
+    expect(setup.mock.calls).toEqual([["connect_required"]]);
+    // A hub turn sends the runner's result as it is.
+    expect(result).toMatchObject({ code: "gmail_not_connected" });
+    const answered = { schema: "receipt_analysis.v1", operation: "list_recent_receipts", status: "ok", results: [] };
+    const receiptToolResults = [result, answered].map((value, index) => ({ toolCallId: `call-${index}`, toolName: "list_recent_receipts", request: list, result: value }));
+    const posts: string[] = [];
+    const fetch = vi.fn(async (url: string, init: RequestInit) => url.endsWith("/capabilities")
+      ? Response.json({ identity: { type: "google-adk" }, transport: { streaming: true }, tools: { clientProvided: true }, receiptToolVersion: 1 })
+      : (posts.push(String(init.body)), Response.json({})));
+    await sendChatTurn("https://pod.example", { method: "POST", body: JSON.stringify({ forwardedProps: { receiptToolResults } }) }, fetch);
+    expect(JSON.parse(posts[0]!).forwardedProps.receiptToolResults).toEqual([
+      { ...receiptToolResults[0], result: unavailableReceiptAnalysis("list_recent_receipts", list) }, receiptToolResults[1]]);
   });
 
   it("admits a receipt call only for this owner turn's zone and capacity", () => {

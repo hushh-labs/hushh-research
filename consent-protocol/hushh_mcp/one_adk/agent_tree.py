@@ -140,7 +140,7 @@ from hushh_mcp.one_adk.finance_market_tools import (
     get_ticker_news,
 )
 from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, suggest_follow_ups
-from hushh_mcp.one_adk.mail_instruction import mail_admission_instruction
+from hushh_mcp.one_adk.mail_instruction import legacy_draft_addressing, mail_admission_instruction
 from hushh_mcp.one_adk.message_reactions import react_to_message, reaction_instruction
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
 from hushh_mcp.one_adk.owner_style import owner_style_instruction, propose_style_settings
@@ -867,7 +867,7 @@ def _compose_one_runtime_instruction(context: Any) -> str:
         admitted=mail_admitted,
         mailbox_changes=mail_admitted and (not pod_mode() or owner_cloud_agent()),
         timezone=state_getter(STATE_TIMEZONE) if callable(state_getter) else None,
-    )
+    ) + legacy_draft_addressing(state_getter)
     drive_admitted = (
         callable(state_getter)
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
@@ -1949,13 +1949,14 @@ async def open_gmail_email_draft(
     """Open an editable Gmail draft for an explicit personal-email request.
 
     Put real addresses in to, cc or bcc. For someone named without an address,
-    pass the name exactly as said in recipient_names (cc_names for cc): the app
-    matches the owner's active connections, never guesses an address, and reports
-    an ambiguous or unknown name instead of opening the draft. A selected Drive
-    file goes in drive_file_id exactly; the app reviews it before Send. The result
-    says whether Gmail can send. This client-only draft never contacts Gmail or
-    sends; its recipients, subject and body never enter persisted state, and only
-    the owner's Send tap sends.
+    pass the name exactly as said in recipient_names (cc_names for cc), unless
+    EMAIL ADDRESSING says this app needs addresses: the app matches the owner's
+    active connections, never guesses an address, and reports an ambiguous or
+    unknown name instead of opening the draft. A selected Drive file goes in
+    drive_file_id exactly; the app reviews it before Send. The result says whether
+    Gmail can send. This client-only draft never contacts Gmail or sends; its
+    recipients, subject and body never enter persisted state, and only the owner's
+    Send tap sends.
     """
 
     user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
@@ -1966,30 +1967,28 @@ async def open_gmail_email_draft(
             "message": "Sign in and unlock your vault before drafting an email.",
         }
     if not instruction:
-        return {
-            "status": "missing_request",
-            "message": "Ask for the email you want to draft.",
-        }
+        return {"status": "missing_request", "message": "Ask for the email you want to draft."}
 
     # The model performs the semantic decision to call this tool. The pending
     # directive keeps only the explicit instruction and any Drive file ID, stored
     # with the session; no draft values or recipients are persisted by it. Bounded
     # optional fields are accepted for the active client tool event only, where
     # the owner can edit them before the existing prepare/send confirmation boundary.
-    from hushh_mcp.one_adk.email_draft_recipients import resolve_draft_recipients
-    from hushh_mcp.one_adk.email_draft_tool import draft_field_refusal, draft_opened_result
+    from hushh_mcp.one_adk.email_draft_tool import (
+        draft_envelope,
+        draft_field_refusal,
+        draft_opened_result,
+    )
 
     fields = {"to": to, "cc": cc, "bcc": bcc, "subject": subject, "body": body}
     fields |= {"recipient_names": recipient_names, "cc_names": cc_names}
     refusal = draft_field_refusal(fields, drive_file_id)
     if refusal is not None:
         return refusal
-    envelope = await resolve_draft_recipients(
-        user_id, to=to, cc=cc, bcc=bcc, recipient_names=recipient_names, cc_names=cc_names
-    )
+    envelope = await draft_envelope(user_id, fields, tool_context.state)
     if envelope.get("status") != "ok":
-        # Ambiguous, unknown or address-less people open no card: One asks one
-        # focused question instead of handing the owner an unaddressed draft.
+        # Ambiguous, unknown or address-less people, and names an older app can't
+        # show, park no directive: One asks one question or looks the address up.
         return envelope
     payload = {"kind": "gmail_email_draft", "instruction": instruction[:12_000]}
     file_id = str(drive_file_id or "").strip()

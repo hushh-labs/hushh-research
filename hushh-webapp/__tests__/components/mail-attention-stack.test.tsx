@@ -146,6 +146,25 @@ describe("MailAttentionStack", () => {
     expect(onAskOne).toHaveBeenCalledWith(MAIL_BRIEF_PROMPT);
     expect(MAIL_BRIEF_PROMPT).toBe("Brief me on my mail");
   });
+
+  it("disables only Brief me while the chat cannot take a prompt", async () => {
+    const onAskOne = vi.fn();
+    const view = render(<MailAttentionStack onAskOne={onAskOne} onOpenItem={vi.fn()} briefDisabled />);
+    const stack = await screen.findByTestId("mail-attention-stack");
+    const toggle = await within(stack).findByRole("button", { name: "Show all" });
+    const brief = within(stack).getByRole("button", { name: "Brief me on my mail" });
+    const disabled = () => within(stack).getAllByRole("button").filter((button) => button.matches(":disabled"));
+    // Remind me later, Mark as done, each item, Show all and Hide stay usable.
+    expect(disabled()).toEqual([brief]);
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAccessibleName("Hide");
+    expect(disabled()).toEqual([brief]);
+    fireEvent.click(brief);
+    expect(onAskOne).not.toHaveBeenCalled();
+    // Once the chat can take a prompt again, so can Brief me.
+    view.rerender(<MailAttentionStack onAskOne={onAskOne} onOpenItem={vi.fn()} />);
+    expect(disabled()).toEqual([]);
+  });
 });
 
 describe("MailAttentionStack choices", () => {

@@ -516,14 +516,14 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_CONVERSATION_ID: input_data.thread_id,
         STATE_TIMEZONE: str(forwarded.get("timezone") or "")[:64],
         STATE_DRIVE_SEARCH_SELECTION: drive_search_selection,
-        # This is only an untrusted selection request. The resolver validates
-        # it against owner/thread-bound server-issued choices before any read.
-        # A picker handle is an untrusted, current-turn admission request. The
-        # ADK temp prefix keeps it out of persisted conversation state so an
-        # expired selection cannot block or redirect a later typed prompt.
+        # An untrusted picker handle, checked against owner/thread-bound choices before any
+        # read. temp: keeps it unpersisted so an expired one can't redirect a later prompt.
         "temp:hussh:requested_person_selection": str(forwarded.get("personSelectionHandle") or "")[
             :64
         ],
+        # Only a draft-contract-2 app fills the card from the result's envelope; older
+        # installed apps show the call's own To, Cc and Bcc (mail_instruction.py).
+        "temp:hussh:email_draft_envelope": forwarded.get("emailDraftContract") == 2,
         # Typed chat carries the current screen snapshot in this request. It
         # must not inherit a stale live-voice publication that is still marked
         # as settling; that would suppress the consent confirmation card even

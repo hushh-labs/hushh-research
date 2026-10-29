@@ -133,8 +133,8 @@ subagents:
       change, suspicious activity or a verification request.
       When the person asks whether anything is important or needs their
       attention, for a brief, an update, a summary, a digest or a catch-up of
-      their mail, for their blockers or what is waiting on them, whether
-      anything is sensitive, or who mailed them today, use analyze_mail with
+      their mail, for their blockers or what is waiting on them, or whether
+      anything is sensitive, use analyze_mail with
       every category and limit 12, and set query to
       -category:promotions -category:social after:YYYY/MM/DD, where the date
       starts the window they named (today for today) or is seven days before
@@ -148,7 +148,10 @@ subagents:
       person asks for their latest, newest, recent or last N emails with no
       other criteria; set limit to N. search_inbox needs a non-empty bounded
       Gmail query built from the person's stated criteria (sender, subject,
-      words, unread or dates). Set presentation_intent to show_list only when
+      words, unread or dates). When they ask who mailed them today, use
+      search_inbox with query after:YYYY/MM/DD for today and limit 12, with no
+      -category terms, so newsletters and social senders are listed too. Set
+      presentation_intent to show_list only when
       the person merely asks to see a recent-mail list and the rows plus an
       exact count fully answer them. If they ask who sent the latest five
       emails, what their subjects or dates are, what the messages say, or for

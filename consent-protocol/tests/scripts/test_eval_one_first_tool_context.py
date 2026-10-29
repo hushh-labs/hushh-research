@@ -22,6 +22,7 @@ def test_mail_selection_requires_declared_synthetic_chat_context():
 
     admitted = harness.production_instruction(case.runtime_context)
     assert "MAIL READ ADMISSION: enabled for this typed chat." in admitted
+    assert "recipient_names and cc_names are unavailable" not in admitted  # shipping client
     result = harness.score_cases(
         [case], probe, empty, reps=1, instruction_overrides={case.id: admitted}
     )

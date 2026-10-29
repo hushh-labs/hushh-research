@@ -1485,7 +1485,7 @@ and never holds the vault key. `POST /api/one/agent-chat` still pops a legacy
 `forwardedProps.receiptMemory` from older clients before the bridge can copy it,
 and keeps nothing: the Email specialist no longer reads a saved receipt index. A
 receipts question that reaches it returns `receipt_functions_required` without
-reading mail, and One answers with its receipt functions in the same turn. The index is written only through writer
+reading mail, and One answers with its receipt functions in the same turn. Typed chat also sends `forwardedProps.emailDraftContract: 2` on every run; the hub and owner-pod ingress admit it per turn as `temp:hussh:email_draft_envelope`. Only with it does One pass named people to `open_gmail_email_draft` as `recipient_names` for server-side matching; an installed native build without it shows only the call's own To, so One looks the address up with `list_my_connections` and names are refused with `recipient_address_required`. The index is written only through writer
 `gmail_receipt_memory_save_button`: once, automatically, after each sync the
 owner starts on Mail > Receipts (the product default, set by
 `RECEIPT_MEMORY_AUTO_SAVE_DEFAULT`). The page shows no save control. Opening the

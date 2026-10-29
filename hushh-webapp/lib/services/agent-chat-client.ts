@@ -942,6 +942,16 @@ export type RestoredActivityStep = {
   connectorId?: string;
 };
 
+/** A specialist read's Activity sentence: chosen by its receipt status, never by the card it renders. */
+function specialistReadMessage(toolName: string, status: unknown, metadataOnly = false): string {
+  const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
+  if (status === "ok") return source === "Drive" && metadataOnly ? "Drive search finished." : `${source} read finished.`;
+  if (status === "input_required") return `${source} needs more detail.`;
+  // The Email specialist read no mail and handed a receipts question back to One.
+  if (status === "receipt_functions_required" && source === "Mail") return "Handed to your receipts; no mail was read.";
+  return `${source} could not complete that read.`;
+}
+
 /**
  * Rebuild a turn's Activity rows from the server's bound history descriptor.
  * Labels and sentences come from the same app-owned table as the live stream;
@@ -994,11 +1004,7 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
           : "Drive file could not be checked.";
     }
     else if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
-      const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
-      message = step.readStatus === "status_checked" ? "Drive status checked."
-        : step.readStatus === "ok" ? `${source} read finished.`
-          : step.readStatus === "input_required" ? `${source} needs more detail.`
-            : `${source} could not complete that read.`;
+      message = step.readStatus === "status_checked" ? "Drive status checked." : specialistReadMessage(toolName, step.readStatus);
     }
     return [{ id, toolName, label: presentation.label, message, status, ...(provider ? { provider } : {}) }];
   });
@@ -1526,7 +1532,7 @@ export async function streamAgentChat(input: {
               personSelectionHandle: input.personSelectionHandle,
               gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
-              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
+              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2,
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -1757,22 +1763,14 @@ export async function streamAgentChat(input: {
       // smuggle a parked navigation/send directive alongside it.
       if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
         const experience = parseAgentToolResultExperience(toolName, event.content);
-        const readExperience = experience?.type === "one.connector_read.v1" ? experience : null;
         const payload = toolPayload(event.toolCallId, toolName);
         payload.execution = "server";
-        const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
-        const isStatusCheck = toolName === "inspect_selected_drive_files";
-        payload.message = isStatusCheck
-          ? parseRecord(event.content)?.status === "ok"
-            ? "Drive status checked."
-            : "Drive status could not be checked."
-          : readExperience?.status === "ok"
-            ? readExperience.connector === "drive" && readExperience.metadataOnly
-              ? "Drive search finished."
-              : `${source} read finished.`
-            : readExperience?.status === "input_required"
-              ? `${source} needs more detail.`
-              : `${source} could not complete that read.`;
+        // The row reads the result's own receipt, so a brief card, a receipt card or no card all report the same read.
+        const receipt = asRecord(unwrapParkedActionResult(event.content)?.structured);
+        const own = receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive") ? receipt : null;
+        payload.message = toolName === "inspect_selected_drive_files"
+          ? parseRecord(event.content)?.status === "ok" ? "Drive status checked." : "Drive status could not be checked."
+          : specialistReadMessage(toolName, own?.status, own?.metadata_only === true);
         payload.raw = { protocol: "ag-ui", toolName };
         handlers.onToolResult?.(payload);
         if (experience) {
@@ -2031,7 +2029,7 @@ export async function streamAgentChat(input: {
                     personSelectionHandle: input.personSelectionHandle,
                     gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
                     ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
-                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
+                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2,
                     screenContext: input.screenContext,
                     ...(approval ? { mcpApproval: {
                       directiveId: approval.directiveId, connectorId: approval.connectorId,
@@ -2135,6 +2133,8 @@ export async function streamAgentChat(input: {
         gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
         ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
+        // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
+        emailDraftContract: 2,
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.financeShare ? { financeShare: input.financeShare } : {}),
@@ -2162,7 +2162,7 @@ export async function streamAgentChat(input: {
       for (const item of receiptToolResults) agent.addMessage({ id: crypto.randomUUID(), role: "tool", toolCallId: item.toolCallId,
         content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) });
       await runUntilTerminal({ tools, context: [], forwardedProps: {
-        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults,
+        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2,
       } });
       if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Ask again.");
     }

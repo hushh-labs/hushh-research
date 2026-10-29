@@ -167,7 +167,12 @@ These paths should remain deterministic by design:
   or whole words of it; a display name holding an address never counts as a
   name. A partial or misspelled match, several matches, people sharing one name,
   or an unknown or address-less name opens no draft and returns a typed status
-  whose message names the one question One asks.
+  whose message names the one question One asks. Names resolve only for a
+  typed-chat app that declares draft contract 2 (`forwardedProps.emailDraftContract`);
+  an older installed app shows the call's own recipients, so
+  `one_adk/email_draft_tool.py` refuses names for it with
+  `recipient_address_required` and One looks the address up with
+  `list_my_connections` (a refusal, never a substituted recipient).
 
 These are safety and infrastructure concerns, not semantic classification concerns.
 
@@ -772,6 +777,9 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   security alerts. A brief ("anything important?", "what are my blockers?",
   "anything sensitive?") asks for every category over recent mail outside
   Promotions and Social; the planner writes that query from its instruction.
+  Asking who mailed them today is a listing, not a brief: the planner selects
+  `search_inbox` with that day's `after:` term and no category exclusion, so
+  newsletters and social senders are included.
 - Manifest path: `consent-protocol/hushh_mcp/agents/email/agent.yaml`.
 - Structured output: `MailReadPlan` (`operation`, bounded Gmail query and limit,
   `categories`) and `MailAnalysisAnswer` (`findings` with category, source ref,

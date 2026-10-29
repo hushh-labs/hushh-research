@@ -195,6 +195,10 @@ the connector status already says Gmail is disconnected; any other missing
 snapshot, including an unknown status, is `receipts_not_synced`. The chat shows
 the in-chat Connect card for the first and an Open receipts control for the
 second, at most once per turn; `receipt_snapshot_unavailable` shows no card.
+An owner pod that advertises `receiptToolVersion: 1` may run the older validator,
+so its continuation carries `receipt_snapshot_unavailable` and its sentence in place
+of either setup code (expand phase); the card still follows the device's own code,
+and hub turns keep the exact code.
 
 Only the authorized continuation's model request receives detailed results.
 Native tool messages, encrypted session history and restored answers contain

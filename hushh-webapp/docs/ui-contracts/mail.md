@@ -712,7 +712,7 @@ projection bounds, not editor/server validation limits.
 | Recipient read | Ordinary editable mode calls `ConnectionsService.listConnections`; failure permits typing. Bound replies do not load connections. No per-suggestion API. |
 | Generation | `autoDraft` once per mount → draft API; busy status **Drafting your mail.** / **One is preparing your mail draft...**; editor replaced by skeleton. Existing recipient/subject and explicit edits survive gap fill. |
 | Missing fields | **One still needs: {labels joined comma-space}.** This warning alone does not disable Send. |
-| Named recipients | One passes a person named without an address as `recipient_names`/`cc_names`; the server matches the owner's active connections and returns the resolved `envelope`, which prefills To/Cc/Bcc. It addresses the draft only when exactly one connection matches and the name as said is that connection's whole name or whole words of it; a display name that is an email address never counts as a name. A partial or misspelled match, several matches, connections sharing one name, an unknown name or a connection without an address opens no card: One asks the one question the result names (which person, whether they meant the closest match, or for an email address). Masked or guessed addresses are never filled. The model sees resolved addresses for that turn; durable history empties the tool's inputs and results, but the request text and any Drive file ID stay in the stored pending directive. |
+| Named recipients | Only an app that sends `forwardedProps.emailDraftContract: 2` (admitted per turn as `temp:hussh:email_draft_envelope` by the hub and owner-pod ingress) gets names resolved; an older installed build gets an address-first rule, One looks the address up with `list_my_connections`, and names are refused with `recipient_address_required`. With the contract, One passes a person named without an address as `recipient_names`/`cc_names`; the server matches the owner's active connections and returns the resolved `envelope`, which prefills To/Cc/Bcc. It addresses the draft only when exactly one connection matches and the name as said is that connection's whole name or whole words of it; a display name that is an email address never counts as a name. A partial or misspelled match, several matches, connections sharing one name, an unknown name or a connection without an address opens no card: One asks the one question the result names (which person, whether they meant the closest match, or for an email address). Masked or guessed addresses are never filled. The model sees resolved addresses for that turn; durable history empties the tool's inputs and results, but the request text and any Drive file ID stay in the stored pending directive. |
 | Send readiness | `EmailDraftGmailNotice` above Send: **Connect Gmail to send this.** + **Connect Gmail** for a mailbox never connected, **Reconnect Gmail to send this.** + **Reconnect Gmail** for live `needs_reauth` or `gmail_send: reconnect_required`, or **Allow One to send from Gmail.** + **Allow sending**; busy **Waiting for Google…**. A gap the live connector status shows wins. Its all-clear counts only once a status is read after the card opened, so a cached status never hides a gap the server's draft-time `gmail_send` hint reported. The hint covers a switched-off send until a connect from the card is confirmed; a cancelled or denied consent keeps it. Status is re-read once on open when Send looks blocked and again when the connect attempt ends. Unknown shows nothing; the server still checks every Send. |
 | Generation error | **Try drafting again** only ordinary `autoDraft` mode; repeats generation, never sends. |
 | First-connect recovery | **Connect Gmail** opens existing connections drawer when callback provided, otherwise `/one/gmail`. |
@@ -722,14 +722,16 @@ projection bounds, not editor/server validation limits.
 | Drive attachment preparation | One optional supplied Drive ID, no generic upload/file-picker/remove-attachment widget in this card. **Review attachment** prepares exact envelope/file before showing review; no send yet. Status **Checking the selected Drive file…**. |
 | Attachment review | **Review before sending**; **To: {to}**, optional **Cc: {cc}**, **Bcc: {bcc}**; filename, **{mimeType} · {ceil(bytes/1024)} KB · {sourceAccountLabel}**; **This file is attached only after you press Send email.** |
 | **Send email** | Second explicit attachment click, uses matching nonexpired action/token/filename/type/account/size. Any edit invalidates review and requires fresh review. |
-| Normal **Send** / bound **Send reply** | Snapshot exact reviewed fields. `onSendStarted` immediately closes One editor and adds sending activity before I/O. Prepare then send, or use already reviewed exact action. Ref suppresses duplicate click. Busy/autoDraft-no-body/sendUnavailable/stale review disables; expired review also refuses in handler. |
+| Normal **Send** / bound **Send reply** | While a send-readiness gap shows, Send starts the in-place Gmail connect instead and keeps the draft open; it stays disabled while Google's window is open. Ordinary compose then runs a local recipient check that keeps the editor open with **Add a recipient before sending.** or **Use a full email address in {To/Cc/Bcc}.** Otherwise: snapshot exact reviewed fields; `onSendStarted` immediately closes One editor and adds sending activity before I/O. Prepare then send, or use already reviewed exact action. Ref suppresses duplicate click. Busy/autoDraft-no-body/sendUnavailable/stale review disables; expired review also refuses in handler. |
 | Footer **Decline** | Same dismiss callback as X; during generation caption **Close draft**. Dismissing KYC reply does not Ignore its server workflow. |
 | Busy dismissal | Fields/formatting/Save/primary disable during draft/attachment/save busy. X/Decline remain enabled. Card itself does not cancel in-flight async work. No standalone Yes/No, outside-click dismissal or `useBackLayer` is authored here; caller owns surrounding navigation. |
 
-Ordinary recipient/subject fields are plain text inputs without HTML maxLength,
-required attributes or local address validation. The server requires valid
-headers, ≤50 total normalized recipients, subject≤256, body/HTML≤50000. Do not
-interpret the looser event projection or absence of HTML bounds as send policy.
+Ordinary recipient/subject fields are plain text inputs without HTML maxLength
+or required attributes. Send's local recipient check mirrors the server's
+normalizer and is never stricter; the server stays the authority and requires
+valid headers, ≤50 total normalized recipients, subject≤256, body/HTML≤50000. Do
+not interpret the looser event projection or absence of HTML bounds as send
+policy.
 
 Source-bound KYC replies suppress recipient editing, Cc/Bcc, connections read,
 Save to Gmail Drafts, generic retry and Drive review. One adapter strips HTML
@@ -1308,7 +1310,7 @@ owner's details. Nothing is predicted or inferred from mail text.
 | Element/control | Exact copy, reads, action and branches |
 | --- | --- |
 | Header | Group label **Mail**; count summary such as **1 overdue payment · 2 requests for your details**. |
-| **Brief me** | Accessible **Brief me on my mail**; sends the fixed prompt **Brief me on my mail** to One, never item text. |
+| **Brief me** | Accessible **Brief me on my mail**; sends the fixed prompt **Brief me on my mail** to One, never item text. Disabled whenever the welcome prompts are: while the chat checks for a draft saved before a Drive visit, while voice connects, or while a reply loads or streams. **Remind me later**, **Mark as done**, **Show all** and **Hide** stay usable. |
 | Collapsed stack | Top card plus up to two decorative peeks. Card shows subtitle and relative time, then title; tapping the text opens Mail Receipts for a receipt or Mail KYC for a request. |
 | **Remind me later** / **Mark as done** | Per item, accessible **Remind me later: {title}** / **Mark as done: {title}**. Later hides for 24 hours; done hides until the item's state changes. Toast **Hidden for 24 hours** / **Marked as done** with **Undo**. Focus is placed once the choice is applied, since applying it re-reads the device record and can bring other items back: it moves to the stack while any item is left; when none is, the stack is removed and keyboard use moves focus to the composer (**Message One**), while a tap leaves it so no phone keyboard opens. |
 | **Show all** / **Hide** | Only with two or more items; expanded rows show a local date. The expanded state registers a Back layer that collapses it. Collapsing from the toggle or Back moves focus from a removed row to the toggle. |
@@ -1340,7 +1342,10 @@ expanded list registers a Back layer that collapses it. Footers say what the
 check couldn't see: **Only recent mail was checked.** when more mail sat outside
 the page, **Some messages couldn't be read.** when any message had no readable
 text, and **Some messages were only partly read.** when message text was
-shortened. Durable history redacts the brief. A
+shortened. Durable history redacts the brief. The turn's **Gmail** Activity row reports
+the read's own receipt status, whichever card renders: **Mail read finished.** beside a
+brief, and **Handed to your receipts; no mail was read.** when the Email specialist hands
+a receipts question back to One, live and after reload. A
 receipt function the device cannot answer because it holds no saved receipts
 becomes the existing Gmail connector card when the connector status already
 says Gmail is disconnected, or otherwise (including an unknown status)

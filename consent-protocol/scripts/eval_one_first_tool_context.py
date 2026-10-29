@@ -66,9 +66,13 @@ def parse_case(raw: Any, position: int) -> Case:
 def compose_instruction(tree: Any, runtime_context: str = "empty") -> str:
     context = _EmptyReadonlyContext()
     if runtime_context == "typed_chat":
+        from hushh_mcp.one_adk.mail_instruction import STATE_EMAIL_DRAFT_ENVELOPE
+
         context.state = {
             tree.STATE_EXECUTION_SURFACE: "typed_chat",
             tree.STATE_USER_ID: "synthetic-first-tool-evaluation",
+            # The shipping web client declares draft contract 2.
+            STATE_EMAIL_DRAFT_ENVELOPE: True,
         }
     elif runtime_context != "empty":
         raise ValueError("unsupported runtime context")

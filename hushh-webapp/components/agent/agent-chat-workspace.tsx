@@ -10106,10 +10106,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     disabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
                     onPromptSelect={handleWelcomePromptSelect}
                   />
-                  {!isPuppySurface ? (
-                    <MailAttentionStack onAskOne={handleWelcomePromptSelect} onEmpty={() => composerTextareaRef.current?.focus()}
-                      onOpenItem={(item) => router.push(buildGmailWorkspaceRoute(item.source === "receipt" ? "receipts" : "kyc"))} />
-                  ) : null}
+                  {!isPuppySurface ? <MailAttentionStack onAskOne={handleWelcomePromptSelect}
+                    briefDisabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
+                    onEmpty={() => composerTextareaRef.current?.focus()}
+                    onOpenItem={(item) => router.push(buildGmailWorkspaceRoute(item.source === "receipt" ? "receipts" : "kyc"))} /> : null}
                   {chatOnboarding.dailyTip ? (
                     <ChatOnboardingDailyTip
                       tip={chatOnboarding.dailyTip}

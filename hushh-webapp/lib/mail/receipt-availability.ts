@@ -46,3 +46,16 @@ export function unavailableReceiptAnalysis(operation: ReceiptFunction, request: 
     cancellation_handling: "Unpaid, failed, cancelled and trial records are excluded from paid totals.",
     limitations: [RECEIPT_UNAVAILABLE_LIMITATIONS[code]], results: [] };
 }
+
+/**
+ * Expand phase: an owner pod on receipt tools version 1 may run the older
+ * validator, which admits only the generic unavailable result. Version 1 can't
+ * tell the two apart, so every version 1 turn gets the generic code and sentence
+ * until the web understands version 2. The hub admits every code.
+ */
+export function legacyReceiptResult(result: unknown): unknown {
+  const value = result as { status?: unknown; code?: unknown } | null | undefined;
+  const code = value?.status === "unavailable" ? value.code : null;
+  return typeof code === "string" && code !== "receipt_snapshot_unavailable" && Object.hasOwn(RECEIPT_UNAVAILABLE_LIMITATIONS, code)
+    ? { ...value, code: "receipt_snapshot_unavailable", limitations: [RECEIPT_UNAVAILABLE_LIMITATIONS.receipt_snapshot_unavailable] } : result;
+}

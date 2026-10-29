@@ -51,6 +51,10 @@ GmailSendReadiness = Literal[
 # The delivery path's own limit (normalize_draft refuses more than 50), so a
 # draft One addresses can always be prepared.
 MAX_DRAFT_RECIPIENTS = 50
+# The bound open_gmail_email_draft and the draft card apply to each of To, Cc
+# and Bcc. The card counts UTF-16 units and drops a longer envelope for the
+# model's own arguments, so no joined field may pass it.
+MAX_RECIPIENT_FIELD_LENGTH = 2048
 _MAX_CANDIDATES = 4
 _UNNAMED_CONNECTION = "Hussh member"
 # "*", bullet and ellipsis mask addresses for display (pii_sanitizer,
@@ -148,7 +152,9 @@ def _parse(fields: tuple[tuple[str, str], ...]) -> list[_Entry] | dict[str, Any]
                 )
                 continue
             address = _usable_address(token)
-            if address is None:
+            # The card refuses control characters in a field, so one here would leave
+            # the draft showing the model's own recipients instead of this envelope.
+            if address is None or any(ord(char) < 0x20 or ord(char) == 0x7F for char in token):
                 return _refusal(
                     "invalid_recipient",
                     f"An address in {_ROLE_LABELS[role]} isn't valid. "
@@ -334,13 +340,16 @@ def _envelope(entries: list[_Entry], by_name: dict[str, _Match]) -> dict[str, An
         if display_name and address not in named:
             named.add(address)
             recipients.append({"name": display_name, "role": landed[address]})
-    return {
-        "status": "ok",
-        "to": ", ".join(fields["to"]),
-        "cc": ", ".join(fields["cc"]),
-        "bcc": ", ".join(fields["bcc"]),
-        "recipients": recipients,
-    }
+    joined = {role: ", ".join(texts) for role, texts in fields.items()}
+    for role, value in joined.items():
+        if len(value.encode("utf-16-le", errors="surrogatepass")) // 2 > MAX_RECIPIENT_FIELD_LENGTH:
+            return _refusal(
+                "too_many_recipients",
+                f"The {_ROLE_LABELS[role]} field can't fit that many addresses. "
+                "Ask which ones to keep.",
+                reason="field_too_long",
+            )
+    return {"status": "ok", **joined, "recipients": recipients}
 
 
 async def resolve_draft_recipients(
@@ -365,7 +374,9 @@ async def resolve_draft_recipients(
     - ``ok``: ``to``, ``cc``, ``bcc`` (", "-joined, each mailbox once in its
       first role) and ``recipients``, one ``{name, role}`` per connection
       matched from a name. Supplied addresses carry no name.
-    - ``invalid_recipient`` or ``too_many_recipients``, before any lookup.
+    - ``invalid_recipient`` or ``too_many_recipients``, before any lookup;
+      ``too_many_recipients`` also when a joined field would pass
+      ``MAX_RECIPIENT_FIELD_LENGTH``.
     - ``recipient_choice_needed`` (``name``, ``candidates``: up to four
       display names, distinct under the spoken-name rule, whole-word matches
       first),
@@ -394,8 +405,10 @@ async def resolve_draft_recipients(
     outcome = await _resolve_names(user_id, names)
     if isinstance(outcome, dict):
         return outcome
-    logger.info("one.email_draft.recipients outcome=ok named=%d", len(outcome))
-    return _envelope(parsed, dict(zip(names, outcome, strict=True)))
+    envelope = _envelope(parsed, dict(zip(names, outcome, strict=True)))
+    if envelope["status"] == "ok":
+        logger.info("one.email_draft.recipients outcome=ok named=%d", len(outcome))
+    return envelope
 
 
 async def _send_readiness(owner: str) -> GmailSendReadiness:
