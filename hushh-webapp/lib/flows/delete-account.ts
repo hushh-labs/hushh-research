@@ -95,7 +95,7 @@ export const DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE =
 export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE =
   "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING";
 export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE =
-  "Your private agent or cloud setup must be removed before the account can be deleted. Please try again later or contact support.";
+  "Agent One or cloud setup must be removed before the account can be deleted. Please try again later or contact support.";
 
 function isRecoverableAccountDeletionPrecondition(error: unknown): boolean {
   return (
@@ -183,7 +183,7 @@ export function lostVaultDeletionErrorMessage(error: unknown): string {
     case "ACCOUNT_DELETE_REVIEW_UNAVAILABLE":
       return "We couldn't review deletion right now. Try again.";
     case "PERSONAL_AGENT_DEPROVISION_REQUIRED":
-      return "Your private agent must be removed first. Contact support.";
+      return "Agent One must be removed first. Contact support.";
     default:
       return accountDeletionErrorMessage(error);
   }

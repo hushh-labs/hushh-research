@@ -150,7 +150,7 @@ function TodoAddItemSheet({
               Add item
             </SheetTitle>
             <SheetDescription className="sr-only">
-              This stays encrypted in your private agent.
+              This stays encrypted in Agent One.
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 px-5 pb-2">

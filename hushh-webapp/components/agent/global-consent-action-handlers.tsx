@@ -104,7 +104,7 @@ export function GlobalConsentActionHandlers() {
       if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
         return {
           status: "failed" as const,
-          summary: "Unlock your private agent first, then ask me again.",
+          summary: "Unlock Agent One first, then ask me again.",
         };
       }
 
@@ -199,7 +199,7 @@ export function GlobalConsentActionHandlers() {
         };
       }
       if (!userId || !isVaultUnlocked) {
-        return { status: "failed" as const, summary: "Unlock your private agent first." };
+        return { status: "failed" as const, summary: "Unlock Agent One first." };
       }
       try {
         // `quiet` suppresses the screen's own toast (the agent speaks the
@@ -239,7 +239,7 @@ export function GlobalConsentActionHandlers() {
         };
       }
       if (!userId || !isVaultUnlocked) {
-        return { status: "failed" as const, summary: "Unlock your private agent first." };
+        return { status: "failed" as const, summary: "Unlock Agent One first." };
       }
       try {
         await handleRevoke(scope, requestId || undefined, { quiet: true });
@@ -278,7 +278,7 @@ export function GlobalConsentActionHandlers() {
       }
       const viewerUid = userId;
       if (!vaultOwnerToken) {
-        return { status: "failed" as const, summary: "Unlock your private agent first." };
+        return { status: "failed" as const, summary: "Unlock Agent One first." };
       }
       try {
         await PersonProfileService.cancelInformationRequest({ bundleId, vaultOwnerToken });

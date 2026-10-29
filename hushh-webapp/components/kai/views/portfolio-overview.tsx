@@ -38,7 +38,7 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
           <div><dt><CalendarDays aria-hidden="true" />Dated history</dt><dd>{model.quality.historyReady ? "Available" : "Not provided"}</dd></div>
           <div><dt><BarChart3 aria-hidden="true" />Investment return</dt><dd>Unavailable</dd></div>
         </dl>
-        <p className={styles.description}>Balance changes can include cash flows.<br />They aren’t investment returns.</p>
+        <p className={styles.description}>Balance changes can include cash flows; investment return is unavailable.</p>
         <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11" onClick={() => onOpenSection("performance")}>View performance</ShellActionSurface></div>
       </SurfaceCardContent></SurfaceCard>
       <SurfaceCard className={styles.insightShell}><SurfaceCardContent className={styles.insightCard}>

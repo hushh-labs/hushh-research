@@ -597,7 +597,7 @@ describe("chat draft question card", () => {
     render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
       clientRequestId, purpose: "Tax return", periodStart: null, periodEnd: null,
     }} />);
-    expect(await screen.findByText("Choose exact start and end dates with your private agent before sending this request.")).toBeVisible();
+    expect(await screen.findByText("Choose exact start and end dates with Agent One before sending this request.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Request files" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Ask as a question" })).toBeDisabled();
     expect(state.createQuery).not.toHaveBeenCalled();
@@ -607,7 +607,7 @@ describe("chat draft question card", () => {
     render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
       clientRequestId, purpose: "last 3 days standup notes", periodStart: null, periodEnd: null,
     }} />);
-    expect(await screen.findByText("Choose exact start and end dates with your private agent before sending this request.")).toBeVisible();
+    expect(await screen.findByText("Choose exact start and end dates with Agent One before sending this request.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Request files" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Ask as a question" })).toBeDisabled();
     expect(state.create).not.toHaveBeenCalled();

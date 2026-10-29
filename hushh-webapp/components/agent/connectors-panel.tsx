@@ -2088,8 +2088,8 @@ function OwnerConnectorsPanel({
       ? "Checking your calendar connection."
       : calendar.connected
         ? calendar.status?.access_level === "manage"
-          ? "Your private agent can help schedule meetings. You approve every change."
-          : "Your private agent can check your availability."
+          ? "Agent One can help schedule meetings. You approve every change."
+          : "Agent One can check your availability."
         : calendarNeedsReconnect
           ? "Reconnect to keep planning around your schedule."
           : "Plan around your schedule.";

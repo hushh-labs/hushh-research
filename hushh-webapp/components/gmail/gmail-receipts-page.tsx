@@ -950,7 +950,7 @@ export default function GmailReceiptsPage({
       }
       const current = await refreshGmailStatus({ force: true });
       if (gmailOwnerIdRef.current !== operationOwner) return false;
-      if (current?.connected) toast.success('Gmail connected to your private agent.');
+      if (current?.connected) toast.success('Gmail connected to Agent One.');
       return current?.connected === true;
     };
 

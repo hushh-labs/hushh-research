@@ -194,24 +194,24 @@ export type DeploymentCopy = { title: string; description: string };
  */
 const DEPLOYMENT_COPY: Record<AgentDeploymentState, DeploymentCopy> = {
   reserved: {
-    title: "Setting up your private agent",
-    description: "Reserving your private agent's identity.",
+    title: "Setting up Agent One",
+    description: "Reserving Agent One's identity.",
   },
   provisioning: {
-    title: "Setting up your private agent",
+    title: "Setting up Agent One",
     description: "Building a private space that only your agent can reach.",
   },
   connecting: {
-    title: "Setting up your private agent",
-    description: "Your private agent is starting up and introducing itself.",
+    title: "Setting up Agent One",
+    description: "Agent One is starting up and introducing itself.",
   },
   active: {
-    title: "Your private agent is ready",
+    title: "Agent One is ready",
     description: "It is running in your own private space.",
   },
   failed: {
     title: "Setup did not finish",
-    description: "Your private agent could not be set up. Nothing was lost.",
+    description: "Agent One could not be set up. Nothing was lost.",
   },
 };
 
