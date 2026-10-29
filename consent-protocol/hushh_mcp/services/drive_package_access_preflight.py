@@ -111,6 +111,7 @@ class DrivePackageAccessPreflight:
                 async def source_current():
                     actual = await reader.adapter.get_share_metadata(
                         **args,
+                        include_permissions=True,
                         **(
                             {"resource_key": file["resourceKey"]} if file.get("resourceKey") else {}
                         ),
@@ -134,14 +135,21 @@ class DrivePackageAccessPreflight:
                     ):
                         raise DriveSharingError("source_changed")
                     await require_current()
+                    return actual
 
-                await source_current()
-                snapshot = await self.permissions.list_permissions(
-                    **args,
-                    require_current=require_current,
-                    **({"resource_key": file["resourceKey"]} if file.get("resourceKey") else {}),
-                )
-                await source_current()
+                actual = await source_current()
+                # The validated complete My Drive ACL and source identity came
+                # from one fresh response. Other cases retain the fenced list.
+                snapshot = getattr(actual, "permission_snapshot", None)
+                if snapshot is None:
+                    snapshot = await self.permissions.list_permissions(
+                        **args,
+                        require_current=require_current,
+                        **(
+                            {"resource_key": file["resourceKey"]} if file.get("resourceKey") else {}
+                        ),
+                    )
+                    await source_current()
                 state, permission = recipient_access(
                     snapshot, email=recipient["email"], now=datetime.now(UTC)
                 )
