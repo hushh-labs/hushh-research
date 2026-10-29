@@ -323,6 +323,27 @@ describe("shared encrypted memory.md stable scope retrieval", () => {
     expect(Object.values(served.sourceFreshness).flatMap(entry => entry.sources.map(source => source.domain))).not.toContain("one_living_sources");
     expect(answerScopeAvailability({ scopes: [NAME, SEX], retrieval: served }).available).toEqual([NAME, SEX]);
   });
+
+  it("stores a slice again after it changes back, as a fresh write the server cannot refuse", async () => {
+    // commit_pkm_domain_mutation_v4 binds a reused receipt to its first base revision.
+    let revision = 0;
+    const bound = new Map<string, number>();
+    const write = transport.write.getMockImplementation()!;
+    transport.write.mockImplementation(async params => {
+      const scope = params.idempotencyScope as string | undefined;
+      if (scope && (bound.get(scope) ?? revision) !== revision) return { success: false };
+      if (scope && !bound.has(scope)) bound.set(scope, revision);
+      revision += 1;
+      return write(params);
+    });
+    for (const displayName of ["Account Ava", "Updated account", "Account Ava"]) {
+      CacheService.getInstance().clear();
+      const result = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [NAME], ownerIdentity: { displayName } });
+      expect(result.complete).toBe(true);
+      expect(resultValue(result, NAME, "identity_profile.full_name")).toBe(displayName);
+    }
+    expect(transport.write).toHaveBeenCalledTimes(3);
+  });
 });
 
 it("unrelated projection writes do not invalidate a narrow current fact", async () => {
