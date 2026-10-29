@@ -46,6 +46,11 @@ Only the authenticated recipient with current owner model-processing permission
 may submit it. The current recipient processing-provider approval still applies.
 The signed private-pod consent metadata feed accepts `finance:{grantId}:{revision}`
 references with fresh nonces; it carries policy/digest/lifecycle metadata only.
+`GET /api/one/pod/owner-feed/consent` uses the same `ConsentReadReference`
+validation as the pod client: an ordinary bundle UUID or a Finance reference
+with a positive revision of at most nine digits. Malformed references return
+422 before the signed feed is read; accepted references still require the
+existing owner binding and current recipient processing permission.
 Existing shared-context tool blocking, request-secret lifetime and history/model
 redaction apply. Authority is checked again around model generation.
 

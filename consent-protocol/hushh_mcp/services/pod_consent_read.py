@@ -4,17 +4,22 @@ from __future__ import annotations
 
 import asyncio
 import secrets
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints
+
+ConsentReadReference = Annotated[
+    str,
+    StringConstraints(
+        pattern=r"^(?:[0-9a-f-]{36}|finance:[0-9a-f-]{36}:[1-9][0-9]{0,8})$", max_length=90
+    ),
+]
 
 
 class ConsentReadOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    bundle_id: str = Field(
-        pattern=r"^(?:[0-9a-f-]{36}|finance:[0-9a-f-]{36}:[1-9][0-9]{0,8})$", max_length=90
-    )
+    bundle_id: ConsentReadReference
     read_nonce: str = Field(pattern=r"^[0-9a-f]{32}$")
     submission_key: str | None = Field(default=None, min_length=16, max_length=256)
 
