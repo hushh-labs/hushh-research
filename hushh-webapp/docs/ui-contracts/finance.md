@@ -51,11 +51,14 @@ The existing `/one/kai?tab=portfolio` and `?tab=analysis` query panels retain
 one Finance header, registered tab rail, mounted pager and shared Back owner.
 Portfolio details remain finite `/one/kai/portfolio/{holdings,allocation,performance,sources}`
 routes. The shared shell owns the outer gutter and the canonical 880px header/tab
-column. The Portfolio and Stocks panels scope the centered 728px Connect
-reading measure and Plus Jakarta Sans roles. Market retains its panel typography;
+column, including the portfolio import flow. Finance uses the compact title beside
+Back, with an assistive-only page heading. Portfolio and Stocks fill that column
+and use Plus Jakarta Sans roles. Market retains its panel typography;
 styles do not change on hidden mounted panels when the selected tab changes. Rows use 14/21/550,
 support 12/18/400, section labels 14/22/600, and compact actions 12/18/550.
-Financial totals retain their larger type. Cards keep natural content height.
+Financial totals retain their larger type. Paired overview cards share a height;
+analysis, performance and allocation actions align at the bottom right. Dedicated
+Holdings, Allocation and Performance cards replace the repeated navigation list.
 
 Portfolio value, period change, holdings, allocations and sources still come
 from the existing owner-scoped dashboard mapper. Overview and Performance share
@@ -192,3 +195,19 @@ company or percentage. Matching observation times share one line; differing
 times stay with their rows. Market omits cache labels while preserving actual
 quote times, delayed/closed/unavailable states and the underlying cache policy.
 Stocks detail and Portfolio source/history disclosures retain their own wording.
+
+Finance interaction feedback uses the shared Material ripple on actionable market,
+news and holding rows, matching existing stock, import and card actions. Financial
+figures and chart series remain stable. Local sharing steps and newly revealed
+fields use the existing 150ms content-entry utility; selection layers fade with
+the shared 100ms motion token. Reduced motion removes positional entrances and
+keeps immediate selection feedback. Route, tab and sheet motion retain their
+shared owners; no separate Finance page transition is introduced.
+
+Finance sharing uses one bounded desktop frame: the connection roster scrolls
+inside the left card, with What and How cards stacked to the same total height
+on the right. Options scroll within their own cards. Below 768px, connections
+come first, then sharing options; Preview follows those two steps. Back preserves
+selections through preview, options and connections before closing. Continue and
+Preview are right-aligned accent actions. Only the final reviewed confirmation
+publishes a share; amount and private-agent permissions remain off by default.
