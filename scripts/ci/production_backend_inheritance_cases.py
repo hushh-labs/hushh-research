@@ -12,6 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import yaml
+
 import production_backend_inheritance as inheritance
 
 from production_phone_receipt_fixtures import archive, cold_revision
@@ -253,6 +255,56 @@ class BackendInheritanceCases:
 
 
 class ProductionEvidenceStatusCases:
+    def test_trusted_production_callers_authenticate_legacy_status_layout(self):
+        if self.environment != "production":
+            return
+        root = Path(__file__).resolve().parents[2]
+        workflows = root / ".github/workflows"
+        deploy = yaml.safe_load((workflows / "deploy-production.yml").read_text())
+        maintenance = yaml.safe_load((workflows / "capacity-maintenance.yml").read_text())
+        clock = yaml.safe_load((workflows / "capacity-maintenance-clock.yml").read_text())
+        selection = maintenance["jobs"]["select-release"]["steps"]
+        contexts = {
+            "deployment": deploy["env"],
+            "cleanup": maintenance["jobs"]["cleanup"]["env"],
+            "clock": next(
+                step.get("env") or {} for step in clock["jobs"]["check"]["steps"]
+                if step["name"] == "Check production"
+            ),
+            **{
+                step["name"]: step["env"]
+                for step in selection
+                if step["name"] in {
+                    "Verify due production source", "Prepare operational reference intent"
+                }
+            },
+        }
+        self.assertEqual(len(contexts), 5)
+        payload = self.archive("legacy")
+        self.inventory = {"total_count": 1, "artifacts": [self.artifact]}
+        flag = MAINTENANCE.release_artifact_receipts.PRODUCTION_EVIDENCE_REPAIR_FLAG
+        for name, environment in contexts.items():
+            with self.subTest(context=name), tempfile.TemporaryDirectory() as temporary:
+                with (
+                    mock.patch.dict("os.environ", {flag: environment.get(flag, "false")}),
+                    mock.patch.object(MAINTENANCE, "api", side_effect=self.api),
+                    mock.patch.object(
+                        MAINTENANCE, "download",
+                        side_effect=AssertionError("extracted status is not authority"),
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE.retention, "run_command",
+                        return_value=subprocess.CompletedProcess([], 0, payload, b""),
+                    ),
+                ):
+                    directory = Path(temporary)
+                    result = MAINTENANCE.load_release(self.repo, 300, directory, "production")
+                    self.assertEqual(result, {"status": "healthy", "marker": "attempt-two"})
+                    self.artifact["digest"] = "sha256:" + "0" * 64
+                    with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                        MAINTENANCE.load_release(self.repo, 300, directory, "production")
+                    self.artifact["digest"] = "sha256:" + hashlib.sha256(payload).hexdigest()
+
     def test_legacy_production_status_is_bound_to_current_upload_and_digest(self):
         if self.environment != "production":
             return

@@ -1386,6 +1386,10 @@ status comes from the current attempt's digest-verified artifact, not a local
 cache. The reader accepts `tmp/prod-release-status.json` only as an unambiguous
 alternative to the root status file, and rechecks the run and artifact inventory
 without the maintenance-pass cache.
+The production deploy workflow selects this reader for its authorized production
+operation. Production maintenance selects it in source qualification, operational
+intent preparation, the locked cleanup job and the clock's production due check.
+The library default remains off; UAT reader behavior is unchanged.
 A saved maintenance checkpoint may precede the README writer. Only the existing
 attempt/job/source-qualified saved-checkpoint path may restore that shape; legacy
 pending-drain archives still require the marker. Artifact ID, size, digest, bounded
