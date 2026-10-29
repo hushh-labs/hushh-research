@@ -3360,9 +3360,16 @@ jobs:
         run: |
           set -euo pipefail
           uat_image="gcr.io/hushh-pda-uat/consent-protocol@${IMAGE_REFERENCE#*@}"
-          gcloud container images add-tag --quiet "$uat_image"             "gcr.io/hushh-pda/consent-protocol:prod-$DEPLOY_SHA"
-          docker buildx imagetools inspect "$IMAGE_REFERENCE" --raw             > "$RUNNER_TEMP/worker-stage/image-manifest.json"
-          resolved="$(python3 scripts/ci/resolve-cloud-run-image.py             --image-reference "$IMAGE_REFERENCE"             --manifest-json "$RUNNER_TEMP/worker-stage/image-manifest.json"             --sha "$DEPLOY_SHA")"
+          gcloud container images add-tag --quiet "$uat_image" \
+            "gcr.io/hushh-pda/consent-protocol:prod-$DEPLOY_SHA"
+          gcloud auth configure-docker gcr.io --quiet
+          docker buildx imagetools inspect "$IMAGE_REFERENCE" --raw \
+            > "$RUNNER_TEMP/worker-stage/image-manifest.json"
+          resolved="$(python3 scripts/ci/resolve-cloud-run-image.py \
+            --image-reference "$IMAGE_REFERENCE" \
+            --manifest-json "$RUNNER_TEMP/worker-stage/image-manifest.json" \
+            --json-output "$RUNNER_TEMP/worker-stage/image.json" \
+            --sha "$DEPLOY_SHA")"
           [[ "$resolved" == "$IMAGE_REFERENCE" ]] || exit 1
 
       - name: Sync isolated production Drive candidate configuration
