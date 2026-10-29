@@ -13,14 +13,16 @@ import {
 import {
   ArrowLeft,
   Check,
-  ChevronDown,
+  ChevronRight,
   Copy,
   Loader2,
   Share2,
   UserPlus,
 } from "@/components/icons";
+import { SaveLocationModal, type SaveLocationModalProps } from "./save-location-modal";
+import { OnboardingOptionSheet } from "./onboarding-option-sheet";
+import { SHELL_ICON_BUTTON_CLASSNAME } from "@/components/app-ui/shell-action-surface-base";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { Button } from "@/components/ui/button";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import {
@@ -29,14 +31,10 @@ import {
 } from "@/components/one-location/redesign/location-action-styles";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
-import {
-  ONE_LOCATION_ONBOARDING_STEPS,
-  type OneLocationOnboardingScreen,
-} from "@/components/one-location/onboarding/one-location-onboarding-steps";
+import type { OneLocationOnboardingScreen } from "@/components/one-location/onboarding/one-location-onboarding-steps";
 import {
   READY_CODE_CLASSNAME,
   READY_MAP_CLASSNAME,
-  READY_MAP_SHORT_WINDOW_CSS,
   READY_PANEL_CLASSNAME,
   READY_SURFACE_CLASSNAME,
 } from "@/components/one-location/onboarding/ready-panel-layout";
@@ -153,15 +151,12 @@ type OneLocationOnboardingFlowProps = {
    */
   /** Where to centre the finale map. Null renders the stylised fallback. */
   mapPoint?: { lat: number; lng: number } | null;
-  /**
-   * Ask for device location and open the save-a-place surface, which the
-   * parent hosts over this flow. Resolves true once that surface is open, and
-   * false when it could not open (permission refused, no position, a place
-   * already saved this journey). False moves on to Ready: refusing location
-   * must never trap anyone on Features, and the Now tab keeps offering it.
-   * Omitted, the flow goes straight from Features to Ready.
-   */
-  onPreparePlace?: () => Promise<boolean>;
+  /** Request a fix only after the owner taps Use my location. */
+  onPrepareLocation?: () => Promise<boolean>;
+  /** A completed save retained by the account-scoped page through auth gates. */
+  savedPlace?: boolean;
+  /** Existing saved-place transaction and account-scoped draft state. */
+  place?: Omit<SaveLocationModalProps, "open" | "onBack" | "onSkip" | "unifiedOnboarding" | "compactOnboarding" | "onRequestLocation" | "requestingLocation" | "onboardingPlaceSaved" | "onContinue">;
   contactsStepAvailable?: boolean;
   /** Account-backed web fallback versus the device address book. */
   contactsSource?: "device" | "google";
@@ -276,576 +271,6 @@ function OnboardingSkipButton({
   );
 }
 
-function OnboardingNavigation({
-  onBack,
-  onSkip,
-  currentStep,
-  disabled = false,
-  inverse = false,
-  floating = false,
-  plain = false,
-  busy = false,
-  className,
-}: {
-  onBack: () => void;
-  onSkip?: () => void;
-  currentStep: number;
-  disabled?: boolean;
-  inverse?: boolean;
-  floating?: boolean;
-  plain?: boolean;
-  busy?: boolean;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "relative z-40 grid h-16 shrink-0 grid-cols-[minmax(64px,1fr)_minmax(120px,220px)_minmax(64px,1fr)] items-center gap-2",
-        className,
-      )}
-      data-one-onboarding-navigation
-    >
-      <button
-        type="button"
-        onClick={onBack}
-        disabled={disabled}
-        className={cn(
-          "press-scale flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50",
-          plain
-            ? "text-[#59616c] dark:text-[color:var(--app-label)]"
-            : floating
-              ? "bg-[#eef1f5] text-[#59616c] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
-              : inverse
-                ? "bg-white/15 text-white"
-                : "bg-black/[0.05] text-[#1f2b3d] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]",
-        )}
-        aria-label="Go back"
-      >
-        {busy ? (
-          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-        ) : (
-          <ArrowLeft className="h-6 w-6" aria-hidden="true" />
-        )}
-      </button>
-      <OnboardingStepper
-        steps={ONE_LOCATION_ONBOARDING_STEPS}
-        currentIndex={currentStep}
-        compact
-        inverse={inverse}
-        ariaLabel="One Location setup progress"
-        className="w-full"
-      />
-      {onSkip ? (
-        <OnboardingSkipButton
-          inverse={inverse}
-          floating={floating}
-          plain={plain}
-          onClick={onSkip}
-          disabled={disabled}
-        />
-      ) : (
-        <span className="h-11 w-11 justify-self-end" aria-hidden />
-      )}
-    </div>
-  );
-}
-
-/** Minimal, stylised street-map backdrop used behind the share / check-in art. */
-function MapBackdrop({ tone }: { tone: "share" | "checkin" | "sms" }) {
-  const park = tone === "sms" ? "#f4dedd" : "#dcecd8";
-  return (
-    <svg
-      viewBox="0 0 200 168"
-      preserveAspectRatio="xMidYMid slice"
-      className="absolute inset-0 h-full w-full"
-      aria-hidden="true"
-      data-one-feature-map={tone}
-    >
-      <rect
-        width="200"
-        height="168"
-        className="fill-[#edf1f6] dark:fill-[color:var(--app-secondary-surface)]"
-      />
-      {/* green / park blocks */}
-      <rect x="10" y="4" width="48" height="42" rx="6" fill={park} />
-      <rect x="150" y="98" width="64" height="74" rx="7" fill={park} />
-      {/* building blocks */}
-      <rect
-        x="122"
-        y="2"
-        width="34"
-        height="30"
-        rx="4"
-        className="fill-[#e4e9f0] dark:fill-[color:var(--app-neutral-fill-strong)]"
-      />
-      <rect
-        x="150"
-        y="8"
-        width="52"
-        height="34"
-        rx="4"
-        className="fill-[#e4e9f0] dark:fill-[color:var(--app-neutral-fill-strong)]"
-      />
-      <rect
-        x="8"
-        y="118"
-        width="44"
-        height="48"
-        rx="5"
-        className="fill-[#e4e9f0] dark:fill-[color:var(--app-neutral-fill-strong)]"
-      />
-      {/* road casings */}
-      <path
-        d="M-12 86 H212"
-        className="stroke-white dark:stroke-[color:var(--app-primary-surface)]"
-        strokeWidth="15"
-        fill="none"
-      />
-      <path
-        d="M100 -12 V180"
-        className="stroke-white dark:stroke-[color:var(--app-primary-surface)]"
-        strokeWidth="15"
-        fill="none"
-      />
-      <path
-        d="M150 58 L214 122"
-        className="stroke-white dark:stroke-[color:var(--app-primary-surface)]"
-        strokeWidth="10"
-        fill="none"
-      />
-      {/* road centre hairlines */}
-      <path
-        d="M-12 86 H212"
-        className="stroke-[#dde3ec] dark:stroke-[color:var(--app-separator)]"
-        strokeWidth="1.5"
-        fill="none"
-      />
-      <path
-        d="M100 -12 V180"
-        className="stroke-[#dde3ec] dark:stroke-[color:var(--app-separator)]"
-        strokeWidth="1.5"
-        fill="none"
-      />
-    </svg>
-  );
-}
-
-const SHARE_LOCATION_AVATARS = [
-  {
-    src: "/one-location/onboarding/feature-share-person-1.webp",
-    className: "right-[7%] top-[10%]",
-  },
-  {
-    src: "/one-location/onboarding/feature-share-person-2.webp",
-    className: "bottom-[10%] left-[3%]",
-  },
-  {
-    src: "/one-location/onboarding/feature-share-person-3.webp",
-    className: "bottom-[8%] right-[7%]",
-  },
-] as const;
-
-function FeatureTitle({
-  lines,
-  className,
-}: {
-  lines: readonly string[];
-  className?: string;
-}) {
-  return (
-    <div
-      role="heading"
-      aria-level={2}
-      aria-label={lines.join(" ")}
-      className={cn(
-        "ui-text-headline text-[#111823] dark:text-[color:var(--app-label)]",
-        className,
-      )}
-      data-one-feature-title
-      data-location-type-role="section-heading"
-    >
-      {lines.map((line) => (
-        <span
-          key={line}
-          aria-hidden="true"
-          className="block"
-          data-one-feature-title-line
-        >
-          {line}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function ShareLocationFeatureCard() {
-  return (
-    <article
-      className="relative flex aspect-[1.56/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
-      data-testid="location-use-case-trip"
-      data-one-use-case-card
-      data-one-feature-card="share"
-    >
-      <MapBackdrop tone="share" />
-      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)]/95 from-[25%] via-[color:var(--app-primary-surface)]/80 via-[51%] to-transparent" />
-      <div className="relative z-20 w-[56%] px-5 pt-5 md:bg-[color:var(--app-primary-surface)]" data-one-feature-copy>
-        <span data-location-type-role="row-description"
-          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 ui-text-eyebrow text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]"
-          data-one-use-case-tag
-        >
-          Share location
-        </span>
-        <FeatureTitle
-          lines={["Can’t explain", "where you are?"]}
-        />
-        <p data-location-type-role="row-description"
-          className="ui-text-page-subtitle text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
-          data-one-feature-body
-        >
-          Share your live location with your Circle in one tap.
-        </p>
-      </div>
-      <div
-        className="absolute inset-y-0 right-0 z-10 w-[53%]"
-        data-one-use-case-art
-        aria-hidden="true"
-      >
-        <svg
-          viewBox="0 0 220 240"
-          preserveAspectRatio="none"
-          className="absolute inset-0 h-full w-full"
-        >
-          <path
-            d="M104 119 L178 42 M104 119 L42 198 M104 119 L178 198"
-            fill="none"
-            stroke="var(--app-accent)"
-            strokeWidth="1.5"
-            strokeDasharray="3 5"
-            opacity="0.72"
-          />
-        </svg>
-        <span className="absolute left-[47%] top-[49%] h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/10" />
-        <span className="absolute left-[47%] top-[49%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/15" />
-        <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[color:var(--app-primary-surface)] dark:shadow-none" />
-        {SHARE_LOCATION_AVATARS.map((avatar, index) => (
-          <span
-            key={avatar.src}
-            className={cn(
-              "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[color:var(--app-primary-surface)] dark:bg-[color:var(--app-secondary-surface)] dark:shadow-none",
-              avatar.className,
-            )}
-            data-one-share-avatar={index + 1}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-            <img
-              src={avatar.src}
-              alt=""
-              loading="eager"
-              decoding="async"
-              fetchPriority="high"
-              className="h-full w-full object-cover"
-            />
-          </span>
-        ))}
-      </div>
-    </article>
-  );
-}
-
-function CheckInFeatureCard() {
-  return (
-    <article
-      className="relative flex aspect-[0.62/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
-      data-testid="location-use-case-checkin"
-      data-one-use-case-card
-      data-one-feature-card="checkin"
-    >
-      <div
-        className="relative z-20 bg-[color:var(--app-primary-surface)]/90 px-4 pb-2 pt-4"
-        data-one-feature-copy
-      >
-        <span data-location-type-role="row-description"
-          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 ui-text-eyebrow text-[#27884f] dark:bg-[color:var(--app-success-surface)] dark:text-[color:var(--app-success-bright)]"
-          data-one-use-case-tag
-        >
-          Check in
-        </span>
-        <FeatureTitle
-          lines={["At the venue, but", "can't find each other?"]}
-        />
-        <p data-location-type-role="row-description"
-          className="ui-text-page-subtitle text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
-          data-one-feature-body
-        >
-          Check in on the spot and notify your circle
-        </p>
-      </div>
-      <div
-        className="absolute inset-0"
-        data-one-checkin-map-backdrop
-        aria-hidden="true"
-      >
-        <MapBackdrop tone="checkin" />
-      </div>
-      <span
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[62%] bg-gradient-to-b from-[color:var(--app-primary-surface)]/80 to-transparent"
-        aria-hidden="true"
-      />
-      <div
-        className="absolute inset-x-0 bottom-0 h-[46%]"
-        data-one-use-case-art
-        aria-hidden="true"
-      >
-        <span
-          className="absolute bottom-[18%] left-1/2 flex h-[64px] w-[64px] -translate-x-1/2 items-center justify-center rounded-full bg-white/90 shadow-[0_8px_22px_rgba(24,57,91,0.16)] ring-1 ring-white/80 dark:bg-[color:var(--app-secondary-surface)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
-          data-one-checkin-destination
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element -- Local Maps-style artwork must render in Capacitor static export. */}
-          <img
-            src="/one-location/onboarding/check-in-location-pin.svg"
-            alt=""
-            className="h-10 w-10"
-            data-one-checkin-pin
-          />
-        </span>
-      </div>
-    </article>
-  );
-}
-
-function SaveMySoulFeatureCard() {
-  return (
-    <article
-      className="relative flex w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
-      data-testid="location-use-case-sos"
-      data-one-use-case-card
-      data-one-feature-card="sms"
-    >
-      <MapBackdrop tone="sms" />
-      <div className="relative z-20 bg-[color:var(--app-primary-surface)]/90 px-4 pb-2 pt-4" data-one-feature-copy>
-        <span data-location-type-role="row-description"
-          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 ui-text-eyebrow text-[#d44442] dark:bg-[color:var(--app-destructive-surface)] dark:text-[color:var(--app-destructive-bright)]"
-          data-one-use-case-tag
-        >
-          SMS · Save My Soul
-        </span>
-        <FeatureTitle
-          lines={["Need help but", "can’t talk?"]}
-        />
-        <p data-location-type-role="row-description"
-          className="ui-text-page-subtitle text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
-          data-one-feature-body
-        >
-          Alert your contacts with your live location.
-        </p>
-      </div>
-      <div
-        className="relative z-10 flex min-h-[116px] flex-1 items-center justify-center"
-        data-one-feature-art-region
-      >
-        <div
-          className="relative flex h-[108px] w-[108px] shrink-0 items-center justify-center"
-          data-one-sms-radar-clearance
-          aria-hidden="true"
-        >
-          <span
-            className="relative flex h-20 w-20 items-center justify-center"
-            data-one-sms-radar
-          >
-            <span
-              data-one-onboarding-motion
-              data-one-sms-radar-ring
-              className="absolute inset-0 rounded-full"
-            />
-            <span
-              data-one-onboarding-motion
-              data-one-sms-radar-ring
-              className="absolute inset-0 rounded-full"
-            />
-            <span
-              data-one-sms-core
-              className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full bg-[#ff3b30] text-[15px] font-bold text-white shadow-[0_12px_22px_rgba(255,59,48,0.28)] dark:shadow-none"
-            >
-              <span data-location-type-role="row-description" className="relative z-10" data-one-sms-label>
-                SMS
-              </span>
-            </span>
-          </span>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function FeaturesScreen({
-  onBack,
-  onSkip,
-  leaving,
-  continueBusy = false,
-  onContinue,
-}: {
-  onBack: () => void;
-  onSkip: () => void;
-  leaving: boolean;
-  continueBusy?: boolean;
-  onContinue: () => void;
-}) {
-  const headingRef = useRef<HTMLHeadingElement | null>(null);
-  useEffect(() => {
-    headingRef.current?.focus({ preventScroll: true });
-  }, []);
-
-  return (
-    <div
-      className="relative z-50 pointer-events-auto mx-auto flex h-full min-h-0 w-full max-w-[430px] max-[431px]:max-w-none flex-1 flex-col overflow-hidden bg-[color:var(--app-grouped-background)] px-5 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] sm:px-8 md:max-w-none md:px-10 lg:px-14"
-      data-one-feature-screen
-    >
-      <OnboardingNavigation
-        plain
-        currentStep={0}
-        onBack={onBack}
-        onSkip={onSkip}
-        disabled={leaving}
-        busy={leaving}
-        /* Same rail as the header and card grid below (both max-w-[700px]).
-           Without it the nav was the only full-width row on the screen, so past
-           md — where this root drops its 430px cap — Back and Skip slid out to
-           the viewport edges while everything else stayed in the column. Passed
-           here rather than inside OnboardingNavigation: the welcome screen's
-           copy of that nav is already railed at 560 by its parent. */
-        className="mx-auto w-full max-w-[700px] md:max-w-[1040px]"
-      />
-      <div
-        className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-        data-one-feature-scroll
-      >
-        <header
-          className="mx-auto mt-5 w-full max-w-[700px] shrink-0"
-          data-one-feature-header
-        >
-          <h1 data-location-type-role="flow-title"
-            ref={headingRef}
-            tabIndex={-1}
-            className="ui-text-page-title text-[#111823] outline-none dark:!text-[color:var(--app-label)]"
-            data-one-feature-heading
-          >
-            Keep your people updated.
-          </h1>
-        </header>
-        <div
-          className="mx-auto mt-5 grid w-full max-w-[700px] shrink-0 gap-3"
-          data-one-feature-grid
-          data-one-story-container
-        >
-          <ShareLocationFeatureCard />
-          <div
-            className="grid grid-cols-1 items-stretch gap-3"
-            data-one-feature-lower-grid
-          >
-            <CheckInFeatureCard />
-            <SaveMySoulFeatureCard />
-          </div>
-        </div>
-      </div>
-      <div
-        className="mx-auto w-full max-w-[244px] shrink-0 pt-5"
-        data-one-feature-cta
-      >
-        <PrimaryButton
-          onClick={onContinue}
-          disabled={leaving}
-          busy={continueBusy}
-        >
-          Continue
-        </PrimaryButton>
-      </div>
-      <style>{`
-        @keyframes oneSmsRadar {
-          0% { transform: scale(0.72); opacity: 0.7; }
-          100% { transform: scale(1.35); opacity: 0; }
-        }
-        [data-one-sms-radar-ring] {
-          border: 2px solid #ff3b30;
-          animation: oneSmsRadar 2.4s ease-out infinite;
-        }
-        [data-one-sms-radar-ring]:nth-child(2) {
-          animation-delay: -1.2s;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          [data-one-onboarding-motion] { animation: none !important; }
-          [data-one-sms-radar-ring] { opacity: 0; }
-        }
-        [data-one-feature-copy] {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 8px;
-        }
-        [data-one-feature-card] {
-          aspect-ratio: auto;
-          min-height: 190px;
-        }
-        [data-one-feature-copy] {
-          width: 62%;
-          padding: 18px 16px;
-        }
-        [data-one-feature-card="share"] [data-one-use-case-art] {
-          width: 40%;
-        }
-        [data-one-feature-card="checkin"] [data-one-use-case-art] {
-          inset: 0 0 0 auto;
-          width: 38%;
-          height: 100%;
-        }
-        [data-one-sms-radar-clearance] { width: 86px; height: 86px; }
-        [data-one-sms-radar] { width: 64px; height: 64px; }
-        [data-one-feature-card="sms"] [data-one-feature-art-region] {
-          position: absolute;
-          inset: 0 0 0 auto;
-          width: 38%;
-          height: 100%;
-          align-items: center;
-          justify-content: center;
-        }
-        @media (max-width: 380px) {
-          [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
-          [data-one-feature-copy] { width: 68%; padding: 16px 14px; }
-        }
-        @media (max-height: 780px) {
-          [data-one-feature-screen] {
-            padding-top: max(var(--app-safe-area-top-effective, 0px), 8px);
-            padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
-          }
-          [data-one-onboarding-navigation] { height: 52px; }
-          [data-one-feature-header] { margin-top: 8px; }
-          [data-one-feature-grid] { margin-top: 16px; }
-          [data-one-feature-cta] { padding-top: 16px; }
-        }
-        @media (min-width: 768px) {
-          [data-one-feature-scroll] { flex: 0 1 auto; }
-          [data-one-feature-header], [data-one-feature-grid] { max-width: 1040px; }
-          [data-one-feature-grid] {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            align-items: stretch;
-            gap: 18px;
-          }
-          [data-one-feature-lower-grid] { display: contents; }
-          [data-one-feature-card] { min-height: 350px; }
-          [data-one-feature-copy] { width: 100%; padding: 20px; }
-          [data-one-feature-card="share"] [data-one-use-case-art],
-          [data-one-feature-card="checkin"] [data-one-use-case-art],
-          [data-one-feature-card="sms"] [data-one-feature-art-region] {
-            inset: auto 0 16px 0;
-            width: 100%;
-            height: 46%;
-          }
-          [data-one-feature-card="checkin"] [data-one-checkin-art] { width: 34%; }
-        }
-      `}</style>
-    </div>
-  );
-}
-
 function formatCircleCode(code: string): string {
   const compact = String(code || "")
     .toUpperCase()
@@ -854,12 +279,6 @@ function formatCircleCode(code: string): string {
   return compact.replace(/(.{4})(?=.)/g, "$1-");
 }
 
-/**
- * Third onboarding screen (before the contact list). A brand-new person always
- * lands here with their own Circle invite code ready to copy/share, so friends
- * can set up their One account and later join the Location Circle with it. The
- * code is member-visible only and is never placed in a URL.
- */
 /**
  * Find the people you already know who are already on One.
  *
@@ -1184,21 +603,9 @@ function ContactsScreen({
   );
 }
 
-/**
- * The last thing a new person sees: themselves, on a real map.
- *
- * This screen used to be a wall -- a code to copy before you were allowed
- * through. That is an errand, not a reason to stay. The map is the product, so
- * the map is the finale: your own pin lands, an empty seat appears beside it,
- * and the circle code sits underneath as the way to fill that seat.
- *
- * It deliberately does not re-list Share / Check in / SOS. The features screen
- * already introduces those; saying them twice in a four-screen flow turns the
- * payoff into a summary slide. What is new here is the map, and the one thing
- * the map cannot show on its own -- that it is empty until someone joins.
- */
+/** Circle invitations and optional people tasks share the final screen. */
 function ReadyScreen({
-  currentUserName: _currentUserName,
+  routeId,  currentUserName: _currentUserName,
   mapPoint,
   mapEmptyLabel,
   invite,
@@ -1227,6 +634,7 @@ function ReadyScreen({
   onClearJoinPreview,
   activeDisclosure,
   onToggleDisclosure,
+  onCloseDisclosure,
   contactsAvailable,
   contactState,
   contactsSource,
@@ -1239,6 +647,7 @@ function ReadyScreen({
   showGoogleAccountSwitcher = false,
   onSyncDifferentGoogleAccount,
 }: {
+  routeId: string;
   currentUserName: string;
   mapPoint: { lat: number; lng: number } | null;
   /** What the map band says when there is no coordinate to draw. */
@@ -1269,6 +678,7 @@ function ReadyScreen({
   onClearJoinPreview: () => void;
   activeDisclosure: "join" | "contacts" | null;
   onToggleDisclosure: (disclosure: "join" | "contacts") => void;
+  onCloseDisclosure: (disclosure: "join" | "contacts") => void;
   contactsAvailable: boolean;
   contactState: OnboardingContactState;
   contactsSource: "device" | "google";
@@ -1288,97 +698,29 @@ function ReadyScreen({
     headingRef.current?.focus({ preventScroll: true });
   }, []);
 
-  // A disclosure opens below the fold on a phone. Move only the panel's own
-  // scroller far enough to reveal it, otherwise the tap appears to do nothing
-  // except rotate a chevron while the new controls remain behind the pinned
-  // Finish footer.
-  useEffect(() => {
-    if (!activeDisclosure) return;
-    const frame = window.requestAnimationFrame(() => {
-      const panel = document.getElementById(
-        activeDisclosure === "join"
-          ? "onboarding-join-circle-panel"
-          : "onboarding-contacts-panel",
-      );
-      panel?.scrollIntoView?.({
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ? "auto"
-          : "smooth",
-        block: "nearest",
-      });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeDisclosure]);
-
   return (
     <div
       className={READY_SURFACE_CLASSNAME}
       data-testid="one-location-onboarding-ready-surface"
     >
-      {/* The map gets its own band rather than sitting behind the copy.
-          A translucent scrim over a live map is a contrast gamble that depends
-          on whatever streets happen to be under the text -- dense city tiles
-          win, and the copy becomes unreadable. Giving the map the top third and
-          the words an opaque sheet means both are always legible, and it is the
-          layout every map product converges on for the same reason. */}
-      <OnboardingLiveMap
-        point={mapPoint}
-        emptyLabel={mapEmptyLabel}
-        className={READY_MAP_CLASSNAME}
-      />
-
-      {/* Floats over the map: the controls stay reachable without stealing a
-          band of the map, and both sit on their own translucent chips. */}
-      {/* Same clearance, and it matters more here: the header floats over
-          the map, so without it the controls sit directly under the status
-          bar with map tiles behind both. */}
-      <header className="absolute inset-x-0 top-0 z-20 grid min-h-16 shrink-0 grid-cols-[minmax(64px,1fr)_minmax(120px,220px)_minmax(64px,1fr)] items-center gap-2 px-5 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)]">
-        <button
-          type="button"
-          onClick={onBack}
-          disabled={leaving || completing || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-[#1f2b3d] shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:text-[color:var(--app-label)] dark:shadow-[var(--app-glass-shadow)]"
-          aria-label="Go back"
-        >
-          <ArrowLeft className="h-6 w-6" />
-        </button>
-        <span className="rounded-[14px] bg-white/90 px-3 py-2 shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:shadow-[var(--app-glass-shadow)]">
-          <OnboardingStepper
-            steps={ONE_LOCATION_ONBOARDING_STEPS}
-            currentIndex={2}
-            compact
-            ariaLabel="One Location setup progress"
-          />
-        </span>
-        <span className="h-11 w-11 justify-self-end" aria-hidden />
+      <header className="col-span-full shrink-0">
+        <div className="flex h-11 items-center gap-3">
+          <button type="button" onClick={onBack} disabled={leaving || completing || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0} className={cn(SHELL_ICON_BUTTON_CLASSNAME, "!h-11 !w-11 shrink-0")} aria-label="Go back">
+            <ArrowLeft className="h-5 w-5" aria-hidden />
+          </button>
+          <h1 ref={headingRef} tabIndex={-1} data-location-type-role="flow-title" className="ui-text-page-title text-[color:var(--app-label)] outline-none" data-one-ready-title>Your people.</h1>
+        </div>
+        <p data-location-type-role="row-description" className="mb-3 mt-2 text-muted-foreground">Connect now. Share only when you choose.</p>
       </header>
+      <OnboardingLiveMap point={mapPoint} emptyLabel={mapEmptyLabel} className={READY_MAP_CLASSNAME} />
 
       <div
         className={READY_PANEL_CLASSNAME}
         data-testid="one-location-onboarding-ready-panel"
       >
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-6 md:px-7 md:pb-5 md:pt-7">
-          {/* The headline is the map's, so it only gets to make the claim when
-              there is a map. Reaching this screen after deliberately skipping
-              Location setup is an ordinary outcome, and
-              telling that person they are on a map, over a panel that says the
-              map is unavailable, is the one thing this screen must not do. */}
-          <h1 data-location-type-role="flow-title"
-            ref={headingRef}
-            tabIndex={-1}
-            className="ui-text-page-title pb-1 text-[#151b26] outline-none dark:!text-[color:var(--app-label)]"
-            data-one-ready-title
-          >
-            {mapPoint ? "You're on the map." : "You're all set."}
-          </h1>
-
-          {/* "Your people show up here once they join." used to sit here, with a
-            dashed empty-seat avatar beside it. The map above and the invite
-            card below already say it between them, and a screen a person reads
-            in three seconds cannot afford a sentence that only restates its own
-            layout. */}
+        <div className="flex min-h-0 flex-1 flex-col justify-center gap-3 overflow-hidden [@media(max-height:560px)]:justify-start [@media(max-height:560px)]:overflow-y-auto">
           <div
-            className="mt-6 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+            className="rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
             data-testid="one-location-onboarding-invite-card"
             data-one-ready-code
           >
@@ -1402,12 +744,8 @@ function ReadyScreen({
               </div>
             ) : invite ? (
               <>
-                {/* The circle's name, not a sentence wrapped around it. "Bring
-                  your people to Ankit's Circle" spent five words introducing
-                  the two things directly under it -- a code and a Share
-                  button -- which the card's own shape already introduces. */}
                 <p data-location-type-role="row-title" className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[color:var(--app-secondary-label)]">
-                  {invite.circleName}
+                  Your circle code
                 </p>
                 <p data-location-type-exception="invitation-code"
                   className={READY_CODE_CLASSNAME}
@@ -1440,13 +778,13 @@ function ReadyScreen({
                     {copied ? "Copied" : "Copy"}
                   </Button>
 
-                  <Button data-location-type-role="primary-action"
+                  <Button data-location-type-role="utility-action"
                     type="button"
+                    variant="outline"
                     size="standard"
                     onClick={onShare}
-                    className="bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
                   >
-                    <Share2 onAccent className="h-5 w-5" strokeWidth={2} />
+                    <Share2 className="h-5 w-5" strokeWidth={2} />
                     Share
                   </Button>
                 </div>
@@ -1462,12 +800,13 @@ function ReadyScreen({
           </div>
 
           {joinEnabled ? (
-            <div className="mt-4" data-testid="onboarding-join-circle">
+            <div data-testid="onboarding-join-circle">
               <button
                 type="button"
                 onClick={() => onToggleDisclosure("join")}
                 aria-expanded={activeDisclosure === "join"}
                 aria-controls="onboarding-join-circle-panel"
+                aria-haspopup="dialog"
                 className="press-scale flex min-h-12 w-full items-center gap-3 rounded-[18px] border border-[#e4e6e9] bg-white px-4 text-left text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                 data-testid="onboarding-join-circle-toggle"
               >
@@ -1475,15 +814,9 @@ function ReadyScreen({
                   <UserPlus className="h-4 w-4" aria-hidden />
                 </span>
                 <span data-location-type-role="utility-action" className="min-w-0 flex-1">Join with a code</span>
-                <ChevronDown
-                  className={cn(
-                    "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
-                    activeDisclosure === "join" && "rotate-180",
-                  )}
-                  aria-hidden
-                />
+                <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
               </button>
-              {activeDisclosure === "join" ? (
+              <OnboardingOptionSheet routeId={routeId} open={activeDisclosure === "join"} onClose={() => onCloseDisclosure("join")} title="Join with a code" busy={joinBusy}>
                 <div
                   id="onboarding-join-circle-panel"
                   className="mt-3"
@@ -1588,32 +921,27 @@ function ReadyScreen({
                     </p>
                   ) : null}
                 </div>
-              ) : null}
+              </OnboardingOptionSheet>
             </div>
           ) : null}
 
           {contactsAvailable ? (
-            <div className="mt-3" data-testid="onboarding-contacts-disclosure">
+            <div data-testid="onboarding-contacts-disclosure">
               <button
                 type="button"
                 onClick={() => onToggleDisclosure("contacts")}
                 aria-expanded={activeDisclosure === "contacts"}
                 aria-controls="onboarding-contacts-panel"
+                aria-haspopup="dialog"
                 className="press-scale flex min-h-12 w-full items-center gap-3 rounded-[18px] border border-[#e4e6e9] bg-white px-4 text-left text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
               >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]">
                   <UserPlus className="h-4 w-4" aria-hidden />
                 </span>
                 <span data-location-type-role="utility-action" className="min-w-0 flex-1">Find contacts</span>
-                <ChevronDown
-                  className={cn(
-                    "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
-                    activeDisclosure === "contacts" && "rotate-180",
-                  )}
-                  aria-hidden
-                />
+                <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
               </button>
-              {activeDisclosure === "contacts" ? (
+              <OnboardingOptionSheet routeId={routeId} open={activeDisclosure === "contacts"} onClose={() => onCloseDisclosure("contacts")} title="Find contacts" busy={contactState.kind === "busy" || addingContactIds.length > 0}>
                 <div id="onboarding-contacts-panel" className="mt-3">
                   <ContactsScreen
                     embedded
@@ -1633,7 +961,7 @@ function ReadyScreen({
                     leaving={leaving}
                   />
                 </div>
-              ) : null}
+              </OnboardingOptionSheet>
             </div>
           ) : null}
         </div>
@@ -1642,7 +970,7 @@ function ReadyScreen({
             by a second hand-picked hex. When the panel moved to the semantic
             token and this did not, dark mode showed the panel at #1c1c1e and
             its own footer at #14171d -- one card with a seam across it. */}
-        <footer className="relative z-10 shrink-0 bg-[color:var(--app-primary-surface)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 md:px-7 md:pb-7">
+        <footer className="relative z-10 shrink-0 pt-3">
           {settlementRetryCount > 0 ? (
             <p data-location-type-role="status"
               className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]"
@@ -1670,7 +998,6 @@ function ReadyScreen({
       <style>{`
         [data-one-ready-title] { animation: oneReadyRise 150ms cubic-bezier(0.22, 1, 0.36, 1) both; }
         [data-one-ready-code] { animation: oneReadyRise 150ms cubic-bezier(0.22, 1, 0.36, 1) both; }
-        ${READY_MAP_SHORT_WINDOW_CSS}
         @keyframes oneReadyRise {
           from { opacity: 0; transform: translateY(14px); }
           to   { opacity: 1; transform: translateY(0); }
@@ -1700,13 +1027,14 @@ export function OneLocationOnboardingFlow({
   nativeTest,
   onBack,
   onComplete,
-  onSkip = onComplete,
   completeLabel = "Open One Location",
   completeControlId,
   mapPoint = null,
   contactsStepAvailable = true,
   contactsSource = "device",
-  onPreparePlace,
+  onPrepareLocation,
+  place,
+  savedPlace = false,
   onSyncOnboardingContacts,
   contactSyncResult,
   showGoogleAccountSwitcher = false,
@@ -1785,8 +1113,11 @@ export function OneLocationOnboardingFlow({
   const [joinAccepted, setJoinAccepted] = useState(false);
 
   const [leaving, setLeaving] = useState(false);
-  const [placePreparing, setPlacePreparing] = useState(false);
-  const placePreparingRef = useRef(false);
+  const [localPlaceSaved, setPlaceSaved] = useState(false);
+  const placeSaved = savedPlace || localPlaceSaved;
+  const placeSaveInFlightRef = useRef(false);
+  const [locationPreparing, setLocationPreparing] = useState(false);
+  const locationPreparingRef = useRef(false);
   const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
   const [activeReadyDisclosure, setActiveReadyDisclosure] = useState<
@@ -2101,26 +1432,6 @@ export function OneLocationOnboardingFlow({
     );
   }, [leaving, onComplete, reportOutcome, settlementRetryCount]);
 
-  const runSkip = async (settleCircle = false) => {
-    if (leaving || (settleCircle && completionInFlightRef.current)) return;
-    if (settleCircle) {
-      completionInFlightRef.current = true;
-      setCompletionBusy(true);
-    }
-    setLeaving(true);
-    reportOutcome("skip");
-    try {
-      await onSkip();
-    } catch {
-      if (settleCircle) completionInFlightRef.current = false;
-      if (settleCircle) {
-        setCompletionBusy(false);
-        setSettlementRetryCount((current) => current + 1);
-      }
-      setLeaving(false);
-    }
-  };
-
   const runBack = async () => {
     if (leaving) return;
     setLeaving(true);
@@ -2131,32 +1442,20 @@ export function OneLocationOnboardingFlow({
     }
   };
 
-  const continueFromFeatures = () => {
-    if (leaving || placePreparingRef.current) return;
-    if (!onPreparePlace) {
-      setScreen("ready");
-      return;
-    }
-    placePreparingRef.current = true;
-    setPlacePreparing(true);
-    void (async () => {
-      let opened = false;
-      try {
-        opened = (await onPreparePlace()) === true;
-      } catch {
-        opened = false;
-      } finally {
-        placePreparingRef.current = false;
-        setPlacePreparing(false);
-      }
-      setScreen(opened ? "place" : "ready");
-    })();
+  const requestLocation = () => {
+    if (leaving || locationPreparingRef.current || !onPrepareLocation) return;
+    locationPreparingRef.current = true;
+    setLocationPreparing(true);
+    void onPrepareLocation().catch(() => false).finally(() => {
+      locationPreparingRef.current = false;
+      setLocationPreparing(false);
+    });
   };
 
   // All Back surfaces unwind the same local flow, including native Back and
   // legacy/controlled entries that start directly on the feature screen.
   const handleFlowBack = () => {
-    if (leaving || placePreparing || completionBusy || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0) return true;
+    if (leaving || locationPreparing || placeSaveInFlightRef.current || completionBusy || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0) return true;
     if (screen === "features") {
       void runBack();
     } else if (screen === "ready" && activeReadyDisclosure) {
@@ -2190,17 +1489,37 @@ export function OneLocationOnboardingFlow({
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >
-        {screen === "features" ? (
-          <FeaturesScreen
-            onBack={handleFlowBack}
-            onSkip={() => void runSkip()}
-            leaving={leaving}
-            continueBusy={placePreparing}
-            onContinue={continueFromFeatures}
-          />
-        ) : null}
+        <SaveLocationModal
+          {...place}
+          open={screen === "features"}
+          takeover
+          collectAddressDetails
+          unifiedOnboarding
+          compactOnboarding
+          onboardingRouteId={nativeTest.routeId}
+          onBack={handleFlowBack}
+          onRequestLocation={requestLocation}
+          requestingLocation={locationPreparing}
+          onboardingPlaceSaved={placeSaved}
+          onContinue={() => setScreen("ready")}
+          onSkip={() => setScreen("ready")}
+          onSave={async (...args) => {
+            if (placeSaveInFlightRef.current || !place) return false;
+            placeSaveInFlightRef.current = true;
+            try {
+              const saved = await place.onSave(...args);
+              if (saved !== true) return false;
+              setPlaceSaved(true);
+              setScreen("ready");
+              return true;
+            } finally {
+              placeSaveInFlightRef.current = false;
+            }
+          }}
+        />
         {screen === "ready" ? (
           <ReadyScreen
+            routeId={nativeTest.routeId}
             currentUserName={currentUserName}
             mapPoint={finaleMapPoint}
             mapEmptyLabel="Turn on Location when you're ready."
@@ -2243,6 +1562,7 @@ export function OneLocationOnboardingFlow({
                 current === disclosure ? null : disclosure,
               )
             }
+            onCloseDisclosure={(disclosure) => setActiveReadyDisclosure((current) => current === disclosure ? null : current)}
             contactsAvailable={
               contactsStepAvailable && Boolean(onSyncOnboardingContacts)
             }

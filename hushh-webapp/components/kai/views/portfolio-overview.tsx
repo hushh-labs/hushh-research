@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { BarChart3, CalendarDays } from "@/components/icons";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
@@ -30,10 +31,14 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
       {briefing}
     </div>
     <div className={styles.portfolioInsights}>
-      <SurfaceCard className={styles.insightShell}><SurfaceCardContent className={styles.insightCard}>
+      <SurfaceCard className={styles.insightShell} data-testid="portfolio-performance"><SurfaceCardContent className={`${styles.insightCard} space-y-0`}>
         <SectionLabel role="heading" aria-level={2}>Performance</SectionLabel>
-        <p className={styles.description}>Position contributions are unavailable for this source.</p>
-        <p className={styles.description}>Balance changes can include deposits and withdrawals and do not establish investment returns.</p>
+        <div className={styles.balanceChange}><p className={styles.insightEyebrow}>Reported balance change</p><p className={facts.change === null ? styles.unavailableChange : styles.insightAmount}>{facts.change === null ? "Unavailable" : money(facts.change)}</p></div>
+        <dl className={styles.insightFacts}>
+          <div><dt><CalendarDays aria-hidden="true" />Dated history</dt><dd>{model.quality.historyReady ? "Available" : "Not provided"}</dd></div>
+          <div><dt><BarChart3 aria-hidden="true" />Investment return</dt><dd>Unavailable</dd></div>
+        </dl>
+        <p className={styles.description}>Balance changes can include cash flows.<br />They aren’t investment returns.</p>
         <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11" onClick={() => onOpenSection("performance")}>View performance</ShellActionSurface></div>
       </SurfaceCardContent></SurfaceCard>
       <SurfaceCard className={styles.insightShell}><SurfaceCardContent className={styles.insightCard}>

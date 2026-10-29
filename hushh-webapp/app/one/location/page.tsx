@@ -296,7 +296,7 @@ import {
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
-import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
+import { resolveOnboardingMapPoint, resolveOwnedOnboardingPlace } from "@/lib/one-location/onboarding-map-point";
 import { useLocationOnboardingProgress } from "@/lib/one-location/use-onboarding-progress";
 // One rule, one place: Connect owns the Circle screens now and needs the
 // same judgement about what an API failure may say to a person.
@@ -2491,6 +2491,7 @@ export function OneLocationAgentPageContent({
     clearProgress: clearLocationOnboardingProgress,
   } = useLocationOnboardingProgress(auth.userId, mode);
   const [saveLocationModalOpen, setSaveLocationModalOpen] = useState(false);
+  const [onboardingPlaceSavedForUser, setOnboardingPlaceSavedForUser] = useState<string | null>(null);
   const [savedPlaceCaptureBusy, setSavedPlaceCaptureBusy] = useState(false);
   const placesBannerKey = auth.userId
     ? `one_location_places_banner_dismissed_v1:${auth.userId}`
@@ -2855,6 +2856,7 @@ export function OneLocationAgentPageContent({
     savedLocationPromptInFlightRef.current = null;
     savedLocationPointUserIdRef.current = null;
     setSaveLocationPoint(null);
+    setOnboardingPlaceSavedForUser(null);
     // The one place the finale's point IS cleared. A coordinate belongs to the
     // account that produced it, and must never be inherited across a switch.
     setOnboardingConfirmedPoint(null);
@@ -2894,9 +2896,8 @@ export function OneLocationAgentPageContent({
    *
    * Three sources, freshest first, resolved by a named function with its own
    * tests rather than inline here -- see `resolveOnboardingMapPoint`. The
-   * workspace point at the end is what covers the person who reached the finale
-   * without the save-place step running at all: a returning account, or a
-   * workspace run where Location was already granted.
+   * workspace point covers a returning account whose Location was already
+   * granted. The onboarding-confirmed point only lasts for this owner session.
    */
   const onboardingFinaleMapPoint = useMemo(
     () =>
@@ -13474,12 +13475,9 @@ export function OneLocationAgentPageContent({
     setFirstRunGuideDismissed(alreadyDismissed || hasAnyActivity);
   }, [auth.userId, state]);
 
-  // Shared by the optional Now banner and the onboarding Save a place step.
-  // The banner is an explicit "use my location" tap, so it also turns the
-  // preview on; onboarding only needs a point to centre the pin, and leaves
-  // Location off unless a place is actually saved. Coalesce taps and retain the
-  // account epoch while device/network work settles.
-  const openSavedPlaceFromBanner = useCallback((activateLocation = true): Promise<boolean> => {
+  // The optional Now banner owns saving places after onboarding. Coalesce taps
+  // and retain the account epoch while device/network work settles.
+  const openSavedPlaceFromBanner = useCallback((activateLocation = true, showModal = true): Promise<boolean> => {
       if (savedLocationSessionUserId !== auth.userId || !auth.userId) {
         return Promise.resolve(false);
       }
@@ -13519,12 +13517,13 @@ export function OneLocationAgentPageContent({
 
         if (!sessionIsCurrent()) return false;
 
-        setSaveLocationModalOpen(true);
+        if (showModal) setSaveLocationModalOpen(true);
         savedLocationPointUserIdRef.current = userId;
         const addressResolutionId =
           savedLocationAddressResolutionIdRef.current + 1;
         savedLocationAddressResolutionIdRef.current = addressResolutionId;
         setSaveLocationPoint(point);
+        setOnboardingPlaceSavedForUser(null);
         // The finale's copy. Same value, different lifetime: this one has to
         // outlive the modal below, because the map that uses it comes after it.
         setOnboardingConfirmedPoint(point);
@@ -13691,6 +13690,8 @@ export function OneLocationAgentPageContent({
         }
         savedLocationAddressResolutionIdRef.current += 1;
         setSaveLocationPoint(selectedPoint);
+        setSaveLocationAddress(composedFrom);
+        setOnboardingPlaceSavedForUser(savingUserId);
         setOnboardingConfirmedPoint(selectedPoint);
         setSaveLocationModalOpen(false);
         dismissPlacesBanner(false);
@@ -14026,22 +14027,19 @@ export function OneLocationAgentPageContent({
     errorMessage: loadError,
   };
 
-  // The save-a-place step reuses the Now banner's capture and modal, hosted
-  // over the onboarding takeover. Every way off the step closes the modal here,
-  // so one opened during onboarding cannot resurface later over the hub.
-  const onboardingPlaceSavedUserIdRef = useRef<string | null>(null);
-  const handleOnboardingScreenChange = useCallback(
-    (next: Parameters<typeof setLocationOnboardingStep>[0]) => {
-      if (next !== "place") closeSavedPlaceModal();
-      setLocationOnboardingStep(next);
-    },
-    [closeSavedPlaceModal, setLocationOnboardingStep],
+  // Use the saved-place acquisition owner without opening another surface.
+  const handlePrepareOnboardingLocation = useCallback(
+    () => openSavedPlaceFromBanner(false, false),
+    [openSavedPlaceFromBanner],
   );
-  const handlePrepareOnboardingPlace = useCallback(async (): Promise<boolean> => {
-    // One saved place per journey: Back from Ready must not offer a duplicate.
-    if (onboardingPlaceSavedUserIdRef.current === auth.userId) return false;
-    return openSavedPlaceFromBanner(false);
-  }, [auth.userId, openSavedPlaceFromBanner]);
+
+  const onboardingPlace = resolveOwnedOnboardingPlace(auth.userId, savedLocationSessionUserId, {
+    point: saveLocationPoint,
+    address: saveLocationAddress,
+    loadingAddress: saveLocationAddressLoading,
+    saving: saveLocationSaving,
+    rendererDisclosureAccepted: savedLocationRendererAccepted,
+  });
 
   const showLocationOnboarding =
     locationOnboardingGate === "show" &&
@@ -14065,7 +14063,7 @@ export function OneLocationAgentPageContent({
           key={auth.userId}
           startAt="features"
           activeScreen={locationOnboardingStep}
-          onScreenChange={handleOnboardingScreenChange}
+          onScreenChange={setLocationOnboardingStep}
           currentUserName={
             String(
               auth.user?.displayName || auth.user?.email || "You",
@@ -14087,8 +14085,25 @@ export function OneLocationAgentPageContent({
           // reachable and a failure degrades to its own retry rather than to a
           // missing screen.
           // Reuse an existing point without acquiring one during onboarding.
-          mapPoint={onboardingFinaleMapPoint}
-          onPreparePlace={handlePrepareOnboardingPlace}
+          mapPoint={onboardingPlace ? onboardingFinaleMapPoint : null}
+          onPrepareLocation={handlePrepareOnboardingLocation}
+          savedPlace={onboardingPlaceSavedForUser === auth.userId && Boolean(onboardingPlace?.point)}
+          place={{
+            address: onboardingPlace?.address ?? null,
+            loadingAddress: onboardingPlace?.loadingAddress ?? false,
+            saving: onboardingPlace?.saving ?? false,
+            mapInitial: onboardingPlace?.point ?? null,
+            onSearchPlaces: vaultOwnerToken ? searchBannerSavedPlaces : undefined,
+            onSelectPlace: vaultOwnerToken ? selectBannerSavedPlace : undefined,
+            reverseGeocode: vaultOwnerToken ? reverseGeocodeForSavedLocation : undefined,
+            onLocateMe: locateMeForSavedLocation,
+            onPickExactLocation: handlePickExactSavedLocation,
+            deferredUntilVault: !vaultOwnerToken,
+            initialAccuracyM: onboardingPlace?.point?.accuracyM,
+            rendererDisclosureAccepted: onboardingPlace?.rendererDisclosureAccepted ?? false,
+            onAcceptRendererDisclosure: acceptSavedLocationMapRenderer,
+            onSave: handleSaveBannerLocation,
+          }}
           contactsStepAvailable={contactsStepAvailable}
           contactsSource={googleContactsFallback ? "google" : "device"}
           onPreviewCircleCode={handlePreviewCircleCode}
@@ -14104,66 +14119,9 @@ export function OneLocationAgentPageContent({
           onCopyOnboardingCircleCode={handleCopyNamedCircleCode}
           onShareOnboardingCircleCode={handleShareOnboardingCircleInvite}
         />
-        <SaveLocationModal
-          key={`onboarding-saved-location-${auth.userId}`}
-          open={
-            saveLocationModalOpen &&
-            locationOnboardingStep === "place" &&
-            savedLocationSessionUserId === auth.userId
-          }
-          address={saveLocationAddress}
-          loadingAddress={saveLocationAddressLoading}
-          saving={saveLocationSaving}
-          onSearchPlaces={
-            vaultOwnerToken ? searchBannerSavedPlaces : undefined
-          }
-          onSelectPlace={
-            vaultOwnerToken ? selectBannerSavedPlace : undefined
-          }
-          mapInitial={
-            saveLocationPoint
-              ? {
-                  latitude: saveLocationPoint.latitude,
-                  longitude: saveLocationPoint.longitude,
-                }
-              : null
-          }
-          reverseGeocode={
-            vaultOwnerToken ? reverseGeocodeForSavedLocation : undefined
-          }
-          onLocateMe={locateMeForSavedLocation}
-          onPickExactLocation={handlePickExactSavedLocation}
-          startWithMapPicker
-          // A step of onboarding, not a sheet over a screen.
-          takeover
-          collectAddressDetails
-          unifiedOnboarding
-          // Root setup has no vault yet; the entered address is staged in
-          // memory and committed by Finish setup.
-          deferredUntilVault={!vaultKey || !vaultOwnerToken}
-          initialAccuracyM={saveLocationPoint?.accuracyM}
-          rendererDisclosureAccepted={savedLocationRendererAccepted}
-          onAcceptRendererDisclosure={acceptSavedLocationMapRenderer}
-          onBack={() => handleOnboardingScreenChange("features")}
-          onSave={async (category, label, details, addressLine, picked) => {
-            const saved = await handleSaveBannerLocation(
-              category,
-              label,
-              details,
-              addressLine,
-              picked,
-            );
-            if (saved) {
-              onboardingPlaceSavedUserIdRef.current = auth.userId ?? null;
-              handleOnboardingScreenChange("ready");
-            }
-            return saved;
-          }}
-          // Skipping a place is a complete outcome. The Now tab keeps offering it.
-          onSkip={() => handleOnboardingScreenChange("ready")}
-        />
         <ContactDiscoverabilityConsentDialog
           {...contactDiscoverabilityConsentDialogProps}
+          takeover
         />
         <ContactSyncResultsSheet
           googleSync={googleContactSync}

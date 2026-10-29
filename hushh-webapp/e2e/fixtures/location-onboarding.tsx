@@ -15,6 +15,7 @@ declare global {
 function Harness() {
   const [screen, setScreen] = useState<OneLocationOnboardingScreen>(window.onboardingFixture.ready ? "ready" : "features");
   const [exited, setExited] = useState(false);
+  const [point, setPoint] = useState<{ latitude: number; longitude: number } | null>(null);
   useEffect(() => {
     const previousBack = window.onboardingBack;
     window.onboardingBack = () => unwindBackLayer("/one/location");
@@ -36,8 +37,17 @@ function Harness() {
       onBack={() => setExited(true)}
       onComplete={() => setExited(true)}
       onSkip={() => setExited(true)}
+      onPrepareLocation={async () => { setPoint({ latitude: 19.076, longitude: 72.8777 }); return true; }}
+      place={{
+        mapInitial: point,
+        address: point ? "12 MG Road, Bengaluru 560001" : null,
+        onPickExactLocation: () => {},
+        onSave: async () => true,
+      }}
       contactsStepAvailable
       onSyncOnboardingContacts={async () => ({ status: "none", partial: false })}
+      onPreviewCircleCode={async () => ({ name: "Family", ownerDisplayName: "Test User", memberCount: 3, alreadyMember: false })}
+      onAcceptCircleCode={async () => {}}
       onPrepareOnboardingCircleInvite={async () => ({ circleId: "fixture-circle", circleName: "Family", code: "ABCDEFGHJKLM" })}
     />
   );

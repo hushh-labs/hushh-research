@@ -28,7 +28,7 @@ describe("Location setup route contract", () => {
     expect(adapter).not.toContain("<SetupCapabilityTerminalFooter");
   });
 
-  it("completes the passive introduction without requesting device permission", () => {
+  it("keeps the terminal completion action independent of device permission", () => {
     const contract = JSON.parse(read("app/one/setup/location/page.voice-action-contract.json"));
     const intro = contract.actions.find((action: { action_id: string }) => action.action_id === "setup.finish_location_intro");
     const legacy = contract.actions.find((action: { action_id: string }) => action.action_id === "setup.finish_location");
