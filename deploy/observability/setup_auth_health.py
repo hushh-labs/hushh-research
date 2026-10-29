@@ -202,10 +202,32 @@ def _image(run, project: str, operation: str, source: str, bucket: str, save):
     return image, build["id"]
 
 
-def _timer(run, project: str, operation: str, image: str, checker: str, scheduler: str, runtime: bool, schedule: str):
-    existing = run(["run", "jobs", "describe", JOB, f"--region={REGION}"], optional=True)
-    if existing and existing.get("metadata", {}).get("labels", {}).get("operation") != operation:
+def _existing_resource(api, url: str, name: str):
+    # Native status is authoritative: SDK describe commands use inconsistent
+    # missing-resource errors, which must never turn a denied read into absence.
+    with api.get(url, timeout=30, allow_redirects=False) as response:
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200:
+            raise RuntimeError("Health resource observation refused")
+        try:
+            observed = response.json()
+        except ValueError as error:
+            raise RuntimeError("Health resource observation malformed") from error
+    if not isinstance(observed, dict) or observed.get("name") != name:
+        raise RuntimeError("Health resource observation does not match its target")
+    return observed
+
+
+def _timer(run, api, project: str, operation: str, image: str, checker: str, scheduler: str, runtime: bool, schedule: str):
+    name = f"projects/{project}/locations/{REGION}/jobs/{JOB}"
+    existing = _existing_resource(api, f"https://run.googleapis.com/v2/{name}", name)
+    if existing and (not isinstance(existing.get("labels"), dict)
+                     or existing["labels"].get("operation") != operation):
         raise RuntimeError("Existing health job has unverified ownership")
+    existing_schedule = _existing_resource(api, f"https://cloudscheduler.googleapis.com/v1/{name}", name)
+    if existing_schedule and existing_schedule.get("description") != f"Hussh auth-health operation {operation}":
+        raise RuntimeError("Existing health schedule has unverified ownership")
     run(["run", "jobs", "deploy", JOB, f"--region={REGION}", f"--image={image}",
          f"--service-account={checker}", "--tasks=1", "--parallelism=1", "--max-retries=0",
          "--task-timeout=600s", "--cpu=1", "--memory=512Mi",
@@ -214,13 +236,10 @@ def _timer(run, project: str, operation: str, image: str, checker: str, schedule
     run(["run", "jobs", "add-iam-policy-binding", JOB, f"--region={REGION}",
          f"--member=serviceAccount:{scheduler}", "--role=roles/run.invoker"])
     target = f"https://run.googleapis.com/v2/projects/{project}/locations/{REGION}/jobs/{JOB}:run"
-    existing = run(["scheduler", "jobs", "describe", JOB, f"--location={REGION}"], optional=True)
-    if existing and existing.get("description") != f"Hussh auth-health operation {operation}":
-        raise RuntimeError("Existing health schedule has unverified ownership")
-    run(["scheduler", "jobs", "update" if existing else "create", "http", JOB,
+    run(["scheduler", "jobs", "update" if existing_schedule else "create", "http", JOB,
          f"--location={REGION}", f"--schedule={schedule}", "--time-zone=Etc/UTC",
          f"--uri={target}", "--http-method=POST", "--message-body={}",
-         ("--update-headers=" if existing else "--headers=") + "Content-Type=application/json",
+         ("--update-headers=" if existing_schedule else "--headers=") + "Content-Type=application/json",
          f"--oauth-service-account-email={scheduler}",
          "--oauth-token-scope=https://www.googleapis.com/auth/cloud-platform", "--attempt-deadline=30s",
          "--max-retry-attempts=0", f"--description=Hussh auth-health operation {operation}"])
@@ -259,7 +278,7 @@ def _apply_locked(project: str, *, runtime: bool, schedule: str, journal_path: P
         save(bucket=bucket)
         checker, scheduler = _identities(run, project, operation, bucket, runtime, journal, save)
         image, build_id = _image(run, project, operation, source, bucket, save)
-        _timer(run, project, operation, image, checker, scheduler, runtime, schedule)
+        _timer(run, api, project, operation, image, checker, scheduler, runtime, schedule)
         save(phase="configured", image=image, build_id=build_id, job=JOB, schedule=schedule,
              runtime_observation=runtime, task_timeout_seconds=600, checker_timeout_seconds=450,
              lease_seconds=900)

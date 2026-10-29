@@ -6,6 +6,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -380,22 +381,42 @@ def test_health_build_and_timer_use_supported_cloud_cli_contracts(existing):
             assert config["timeout"] == "600s"
             assert not any(a.startswith("--tags=") for a in args)
             return image
-        if "describe" in args:
-            return (
-                {
-                    "metadata": {"labels": {"operation": operation}},
-                    "description": f"Hussh auth-health operation {operation}",
-                }
-                if existing
-                else None
-            )
         return {}
 
     digest, _ = module._image(
         cloud, project, operation, "source", "fixture-bucket", lambda **_: None
     )
     assert digest.endswith("b" * 64)
-    module._timer(cloud, project, operation, digest, "checker", "clock", False, "17 * * * *")
+    name = f"projects/{project}/locations/us-central1/jobs/{module.JOB}"
+
+    def observe(url, *, timeout, allow_redirects):
+        assert timeout == 30 and allow_redirects is False
+        assert url in {
+            f"https://run.googleapis.com/v2/{name}",
+            f"https://cloudscheduler.googleapis.com/v1/{name}",
+        }
+        return nullcontext(
+            SimpleNamespace(
+                status_code=200 if existing else 404,
+                json=lambda: {
+                    "name": name,
+                    "labels": {"operation": operation},
+                    "description": f"Hussh auth-health operation {operation}",
+                },
+            )
+        )
+
+    module._timer(
+        cloud,
+        SimpleNamespace(get=observe),
+        project,
+        operation,
+        digest,
+        "checker",
+        "clock",
+        False,
+        "17 * * * *",
+    )
     timer = next(c for c in calls if c[:2] == ["scheduler", "jobs"] and "describe" not in c)
     assert timer[2] == ("update" if existing else "create")
     assert (
@@ -404,3 +425,49 @@ def test_health_build_and_timer_use_supported_cloud_cli_contracts(existing):
     assert (
         "--headers=" if existing else "--update-headers="
     ) + "Content-Type=application/json" not in timer
+
+
+@pytest.mark.parametrize("service", ["run", "cloudscheduler"])
+@pytest.mark.parametrize(
+    "failure", ["denied", "unavailable", "redirect", "malformed", "wrong-target", "wrong-owner"]
+)
+def test_health_timer_refuses_unverified_resources_before_mutation(service, failure):
+    module = load_health_setup()
+    project, operation = "hushh-pda-uat", "a" * 32
+    name = f"projects/{project}/locations/us-central1/jobs/{module.JOB}"
+    calls = []
+
+    def observe(url, **kwargs):
+        target = url.startswith(f"https://{service}.googleapis.com/")
+        status = (
+            {"denied": 403, "unavailable": 503, "redirect": 302}.get(failure, 200)
+            if target
+            else 200
+        )
+        body = {
+            "name": name,
+            "labels": {"operation": operation},
+            "description": f"Hussh auth-health operation {operation}",
+        }
+        if target:
+            if failure == "malformed":
+                body = []
+            elif failure == "wrong-target":
+                body["name"] += "-foreign"
+            elif failure == "wrong-owner":
+                body.update(labels={"operation": "b" * 32}, description="foreign operation")
+        return nullcontext(SimpleNamespace(status_code=status, json=lambda: body))
+
+    with pytest.raises(RuntimeError, match="Health resource|health (job|schedule)"):
+        module._timer(
+            lambda args: calls.append(args),
+            SimpleNamespace(get=observe),
+            project,
+            operation,
+            "sha256:" + "b" * 64,
+            "checker",
+            "clock",
+            False,
+            "17 * * * *",
+        )
+    assert not calls
