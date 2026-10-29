@@ -365,7 +365,7 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertIn("--environment uat", deploy_job)
         full = (ROOT / ".github/workflows/deploy-uat.yml").read_text()
         self.assertIn("inputs.scope == 'frontend' && 'frontend' || 'backend'", full)
-        self.assertIn("needs: [select-target, wait-capacity]", full)
+        self.assertIn("needs: [select-target, wait-capacity, deployment-security]", full)
         self.assertLess(
             full.index(
                 "- name: Enforce UAT database connection budget before deployment"
@@ -417,7 +417,7 @@ class WorkflowWiringTests(unittest.TestCase):
         )
         one_chat = (ROOT / ".github/workflows/deploy-uat-one-chat.yml").read_text()
         self.assertIn("group: uat-release-requests-backend", one_chat)
-        self.assertIn("needs: wait-capacity", one_chat)
+        self.assertIn("needs: [wait-capacity, deployment-security]", one_chat)
         self.assertLess(
             one_chat.index("- name: Enforce UAT database connection budget"),
             one_chat.index("- name: Deploy and verify only the backend service"),
