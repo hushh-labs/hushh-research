@@ -168,6 +168,21 @@ def test_shared_dev_attempt_tag_has_an_exact_main_owned_writer():
     )
 
 
+def test_dev_preserves_every_local_acceptance_verifier_companion():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    deploy = workflow["jobs"]["deploy"]
+    preserve = next(
+        step for step in deploy["steps"] if step.get("name") == "Checkout deployment SHA"
+    )
+    for companion in (
+        "release_acceptance_contract.py",
+        "uat_attempt_receipt.py",
+        "process_group.py",
+        "release_acceptance_provenance.py",
+    ):
+        assert f'cp scripts/ci/{companion} "${{RUNNER_TEMP}}/release-tools/"' in preserve["run"]
+
+
 def test_uat_attempt_tags_are_required_outputs_of_healthy_deployments():
     for workflow_path, writer_name, kind, environment in (
         ("deploy-uat.yml", "persist-uat-attempt", "full", "uat"),
