@@ -11,6 +11,7 @@ const MAX_AGE_MS = 15 * 60 * 1000;
 const MEETING_SCOPES = [
   "https://www.googleapis.com/auth/meetings.space.readonly",
   "https://www.googleapis.com/auth/drive.meet.readonly",
+  "https://www.googleapis.com/auth/drive.metadata.readonly",
 ];
 
 export function hasCalendarMeetingFileGrant(status: GoogleCalendarStatus, accountId: string, expectedSubjectSha256?: string, priorGrantGeneration?: string): boolean {
