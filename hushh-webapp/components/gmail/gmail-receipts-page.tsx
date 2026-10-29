@@ -1219,7 +1219,6 @@ export default function GmailReceiptsPage({
 
     try {
       setGmailActionBusy("disconnect");
-      const savedReceiptsRemain = Boolean(receiptAccountKey && (await withDeadline(receiptStoreVersion(userId, receiptAccountKey).catch(() => null), operationDeadline))?.revision);
       await morphyToast
         .promise(
           (async () => {
@@ -1227,11 +1226,12 @@ export default function GmailReceiptsPage({
             if (!next || next.connected) {
               throw new Error("Mail could not be disconnected.");
             }
-            return next;
+            // Read once the disconnect stopped every receipt sync: one still running could have saved receipts until then.
+            return Boolean(receiptAccountKey && (await withDeadline(receiptStoreVersion(owner, receiptAccountKey).catch(() => null), operationDeadline))?.revision);
           })(),
           {
             loading: "Disconnecting Mail...",
-            success: savedReceiptsRemain ? "Mail disconnected. Saved receipts remain available; reconnect to open their original emails." : "Mail disconnected and Mail receipt data was deleted.",
+            success: (savedReceiptsRemain) => savedReceiptsRemain ? "Mail disconnected. Saved receipts remain available; reconnect to open their original emails." : "Mail disconnected and Mail receipt data was deleted.",
             error: (error) =>
               sanitizeGmailUserMessage(error, {
                 fallback:

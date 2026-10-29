@@ -13,6 +13,7 @@ import {
   type MailBriefExperience,
 } from "@/lib/agent/mail-chat-experiences";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { withoutSyncingReceiptCard } from "@/lib/agent/receipt-answer-redaction";
 
 const brief = {
   schema_version: "mail_brief.v1",
@@ -123,5 +124,17 @@ describe("Mail brief in chat", () => {
     render(<MailChatCard experience={sync as never} />);
     fireEvent.click(screen.getByRole("button", { name: "Open receipts" }));
     expect(push).toHaveBeenCalledWith("/one/gmail?workspace=receipts");
+    cleanup();
+    // A sync this turn started replaces the hint; there is nothing to open while it runs.
+    render(<MailChatCard experience={receiptSetupExperience("syncing") as never} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Syncing receipts…");
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("drops a running receipt sync card when its turn is stopped, and keeps every other card", () => {
+    const syncing = { id: "turn:receipt-setup", experience: receiptSetupExperience("syncing") };
+    const others = [{ id: "older:receipt-setup", experience: receiptSetupExperience("sync_required") }, { id: "turn:mail-brief", experience: syncing.experience }];
+    // Negative control: a stopped turn kept "Syncing receipts…" for a sync it no longer waits for.
+    expect(withoutSyncingReceiptCard([syncing, ...others])).toEqual(others);
   });
 });

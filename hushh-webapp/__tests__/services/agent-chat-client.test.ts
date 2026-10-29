@@ -1291,16 +1291,14 @@ describe("AG-UI Agent One client", () => {
     const stream = (events: unknown[]) => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(stream([
       { type: "RUN_STARTED", threadId: "thread-1", runId: "native-1" },
-      { type: "TOOL_CALL_START", toolCallId: "streamed-call", toolCallName: "receipt_spending" },
-      { type: "TOOL_CALL_ARGS", toolCallId: "streamed-call", delta: JSON.stringify(query) },
+      { type: "TOOL_CALL_START", toolCallId: "streamed-call", toolCallName: "receipt_spending" }, { type: "TOOL_CALL_ARGS", toolCallId: "streamed-call", delta: JSON.stringify(query) },
       { type: "STATE_SNAPSHOT", snapshot: {} },
       { type: "MESSAGES_SNAPSHOT", messages: [{ id: "native-assistant", role: "assistant", toolCalls: [{ id: remapped ? "final-call" : "streamed-call", type: "function", function: { name: "receipt_spending", arguments: "{}" } }] }] },
       { type: "TOOL_CALL_END", toolCallId: "streamed-call" },
       { type: "RUN_FINISHED", threadId: "thread-1", runId: "native-1" },
     ])).mockResolvedValueOnce(stream([
       { type: "RUN_STARTED", threadId: "thread-1", runId: "native-2" },
-      { type: "TEXT_MESSAGE_START", messageId: "answer", role: "assistant" },
-      { type: "TEXT_MESSAGE_CONTENT", messageId: "answer", delta: "SYNTHETIC_PRIVATE_MERCHANT paid 7.00" },
+      { type: "TEXT_MESSAGE_START", messageId: "answer", role: "assistant" }, { type: "TEXT_MESSAGE_CONTENT", messageId: "answer", delta: "SYNTHETIC_PRIVATE_MERCHANT paid 7.00" },
       { type: "TEXT_MESSAGE_END", messageId: "answer" },
       { type: "RUN_FINISHED", threadId: "thread-1", runId: "native-2" },
     ]));
@@ -1308,25 +1306,26 @@ describe("AG-UI Agent One client", () => {
     try {
       await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1", vaultOwnerToken: "owner-token", message: "Spending by merchant",
         handlers: { onReceiptPrivate: () => events.push("private"), onToken: () => events.push("token"), onToolResult } });
-      expect(receiptTools.run).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1" }), "receipt_spending", query);
+      expect(receiptTools.run.mock.calls).toEqual([[expect.objectContaining({ userId: "user-1" }), "receipt_spending", query]]);
       expect(mockTransport.runAgent).toHaveBeenCalledTimes(2);
       expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps).not.toHaveProperty("receiptToolResults");
       expect(mockTransport.runAgent.mock.calls[1][0].forwardedProps.receiptToolResults).toEqual([{ toolCallId: "streamed-call", toolName: "receipt_spending", request: query, result }]);
-      expect(events[0]).toBe("private");
-      expect(events).toContain("token");
-      expect(JSON.stringify(mockTransport.addMessage.mock.calls)).not.toMatch(/SYNTHETIC_PRIVATE|7\.00/);
-      expect(JSON.parse(mockTransport.addMessage.mock.calls[0][0].content)).toEqual({ schema: "receipt_result.v1", operation: "receipt_spending", ephemeral_result: true });
-      expect(JSON.stringify(onToolResult.mock.calls)).not.toMatch(/SYNTHETIC_PRIVATE|7\.00/);
+      // Only the receipt replies continue; a replayed question started a second run (UAT 2026-10-29).
+      const continuation = JSON.parse(String((vi.mocked(ApiService.agentChatRequest).mock.calls[1][1] as RequestInit).body));
+      expect(continuation.messages).toEqual([expect.objectContaining({ role: "tool", toolCallId: "streamed-call", content: JSON.stringify({ schema: "receipt_result.v1", operation: "receipt_spending", ephemeral_result: true }) })]);
+      expect(events[0]).toBe("private"); expect(events).toContain("token");
+      expect(JSON.stringify([mockTransport.setMessages.mock.calls, onToolResult.mock.calls])).not.toMatch(/SYNTHETIC_PRIVATE|7\.00/);
       expect(mockTransport.setMessages).toHaveBeenLastCalledWith([]);
     } finally { mockTransport.nativeMode = false; }
   });
 
-  it("refuses the receipt continuation after an owner vault transition", async () => {
-    publishValidatedAuthSessionOwner("user-1");
+  // A bound call the device can't admit is an explicit error, never a silent drop; Stop ends a device sync's wait at once.
+  it.each(["authority changed", "doesn't match this owner turn", "cancelled"])("refuses the receipt continuation: %s", async refusal => {
+    publishValidatedAuthSessionOwner("user-1"); const stop = new AbortController();
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    mockTransport.emitEvents = subscriber => subscriber.onToolCallEndEvent({ event: { toolCallId: "stale-receipt" }, toolCallName: "receipt_spending", toolCallArgs: { from_date: "2026-10-01", to_date: "2026-11-01", timezone, group_by: "merchant", limit: 10 } });
-    receiptTools.run.mockImplementation(async () => { advanceVaultSessionEpoch(); return { private_amount: "7.00" }; });
-    await expect(streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1", vaultOwnerToken: "owner-token", message: "Spending by merchant" })).rejects.toThrow("authority changed");
+    mockTransport.emitEvents = subscriber => subscriber.onToolCallEndEvent({ event: { toolCallId: "stale-receipt" }, toolCallName: "receipt_spending", toolCallArgs: refusal === "doesn't match this owner turn" ? {} : { from_date: "2026-10-01", to_date: "2026-11-01", timezone, group_by: "merchant", limit: 10 } });
+    receiptTools.run.mockImplementation(async () => refusal === "cancelled" ? (setTimeout(() => stop.abort(), 5), new Promise(() => undefined)) : (advanceVaultSessionEpoch(), { private_amount: "7.00" }));
+    await expect(streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1", vaultOwnerToken: "owner-token", message: "Spending by merchant", signal: stop.signal })).rejects.toThrow(refusal);
     expect(mockTransport.runAgent).toHaveBeenCalledOnce();
     expect(mockTransport.setMessages).toHaveBeenLastCalledWith([]);
   });

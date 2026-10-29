@@ -712,7 +712,7 @@ projection bounds, not editor/server validation limits.
 | Recipient read | Ordinary editable mode calls `ConnectionsService.listConnections`; failure permits typing. Bound replies do not load connections. No per-suggestion API. |
 | Generation | `autoDraft` once per mount → draft API; busy status **Drafting your mail.** / **One is preparing your mail draft...**; editor replaced by skeleton. Existing recipient/subject and explicit edits survive gap fill. |
 | Missing fields | **One still needs: {labels joined comma-space}.** This warning alone does not disable Send. |
-| Named recipients | Only an app that sends `forwardedProps.emailDraftContract: 2` (admitted per turn as `temp:hussh:email_draft_envelope` by the hub and owner-pod ingress) gets names resolved; an older installed build gets an address-first rule, One looks the address up with `list_my_connections`, and names are refused with `recipient_address_required`. With the contract, One passes a person named without an address as `recipient_names`/`cc_names`; the server matches the owner's active connections and returns the resolved `envelope`, which prefills To/Cc/Bcc. It addresses the draft only when exactly one connection matches and the name as said is that connection's whole name or whole words of it; a display name that is an email address never counts as a name. A partial or misspelled match, several matches, connections sharing one name, an unknown name or a connection without an address opens no card: One asks the one question the result names (which person, whether they meant the closest match, or for an email address). Masked or guessed addresses are never filled. The model sees resolved addresses for that turn; durable history empties the tool's inputs and results, but the request text and any Drive file ID stay in the stored pending directive. |
+| Named recipients | Only an app that sends `forwardedProps.emailDraftContract: 2` (admitted per turn as `temp:hussh:email_draft_envelope` by the hub and owner-pod ingress) gets names resolved; an older installed build gets an address-first rule, One looks the address up with `list_my_connections`, and names are refused with `recipient_address_required`. With the contract, One passes a person named without an address as `recipient_names`/`cc_names`; the server matches the owner's active connections and returns the resolved `envelope`, which prefills To/Cc/Bcc. It addresses the draft only when exactly one connection matches and the name as said is that connection's whole name or whole words of it; a display name that is an email address never counts as a name. A partial or misspelled match, several matches, connections sharing one name, an unknown name or a connection without an address opens no card: One asks the one question the result names (which person, whether they meant the closest match, or for an email address). When two to four connections match a To name, the question also carries `choices` (`{ref, name}`, never an address): for "both", "all" or several of them, One calls again with the name to get the choices and then with the chosen refs in `recipient_choices`. Refs address To only (a Cc or Bcc name keeps its address question), never single out one of several connections sharing a name, are owner-bound, checked against the owner's current connections and never stored, and an older build refuses refs like names. Masked or guessed addresses are never filled. The model sees resolved addresses for that turn; durable history empties the tool's inputs and results, and those stored placeholders never reach a later model request, but the request text and any Drive file ID stay in the stored pending directive. |
 | Send readiness | `EmailDraftGmailNotice` above Send: **Connect Gmail to send this.** + **Connect Gmail** for a mailbox never connected, **Reconnect Gmail to send this.** + **Reconnect Gmail** for live `needs_reauth` or `gmail_send: reconnect_required`, or **Allow One to send from Gmail.** + **Allow sending**; busy **Waiting for Google…**. A gap the live connector status shows wins. Its all-clear counts only once a status is read after the card opened, so a cached status never hides a gap the server's draft-time `gmail_send` hint reported. The hint covers a switched-off send until a connect from the card is confirmed; a cancelled or denied consent keeps it. Status is re-read once on open when Send looks blocked and again when the connect attempt ends. Unknown shows nothing; the server still checks every Send. |
 | Generation error | **Try drafting again** only ordinary `autoDraft` mode; repeats generation, never sends. |
 | First-connect recovery | **Connect Gmail** opens existing connections drawer when callback provided, otherwise `/one/gmail`. |
@@ -1016,7 +1016,10 @@ restricted durable snapshot; do not persist this whole DTO.
 
 Coverage fields:
 `source,listed_count,candidate_count,matched_count,pages_scanned,max_messages,max_pages,reached_limit,query_scope,rejection_counts,evidence_counts`.
-Rejection counts: `missing_receipt_signal,extractor_not_receipt`; evidence:
+Rejection counts: `missing_receipt_signal,extractor_not_receipt`; a message
+whose cited receipt evidence doesn't verify against it
+(`GMAIL_RECEIPT_EXTRACTION_UNVERIFIED`) is counted with `extractor_not_receipt`
+and no longer fails its page; evidence:
 `gmail_category,subject_signal,body_signal,verified_merchant,order_candidate,total_candidate`.
 Strict scan parser validates page identity/counters/continuation consistency.
 Scan schema forbids extra fields; page1–50, per_page1–6, cursor≤8192;
@@ -1348,15 +1351,30 @@ brief, and **Handed to your receipts; no mail was read.** when the Email special
 a receipts question back to One, live and after reload. A
 receipt function the device cannot answer because it holds no saved receipts
 becomes the existing Gmail connector card when the connector status already
-says Gmail is disconnected, or otherwise (including an unknown status)
-**Receipts aren't synced on this device yet.** with **Open receipts**
-(`one.receipt_setup.v1`). Any other unavailable receipt answer shows no card.
+says Gmail is disconnected. When Gmail is connected for receipt sync, the turn
+first runs one bounded sync on this device (about 45 seconds, shared by every
+receipt call in the turn) and shows **Syncing receipts…** (`one.receipt_setup.v1`,
+no button); a finished sync reads **Receipts synced on this device.** and the
+answer uses it. A sync that failed or ran out of time after saving some pages
+answers from them with its incomplete-sync caveat and reads **Receipt sync didn't
+finish on this device.** with **Open receipts**; one that saved nothing, or an
+unknown status, shows **Receipts aren't synced on this device yet.** with
+**Open receipts**. Stopping the turn ends the wait and removes the syncing card.
+Any other unavailable receipt answer shows no card. The app also starts the same
+sync in the background once per vault session after unlock or a new Gmail
+connection when this device holds no receipts, an earlier sync was interrupted,
+or they are a day old. Disconnecting Mail stops every receipt sync first. When a
+receipt answer is retired, only a finished answer reads **Receipt analysis was
+shown for that turn.**; a failed turn keeps its error, a stopped one keeps
+**Stopped.**, and a turn that had not finished or had no receipts reads
+**Receipt analysis ended before it was shown. Ask again.** with its setup card kept.
 
 Sources: [attention stack](../../components/agent/mail-attention-stack.tsx),
 [attention read model](../../lib/agent/use-mail-attention.ts),
 [device choices](../../lib/agent/mail-attention-dismissals.ts),
 [brief and receipt cards](../../components/agent/mail-chat-card.tsx),
 [experience parsing](../../lib/agent/mail-chat-experiences.ts),
+[receipt sync](../../lib/mail/receipt-device-sync.ts),
 [draft readiness notice](../../components/agent/email-draft-gmail-readiness.tsx).
 
 ### Unmounted inline Mail assistant and nudges

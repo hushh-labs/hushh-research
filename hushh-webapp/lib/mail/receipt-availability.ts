@@ -9,8 +9,13 @@ export const RECEIPT_UNAVAILABLE_LIMITATIONS = {
   receipt_snapshot_unavailable: "The owner receipt snapshot could not be read. Sync Mail Receipts and ask again.",
 } as const;
 export type ReceiptUnavailableCode = keyof typeof RECEIPT_UNAVAILABLE_LIMITATIONS;
-/** What the chat can offer under the answer: Connect Gmail, or a receipt sync on this device. */
-export type ReceiptSetupState = "connect_required" | "sync_required";
+/**
+ * What the chat shows under the answer: Connect Gmail, a receipt sync this turn
+ * started (`syncing`, then `synced` only once one finished and was saved, or
+ * `sync_incomplete` when the answer used the pages saved before it stopped),
+ * or a sync still needed.
+ */
+export type ReceiptSetupState = "connect_required" | "sync_required" | "syncing" | "synced" | "sync_incomplete";
 type GmailConnection = Pick<GmailConnectionStatus, "configured" | "connected" | "revoked"> | null;
 
 /** This device holds no saved receipts for the owner yet. Fixed text; no account or receipt detail. */
@@ -31,7 +36,7 @@ export function receiptUnavailableCode(error: unknown, gmail: GmailConnection): 
   return gmail?.configured && !(gmail.connected && !gmail.revoked) ? "gmail_not_connected" : "receipts_not_synced";
 }
 
-export function receiptSetupState(code: ReceiptUnavailableCode): ReceiptSetupState | null {
+export function receiptSetupState(code: ReceiptUnavailableCode): "connect_required" | "sync_required" | null {
   if (code === "gmail_not_connected") return "connect_required";
   return code === "receipts_not_synced" ? "sync_required" : null;
 }

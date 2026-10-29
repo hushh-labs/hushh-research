@@ -397,6 +397,7 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES, buildGmailWorkspaceRoute } from "@/lib/navigation/routes";
 import { MailAttentionStack } from "@/components/agent/mail-attention-stack";
 import { receiptSetupExperience } from "@/lib/agent/mail-chat-experiences";
+import { redactReceiptAnswer, withoutSyncingReceiptCard } from "@/lib/agent/receipt-answer-redaction";
 import { cn } from "@/lib/utils";
 import {
   useConsentActions,
@@ -2749,9 +2750,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const pkmCaptureMessageIdsRef = useRef<ReadonlySet<string>>(new Set());
   pkmCaptureMessageIdsRef.current = new Set(messages.map((message) => message.id));
   const clearReceiptAnswers = useCallback(() => setMessages(current => current.map(message => message.receiptPrivate ? {
-    ...message, receiptPrivate: undefined, receiptRedacted: true, status: "done",
-    text: "Receipt analysis was shown for that turn. Ask again for a fresh analysis.",
-    structuredExperience: null, structuredExperiences: [], streamEvents: [], sources: [], followUps: [],
+    ...redactReceiptAnswer(message), receiptPrivate: undefined,
   } : message)), []);
   useEffect(() => {
     const privateMessages = messages.filter(message => message.receiptPrivate);
@@ -6137,7 +6136,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const delta = pendingAssistantDelta;
       pendingAssistantDelta = "";
       if (!delta) return;
-      updateMessage(assistantMessageId, (message) => ({
+      updateMessage(assistantMessageId, (message) => message.receiptRedacted ? message : ({
         ...message,
         text: message.ephemeral ? delta : `${message.text}${delta}`,
         status: "streaming",
@@ -6166,7 +6165,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       updateMessage(assistantMessageId, (message) => ({
         ...message,
         text: message.text || "Agent turn canceled.",
-        status: "done",
+        status: "done", structuredExperiences: withoutSyncingReceiptCard(message.structuredExperiences),
         streamEvents: settleVisibleStreamEvents(
           message.streamEvents,
           "blocked",
@@ -6777,7 +6776,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           updateMessage(assistantMessageId, (message) => ({
             ...message,
             text: message.text || "Stopped.",
-            status: "done",
+            status: "done", structuredExperiences: withoutSyncingReceiptCard(message.structuredExperiences),
             streamEvents: settleVisibleStreamEvents(message.streamEvents, "blocked"),
           }));
           setIsChatLoading(false);
@@ -6840,7 +6839,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             } }));
           },
           onReceiptSetupNeeded: (state) => {
-            if (streamAbortController.signal.aborted) return;
+            if (streamAbortController.signal.aborted || turnStopped) return;
             updateMessage(assistantMessageId, (message) => ({ ...message, structuredExperiences: upsertAgentStructuredExperience(
               message.structuredExperiences ?? [], `${assistantMessageId}:receipt-setup`, receiptSetupExperience(state)) }));
           },
@@ -7332,7 +7331,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const delta = pendingAssistantDelta;
       pendingAssistantDelta = "";
       if (!delta) return;
-      updateMessage(assistantMessageId, (message) => ({
+      updateMessage(assistantMessageId, (message) => message.receiptRedacted ? message : ({
         ...message,
         text: `${message.text}${delta}`,
         status: "streaming",
@@ -8834,10 +8833,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     (message) => message.id !== "agent-greeting",
   );
   const visibleMessages = dedupeAdjacentAgentMessages(
-    messages.map(message => message.receiptPrivate && (message.receiptPrivate.ownerId !== applicationOwnerId || !isVaultUnlocked || !vaultKey || message.receiptPrivate.vaultEpoch !== vaultSessionEpoch || message.receiptPrivate.conversationId !== conversationId || message.receiptPrivate.expiresAt <= Date.now()) ? {
-      ...message, receiptRedacted: true, text: "Receipt analysis was shown for that turn. Ask again for a fresh analysis.",
-      structuredExperience: null, structuredExperiences: [], streamEvents: [], sources: [], followUps: [],
-    } : message).filter((message) => {
+    messages.map(message => message.receiptPrivate && (message.receiptPrivate.ownerId !== applicationOwnerId || !isVaultUnlocked || !vaultKey || message.receiptPrivate.vaultEpoch !== vaultSessionEpoch || message.receiptPrivate.conversationId !== conversationId || message.receiptPrivate.expiresAt <= Date.now()) ? redactReceiptAnswer(message) : message).filter((message) => {
       if (message.id === "agent-greeting") return false;
       if (
         pendingSpecialistDirective &&
