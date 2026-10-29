@@ -1121,6 +1121,29 @@ partial migration cannot be retried as a new empty first rollout. The bounded
 health-tag lease is retired and the actual cold revision is revalidated before
 publishing the operational proof.
 
+The independent Production `protected-configuration-health` monitor is a
+non-database observer only after `deploy/observability/auth_health_inventory.py`
+qualifies its exact retained UID, namespace, creation, generation and whole task
+specification. Its pinned image was joined to successful Cloud Build
+`0f80cc7e-2265-4639-9a1a-199359b20600`; every image input in its generation-bound
+source archive equals the reviewed repository body. The fixed entrypoint checks
+protected lists and readiness and writes its own lease and health log. It does
+not invoke the application or a phone/SQL writer.
+
+Capacity collection retains this job in the complete inventory, verifies all
+active execution specifications and reports its zero database contribution.
+Phone qualification separately closes its exact immutable audit birth and every
+effective completed execution, including failed executions. Before/after phone
+producer equality excludes only this independently requalified observer, so its
+addition does not invalidate an earlier closed producer snapshot. Changed images,
+arguments, environment, sidecars, volumes, identities, missing history, execution
+overrides, job replacement and deletion refuse qualification. All other jobs
+retain the existing producer/history and capacity rules; this grants no new
+deployment source, schema mutation, recovery activation or traffic authority.
+A Production release of an application that predates this helper restores it
+from current tooling beside the capacity and phone tools after checking out that
+application, so the same owner qualifies the observer instead of failing to load.
+
 Its explicit backend scope selects qualification work without moving primary
 traffic. The subsequent standard release still applies the ordinary
 account-lifecycle atomicity gate across the actual serving backend and frontend

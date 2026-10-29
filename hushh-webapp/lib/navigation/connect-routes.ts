@@ -3,6 +3,32 @@ import { appRouteMatches } from "@/lib/navigation/route-settlement";
 
 export const CONNECT_SURFACE_PARAM = "tab";
 export const CONNECT_SEARCH_QUERY_PARAM = "q";
+export const CONNECT_MUTUALS_PARAM = "mutuals";
+
+export function connectDirectoryReturnHref(params: { get(name: string): string | null; toString(): string }, currentQuery?: string): string {
+  const serialized = params.toString();
+  const query = new URLSearchParams(serialized === "[object Object]" ? "" : serialized);
+  for (const key of ["q", "view", "from"]) {
+    const value = params.get(key);
+    if (value) query.set(key, value);
+  }
+  query.delete(CONNECT_MUTUALS_PARAM);
+  // A badge lives in Find people even when this visit originally entered the
+  // sibling My connections view. Replaying that entry intent loses the origin.
+  query.delete("view");
+  if (currentQuery !== undefined) {
+    if (currentQuery.trim()) query.set(CONNECT_SEARCH_QUERY_PARAM, currentQuery.trim().slice(0, 160));
+    else query.delete(CONNECT_SEARCH_QUERY_PARAM);
+  }
+  query.set(CONNECT_SURFACE_PARAM, "all");
+  return `${ROUTES.CONNECT}?${query}`;
+}
+
+export function connectMutualsHref(personRef: string, params: { get(name: string): string | null; toString(): string }, currentQuery?: string): string {
+  const href = new URL(connectDirectoryReturnHref(params, currentQuery), "https://app.invalid");
+  href.searchParams.set(CONNECT_MUTUALS_PARAM, personRef);
+  return `${href.pathname}?${href.searchParams}`;
+}
 /** Entry intent only; switching the two local views does not write history. */
 export const CONNECT_CONNECTION_VIEW_PARAM = "view";
 export const CONNECT_CONNECTIONS_LIST_HREF = `${ROUTES.CONNECT}?tab=all&${CONNECT_CONNECTION_VIEW_PARAM}=connections`;

@@ -1,5 +1,16 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useEffect } from "react";
+const polls = vi.hoisted(() => new Map<string, () => void | Promise<void>>());
+vi.mock("@/lib/perf/use-periodic-task", () => ({
+  usePeriodicTask: (id: string, _interval: number, run: () => void | Promise<void>, options: { enabled?: boolean }) => {
+    useEffect(() => {
+      if (!options.enabled) return;
+      polls.set(id, run);
+      return () => { polls.delete(id); };
+    });
+  },
+}));
 const state = vi.hoisted(() => ({ terms: vi.fn(), sourceSelection: vi.fn(), timeline: vi.fn(), payment: vi.fn(), checkout: vi.fn(), approve: vi.fn(), prepare: vi.fn(), repair: vi.fn(), revoke: vi.fn(), pickerSession: vi.fn(), choose: vi.fn(), selectDocuments: vi.fn() }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
 vi.mock("@/lib/capacitor/native-navigation", () => ({ useNativeNavigationOverlayRef: (ref: unknown) => ref }));
@@ -69,6 +80,29 @@ describe("hosted document payout and link boundaries", () => {
   it("offers explicit disabled-until-accepted payment only after current readiness", async () => {
     state.terms.mockResolvedValue(terms()); state.payment.mockResolvedValue({ status: "awaiting_payment", paymentsReady: true, ownerPayoutAccountReady: true }); mount("b");
     expect(await screen.findByRole("button", { name: "Accept and pay $1.00" })).toBeDisabled();
+    expect(state.checkout).not.toHaveBeenCalled();
+  });
+  it("updates payment and delivery without reload, retains unchanged consent and retires its poll", async () => {
+    state.terms.mockResolvedValue(terms());
+    const view = mount("b");
+    await screen.findByText(/Payment is unavailable/);
+    state.payment.mockResolvedValue({ status: "checkout_open", paymentsReady: true, ownerPayoutAccountReady: true });
+    const tick = async () => { await act(async () => { await polls.get(`hosted-document-status:${requestId}`)?.(); }); };
+    await tick();
+    const pay = await screen.findByRole("button", { name: "Accept and pay $1.00" });
+    fireEvent.click(screen.getByRole("checkbox", { name: /I accept this approved/ }));
+    expect(pay).toBeEnabled();
+    await tick();
+    expect(screen.getByRole("checkbox", { name: /I accept this approved/ })).toBeChecked();
+    state.terms.mockResolvedValue(terms({ revision: 2, termsDigest: "new-terms" }));
+    await tick();
+    expect(screen.getByRole("checkbox", { name: /I accept this approved/ })).not.toBeChecked();
+    state.terms.mockResolvedValue(terms({ revision: 3, status: "delivered" }));
+    await tick();
+    expect(screen.getByText("Reader")).toBeVisible();
+    expect(polls.size).toBe(0);
+    view.unmount();
+    expect(polls.size).toBe(0);
     expect(state.checkout).not.toHaveBeenCalled();
   });
   it("retires pending preparation on session renewal, resets consent and busy state, and rejects late old-session updates", async () => {
@@ -179,6 +213,10 @@ describe("hosted document payout and link boundaries", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /I authorize Agent One/ }));
     const prepare = screen.getByRole("button", { name: "Prepare encrypted copies" });
     expect(prepare).toBeEnabled();
+    await act(async () => { await polls.get(`hosted-document-status:${requestId}`)?.(); });
+    expect(screen.getByLabelText("Price (USD)")).toHaveValue(2.5);
+    expect(new Date((deadline as HTMLInputElement).value).toISOString()).toBe(new Date(localDeadline).toISOString());
+    expect(prepare).toBeEnabled();
     expect(screen.queryByRole("button", { name: /Stop .*access|Stop both/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Choose files" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Choose files" })).toBeEnabled());
@@ -196,7 +234,7 @@ describe("hosted document payout and link boundaries", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /I authorize Agent One/ }));
     expect(screen.getByRole("button", { name: "Prepare encrypted copies" })).toBeEnabled();
     expect(state.selectDocuments).toHaveBeenCalledWith("owner", "picker-session", ["chosen"], false);
-    expect(state.terms).toHaveBeenCalledOnce();
+    expect(state.terms).toHaveBeenCalledTimes(2); // Initial load and the explicit background tick.
     expect(onChanged).not.toHaveBeenCalled();
     expect(picker.accessToken).toBe("");
   });
