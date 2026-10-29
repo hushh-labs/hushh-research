@@ -108,6 +108,16 @@ concurrency:
   queue: max
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    needs: select-target
+    if: needs.select-target.outputs.decision != 'NO_OP'
+    uses: ./.github/workflows/deployment-security.yml
+    with:
+      application_ref: ${{ needs.select-target.outputs.sha }}
+      environment_name: uat
+      scope: ${{ inputs.scope || 'auto' }}
+
   select-target:
     name: Select UAT target
     runs-on: ubuntu-24.04
@@ -198,7 +208,7 @@ jobs:
 
   wait-capacity:
     name: Wait for UAT capacity outside the mutation lock
-    needs: select-target
+    needs: [select-target, deployment-security]
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
     runs-on: ubuntu-24.04
     timeout-minutes: 7
@@ -212,6 +222,16 @@ jobs:
     outputs:
       scope: ${{ steps.admission.outputs.scope }}
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Checkout current admission tooling
         uses: actions/checkout@v6
         with:
@@ -244,7 +264,7 @@ jobs:
 
   deploy:
     name: Deploy UAT Scope
-    needs: [select-target, wait-capacity]
+    needs: [select-target, wait-capacity, deployment-security]
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
     runs-on: ubuntu-24.04
     concurrency:
@@ -256,6 +276,16 @@ jobs:
       UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
 
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert manual dispatch originates from main
         shell: bash
         run: |
