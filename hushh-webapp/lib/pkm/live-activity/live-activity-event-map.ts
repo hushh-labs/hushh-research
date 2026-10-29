@@ -44,11 +44,9 @@ function kindOnly(kind: LiveActivityKind | null, subject: string | null = null):
 const MAPPERS = new Map<ObservabilityEventName, Mapper>([
   ["gmail_connect_result", p => (p.action === "complete" && succeeded(p) ? kindOnly("connector_connected", "gmail") : null)],
   ["gmail_disconnect_result", p => (succeeded(p) ? kindOnly("connector_disconnected", "gmail") : null)],
-  ["gmail_sync_result", p => {
-    if (p.action !== "complete") return null;
-    if (p.result === "success") return kindOnly("connector_synced", "gmail");
-    return p.result === "error" ? kindOnly("connector_sync_failed", "gmail") : null;
-  }],
+  // A failed sync is not something the owner did or can act on here, so it never
+  // reaches Today or the chat packet; the connector surface reports it.
+  ["gmail_sync_result", p => (p.action === "complete" && p.result === "success" ? kindOnly("connector_synced", "gmail") : null)],
   ["one_calendar_action", p => (succeeded(p) ? kindOnly(lookup(CALENDAR_KINDS, p.action), "google_calendar") : null)],
   ["consent_action_result", p => (succeeded(p) ? kindOnly(lookup(CONSENT_KINDS, p.action)) : null)],
   // one_location_share_confirmed is deliberately unmapped: a private Check-In

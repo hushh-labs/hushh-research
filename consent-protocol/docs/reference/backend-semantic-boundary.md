@@ -1234,9 +1234,11 @@ agent is added.
     observed state. A day can arrive in several cycles, and the counts in a
     line cover only that cycle.
   - Visits to the One home section are not a usage statement.
-  - Memory saves, consent decisions, profile updates and connector sync results
-    are never sent, because they are already saved by their own owners or carry
-    no durable meaning. They still show in Today and in the per-turn packet.
+  - Memory saves, consent decisions, profile updates and successful connector
+    syncs are never sent, because they are already saved by their own owners or
+    carry no durable meaning. They still show in Today and in the per-turn
+    packet. A failed sync is not recorded at all: it is not an owner action and
+    offers no fix there.
   - Place labels are third-party or free text (a Google venue's public name,
     from a check-in or a place saved from one, or the owner's own place name), so the digest and the per-turn packet render
     them as quoted names. A label that repeats the place's own street address

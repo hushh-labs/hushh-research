@@ -7,7 +7,6 @@ describe("liveActivityFromTrackedEvent", () => {
     ["gmail_connect_result", { action: "complete", result: "success" }, { kind: "connector_connected", subject: "gmail" }],
     ["gmail_disconnect_result", { result: "success" }, { kind: "connector_disconnected", subject: "gmail" }],
     ["gmail_sync_result", { action: "complete", result: "success" }, { kind: "connector_synced", subject: "gmail" }],
-    ["gmail_sync_result", { action: "complete", result: "error" }, { kind: "connector_sync_failed", subject: "gmail" }],
     ["one_calendar_action", { route_id: "calendar", action: "connected", result: "success" }, { kind: "connector_connected", subject: "google_calendar" }],
     ["one_calendar_action", { route_id: "calendar", action: "disconnected", result: "success" }, { kind: "connector_disconnected", subject: "google_calendar" }],
     ["consent_action_result", { action: "approve", result: "success" }, { kind: "consent_approved", subject: null }],
@@ -30,6 +29,8 @@ describe("liveActivityFromTrackedEvent", () => {
     ["gmail_connect_result", { action: "complete", result: "error" }],
     ["gmail_sync_result", { action: "poll", result: "error" }],
     ["gmail_sync_result", { action: "complete", result: "expected_error" }],
+    // A failed sync is not an owner action and offers no fix in Today or chat.
+    ["gmail_sync_result", { action: "complete", result: "error" }],
     ["one_calendar_action", { action: "chat_opened", result: "success" }],
     ["consent_action_result", { action: "approve", result: "error" }],
     ["consent_action_result", { action: "toString", result: "success" }],
