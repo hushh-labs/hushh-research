@@ -197,6 +197,13 @@ def test_uat_attempt_tags_are_required_outputs_of_healthy_deployments():
             "attestations": "write",
             "id-token": "write",
         }
+        checkout = next(
+            item
+            for item in writer["steps"]
+            if item.get("name") == "Checkout protected Main receipt tooling"
+        )
+        assert checkout["with"]["ref"] == "refs/heads/main"
+        assert checkout["with"]["persist-credentials"] is True
         persist = next(
             item
             for item in writer["steps"]
