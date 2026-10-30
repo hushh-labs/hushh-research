@@ -1174,6 +1174,14 @@ operational reference publication, one prepare command group and exactly one gua
 diagnostic as its final output. Only the setup action's exact unstamped cache-glob
 lines may lack timestamps. The operational reference keeps its own intent artifact
 and idempotent tag readback; this proof covers revision-cleanup custody only.
+A UAT attempt stopped by that first guard under the reviewed current source
+qualifies through `retention_uat_guard_evidence.py` on the same terms: reviewed
+owner, workflow and publication bodies at its actual checkout, the exact UAT
+cleanup-job layout and prepare command group, and exactly one guard diagnostic as
+its final output. The clock's tick for both environments, titled
+`Capacity Maintenance`, carries the same bot authority as a scoped tick. Any change
+to those three files needs a newly reviewed profile before a later guard stop can
+qualify.
 Unknown source, incomplete logs, cancellation and failed
 checkpoint uploads remain blocked. Every attempt is inspected, including earlier
 attempts of a currently running retry; never delete failed runs to clear admission.

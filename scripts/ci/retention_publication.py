@@ -6,6 +6,7 @@ import importlib
 import json
 import os
 import retention_preflight_evidence as evidence
+import retention_uat_guard_evidence as uat_guard
 
 WORKFLOW = ".github/workflows/capacity-maintenance.yml"
 REPOSITORY = "hushh-labs/hushh-research"
@@ -14,6 +15,9 @@ REPOSITORY = "hushh-labs/hushh-research"
 LEGACY_BLOBS = evidence.LEGACY_BLOBS
 LEGACY_STEPS = evidence._STEP_NAMES
 RUNNER_WARNING = evidence.RUNNER_WARNING
+# The clock's tick for both environments. Its bot dispatch is the same authority
+# as a scoped tick; only the run-name differs.
+UNSCOPED_TICK_TITLE = "Capacity Maintenance"
 
 
 def _require(owner, condition, message):
@@ -113,6 +117,8 @@ def _source(owner, repository, sha, paths=None):
         return {path: read(path, sha) for path in paths}
     first = read(evidence.OWNER, sha)
     profile = evidence.SOURCE_PROFILES.get(first.get("sha"))
+    if profile is None and first.get("sha") in uat_guard.OWNER_BLOBS:
+        profile = uat_guard.SOURCE_PATHS
     _require(owner, profile is not None, "maintenance pre-mutation source is unknown")
     return {
         path: first if path == evidence.OWNER else read(path, sha) for path in profile
@@ -169,6 +175,8 @@ def qualify(owner, repository, environment, run, job):
         )
     return evidence.qualify_preflight_run(
         repository, environment, attempt, job, log, blobs, workflow
+    ) or uat_guard.qualify_guard_run(
+        repository, environment, attempt, job, log, blobs, workflow
     )
 
 
@@ -189,7 +197,8 @@ def _legacy_actor(owner, attempt, run, number, environment):
             or (
                 attempt.get("event") == "repository_dispatch"
                 and actor == "github-actions[bot]"
-                and run.get("display_title") == owner.SCOPED_TICK_TITLES[environment]
+                and run.get("display_title")
+                in {owner.SCOPED_TICK_TITLES[environment], UNSCOPED_TICK_TITLE}
             )
         )
         and (
