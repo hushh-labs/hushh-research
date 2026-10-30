@@ -197,8 +197,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                 try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             }
             try session.setActive(true)
-            emergencyPlayer?.play()
-            retireHandoffIfSettled()
+            if emergencyPlayer?.play() == true { retireHandoffIfSettled() }
         } catch { /* Retain pending alerts through system audio interruptions. */ }
     }
 
@@ -273,11 +272,9 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                     EmergencySmsSystemAlarm.cancel(user: user, grant: grant)
                     call.resolve(["played": false]); return
                 }
-                if scheduled {
-                    self.systemAlarmOwners[user] = uid
-                    EmergencySmsCueHandoff.cancel() // The system alarm now owns the ringing.
-                    call.resolve(["played": true]); return
-                }
+                // The shared hand-off series may still cover other in-app grants, so a
+                // system alarm for this grant never retires it.
+                if scheduled { self.systemAlarmOwners[user] = uid; call.resolve(["played": true]); return }
             }
             self.playForegroundEmergencySmsCue(call)
         }
@@ -556,13 +553,13 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func clearNotificationKey(_ call: CAPPluginCall) {
         guard let user = call.getString("userId") else { call.reject("Notification identity required"); return }
+        EmergencySmsCueHandoff.cancel() // Clearing the key ends every hand-off, even if the clear fails.
         do {
             _ = try ChatPreviewKeys.clear(userId: user)
             Task { @MainActor [weak self] in
                 var cancelled = true
                 if #available(iOS 26.0, *) { cancelled = EmergencySmsSystemAlarm.cancelOwner(user) }
                 if let self, self.emergencyOwner == user { self.stopEmergencyCue() }
-                EmergencySmsCueHandoff.cancel() // A cleared key ends every hand-off.
                 do {
                     if call.getBool("deleteAlarmReceipts") == true {
                         guard cancelled else { call.reject("Notification alarm cleanup unavailable"); return }
