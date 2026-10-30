@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -12,6 +12,13 @@ import { CalendarMeetingReviewService, type CalendarRequestPreview, type Calenda
 import { DriveSharingService, type SharingReview, type SharingSessionGuard, type SharingStatus } from "@/lib/services/drive-sharing-service";
 import { DriveSharingError } from "@/lib/services/drive-sharing-wire";
 import { DocumentShareReview } from "@/components/consent/document-share-review";
+import { ROUTES } from "@/lib/navigation/routes";
+import { isMeetingReviewing, meetingOutcome } from "@/lib/consent/calendar-meeting-outcome";
+
+// Sharing is quick when it works; poll quietly for a bounded time, then stop and
+// offer a manual check rather than polling a stuck job forever.
+const SHARING_POLL_MS = 2_500;
+const SHARING_POLL_LIMIT = 40;
 
 function errorText(error: unknown): string {
   if (!(error instanceof DriveSharingError)) return "This meeting request could not be checked. Try again.";
@@ -51,17 +58,27 @@ export function DocumentRequestReviewRouter({ requestId, onChanged, counterpartL
   if (!userId || !isVaultUnlocked) return <p role="status">Unlock your vault to review this request.</p>;
   if (route === "loading") return <p role="status">Checking request type…</p>;
   if (route === "error") return <div><p role="alert">This request could not be checked securely.</p><Button onClick={() => setRetry(value => value + 1)}>Try again</Button></div>;
+  // The card tracks its own status after an action, so it must not be remounted
+  // (and its Sharing/outcome panel reset) by a re-fetch here.
   if (route.requestType === "calendar_meeting")
-    return <CalendarMeetingReviewCard key={`${userId}:${requestId}:${route.revision}`} requestId={requestId} status={route}
-      onChanged={() => { onChanged(); setRetry(value => value + 1); }} />;
+    return <CalendarMeetingReviewCard key={`${userId}:${requestId}`} requestId={requestId} status={route}
+      onChanged={onChanged} />;
   return <DocumentShareReview requestId={requestId} onChanged={onChanged} surface="sheet" counterpartLabel={counterpartLabel} />;
 }
 
-function CalendarMeetingReviewCard({ requestId, status, onChanged }: {
+function CalendarMeetingReviewCard({ requestId, status: initialStatus, onChanged }: {
   requestId: string; status: SharingStatus; onChanged: () => void;
 }) {
   const { userId } = useAuth();
   const { getVaultOwnerToken } = useVault();
+  // Server truth for this request, refreshed in place so the page never remounts.
+  const [status, setStatus] = useState<SharingStatus>(initialStatus);
+  const [pollStopped, setPollStopped] = useState(false);
+  const [pollRun, setPollRun] = useState(0);
+  // A parent may pass an unstable callback; the poll must not restart for it.
+  const onChangedRef = useRef(onChanged);
+  onChangedRef.current = onChanged;
+  useEffect(() => { setStatus(current => current.revision === initialStatus.revision ? current : initialStatus); }, [initialStatus]);
   const [preview, setPreview] = useState<CalendarRequestPreview | null>(null);
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState<CalendarSearch | null>(null);
@@ -104,6 +121,37 @@ function CalendarMeetingReviewCard({ requestId, status, onChanged }: {
     return () => { cancelled = true; };
   }, [requestId, status.direction, status.revision, getVaultOwnerToken, guardFor]);
 
+  const outcome = status.direction === "incoming" ? meetingOutcome(status.status) : null;
+  const sharing = outcome?.inProgress === true;
+  useEffect(() => {
+    if (!sharing) return;
+    const token = getVaultOwnerToken();
+    if (!token) return;
+    const epoch = snapshotVaultSessionEpoch();
+    const guard = guardFor(token, epoch);
+    let cancelled = false;
+    let timer: number | undefined;
+    let polls = 0;
+    setPollStopped(false);
+    const tick = async () => {
+      try {
+        const next = await DriveSharingService.status(token, requestId, guard);
+        guard();
+        if (cancelled) return;
+        if (next.requestType === "calendar_meeting" && next.direction === "incoming") setStatus(next);
+        if (!meetingOutcome(next.status)?.inProgress) { onChangedRef.current(); return; }
+      } catch {
+        // A transient read must not end the poll; the limit below does.
+      }
+      polls += 1;
+      if (cancelled) return;
+      if (polls >= SHARING_POLL_LIMIT) { setPollStopped(true); return; }
+      timer = window.setTimeout(() => void tick(), SHARING_POLL_MS);
+    };
+    timer = window.setTimeout(() => void tick(), SHARING_POLL_MS);
+    return () => { cancelled = true; if (timer !== undefined) window.clearTimeout(timer); };
+  }, [sharing, pollRun, requestId, getVaultOwnerToken, guardFor]);
+
   const run = async (action: (token: string, guard: SharingSessionGuard) => Promise<void>) => {
     const token = getVaultOwnerToken();
     if (!token || busy) { setError("Unlock your vault to continue."); return; }
@@ -123,7 +171,7 @@ function CalendarMeetingReviewCard({ requestId, status, onChanged }: {
     <Link href="/one/calendar" className="underline">Open Calendar</Link>
   </section>;
 
-  const pending = status.status === "pending" || status.status === "preparing" || status.status === "review_ready";
+  const pending = isMeetingReviewing(status.status);
   return <section className="space-y-4 rounded-xl border p-4">
     <h3 className="font-semibold">Meeting file request</h3>
     {busy && !preview ? <p role="status">Loading this meeting request…</p> : null}
@@ -179,8 +227,12 @@ function CalendarMeetingReviewCard({ requestId, status, onChanged }: {
       <label className="flex items-start gap-2"><input type="checkbox" checked={finalConfirmed} onChange={event => setFinalConfirmed(event.target.checked)} />I confirm these selected files are for {preview.meeting.title} and the recipient is {review.recipientEmail}.</label>
       <Button disabled={busy || !reviewFiles.length || !finalConfirmed} onClick={() => void run(async (token, guard) => {
         await DriveSharingService.approve(token, requestId, review, guard, reviewFiles, false, undefined, true);
-        guard(); setNotice("Sharing was queued. The requester’s Calendar will show files after access is verified."); onChanged();
-      })}>Share selected files</Button>
+        guard();
+        // Approval is durable; Drive sharing now runs. Show Sharing until the server settles.
+        setReview(null); setReviewFiles([]); setFinalConfirmed(false);
+        setStatus(current => ({ ...current, status: "approved" }));
+        onChanged();
+      })}>Give access</Button>
       <Button variant="ghost" disabled={busy} onClick={() => {
         setReview(null); setReviewFiles([]); setFinalConfirmed(false); setSearch(null);
       }}>Choose different files</Button>
@@ -189,9 +241,17 @@ function CalendarMeetingReviewCard({ requestId, status, onChanged }: {
       if (!declineArmed) { setDeclineArmed(true); return; }
       void run(async (token, guard) => {
         await DriveSharingService.decide(token, requestId, "decline", preview.revision, guard);
-        guard(); setNotice("Request declined."); onChanged();
+        guard(); setStatus(current => ({ ...current, status: "declined" })); onChanged();
       });
     }}>{declineArmed ? "Confirm decline" : "Decline request"}</Button></div> : null}
-    {!pending ? <p role="status">This request is {status.status.replaceAll("_", " ")}. Refresh to check the latest Drive outcome.</p> : null}
+    {outcome ? <div className="space-y-2 border-t pt-3" data-testid="calendar-review-outcome" data-outcome={status.status}>
+      <h4 className="font-medium">{outcome.title}</h4>
+      <p role={outcome.tone === "error" ? "alert" : "status"}>{outcome.detail}</p>
+      {sharing && pollStopped ? <div className="space-y-2">
+        <p role="status">This is taking longer than usual. Sharing continues in the background.</p>
+        <Button variant="outline" onClick={() => setPollRun(value => value + 1)}>Check again</Button>
+      </div> : null}
+    </div> : null}
+    {!pending ? <Button asChild variant="outline"><Link href={ROUTES.ONE_FEED}>Back to Feed</Link></Button> : null}
   </section>;
 }
