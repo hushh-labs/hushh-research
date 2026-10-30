@@ -33,14 +33,35 @@ def _transport(project: str, *, build_only: bool = False):
     import requests
     from google.auth.transport.requests import AuthorizedSession, Request
 
-    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    credentials, _ = google.auth.default(
+        scopes=[
+            "https://www.googleapis.com/auth/cloud-platform",
+            "https://www.googleapis.com/auth/userinfo.email",
+        ]
+    )
     credentials.refresh(Request())
     expected = ("github-actions-uat-deployer@hushh-pda-uat.iam.gserviceaccount.com"
                 if build_only and project == "hushh-pda-uat" else "kushal@hushh.ai")
     with requests.post("https://oauth2.googleapis.com/tokeninfo",
                        data={"access_token": credentials.token}, timeout=20) as observed:
-        if observed.status_code != 200 or observed.json().get("email") != expected:
-            raise RuntimeError("Expected health operator identity unavailable")
+        email_present = False
+        email_matches = False
+        if observed.status_code == 200:
+            try:
+                identity = observed.json()
+            except ValueError:
+                identity = None
+            if isinstance(identity, dict):
+                email = identity.get("email")
+                email_present = isinstance(email, str) and bool(email)
+                email_matches = email_present and email == expected
+        if not email_matches:
+            raise RuntimeError(
+                "Expected health operator identity unavailable "
+                f"(tokeninfo_http_status={observed.status_code}, "
+                f"tokeninfo_email_present={str(email_present).lower()}, "
+                f"tokeninfo_email_matches={str(email_matches).lower()})"
+            )
     cli = shutil.which("gcloud") or str(Path.home() / "google-cloud-sdk/bin/gcloud")
     env = {**os.environ, "CLOUDSDK_AUTH_ACCESS_TOKEN": credentials.token}
 
