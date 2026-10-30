@@ -342,6 +342,36 @@ def _fake_resource_reader(bucket, state):
     return existing_resource
 
 
+def _runtime_state(
+    current_job,
+    timer,
+    create_error,
+    timer_readback_error,
+    job_preflight_status,
+    job_preflight_error,
+):
+    return {
+        "job": current_job,
+        "timer": timer,
+        "create_error": create_error,
+        "timer_readbacks": 0,
+        "timer_readback_error": timer_readback_error,
+        "job_preflight_reads": 0,
+        "job_preflight_status": job_preflight_status,
+        "job_preflight_error": job_preflight_error,
+    }
+
+
+def _patch_health_fakes(monkeypatch, state, run, api, bucket, native_resource_reader):
+    health = load_health(monkeypatch)
+    monkeypatch.setattr(health, "_reviewed_source", lambda: SOURCE)
+    monkeypatch.setattr(health, "_transport", lambda *a, **k: (run, api))
+    if not native_resource_reader:
+        monkeypatch.setattr(health, "_existing_resource", _fake_resource_reader(bucket, state))
+    monkeypatch.setattr(health, "_source_blob", lambda _source, _name: b"exact")
+    monkeypatch.setattr(health, "_verify_image_source", lambda *a: None)
+
+
 def runtime_fakes(
     monkeypatch,
     *,
@@ -365,16 +395,14 @@ def runtime_fakes(
     job_preflight_error=None,
 ):
     module = load_installer(monkeypatch)
-    state = {
-        "job": current_job,
-        "timer": timer,
-        "create_error": create_error,
-        "timer_readbacks": 0,
-        "timer_readback_error": timer_readback_error,
-        "job_preflight_reads": 0,
-        "job_preflight_status": job_preflight_status,
-        "job_preflight_error": job_preflight_error,
-    }
+    state = _runtime_state(
+        current_job,
+        timer,
+        create_error,
+        timer_readback_error,
+        job_preflight_status,
+        job_preflight_error,
+    )
     calls = []
     job, execution, events = _health_observation(healthy)
     build, bucket = _build_and_bucket(wrong_build=wrong_build, wrong_bucket=wrong_bucket)
@@ -417,11 +445,5 @@ def runtime_fakes(
         job_read_status=job_preflight_status,
         job_read_error=job_preflight_error,
     )
-    health = load_health(monkeypatch)
-    monkeypatch.setattr(health, "_reviewed_source", lambda: SOURCE)
-    monkeypatch.setattr(health, "_transport", lambda *a, **k: (run, api))
-    if not native_resource_reader:
-        monkeypatch.setattr(health, "_existing_resource", _fake_resource_reader(bucket, state))
-    monkeypatch.setattr(health, "_source_blob", lambda _source, _name: b"exact")
-    monkeypatch.setattr(health, "_verify_image_source", lambda *a: None)
+    _patch_health_fakes(monkeypatch, state, run, api, bucket, native_resource_reader)
     return module, state, calls, job, execution, events
