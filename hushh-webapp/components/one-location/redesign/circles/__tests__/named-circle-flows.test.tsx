@@ -2812,13 +2812,13 @@ describe("named Circle flows", () => {
       fireEvent.click(
         within(
           screen.getByTestId(`one-location-circle-eligible-${invitee.userId}`),
-        ).getByRole("button"),
+        ).getByRole("button", { name: /^(Select|Deselect) / }),
       );
     }
     expect(
       within(
         screen.getByTestId("one-location-circle-eligible-user-21"),
-      ).getByRole("button"),
+      ).getByRole("button", { name: /^(Select|Deselect) / }),
     ).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Add 20 people" }));
@@ -2868,9 +2868,9 @@ describe("named Circle flows", () => {
     expect(within(sheet).queryByText("Choose connections.")).toBeNull();
     expect(within(sheet).queryByText(/SMS Circle limit|available;|right now/i)).toBeNull();
     for (const contact of contacts.slice(0, 10)) {
-      fireEvent.click(within(screen.getByTestId(`one-location-circle-eligible-${contact.userId}`)).getByRole("button"));
+      fireEvent.click(within(screen.getByTestId(`one-location-circle-eligible-${contact.userId}`)).getByRole("button", { name: /^(Select|Deselect) / }));
     }
-    expect(within(screen.getByTestId("one-location-circle-eligible-sms-person-11")).getByRole("button")).toBeDisabled();
+    expect(within(screen.getByTestId("one-location-circle-eligible-sms-person-11")).getByRole("button", { name: /^(Select|Deselect) / })).toBeDisabled();
     fireEvent.click(within(sheet).getByRole("button", { name: "Add 10 people" }));
     await waitFor(() => expect(onInviteConnections).toHaveBeenCalledWith(
       "sms-circle", contacts.slice(0, 10).map((contact) => contact.userId),
@@ -3452,7 +3452,7 @@ describe("a caller-requested re-read keeps the screen where it was", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
-    await screen.findByRole("button", { name: /Ravi Meena/i });
+    await screen.findByRole("button", { name: "Select Ravi Meena", exact: true });
 
     // Page two is not the complete authority. Loading it must not interpret a
     // page-one selection as removed.
