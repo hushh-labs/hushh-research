@@ -10,7 +10,6 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
-from production_phone_job_name_cases import RAW_PRIMARY_NAME, apply_legacy_job_names
 
 from tests.test_phone_rollback_release import FALLBACK, IMAGE, PRIMARY, ROOT, _revision
 
@@ -374,6 +373,9 @@ def test_schema_history_reuses_restoration_absence_without_hiding_producers(
         state = "in_progress" if change == "older_active" else "queued"
         case.attempts[(300, 1)]["status"] = case.jobs[(300, 1)]["jobs"][0]["status"] = state
     elif change in {"raw_skipped", "raw_older"}:
+        monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+        from production_phone_job_name_cases import RAW_PRIMARY_NAME, apply_legacy_job_names
+
         apply_legacy_job_names(case, PRIMARY)
         latest.update(name=RAW_PRIMARY_NAME, status="completed", conclusion="skipped", steps=[])
         if change == "raw_older":
