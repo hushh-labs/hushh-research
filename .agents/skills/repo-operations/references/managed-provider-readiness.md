@@ -66,9 +66,12 @@ Each rule names the check that enforces it today, or its gap.
      (`test_capability_timeouts_reach_one_terminal_without_runtimeerror_masking`,
      `test_primary_http_success_never_erases_later_qualification_failure`).
    - Enforced: `one_text_root` names its failed round-trip leg (`root.no_deltas`,
-     `root.stream_mismatch`, `root.non_json`, `root.shape_mismatch`, or the
-     mismatched field) at the former strictness, and the CI proof admits exactly
-     the reasons probes emit (`tests/scripts/test_root_roundtrip_reasons.py`).
+     `root.stream_mismatch`, `root.non_json`, `root.shape_mismatch`, the
+     mismatched field, or a field that differs only in case or spacing) at the
+     former strictness, and the CI proof admits exactly the reasons probes emit
+     (`tests/scripts/test_root_roundtrip_reasons.py`). The synthetic request names
+     the exact answer format it grades (a lowercase basic color name), so a
+     correct reading cannot fail on format alone.
    - Enforced: the Drive planner's core-name check keeps its stable reason and
      names the requirement every candidate missed in `leg` (`entity_missing`,
      `tokens_mismatch`, `match_not_token`, `fallback_missing`) at the former
@@ -81,6 +84,12 @@ Each rule names the check that enforces it today, or its gap.
    misconfiguration, loosen a grader or skip a check.
    - Enforced: fixed per-call deadlines, `max_retries=0`, and the aggregate
      classifications in `scripts/ci/managed_provider_readiness.py`.
+   - Enforced: by the owner's decision of 2026-10-30, an exam step that fails on a
+     timeout, 429 or 5xx (`is_transient_transport`) repeats exactly once under the
+     same per-call deadline. The first failure prints as a `transport_retry` row,
+     a repeated capability records `transport_retries: 1`, and the proof admits
+     only that value. Semantic, trust, billing and configuration failures never
+     repeat (`tests/scripts/test_readiness_transport_repeat.py`).
    - Evidence: the UAT exam job logs each ADK Azure call's outcome, error kind,
      status, timings and incomplete reason without content
      (`azure_model_call_complete`), so a failed run shows whether a call timed out,
@@ -95,9 +104,13 @@ Each rule names the check that enforces it today, or its gap.
      with bounded, capped backoff instead of a fixed 30-second window
      (`tests/test_uat_readiness_verdict_collector.py`), so slow log indexing no
      longer fails a passing exam.
-   - Gap: the verdict still travels through log search; the exam starts about
-     11 minutes into UAT, runs sequentially, and the aggregate waits for the
-     Vertex step.
+   - Enforced: a failed check of the provider UAT requires ends the build at once
+     (exit 1, which cancels running steps), because the aggregate can no longer
+     pass; any other failed check exits 3, which the build allows, and the
+     aggregate decides as before (`tests/scripts/test_managed_provider_requirement.py`).
+   - Gap: the verdict still travels through log search, the exam starts about
+     11 minutes into UAT and runs sequentially, and a passing build still waits
+     for the diagnostic Vertex step.
 8. **Prove the check catches what it claims.** A new or changed check ships with a
    negative control (a known-bad input that must fail) and a positive control, both
    run before merge.

@@ -1561,6 +1561,7 @@ tests/test_world_model_research_context.py
 tests/test_pwm_runtime_probe.py
 tests/scripts/test_probe_drive_activity_planner.py
 tests/scripts/test_readiness_exam_manifest.py
+tests/scripts/test_readiness_transport_repeat.py
 tests/test_uat_readiness_verdict_collector.py
 tests/scripts/test_root_roundtrip_reasons.py
 tests/scripts/test_azure_readiness_deadline.py
@@ -1590,6 +1591,7 @@ tests/test_auth_health_inventory.py
 tests/test_phone_recovery_actions.py
 tests/test_phone_reader_probe.py
 tests/scripts/test_managed_provider_receipt.py
+tests/scripts/test_managed_provider_requirement.py
 tests/scripts/test_managed_provider_vertex_history.py
 
 tests/test_account_deletion_activation.py
