@@ -49,7 +49,7 @@ const financePolicyV2Schema = z.object({
   sections: z.array(z.enum(financeSections)).length(3), selectionHash: hexHash,
   showAmounts: z.literal(true), model_processing: z.object({ version: z.literal(1), allowed: z.literal(false) }).strict(),
   durationSeconds: z.union([z.literal(3600), z.literal(86400), z.literal(604800), z.null()]),
-}).strict().refine(p => (p.mode !== "snapshot" || p.durationSeconds !== null) && new Set(p.sections).size === 3 && ["allocation", "performance", "holdings"].every(s => p.sections.includes(s as FinanceSection)));
+}).strict().refine(p => new Set(p.sections).size === 3 && ["allocation", "performance", "holdings"].every(s => p.sections.includes(s as FinanceSection)));
 export const financePolicySchema = z.union([financePolicyV1Schema, financePolicyV2Schema]);
 export const financeGrantSchema = z.object({
   id: z.string().uuid(), requestId: z.string().uuid(), ownerUserId: z.string().min(1).max(160), recipientUserId: z.string().min(1).max(160), recipientPersonRef: z.string().uuid(), recipientKeyId: z.string().min(1).max(160),

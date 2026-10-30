@@ -140,6 +140,43 @@ def test_production_cohort_drift_is_reported() -> None:
     assert "unauthorized-newcomer" in errors[0]
 
 
+def test_a_trusted_readiness_exam_environment_must_admit_only_main() -> None:
+    """A loosened or recreated exam environment would hand the probe subject to any branch."""
+    module = _module()
+    policy = {"readiness_exam": {"environment": "readiness-exam"}}
+    trusted = {"azure-trial": {"readiness_exam_client_id": "probe-app"}}
+    main_only = {"branch_policies": [{"type": "branch", "name": "main"}]}
+
+    def stub(environment: dict, branches: dict, secrets: int = 0) -> list[str]:
+        def fake_gh_json(path: str) -> dict:
+            if path.endswith("/deployment-branch-policies"):
+                return branches
+            if path.endswith("/secrets"):
+                return {"total_count": secrets}
+            return environment
+
+        module._gh_json = fake_gh_json
+        return module._assert_readiness_exam("owner/repo", policy, trusted)
+
+    custom = {
+        "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}
+    }
+    assert stub(custom, main_only) == []
+    widened = {"branch_policies": [*main_only["branch_policies"], {"type": "branch", "name": "*"}]}
+    assert "must admit exactly the main branch" in stub(custom, widened)[0]
+    # GitHub recreates a deleted environment with no deployment branch policy.
+    assert "must admit exactly the main branch" in stub({"deployment_branch_policy": None}, {})[0]
+    assert "must hold no secrets" in stub(custom, main_only, secrets=1)[0]
+
+    def unreachable(path: str) -> dict:
+        raise AssertionError(f"no probe identity, yet {path} was read")
+
+    module._gh_json = unreachable
+    assert module._assert_readiness_exam(
+        "owner/repo", policy, {"azure-trial": {"readiness_exam_client_id": None}}
+    ) == []
+
+
 def test_production_tripwire_matches_committed_policy() -> None:
     """The constant must equal the live committed policy.
 
@@ -307,6 +344,79 @@ def test_capacity_clock_wakes_maintenance_scoped_to_due_environments() -> None:
         assert recorded == [post + tick for tick in expected], (uat, production, recorded)
 
 
+def _run_clock_summary(values: dict[str, str]) -> str:
+    root = Path(__file__).resolve().parents[2]
+    source = (root / ".github/workflows/capacity-maintenance-clock.yml").read_text()
+    match = re.search(
+        r"      - name: Summarize capacity clock checks\n.*?"
+        r"        run: \|\n(.*?)(?=\n  [\w-]+:\n|\n      - name:|\Z)",
+        source,
+        re.DOTALL,
+    )
+    assert match is not None, "Capacity clock summary step is missing"
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temporary:
+        summary = Path(temporary) / "summary.md"
+        result = subprocess.run(
+            [
+                "bash",
+                "--noprofile",
+                "--norc",
+                "-eo",
+                "pipefail",
+                "-c",
+                textwrap.dedent(match.group(1)),
+            ],
+            cwd=root,
+            env={**os.environ, **values, "GITHUB_STEP_SUMMARY": str(summary)},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        return summary.read_text()
+
+
+def test_capacity_clock_summary_reports_due_checks_scope_and_next_wait() -> None:
+    source = (
+        Path(__file__).resolve().parents[2]
+        / ".github/workflows/capacity-maintenance-clock.yml"
+    ).read_text()
+    assert 'run-name: "Capacity clock · ${{ github.event_name }} · run ${{ github.run_number }}"' in source
+    uat_only = _run_clock_summary(
+        {
+            "CLOCK_AUTHORITY": "true",
+            "UAT_DUE": "true",
+            "UAT_CHECK": "success",
+            "PRODUCTION_DUE": "false",
+            "PRODUCTION_CHECK": "success",
+        }
+    )
+    assert "| UAT | due | success | uat-only | 60-minute environment wait" in uat_only
+    assert "| Production | not due | success | none | 60-minute environment wait" in uat_only
+    both_due = _run_clock_summary(
+        {
+            "CLOCK_AUTHORITY": "true",
+            "UAT_DUE": "true",
+            "UAT_CHECK": "success",
+            "PRODUCTION_DUE": "true",
+            "PRODUCTION_CHECK": "success",
+        }
+    )
+    assert "all (UAT + production)" in both_due
+    failed = _run_clock_summary(
+        {
+            "CLOCK_AUTHORITY": "false",
+            "UAT_DUE": "unknown",
+            "UAT_CHECK": "failure",
+            "PRODUCTION_DUE": "false",
+            "PRODUCTION_CHECK": "success",
+        }
+    )
+    assert "| UAT | unknown | failure | unknown | not armed |" in failed
+
+
 def _run_clock_step(started_seconds_ago: int) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run the real `next-check` step with a fake gh that records dispatches."""
     root = Path(__file__).resolve().parents[2]
@@ -358,6 +468,7 @@ def main() -> int:
         test_required_environment_variables_are_enforced,
         test_missing_environment_variable_fails_verification,
         test_production_cohort_drift_is_reported,
+        test_a_trusted_readiness_exam_environment_must_admit_only_main,
         test_production_tripwire_matches_committed_policy,
         test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes,
         test_capacity_cleanup_rejects_deployment_events_and_non_main,
@@ -365,6 +476,7 @@ def main() -> int:
         test_capacity_clock_tick_carries_only_scheduled_authority,
         test_capacity_clock_accepts_only_its_own_trigger,
         test_capacity_clock_wakes_maintenance_scoped_to_due_environments,
+        test_capacity_clock_summary_reports_due_checks_scope_and_next_wait,
         test_capacity_clock_refuses_to_queue_before_its_wait,
     ]
     for test in tests:

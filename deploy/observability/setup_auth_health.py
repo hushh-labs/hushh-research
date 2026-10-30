@@ -25,7 +25,8 @@ PROJECTS = {"hushh-pda-uat", "hushh-pda"}
 REGION = "us-central1"
 JOB = "protected-configuration-health"
 FILES = ["config/protected-lists.json", "scripts/ops/verify_secret_list_invariants.py",
-         "scripts/ci/process_group.py", "deploy/observability/auth_health_job.py"]
+         "scripts/ci/process_group.py", "deploy/observability/auth_health_job.py",
+         "deploy/observability/auth_health_read_diagnostics.py"]
 
 
 def _transport(project: str, *, build_only: bool = False):

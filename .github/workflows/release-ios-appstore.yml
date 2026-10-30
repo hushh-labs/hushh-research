@@ -311,7 +311,7 @@ jobs:
 
       - name: Authenticate to Google Cloud (production contract)
         if: env.BACKEND_TARGET == 'production'
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -319,7 +319,7 @@ jobs:
 
       - name: Set up gcloud (production contract)
         if: env.BACKEND_TARGET == 'production'
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Read production routing contract
         if: env.BACKEND_TARGET == 'production'
@@ -392,7 +392,7 @@ jobs:
           echo "Production routing contract read (backend host ${PROD_BACKEND_HOST})."
 
       - name: Authenticate to Google Cloud (UAT)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           # UAT-scoped SA key (repo-level secret, inherited by the production
           # environment). PROD runtime/Firebase values were already read using
@@ -401,7 +401,7 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
 
       - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Assert GCP project scope
         shell: bash
@@ -760,7 +760,7 @@ jobs:
 
       - name: Reauthenticate production identity before the upload gate
         if: env.BACKEND_TARGET == 'production'
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -818,7 +818,7 @@ jobs:
 
       - name: Upload TestFlight distribution receipt
         if: ${{ github.event.inputs.dry_run != 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: testflight-upload-receipt
           path: ${{ runner.temp }}/testflight-upload-receipt.json
@@ -875,10 +875,10 @@ jobs:
         with:
           python-version: '3.13'
       - run: python3 -m pip install pyjwt cryptography
-      - uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
       - name: Materialize runner-local App Store credentials
         run: bash scripts/ci/materialize-ios-asc-key.sh
 
@@ -947,7 +947,7 @@ jobs:
 
       - name: Upload redacted release evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ios-appstore-redacted-evidence-${{ github.run_id }}
           if-no-files-found: error

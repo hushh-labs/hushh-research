@@ -34,6 +34,9 @@ FAILURE_REASONS = frozenset(
         "root.code_mismatch",
         "root.color_mismatch",
         "root.zone_mismatch",
+        "root.code_case",
+        "root.color_case",
+        "root.zone_case",
         "search.no_citations",
         "search.fact_mismatch",
     }
@@ -342,10 +345,13 @@ def _valid_result(value: object) -> bool:
         and value.get("ready") is True
         and type(value.get("elapsed_ms")) is int
         and 0 <= value["elapsed_ms"] <= 65_000
+        # One transport repeat is the only retry the exam may record.
+        and value.get("transport_retries", 1) == 1
         and set(value)
         <= {
             "ready",
             "elapsed_ms",
+            "transport_retries",
             "cited_sources",
             "fresh_page_retrieval_claimed",
             "http_receipts",

@@ -24,6 +24,7 @@ if str(PROTOCOL_ROOT) not in sys.path:
     sys.path.insert(0, str(PROTOCOL_ROOT))
 
 from hushh_mcp.managed_ai_config import load_pwm_policy  # noqa: E402
+from scripts.capability_check import repeat_stage_once  # noqa: E402
 from scripts.probe_azure_openai_readiness import (  # noqa: E402
     ReadinessProbeError,
     capability_failure_event,
@@ -31,6 +32,7 @@ from scripts.probe_azure_openai_readiness import (  # noqa: E402
     readiness_event,
     run_probe,
 )
+from scripts.readiness_job_telemetry import enable_call_telemetry  # noqa: E402
 
 
 def _token_provider(*, tenant_id: str, client_id: str):
@@ -424,6 +426,11 @@ async def probe() -> None:
     config = policy["azure"]
     readiness = await run_probe()
     event = readiness_event(readiness, config["primary_deployment"])
+    if event["result"] != "ok" and readiness.get("transient"):
+        # One repeat for a timeout, 429 or 5xx; the first failure stays visible.
+        print(json.dumps({**event, "result": "transport_retry"}), flush=True)
+        readiness = await run_probe()
+        event = readiness_event(readiness, config["primary_deployment"], attempt=2)
     print(json.dumps(event), flush=True)
     if event["result"] != "ok":
         raise ReadinessProbeError(event)
@@ -431,22 +438,25 @@ async def probe() -> None:
         from hushh_mcp.one_adk.tavily_search import extract_tavily_receipts, search_tavily
 
         search_started = time.monotonic()
-        receipt = extract_tavily_receipts(await search_tavily("Tavily Search documentation"))
+        search = await repeat_stage_once(
+            "tavily_search", lambda: search_tavily("Tavily Search documentation")
+        )
+        receipt = extract_tavily_receipts(search)
         if not receipt.observed or not receipt.sources:
             raise RuntimeError("Tavily search readiness requires received sources")
         _stage("tavily_search", "ok", started_at=search_started)
-    await _probe_managed_text()
+    await repeat_stage_once("managed_text", _probe_managed_text)
     started_at = time.monotonic()
     _stage("federation", "start", started_at=started_at)
     supplier = _token_provider(tenant_id=config["tenant_id"], client_id=config["client_id"])
-    token = await asyncio.to_thread(supplier)
+    token = await repeat_stage_once("federation", lambda: asyncio.to_thread(supplier))
     if not token:
         raise RuntimeError("Azure federated bearer token is empty")
     _stage("federation", "ok", started_at=started_at)
 
     started_at = time.monotonic()
     _stage("primary", "start", started_at=started_at)
-    await _probe_primary(config, lambda: token)
+    await repeat_stage_once("primary", lambda: _probe_primary(config, lambda: token))
     _stage("primary", "ok", started_at=started_at)
     from scripts.probe_managed_capabilities import probe_managed_capabilities
 
@@ -477,4 +487,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    enable_call_telemetry()
     sys.exit(main())

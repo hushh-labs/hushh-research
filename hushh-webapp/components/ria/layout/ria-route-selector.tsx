@@ -8,18 +8,14 @@ import {
   resolveRiaRouteTabSet,
   type TopShellTabSet,
 } from "@/lib/navigation/top-shell-tabs";
-import { usePersonaState } from "@/lib/persona/persona-context";
-import { isRiaVerified, riaVerificationStatusOf } from "@/lib/ria/ria-verification";
+import { useRiaPicksOffered } from "@/lib/ria/use-ria-picks-offered";
 import { cn } from "@/lib/utils";
 
 export function RiaRouteSelector({ className }: { className?: string }) {
   const pathname = usePathname();
-  const { riaOnboardingStatus } = usePersonaState();
   // Picks is for verified advisors only. Until verification is known the tab
   // stays hidden rather than being offered and then taken away.
-  const includePicks = isRiaVerified(
-    riaVerificationStatusOf(riaOnboardingStatus),
-  );
+  const includePicks = useRiaPicksOffered();
   const tabSet = useMemo<TopShellTabSet | null>(
     () =>
       resolveRiaRouteTabSet(pathname || "/ria/profile", { includePicks }),

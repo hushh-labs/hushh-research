@@ -20,7 +20,10 @@ from production_backend_inheritance_cases import (
 )
 from production_backend_successor_cases import OperationalBackendReferenceCases
 from production_pending_activation_cases import PendingActivationCases
-from production_phone_job_name_cases import ProductionPhoneSkippedNameCases
+from production_phone_job_name_cases import (
+    ProductionPhoneSkippedNameCases,
+    ProductionReleaseAliasReceiptCases,
+)
 from production_phone_lease_cases import (
     ProductionPhoneIntentGateCases,
     ProductionPhoneLeaseCases,
@@ -29,6 +32,7 @@ from production_phone_lease_cases import (
 from production_phone_receipt_cases import ProductionPhoneReceiptCases
 from production_restoration_continuation_cases import (
     HostedRestorationWorkerReaderCases,
+    RestorationActiveVerifierCases,
     RestorationContinuationCases,
 )
 from production_restoration_receipt_cases import RestorationServingReceiptCases
@@ -194,6 +198,8 @@ class ReplayedReleaseFixture:
             self.jobs["jobs"][0]["run_attempt"] = 1
         elif defect == "job_sha":
             self.jobs["jobs"][0]["head_sha"] = "c" * 40
+        elif defect == "job_branch":
+            self.jobs["jobs"][0]["head_branch"] = "dev"
         elif defect == "partial_jobs":
             self.jobs["total_count"] = 2
         elif defect == "partial_artifacts":
@@ -202,6 +208,17 @@ class ReplayedReleaseFixture:
             self.upload["conclusion"] = "failure"
         elif defect == "duplicate_upload":
             self.jobs["jobs"][0]["steps"].append(copy.deepcopy(self.upload))
+        elif defect == "duplicate_job":
+            self.jobs["jobs"].append(copy.deepcopy(self.jobs["jobs"][0]))
+            self.jobs["total_count"] = len(self.jobs["jobs"])
+        elif defect == "skipped_job":
+            self.jobs["jobs"][0].update(
+                status="completed", conclusion="skipped", steps=[]
+            )
+        elif defect == "malformed_skip":
+            self.jobs["jobs"][0].update(
+                status="completed", conclusion="skipped", steps=[self.upload]
+            )
         elif defect == "window":
             self.upload["completed_at"] = "2026-10-21T03:19:02Z"
         elif defect == "artifact_origin":
@@ -240,10 +257,14 @@ class ReplayedUatReleaseArtifactTest(
             "attempt",
             "job_attempt",
             "job_sha",
+            "job_branch",
             "partial_jobs",
             "partial_artifacts",
             "upload_failed",
             "duplicate_upload",
+            "duplicate_job",
+            "skipped_job",
+            "malformed_skip",
             "window",
             "artifact_origin",
             "artifact_time",
@@ -330,9 +351,11 @@ class ReplayedUatReleaseArtifactTest(
 
 
 class ReplayedProductionReleaseArtifactTest(
+    ProductionReleaseAliasReceiptCases,
     ProductionEvidenceFlagCases,
     RestorationServingReceiptCases,
     RestorationContinuationCases,
+    RestorationActiveVerifierCases,
     HostedRestorationWorkerReaderCases,
     BackendInheritanceCases,
     PendingActivationCases,

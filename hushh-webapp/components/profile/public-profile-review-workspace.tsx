@@ -144,6 +144,7 @@ export function PublicProfileReviewWorkspace() {
         vaultOwnerToken,
         ingestionId: "public-profile-" + source.revision,
         memoryProfile: "general",
+        sourceLabel: "public_profile_claim",
       });
       return preview.cards;
     } finally {
