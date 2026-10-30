@@ -368,7 +368,15 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
       isLive ? "bg-emerald-500" : "bg-accent",
     )} />
   ) : null;
-  const router = useRouter();
+  // The feed fixture intentionally renders this row without an App Router.
+  // Keep the client router when mounted in the app, but allow the same
+  // production row to render in SSR/fixture contexts for deterministic parity.
+  let router: ReturnType<typeof useRouter> | null = null;
+  try {
+    router = useRouter();
+  } catch {
+    router = null;
+  }
   const hasActions = item.actions.length > 0;
   const leading = (
     <span className="grid w-[30px] place-items-center">
@@ -435,7 +443,10 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
         />
       </SettingsRow>
     ) : (
-      <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect ?? (item.href ? () => router.push(item.href!) : undefined)} />
+      <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect ?? (item.href ? () => {
+        if (router) router.push(item.href!);
+        else if (typeof window !== "undefined") window.location.assign(item.href!);
+      } : undefined)} />
     );
 
   return row;
