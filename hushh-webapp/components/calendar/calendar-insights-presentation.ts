@@ -1,4 +1,4 @@
-import type { Meeting } from "@/lib/services/calendar-insights-service";
+import type { Meeting, MeetingRequestOutcome, VerifiedMeetingSelection } from "@/lib/services/calendar-insights-service";
 
 export const limitationText: Record<string, string> = {
   permission_required: "Allow recording and notes access for this Google account.",
@@ -101,4 +101,33 @@ export function meetingTime(meeting: Meeting, zone: string): string {
   return meeting.start?.dateTime
     ? new Date(meeting.start.dateTime).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" })
     : "Time unavailable";
+}
+
+/** The verified selection the server checks a meeting against, never a browser-chosen address. */
+export function selectionOf(meeting: Meeting, accountId: string, date: string, timeZone: string): VerifiedMeetingSelection {
+  return { account_id: accountId, calendar_id: meeting.calendar_id, event_id: meeting.id,
+    occurrence_id: meeting.occurrence_id, expected_grant: meeting.grant_id, date, time_zone: timeZone };
+}
+
+/** The requester's one-line view of a request: what has happened and what is still being checked. */
+export function requestStatusText(outcome: MeetingRequestOutcome | undefined, hasFiles: boolean, checksExhausted: boolean): string | null {
+  if (outcome?.status === "unverified")
+    return "This meeting's request status could not be verified. Refresh to try again.";
+  const requests = outcome?.requests || [];
+  if (!requests.length) return null;
+  const has = (...statuses: string[]) => requests.some(item => statuses.includes(item.status));
+  if (requests.some(item => item.identityStatus === "unverified"))
+    return "The selected Google account changed. Reconnect it to verify access.";
+  if (has("pending", "preparing", "review_ready")) return "Request sent · waiting for organizer review.";
+  if (has("approved") && !hasFiles) return "Sharing · checking access with your selected Google account.";
+  if (has("declined")) return "Organizer declined this request.";
+  if (has("failed", "no_match")) return "Sharing did not complete. Ask the organizer to review again.";
+  if (has("partial"))
+    return hasFiles ? "Some files are available; others could not be shared or verified." :
+      "Only part of this request was shared; no file access is verified for this account.";
+  if (has("completed") && !hasFiles)
+    return checksExhausted
+      ? "Drive finished sharing, but file access is not currently verified for this account."
+      : "Drive finished sharing · checking access with your selected Google account.";
+  return null;
 }
