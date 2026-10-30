@@ -21,26 +21,29 @@ def load_health_setup():
     return module
 
 
-def test_health_transport_scopes_adc_before_identity_verification(monkeypatch):
+def install_health_transport(monkeypatch, *, status, identity, malformed=False):
     import google.auth
     import google.auth.transport.requests
     import requests
 
-    module = load_health_setup()
     calls = []
+    json_calls = []
 
     class Credentials:
-        token = "access-token"
+        token = "access-token-marker"
 
         def refresh(self, request):
             calls.append(("refresh", request))
 
     class Response:
-        status_code = 200
+        status_code = status
 
         @staticmethod
         def json():
-            return {"email": "github-actions-uat-deployer@hushh-pda-uat.iam.gserviceaccount.com"}
+            json_calls.append("json")
+            if malformed:
+                raise ValueError("response-body-marker")
+            return identity
 
     credentials = Credentials()
 
@@ -60,17 +63,65 @@ def test_health_transport_scopes_adc_before_identity_verification(monkeypatch):
         "AuthorizedSession",
         lambda observed: calls.append(("session", observed)) or "authorized-session",
     )
+    return credentials, calls, json_calls
+
+
+def test_health_transport_scopes_adc_before_identity_verification(monkeypatch):
+    module = load_health_setup()
+    credentials, calls, json_calls = install_health_transport(
+        monkeypatch,
+        status=200,
+        identity={"email": "github-actions-uat-deployer@hushh-pda-uat.iam.gserviceaccount.com"},
+    )
 
     _, api = module._transport("hushh-pda-uat", build_only=True)
 
     assert api == "authorized-session"
     assert calls[0] == (
         "default",
-        {"scopes": ["https://www.googleapis.com/auth/cloud-platform"]},
+        {
+            "scopes": [
+                "https://www.googleapis.com/auth/cloud-platform",
+                "https://www.googleapis.com/auth/userinfo.email",
+            ]
+        },
     )
     assert calls[1] == ("refresh", "request")
     assert calls[2][0:2] == ("tokeninfo", "https://oauth2.googleapis.com/tokeninfo")
     assert calls[3] == ("session", credentials)
+    assert json_calls == ["json"]
+
+
+@pytest.mark.parametrize(
+    ("status", "identity", "malformed", "email_present"),
+    [
+        (503, {"email": "identity-marker@example.invalid"}, False, False),
+        (200, {"response_marker": "not-an-identity"}, False, False),
+        (200, {"email": "identity-marker@example.invalid"}, False, True),
+        (200, None, True, False),
+    ],
+)
+def test_health_transport_refuses_unverified_identity_with_redacted_diagnostics(
+    monkeypatch, status, identity, malformed, email_present
+):
+    module = load_health_setup()
+    _credentials, calls, json_calls = install_health_transport(
+        monkeypatch, status=status, identity=identity, malformed=malformed
+    )
+
+    with pytest.raises(RuntimeError) as raised:
+        module._transport("hushh-pda-uat", build_only=True)
+
+    message = str(raised.value)
+    assert f"tokeninfo_http_status={status}" in message
+    assert f"tokeninfo_email_present={str(email_present).lower()}" in message
+    assert "tokeninfo_email_matches=false" in message
+    assert "access-token-marker" not in message
+    assert "response-body-marker" not in message
+    assert "identity-marker@example.invalid" not in message
+    assert "github-actions-uat-deployer@hushh-pda-uat.iam.gserviceaccount.com" not in message
+    assert json_calls == (["json"] if status == 200 else [])
+    assert not any(call[0] == "session" for call in calls)
 
 
 def test_health_transport_stops_before_identity_or_resource_access_on_refresh_failure(
@@ -105,7 +156,12 @@ def test_health_transport_stops_before_identity_or_resource_access_on_refresh_fa
 
     assert calls[0] == (
         "default",
-        {"scopes": ["https://www.googleapis.com/auth/cloud-platform"]},
+        {
+            "scopes": [
+                "https://www.googleapis.com/auth/cloud-platform",
+                "https://www.googleapis.com/auth/userinfo.email",
+            ]
+        },
     )
     assert calls[1] == ("refresh", "request")
     assert len(calls) == 2
