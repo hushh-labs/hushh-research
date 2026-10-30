@@ -36,6 +36,19 @@ LEASE_BODY_LIMIT = 4096
 HTTP_TIMEOUT_SECONDS = 10
 
 
+def _verified_tls_context() -> ssl.SSLContext:
+    context = ssl.create_default_context()
+    ca_count = context.cert_store_stats().get("x509_ca")
+    if (
+        type(ca_count) is not int
+        or ca_count < 1
+        or context.verify_mode != ssl.CERT_REQUIRED
+        or context.check_hostname is not True
+    ):
+        raise ValueError("Default TLS trust configuration is unavailable")
+    return context
+
+
 class LeasePreconditionFailed(HealthCommandFailure):
     """Storage refused the exact generation precondition."""
 
@@ -217,7 +230,7 @@ class CloudStorageLease:
         connection = http.client.HTTPSConnection(
             STORAGE_HOST,
             timeout=HTTP_TIMEOUT_SECONDS,
-            context=ssl.create_default_context(),
+            context=_verified_tls_context(),
         )
         try:
             connection.request(method, path, body=body, headers=request_headers)
