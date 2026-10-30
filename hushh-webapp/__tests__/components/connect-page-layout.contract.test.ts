@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
 describe("Connect page layout contract", () => {
-  it("titles Connect in the top bar like Feed and uses Profile-style grouped rows", () => {
+  it("titles Connect in the top bar like Feed and uses Profile-style rows", () => {
     const source = fs.readFileSync(
       path.join(WEBAPP_ROOT, "app/connect/page-client.tsx"),
       "utf8",
@@ -47,7 +47,7 @@ describe("Connect page layout contract", () => {
     );
 
     const connectionsMapStart = source.indexOf(
-      "group.items.map((connection) =>",
+      "sortedConnections.map((connection) =>",
     );
     const connectionsPagerStart = source.indexOf(
       "{(connectionSearch.active ? connectionSearch.hasMore : connectionsHasMore) ?",
