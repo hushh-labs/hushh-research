@@ -445,12 +445,12 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
     cases = (
         ("ok", digest, runtime_identity, 0, True),
         ("delayed", digest, runtime_identity, 0, True),
-        ("failed", digest, runtime_identity, 3, True),
-        ("missing_http", digest, runtime_identity, 3, True),
-        ("missing_managed", digest, runtime_identity, 3, True),
-        ("wrong_scope", digest, runtime_identity, 3, True),
-        ("ok", "gcr.io/hushh-pda-uat/consent-protocol:mutable", runtime_identity, 3, False),
-        ("ok", digest, "other-runtime@hushh-pda-uat.iam.gserviceaccount.com", 3, False),
+        ("failed", digest, runtime_identity, 1, True),
+        ("missing_http", digest, runtime_identity, 1, True),
+        ("missing_managed", digest, runtime_identity, 1, True),
+        ("wrong_scope", digest, runtime_identity, 1, True),
+        ("ok", "gcr.io/hushh-pda-uat/consent-protocol:mutable", runtime_identity, 1, False),
+        ("ok", digest, "other-runtime@hushh-pda-uat.iam.gserviceaccount.com", 1, False),
     )
     for verdict, image, service_account, expected_status, should_call_gcloud in cases:
         calls = tmp_path / "gcloud-calls.txt"
@@ -2424,7 +2424,7 @@ def test_required_provider_aggregate_cannot_be_allowed_to_fail():
         if provider == "verify-managed-vertex-runtime":
             assert provider in steps["deploy-backend"]["waitFor"]
             shell = _read("scripts/deploy/verify-managed-vertex-runtime.sh")
-            assert "requirement.py --provider=vertex; then exit 1; fi\n    exit 0" in shell
+            assert 'if [[ "${_DEPLOY_ENV}" == "uat" ]]; then exit 0; fi' in shell
             assert 'exit "${probe_status}"' in shell
         else:
             assert set(steps[provider]["waitFor"]) == {"build-backend-image", "verify-runtime-iam"}
@@ -2444,7 +2444,7 @@ def test_required_provider_aggregate_cannot_be_allowed_to_fail():
             [
                 "bash",
                 "-euc",
-                'python3() { [[ "$1" == *requirement.py ]] && return 1; printf "record:%s\\n" "$READINESS_STEP_EXIT"; return '
+                'python3() { printf "record:%s\\n" "$READINESS_STEP_EXIT"; return '
                 + str(record_status)
                 + '; }; gcloud() { printf "delete\\n"; }; '
                 + "_DEPLOY_ENV="

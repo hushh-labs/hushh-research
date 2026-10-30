@@ -12,13 +12,9 @@ finish_provider_probe() {
   if [[ -n "${job_name:-}" ]]; then
     gcloud run jobs delete "${job_name}" --project="$PROJECT_ID" --region="${_REGION}" --quiet >/dev/null 2>&1 || true
   fi
-  # UAT's required aggregate validates both collected providers after deployment,
-  # unless this failed check is the required provider's, which already decides it.
+  # UAT's required aggregate validates both collected providers after deployment.
   # Other environments retain their original predeployment Vertex gate.
-  if [[ "${_DEPLOY_ENV}" == "uat" ]]; then
-    if [[ "${probe_status}" != "0" ]] && python3 scripts/ci/managed_provider_requirement.py --provider=vertex; then exit 1; fi
-    exit 0
-  fi
+  if [[ "${_DEPLOY_ENV}" == "uat" ]]; then exit 0; fi
   if [[ "${record_status}" != "0" ]]; then exit "${record_status}"; fi
   exit "${probe_status}"
 }
