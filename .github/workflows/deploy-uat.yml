@@ -256,7 +256,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Authenticate for read-only UAT capacity inventory
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -265,7 +265,7 @@ jobs:
           export_environment_variables: true
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Wait for scope-aware UAT capacity
         id: admission
@@ -540,7 +540,7 @@ jobs:
 
       - name: Authenticate to Google Cloud
         id: gcp-auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -549,7 +549,7 @@ jobs:
           export_environment_variables: true
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Set GCP project context
         run: gcloud config set project "${{ env.GCP_PROJECT_ID }}"
@@ -956,7 +956,7 @@ jobs:
 
       - name: Cache UAT Chromium binaries
         if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           # CI's browser cache also promises WebKit; this lane installs Chromium.
@@ -3327,7 +3327,7 @@ jobs:
 
       - name: Upload PWM scheduler verification
         if: always() && steps.scope.outputs.deploy_backend == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: uat-pwm-notification-scheduler
           path: /tmp/uat-pwm-notifications-setup.log
@@ -3946,6 +3946,7 @@ jobs:
         run: |
           set -euo pipefail
           {
+            release_status="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")"
             total_seconds=$(( $(date +%s) - ${{ steps.timing-start.outputs.epoch || '0' }} ))
             if [ "${{ steps.timing-start.outputs.epoch || '' }}" = "" ]; then
               total_seconds=0
@@ -3958,6 +3959,15 @@ jobs:
               non_build_seconds=0
             fi
             echo "## UAT Release"
+            echo ""
+            echo "- Status: \`${release_status}\`"
+            echo "- Application SHA: \`${{ steps.resolve-sha.outputs.sha }}\`"
+            echo "- Workflow SHA: \`${{ github.workflow_sha }}\`"
+            echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
+            echo "- Serving revisions: backend \`${{ steps.final-state.outputs.backend_revision || 'unknown' }}\`; frontend \`${{ steps.final-state.outputs.frontend_revision || 'unknown' }}\`"
+            echo ""
+            echo "<details>"
+            echo "<summary>Detailed UAT evidence</summary>"
             echo ""
             echo "- SHA: \`${{ steps.resolve-sha.outputs.sha }}\`"
             echo "- Requested scope: \`${{ github.event.inputs.scope }}\`"
@@ -3972,7 +3982,7 @@ jobs:
             echo "- Backend deployed SHA before run: \`${{ steps.predeploy-state.outputs.backend_sha || 'unknown' }}\`"
             echo "- Account deletion fence required: \`${{ steps.account-deletion-fence-decision.outputs.required || 'not_applicable' }}\`"
             echo "- Frontend deployed SHA before run: \`${{ steps.predeploy-state.outputs.frontend_sha || 'unknown' }}\`"
-            echo "- Status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")\`"
+            echo "- Status: \`${release_status}\`"
             echo "- Blocking classifications: \`${{ steps.classify-uat-release.outputs.blocking_classifications || 'none' }}\`"
             # Degradation is reported next to the status, not buried in the JSON.
             # A release that deployed correctly while a provider was down must be
@@ -4035,6 +4045,7 @@ jobs:
             echo "- Frontend changed files: \`${{ steps.scope.outputs.frontend_changed_files || 'none' }}\`"
             echo "- Shared changed files: \`${{ steps.scope.outputs.shared_changed_files || 'none' }}\`"
             echo "- Neutral changed files: \`${{ steps.scope.outputs.neutral_changed_files || 'none' }}\`"
+            echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Tag this release as last known good

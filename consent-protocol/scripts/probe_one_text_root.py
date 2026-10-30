@@ -12,6 +12,30 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.sessions import InMemorySessionService, Session
 from google.genai import types
 
+ROOT_FIELDS = ("code", "color", "time_zone")
+
+
+def roundtrip_failure(deltas: str, answer: str, expected: dict[str, str]) -> str | None:
+    """The first failed leg of the structured, media and streaming round trip.
+
+    Passes exactly when the streamed text equals the final answer and the answer is
+    JSON equal to `expected`; each failure names one fixed leg (no model output).
+    """
+    if not deltas:
+        return "Root stream produced no text deltas"
+    if deltas != answer:
+        return "Root stream differs from its final answer"
+    try:
+        value = json.loads(answer)
+    except json.JSONDecodeError:
+        return "Root answer is not JSON"
+    if not isinstance(value, dict) or set(value) != set(expected):
+        return "Root answer keys differ from the contract"
+    for field in ROOT_FIELDS:
+        if value[field] != expected[field]:
+            return f"Root answer {field} differs from the synthetic input"
+    return None
+
 
 async def _root_contract() -> tuple[Any, str, list[types.FunctionDeclaration]]:
     from hushh_mcp.managed_ai_config import load_managed_runtime_policy
@@ -187,17 +211,9 @@ async def probe_one_text_root() -> dict:
         for p in (final.content.parts if final and final.content else [])
         if not p.thought
     )
-    if (
-        not deltas
-        or deltas != answer
-        or json.loads(answer)
-        != {
-            "code": nonce,
-            "color": "red",
-            "time_zone": "UTC",
-        }
-    ):
-        raise ValueError("Root structured, media or streaming round trip failed")
+    failure = roundtrip_failure(deltas, answer, {"code": nonce, "color": "red", "time_zone": "UTC"})
+    if failure is not None:
+        raise ValueError(failure)
     return {
         "synthetic_content_verified": True,
         "streaming_observed": True,

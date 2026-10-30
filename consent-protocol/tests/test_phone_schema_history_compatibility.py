@@ -210,7 +210,11 @@ def test_exact_historical_terminal_submit_still_requires_all_build_acknowledgeme
     monkeypatch.setattr(history, "_restoration_nonproducer", lambda *_args: False)
     case.runs[0]["run_attempt"] = 1
     case.attempts[(300, 1)]["head_sha"] = case.runs[0]["head_sha"]
-    case.jobs[(300, 1)]["jobs"][0]["name"] = "Deploy Production Scope"
+    legacy_jobs = case.jobs[(300, 1)]
+    legacy_jobs["jobs"] = [
+        job for job in legacy_jobs["jobs"] if job.get("name") == "Deploy Production Scope"
+    ]
+    legacy_jobs["total_count"] = len(legacy_jobs["jobs"])
     if changed == "failed":
         next(s for s in case.jobs[(300, 1)]["jobs"][0]["steps"] if s["name"] == history.DEPLOY)[
             "conclusion"

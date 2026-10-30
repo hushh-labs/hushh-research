@@ -193,6 +193,13 @@ private extension AppDelegate {
     }
 
     func prepareEmergencySmsSound() {
+        // The short file is the APNs alert sound. The longer siren is used only by
+        // the background hand-off notifications; iOS plays at most 30 s of either.
+        writeEmergencySiren(named: Self.emergencySmsSound, duration: 0.94)
+        writeEmergencySiren(named: EmergencySmsCueHandoff.sound, duration: EmergencySmsCueHandoff.soundSeconds)
+    }
+
+    func writeEmergencySiren(named name: String, duration: Double) {
         do {
             let fileManager = FileManager.default
             guard let libraryDirectory = fileManager.urls(
@@ -209,13 +216,12 @@ private extension AppDelegate {
                 at: soundsDirectory,
                 withIntermediateDirectories: true
             )
-            let soundURL = soundsDirectory.appendingPathComponent(Self.emergencySmsSound)
+            let soundURL = soundsDirectory.appendingPathComponent(name)
             if fileManager.fileExists(atPath: soundURL.path) {
                 return
             }
 
             let sampleRate = 44_100.0
-            let duration = 0.94
             guard
                 let format = AVAudioFormat(
                     commonFormat: .pcmFormatInt16,
@@ -255,7 +261,7 @@ private extension AppDelegate {
                 interleaved: false
             )
             try audioFile.write(from: buffer)
-            print("✅ [AppDelegate] Emergency SMS notification sound ready")
+            print("✅ [AppDelegate] Emergency SMS notification sound ready: \(name)")
         } catch {
             print("⚠️ [AppDelegate] Emergency SMS sound setup failed: \(error.localizedDescription)")
         }
