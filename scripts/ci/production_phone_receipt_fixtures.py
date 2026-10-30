@@ -15,7 +15,12 @@ import production_backend_successor as reference
 
 def historical_restoration_source(canonical):
     # Frozen historical bytes must not be reconstructed from today's workflow.
-    recorded = json.loads((Path(__file__).with_name("fixtures") / "production-restoration-40475676949.json").read_text())
+    recorded = json.loads(
+        (
+            Path(__file__).with_name("fixtures")
+            / "production-restoration-40475676949.json"
+        ).read_text()
+    )
     historical = recorded["job"]
     assert hashlib.sha256(historical.encode()).hexdigest() == (
         "94db30af3be1742efd4f2105f43aa2508d74fbceb58a2d3cc26c92795ea24d62"
@@ -198,9 +203,10 @@ class LeaseFixture:
             {},
         )
         self.sources = {
-            run["head_sha"]: "\n".join(
-                (lease.MARKER, lease.BEGIN, lease.CLEANUP, lease.UPLOAD, "bootstrap.py")
-            ).encode(),
+            run["head_sha"]: (phone.ROOT / lease.WORKFLOW)
+            .read_text()
+            .replace(lease.INTENT, "")
+            .encode(),
             legacy[
                 "head_sha"
             ]: b"name: legacy production deployment\non: workflow_dispatch\n",
@@ -225,21 +231,32 @@ class LeaseFixture:
         steps[-1].update(
             started_at="2026-10-21T03:19:03Z", completed_at="2026-10-21T03:19:04Z"
         )
-        self.jobs[(300, number)] = {
-            "total_count": 1,
-            "jobs": [
-                {
-                    "name": lease.JOB,
-                    "run_id": 300,
-                    "run_attempt": number,
-                    "head_sha": run["head_sha"],
-                    "head_branch": "main",
-                    "status": "completed",
-                    "conclusion": "success",
-                    "steps": steps,
-                }
-            ],
+        bound = {
+            "run_id": 300,
+            "run_attempt": number,
+            "head_sha": run["head_sha"],
+            "head_branch": "main",
         }
+        jobs = [
+            {
+                **bound,
+                "name": lease.nonproducer.PRODUCTION_JOB_NAMES["deploy"],
+                "status": "completed",
+                "conclusion": "success",
+                "steps": steps,
+            }
+        ]
+        for job_id in ("complete-phone-activation", lease.nonproducer.JOB_ID):
+            jobs.append(
+                {
+                    **bound,
+                    "name": lease.nonproducer.PRODUCTION_JOB_NAMES[job_id],
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "steps": [],
+                }
+            )
+        self.jobs[(300, number)] = {"total_count": len(jobs), "jobs": jobs}
         artifact = copy.deepcopy(fixture.artifact)
         artifact.update(id=900 + number, name=f"{lease.MARKER}300-{number}")
         self.artifacts.append(artifact)
@@ -291,6 +308,28 @@ class LeaseFixture:
             "GITHUB_REPOSITORY": "hushh-labs/hushh-research",
             "GITHUB_REF_NAME": "main",
         }
+
+    def use_legacy_job_names(self):
+        """Mirror the exact raw expressions emitted for skipped legacy jobs."""
+        job_ids = (
+            "deploy",
+            "complete-phone-activation",
+            lease.nonproducer.JOB_ID,
+        )
+        for number in (1, 2):
+            for job_id, job in zip(
+                job_ids, self.jobs[(300, number)]["jobs"], strict=True
+            ):
+                skipped = (
+                    job.get("status") == "completed"
+                    and job.get("conclusion") == "skipped"
+                    and job.get("steps") == []
+                )
+                job["name"] = (
+                    lease.nonproducer.LEGACY_PRODUCTION_JOB_EXPRESSIONS[job_id]
+                    if skipped
+                    else "Deploy Production Scope"
+                )
 
     def intent_protocol(self):
         self.sources[self.runs[0]["head_sha"]] = (

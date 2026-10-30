@@ -202,6 +202,15 @@ function isSilentNotification(data) {
 }
 
 function notificationTapTarget(data) {
+  if (String(data?.type || "").trim().toLowerCase() === "calendar_email_follow_up") {
+    const accountId = data?.account_id;
+    const requestId = data?.followup_request_id;
+    if (typeof accountId !== "string" || !/^(?:default|[A-Za-z0-9_-]{1,64})$/.test(accountId) ||
+        typeof requestId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
+      return "/one/calendar";
+    }
+    return `/one/calendar?followupAccount=${encodeURIComponent(accountId)}&followupRequest=${encodeURIComponent(requestId)}`;
+  }
   if (data?.type === "location_circle_message") {
     const circleId = String(data.circle_id || "");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(circleId)) return "/one/feed";

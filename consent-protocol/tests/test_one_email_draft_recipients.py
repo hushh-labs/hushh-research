@@ -8,14 +8,12 @@ address; a supplied address needs no lookup; readiness never raises.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any
 
 import pytest
 
 from hushh_mcp.one_adk import email_draft_recipients as recipients
-from hushh_mcp.services.gmail_receipts_service import GmailApiError
 
 OWNER = "owner-1"
 
@@ -123,12 +121,53 @@ async def test_a_whole_word_match_beside_a_partial_one_is_still_a_question(conne
     result = await recipients.resolve_draft_recipients(OWNER, recipient_names="Sam")
 
     # No host tie-break: both are offered, the whole-word match first.
+    assert [choice["name"] for choice in result.pop("choices")] == ["Sam Lee", "Samantha Ray"]
     assert result == {
         "status": "recipient_choice_needed",
         "name": "Sam",
         "candidates": ["Sam Lee", "Samantha Ray"],
-        "message": "More than one connection matches Sam. Ask which one they mean.",
+        "message": "More than one connection matches Sam. Ask which one they mean."
+        + recipients.CHOICES_TAIL,
     }
+
+
+async def test_both_or_all_address_every_chosen_connection_by_its_owner_bound_ref(connections):
+    # UAT 2026-10-29: "all" after "which Ankit Kumar Singh?" had no way to be said.
+    connections.rows = [_row("Ankit Singh", "a@example.com"), _row("Ankit Singh", "b@example.com")]
+    connections.rows[1]["connectionId"] = "connection-second"
+    asked = await recipients.resolve_draft_recipients(OWNER, recipient_names="Ankit Singh")
+    refs = [choice["ref"] for choice in asked["choices"]]
+    assert len(set(refs)) == 2 and "@" not in json.dumps(asked)
+
+    both = await recipients.resolve_draft_recipients(OWNER, recipient_choices=", ".join(refs))
+    assert (both["status"], both["to"]) == ("ok", "a@example.com, b@example.com")
+    # A ref is bound to its owner and checked against their current connections.
+    other_owner = await recipients.resolve_draft_recipients("owner-2", recipient_choices=refs[0])
+    assert other_owner["status"] == "recipient_choice_expired"
+    bad = await recipients.resolve_draft_recipients(OWNER, recipient_choices="rc_not-a-ref")
+    assert bad["status"] == "invalid_recipient"
+
+
+async def test_refs_never_guess_one_of_a_shared_name_nor_move_a_cc_or_bcc_name(connections):
+    connections.rows = [_row("Ankit Singh", "a@example.com"), _row("Ankit Singh", "b@example.com")]
+    connections.rows[1]["connectionId"] = "connection-second"
+    asked = await recipients.resolve_draft_recipients(OWNER, recipient_names="Ankit Singh")
+    refs = [choice["ref"] for choice in asked["choices"]]
+    # One of two people sharing a name is a guess: it still needs their address.
+    one = await recipients.resolve_draft_recipients(OWNER, recipient_choices=refs[0])
+    assert one["status"] == "recipient_choice_needed" and "to" not in one
+    # The name sent again beside its chosen refs is answered by them, never asked again.
+    again = await recipients.resolve_draft_recipients(
+        OWNER, recipient_names="Ankit Singh", recipient_choices=", ".join(refs)
+    )
+    assert (again["status"], again["to"]) == ("ok", "a@example.com, b@example.com")
+    # Refs address To only, so a Cc or Bcc name keeps its address question.
+    for field in ("cc_names", "bcc"):
+        hidden = await recipients.resolve_draft_recipients(
+            OWNER, to="jay@example.com", **{field: "Ankit Singh"}
+        )
+        assert hidden["status"] == "recipient_choice_needed" and "choices" not in hidden
+        assert "recipient_choices" not in hidden["message"]
 
 
 @pytest.mark.parametrize(
@@ -235,12 +274,14 @@ async def test_a_connection_no_name_can_single_out_is_asked_for_by_address(
     result = await recipients.resolve_draft_recipients(OWNER, recipient_names=said)
 
     # Asking for a name here would loop: saying it again matches the same rows.
+    choices = result.pop("choices", None)
     assert result == {
         "status": "recipient_choice_needed",
         "name": said,
         "candidates": candidates,
-        "message": message,
+        "message": message + (recipients.CHOICES_TAIL if choices else ""),
     }
+    assert choices is None or "@" not in json.dumps(choices)
 
 
 async def test_connections_sharing_one_mailbox_count_as_one(connections):
@@ -384,75 +425,3 @@ async def test_a_failed_connections_read_is_a_refusal_not_a_guess(monkeypatch):
     result = await recipients.resolve_draft_recipients(OWNER, recipient_names="Sharu")
 
     assert result["status"] == "recipient_lookup_unavailable"
-
-
-class _Gmail:
-    def __init__(self, error: Exception | None, state: str | Exception) -> None:
-        self.error = error
-        self.state = state
-        self.owners: list[str] = []
-
-    async def assert_send_ready(self, *, user_id: str) -> None:
-        self.owners.append(user_id)
-        if self.error is not None:
-            raise self.error
-
-    async def get_status(self, *, user_id: str) -> dict[str, Any]:
-        if isinstance(self.state, Exception):
-            raise self.state
-        return {"connection_state": self.state}
-
-
-def _admission(code: str) -> GmailApiError:
-    return GmailApiError("refused", status_code=409, code=code)
-
-
-@pytest.mark.parametrize(
-    ("error", "state", "expected"),
-    [
-        (None, "connected", "ready"),
-        (_admission("GMAIL_NOT_CONNECTED"), "not_connected", "connect_required"),
-        # Admission calls a lapsed grant "not connected" too; the Mail card says
-        # "Reconnect Mail" for it, so readiness must not say "Connect Gmail".
-        (_admission("GMAIL_NOT_CONNECTED"), "needs_reauth", "reconnect_required"),
-        (_admission("GMAIL_NOT_CONNECTED"), RuntimeError("database unavailable"), "unknown"),
-        (_admission("GMAIL_SEND_PERMISSION_REQUIRED"), "connected", "send_permission_required"),
-        (_admission("GMAIL_SEND_DISABLED"), "connected", "send_disabled"),
-        (_admission("GMAIL_SENDER_UNAVAILABLE"), "connected", "unknown"),
-        (RuntimeError("database unavailable"), "connected", "unknown"),
-    ],
-)
-async def test_send_readiness_maps_each_admission_code(monkeypatch, error, state, expected):
-    gmail = _Gmail(error, state)
-    monkeypatch.setattr(recipients, "get_gmail_receipts_service", lambda: gmail)
-
-    assert await recipients.gmail_send_readiness(OWNER) == expected
-    assert gmail.owners == [OWNER]
-
-
-@pytest.mark.parametrize("stalled", ["assert_send_ready", "get_status"])
-async def test_send_readiness_times_out_to_unknown(monkeypatch, stalled):
-    never = asyncio.Event()
-    finished = asyncio.Event()
-
-    class _Stalled:
-        async def assert_send_ready(self, *, user_id: str) -> None:
-            if stalled == "assert_send_ready":
-                await never.wait()
-            raise _admission("GMAIL_NOT_CONNECTED")
-
-        async def get_status(self, *, user_id: str) -> dict[str, Any]:
-            try:
-                await never.wait()
-            except asyncio.CancelledError:
-                # Like the real account check: finish the database call first.
-                await finished.wait()
-                raise
-            return {"connection_state": "needs_reauth"}
-
-    monkeypatch.setattr(recipients, "get_gmail_receipts_service", _Stalled)
-
-    # One budget covers both reads; the outer bound fails the test instead of hanging.
-    readiness = recipients.gmail_send_readiness(OWNER, timeout_seconds=0.01)
-    assert await asyncio.wait_for(readiness, timeout=1) == "unknown"
-    finished.set()

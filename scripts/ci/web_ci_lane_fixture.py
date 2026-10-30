@@ -58,7 +58,7 @@ def _run(script: Path, env_overrides: dict[str, str], *, stub_diagrams: bool = F
         node = stub_dir / "node"
         real_node = shlex.quote(shutil.which("node") or "node")
         diagrams = (
-            '  scripts/verify-doc-diagrams.cjs|scripts/render-doc-mermaid.mjs)\n'
+            '  scripts/verify-doc-diagrams.cjs|scripts/render-doc-mermaid.mjs|./scripts/testing/capture-feed-needs-you-fixture.mjs)\n'
             '    printf "%s\\n" "$1" >> "$NPM_STUB_LOG"; exit 0;;\n'
             if stub_diagrams else ""
         )

@@ -39,6 +39,7 @@ from hushh_mcp.operons.location.policy import (
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services import finance_advisor_directory as finance_directory
+from hushh_mcp.services.connection_mutuals import MUTUAL_DIRECTORY_FILTER_SQL
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
 from hushh_mcp.services.directory_candidate_statement import build_directory_candidate_statement
 from hushh_mcp.services.directory_identity_service import (
@@ -4712,6 +4713,7 @@ class OneLocationAgentService:
         audience: str = "all",
         name_only: bool = False,
         verified_email_lookup: list[str] | None = None,
+        mutual_target_user_id: str | None = None,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
 
@@ -4916,16 +4918,22 @@ class OneLocationAgentService:
                 )
                 THEN BTRIM({column}) END"""  # nosec B608 # literal column names only.
 
+        # Mutual-connection scope: applied inside the canonical directory,
+        # before live-account filtering and pagination.
+        mutual_filter_clause = MUTUAL_DIRECTORY_FILTER_SQL if mutual_target_user_id else "TRUE"
+
         directory_sql = build_directory_candidate_statement(
             usable_name=usable_name,
             separator_sql=_DIRECTORY_SEPARATOR_SQL,
             all_tokens_match_sql=all_tokens_match_sql,
             verified_email_clause=verified_email_clause,
+            mutual_filter_clause=mutual_filter_clause,
         )
         params: dict[str, Any] = {
             "owner_user_id": owner_user_id,
             "candidate_user_id": target,
             "candidate_user_ids": targets,
+            "mutual_target_user_id": mutual_target_user_id,
             "contact_sync_contract_version": CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
             "technical_uuid_pattern": UUID_LIKE_LABEL_PATTERN,
             "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,

@@ -27,7 +27,7 @@ import {
   type GmailOAuthPopupSettlement,
 } from "@/lib/profile/gmail-oauth-popup";
 import { waitForOAuthPopup } from "@/lib/profile/drive-oauth-popup";
-import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import { GmailReceiptsService, type GmailConnectionStatus } from "@/lib/services/gmail-receipts-service";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import type { GoogleConnectorConnectOptions } from '@/lib/one/google-native-connect';
 
@@ -188,7 +188,7 @@ function gmailSettlementMatcher(attemptId: string) {
 export function connectGmailInPlace(
   request: ConnectControls & {
     owner: InPlaceConnectOwner;
-    purpose: "send" | "modify";
+    purpose: "read" | "send" | "modify";
   },
 ): InPlaceConnectStart {
   const input = bindConnectOwner(request);
@@ -196,13 +196,22 @@ export function connectGmailInPlace(
   const { owner, purpose } = input;
   const granted = (status: {
     connected?: boolean;
+    scope_csv?: string;
     send_permission_granted?: boolean;
     modify_permission_granted?: boolean;
   }) =>
     status.connected === true &&
-    (purpose === "send"
-      ? status.send_permission_granted === true
-      : status.modify_permission_granted === true);
+    (purpose === "read"
+      ? typeof status.scope_csv === "string" &&
+        status.scope_csv.replaceAll(",", " ").split(/\s+/).includes("https://www.googleapis.com/auth/gmail.readonly")
+      : purpose === "send" ? status.send_permission_granted === true
+        : status.modify_permission_granted === true);
+  // A confirmed connection reaches the shared connector status, which starts this device's receipt sync.
+  const settle = (status: GmailConnectionStatus, current: () => boolean): InPlaceConnectOutcome => {
+    if (status.connected === true && current()) void import("@/lib/profile/gmail-connector-store")
+      .then(store => { if (current()) store.primeConnectorStatus({ userId: input.applicationOwnerId, status }); }).catch(() => undefined);
+    return granted(status) ? "connected" : "not_connected";
+  };
 
   if (Capacitor.isNativePlatform()) {
     return started("native", () =>
@@ -215,7 +224,7 @@ export function connectGmailInPlace(
           if (!connection) return 'not_connected';
           if (!current()) return 'stale';
           const status = await GmailReceiptsService.getStatus({ idToken: await owner.getIdToken(), userId: input.applicationOwnerId, force: true });
-          return granted(status) ? 'connected' : 'not_connected';
+          return settle(status, current);
         }
         if (purpose === 'modify') return 'not_connected';
         const idToken = await owner.getIdToken();
@@ -229,7 +238,7 @@ export function connectGmailInPlace(
         const start = await GmailReceiptsService.startNativeConnect({
           idToken,
           userId: input.applicationOwnerId,
-          purpose: "send",
+          purpose,
         });
         if (!current()) return "stale";
         if (!start.configured) return "failed";
@@ -251,7 +260,7 @@ export function connectGmailInPlace(
           userId: input.applicationOwnerId,
           serverAuthCode: result.serverAuthCode,
         });
-        return granted(status) ? "connected" : "not_connected";
+        return settle(status, current);
       }),
     );
   }
@@ -307,13 +316,13 @@ export function connectGmailInPlace(
         });
         if (!current()) return "stale";
         if (input.cancelSignal?.aborted) return "not_connected";
-        if (purpose === "send" && settlement.cancelledOrFailed()) return "not_connected";
+        if (settlement.cancelledOrFailed()) return "not_connected";
         const status = await GmailReceiptsService.getStatus({
           idToken: await owner.getIdToken(),
           userId: input.applicationOwnerId,
           force: true,
         });
-        return granted(status) ? "connected" : "not_connected";
+        return settle(status, current);
       } finally {
         clearGmailOAuthPopupAttempt();
       }

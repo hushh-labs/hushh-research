@@ -10,6 +10,9 @@ vi.mock("@/lib/services/calendar-insights-service", () => ({
   CalendarInsightsRequestError: class extends Error { constructor(message: string, readonly status: number, readonly code?: string) { super(message); } },
   safeMeetingProviderUrl: (value: unknown) => typeof value === "string" && /^https:\/\/(docs|drive)\.google\.com\//.test(value) ? value : null,
 }));
+// Meeting-library regressions keep the separate Follow-ups detail surface out
+// of this fixture; its account and consent behavior has dedicated tests.
+vi.mock("@/components/calendar/calendar-followups", () => ({ CalendarFollowups: () => null }));
 
 import { CalendarInsights } from "@/components/calendar/calendar-insights";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";

@@ -3,6 +3,8 @@
 import asyncio
 import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -452,3 +454,28 @@ def test_ready_capability_pass_predicate_is_unchanged(monkeypatch, capsys):
         "azure_pwm_runtime_probe_result": "ok"
     }
     capability_probe.assert_awaited_once_with("azure_openai")
+
+
+def test_exam_job_emits_only_redacted_call_telemetry():
+    # A clean interpreter, because the redactor installs a process-wide record factory.
+    script = REPO_ROOT / "consent-protocol/scripts/verify_azure_pwm_runtime.py"
+    snippet = f"""
+import importlib.util, logging
+spec = importlib.util.spec_from_file_location("job", {str(script)!r})
+job = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(job)
+job.enable_call_telemetry()
+logging.getLogger("hushh_mcp.runtime_providers.azure_adk").info("azure_model_call_complete outcome=ok")
+logging.getLogger("hushh_mcp.services.drive_suggestion_service").info("drive_search_plan.retry")
+logging.getLogger("httpx").info("HTTP Request: POST https://example.invalid/openai")
+logging.getLogger("hushh_mcp.runtime_providers.azure_adk").info("call_id=%s", "synthetic_token_0123456789")
+"""
+    result = subprocess.run(  # noqa: S603 - fixed interpreter and repo-owned snippet.
+        [sys.executable, "-c", snippet], capture_output=True, text=True, timeout=60, check=True
+    )
+
+    assert "azure_model_call_complete outcome=ok" in result.stdout
+    assert "drive_search_plan.retry" in result.stdout
+    assert "HTTP Request" not in result.stdout + result.stderr
+    assert "synthetic_token_0123456789" not in result.stdout
+    assert result.stderr == ""

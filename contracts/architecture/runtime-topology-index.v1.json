@@ -56,7 +56,7 @@
         "chat": false,
         "ios": false,
         "mcp": false,
-        "not_applicable_reason": "Chat routing, voice, remote A2A and MCP arrive with the Career Agent chat change; this version is the Career screen only.",
+        "not_applicable_reason": "No roster tile and no chat specialist. Agent One itself lists hussh roles and applies from chat (careers.list_roles, careers.apply); this agent only reads resumes. Voice, remote A2A and MCP are not offered.",
         "voice": false,
         "web": true
       },
@@ -828,6 +828,20 @@
       "lifecycle_status": "dev_only",
       "owner": "backend-agents-operons",
       "primary_access_path": "agent prompt-sync read path (GET /api/one/agent-prompt), flag-off"
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "calendar_email_followup_monitors",
+        "calendar_email_followup_conversations",
+        "calendar_email_followup_requests",
+        "calendar_email_followup_scanned_messages",
+        "calendar_email_followup_mutations"
+      ],
+      "id": "calendar_email_followup_operational_state",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Selected-account Calendar Follow-ups APIs and bounded scan/reminder workers require a current per-account Gmail read grant, explicit monitor opt-in, and owner-scoped service access. Feed and push hold source-linked metadata projections, not email bodies."
     },
     {
       "data_class": "workflow_state",
@@ -7218,21 +7232,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "0b1f2a991f7d9a65b0ce1fe53ba436187b8da186bba82e8470e70e5efa542295",
-    "agent_registry": "a07d5bbc3e6f540fc45fa5c54ef3548c064e08809d93e40b9c1badee4b8e984d",
+    "action_gateway": "c451b1fa49ae14b8da0858372b8e600037c20b49dc4bf905959b8a7bb833a643",
+    "agent_registry": "4236c42cca7363111f23291e919557ed4bdbc5dd262f4b85affd568917d0ec7b",
     "cache_manifest": "a53e42359c26801361b197fefc688eaea9b0cd9c693aabc6532c9f4cd84fdd32",
-    "data_plane": "7dd54e0fe286fe7b9d6f47eafe2ca509bc06f2145801a9867a175c5c60d2378b",
+    "data_plane": "9d4880649f0905ebbc15ebcdf2b5113a0578a1406952b5af95cc35eac2376c0b",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "7d497a97e7c950bc4486200ad349a27bca70a0f9b5479d54ef5de8047e290547",
-    "route_layout": "b4391076a394a2852038b05a3fb04474924ccf819b328f3508e9fcf9459842ff",
-    "surface_map": "ed73c71d30714765ec4b30e93d569f587cfcd75b5813c8e40d155f3d22e62a4d",
+    "route_index": "ffe75c5510a85caf73899377826e0ffc3f467d5f556d165f7a787c76353f336b",
+    "route_layout": "67ab53acd0922cfa0a8c83e57d903e296124f104a39b3fbcb379d2c6ae16eafd",
+    "surface_map": "ac8521f468663016778d3a0c43e6da32d42af8a3545adde6cbd52349ea0a6675",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 314,
+    "actions": 316,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
@@ -7240,6 +7254,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 162,
     "semantic_routes": 17,
-    "table_families": 141
+    "table_families": 142
   }
 }

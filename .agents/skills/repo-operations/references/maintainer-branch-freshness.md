@@ -22,6 +22,39 @@ branch before a PR update, merge, or admin-mode landing.
    from `origin/main`, not the stale remote feature branch range; otherwise
    already-landed `main` subtree commits create false-positive slow checks.
 
+## Reconcile live and PR base refs before strict status
+
+The PR event's base SHA and the API's `baseRefOid` describe recorded PR state;
+they can lag the live destination branch. Fetch and compare the current target
+tip before deciding whether checks are current:
+
+```bash
+BASE="main" # replace with the PR's actual base branch
+REPO="hushh-labs/hushh-research" # replace if the PR is in another repository
+PR=123 # replace with the PR number
+git fetch --no-tags origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
+git rev-parse "origin/$BASE"
+gh api "repos/$REPO/pulls/$PR" --jq '{base: .base.sha, head: .head.sha}'
+gh api graphql \
+  -F owner="${REPO%/*}" -F name="${REPO#*/}" -F number="$PR" \
+  -f query='query($owner:String!, $name:String!, $number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){baseRefOid headRefOid}}}'
+git merge-base "origin/$BASE" HEAD
+git diff --name-status "origin/$BASE...HEAD"
+```
+
+If the REST base, GraphQL `baseRefOid`, and live `origin/$BASE` do not agree,
+re-fetch and read REST then GraphQL again, then recompute the merge base and
+three-dot diff. Do not run
+`./bin/hushh codex ci-status --require-success` until the refs are reconciled;
+the command must evaluate the same branch state the current PR checks tested.
+Freshness or a newer Main SHA never grants deployment authority.
+
+Before publishing, start from the exact current
+`.github/pull_request_template.md` and validate the draft body with
+`validate_pr_impact` in `scripts/ci/live-memory-source-gate.py`. Keep its section
+markers and required headers intact so the canonical validator can catch missing
+or malformed impact sections.
+
 ## Verified pushes while main remains active
 
 For a finished, locally verified candidate, carry the tested main SHA into the

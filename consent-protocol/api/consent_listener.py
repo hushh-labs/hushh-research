@@ -18,6 +18,8 @@ import re
 import time
 from typing import Any, Dict
 
+from sqlalchemy import text
+
 from api.utils.consent_notifications import next_pending_notification
 from api.utils.fcm_messages import build_push_message
 from db import listener_connection as listener_transport
@@ -282,6 +284,7 @@ def publish_user_state_event_threadsafe(user_id: str, data: Dict[str, Any]) -> b
     loop = _serving_loop
     if loop is None or loop.is_closed():
         return False
+
     try:
         future = asyncio.run_coroutine_threadsafe(
             _publish_user_state_event(user_id, dict(data)),
@@ -300,6 +303,24 @@ def publish_user_state_event_threadsafe(user_id: str, data: Dict[str, Any]) -> b
     except Exception as exc:  # noqa: BLE001 - delivery is best-effort, never fatal
         logger.warning("user_state.notify_schedule_failed error=%s", exc)
         return False
+
+
+def publish_user_state_event_in_transaction(conn: Any, user_id: str, data: Dict[str, Any]) -> bool:
+    """Commit a source-fenced SSE doorbell with its checked SQL transaction."""
+    normalized_user_id = str(user_id or "").strip()
+    payload = {**data, "user_id": normalized_user_id}
+    event_type = str(payload.get("type") or "").strip()
+    if not normalized_user_id or not _is_user_state_event_type(event_type):
+        return False
+    serialized = json.dumps(payload, separators=(",", ":"), default=str)
+    if len(serialized.encode("utf-8")) > _USER_STATE_NOTIFY_MAX_BYTES:
+        logger.warning("user_state.notify_payload_too_large type=%s", event_type)
+        return False
+    conn.execute(
+        text("SELECT pg_notify(:channel, :payload)"),
+        {"channel": USER_STATE_CHANNEL, "payload": serialized},
+    )
+    return True
 
 
 async def _push_to_developer_consent_queues(data: Dict[str, Any]) -> None:
@@ -467,6 +488,12 @@ def _user_state_notify_callback(connection, pid, channel, payload: str) -> None:
             return
 
         def _schedule() -> None:
+            if event_type == "calendar_email_follow_up":
+                # A listener can run after a correction or revoke commits.
+                # Wake the Feed snapshot instead of replaying an old alert;
+                # Feed rechecks current revision and consent on read.
+                _offer_consent_event(user_id, {"type": LOCAL_RESYNC_EVENT_TYPE})
+                return
             if event_type in _SNAPSHOT_HINT_TYPES:
                 if event_type == "bank_payout_changed":
                     from hushh_mcp.services.payout_account_status_cache import (

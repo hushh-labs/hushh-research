@@ -3,6 +3,13 @@
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+import textwrap
 from pathlib import Path
 
 
@@ -35,6 +42,178 @@ def test_ci_passes_selector_decision_to_integration() -> None:
             "CI_RUN_PKM_UPGRADE_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}",
             "CI_VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}",
         )
+
+
+def _uat_step(name: str, field: str = "run") -> str:
+    """One checked-in deploy-uat step: its dedented run script, or its whole block."""
+    workflow = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
+    match = re.search(
+        rf"(?ms)^(      - name: {re.escape(name)}\n.*?^        run: \|\n(.*?))(?=^      - name: )",
+        workflow,
+    )
+    assert match, name
+    return textwrap.dedent(match.group(2)) if field == "run" else match.group(1)
+
+
+# Stands in for the trusted receipt reader: accepts each "sha:service" in $ACCEPTED.
+_ACCEPTANCE_READER = """import json, os, sys
+args = sys.argv[1:]
+opts = dict(zip(args[1::2], args[2::2]))
+assert args[0] == "require" and opts["--environment"] == "uat" and "--output" in opts
+scope = opts["--scope"]
+assert scope in ("all", "backend", "frontend")
+services = ["backend", "frontend"] if scope == "all" else [scope]
+with open(os.environ["READER_CALLS"], "a") as calls:
+    calls.write(opts["--sha"] + ":" + scope + "\\n")
+if any(opts["--sha"] + ":" + s not in os.environ["ACCEPTED"].split(",") for s in services):
+    print("Predecessor acceptance refused: no receipt")
+    raise SystemExit(1)
+with open(opts["--output"], "w") as out:
+    json.dump({"status": "accepted"}, out)
+"""
+
+
+def _uat_base_fixture(temp: Path, env: dict[str, str]) -> tuple[str, str, str]:
+    """Accepted, tagged A and B, then an untagged candidate that changes reviewer paths."""
+    repo = temp / "candidate"
+    repo.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.run(  # noqa: S603 - fixed git argv in a temporary repository.
+            ["git", "-c", "user.name=ci", "-c", "user.email=ci@example.invalid",
+             "-c", f"core.excludesFile={os.devnull}", *args],
+            cwd=repo,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    git("init", "-q")
+    git("init", "-q", "--bare", str(temp / "origin.git"))
+    git("remote", "add", "origin", str(temp / "origin.git"))
+    accepted = []
+    for name in ("a", "b"):
+        git("commit", "-q", "--allow-empty", "-m", name)
+        accepted.append(git("rev-parse", "HEAD"))
+        git("tag", f"deployed/uat/{accepted[-1][:8]}-20261029T11144{len(accepted)}Z")
+    for path in (
+        "hushh-webapp/lib/vault/vault-context.tsx",
+        "consent-protocol/api/routes/vault_routes.py",
+    ):
+        (repo / path).parent.mkdir(parents=True)
+        (repo / path).write_text("# reviewer path\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-q", "-m", "candidate")
+    git("push", "-q", "origin", "--tags")
+    (repo / "scripts/ci").mkdir(parents=True)
+    shutil.copy(ROOT / "scripts/ci/resolve-uat-verification-plan.py", repo / "scripts/ci")
+    (temp / "runner/release-tools").mkdir(parents=True)
+    (temp / "runner/release-tools/verify-predecessor-acceptance.py").write_text(_ACCEPTANCE_READER)
+    return accepted[0], accepted[1], git("rev-parse", "HEAD")
+
+
+def _run_uat_step(temp: Path, name: str, env: dict[str, str], output: str) -> str:
+    """Run one checked-in step in the candidate checkout; return its stdout and stderr."""
+    script = _uat_step(name).replace("/tmp/", f"{temp}/tmp/")
+    result = subprocess.run(  # noqa: S603 - checked-in workflow step, fixed test values.
+        ["bash", "-c", script],
+        cwd=temp / "candidate",
+        env={**env, "GITHUB_OUTPUT": str(temp / output)},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    return result.stdout + result.stderr
+
+
+def _run_uat_plan(temp: Path, env: dict[str, str]) -> tuple[dict, str, list[str]]:
+    """Run the trusted bases step, then the token-free plan step, as the workflow does."""
+    shutil.rmtree(temp / "tmp", ignore_errors=True)
+    (temp / "tmp").mkdir()
+    for name in ("bases-output", "plan-output", "reader-calls"):
+        (temp / name).write_text("")
+    env = {**env, "RUNNER_TEMP": str(temp / "runner"), "READER_CALLS": str(temp / "reader-calls")}
+    log = _run_uat_step(temp, "Prove UAT comparison bases", env, "bases-output")
+    bases = dict(line.split("=", 1) for line in (temp / "bases-output").read_text().splitlines())
+    env.update(BACKEND_BASE_SHA=bases["backend_base"], FRONTEND_BASE_SHA=bases["frontend_base"])
+    _run_uat_step(temp, "Resolve UAT verification plan", env, "plan-output")
+    plan = json.loads((temp / "tmp/uat-verification-plan.json").read_text(encoding="utf-8"))
+    return plan, log, (temp / "reader-calls").read_text().split()
+
+
+def test_uat_plan_steps_bind_only_their_inputs() -> None:
+    # Only the trusted bases step holds the token; the candidate selector gets bases, not secrets.
+    def env_of(name: str) -> dict[str, str]:
+        return dict(re.findall(r"(?m)^          ([A-Z_]+): (.+)$", _uat_step(name, "block")))
+
+    scope = {
+        "DEPLOY_BACKEND": "${{ steps.scope.outputs.deploy_backend }}",
+        "DEPLOY_FRONTEND": "${{ steps.scope.outputs.deploy_frontend }}",
+    }
+    assert env_of("Prove UAT comparison bases") == {
+        "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+        "BACKEND_SERVING_SHA": "${{ steps.predeploy-state.outputs.backend_sha }}",
+        "FRONTEND_SERVING_SHA": "${{ steps.predeploy-state.outputs.frontend_sha }}",
+        **scope,
+    }
+    assert env_of("Resolve UAT verification plan") == {
+        "TARGET_SHA": "${{ steps.resolve-sha.outputs.sha }}",
+        "BACKEND_BASE_SHA": "${{ steps.verification-bases.outputs.backend_base }}",
+        "FRONTEND_BASE_SHA": "${{ steps.verification-bases.outputs.frontend_base }}",
+        **scope,
+        "RUN_LIVE_MODEL_CHECKS": "${{ inputs.run_live_model_checks && 'true' || 'false' }}",
+    }
+    plan_block = _uat_step("Resolve UAT verification plan", "block")
+    assert "secrets." not in plan_block and "github.token" not in plan_block
+    require(".github/workflows/deploy-uat.yml", "            /tmp/uat-verification-base-*.json\n")
+
+
+def test_uat_plan_compares_only_from_accepted_serving_shas() -> None:
+    # A candidate can keep serving after its acceptance failed. Comparing its
+    # retry, or the next release, from it would drop the lane that failed.
+    with tempfile.TemporaryDirectory() as raw:
+        temp = Path(raw)
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GITHUB_", "GH_"))}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        a, b, candidate = _uat_base_fixture(temp, env)
+        env.update(TARGET_SHA=candidate, RUN_LIVE_MODEL_CHECKS="false")
+        both = f"{a}:backend,{a}:frontend"
+        unproven = "conservative:comparison_base_unproven"
+
+        def plan(backend: str, frontend: str, accepted_by=both, deploy=("true", "true")):
+            return _run_uat_plan(temp, {
+                **env, "ACCEPTED": accepted_by, "BACKEND_SERVING_SHA": backend,
+                "FRONTEND_SERVING_SHA": frontend, "DEPLOY_BACKEND": deploy[0],
+                "DEPLOY_FRONTEND": deploy[1],
+            })
+
+        narrowed, _, calls = plan(a, a)
+        assert narrowed["reason"] == "changed_paths:reviewer_byok" and calls == [f"{a}:all"]
+        assert (temp / "tmp/uat-verification-base-all.json").exists(), "kept in the artifact"
+        # The failed candidate still serves; it has no release tag, so no search runs.
+        retry, log, calls = plan(candidate, candidate)
+        assert retry["reason"] == unproven and calls == [], log
+        assert retry["lanes"]["reviewer_byok"]["required"] is True
+        # Any unproven deployed service skips every receipt search.
+        for backend, frontend in ((a, candidate), (candidate, a)):
+            skipped, log, calls = plan(backend, frontend)
+            assert skipped["reason"] == unproven and calls == [], log
+        split, _, calls = plan(a, b, f"{a}:backend,{b}:frontend")
+        assert split["reason"] == "changed_paths:reviewer_byok"
+        assert calls == [f"{a}:backend", f"{b}:frontend"]
+        refused, _, calls = plan(a, b, f"{b}:frontend")
+        assert refused["reason"] == unproven and calls == [f"{a}:backend"], "frontend skipped"
+        # A receipt for one service never proves the other, and a refusal is no base.
+        partial, log, calls = plan(a, a, f"{a}:frontend")
+        assert partial["reason"] == unproven and calls == [f"{a}:all"]
+        assert "backend=none frontend=none" in log
+        for deploy, accepted_by, call in ((("false", "true"), f"{a}:frontend", f"{a}:frontend"),
+                                          (("true", "false"), f"{a}:backend", f"{a}:backend")):
+            single, _, calls = plan(a, a, accepted_by, deploy)
+            assert single["reason"] == "changed_paths:reviewer_byok" and calls == [call]
+        assert plan(candidate, a, both, ("true", "false"))[0]["reason"] == unproven
 
 
 def test_smoke_receives_selector_decision_without_reclassification() -> None:
@@ -283,6 +462,8 @@ def main() -> int:
     tests = (
         test_ci_smoke_and_uat_share_the_selector,
         test_ci_passes_selector_decision_to_integration,
+        test_uat_plan_steps_bind_only_their_inputs,
+        test_uat_plan_compares_only_from_accepted_serving_shas,
         test_smoke_receives_selector_decision_without_reclassification,
         test_uat_capacity_admission_follows_resolved_scope_on_old_targets,
         test_uat_publishes_lane_reasons_in_summary_and_release_artifacts,

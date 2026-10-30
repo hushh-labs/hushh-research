@@ -48,7 +48,8 @@ export type MailBriefExperience = {
 
 export type ReceiptSetupExperience = {
   type: typeof RECEIPT_SETUP_EXPERIENCE_TYPE;
-  state: "sync_required";
+  /** A sync this device still needs, one this turn started, one it saved, or one that stopped part way. */
+  state: "sync_required" | "syncing" | "synced" | "sync_incomplete";
 };
 
 type Json = Record<string, unknown>;
@@ -90,15 +91,15 @@ function briefItem(value: unknown): MailBriefItem | null {
 }
 
 /**
- * The card under a receipt answer the device could not compute: the existing
- * in-chat Connect card when Gmail is not connected, else the sync hint.
+ * The card under a receipt answer: the existing in-chat Connect card when Gmail
+ * is not connected, else this device's receipt sync state.
  */
 export function receiptSetupExperience(
-  state: "connect_required" | "sync_required",
+  state: "connect_required" | ReceiptSetupExperience["state"],
 ): WorkspaceConnectorSetupExperience | ReceiptSetupExperience {
   return state === "connect_required"
     ? { type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE, provider: "gmail", status: "connect_required" }
-    : { type: RECEIPT_SETUP_EXPERIENCE_TYPE, state: "sync_required" };
+    : { type: RECEIPT_SETUP_EXPERIENCE_TYPE, state };
 }
 
 /** The bounded brief card from an ask_email_agent result, or null. */

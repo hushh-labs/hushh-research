@@ -437,7 +437,14 @@ is required; operational receipts retain fingerprints and release metadata only.
 
 The UAT expensive-lane selector is
 `scripts/ci/resolve-uat-verification-plan.py`. It alone decides when PKM upgrade
-rehearsal or reviewer BYOK proof is required. Paid candidate PKM evaluation and RIA live-model checks retain the explicit
+rehearsal or reviewer BYOK proof is required. It compares from a service's
+serving SHA only once UAT accepted that exact SHA for that service. The trusted
+"Prove UAT comparison bases" step checks this with the exact-SHA acceptance
+reader (`scripts/ci/verify-predecessor-acceptance.py`, a bounded search of recent
+runs), and refuses a SHA that has no healthy `deployed/uat/<sha8>-*` tag without
+searching. A candidate still serving after its acceptance failed is no base, so
+the next release that deploys that service runs both the PKM upgrade rehearsal
+and reviewer BYOK. Dev still compares from its serving SHAs. Paid candidate PKM evaluation and RIA live-model checks retain the explicit
 `run_live_model_checks=true` dispatch input. UAT backend releases always run
 synthetic Azure and Vertex provider checks from the exact candidate image and
 runtime identity, in parallel. A provider passes only when its full application

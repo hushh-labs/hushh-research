@@ -1,5 +1,16 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useEffect } from "react";
+const polls = vi.hoisted(() => new Map<string, () => void | Promise<void>>());
+vi.mock("@/lib/perf/use-periodic-task", () => ({
+  usePeriodicTask: (id: string, _interval: number, run: () => void | Promise<void>, options: { enabled?: boolean }) => {
+    useEffect(() => {
+      if (!options.enabled) return;
+      polls.set(id, run);
+      return () => { polls.delete(id); };
+    });
+  },
+}));
 const state = vi.hoisted(() => ({ terms: vi.fn(), sourceSelection: vi.fn(), timeline: vi.fn(), payment: vi.fn(), checkout: vi.fn(), approve: vi.fn(), prepare: vi.fn(), repair: vi.fn(), revoke: vi.fn(), pickerSession: vi.fn(), choose: vi.fn(), selectDocuments: vi.fn() }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
 vi.mock("@/lib/capacitor/native-navigation", () => ({ useNativeNavigationOverlayRef: (ref: unknown) => ref }));
@@ -69,6 +80,29 @@ describe("hosted document payout and link boundaries", () => {
   it("offers explicit disabled-until-accepted payment only after current readiness", async () => {
     state.terms.mockResolvedValue(terms()); state.payment.mockResolvedValue({ status: "awaiting_payment", paymentsReady: true, ownerPayoutAccountReady: true }); mount("b");
     expect(await screen.findByRole("button", { name: "Accept and pay $1.00" })).toBeDisabled();
+    expect(state.checkout).not.toHaveBeenCalled();
+  });
+  it("updates payment and delivery without reload, retains unchanged consent and retires its poll", async () => {
+    state.terms.mockResolvedValue(terms());
+    const view = mount("b");
+    await screen.findByText(/Payment is unavailable/);
+    state.payment.mockResolvedValue({ status: "checkout_open", paymentsReady: true, ownerPayoutAccountReady: true });
+    const tick = async () => { await act(async () => { await polls.get(`hosted-document-status:${requestId}`)?.(); }); };
+    await tick();
+    const pay = await screen.findByRole("button", { name: "Accept and pay $1.00" });
+    fireEvent.click(screen.getByRole("checkbox", { name: /I accept this approved/ }));
+    expect(pay).toBeEnabled();
+    await tick();
+    expect(screen.getByRole("checkbox", { name: /I accept this approved/ })).toBeChecked();
+    state.terms.mockResolvedValue(terms({ revision: 2, termsDigest: "new-terms" }));
+    await tick();
+    expect(screen.getByRole("checkbox", { name: /I accept this approved/ })).not.toBeChecked();
+    state.terms.mockResolvedValue(terms({ revision: 3, status: "delivered" }));
+    await tick();
+    expect(screen.getByText("Reader")).toBeVisible();
+    expect(polls.size).toBe(0);
+    view.unmount();
+    expect(polls.size).toBe(0);
     expect(state.checkout).not.toHaveBeenCalled();
   });
   it("retires pending preparation on session renewal, resets consent and busy state, and rejects late old-session updates", async () => {
@@ -151,6 +185,30 @@ describe("hosted document payout and link boundaries", () => {
       expect(screen.getByRole("button", { name: "Approve prepared copies" })).toBeEnabled();
     });
   });
+  it("keeps the owner's draft when the parent re-renders with a new token closure", async () => {
+    const file = { fileRef: requestId, name: "Original.pdf", documentId: requestId, mimeType: "application/pdf", size: 10, providerFileId: "provider", sourceRevision: "1", sourceSha256: null };
+    const initial = terms({ status: "requested", terms: null, termsDigest: null, packageDigest: null, hostedUrl: null });
+    state.terms.mockImplementation(async () => ({ ...initial }));
+    state.sourceSelection.mockResolvedValue({ requestId, revision: 1, files: [file] });
+    const props = { session: { userId: "a", vaultKey: "vault", vaultOwnerToken: "owner", isCurrent: () => true }, requestId, onChanged: () => undefined };
+    const view = render(<HostedDocumentPanelBody {...props} getIdToken={async () => "first"} />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Original.pdf/ }));
+    // The production parent re-renders every second and passes a new closure each time.
+    view.rerender(<HostedDocumentPanelBody {...props} getIdToken={async () => "second"} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByRole("checkbox", { name: /Original.pdf/ })).toBeChecked();
+    expect(state.terms).toHaveBeenCalledOnce();
+  });
+  it("reads payment status through the newest token closure, never a retired one", async () => {
+    state.terms.mockImplementation(async () => terms());
+    const props = { session: { userId: "b", vaultKey: "vault", vaultOwnerToken: "owner", isCurrent: () => true }, requestId, onChanged: () => undefined };
+    const view = render(<HostedDocumentPanelBody {...props} getIdToken={async () => "first"} />);
+    await waitFor(() => expect(state.payment).toHaveBeenCalledWith("first", requestId));
+    view.rerender(<HostedDocumentPanelBody {...props} getIdToken={async () => "second"} />);
+    await act(async () => { await polls.get(`hosted-document-status:${requestId}`)?.(); });
+    expect(state.payment).toHaveBeenLastCalledWith("second", requestId);
+    expect(state.terms).toHaveBeenCalledTimes(2); // The mount and the poll; the re-render reset nothing.
+  });
   it("rejects source files bound to another terms revision", async () => {
     state.terms.mockResolvedValue(terms({ status: "requested", files: [] }));
     state.sourceSelection.mockResolvedValue({ requestId, revision: 2, files: [{ fileRef: requestId, name: "Stale.pdf" }] });
@@ -162,7 +220,8 @@ describe("hosted document payout and link boundaries", () => {
   it("keeps the draft and reviewed selection on picker cancel, then rechecks chosen files without refreshing the parent", async () => {
     const file = { fileRef: requestId, name: "Original.pdf", documentId: requestId, mimeType: "application/pdf", size: 10, providerFileId: "provider", sourceRevision: "1", sourceSha256: null };
     const initial = terms({ status: "requested", terms: null, termsDigest: null, packageDigest: null, hostedUrl: null, receiveThrough: "both" });
-    state.terms.mockResolvedValue(initial);
+    // Real HTTP returns a fresh projection on every read, unchanged or not.
+    state.terms.mockImplementation(async () => ({ ...initial }));
     state.sourceSelection.mockResolvedValueOnce({ requestId, revision: 1, files: [file] }).mockResolvedValueOnce({ requestId, revision: 1, files: [{ ...file, name: "Chosen.pdf", providerFileId: "chosen" }] });
     const picker = { sessionId: "picker-session", accessToken: "picker-token" };
     state.pickerSession.mockResolvedValue(picker);
@@ -178,6 +237,13 @@ describe("hosted document payout and link boundaries", () => {
     fireEvent.change(deadline, { target: { value: localDeadline } });
     fireEvent.click(screen.getByRole("checkbox", { name: /I authorize Agent One/ }));
     const prepare = screen.getByRole("button", { name: "Prepare encrypted copies" });
+    expect(prepare).toBeEnabled();
+    await act(async () => { await polls.get(`hosted-document-status:${requestId}`)?.(); });
+    // An unchanged status read keeps the reviewed files and the copy consent.
+    expect(screen.getByRole("checkbox", { name: /Original.pdf/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /I authorize Agent One/ })).toBeChecked();
+    expect(screen.getByLabelText("Price (USD)")).toHaveValue(2.5);
+    expect(new Date((deadline as HTMLInputElement).value).toISOString()).toBe(new Date(localDeadline).toISOString());
     expect(prepare).toBeEnabled();
     expect(screen.queryByRole("button", { name: /Stop .*access|Stop both/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Choose files" }));
@@ -196,7 +262,7 @@ describe("hosted document payout and link boundaries", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /I authorize Agent One/ }));
     expect(screen.getByRole("button", { name: "Prepare encrypted copies" })).toBeEnabled();
     expect(state.selectDocuments).toHaveBeenCalledWith("owner", "picker-session", ["chosen"], false);
-    expect(state.terms).toHaveBeenCalledOnce();
+    expect(state.terms).toHaveBeenCalledTimes(2); // Initial load and the explicit background tick.
     expect(onChanged).not.toHaveBeenCalled();
     expect(picker.accessToken).toBe("");
   });

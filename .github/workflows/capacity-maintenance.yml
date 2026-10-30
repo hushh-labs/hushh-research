@@ -192,7 +192,7 @@ jobs:
             --output "$RUNNER_TEMP/operational-reference-intent.json"
       - name: Publish operational reference intent
         if: inputs.operational_backend_proof_run_id != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prod-operational-reference-intent-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/operational-reference-intent.json
@@ -200,7 +200,7 @@ jobs:
           if-no-files-found: error
 
   uat-maintenance:
-    name: UAT bounded revision cleanup
+    name: ${{ github.event_name == 'workflow_dispatch' && !inputs.apply && 'UAT revision inspection' || 'UAT bounded revision cleanup' }}
     needs: select-release
     if: needs.select-release.outputs.uat_ready == 'true'
     runs-on: ubuntu-latest
@@ -242,7 +242,7 @@ jobs:
             --state-dir "$RUNNER_TEMP/uat-retention-state" "${flags[@]}"
       - name: Authenticate to uat
         if: steps.locked-source.outputs.cleanup_ready == 'true'
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -251,7 +251,7 @@ jobs:
           export_environment_variables: true
       - name: Set up Cloud SDK
         if: steps.locked-source.outputs.cleanup_ready == 'true'
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
       - name: Prepare or finish eligible uat revision cleanup
         id: retention
         if: steps.locked-source.outputs.cleanup_ready == 'true'
@@ -268,7 +268,7 @@ jobs:
             --state-dir "$RUNNER_TEMP/uat-retention-state" "${flags[@]}"
       - name: Save uat cleanup checkpoint
         if: always() && steps.locked-source.outputs.cleanup_ready == 'true' && steps.retention.outputs.checkpoint_ready == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: uat-retention-state
           path: ${{ runner.temp }}/uat-retention-state/
@@ -286,7 +286,7 @@ jobs:
           fi
 
   cleanup:
-    name: Production bounded revision cleanup
+    name: ${{ github.event_name == 'workflow_dispatch' && !inputs.apply && 'Production revision inspection' || 'Production bounded revision cleanup' }}
     needs: select-release
     if: needs.select-release.outputs.production_ready == 'true'
     runs-on: ubuntu-latest
@@ -361,7 +361,7 @@ jobs:
             --state-dir "$RUNNER_TEMP/production-retention-state" "${flags[@]}"
       - name: Authenticate to production
         if: steps.locked-source.outputs.cleanup_ready == 'true'
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -370,7 +370,7 @@ jobs:
           export_environment_variables: true
       - name: Set up Cloud SDK
         if: steps.locked-source.outputs.cleanup_ready == 'true'
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
       - name: Publish operational backend reference under deployment lock
         if: steps.locked-source.outputs.cleanup_ready == 'true' && inputs.operational_backend_proof_run_id != '' && inputs.apply
         run: |
@@ -403,7 +403,7 @@ jobs:
             --state-dir "$RUNNER_TEMP/production-retention-state" "${flags[@]}"
       - name: Save production cleanup checkpoint
         if: always() && steps.locked-source.outputs.cleanup_ready == 'true' && steps.retention.outputs.checkpoint_ready == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: production-retention-state
           path: ${{ runner.temp }}/production-retention-state/

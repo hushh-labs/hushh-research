@@ -10,6 +10,7 @@ const m = vi.hoisted(() => ({
   getMetadata: vi.fn(),
   refreshMemoryDocument: vi.fn(),
   syncLivingSources: vi.fn(),
+  clearLastSeen: vi.fn(),
   markPending: vi.fn(),
   domainChangeListener: null as ((detail: { userId: string; domain: string; operation: string }) => void) | null,
   connectionChangeListener: null as ((detail: { userId: string }) => void) | null,
@@ -85,6 +86,7 @@ vi.mock("@/lib/agent/agent-chat-history-events", () => ({
   AGENT_CHAT_HISTORY_INVALIDATED_EVENT: "agent-chat-history-invalidated",
 }));
 vi.mock("@/lib/pkm/living-source-sync", () => ({
+  clearLivingSourceLastSeen: (...args: unknown[]) => m.clearLastSeen(...args),
   LIVING_SOURCE_DOMAIN: "one_living_sources",
   LivingSourcesIncompleteError: m.LivingSourcesIncompleteError,
   syncLivingSources: (...args: unknown[]) => m.syncLivingSources(...args),
@@ -167,6 +169,18 @@ describe("LivingMemoryBridge", () => {
     await flush();
     expect(m.refreshMemoryDocument.mock.calls.at(-1)![0]).toMatchObject({ force: false });
     expect(m.markPending).not.toHaveBeenCalled();
+
+    // Another tab or device changed the stored records: this wake wrote nothing,
+    // yet the mirror is marked pending so the unforced refresh rebuilds it.
+    m.refreshMemoryDocument.mockClear();
+    m.syncLivingSources.mockResolvedValue({ stored: false, recordsChanged: true });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(m.markPending).toHaveBeenCalledWith("owner-a");
+    expect(m.refreshMemoryDocument.mock.calls.at(-1)![0]).toMatchObject({ force: false });
+    expect(m.markPending.mock.invocationCallOrder.at(-1)!)
+      .toBeLessThan(m.refreshMemoryDocument.mock.invocationCallOrder.at(-1)!);
+    m.markPending.mockClear();
 
     // A routine wake whose sync found a changed record marks the mirror
     // pending before the forced rebuild, so its old values never read current.
@@ -441,6 +455,7 @@ describe("LivingMemoryBridge", () => {
     m.unlocked = false;
     view.rerender(<LivingMemoryBridge />);
     expect(getLivingSourceSessionVerification("owner-a", 0)).toEqual({});
+    expect(m.clearLastSeen).toHaveBeenCalledWith("owner-a");
     m.syncLivingSources.mockClear();
     m.refreshMemoryDocument.mockClear();
     await wakeEverything();

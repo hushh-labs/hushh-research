@@ -18,6 +18,8 @@ import type { GoogleCalendarAccount } from "@/lib/services/google-calendar-servi
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
 import { CalendarCompactAction } from "./calendar-compact-action";
+import { CalendarFollowups } from "./calendar-followups";
+import type { FollowupRequest } from "@/lib/services/calendar-followups-service";
 import { coalescedInsightsRead, insightsResourceKey, insightsSnapshot, invalidateInsightsSnapshots, mergeLibrary, storeInsightsSnapshot } from "@/lib/calendar/calendar-insights-resource";
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
@@ -55,13 +57,17 @@ function Artifact({ item, onOpen, onDownload }: { item: MeetingArtifact; onOpen:
   </div>;
 }
 
-export function CalendarInsights({ userId, account, today, zone, connectionRevision, refreshRevision = 0, refreshControl = "inline", initialLibrary, getIdToken, getVaultOwnerToken = noVaultToken, onAllowMeetingFiles }: {
+export function CalendarInsights({ userId, account, today, zone, connectionRevision, refreshRevision = 0, refreshControl = "inline", initialLibrary, getIdToken, getVaultOwnerToken = noVaultToken, onAllowMeetingFiles, onFollowupMailConnect, onReviewFollowupMeeting, followupRequestId, onFollowupIntentHandled }: {
   userId: string; account: GoogleCalendarAccount; today: string; zone: string;
   connectionRevision?: number; refreshRevision?: number; refreshControl?: "inline" | "external"; initialLibrary?: CalendarMeetingReturnContext | null;
   getIdToken: () => Promise<string>; getVaultOwnerToken?: () => string | null;
   onAllowMeetingFiles?: (accountId: string, context: CalendarMeetingReturnContext) => void;
+  onFollowupMailConnect?: (accountId: string) => Promise<boolean>;
+  onReviewFollowupMeeting?: (request: FollowupRequest, startAt: string, endAt: string, timeZone: string) => void;
+  followupRequestId?: string | null;
+  onFollowupIntentHandled?: () => void;
 }) {
-  const [view, setView] = useState<"overview" | "library" | "meeting">(initialLibrary ? "library" : "overview");
+  const [view, setView] = useState<"overview" | "followups" | "library" | "meeting">(initialLibrary ? "library" : "overview");
   const [day, setDay] = useState(initialLibrary?.day || today);
   const previousToday = useRef(today);
   useEffect(() => {
@@ -202,14 +208,14 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       requestAnimationFrame(() => rowRefs.current.get(lastSelectedId.current || "")?.focus());
     } else {
       setView("overview");
-      requestAnimationFrame(() => entryRef.current?.focus());
+      if (view === "library") requestAnimationFrame(() => entryRef.current?.focus());
     }
     return true;
   }, [view]);
-  useBackLayer("/one/calendar", view === "meeting" ? 2 : view === "library" ? 1 : 0, back);
+  useBackLayer("/one/calendar", view === "meeting" ? 2 : view === "library" || view === "followups" ? 1 : 0, back);
 
   useEffect(() => {
-    if (!canRefresh) return;
+    if (!canRefresh || view === "followups") return;
     const controller = new AbortController();
     lifetime.current = controller;
     const requestOwner = snapshotValidatedAuthSessionOwner();
@@ -483,7 +489,13 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     {!canRefresh ? <p role="status">Updates paused while this page is hidden or offline.</p> : null}
     {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon-touch"
       aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}>
-      <ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : "Meeting library"}</div> : null}
+      <ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : view === "followups" ? "Follow-ups" : "Meeting library"}</div> : null}
+    {view === "overview" || view === "followups" ? <CalendarFollowups
+      userId={userId} accountId={account.account_id} accountEmail={account.google_email || "this account"}
+      zone={zone} expanded={view === "followups"} getIdToken={getIdToken}
+      getVaultOwnerToken={getVaultOwnerToken} onConnectMail={onFollowupMailConnect}
+      refreshRevision={refreshRevision} onViewAll={() => setView("followups")} onReviewMeeting={(request, startAt, endAt, timeZone) => onReviewFollowupMeeting?.(request, startAt, endAt, timeZone)}
+      deepLinkRequestId={followupRequestId} onDeepLinkHandled={onFollowupIntentHandled} /> : null}
     {view === "overview" ? <>
       <p className={styles.muted}>Understand your time. Make room for what matters.</p>
       {loading && !overview ? <p role="status" className={styles.muted}>Checking Insights…</p> : null}
@@ -500,7 +512,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       <SectionCard title="Focus opportunities" description="Gaps of at least one hour · weekdays, 9 AM–5 PM">
         {overview?.focus.length ? overview.focus.map(window => <p key={window.start_at} className="py-2">{new Date(window.start_at).toLocaleString(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })}–{new Date(window.end_at).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" })}</p>) : <p className={styles.muted}>No verified focus windows to show.</p>}
       </SectionCard>
-    </> : view === "library" ? <>
+    </> : view === "followups" ? null : view === "library" ? <>
       <div><h2 className={styles.heading}>Recordings &amp; Notes</h2><p className={styles.muted}>Every timed meeting on this day, with file access checked separately.</p></div>
       <CalendarDateNavigation date={day} today={today} onChange={changeDay} label="Recording and notes date" />
       <label className="relative"><Search aria-hidden className="absolute left-3 top-3 size-4 text-muted-foreground" /><Input className="pl-10" type="search" aria-label="Search meetings on this day" placeholder="Search meetings on this day" maxLength={120} value={queryInput} onChange={event => changeQuery(event.target.value)} /></label>

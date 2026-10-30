@@ -14,8 +14,8 @@ export type FinancePolicyV1 = {
   showAmounts: boolean; model_processing: { version: 1; allowed: boolean }; durationSeconds: 3600 | 86400 | 604800 | null;
 };
 export type FinancePolicyV2 = {
-  version: 2; purpose: "verified_ria_review"; mode: "snapshot"; sections: FinanceSection[]; selectionHash: string;
-  showAmounts: true; model_processing: { version: 1; allowed: false }; durationSeconds: 3600 | 86400 | 604800;
+  version: 2; purpose: "verified_ria_review"; mode: "snapshot" | "ongoing"; sections: FinanceSection[]; selectionHash: string;
+  showAmounts: true; model_processing: { version: 1; allowed: false }; durationSeconds: 3600 | 86400 | 604800 | null;
 };
 export type FinancePolicy = FinancePolicyV1 | FinancePolicyV2;
 export type FinancePolicyInput = Omit<FinancePolicyV1, "selectionHash"> | Omit<FinancePolicyV2, "selectionHash">;
@@ -45,10 +45,10 @@ const financePolicyV1Schema = z.object({
   durationSeconds: z.union([z.literal(3600), z.literal(86400), z.literal(604800), z.null()]),
 }).strict().refine(p => new Set(p.sections).size === p.sections.length && (p.mode !== "snapshot" || p.durationSeconds !== null));
 const financePolicyV2Schema = z.object({
-  version: z.literal(2), purpose: z.literal("verified_ria_review"), mode: z.literal("snapshot"),
+  version: z.literal(2), purpose: z.literal("verified_ria_review"), mode: z.enum(["snapshot", "ongoing"]),
   sections: z.array(z.enum(financeSections)).length(3), selectionHash: hexHash,
   showAmounts: z.literal(true), model_processing: z.object({ version: z.literal(1), allowed: z.literal(false) }).strict(),
-  durationSeconds: z.union([z.literal(3600), z.literal(86400), z.literal(604800)]),
+  durationSeconds: z.union([z.literal(3600), z.literal(86400), z.literal(604800), z.null()]),
 }).strict().refine(p => new Set(p.sections).size === 3 && ["allocation", "performance", "holdings"].every(s => p.sections.includes(s as FinanceSection)));
 export const financePolicySchema = z.union([financePolicyV1Schema, financePolicyV2Schema]);
 export const financeGrantSchema = z.object({

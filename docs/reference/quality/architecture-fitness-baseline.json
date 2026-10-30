@@ -4501,7 +4501,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 3104,
+  "finding_count": 3135,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4789,7 +4789,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": "ConnectionsService",
-      "value": 4034
+      "value": 4074
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4996,7 +4996,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "DriveRequestPaymentService",
-      "value": 1204
+      "value": 1214
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5131,7 +5131,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": "FeedService",
-      "value": 1270
+      "value": 1278
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5194,7 +5194,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": "GmailReceiptsService",
-      "value": 4729
+      "value": 4743
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5221,7 +5221,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
       "symbol": "GoogleConnectionService",
-      "value": 1702
+      "value": 1857
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5230,7 +5230,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": "GoogleDriveAdapter",
-      "value": 836
+      "value": 841
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5446,7 +5446,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "OneLocationAgentService",
-      "value": 10571
+      "value": 10572
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -10324,7 +10324,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "checkout",
-      "value": 473
+      "value": 485
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10945,7 +10945,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": "_complete_authorized_connect",
-      "value": 278
+      "value": 279
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10999,7 +10999,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": "disconnect",
-      "value": 128
+      "value": 141
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11080,7 +11080,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
       "symbol": "access_token",
-      "value": 124
+      "value": 126
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11089,7 +11089,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
       "symbol": "disconnect_service",
-      "value": 121
+      "value": 130
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11836,7 +11836,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "search_directory_candidates",
-      "value": 449
+      "value": 452
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18073,7 +18073,7 @@
       "limit": 500,
       "path": "consent-protocol/api/consent_listener.py",
       "symbol": null,
-      "value": 1271
+      "value": 1297
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18975,7 +18975,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": null,
-      "value": 4369
+      "value": 4410
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19182,7 +19182,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": null,
-      "value": 1314
+      "value": 1325
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19281,7 +19281,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": null,
-      "value": 1688
+      "value": 1709
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19353,7 +19353,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": null,
-      "value": 5093
+      "value": 5107
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19389,7 +19389,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
       "symbol": null,
-      "value": 1849
+      "value": 2000
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19398,7 +19398,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": null,
-      "value": 1161
+      "value": 1189
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20667,7 +20667,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_connect_directory_postgres.py",
       "symbol": null,
-      "value": 671
+      "value": 722
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20685,7 +20685,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_connections_service.py",
       "symbol": null,
-      "value": 3365
+      "value": 3407
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22503,7 +22503,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/connect/page-client.test.tsx",
       "symbol": null,
-      "value": 3630
+      "value": 3695
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22944,7 +22944,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/firebase-messaging-service-worker.test.ts",
       "symbol": null,
-      "value": 760
+      "value": 769
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22980,7 +22980,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/feed/feed-notification-projection-renderers.test.ts",
       "symbol": null,
-      "value": 540
+      "value": 549
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23394,7 +23394,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/connect/page-client.tsx",
       "symbol": null,
-      "value": 4276
+      "value": 4296
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23718,7 +23718,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/calendar/calendar-agent-page.tsx",
       "symbol": null,
-      "value": 890
+      "value": 979
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25032,7 +25032,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/feed/feed-item-renderers.tsx",
       "symbol": null,
-      "value": 1899
+      "value": 1907
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25257,7 +25257,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/notifications/fcm-service.ts",
       "symbol": null,
-      "value": 1644
+      "value": 1648
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25617,7 +25617,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/connections-service.ts",
       "symbol": null,
-      "value": 728
+      "value": 742
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25941,7 +25941,7 @@
       "limit": 500,
       "path": "hushh-webapp/public/firebase-messaging-sw.js",
       "symbol": null,
-      "value": 690
+      "value": 699
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29530,7 +29530,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_package_access_preflight.py",
       "symbol": "inspect",
-      "value": 102
+      "value": 110
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -30097,7 +30097,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/system_push_delivery.py",
       "symbol": "_deliver",
-      "value": 129
+      "value": 148
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -30106,7 +30106,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/system_push_delivery.py",
       "symbol": "_notification",
-      "value": 122
+      "value": 145
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -30799,7 +30799,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connect-page-grid.layout.spec.ts",
       "symbol": null,
-      "value": 744
+      "value": 774
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -31408,7 +31408,7 @@
       "kind": "function_size",
       "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
       "detail": "function exceeds the advisory gene budget",
-      "value": 91,
+      "value": 93,
       "limit": 80,
       "symbol": "_additional_calendar_access_token",
       "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_service.py|_additional_calendar_access_token|function exceeds the advisory gene budget"
@@ -32542,7 +32542,7 @@
       "kind": "module_size",
       "path": "hushh-webapp/components/calendar/calendar-insights.tsx",
       "detail": "module exceeds the advisory operon budget",
-      "value": 558,
+      "value": 565,
       "limit": 500,
       "symbol": null,
       "key": "module_size|hushh-webapp/components/calendar/calendar-insights.tsx||module exceeds the advisory operon budget"
@@ -32555,6 +32555,177 @@
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/hushh_mcp/services/calendar_meeting_artifacts.py||module exceeds the advisory operon budget"
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_monitor.py|configure|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_store_monitor.py",
+      "symbol": "configure",
+      "value": 182
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_ingest.py|commit_message|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_store_ingest.py",
+      "symbol": "commit_message",
+      "value": 179
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_monitor.py|write|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_store_monitor.py",
+      "symbol": "write",
+      "value": 152
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_service.py|_store_additional_gmail_grant|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
+      "symbol": "_store_additional_gmail_grant",
+      "value": 123
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_ingest.py|write|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_store_ingest.py",
+      "symbol": "write",
+      "value": 115
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py|list_conversations|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py",
+      "symbol": "list_conversations",
+      "value": 114
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_calendar_email_followup_oauth_postgres.py|test_account_b_c_connect_opt_in_switch_refresh_and_revoke|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_calendar_email_followup_oauth_postgres.py",
+      "symbol": "test_account_b_c_connect_opt_in_switch_refresh_and_revoke",
+      "value": 108
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py|mutate_request|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py",
+      "symbol": "mutate_request",
+      "value": 106
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py|read|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py",
+      "symbol": "read",
+      "value": 106
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_service.py|status|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
+      "symbol": "status",
+      "value": 97
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_scan.py|_step_message|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_scan.py",
+      "symbol": "_step_message",
+      "value": 96
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_oauth_attempt_store.py|_persist_attempt|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/google_connection_oauth_attempt_store.py",
+      "symbol": "_persist_attempt",
+      "value": 93
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py|write|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py",
+      "symbol": "write",
+      "value": 89
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_scan.py|scan_once|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_scan.py",
+      "symbol": "scan_once",
+      "value": 88
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py|record_booking|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py",
+      "symbol": "record_booking",
+      "value": 88
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/feed_service.py|_to_item|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/feed_service.py",
+      "symbol": "_to_item",
+      "value": 88
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_due.py|queue_due|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_store_due.py",
+      "symbol": "queue_due",
+      "value": 86
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_reader.py|_hydrate_readable_parts|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_email_followup_reader.py",
+      "symbol": "_hydrate_readable_parts",
+      "value": 81
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/system_push_delivery.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/system_push_delivery.py",
+      "symbol": null,
+      "value": 567
     }
   ],
   "inspected_files": 6625,
@@ -87490,6 +87661,460 @@
         "source_sha256": "a510cf7d472a06bcf67ec8eed6623c9370de13c1388634eb65339f93c6065421",
         "reviewer": "independent read-only architecture fitness and security/consent review",
         "review": "One selected vault-token getter is forwarded to the existing Calendar Insights child after the Main booking composition; no new Calendar route or authority is created."
+      }
+    ]
+  },
+  "mutual_connections_review_20261029": {
+    "base_revision": "d2304cf51646cb16d4c7d7d1740479218ef4ec84",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/connections_service.py|ConnectionsService|class exceeds the advisory operon budget",
+        "before": 4034,
+        "after": 4074,
+        "source_sha256": "ef084c136cc44332cadb0c69fd24a38fbfbc9beabf6b550b6ff10119e142c1d8",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|OneLocationAgentService|class exceeds the advisory operon budget",
+        "before": 10571,
+        "after": 10572,
+        "source_sha256": "cabddfbeb5211bc35b58a7f6b6a20d5f8fdb3d8f068510c8cfedf7562cbb2f7d",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|search_directory_candidates|function exceeds the advisory gene budget",
+        "before": 449,
+        "after": 452,
+        "source_sha256": "cabddfbeb5211bc35b58a7f6b6a20d5f8fdb3d8f068510c8cfedf7562cbb2f7d",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/connections_service.py||module exceeds the advisory operon budget",
+        "before": 4369,
+        "after": 4410,
+        "source_sha256": "ef084c136cc44332cadb0c69fd24a38fbfbc9beabf6b550b6ff10119e142c1d8",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_connect_directory_postgres.py||module exceeds the advisory operon budget",
+        "before": 671,
+        "after": 722,
+        "source_sha256": "d1fde37cfde75114ef53667818d9fe400feee86e32cd4e492765de98d5da16ca",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_connections_service.py||module exceeds the advisory operon budget",
+        "before": 3365,
+        "after": 3407,
+        "source_sha256": "8e0d5e0213c265da1c110080d7968fff2e726c4d6ce76c31cf3db59662efa6df",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/app/connect/page-client.test.tsx||module exceeds the advisory operon budget",
+        "before": 3630,
+        "after": 3695,
+        "source_sha256": "fff888b5ddc3f322b3a9365ead2c8d09e342ba170c64a49a96a2e4f88b5da97e",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|hushh-webapp/app/connect/page-client.tsx||module exceeds the advisory operon budget",
+        "before": 4276,
+        "after": 4296,
+        "source_sha256": "d13d2d2c23df2c2c5e02a91ed1cb1468159d4e05aee144390f8829bce4615e2d",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/connect-page-grid.layout.spec.ts||module exceeds the advisory operon budget",
+        "before": 744,
+        "after": 774,
+        "source_sha256": "e09fa0f6f169dda31f40d9162df643ab1889e11cc6ec6a2dd6d0061197cf254a",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/connections-service.ts||module exceeds the advisory operon budget",
+        "before": 728,
+        "after": 742,
+        "source_sha256": "f65888fb3f1a24749aad5523b984295503e91c21d98614d5d5aae1db256ca662",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      }
+    ]
+  },
+  "drive_checkout_fresh_acl_and_timing_review_20261029": {
+    "reviewer": "task-owner technical review",
+    "reason": "Bounded Checkout latency/diagnostic changes: consolidate fresh metadata and complete validated ACL reads through the existing validator; preserve listing fallback, source/recipient checks and legacy DriveMetadata serialization. Checkout growth is timing instrumentation of existing awaits, with payment/amount/consent/expiry/idempotency gates unchanged. Production helper tests and the protected-document Chromium/WebKit loops pass. No new oversized function, budget/detector change or duplicate finding collapse.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|DriveRequestPaymentService|class exceeds the advisory operon budget",
+        "before": 1204,
+        "after": 1214,
+        "source_sha256": "1bc7f3f7fd49fd0426ee57f4b91ef376ed44f8a4e96f0cef25853d05a0ae09f9"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|GoogleDriveAdapter|class exceeds the advisory operon budget",
+        "before": 836,
+        "after": 841,
+        "source_sha256": "581190c69efc8aa8a93f6cae2f8f0dc248df98356c460344aa81ea07b2d23366"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|checkout|function exceeds the advisory gene budget",
+        "before": 473,
+        "after": 485,
+        "source_sha256": "1bc7f3f7fd49fd0426ee57f4b91ef376ed44f8a4e96f0cef25853d05a0ae09f9"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_package_access_preflight.py|inspect|function exceeds the advisory gene budget",
+        "before": 102,
+        "after": 110,
+        "source_sha256": "6e92fb48c380c1a245ce3082d6b82f439fb76665c30130d8bec69c1f80140985"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py||module exceeds the advisory operon budget",
+        "before": 1314,
+        "after": 1325,
+        "source_sha256": "1bc7f3f7fd49fd0426ee57f4b91ef376ed44f8a4e96f0cef25853d05a0ae09f9"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py||module exceeds the advisory operon budget",
+        "before": 1161,
+        "after": 1189,
+        "source_sha256": "581190c69efc8aa8a93f6cae2f8f0dc248df98356c460344aa81ea07b2d23366"
+      }
+    ]
+  },
+  "calendar_email_followups_exact_fitness_review_20261030": {
+    "base_revision": "d225bb2c8a6c60718644bde879cb988cc7d111f5",
+    "scope": "40 exact size ceilings after splitting the new follow-up store, scan navigation and end-to-end test: 21 worsened existing findings and 19 new. No global 500/250/80 budget, scanner, exclusion or unrelated finding change.",
+    "evidence": "Independent read-only review verified AST equivalence of all 24 moved store methods and no remaining structural seam. Parent focused PostgreSQL restart, B/C consent, correction, Feed and stale retry tests passed. Real Gmail/model/device delivery remains unverified. A +1 on a reviewed ceiling and any new oversized function remain ratchet failures.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py|GmailReceiptsService|class exceeds the advisory operon budget",
+        "before": 4729,
+        "after": 4743,
+        "source_sha256": "dbbc76d033c3b4db1b991c4ea4576afcf8d2a56f136da55b76857ed8dea8a75f",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Extension of the existing Google OAuth and Mail owner for separately verified account grants. The atomic token/identity transaction and existing receipt checkpoints stay in their current owner."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_connection_service.py|GoogleConnectionService|class exceeds the advisory operon budget",
+        "before": 1702,
+        "after": 1857,
+        "source_sha256": "678b0361009abd235d8ed83c0863cc60d94059eb692a92d2076540a95371e09a",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Extension of the existing Google OAuth and Mail owner for separately verified account grants. The atomic token/identity transaction and existing receipt checkpoints stay in their current owner."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/feed_service.py|FeedService|class exceeds the advisory operon budget",
+        "before": 1270,
+        "after": 1278,
+        "source_sha256": "5de8dc48ba9b5b9e6345dc2e026080affa20d74fb5fa29398111cec6fe94efbb",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing Feed owner adds source-linked follow-up projection and account/request routing; correction removes obsolete visible alerts. Focused Feed tests passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py|_complete_authorized_connect|function exceeds the advisory gene budget",
+        "before": 278,
+        "after": 279,
+        "source_sha256": "dbbc76d033c3b4db1b991c4ea4576afcf8d2a56f136da55b76857ed8dea8a75f",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Extension of the existing Google OAuth and Mail owner for separately verified account grants. The atomic token/identity transaction and existing receipt checkpoints stay in their current owner."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_monitor.py|configure|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 182,
+        "source_sha256": "1b24f621ffe24ac3eeda126b2eb49c087edd72a9ab05f3770f8fd6208f303f16",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Account-specific consent and scan lease state stay in one guarded transaction; opt-in rechecks the exact Gmail grant under the owner lock. Focused B/C refresh, revoke and opt-out checks passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_ingest.py|commit_message|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 179,
+        "source_sha256": "2ea2e213674fed47230751cddde77bace80d57c08e70daf54b5051561dbabc45",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Complete-section ingestion atomically fences monitor generation, inserts source-linked requests, applies later corrections, and records the scanned digest. The transaction cannot be split without changing retry behavior."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_monitor.py|write|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 152,
+        "source_sha256": "1b24f621ffe24ac3eeda126b2eb49c087edd72a9ab05f3770f8fd6208f303f16",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Account-specific consent and scan lease state stay in one guarded transaction; opt-in rechecks the exact Gmail grant under the owner lock. Focused B/C refresh, revoke and opt-out checks passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/system_push_delivery.py|_deliver|function exceeds the advisory gene budget",
+        "before": 129,
+        "after": 148,
+        "source_sha256": "55e86f455fc631db5b944a73a72c8cae9cce484578aa51d9cfb286ddf524ec15",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing push and SSE owner adds source revision, consent and provider rechecks before each attempt; Feed doorbell publication stays tied to the guarded transaction. Stale retry tests passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/system_push_delivery.py|_notification|function exceeds the advisory gene budget",
+        "before": 122,
+        "after": 145,
+        "source_sha256": "55e86f455fc631db5b944a73a72c8cae9cce484578aa51d9cfb286ddf524ec15",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing push and SSE owner adds source revision, consent and provider rechecks before each attempt; Feed doorbell publication stays tied to the guarded transaction. Stale retry tests passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py|disconnect|function exceeds the advisory gene budget",
+        "before": 128,
+        "after": 141,
+        "source_sha256": "dbbc76d033c3b4db1b991c4ea4576afcf8d2a56f136da55b76857ed8dea8a75f",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Extension of the existing Google OAuth and Mail owner for separately verified account grants. The atomic token/identity transaction and existing receipt checkpoints stay in their current owner."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_service.py|disconnect_service|function exceeds the advisory gene budget",
+        "before": 121,
+        "after": 130,
+        "source_sha256": "678b0361009abd235d8ed83c0863cc60d94059eb692a92d2076540a95371e09a",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Extension of the existing Google OAuth and Mail owner for separately verified account grants. The atomic token/identity transaction and existing receipt checkpoints stay in their current owner."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_service.py|access_token|function exceeds the advisory gene budget",
+        "before": 124,
+        "after": 126,
+        "source_sha256": "678b0361009abd235d8ed83c0863cc60d94059eb692a92d2076540a95371e09a",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Extension of the existing Google OAuth and Mail owner for separately verified account grants. The atomic token/identity transaction and existing receipt checkpoints stay in their current owner."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_service.py|_store_additional_gmail_grant|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 123,
+        "source_sha256": "678b0361009abd235d8ed83c0863cc60d94059eb692a92d2076540a95371e09a",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Extension of the existing Google OAuth and Mail owner for separately verified account grants. The atomic token/identity transaction and existing receipt checkpoints stay in their current owner."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_ingest.py|write|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 115,
+        "source_sha256": "2ea2e213674fed47230751cddde77bace80d57c08e70daf54b5051561dbabc45",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Complete-section ingestion atomically fences monitor generation, inserts source-linked requests, applies later corrections, and records the scanned digest. The transaction cannot be split without changing retry behavior."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py|list_conversations|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 114,
+        "source_sha256": "911caf5339cbde4118e9cb92c3ce14c653b9265953412b1851bf09ddf70088f1",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "One account-scoped encrypted request projection or guarded revision mutation/booking operation. The selected-account lookup and source-linked detail tests passed."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_calendar_email_followup_oauth_postgres.py|test_account_b_c_connect_opt_in_switch_refresh_and_revoke|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 108,
+        "source_sha256": "4d6dfd3493d9155fbda7235fb73a2f4357cec96b481340bc5af57dd4d1535215",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "One sequential disposable-PostgreSQL B/C Connect Mail and opt-in regression proves account isolation, refresh continuity, revoke, replacement and opt-out."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py|mutate_request|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 106,
+        "source_sha256": "911caf5339cbde4118e9cb92c3ce14c653b9265953412b1851bf09ddf70088f1",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "One account-scoped encrypted request projection or guarded revision mutation/booking operation. The selected-account lookup and source-linked detail tests passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py|read|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 106,
+        "source_sha256": "911caf5339cbde4118e9cb92c3ce14c653b9265953412b1851bf09ddf70088f1",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "One account-scoped encrypted request projection or guarded revision mutation/booking operation. The selected-account lookup and source-linked detail tests passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_service.py|status|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 97,
+        "source_sha256": "678b0361009abd235d8ed83c0863cc60d94059eb692a92d2076540a95371e09a",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Extension of the existing Google OAuth and Mail owner for separately verified account grants. The atomic token/identity transaction and existing receipt checkpoints stay in their current owner."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_scan.py|_step_message|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 96,
+        "source_sha256": "fa26c3b1b7663df5343efab176e04b5101aa9041f52903cb01c9daa9e2f39cf9",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Resumable message processing retains provider-read, prior-context, section assessment and commit ordering; checkpoint, thread and page helpers were extracted. Incomplete-source and restart tests passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_oauth_attempt_store.py|_persist_attempt|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 93,
+        "source_sha256": "079ee3516cae5a8aa13a1f559284074df14135b3c1952c080e85b0885dbd4b87",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Extension of the existing Google OAuth and Mail owner for separately verified account grants. The atomic token/identity transaction and existing receipt checkpoints stay in their current owner."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_service.py|_additional_calendar_access_token|function exceeds the advisory gene budget",
+        "before": 91,
+        "after": 93,
+        "source_sha256": "678b0361009abd235d8ed83c0863cc60d94059eb692a92d2076540a95371e09a",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Extension of the existing Google OAuth and Mail owner for separately verified account grants. The atomic token/identity transaction and existing receipt checkpoints stay in their current owner."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py|write|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 89,
+        "source_sha256": "911caf5339cbde4118e9cb92c3ce14c653b9265953412b1851bf09ddf70088f1",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "One account-scoped encrypted request projection or guarded revision mutation/booking operation. The selected-account lookup and source-linked detail tests passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_scan.py|scan_once|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 88,
+        "source_sha256": "fa26c3b1b7663df5343efab176e04b5101aa9041f52903cb01c9daa9e2f39cf9",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Resumable message processing retains provider-read, prior-context, section assessment and commit ordering; checkpoint, thread and page helpers were extracted. Incomplete-source and restart tests passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_requests.py|record_booking|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 88,
+        "source_sha256": "911caf5339cbde4118e9cb92c3ce14c653b9265953412b1851bf09ddf70088f1",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "One account-scoped encrypted request projection or guarded revision mutation/booking operation. The selected-account lookup and source-linked detail tests passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/feed_service.py|_to_item|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 88,
+        "source_sha256": "5de8dc48ba9b5b9e6345dc2e026080affa20d74fb5fa29398111cec6fe94efbb",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing Feed owner adds source-linked follow-up projection and account/request routing; correction removes obsolete visible alerts. Focused Feed tests passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_store_due.py|queue_due|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 86,
+        "source_sha256": "188b5144d16ff1c157c108ff5b0682f33ca909589f1cb02d8ea0ce9855a20b8d",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "One guarded revision/consent transaction queues the outbox and Feed reminder together. Restart and duplicate-prevention tests passed."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_email_followup_reader.py|_hydrate_readable_parts|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 81,
+        "source_sha256": "f2c881f7b5204c3828e98a2c64c1f57272bd537d02d9ff5d416b314651607743",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "One bounded MIME-part hydration pass retains separately stored text and explicit incomplete-read outcomes. Long-body and external-part tests passed."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py||module exceeds the advisory operon budget",
+        "before": 5093,
+        "after": 5107,
+        "source_sha256": "dbbc76d033c3b4db1b991c4ea4576afcf8d2a56f136da55b76857ed8dea8a75f",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Extension of the existing Google OAuth and Mail owner for separately verified account grants. The atomic token/identity transaction and existing receipt checkpoints stay in their current owner."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_connection_service.py||module exceeds the advisory operon budget",
+        "before": 1849,
+        "after": 2000,
+        "source_sha256": "678b0361009abd235d8ed83c0863cc60d94059eb692a92d2076540a95371e09a",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Extension of the existing Google OAuth and Mail owner for separately verified account grants. The atomic token/identity transaction and existing receipt checkpoints stay in their current owner."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/feed/feed-item-renderers.tsx||module exceeds the advisory operon budget",
+        "before": 1899,
+        "after": 1907,
+        "source_sha256": "370c00fa0b7b145d1a779cc314f4fd557b814242a474616924b503677de247c3",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing Feed owner adds source-linked follow-up projection and account/request routing; correction removes obsolete visible alerts. Focused Feed tests passed."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/feed_service.py||module exceeds the advisory operon budget",
+        "before": 1688,
+        "after": 1709,
+        "source_sha256": "5de8dc48ba9b5b9e6345dc2e026080affa20d74fb5fa29398111cec6fe94efbb",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing Feed owner adds source-linked follow-up projection and account/request routing; correction removes obsolete visible alerts. Focused Feed tests passed."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/notifications/fcm-service.ts||module exceeds the advisory operon budget",
+        "before": 1644,
+        "after": 1648,
+        "source_sha256": "936cb2d3396276dfca5a76503537d6ef554284e6f83a1e1fa58a5810a0a21992",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing notification routing adds typed Calendar account/request targets while retaining SMS and Chat notification paths. Focused synthetic routing tests passed."
+      },
+      {
+        "key": "module_size|consent-protocol/api/consent_listener.py||module exceeds the advisory operon budget",
+        "before": 1271,
+        "after": 1297,
+        "source_sha256": "ebb33678fbb840029e3c42bea4ae854c8d3dc0338c1f41595e2646da7f83a9ee",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing push and SSE owner adds source revision, consent and provider rechecks before each attempt; Feed doorbell publication stays tied to the guarded transaction. Stale retry tests passed."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/calendar/calendar-agent-page.tsx||module exceeds the advisory operon budget",
+        "before": 890,
+        "after": 979,
+        "source_sha256": "a2488436cd57ef966e008a5634eb081a67982ed254c8b7d34fd4d33086f7e3dd",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing Calendar owner adds one compact Follow-ups card and account-bound detail/booking handoff. UI contracts and focused synthetic component tests passed."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/firebase-messaging-service-worker.test.ts||module exceeds the advisory operon budget",
+        "before": 760,
+        "after": 769,
+        "source_sha256": "e257dc67def7aa31b7c40b023314e2d805d74907d1c7be797a3ec55536e1d983",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing notification routing adds typed Calendar account/request targets while retaining SMS and Chat notification paths. Focused synthetic routing tests passed."
+      },
+      {
+        "key": "module_size|hushh-webapp/public/firebase-messaging-sw.js||module exceeds the advisory operon budget",
+        "before": 690,
+        "after": 699,
+        "source_sha256": "7b2d2f34c0bc1435d113af8520db96010a18c971dd99a9703f1301fbf1b5123d",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing notification routing adds typed Calendar account/request targets while retaining SMS and Chat notification paths. Focused synthetic routing tests passed."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/system_push_delivery.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 567,
+        "source_sha256": "55e86f455fc631db5b944a73a72c8cae9cce484578aa51d9cfb286ddf524ec15",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing push and SSE owner adds source revision, consent and provider rechecks before each attempt; Feed doorbell publication stays tied to the guarded transaction. Stale retry tests passed."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/calendar/calendar-insights.tsx||module exceeds the advisory operon budget",
+        "before": 558,
+        "after": 565,
+        "source_sha256": "6ae4820653aaba14facf6c6619e28c118ace8adf98fc0775b58032a2c082eded",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing Calendar owner adds one compact Follow-ups card and account-bound detail/booking handoff. UI contracts and focused synthetic component tests passed."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/feed/feed-notification-projection-renderers.test.ts||module exceeds the advisory operon budget",
+        "before": 540,
+        "after": 549,
+        "source_sha256": "10f5f8e8fea13e624b116f5b00d63d52d5ae0701588bb70048344a1e11d828f9",
+        "reviewer": "independent read-only architecture fitness review; parent consent and regression review",
+        "review": "Existing Feed owner adds source-linked follow-up projection and account/request routing; correction removes obsolete visible alerts. Focused Feed tests passed."
       }
     ]
   }

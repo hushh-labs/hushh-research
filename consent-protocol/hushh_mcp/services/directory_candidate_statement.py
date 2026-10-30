@@ -72,6 +72,7 @@ DIRECTORY_CANDIDATE_SQL = """
                 ON marketplace.user_id = profile.user_id
               LEFT JOIN ria_profiles ria ON ria.user_id = profile.user_id
               WHERE profile.user_id <> :owner_user_id
+                AND ({mutual_filter_clause})
                 AND profile.public_profile_status = 'active'
                 AND (
                   profile.directory_listed = TRUE
@@ -176,6 +177,7 @@ def build_directory_candidate_statement(
     separator_sql: str,
     all_tokens_match_sql: str,
     verified_email_clause: str,
+    mutual_filter_clause: str,
 ) -> str:
     """Fill only internal static SQL fragments; caller binds every value."""
     return DIRECTORY_CANDIDATE_SQL.format(
@@ -185,4 +187,5 @@ def build_directory_candidate_statement(
         separator_sql=separator_sql,
         all_tokens_match_sql=all_tokens_match_sql,
         verified_email_clause=verified_email_clause,
+        mutual_filter_clause=mutual_filter_clause,
     )  # nosec B608 # All substitutions are internal static SQL fragments.

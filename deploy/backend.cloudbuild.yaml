@@ -576,8 +576,13 @@ steps:
           echo "Azure PWM UAT runtime probe execution is missing." >&2
           exit 1
         fi
+        # readiness-verdict-collector:start
+        # The job has finished; wait only until its verdict rows are searchable.
+        # Bounded capped backoff (about 3 minutes) replaces a fixed 30 s window that
+        # failed a passing exam when log indexing lagged (UAT run 40979434192).
         probe_entries=""
-        for _attempt in 1 2 3 4 5 6; do
+        collect_wait=2
+        for _attempt in $(seq 1 20); do
           probe_entries="$(gcloud logging read \
             "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"${execution_name}\" AND (jsonPayload.azure_pwm_runtime_probe_result:* OR jsonPayload.azure_pwm_runtime_probe_stage=primary_http OR jsonPayload.azure_managed_text_contract:* OR textPayload:azure_managed_text_contract OR textPayload:azure_pwm_runtime_probe_result OR textPayload:primary_http)" \
             --project="$PROJECT_ID" --limit=10 --freshness=1h \
@@ -606,8 +611,13 @@ steps:
           then
             break
           fi
-          sleep 5
+          if [[ "${_attempt}" == 20 ]]; then
+            break
+          fi
+          sleep "${collect_wait}"
+          collect_wait=$(( collect_wait * 2 > 10 ? 10 : collect_wait * 2 ))
         done
+        # readiness-verdict-collector:end
         PROBE_ENTRIES="${probe_entries}" python3 - <<'PY'
         import json
         import os
@@ -625,7 +635,13 @@ steps:
                     continue
             verdicts.append(payload)
         if {"azure_pwm_runtime_probe_result": "ok"} not in verdicts:
-            raise SystemExit("Azure PWM UAT runtime probe did not pass")
+            # Name the failed check in the build log: closed identifiers only.
+            failed = next((item for item in verdicts if isinstance(item, dict)
+                and item.get("azure_pwm_runtime_probe_result") == "failed"), {})
+            named = {key: failed[key] for key in ("classification", "error_type",
+                "failure_stage", "failure_reason", "leg") if isinstance(failed.get(key), str)}
+            raise SystemExit("Azure PWM UAT runtime probe did not pass "
+                + json.dumps(named, sort_keys=True))
         primary = [item for item in verdicts if isinstance(item, dict)
             and item.get("azure_pwm_runtime_probe_stage") == "primary_http"
             and item.get("result") == "ok" and item.get("http_status") == 200]

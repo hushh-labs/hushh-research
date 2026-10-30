@@ -233,7 +233,7 @@ def test_backup_monitor_uses_production_main_and_read_only_identity() -> None:
     # installation. Keep this source-contract check standard-library-only.
     workflow = (REPO_ROOT / ".github/workflows/prod-cloudsql-backup-posture.yml").read_text()
     lines = {line.strip() for line in workflow.splitlines()}
-    assert "environment: production" in lines
+    assert "    environment:\n      name: production\n      deployment: false\n" in workflow
     assert (
         "if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main'"
         in lines
