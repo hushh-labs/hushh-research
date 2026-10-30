@@ -12,6 +12,7 @@ import asyncio
 import base64
 import importlib.util
 import json
+import logging
 import os
 import secrets
 import sys
@@ -24,6 +25,7 @@ if str(PROTOCOL_ROOT) not in sys.path:
     sys.path.insert(0, str(PROTOCOL_ROOT))
 
 from hushh_mcp.managed_ai_config import load_pwm_policy  # noqa: E402
+from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
 from scripts.probe_azure_openai_readiness import (  # noqa: E402
     ReadinessProbeError,
     capability_failure_event,
@@ -31,6 +33,21 @@ from scripts.probe_azure_openai_readiness import (  # noqa: E402
     readiness_event,
     run_probe,
 )
+
+# Content-free call lines only: timings, token counts and retry codes. Every
+# other logger stays at WARNING, so library request lines never reach the logs.
+CALL_TELEMETRY_LOGGERS = (
+    "hushh_mcp.runtime_providers.azure_adk",
+    "hushh_mcp.services.drive_suggestion_service",
+)
+
+
+def enable_call_telemetry() -> None:
+    """Emit exam call telemetry on stdout through the runtime log redactor."""
+    logging.basicConfig(stream=sys.stdout, level=logging.WARNING, format="%(name)s %(message)s")
+    install_sensitive_log_filter()
+    for name in CALL_TELEMETRY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.INFO)
 
 
 def _token_provider(*, tenant_id: str, client_id: str):
@@ -477,4 +494,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    enable_call_telemetry()
     sys.exit(main())

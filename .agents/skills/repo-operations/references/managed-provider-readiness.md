@@ -76,7 +76,12 @@ Each rule names the check that enforces it today, or its gap.
    misconfiguration, loosen a grader or skip a check.
    - Enforced: fixed per-call deadlines, `max_retries=0`, and the aggregate
      classifications in `scripts/ci/managed_provider_readiness.py`.
-   - Gap: variance is not classified automatically.
+   - Evidence: the UAT exam job logs each ADK Azure call's outcome, error kind,
+     status, timings and incomplete reason without content
+     (`azure_model_call_complete`), so a failed run shows whether a call timed out,
+     was cut short or answered wrongly.
+   - Gap: variance is not classified automatically, and PWM gateway calls are not
+     yet observed.
 7. **Fail fast, stay cheap.** Run a check as soon as its artifact exists, run
    independent checks concurrently, fail the aggregate on the first required
    failure, keep sleeps and log polling off the critical path, and report
