@@ -113,8 +113,9 @@ def _proof_record(body) -> bool:
     return (
         isinstance(value, dict)
         and set(value) == _PROOF_KEYS
+        and body == PROOF_PREFIX + json.dumps(value, sort_keys=True)
         and all(
-            type(value[key]) is int and value[key] > 0
+            type(value[key]) is int and 0 < value[key] < 2**63
             for key in ("run_id", "attempt", "job_id")
         )
         and isinstance(value["checkout_sha"], str)

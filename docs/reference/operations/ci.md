@@ -1179,7 +1179,8 @@ qualifies through `retention_uat_guard_evidence.py` on the same terms: reviewed
 owner, workflow and publication bodies at its actual checkout, the exact UAT
 cleanup-job layout and prepare command group, and exactly one guard diagnostic as
 its final output, accompanied only by the walk's own proof records for older
-attempts. For UAT, the clock's tick for both environments, titled
+attempts (at most 100, about four days of hourly stops; beyond that each stop needs
+its own reconciliation). For UAT, the clock's tick for both environments, titled
 `Capacity Maintenance`, carries the same bot authority as a scoped tick. Any change
 to those three files needs a newly reviewed profile before a later guard stop can
 qualify; modules the owner imports are reviewed rather than pinned, so a provider

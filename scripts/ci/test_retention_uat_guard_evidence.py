@@ -100,12 +100,13 @@ class UatGuardEvidenceTest(unittest.TestCase):
             record(qualification="reconciled"),
             record(checkout_sha="not-a-commit"),
             evidence.PROOF_PREFIX + "{",
-            *(record(run_id=number) for number in range(1, evidence.MAX_PROOF_RECORDS + 2)),
+            record().replace('"qualification"', '"qualification": "reconciled", "qualification"'),
         )
-        for line in malformed[:4]:
+        for line in malformed:
             with self.subTest(line=line):
                 self.assertIsNone(qualify(*fixture(after_guard=(line,))))
-        self.assertIsNone(qualify(*fixture(after_guard=malformed[4:])))
+        too_many = tuple(record(run_id=number) for number in range(1, evidence.MAX_PROOF_RECORDS + 2))
+        self.assertIsNone(qualify(*fixture(after_guard=too_many)))
 
     def test_other_diagnostics_output_after_the_guard_or_another_command_refuse(self):
         refusals = (
