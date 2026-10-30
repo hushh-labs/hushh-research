@@ -217,15 +217,11 @@ class GitHub:
             )
         if environment == "uat":
             predecessor = receipt.get("predecessor", {})
-            require(
-                predecessor.get("environment") == "dev"
-                and predecessor.get("sha") == sha
-                and predecessor.get("status") == "accepted",
-                "UAT has no exact-SHA dev acceptance",
-            )
-            previous = predecessor.get("services", {}).get(service)
-            require(isinstance(previous, dict), "UAT has no dev receipt for this service")
-            self.accept(previous, "dev", sha, service)
+            if predecessor.get("kind") == "uat-exact-ci":
+                require(predecessor.get("authority_sha") == run.get("head_sha"), "UAT workflow authority changed")
+                _verify_direct_uat(predecessor, sha, {service}, current=False)
+            else:
+                self._accept_dev_predecessor(predecessor, sha, service)
         return {
             "run_id": run_id,
             "run_attempt": attempt,
@@ -235,6 +231,12 @@ class GitHub:
             "repository": REPOSITORY,
             **({"image_reference": image_reference} if image_reference is not None else {}),
         }
+
+    def _accept_dev_predecessor(self, predecessor: dict, sha: str, service: str) -> None:
+        _validate_dev_predecessor(predecessor, sha, {service})
+        previous = predecessor.get("services", {}).get(service)
+        require(isinstance(previous, dict), "UAT has no dev receipt for this service")
+        self.accept(previous, "dev", sha, service)
 
     def accepted_application(self, pin: dict, environment: str) -> dict:
         """Inspect a pinned receipt without conflating its Main workflow SHA.
@@ -379,19 +381,39 @@ def create(args) -> None:
             require(args.predecessor is not None, "Dev acceptance is missing")
             receipt["predecessor"] = json.loads(args.predecessor.read_text())
             prior = receipt["predecessor"]
-            require(
-                prior.get("status") == "accepted"
-                and prior.get("environment") == "dev"
-                and prior.get("sha") == release["sha"]
-                and set(receipt["resolved_services"]) <= prior.get("services", {}).keys(),
-                "Dev acceptance is missing",
-            )
+            if prior.get("kind") == "uat-exact-ci":
+                _provenance.validate_uat_ci_predecessor(prior, release["sha"], set(receipt["resolved_services"]))
+            else:
+                _validate_dev_predecessor(prior, release["sha"], set(receipt["resolved_services"]))
     except (Refused, OSError, ValueError):
         release["status"] = "blocked"
         args.status.write_text(json.dumps(release, indent=2) + "\n")
         raise
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
+
+
+def _validate_dev_predecessor(prior: dict, sha: str, services: set[str]):
+    require(prior.get("kind") is None and prior.get("status") == "accepted"
+            and prior.get("environment") == "dev" and prior.get("sha") == sha
+            and services <= prior.get("services", {}).keys(), "Dev acceptance is missing")
+
+
+def _verify_direct_uat(prior: dict, sha: str, services: set[str], *, current: bool):
+    _provenance.validate_uat_ci_predecessor(prior, sha, services)
+    import uat_exact_ci as exact
+    try:
+        exact.verify_predecessor(prior, current=current)
+    except exact.Refused as error:
+        raise Refused(str(error)) from None
+
+
+def direct_uat(args) -> dict:
+    import uat_exact_ci as exact
+    try:
+        return exact.issue_predecessor(args)
+    except exact.Refused as error:
+        raise Refused(str(error)) from None
 
 
 def pinned_backend_image(args) -> dict:
@@ -413,12 +435,18 @@ def pinned_backend_image(args) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("create", "require", "backend-image"))
+    parser.add_argument("command", choices=("create", "require", "backend-image", "direct-uat"))
     parser.add_argument("--environment", choices=tuple(LANES), required=True)
     parser.add_argument("--sha")
     parser.add_argument("--scope")
     parser.add_argument("--status", type=Path)
     parser.add_argument("--predecessor", type=Path)
+    parser.add_argument("--base-sha")
+    parser.add_argument("--authority-sha")
+    parser.add_argument("--backend-base-sha", default="")
+    parser.add_argument("--frontend-base-sha", default="")
+    parser.add_argument("--ci-run-id", type=int)
+    parser.add_argument("--ci-attempt", type=int)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     try:
@@ -431,8 +459,8 @@ def main() -> int:
                 "Full SHA is required",
             )
             receipt = (
-                pinned_backend_image(args)
-                if args.command == "backend-image"
+                direct_uat(args) if args.command == "direct-uat" else pinned_backend_image(args)
+                if args.command in {"direct-uat", "backend-image"}
                 else GitHub().find(args.environment, args.sha, args.scope)
             )
             args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")

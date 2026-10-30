@@ -20,6 +20,11 @@ source "$REPO_ROOT/scripts/ci/web-common.sh"
 # every pack runs in exactly one leg, and together they run what `all` runs.
 # Guarded by scripts/ci/test_web_ci_lane_partition.py.
 WEB_TARGETED_PART="${WEB_TARGETED_PART:-all}"
+WEB_TARGETED_ALL_PACKS="${WEB_TARGETED_ALL_PACKS:-0}"
+case "$WEB_TARGETED_ALL_PACKS" in
+  0|1) ;;
+  *) echo "Invalid full targeted-pack selection." >&2; exit 2 ;;
+esac
 case "$WEB_TARGETED_PART" in
   all|node|browser) ;;
   *)
@@ -55,7 +60,7 @@ web_ci_install
 
 CHANGED_FILE_LIST="$(web_ci_changed_files)"
 
-if [ -z "$CHANGED_FILE_LIST" ]; then
+if [ -z "$CHANGED_FILE_LIST" ] && [ "$WEB_TARGETED_ALL_PACKS" != "1" ]; then
   echo "No changed files resolved for targeted web checks."
   exit 0
 fi
@@ -65,6 +70,9 @@ printf 'Resolved %s changed file(s) for targeted web checks.\n' "$changed_count"
 
 has_match() {
   local pattern="$1"
+  if [ "$WEB_TARGETED_ALL_PACKS" = "1" ]; then
+    return 0
+  fi
   # With pipefail, grep may close the pipe immediately after a match and turn
   # printf's SIGPIPE into a false negative for a long changed-file list.
   grep -Eq "$pattern" <<<"$CHANGED_FILE_LIST"

@@ -200,7 +200,7 @@ jobs:
           if-no-files-found: error
 
   uat-maintenance:
-    name: UAT bounded revision cleanup
+    name: ${{ github.event_name == 'workflow_dispatch' && !inputs.apply && 'UAT revision inspection' || 'UAT bounded revision cleanup' }}
     needs: select-release
     if: needs.select-release.outputs.uat_ready == 'true'
     runs-on: ubuntu-latest
@@ -286,7 +286,7 @@ jobs:
           fi
 
   cleanup:
-    name: Production bounded revision cleanup
+    name: ${{ github.event_name == 'workflow_dispatch' && !inputs.apply && 'Production revision inspection' || 'Production bounded revision cleanup' }}
     needs: select-release
     if: needs.select-release.outputs.production_ready == 'true'
     runs-on: ubuntu-latest

@@ -233,8 +233,20 @@ export function resolveTopShellTabSet(routeKey: string): TopShellTabSet | null {
   return resolvePublicKnowledgeTopShellTabSet(routeKey);
 }
 
-export function resolveRiaRouteTabSet(routeKey: string): TopShellTabSet | null {
+export interface RiaRouteTabSetOptions {
+  /**
+   * Picks is an RIA-only surface. Navigation that knows the person is not a
+   * verified advisor passes `false` so the tab is not offered at all.
+   */
+  includePicks?: boolean;
+}
+
+export function resolveRiaRouteTabSet(
+  routeKey: string,
+  options: RiaRouteTabSetOptions = {},
+): TopShellTabSet | null {
   const { pathname } = splitRouteKey(routeKey);
+  const includePicks = options.includePicks ?? true;
 
   if (
     pathname === ROUTES.RIA_HOME ||
@@ -247,6 +259,9 @@ export function resolveRiaRouteTabSet(routeKey: string): TopShellTabSet | null {
     const definition = TOP_SHELL_TAB_REGISTRY.ria;
     return {
       ...definition,
+      tabs: includePicks
+        ? definition.tabs
+        : definition.tabs.filter((tab) => tab.value !== "picks"),
       activeValue: activeRiaRouteTabFromPath(pathname),
     };
   }

@@ -27,7 +27,7 @@ import {
   type GmailOAuthPopupSettlement,
 } from "@/lib/profile/gmail-oauth-popup";
 import { waitForOAuthPopup } from "@/lib/profile/drive-oauth-popup";
-import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import { GmailReceiptsService, type GmailConnectionStatus } from "@/lib/services/gmail-receipts-service";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import type { GoogleConnectorConnectOptions } from '@/lib/one/google-native-connect';
 
@@ -203,6 +203,12 @@ export function connectGmailInPlace(
     (purpose === "send"
       ? status.send_permission_granted === true
       : status.modify_permission_granted === true);
+  // A confirmed connection reaches the shared connector status, which starts this device's receipt sync.
+  const settle = (status: GmailConnectionStatus, current: () => boolean): InPlaceConnectOutcome => {
+    if (status.connected === true && current()) void import("@/lib/profile/gmail-connector-store")
+      .then(store => { if (current()) store.primeConnectorStatus({ userId: input.applicationOwnerId, status }); }).catch(() => undefined);
+    return granted(status) ? "connected" : "not_connected";
+  };
 
   if (Capacitor.isNativePlatform()) {
     return started("native", () =>
@@ -215,7 +221,7 @@ export function connectGmailInPlace(
           if (!connection) return 'not_connected';
           if (!current()) return 'stale';
           const status = await GmailReceiptsService.getStatus({ idToken: await owner.getIdToken(), userId: input.applicationOwnerId, force: true });
-          return granted(status) ? 'connected' : 'not_connected';
+          return settle(status, current);
         }
         if (purpose === 'modify') return 'not_connected';
         const idToken = await owner.getIdToken();
@@ -251,7 +257,7 @@ export function connectGmailInPlace(
           userId: input.applicationOwnerId,
           serverAuthCode: result.serverAuthCode,
         });
-        return granted(status) ? "connected" : "not_connected";
+        return settle(status, current);
       }),
     );
   }
@@ -313,7 +319,7 @@ export function connectGmailInPlace(
           userId: input.applicationOwnerId,
           force: true,
         });
-        return granted(status) ? "connected" : "not_connected";
+        return settle(status, current);
       } finally {
         clearGmailOAuthPopupAttempt();
       }

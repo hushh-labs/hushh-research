@@ -238,11 +238,25 @@ def command_group(args, *, wait_only=False, **kwargs):
                     process.communicate(timeout=5)
 
 
+_BOUNDED_READ_REASONS = frozenset(
+    {"arguments", "cleanup", "exit", "read", "size", "timeout", "unclassified"}
+)
+
+
 class BoundedReadError(RuntimeError):
     """A redacted transport classification, without command or response content."""
 
-    def __init__(self, reason):
+    def __init__(self, reason, *, exitcode=None):
+        if not isinstance(reason, str) or reason not in _BOUNDED_READ_REASONS:
+            reason = "unclassified"
+        if (
+            reason != "exit"
+            or type(exitcode) is not int
+            or not 1 <= exitcode <= 255
+        ):
+            exitcode = None
         self.reason = reason
+        self.exitcode = exitcode
         super().__init__("Bounded command read: " + reason)
 
 
@@ -290,7 +304,7 @@ def _collect_stdout(process, chunks, end, max_bytes):
     except subprocess.TimeoutExpired:
         raise BoundedReadError("timeout") from None
     if code != 0:
-        raise BoundedReadError("exit")
+        raise BoundedReadError("exit", exitcode=code)
     return bytes(output)
 
 

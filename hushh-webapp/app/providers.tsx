@@ -30,6 +30,7 @@ import { ContactInvitationSessionProvider } from "@/components/connections/conta
 import { AzureReturnBootRecovery } from "@/components/connections/azure-return-boot-recovery";
 
 import { InitialContactsBridge } from "@/components/onboarding/initial-contacts-bridge";
+import { ReceiptDeviceSyncBridge } from "@/lib/mail/receipt-device-sync-bridge";
 import { VaultProvider } from "@/lib/vault/vault-context";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 import { StepProgressBar } from "@/components/app-ui/step-progress-bar";
@@ -45,6 +46,7 @@ import { AuthenticatedFeedStream } from "@/components/feed/authenticated-feed-st
 import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-action-handlers";
 import { ProfileIdentityVoiceRefresh } from "@/components/profile/profile-identity-voice-refresh";
 import { GlobalConsentActionHandlers } from "@/components/agent/global-consent-action-handlers";
+import { GlobalCareerActionHandlers } from "@/components/agent/global-career-action-handlers";
 import { AccountLifecycleStepBridge } from "@/components/profile/account-lifecycle-step-bridge";
 import { NativePrivateGoogleConnectorHandoff } from '@/components/connections/native-private-google-connector-handoff';
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
@@ -685,6 +687,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                     <PostAuthOnboardingSyncBridge />
                     <FinanceSharePublisher />
                     <InitialContactsBridge />
+                    <ReceiptDeviceSyncBridge />
                     <WalletProfileBootstrap />
                     <LocationBusAccountBridge />
                     <WorldModelProvider>
@@ -835,6 +838,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                 and took the whole app down with it.
               */}
               <GlobalConsentActionHandlers />
+              {/* hussh careers from chat: needs the vault for the saved resume. */}
+              <GlobalCareerActionHandlers />
               {/* A voice-armed account reset or deletion runs its device half
                   here: it needs the vault-owner token this provider holds and
                   must work from Home, not only with Profile mounted. */}

@@ -100,10 +100,9 @@ export function assertAdvisorSourceIntegrity(financial: RecordValue, source: Fin
       || projected.symbol !== String(row.symbol).trim().toUpperCase()) {
       throw new Error("The selected source has positions that cannot be verified accurately for advisor review.");
     }
-    const explicit = [...currencies(row), ...(positionCurrencies[index] || [])];
-    if (explicit.length) rowCurrencies.push(...explicit);
-    else if (source.representation === "current-v7" || !sourceCurrencies.length) throw new Error("The selected source does not identify every position's currency.");
+    // An untagged position is read as USD; any currency the source names must still be USD.
+    rowCurrencies.push(...currencies(row), ...(positionCurrencies[index] || []));
   }
   const allCurrencies = [...sourceCurrencies, ...accountCurrencies, ...rowCurrencies];
-  if (!allCurrencies.length || allCurrencies.some(item => item !== "USD")) throw new Error("Advisor review currently supports explicitly identified USD portfolios only.");
+  if (allCurrencies.some(item => item !== "USD")) throw new Error("Advisor review currently supports USD portfolios only.");
 }

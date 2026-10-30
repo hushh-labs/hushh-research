@@ -198,8 +198,10 @@ tests/test_one_external_read_projection.py
 # Mail routing has one owner per request kind; named recipients resolve only from active connections.
 tests/test_one_mail_instruction.py
 tests/test_one_email_draft_recipients.py
+tests/test_one_email_draft_readiness.py
 # Receipt functions use the native client continuation, owner binding and ephemeral history projection.
 tests/test_receipt_client_tools.py
+tests/test_receipt_continuation_replay.py
 tests/test_receipt_result_contract.py
 # Queued messages join a live turn only at a step boundary, exactly once, owner-bound.
 tests/test_one_queued_input.py
@@ -237,6 +239,7 @@ tests/test_marketplace_earnings_accrual.py
 tests/test_encrypted_blob_bounds.py
 tests/test_gmail_receipt_cache_cutover.py
 tests/services/test_gmail_receipt_live_service.py
+tests/services/test_gmail_receipt_unverified_page.py
 tests/services/test_gmail_receipt_amounts.py
 tests/test_gmail_receipt_live_routes.py
 tests/services/test_gmail_cache_retention.py
@@ -469,7 +472,9 @@ tests/test_account_delete_error_detail.py
 tests/test_account_lost_vault_phone.py
 tests/test_account_phone_routes.py
 tests/test_phone_list_health.py
+tests/test_auth_health_lease_rest.py
 tests/test_auth_health_deployment.py
+tests/test_auth_health_wif_scopes.py
 tests/test_account_phone_trace_loop.py
 # Full encrypted export: bounded cursor memory, complete recovery history, snapshot and cleanup.
 tests/services/test_account_service_export.py
@@ -494,6 +499,7 @@ tests/test_frontend_prebuilt_image_contract.py
 tests/test_production_image_promotion_contract.py
 tests/test_uat_backend_image_promotion.py
 tests/test_predecessor_acceptance_contract.py
+tests/test_direct_uat_acceptance.py
 tests/test_uat_application_selection.py
 tests/test_production_emergency.py
 
@@ -1003,6 +1009,7 @@ tests/test_hosted_gcp_backend.py
 tests/test_journey_is_traceable.py
 tests/test_journey_parity.py
 tests/test_kms_key_resolver.py
+tests/test_managed_azure_accounts.py
 tests/test_managed_runtime_selection.py
 tests/test_memory_judge.py
 tests/test_model_access_policy.py
@@ -1548,6 +1555,9 @@ tests/test_todo_wallet_inventory_postgres.py
 tests/test_world_model_research_context.py
 tests/test_pwm_runtime_probe.py
 tests/scripts/test_probe_drive_activity_planner.py
+tests/scripts/test_readiness_exam_manifest.py
+tests/test_uat_readiness_verdict_collector.py
+tests/scripts/test_root_roundtrip_reasons.py
 tests/scripts/test_azure_readiness_deadline.py
 tests/scripts/test_probe_azure_openai_readiness.py
 

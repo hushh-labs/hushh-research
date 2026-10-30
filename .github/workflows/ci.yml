@@ -23,6 +23,11 @@ on:
           - frontend
           - backend
           - all
+      uat_base_sha:
+        description: "Current UAT application SHA for exact-source qualification (optional)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -480,7 +485,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
       - name: Resolve UI review base from the checked-out merge
         id: ui-base
         run: |
@@ -568,7 +573,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
 
       - uses: actions/setup-node@v6
         with:
@@ -745,6 +750,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
           WEB_TARGETED_FULL_SUITE_OWNED: "1"
+          WEB_TARGETED_ALL_PACKS: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '1' || '0' }}
           WEB_TARGETED_PART: ${{ matrix.part }}
           # Only the browser leg ran npm ci in the step above; the node leg
           # installs inside the script.
@@ -901,7 +907,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh web-full-suite
         env:
           WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}/3
-          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
+          CAPABILITY_GRAPH_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
 
   ios-native-check:
@@ -1296,7 +1302,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh protocol
         env:
           PROTOCOL_TEST_PARTITION: parallel
-          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
+          CAPABILITY_GRAPH_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
@@ -1359,7 +1365,7 @@ jobs:
           PROTOCOL_TEST_PARTITION: database
           PROTOCOL_DATABASE_SHARD_COUNT: "2"
           PROTOCOL_DATABASE_SHARD_INDEX: "${{ matrix.shard }}"
-          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
+          CAPABILITY_GRAPH_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
@@ -1421,11 +1427,19 @@ jobs:
       - name: Resolve change-aware verification plan
         id: verification-plan
         shell: bash
+        env:
+          UAT_SOURCE_BASE: ${{ inputs.uat_base_sha }}
+          DISPATCH_SCOPE: ${{ inputs.scope }}
+          SOURCE_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base_sha="${{ github.event.pull_request.base.sha }}"
             target_sha="${{ github.event.pull_request.head.sha }}"
+          elif [[ "${{ github.event_name }}" == workflow_dispatch && "$SOURCE_REF" == refs/heads/uat && "$DISPATCH_SCOPE" == all && -n "$UAT_SOURCE_BASE" ]]; then
+            [[ "$UAT_SOURCE_BASE" =~ ^[0-9a-f]{40}$ ]]
+            base_sha="$UAT_SOURCE_BASE"
+            target_sha="${{ github.sha }}"
           else
             base_sha="$(git rev-parse HEAD^ 2>/dev/null || true)"
             target_sha="${{ github.sha }}"
@@ -1572,6 +1586,34 @@ jobs:
           MERGE_FIDELITY_PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/ci/check-merge-fidelity.sh
+
+  # A Main-owned release verifier can admit this exact UAT checkout only after
+  # checking the immutable workflow authority, full run and security receipt.
+  # This job alone never authorizes a release or replaces the aggregate gate.
+  uat-exact-source:
+    name: "Exact UAT Candidate (${{ inputs.uat_base_sha }})"
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the exact UAT checkout
+        env:
+          EXPECTED_SOURCE: ${{ github.sha }}
+          EXPECTED_BASE: ${{ inputs.uat_base_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_BASE" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          [[ "$(git rev-parse HEAD^{tree})" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
 
   # The one required check. GitHub counts a skipped or neutral required check
   # as passing, so this gate must never pass on a lane that did not run when

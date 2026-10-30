@@ -149,9 +149,12 @@ unavailable until destination readability, identities, revisions, tombstones and
 byte integrity are proven before cutover; source cleanup is a separate receipt.
 
 Local SQL/crypto fixtures do not prove cloud IAM, retention or owner acceptance.
-The dev deploy binds optional `HUSSH_SHARED_FILES_ENABLED` and
-`HUSSH_SHARED_FILES_BUCKET` runtime secrets only to its new revision; existing
-revisions and UAT/production do not inherit these bindings. Explicit secret environment
+The dev and UAT deploys bind optional `HUSSH_SHARED_FILES_ENABLED` and
+`HUSSH_SHARED_FILES_BUCKET` runtime secrets only to their new revision; existing
+revisions and production do not inherit these bindings. UAT has its own private
+bucket (uniform access, public-access prevention, soft delete disabled at
+creation, bucket-scoped object and bucket-viewer grants for the runtime service
+account); the table already exists there through release migration 420. Explicit secret environment
 values take precedence over structured runtime defaults. Do not enable canonical
 `:latest` on an older one-shot writer. Structured configuration retains an explicit
 dev pilot; other environments remain off.

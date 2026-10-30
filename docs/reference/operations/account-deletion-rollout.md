@@ -1143,6 +1143,12 @@ deployment source, schema mutation, recovery activation or traffic authority.
 A Production release of an application that predates this helper restores it
 from current tooling beside the capacity and phone tools after checking out that
 application, so the same owner qualifies the observer instead of failing to load.
+Generations 2 and 3 replaced only the image, each rebuilt by the same recipe from Main:
+Cloud Build `0ba45608-a030-4202-90b0-71062604cb15` from `1af94024` with unchanged job bodies,
+then `e0b7d6c3-bf93-40e3-8615-dd1745489bdb` from `bb9f6e8a`, whose job bodies add only bounded,
+redacted failure diagnostics. History must contain each exact reviewed replacement once, in
+order, and each execution keeps the task of the generation it was created under; any further
+change still refuses until reviewed.
 
 Its explicit backend scope selects qualification work without moving primary
 traffic. The subsequent standard release still applies the ordinary
