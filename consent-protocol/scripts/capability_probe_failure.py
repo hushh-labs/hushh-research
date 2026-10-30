@@ -41,6 +41,33 @@ _REASONS = {
         ValueError,
         ("Root structured, media or streaming round trip failed",),
     ): "root.roundtrip_failed",
+    ("one_text_root", ValueError, ("Root stream produced no text deltas",)): "root.no_deltas",
+    (
+        "one_text_root",
+        ValueError,
+        ("Root stream differs from its final answer",),
+    ): "root.stream_mismatch",
+    ("one_text_root", ValueError, ("Root answer is not JSON",)): "root.non_json",
+    (
+        "one_text_root",
+        ValueError,
+        ("Root answer keys differ from the contract",),
+    ): "root.shape_mismatch",
+    (
+        "one_text_root",
+        ValueError,
+        ("Root answer code differs from the synthetic input",),
+    ): "root.code_mismatch",
+    (
+        "one_text_root",
+        ValueError,
+        ("Root answer color differs from the synthetic input",),
+    ): "root.color_mismatch",
+    (
+        "one_text_root",
+        ValueError,
+        ("Root answer time_zone differs from the synthetic input",),
+    ): "root.zone_mismatch",
     (
         "public_search",
         ValueError,
