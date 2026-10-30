@@ -32,6 +32,12 @@ from scripts.probe_azure_openai_readiness import (  # noqa: E402
     readiness_event,
     run_probe,
 )
+from scripts.pwm_trust_failure import (  # noqa: E402
+    AzurePwmTrustError,
+    planner_trust_error,
+    trust_fields,
+)
+from scripts.pwm_trust_failure import trust_failure as _failure  # noqa: E402
 from scripts.readiness_job_telemetry import enable_call_telemetry  # noqa: E402
 
 
@@ -184,21 +190,6 @@ def _production_contract_examples() -> tuple[dict, dict]:
         },
     }
     return values, schemas
-
-
-class AzurePwmTrustError(RuntimeError):
-    """A received model answer violated an authored attribution/trust case."""
-
-
-def _failure(
-    check: str, fields: list[str], *, planner_conditions: dict[str, bool] | None = None
-) -> None:
-    """Emit authored names and booleans only; suppress model and provider text."""
-    event: dict[str, object] = {"azure_pwm_probe_failure": check, "failed_fields": fields}
-    if planner_conditions is not None:
-        event["planner_conditions"] = planner_conditions
-    print(json.dumps(event), flush=True)
-    raise AzurePwmTrustError(f"Azure {check} evaluation failed")
 
 
 async def _probe_primary(config: dict[str, str], supplier: Callable[[], str]) -> None:
@@ -407,7 +398,7 @@ async def _probe_managed_text() -> None:
     except ActivityPlannerContractError as error:
         # The terminal verdict must retain semantic failure even when its
         # earlier fixed-reason log has not reached Cloud Logging yet.
-        raise AzurePwmTrustError("Drive activity planner contract failed") from error
+        raise planner_trust_error(error) from error
     print(json.dumps({"drive_activity_planner_probe": receipt["activity_planner"]}), flush=True)
     print(json.dumps({"managed_text_provider_probe": receipt}), flush=True)
     print(
@@ -476,6 +467,7 @@ def main() -> int:
                 {
                     "azure_pwm_runtime_probe_result": "failed",
                     **failure_fields(error),
+                    **trust_fields(error),
                     "pwm_trust_failure": isinstance(error, AzurePwmTrustError),
                 }
             ),
