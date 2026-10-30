@@ -27,6 +27,8 @@ import {
   type GoogleConnectionCompletion,
 } from "@/lib/services/google-connection-service";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
+import { CalendarFollowupsService } from "@/lib/services/calendar-followups-service";
+import { requireSharedGoogleExchange } from "@/lib/services/private-google-connections";
 
 const COMPLETION_TIMEOUT_MS = 35_000;
 class CompletionUnknownError extends Error {}
@@ -55,8 +57,27 @@ type CompletionFlow = {
   generation: number;
   attempt: GoogleOAuthPopupAttempt | null;
   returnToSetup: boolean;
-  result: Promise<GoogleConnectionCompletion>;
+  result: Promise<GoogleConnectionCompletion | { service: "gmail"; completed_account_id: string; connected: boolean }>;
 };
+
+async function completeSelectedMailOAuth(params: {
+  idToken: string; userId: string; accountId: string; code: string; state: string;
+  isEffectCurrent: () => boolean;
+}): Promise<{ service: "gmail"; completed_account_id: string; connected: boolean }> {
+  await requireSharedGoogleExchange();
+  if (!params.isEffectCurrent()) throw new Error("Selected Mail connection changed.");
+  const value = await CalendarFollowupsService.post<{
+    service: "gmail"; completed_account_id: string; connected: boolean;
+  }>("mail/connect/complete", {
+    user_id: params.userId, account_id: params.accountId,
+    code: params.code, state: params.state,
+    redirect_uri: `${window.location.origin}/one/profile/google/oauth/return`,
+  }, params.idToken);
+  if (!params.isEffectCurrent() || value.service !== "gmail" ||
+      value.completed_account_id !== params.accountId || value.connected !== true)
+    throw new Error("Selected Mail connection could not be verified.");
+  return value;
+}
 
 function GoogleOAuthReturnContent() {
   const { user, userId, loading } = useAuth();
@@ -202,11 +223,16 @@ function GoogleOAuthReturnContent() {
         generation,
         attempt,
         returnToSetup: consumeCalendarSetupOAuthReturn(),
-        result: user.getIdToken().then((idToken) => {
+        result: user.getIdToken().then<GoogleConnectionCompletion | { service: "gmail"; completed_account_id: string; connected: boolean }>((idToken) => {
           if (!isEffectCurrent()) {
             throw new Error("Restart the Google connection.");
           }
-          return completeGoogleOAuth({
+          return attempt?.service === "gmail_read" && attempt.calendarAdditional && attempt.targetAccountId
+            ? completeSelectedMailOAuth({
+                idToken, userId, accountId: attempt.targetAccountId,
+                code, state, isEffectCurrent,
+              })
+            : completeGoogleOAuth({
             idToken,
             userId,
             code,
@@ -248,10 +274,8 @@ function GoogleOAuthReturnContent() {
         }
         clearGoogleOAuthAttempt();
       }
-      trackEvent("one_calendar_action", {
-        route_id: "one_calendar",
-        action: "connected",
-        result: "success",
+      if (attempt?.service !== "gmail_read") trackEvent("one_calendar_action", {
+        route_id: "one_calendar", action: "connected", result: "success",
       });
       if (attempt && !isSameWindowCalendar) {
         settleGoogleOAuthPopup(attempt, "succeeded");
@@ -265,7 +289,10 @@ function GoogleOAuthReturnContent() {
       .then((completed) => {
         if (!current || authority.current.generation !== active.generation)
           return;
-        if (!isVerifiedCalendarConnection(completed)) {
+        const verified = attempt?.service === "gmail_read"
+          ? completed.service === "gmail" && completed.completed_account_id === attempt.targetAccountId && completed.connected
+          : isVerifiedCalendarConnection(completed.service === "calendar" ? completed : null);
+        if (!verified) {
           fail(
             "Google connection could not be verified. Please check connections before trying again.",
           );

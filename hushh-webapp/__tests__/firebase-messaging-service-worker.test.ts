@@ -258,6 +258,15 @@ function createHarness(options: {
 }
 
 describe("Firebase messaging service-worker lifecycle ownership", () => {
+  it("routes a cold follow-up tap to the exact account and request", async () => {
+    const harness = createHarness({ clientState: "none" });
+    const requestId = "11111111-1111-4111-8111-111111111111";
+    await harness.click({
+      type: "calendar_email_follow_up", account_id: "account_B",
+      followup_request_id: requestId, request_url: "https://evil.example/redirect",
+    });
+    expect(harness.openedUrls).toEqual([`/one/calendar?followupAccount=account_B&followupRequest=${requestId}`]);
+  });
   it.each([
     "location_share_created",
     "connection_request",

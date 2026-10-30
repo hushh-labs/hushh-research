@@ -58,6 +58,7 @@ type Props = {
   onChat: (prompt?: string, slot?: CalendarSlotHandoff, invitation?: CalendarInvitationHandoff, attendance?: CalendarAttendanceHandoff, day?: { ownerId: string; timeZone: string }) => void;
   onDisconnect: () => void;
   onMailConnect?: () => Promise<void>;
+  onFollowupMailConnect?: (accountId: string) => Promise<boolean>;
   connectionNotice?: ReactNode;
   getIdToken: () => Promise<string>;
   getVaultOwnerToken?: () => string | null;

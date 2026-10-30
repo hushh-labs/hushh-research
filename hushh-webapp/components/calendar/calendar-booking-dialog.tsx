@@ -15,7 +15,7 @@ import { GoogleCalendarService, type CalendarBoardBookingReview, type CalendarEx
 import styles from "./calendar-booking-dialog.module.css";
 import { CalendarPersonAvatar } from "./calendar-person-avatar";
 
-export type BookingOpening = CalendarOpening & { accountId: string | null; scope: "account" | "all" };
+export type BookingOpening = CalendarOpening & { accountId: string | null; scope: "account" | "all"; titleHint?: string; timeZoneHint?: string; followupRequest?: { id: string; revision: number } };
 type Draft = {
   accountId: string; title: string; date: string; time: string; duration: 15 | 30 | 60;
   timeZone: string; guests: string[]; description: string;
@@ -25,7 +25,7 @@ type Draft = {
 function initialDraft(opening: BookingOpening, timeZone: string): Draft {
   const local = bookingLocalFields(opening.start_at, timeZone);
   return {
-    accountId: opening.accountId || "", title: "", date: local.date, time: local.time,
+    accountId: opening.accountId || "", title: opening.titleHint || "", date: local.date, time: local.time,
     duration: bookingDefaultDuration(opening), timeZone: calendarTimeZone(timeZone), guests: [], description: "",
     meetingType: "google_meet", meetingLink: "", location: "",
   };
