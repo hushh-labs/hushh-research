@@ -148,6 +148,9 @@ tests/services/test_drive_search_performance_proof.py
 tests/services/test_drive_request_brain.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
+# An allowed request reaches Pay without avoidable waits: a busy owner is
+# seen before planning, Checkout and its notice never queue behind grants.
+tests/services/test_drive_request_instant_start.py
 # A "3 month meeting notes" request over a realistic Drive (synthetic titles):
 # exactly the in-period notes A may share, end to end on PostgreSQL.
 tests/services/test_drive_owner_meeting_notes_scenario.py
