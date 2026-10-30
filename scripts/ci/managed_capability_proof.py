@@ -34,6 +34,9 @@ FAILURE_REASONS = frozenset(
         "root.code_mismatch",
         "root.color_mismatch",
         "root.zone_mismatch",
+        "root.code_case",
+        "root.color_case",
+        "root.zone_case",
         "search.no_citations",
         "search.fact_mismatch",
     }

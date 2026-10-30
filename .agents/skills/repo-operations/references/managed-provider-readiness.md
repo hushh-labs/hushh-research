@@ -66,9 +66,12 @@ Each rule names the check that enforces it today, or its gap.
      (`test_capability_timeouts_reach_one_terminal_without_runtimeerror_masking`,
      `test_primary_http_success_never_erases_later_qualification_failure`).
    - Enforced: `one_text_root` names its failed round-trip leg (`root.no_deltas`,
-     `root.stream_mismatch`, `root.non_json`, `root.shape_mismatch`, or the
-     mismatched field) at the former strictness, and the CI proof admits exactly
-     the reasons probes emit (`tests/scripts/test_root_roundtrip_reasons.py`).
+     `root.stream_mismatch`, `root.non_json`, `root.shape_mismatch`, the
+     mismatched field, or a field that differs only in case or spacing) at the
+     former strictness, and the CI proof admits exactly the reasons probes emit
+     (`tests/scripts/test_root_roundtrip_reasons.py`). The synthetic request names
+     the exact answer format it grades (a lowercase basic color name), so a
+     correct reading cannot fail on format alone.
    - Enforced: the Drive planner's core-name check keeps its stable reason and
      names the requirement every candidate missed in `leg` (`entity_missing`,
      `tokens_mismatch`, `match_not_token`, `fallback_missing`) at the former

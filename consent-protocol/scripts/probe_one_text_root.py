@@ -33,6 +33,9 @@ def roundtrip_failure(deltas: str, answer: str, expected: dict[str, str]) -> str
         return "Root answer keys differ from the contract"
     for field in ROOT_FIELDS:
         if value[field] != expected[field]:
+            observed = value[field] if isinstance(value[field], str) else None
+            if observed is not None and observed.strip().casefold() == expected[field].casefold():
+                return f"Root answer {field} differs only in case or spacing"
             return f"Root answer {field} differs from the synthetic input"
     return None
 
@@ -97,7 +100,8 @@ def _media_request(nonce: str) -> list[types.Content]:
                     text=(
                         "This is a synthetic transport check. First call get_current_time for UTC. "
                         "Then return only JSON containing code (from the attached document), "
-                        "color (from the attached image), and time_zone (from the clock result). "
+                        "color (the lowercase basic English name of the attached image's color), "
+                        "and time_zone (from the clock result). "
                         "Use no other tools and do not save anything."
                     )
                 ),
