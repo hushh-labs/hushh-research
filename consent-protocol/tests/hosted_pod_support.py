@@ -290,3 +290,53 @@ def preparation_results(reservation):
         },
     ]
     return results, identity
+
+
+def historical_cleanup_snapshot():
+    """Retained assignment predating the current inference approval."""
+    row = hosted_registry_row()
+    federation = row["backend_metadata"]["provisionAttempt"]["hostedAdmission"]["assignment"][
+        "bootstrapContract"
+    ]["plan"]["federation"]["impersonation"]
+    federation["granted_to"] = "consent-plane@hushh-pda-dev.iam.gserviceaccount.com"
+    return row
+
+
+def unqualified_cleanup_authorities(authority):
+    """Only an exact, typed cleanup/inspect binding may retain the frozen profile."""
+    from dataclasses import replace
+
+    class DuckAuthority:
+        operation = "cleanup"
+        deployment = authority.deployment
+
+        def __call__(self):
+            raise AssertionError("constructor must not request provider authority")
+
+    return (
+        None,
+        DuckAuthority(),
+        replace(authority, operation="bootstrap"),
+        replace(authority, operation="provision"),
+        replace(authority, operation="upgrade"),
+        replace(authority, deployment=replace(authority.deployment, service_uid="other-uid")),
+    )
+
+
+def assert_current_profile_required(authority):
+    """Exercise the base constructor so wrapper checks cannot mask a widened boundary."""
+    import pytest
+
+    deployment = authority.deployment
+    for candidate in unqualified_cleanup_authorities(authority):
+        with pytest.raises(ValueError, match="approved dev profile"):
+            from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+            UserGcpBackend(
+                user_project=deployment.project,
+                user_region=deployment.region,
+                hushh_invoker_sa=deployment.hub_principal,
+                hushh_id=deployment.owner,
+                private_deployment=deployment,
+                require_private_admission=candidate,
+            )

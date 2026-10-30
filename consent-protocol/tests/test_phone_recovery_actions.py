@@ -449,7 +449,10 @@ def test_confirm_requires_literal_true_and_does_not_echo_credentials(monkeypatch
     cancel.assert_awaited_once_with("previous", operation)
 
 
-def test_linked_deletion_routes_hide_credentials_and_stay_off_in_production(monkeypatch):
+@pytest.mark.feature_auth_reliability
+@pytest.mark.trace_loop
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+def test_linked_deletion_routes_hide_credentials_and_require_opt_in(monkeypatch, environment):
     from api.routes import account_phone_linked_deletion as linked_routes
     from hushh_mcp.services import phone_linked_deletion
 
@@ -470,10 +473,15 @@ def test_linked_deletion_routes_hide_credentials_and_stay_off_in_production(monk
         assert response.json() == {"detail": {"code": "PHONE_RECOVERY_INVALID_REQUEST"}}
     for name in ("HUSHH_PHONE_LINKED_DELETION_ENABLED", "APP_RUNTIME_PROFILE", "HUSHH_DEPLOY_ENV"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("ENVIRONMENT", "production")
+    from unittest.mock import Mock
+
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    storage = Mock(side_effect=AssertionError("disabled flow reached storage"))
+    monkeypatch.setattr(phone_linked_deletion, "transaction", storage)
     assert phone_linked_deletion.enabled() is False
     response = client.post(
         "/api/account/phone/linked-account/deletions", json={"phone_number": PHONE}
     )
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "PHONE_LINKED_DELETION_UNAVAILABLE"
+    storage.assert_not_called()

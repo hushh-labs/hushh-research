@@ -318,7 +318,14 @@ class UserGcpBackend:
         self._require_private_admission = require_private_admission
         self._tenancy = "user-owned"
         if private_deployment is not None:
-            private_deployment.validate()
+            from hushh_mcp.services.hosted_gcp_authority import HostedGcpAuthority
+
+            frozen = (
+                isinstance(require_private_admission, HostedGcpAuthority)
+                and require_private_admission.deployment == private_deployment
+                and require_private_admission.operation in {"cleanup", "inspect"}
+            )
+            private_deployment.validate(frozen=frozen)
             if (
                 private_deployment.hosting_mode != "hussh_hosted"
                 or private_deployment.environment != "dev"
