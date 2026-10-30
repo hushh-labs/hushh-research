@@ -33,6 +33,7 @@ async function openFixture(page: Page, width: number, theme = "light") {
 }
 
 const taskIds = ["request-files", "ask-about-files", "request-scope", "request-cards"];
+
 async function boxes(page: Page) {
   return page.evaluate(() => Object.fromEntries([...document.querySelectorAll<HTMLElement>("[data-id]")].map((el) => {
     const { top, bottom, left, right, width, height } = el.getBoundingClientRect();

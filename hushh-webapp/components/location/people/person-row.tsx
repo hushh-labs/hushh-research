@@ -95,6 +95,7 @@ export function PersonRow({
     >
       <div className="flex items-center gap-3">
         <ConnectionPersonAvatar
+          userId={userId}
           label={name}
           photoUrl={photoUrl}
           verified={verified}

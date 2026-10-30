@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
 import { scopeItemsFromPermissions } from "@/lib/consent/consent-scope-items";
@@ -26,7 +28,6 @@ import {
   SurfaceInset,
 } from "@/components/app-ui/surfaces";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -66,18 +67,6 @@ const listShellClassName = cn(
   "overflow-hidden rounded-[var(--app-card-radius-feature)]",
   "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
 );
-
-function initials(label: string | null | undefined): string {
-  return (
-    String(label || "")
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase() || "")
-      .join("") || "HK"
-  );
-}
 
 function formatDomainRowTimestamp(
   value: string | null | undefined,
@@ -387,7 +376,7 @@ function ConnectionCard({
   onOpen: () => void;
 }) {
   return (
-    <button
+    <PersonSelectionSurface
       type="button"
       onClick={onOpen}
       className={cn(
@@ -397,13 +386,7 @@ function ConnectionCard({
       )}
     >
       <div className="flex items-center gap-3 px-4 py-3.5 sm:px-5">
-        <Avatar className="h-10 w-10 shrink-0 border">
-          <AvatarImage
-            src={connection.requesterImageUrl || undefined}
-            alt={connection.requesterLabel}
-          />
-          <AvatarFallback>{initials(connection.requesterLabel)}</AvatarFallback>
-        </Avatar>
+        <ConnectionPersonAvatar userId={connection.personUserId} label={connection.requesterLabel} photoUrl={connection.requesterImageUrl} className="h-10 w-10 shrink-0 border" />
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2.5">
             <p className="text-sm font-semibold tracking-tight text-foreground">
@@ -434,7 +417,7 @@ function ConnectionCard({
         </div>
         <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
       </div>
-    </button>
+    </PersonSelectionSurface>
   );
 }
 
@@ -784,15 +767,7 @@ export function PkmAccessConnectionDetailPanel({
       <SurfaceCardHeader>
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
-            <Avatar className="h-11 w-11 border">
-              <AvatarImage
-                src={connection.requesterImageUrl || undefined}
-                alt={connection.requesterLabel}
-              />
-              <AvatarFallback>
-                {initials(connection.requesterLabel)}
-              </AvatarFallback>
-            </Avatar>
+            <ConnectionPersonAvatar userId={connection.personUserId} label={connection.requesterLabel} photoUrl={connection.requesterImageUrl} className="h-11 w-11 border" />
             <div className="min-w-0 space-y-1">
               <SurfaceCardTitle>{connection.requesterLabel}</SurfaceCardTitle>
               <SurfaceCardDescription>

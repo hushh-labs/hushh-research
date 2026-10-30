@@ -87,7 +87,7 @@ describe("shared page/chat Invitations with real typed transport", () => {
     ]);
     render(view({ workspaceLayout: true, calendarPeople, accountPhotoUrl: googlePhoto }));
     const card = await screen.findByRole("button", { name: "Open invitation: Client Sync" });
-    expect(card.querySelector("[data-photo-source=hussh]")).toHaveAttribute("data-photo-url", photo);
+    expect(card.parentElement?.querySelector("[data-photo-source=hussh]")).toHaveAttribute("data-photo-url", photo);
     fireEvent.click(card);
     const guests = within(screen.getByRole("list", { name: "Guests" })).getAllByRole("listitem");
     expect(guests.filter(guest => guest.querySelector("[data-photo-source=hussh]"))).toHaveLength(2);

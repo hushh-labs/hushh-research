@@ -1,4 +1,5 @@
 'use client';
+import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import React, {useCallback,useEffect,useId,useRef,useState} from 'react';
 import Image from 'next/image';
 import {BadgeCheck} from '@/components/icons';
@@ -13,7 +14,8 @@ function initials(name:string){return name.split(/\s+/).filter(Boolean).slice(0,
 
 function PersonAvatar({person}:{person:OnboardingPerson}){
  const [imageFailed,setImageFailed]=useState(false);
- return <span className="oc-person-avatar">{person.photoUrl && !imageFailed ? <Image src={person.photoUrl} alt="" width={42} height={42} unoptimized referrerPolicy="no-referrer" onError={()=>setImageFailed(true)}/> : initials(person.displayName)}{person.isRia?<span className="oc-person-verified" aria-label="Verified advisor"><BadgeCheck size={13} aria-hidden="true"/></span>:null}</span>;
+ const Root = person.isSelf ? "span" : "button";
+ return <Root type={person.isSelf ? undefined : "button"} aria-label={person.isSelf ? undefined : `View ${person.displayName}'s profile`} onClick={person.isSelf ? undefined : event=>{event.preventDefault();event.stopPropagation();openPersonProfilePreview({userId:person.userId},event.currentTarget);}} className="oc-person-avatar">{person.photoUrl && !imageFailed ? <Image src={person.photoUrl} alt="" width={42} height={42} unoptimized referrerPolicy="no-referrer" onError={()=>setImageFailed(true)}/> : initials(person.displayName)}{person.isRia?<span className="oc-person-verified" aria-label="Verified advisor"><BadgeCheck size={13} aria-hidden="true"/></span>:null}</Root>;
 }
 
 function ActionRow({icon,tone,title,description,trailing,onClick,disabled=false}: {icon:'users'|'trusted'|'invite';tone:'blue'|'rose'|'amber';title:string;description:string;trailing:string;onClick:()=>void;disabled?:boolean}){

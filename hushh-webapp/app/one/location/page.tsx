@@ -3571,6 +3571,7 @@ export function OneLocationAgentPageContent({
           grant.recipientUserId || grant.id,
           {
             displayName: grantCounterpartyLabel(grant),
+            userId: grant.recipientUserId,
             photoUrl: grant.recipientPhotoUrl ?? null,
           },
         ]),
@@ -14853,7 +14854,7 @@ export function OneLocationAgentPageContent({
                             className="relative flex min-w-0 max-w-full flex-col gap-2.5 overflow-hidden p-3.5 after:absolute after:bottom-0 after:left-[62px] after:right-0 after:border-b after:border-black/[0.05] last:after:hidden dark:after:border-white/[0.08]"
                           >
                             <div className="flex min-w-0 items-start gap-3">
-                              <AvatarBubble
+                              <AvatarBubble userId={recipient.userId}
                                 label={label}
                                 index={index}
                                 size="sm"
@@ -15263,7 +15264,7 @@ export function OneLocationAgentPageContent({
                           key={grant.id}
                           className="relative flex min-w-0 max-w-full flex-col gap-3 overflow-hidden p-3.5 after:absolute after:bottom-0 after:left-[62px] after:right-0 after:border-b after:border-black/[0.05] sm:flex-row sm:items-center last:after:hidden dark:after:border-white/[0.08]"
                         >
-                          <AvatarBubble
+                          <AvatarBubble userId={grant.recipientUserId}
                             label={grantCounterpartyLabel(grant)}
                             index={index}
                             size="sm"
@@ -15637,7 +15638,7 @@ export function OneLocationAgentPageContent({
                           className="min-w-0 max-w-full overflow-hidden border-b border-black/[0.05] last:border-b-0 dark:border-white/[0.08]"
                         >
                           <div className="flex flex-col gap-3 p-3.5 sm:flex-row sm:items-center">
-                            <AvatarBubble
+                            <AvatarBubble userId={grant.ownerUserId}
                               label={receivedGrantOwnerLabel(grant)}
                               index={index + 2}
                               size="sm"

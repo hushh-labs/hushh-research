@@ -14,7 +14,7 @@ describe("Calendar connected people", () => {
       connection("duplicate@example.com", "First"),
       connection("DUPLICATE@example.com", "Second"),
     ]);
-    expect(people.get("jhumma@hushh.ai")).toEqual({ displayName: "Jhumma Kumari", photoUrl: "https://images.example.test/jhumma.jpg" });
+    expect(people.get("jhumma@hushh.ai")).toEqual({ userId: "JHUMMA@hushh.ai", personRef: undefined, displayName: "Jhumma Kumari", photoUrl: "https://images.example.test/jhumma.jpg" });
     expect(people.has("duplicate@example.com")).toBe(false);
     expect(people.has("unknown@example.com")).toBe(false);
   });

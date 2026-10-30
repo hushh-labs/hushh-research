@@ -5,6 +5,7 @@ import { ContactSourceBadge } from "./contact-source-badge";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { openPersonProfilePreview, type PersonProfilePreviewIdentity } from "@/lib/connections/person-profile-preview";
 
 export function connectionAvatarInitials(label: string): string {
   const parts = label.trim().split(/\s+/).filter(Boolean);
@@ -80,7 +81,9 @@ export function ConnectionPersonAvatar({
   className,
   fallbackClassName,
   testId,
-}: {
+  personRef,
+  userId,
+}: PersonProfilePreviewIdentity & {
   photoUrl?: string | null;
   label: string;
   verified?: boolean;
@@ -94,18 +97,9 @@ export function ConnectionPersonAvatar({
   fallbackClassName?: string;
   testId?: string;
 }) {
-  return (
-    <Avatar
-      key={photoUrl?.trim() || "initials"}
-      className={cn(
-        "relative shrink-0 overflow-visible",
-        AVATAR_SIZE_CLASSNAME[size],
-        className,
-      )}
-      data-photo-url={photoUrl ?? undefined}
-      data-avatar-size={size}
-      data-testid={testId}
-    >
+  const interactive = Boolean(personRef?.trim() || userId?.trim());
+  const content = <>
+
       {photoUrl?.trim() ? (
         <AvatarImage
           key={photoUrl}
@@ -142,6 +136,26 @@ export function ConnectionPersonAvatar({
       {fromContacts ? (
         <ContactSourceBadge className="absolute -bottom-0.5 -right-0.5 z-10 size-3 rounded-sm bg-background ring-2 ring-background" />
       ) : null}
+  </>;
+  return (
+    <Avatar
+      asChild={interactive}
+      key={photoUrl?.trim() || "initials"}
+      className={cn(
+        "relative shrink-0 overflow-visible",
+        AVATAR_SIZE_CLASSNAME[size],
+        className,
+        interactive && "cursor-pointer p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      )}
+      data-photo-url={photoUrl ?? undefined}
+      data-avatar-size={size}
+      data-testid={testId}
+    >
+      {interactive ? <button type="button" aria-label={`View ${label}'s profile`} onClick={event => {
+        event.preventDefault();
+        event.stopPropagation();
+        openPersonProfilePreview({ personRef, userId }, event.currentTarget);
+      }}>{content}</button> : content}
     </Avatar>
   );
 }

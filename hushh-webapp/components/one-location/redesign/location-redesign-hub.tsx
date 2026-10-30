@@ -136,6 +136,7 @@ import {
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { RequestCard, SharedWithMeCard, type GrantViewStatus } from "./cards";
 
@@ -2712,7 +2713,7 @@ function LocationDetailFlow({
             groups={ownerGrantGroups}
             recipientName={vm.grantRecipientLabel}
             renderAvatar={(group, name) => (
-              <ActiveShareAvatar name={name} photoUrl={group.primaryGrant.recipientPhotoUrl} />
+              <ActiveShareAvatar userId={group.counterpartUserId} name={name} photoUrl={group.primaryGrant.recipientPhotoUrl} />
             )}
             onStopGrant={vm.onStopGrant}
             revokingGrantId={vm.revokingGrantId}
@@ -2766,7 +2767,7 @@ function LocationDetailFlow({
                 Boolean(point) && !collapsedGrantIds.has(grant.id);
               return (
                 <div key={group.counterpartUserId} data-grant-id={grant.id}>
-                  <SharedWithMeCard
+                  <SharedWithMeCard userId={group.counterpartUserId}
                     isSmsTriggered={Boolean(group.smsGrant)}
                     name={ownerName}
                     photoUrl={grant.ownerPhotoUrl}
@@ -2905,7 +2906,7 @@ function LocationDetailFlow({
           <div className="space-y-3">
             {vm.pendingOwnerRequests.map((request) => (
               <div key={request.id} data-request-id={request.id}>
-                <RequestCard
+                <RequestCard userId={request.requesterUserId}
                   name={vm.requesterLabel(request)}
                   photoUrl={request.requesterPhotoUrl}
                   // The amount, and whether it is extra time on a share already
@@ -3415,15 +3416,17 @@ function personInitials(name: string): string {
 }
 
 function ActiveShareAvatar({
+  userId,
   name,
   photoUrl,
 }: {
+  userId?: string;
   name: string;
   photoUrl?: string | null;
 }) {
   return (
     <span className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center">
-      <Avatar initials={personInitials(name)} imageUrl={photoUrl} size={40} />
+      <Avatar userId={userId} initials={personInitials(name)} imageUrl={photoUrl} size={40} />
       <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[#34C759]" />
     </span>
   );
@@ -3463,6 +3466,7 @@ function ActiveShareMetadata({
 
 /** One person in the People list: avatar (+ live dot) · name · status · chevron. */
 export function PersonRow({
+  userId,
   name,
   photoUrl,
   verified,
@@ -3475,6 +3479,7 @@ export function PersonRow({
   onShareUnavailable,
   shareReady = true,
 }: {
+  userId?: string;
   name: string;
   photoUrl?: string | null;
   verified?: boolean;
@@ -3503,7 +3508,7 @@ export function PersonRow({
           "before:absolute before:left-16 before:right-4 before:top-0 before:h-px before:bg-[color:var(--app-separator)] before:content-['']",
       )}
     >
-      <button
+      <PersonSelectionSurface
         type="button"
         onClick={onOpen}
         aria-label={ariaLabel}
@@ -3517,7 +3522,7 @@ export function PersonRow({
         )}
       >
         <div className="relative shrink-0">
-          <ConnectionPersonAvatar
+          <ConnectionPersonAvatar userId={userId}
             label={name}
             photoUrl={photoUrl}
             verified={verified}
@@ -3559,7 +3564,7 @@ export function PersonRow({
             aria-hidden="true"
           />
         ) : null}
-      </button>
+      </PersonSelectionSurface>
       {hasQuickActions ? (
         <div
           className="flex w-auto items-center justify-end gap-2 [--type-compact-button-label-size:13px] [--type-compact-button-label-weight:500] sm:[--type-compact-button-label-size:15px]"
@@ -3961,6 +3966,7 @@ function CircleInvitationsDialog({
 }
 
 function PersonActionsDialog({
+  userId,
   open,
   name,
   photoUrl,
@@ -3977,6 +3983,7 @@ function PersonActionsDialog({
   onManageConnection,
   onCancelRequest,
 }: {
+  userId?: string;
   open: boolean;
   name: string;
   photoUrl?: string | null;
@@ -4061,7 +4068,7 @@ function PersonActionsDialog({
       >
         <DialogHeader className="px-5 pb-3 pt-5 text-left">
           <div className="flex items-center gap-3">
-            <ConnectionPersonAvatar
+            <ConnectionPersonAvatar userId={userId}
               label={name}
               photoUrl={photoUrl}
               verified={verified}
@@ -4371,7 +4378,7 @@ export function PeopleHub({
                   countdownLabel: vm.expiresCountdownLabel,
                 });
                 return (
-                  <PersonRow
+                  <PersonRow userId={recipient.userId}
                     key={recipient.userId}
                     name={name}
                     photoUrl={recipient.photoUrl}
@@ -4434,7 +4441,7 @@ export function PeopleHub({
       />
 
       {selectedPerson && selectedPersonStatus ? (
-        <PersonActionsDialog
+        <PersonActionsDialog userId={selectedPerson.userId}
           open={Boolean(selectedPerson)}
           name={selectedPersonName}
           photoUrl={selectedPerson.photoUrl}
@@ -5006,7 +5013,7 @@ function ShareFlow({
     const alreadyHasLocationShare = Boolean(activeGrant);
     const label = vm.recipientLabel(r);
     return (
-      <SettingsRow
+      <SettingsRow leadingInteractive
         key={r.userId}
         density="compact"
         textOverflow="truncate"
@@ -5033,7 +5040,7 @@ function ShareFlow({
             : undefined
         }
         leading={
-          <ConnectionPersonAvatar
+          <ConnectionPersonAvatar userId={r.userId}
             label={label}
             photoUrl={r.photoUrl}
             verified={Boolean(r.isRia)}
@@ -5738,6 +5745,7 @@ function SelectionDot({ selected }: { selected: boolean }) {
 }
 
 function RequestRecipientListRow({
+  userId,
   name,
   photoUrl,
   verified,
@@ -5756,6 +5764,7 @@ function RequestRecipientListRow({
   removeBusy,
   expandedContent,
 }: {
+  userId?: string;
   name: string;
   photoUrl?: string | null;
   verified?: boolean;
@@ -5774,8 +5783,8 @@ function RequestRecipientListRow({
   removeBusy?: boolean;
   expandedContent?: ReactNode;
 }) {
-  const Row = selectable && onSelect ? "button" : "div";
-  const rowSelectable = Row === "button";
+  const Row = selectable && onSelect ? PersonSelectionSurface : "div";
+  const rowSelectable = Row === PersonSelectionSurface;
   const pillTone =
     statusLabel === "Live"
       ? "live"
@@ -5797,7 +5806,7 @@ function RequestRecipientListRow({
         aria-pressed={rowSelectable ? selected : undefined}
         className="grid w-full min-h-[58px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3.5 py-2 text-left focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
       >
-        <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
+        <ContactAvatar userId={userId} label={name} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
         <span className="min-w-0 flex-1">
           <span data-location-type-role="row-title" className="flex min-w-0 items-center gap-1.5 text-[17px] font-normal leading-[22px] text-foreground">
             <span className="min-w-0 truncate">{name}</span>
@@ -6319,7 +6328,7 @@ function AskFlow({
                   .includes(normalizedRecipientSearch);
               const showStateActions = !status.selectable && exactStatusSearch;
               return (
-                <RequestRecipientListRow
+                <RequestRecipientListRow userId={r.userId}
                   key={r.userId}
                   name={recipientLabel}
                   photoUrl={r.photoUrl}
@@ -6475,11 +6484,11 @@ function SelectedRecipientsRail({
           role="list"
           className="flex min-h-14 items-center gap-3 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
         >
-          <div className="flex shrink-0 -space-x-2" aria-hidden="true">
+          <div className="flex shrink-0 -space-x-2">
             {recipients.slice(0, 3).map((recipient) => {
               const label = recipientLabel(recipient);
               return (
-                <ContactAvatar
+                <ContactAvatar userId={recipient.userId}
                   key={recipient.userId}
                   label={label}
                   photoUrl={recipient.photoUrl}
@@ -6516,7 +6525,7 @@ function SelectedRecipientsRail({
                 role="listitem"
                 className="flex min-h-14 items-center gap-3 px-4 py-2.5"
               >
-                <ContactAvatar
+                <ContactAvatar userId={recipient.userId}
                   label={label}
                   photoUrl={recipient.photoUrl}
                   verified={Boolean(recipient.isRia)}

@@ -56,6 +56,7 @@ export type FeedItemPresentation = {
   description: string;
   href: string | null;
   person?: {
+    personRef?: string | null;
     displayName: string;
     photoUrl: string | null;
   } | null;
@@ -192,6 +193,7 @@ function counterpartPerson(
   return {
     displayName,
     photoUrl: resolveCounterpartPhotoUrl(metadata),
+    personRef: metadataString(metadata, "counterpart_person_ref") || null,
   };
 }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FeedSmsSentTime } from "@/components/feed/feed-sms-sent-time";
 import { DirectMessageLink } from "@/components/direct-messages/direct-message-link";
@@ -338,7 +339,7 @@ function FeedActionableIdentity({
   compact?: boolean;
 }) {
   return (
-    <ConnectionPersonAvatar
+    <ConnectionPersonAvatar userId={person.userId} personRef={person.personRef}
       label={person.displayName}
       photoUrl={person.photoUrl}
       size={compact ? "compact" : "list"}
@@ -367,6 +368,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
       isLive ? "bg-emerald-500" : "bg-accent",
     )} />
   ) : null;
+  const router = useRouter();
   const hasActions = item.actions.length > 0;
   const leading = (
     <span className="grid w-[30px] place-items-center">
@@ -393,6 +395,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     layout: "settings",
     density: "compact",
     leading,
+    leadingInteractive: Boolean(item.person?.userId || item.person?.personRef),
     title: item.smsEmergency ? (
       <span className="block min-w-0 space-y-0.5 py-1">
         <span data-profile-role="name" className="block whitespace-normal [overflow-wrap:anywhere]">{item.title}</span>
@@ -423,7 +426,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
   // as siblings. Both shapes avoid invalid button-in-link/button DOM.
   const NavigationLink = item.href?.startsWith("/one/messages?") ? DirectMessageLink : Link;
   const row =
-    item.href && !hasActions ? (
+    item.href && !hasActions && !shared.leadingInteractive ? (
       <SettingsRow asChild {...shared} chevron={item.chevron}>
         <NavigationLink
           href={item.href}
@@ -432,7 +435,10 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
         />
       </SettingsRow>
     ) : (
-      <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect} />
+      <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect ?? (item.href ? () => {
+        if (router) router.push(item.href!);
+        else if (typeof window !== "undefined") window.location.assign(item.href!);
+      } : undefined)} />
     );
 
   return row;

@@ -52,7 +52,7 @@ export type SharedWithYouItemView = {
 };
 
 export type SharedWithYouCardViewProps = {
-  person: { displayName: string; photoUrl?: string | null };
+  person: { displayName: string; photoUrl?: string | null; personRef?: string | null };
   status: SharedWithYouCardStatus;
   items: SharedWithYouItemView[];
   onUnlock?: () => void;
@@ -310,7 +310,7 @@ export function SharedWithYouCardView({
         className,
       )}>
       <header className="flex items-center gap-3 border-b border-border/50 px-4 py-3 sm:px-5">
-        <ConnectionPersonAvatar photoUrl={person.photoUrl ?? null} label={name} size="list" />
+        <ConnectionPersonAvatar personRef={person.personRef} photoUrl={person.photoUrl ?? null} label={name} size="list" />
         <div className="min-w-0 flex-1">
           <h3 data-consent-role="row-title" className="truncate text-base font-semibold leading-6 tracking-[-0.015em] text-foreground">{name}</h3>
           <p data-consent-role="helper" className="text-xs leading-5 text-muted-foreground">Shared with you</p>
