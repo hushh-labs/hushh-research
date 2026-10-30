@@ -34,6 +34,13 @@ def legacy_workflow():
     return source
 
 
+def apply_legacy_job_names(case, source_sha):
+    source = legacy_workflow().encode()
+    case.sources[source_sha] = source
+    case.sources["e" * 40] = source
+    case.use_legacy_job_names()
+
+
 def production_release_document():
     release = {
         "status": "healthy",
