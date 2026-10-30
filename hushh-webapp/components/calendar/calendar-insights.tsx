@@ -36,6 +36,12 @@ import styles from "./calendar-insights.module.css";
 
 // Minimum spacing between Feed-triggered refreshes; a burst yields one trailing refresh.
 const FEED_REFRESH_SPACING_MS = 5_000;
+// While an approved request is being shared and verified, check again soon and
+// for a bounded time. The organizer's completion event is the fast path; this
+// is the fallback for a missed or delayed event and for Google access that
+// lags a completed share.
+const ACCESS_RECHECK_MS = 6_000;
+const ACCESS_RECHECK_LIMIT = 20;
 const hours = (minutes: number) => String(Math.round(minutes / 6) / 10) + " hr";
 const noVaultToken = () => null;
 type SourcedArtifact = MeetingArtifact & { source?: MeetingSource };
@@ -435,6 +441,25 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const unavailableMeetings = displayedMeetings.filter(meeting => meeting.artifact_kinds.length === 0);
   const selectedDisplayed = selected ? withVerifiedRequest(selected) : null;
   const requestOutcome = selected ? outcomes[selected.occurrence_id] : null;
+  // Sharing is under way, or Drive finished and this account's access has not
+  // verified yet. Never Available until the requester's own account verifies it.
+  const accessWatch = displayedMeetings.flatMap(meeting =>
+    (outcomes[meeting.occurrence_id]?.requests || [])
+      .filter(item => item.status === "approved" ||
+        (!meeting.artifact_kinds.length && (item.status === "completed" || item.status === "partial")))
+      .map(item => `${item.requestId}:${item.status}`)).join("|");
+  // Counted per watched state, so a new request or a new phase gets its own bounded checks.
+  const [accessChecks, setAccessChecks] = useState({ watch: "", count: 0 });
+  const accessChecked = accessChecks.watch === accessWatch ? accessChecks.count : 0;
+  const accessExhausted = accessChecked >= ACCESS_RECHECK_LIMIT;
+  useEffect(() => {
+    if (!accessWatch || accessExhausted || !canRefresh || loading || view === "overview") return;
+    const timer = window.setTimeout(() => {
+      setAccessChecks(previous => ({ watch: accessWatch, count: previous.watch === accessWatch ? previous.count + 1 : 1 }));
+      refresh();
+    }, ACCESS_RECHECK_MS);
+    return () => window.clearTimeout(timer);
+  }, [accessWatch, accessExhausted, canRefresh, loading, view, revision, refresh]);
   const verifiedKinds = new Set([
     ...(selectedDisplayed?.artifact_kinds || []),
     ...(detail?.artifacts.filter(item => item.state === "available").map(item => item.kind === "recording" ? "recording" : "notes") || []),
@@ -451,14 +476,16 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     if (requests.some(item => item.status === "pending" || item.status === "preparing" || item.status === "review_ready"))
       return "Request sent · waiting for organizer review.";
     if (requests.some(item => item.status === "approved") && !meeting.artifact_kinds.length)
-      return "Organizer approved · file access is still being verified.";
+      return "Sharing · checking access with your selected Google account.";
     if (requests.some(item => item.status === "declined")) return "Organizer declined this request.";
     if (requests.some(item => item.status === "failed" || item.status === "no_match")) return "Sharing did not complete. Ask the organizer to review again.";
     if (requests.some(item => item.status === "partial"))
       return meeting.artifact_kinds.length ? "Some files are available; others could not be shared or verified." :
         "Only part of this request was shared; no file access is verified for this account.";
     if (requests.some(item => item.status === "completed") && !meeting.artifact_kinds.length)
-      return "Drive finished sharing, but file access is not currently verified for this account.";
+      return accessExhausted
+        ? "Drive finished sharing, but file access is not currently verified for this account."
+        : "Drive finished sharing · checking access with your selected Google account.";
     return null;
   };
   const submitRequest = async () => {
