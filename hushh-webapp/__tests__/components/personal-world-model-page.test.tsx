@@ -194,7 +194,7 @@ describe("Personal World Model page", () => {
     expect(
       await screen.findByText(/Possible match\. Some of these may be about someone else with your name/),
     ).toBeInTheDocument();
-    const row = screen.getByText("Lives in Austin").closest("[data-testid='pwm-fact-row']")!;
+    const row = (await screen.findByText("Lives in Austin")).closest("[data-testid='pwm-fact-row']")!;
     // The tag is the shared Badge, never an ad-hoc pill, and never "Unsure".
     const tag = within(row as HTMLElement).getByText("Possible match");
     expect(tag).toHaveAttribute("data-slot", "badge");

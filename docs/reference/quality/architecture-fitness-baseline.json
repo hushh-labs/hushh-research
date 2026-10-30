@@ -4789,7 +4789,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": "ConnectionsService",
-      "value": 4034
+      "value": 4074
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4996,7 +4996,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "DriveRequestPaymentService",
-      "value": 1204
+      "value": 1214
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5230,7 +5230,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": "GoogleDriveAdapter",
-      "value": 836
+      "value": 841
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5446,7 +5446,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "OneLocationAgentService",
-      "value": 10571
+      "value": 10572
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -10324,7 +10324,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "checkout",
-      "value": 473
+      "value": 485
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11836,7 +11836,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "search_directory_candidates",
-      "value": 449
+      "value": 452
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18975,7 +18975,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": null,
-      "value": 4369
+      "value": 4410
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19182,7 +19182,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": null,
-      "value": 1314
+      "value": 1325
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19398,7 +19398,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": null,
-      "value": 1161
+      "value": 1189
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20667,7 +20667,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_connect_directory_postgres.py",
       "symbol": null,
-      "value": 671
+      "value": 722
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20685,7 +20685,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_connections_service.py",
       "symbol": null,
-      "value": 3365
+      "value": 3407
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22503,7 +22503,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/connect/page-client.test.tsx",
       "symbol": null,
-      "value": 3630
+      "value": 3695
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23394,7 +23394,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/connect/page-client.tsx",
       "symbol": null,
-      "value": 4276
+      "value": 4296
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25617,7 +25617,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/connections-service.ts",
       "symbol": null,
-      "value": 728
+      "value": 742
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29530,7 +29530,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_package_access_preflight.py",
       "symbol": "inspect",
-      "value": 102
+      "value": 110
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -30799,7 +30799,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connect-page-grid.layout.spec.ts",
       "symbol": null,
-      "value": 744
+      "value": 774
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -87661,6 +87661,133 @@
         "source_sha256": "a510cf7d472a06bcf67ec8eed6623c9370de13c1388634eb65339f93c6065421",
         "reviewer": "independent read-only architecture fitness and security/consent review",
         "review": "One selected vault-token getter is forwarded to the existing Calendar Insights child after the Main booking composition; no new Calendar route or authority is created."
+      }
+    ]
+  },
+  "mutual_connections_review_20261029": {
+    "base_revision": "d2304cf51646cb16d4c7d7d1740479218ef4ec84",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/connections_service.py|ConnectionsService|class exceeds the advisory operon budget",
+        "before": 4034,
+        "after": 4074,
+        "source_sha256": "ef084c136cc44332cadb0c69fd24a38fbfbc9beabf6b550b6ff10119e142c1d8",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|OneLocationAgentService|class exceeds the advisory operon budget",
+        "before": 10571,
+        "after": 10572,
+        "source_sha256": "cabddfbeb5211bc35b58a7f6b6a20d5f8fdb3d8f068510c8cfedf7562cbb2f7d",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|search_directory_candidates|function exceeds the advisory gene budget",
+        "before": 449,
+        "after": 452,
+        "source_sha256": "cabddfbeb5211bc35b58a7f6b6a20d5f8fdb3d8f068510c8cfedf7562cbb2f7d",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/connections_service.py||module exceeds the advisory operon budget",
+        "before": 4369,
+        "after": 4410,
+        "source_sha256": "ef084c136cc44332cadb0c69fd24a38fbfbc9beabf6b550b6ff10119e142c1d8",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_connect_directory_postgres.py||module exceeds the advisory operon budget",
+        "before": 671,
+        "after": 722,
+        "source_sha256": "d1fde37cfde75114ef53667818d9fe400feee86e32cd4e492765de98d5da16ca",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_connections_service.py||module exceeds the advisory operon budget",
+        "before": 3365,
+        "after": 3407,
+        "source_sha256": "8e0d5e0213c265da1c110080d7968fff2e726c4d6ce76c31cf3db59662efa6df",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/app/connect/page-client.test.tsx||module exceeds the advisory operon budget",
+        "before": 3630,
+        "after": 3695,
+        "source_sha256": "fff888b5ddc3f322b3a9365ead2c8d09e342ba170c64a49a96a2e4f88b5da97e",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|hushh-webapp/app/connect/page-client.tsx||module exceeds the advisory operon budget",
+        "before": 4276,
+        "after": 4296,
+        "source_sha256": "d13d2d2c23df2c2c5e02a91ed1cb1468159d4e05aee144390f8829bce4615e2d",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/connect-page-grid.layout.spec.ts||module exceeds the advisory operon budget",
+        "before": 744,
+        "after": 774,
+        "source_sha256": "e09fa0f6f169dda31f40d9162df643ab1889e11cc6ec6a2dd6d0061197cf254a",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/connections-service.ts||module exceeds the advisory operon budget",
+        "before": 728,
+        "after": 742,
+        "source_sha256": "f65888fb3f1a24749aad5523b984295503e91c21d98614d5d5aae1db256ca662",
+        "reviewer": "independent read-only regression and architecture review",
+        "review": "Bounded mutual-list regression fix composes canonical live directory eligibility before logical pagination. New graph SQL, navigation memory and list UI remain separate bounded leaves. Existing owners receive integration, authenticated transport or nearest regression/identity-boundary tests. Ruff-formatted source reviewed; budgets and unrelated baseline entries unchanged."
+      }
+    ]
+  },
+  "drive_checkout_fresh_acl_and_timing_review_20261029": {
+    "reviewer": "task-owner technical review",
+    "reason": "Bounded Checkout latency/diagnostic changes: consolidate fresh metadata and complete validated ACL reads through the existing validator; preserve listing fallback, source/recipient checks and legacy DriveMetadata serialization. Checkout growth is timing instrumentation of existing awaits, with payment/amount/consent/expiry/idempotency gates unchanged. Production helper tests and the protected-document Chromium/WebKit loops pass. No new oversized function, budget/detector change or duplicate finding collapse.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|DriveRequestPaymentService|class exceeds the advisory operon budget",
+        "before": 1204,
+        "after": 1214,
+        "source_sha256": "1bc7f3f7fd49fd0426ee57f4b91ef376ed44f8a4e96f0cef25853d05a0ae09f9"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|GoogleDriveAdapter|class exceeds the advisory operon budget",
+        "before": 836,
+        "after": 841,
+        "source_sha256": "581190c69efc8aa8a93f6cae2f8f0dc248df98356c460344aa81ea07b2d23366"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|checkout|function exceeds the advisory gene budget",
+        "before": 473,
+        "after": 485,
+        "source_sha256": "1bc7f3f7fd49fd0426ee57f4b91ef376ed44f8a4e96f0cef25853d05a0ae09f9"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_package_access_preflight.py|inspect|function exceeds the advisory gene budget",
+        "before": 102,
+        "after": 110,
+        "source_sha256": "6e92fb48c380c1a245ce3082d6b82f439fb76665c30130d8bec69c1f80140985"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py||module exceeds the advisory operon budget",
+        "before": 1314,
+        "after": 1325,
+        "source_sha256": "1bc7f3f7fd49fd0426ee57f4b91ef376ed44f8a4e96f0cef25853d05a0ae09f9"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py||module exceeds the advisory operon budget",
+        "before": 1161,
+        "after": 1189,
+        "source_sha256": "581190c69efc8aa8a93f6cae2f8f0dc248df98356c460344aa81ea07b2d23366"
       }
     ]
   },

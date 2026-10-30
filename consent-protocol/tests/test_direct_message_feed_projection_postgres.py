@@ -20,6 +20,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
 from db.migration_authority import MigrationMode, apply_manifest_entries, build_manifest_entries
+from tests.feed_fixture_support import complete_projection_schema
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -53,8 +54,7 @@ def test_delete_chat_is_viewer_only_durable_and_new_messages_restore_it(
     conversation = first["conversation"]["id"]
     peer_before = service.list_messages(peer, conversation)["items"]
     with projection_db.engine.begin() as connection:
-        connection.execute(text("ALTER TABLE feed_events ADD COLUMN dismissed_at timestamptz"))
-        connection.execute(text("ALTER TABLE actor_identity_cache ADD COLUMN email text"))
+        complete_projection_schema(connection)
     feed = FeedService()
     monkeypatch.setattr(feed, "_get_db", lambda: projection_db)
     before_revision = feed.list_feed(viewer, cursor=0)["history_revision"]

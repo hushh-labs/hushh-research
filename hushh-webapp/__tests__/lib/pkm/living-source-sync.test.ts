@@ -57,7 +57,7 @@ vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => m.epoch,
   isVaultSessionEpochCurrent: (epoch: number) => epoch === m.epoch,
 }));
-import { LivingSourcesIncompleteError, syncLivingSources } from "@/lib/pkm/living-source-sync";
+import { clearLivingSourceLastSeen, LivingSourcesIncompleteError, syncLivingSources } from "@/lib/pkm/living-source-sync";
 import {
   clearLivingSourceSessionVerification,
   getLivingSourceSessionVerification,
@@ -83,7 +83,7 @@ const profile = (name: string, user_id = OWNER) => ({
   email: "owner@example.test",
   photo_url: null,
   created_at: T,
-  updated_at: T,
+  updated_at: new Date().toISOString(), // Identity refresh restamps this on every forced read.
 });
 const entry = (id: string) => ({
   id,
@@ -199,16 +199,12 @@ const callsSince = (before: CollectorCalls): CollectorCalls => {
 const emptyConsent = () => ({ source_read_verified: true, user_id: OWNER, items: [], has_more: false });
 beforeEach(() => {
   vi.clearAllMocks();
+  clearLivingSourceLastSeen(); // Each test is a fresh tab; what one saw must not leak into the next.
   m.epoch = 0;
   m.fence.mockResolvedValue("stable");
   stored = {};
-  m.identity.mockResolvedValue(profile("Owner"));
-  m.list.mockResolvedValue({
-    source_read_verified: true,
-    user_id: OWNER,
-    items: [],
-    has_more: false,
-  });
+  m.identity.mockImplementation(async () => profile("Owner"));
+  m.list.mockResolvedValue(emptyConsent());
   m.connections.mockResolvedValue(connectionPage([]));
   m.connectors.mockResolvedValue({
     connectors: [connector("not_connected")], features: {},
@@ -223,7 +219,7 @@ beforeEach(() => {
     await p.beforeEffect();
     const plan = await p.build({ currentDomainData: stored });
     await p.beforeEffect();
-    stored = plan.domainData;
+    if (!plan.unchanged) stored = plan.domainData; // The coordinator writes nothing for an unchanged plan.
     return { success: true };
   });
 });
@@ -934,14 +930,18 @@ it("skips a redundant encrypted write when a verified inventory is unchanged", a
     expect(await syncLivingSources(params)).toEqual({ stored: false, recordsChanged: false });
     expect(stored).toBe(previousStored);
     expect(inventory().observedAt).toBe(observedAt);
-    // The skipped write still verified the profile in this unlocked session.
-    // Reused scans were not verified again, and another vault epoch sees nothing.
+    // The skipped write verified the profile in this session; reused scans were not, and another epoch sees nothing.
     expect(getLivingSourceSessionVerification(OWNER, 0)).toMatchObject({
       profile: "2026-10-14T00:01:00.000Z", consent: "2026-10-14T00:00:00.000Z",
     });
     expect(getLivingSourceSessionVerification(OWNER, 1)).toEqual({});
+    // A forced re-check inside the persist window writes nothing; the next wake reuses that scan.
+    expect(await syncLivingSources({ ...params, forceConsent: true })).toEqual({ stored: false, recordsChanged: false });
+    const reads = collectorCalls();
+    await syncLivingSources(params);
+    expect(Object.values(callsSince(reads)).every((count) => count === 0)).toBe(true);
 
-    // Pending and health bookkeeping belong to the change check: a repaired
+    // Pending state and unreadable stored health are content: a repaired
     // value is written, never skipped as unchanged.
     const unchangedPlans: boolean[] = [];
     m.save.mockImplementation(async (p) => {
@@ -1360,8 +1360,8 @@ it("reports nothing when the vault locks or changes owner while the encrypted wr
     expect(verifiedEvents()).toEqual([]);
     // The same fence the session's verification stamp already has.
     expect(getLivingSourceSessionVerification(OWNER, 3030)).toEqual({});
-    // Positive control: the next build, in the session now current, reports every check.
-    vi.setSystemTime(T0 + 60_000);
+    // Positive control: the next stored build, in the session now current, reports every check.
+    vi.setSystemTime(T0 + 120_000);
     await syncLivingSources(params);
     expect(verifiedEvents()).toHaveLength(7);
   } finally {

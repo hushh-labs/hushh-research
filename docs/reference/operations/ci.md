@@ -1,8 +1,8 @@
 # CI Configuration Reference
 
 > **Branch state:** `dev` is the protected development intake and default Dev
-> deployment source. The protected `uat` branch and its future default selector
-> remain staged; UAT keeps its existing selection until separately qualified.
+> deployment source. UAT selects its protected branch independently, with exact
+> candidate CI; first use still requires baseline/history qualification.
 > Main owns release workflows. Branch state does not prove what is serving; see
 > [branch preparation](./branch-governance.md#dev--uat-branch-preparation).
 
@@ -46,7 +46,9 @@ flowchart TB
   queue --> queueci
   queueci --> devbranch -->|"exact CI-green SHA"| devdeploy
   queueci --> main --> smoke --> green
-  devdeploy -->|"acceptance required; separate authorization"| uat
+  devdeploy -.->|"legacy accepted-image path"| uat
+  feat -->|"UAT-focused reviewed changes"| uatbranch["Protected uat"]
+  uatbranch --> exactuat["Exact UAT commit CI"] --> uat
   green -->|"Main smoke; separate authorization"| uat
   uat -->|"UAT acceptance; separate approval"| prod
   green -.->|"qualified emergency; separate authorization"| prod
@@ -83,10 +85,50 @@ Canonical pre-PR command:
 
 This command runs the same blocking local CI surface that feeds GitHub `PR Validation` and `CI Status Gate`. Use `./bin/hushh codex pre-pr --include-advisory` only when you intentionally want the wider non-blocking readiness lane too.
 
+## Manual deployment paths
+
+| Developer intent | Source | Required proof | Deployment |
+| --- | --- | --- | --- |
+| Feature integration | Feature PR into `dev` | Destination freshness and authoritative changed-surface CI | Explicit Dev dispatch |
+| UAT-focused release | Reviewed protected `uat` candidate | Full exact-commit CI, current attempt, serving-base and protected security checks | Direct UAT; no prior Dev deployment |
+| Historical Dev-backed release | Existing accepted application | Exact Dev receipt and verified image, or source build | Existing UAT path |
+| Production release | UAT-accepted application plus reviewed Main approval | Matching UAT receipt, Main smoke, exact-tree equivalence and rollback | Explicit production dispatch |
+| Emergency production | Exact incident-approved source | Governed operator, focused CI, security, schema and qualified rollback | Manual incident route only |
+| Operations/hotfix source | Reviewed Main PR | CI, Admin/queue procedure and landed smoke | Merge does not deploy an application |
+
+Stable fixes move downward through manual reviewed Main → UAT/Dev and UAT → Dev
+sync PRs. No sync bot, scheduled release cadence or automatic production dispatch
+is installed. The standalone CI Security Alerts workflow is retired; source secret
+scanning remains in PR validation and privileged unresolved-secret clearance runs
+only in an explicit Main-owned deployment's protected job.
+
+For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
+`uat` with `scope=all` and `uat_base_sha`, then dispatch `deploy-uat.yml` from Main
+with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. These identify the
+application, validation attempt and comparison base separately. Do not substitute
+a PR merge-tree check, another attempt or a branch status for that exact run.
+Candidate `deploy/` release recipes must match reviewed Main; changes to those
+Cloud Build recipes require a Main-reviewed operations PR. The Main-owned
+workflow also pins `consent-protocol/db/migrate.py`, `db/migration_authority.py`,
+`db/dev_migration_manifest.py`, and the UAT database target-attestation helper
+to Main. Candidate migration manifests and SQL remain application content.
+Current support requires the selected services to share that tested serving base;
+a mixed or unknown baseline refuses before mutation. Historical UAT receipt
+retention remains finite; expired evidence is not an exemption.
+
+Manual capacity dry runs are named **revision inspection**, separate from mutation
+jobs, and never publish mutation checkpoints. Failed inspections cannot masquerade
+as interrupted deletions. After the existing history guard and source validation,
+a new apply can publish a version-3 `preparing` journal before looking up the latest
+deployment. Its observation is explicitly unknown, it remains due, and it never
+certifies completion or replaces orphaned state. Existing custody is retained.
+Failures before this boundary still require verified pre-mutation evidence; a
+missing checkpoint never establishes successful cleanup.
+
 ## Recorded production restoration — 26 October 2026
 
 Normal releases keep their exact application SHA and environment acceptance chain:
-Dev acceptance before UAT; UAT acceptance before production. A normal manually
+Exact UAT CI or historical Dev acceptance before UAT; UAT acceptance before production. A normal manually
 requested Main smoke must test the dispatch commit itself. Its check cannot
 certify another checkout. Release checks verify the canonical producer, current
 attempt, complete bounded inventory and job identity; later failed reruns refuse
@@ -178,6 +220,7 @@ Never rename required job/check contexts for cosmetic consistency.
 | Family | Workflow files | Purpose / trigger |
 | --- | --- | --- |
 | Validation | `ci.yml`, `queue-validation.yml`, `main-post-merge-smoke.yml` | PR checks; identical-tree queue reuse; landed-main smoke. No duplicate full suite in the queue |
+| Readiness exam | `readiness-exam.yml` | Main-owned pre-merge counterpart of the UAT provider exam: `pull_request_target` on anchored instruction files plus maintainer controls; Main's graders read PR text as data under a probe-only identity; advisory until promoted |
 | Deployment | `deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml` | Governed manual exact-SHA deployment through existing shared build/provenance helpers |
 | Scoped compatibility deployment | `deploy-uat-one-chat.yml` | Explicit backend cutover with its own capacity/recovery contract; no schedule or automatic deployment |
 | Native releases | `ship-ios-testflight.yml`, `release-ios-appstore.yml`, `ship-android-playstore-v1.yml`, `resume-ios-testflight.yml` | Explicit release or continuation of a known upload; recovery does not rebuild/upload again |
@@ -207,6 +250,12 @@ an active source workflow or a duplicate test. Reconcile old entries with main a
 recent runs before disabling anything. Required security coverage must remain.
 No remote disable, cancellation or schedule change is authorized by this local edit.
 
+The orphan CI Trust Qualification workflow/helper is retired. Its accepted run
+40598204935 attempt 1 recorded historical Linux/macOS qualification for source
+`6267f321c821b0ff2e1995dcd50d4eff8b045dc9`; the hashed receipts are archived
+privately. This records that historical scope only and grants no current CI or
+release authority. GitHub history and artifacts remain intact.
+
 ## Release-chain review — 2026-10-23
 
 One measured correction release, not a performance SLA:
@@ -226,11 +275,46 @@ do not establish a redundant build or justify removing an authority gate.
 The PR's 23 Ubuntu notices announced the `ubuntu-latest` migration to Ubuntu 26;
 they were not download failures. Its successful hosted image was Ubuntu 24.04.5,
 runner 2.338.0. Core PR/queue/security/smoke and dev/UAT/production workflows pin
-`ubuntu-24.04` to retain that measured OS. Cache actions use v5's Node.js 24 runtime
-with unchanged keys, paths and PR restore-only/main-save boundaries. This addresses
+`ubuntu-24.04` to retain that measured OS. A complete runtime inventory covered all
+26 workflow YAML files (21 distinct literal `uses:` values), expanded the local
+reusable workflows and composite action, and checked the composite action's nested
+steps. It found no remaining Node.js 20 action runtime among the resolved actions.
+The workflow actions and the nested provenance predicate now use Node.js 24:
+Google auth/setup-gcloud/get-secretmanager-secrets v3; artifact v6, checkout v6,
+setup-node v6, setup-java v5, setup-python v6, cache/restore/save v5; paths-filter
+v4, setup-android v4, setup-xcode v1, Anchore SBOM v0, Play upload v1, and the
+locally referenced setup-uv v7. The build-provenance wrapper moves v2 to v3, whose
+pinned `attest@v3.0.0` and predicate@2.0.0 use Node.js 24. Workflow-used action
+inputs and outputs were checked against tagged metadata. WIF identities,
+permissions, application Node/Java versions, cache keys, and PR restore-only/main-save
+boundaries remain intact. Node 24 requires runner 2.327.1 or newer. This addresses
 the observed seven Node.js 20 deprecation warnings; hosted verification is still
-required. A material latency reduction is not established. [Runner announcement](https://github.com/actions/runner-images/issues/14748),
-[cache runtime requirements](https://github.com/actions/cache#whats-new).
+required. A material latency reduction is not established.
+[Runner announcement](https://github.com/actions/runner-images/issues/14748),
+[cache runtime requirements](https://github.com/actions/cache#whats-new),
+[Google auth v3 metadata](https://github.com/google-github-actions/auth/blob/v3/action.yml),
+[setup-gcloud v3 metadata](https://github.com/google-github-actions/setup-gcloud/blob/v3/action.yml),
+[setup-gcloud v2 metadata](https://github.com/google-github-actions/setup-gcloud/blob/v2/action.yml),
+[artifact v6 metadata](https://github.com/actions/upload-artifact/blob/v6/action.yml),
+[checkout v4 metadata](https://github.com/actions/checkout/blob/v4/action.yml),
+[checkout v6 metadata](https://github.com/actions/checkout/blob/v6/action.yml),
+[Android setup v3 metadata](https://github.com/android-actions/setup-android/blob/v3/action.yml),
+[Android setup v4 metadata](https://github.com/android-actions/setup-android/blob/v4/action.yml),
+[provenance v2 metadata](https://github.com/actions/attest-build-provenance/blob/v2/action.yml),
+[provenance v3 metadata](https://github.com/actions/attest-build-provenance/blob/v3/action.yml).
+`setup-gcloud@v3` defaults its tool cache off; the self-hosted iOS voice workflow
+sets `cache: true` to preserve v2's self-hosted cache behavior. This does not
+qualify the device runner.
+`checkout@v6` keeps the used v4 inputs and credential persistence default. The
+Android setup migration explicitly retains the former `cmdline-tools-version`
+`12266719` default because v4 changes its default to `15859902`; the workflow also
+keeps its explicit `platform-tools` package selection. The build-provenance workflow
+continues to provide the same SBOM subject path and does not consume wrapper outputs.
+Artifact v6 is the Node 24 runtime release; it retains ZIP uploads and the existing
+artifact ID, URL and SHA-256 digest outputs. All current workflows keep hidden-file
+exclusion and ZIP compression defaults; none reads action outputs directly. The
+retention readers bind artifacts by their run/name/ID and verify the downloaded
+ZIP size and digest before parsing only allowlisted members.
 
 The latest five protected security workers each bound a distinct source
 run/attempt. Their presence is credential isolation, not five new vulnerabilities.
@@ -575,7 +659,7 @@ The canonical blocker for that broader surface is:
 1. [scripts/ci/pkm-upgrade-gate.sh](../../../scripts/ci/pkm-upgrade-gate.sh)
 2. [scripts/ci/resolve-uat-verification-plan.py](../../../scripts/ci/resolve-uat-verification-plan.py) is the single changed-SHA selector used by PR, queue, post-merge, dev and UAT lanes
 3. `integration-check.sh` runs the PKM gate only when that selector finds a PKM upgrade, stored-shape, migration, or fixture change; selector-policy changes are covered by always-on classifier contract tests. Ordinary UI, consent, MCP, RIA, and provider changes keep their own focused checks without repeating the PKM cycle
-4. a missing or unproven comparison base fails closed to the deterministic PKM/reviewer plan, never to implicit paid model calls
+4. a missing or unproven comparison base fails closed to the deterministic PKM/reviewer plan, never to implicit paid model calls; UAT treats a serving SHA as proven only once its exact-SHA UAT acceptance covers that service, so a candidate still serving after its acceptance failed is unproven (Dev does not apply this check yet)
 5. when `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` is set for a selected PKM release, the same gate also runs the live Playwright investor / RIA / PKM audits against that runtime
 
 Every selected plan is written as a `*-verification-plan` workflow artifact and
@@ -941,7 +1025,11 @@ Rerunning PR validation does not create another workflow. Historical receipt rea
 remain for retained evidence; they do not establish new deployment clearance.
 Synchronize an old feature branch with its destination before retrying legacy CI.
 Keep PR validation on `pull_request`; do not execute untrusted source in a privileged
-`pull_request_target` event to avoid visible workflow entries.
+`pull_request_target` event to avoid visible workflow entries. The one sanctioned
+privileged `pull_request_target` workflow is `readiness-exam.yml`: it checks out
+only Main, reads PR files as data through the contents API and never installs or
+runs them. `scripts/ci/test_readiness_exam_workflow.py` pins that boundary and
+refuses deploy environments in every PR-triggered workflow.
 
 
 ## Advisory Checks (Non-Blocking By Default)
@@ -994,6 +1082,14 @@ savings require measurement.
 
 Tests follow the same economy: add a test only for a real regression, a trust boundary (with a negative control), or a public API or schema contract, and extend existing test files before creating new ones (`AGENTS.md`, Verification rules 5 to 8).
 
+An exact auth-health-only pull request can select the focused health suite in the
+required Governance job only when its complete changed-path set is nonempty and
+contains only `deploy/observability/auth_health_job.py` and the five registered
+health tests. Any mixed, unknown, application, schema, SQL, migration, dependency,
+workflow, or manifest path keeps the ordinary broad lanes. Secret scan, DCO,
+freshness, Governance and CI Status Gate remain required; workflow dispatches and
+promotion checks retain their full current contract.
+
 ### Script Lifecycle Policy
 
 1. Add a new CI/helper script only when it replaces or consolidates an existing one in the same PR.
@@ -1004,17 +1100,17 @@ Tests follow the same economy: add a test only for a real regression, a trust bo
 
 1. **Dev intake** is the default for new development. Preserve existing `integration/pr-train` work and protection. Governed maintainers retain direct Main operations/hotfix authority under Admin SOP.
 2. Release workflows run from Main. Dev accepts an exact CI-green branch SHA through the [Dev Fast Lane](./dev-fast-lane.md).
-3. UAT deploys by explicit manual dispatch through `.github/workflows/deploy-uat.yml`. The application can be a qualified Main or protected UAT SHA; current admission requires exact Dev acceptance for each selected service. A Main application also requires its landed Main smoke.
+3. UAT deploys by explicit manual dispatch through `.github/workflows/deploy-uat.yml`. A protected UAT candidate can use exact full-scope CI with its current attempt, observed serving base, and protected security checks; historical Main candidates retain Dev-backed acceptance. A Main application also requires its landed Main smoke. The source path does not prove live branch/history/admission qualification by itself.
 4. Manual UAT dispatch is limited to the current
    `uat.manual_dispatch_users` cohort in `config/ci-governance.json`; do not
    transcribe actor names into this document.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only actors listed in `production.manual_dispatch_users` may trigger it.
 6. Ordinary production requires UAT acceptance and Main approval, preserving distinct application and approval SHAs and identical content. The explicit emergency mode waives only predecessor deployment. Automatic publication remains disabled.
-7. Feature and hotfix branches may deploy to Dev through its governed Main-owned dispatch. The approved direction is to allow UAT-specific work after exact-commit CI without a mandatory Dev deployment; that admission path is not yet qualified or active. Until it is, retain the current Dev acceptance requirement.
+7. Feature and hotfix branches may deploy to Dev through its governed Main-owned dispatch. Direct UAT source admission omits a preceding Dev deployment only for the protected UAT candidate with exact CI and the recorded serving base. Treat the route as unqualified until the exact branch-CI and Main-owned admission proof pass against the reconciled history and real serving baseline. This source change does not dispatch or authorize an application deployment.
 
 Deploy to UAT is expected to behave as a closed-loop release lane:
 
-1. start from an explicitly chosen, qualified application SHA and its required Dev acceptance
+1. start from an explicitly chosen, qualified application SHA and its exact UAT CI or retained Dev acceptance
 2. sync canonical secrets
 3. capture last healthy revisions
 4. deploy changed surfaces
@@ -1062,7 +1158,14 @@ preserving restored service journals and capacity-bridge intent. Historical UAT
 failures without an artifact require exact frozen owner/workflow source, actual
 checkout, completed attempt and runner-output proof that the checkpoint barrier
 was never crossed. This proves no provider mutation; it grants no cleanup or
-release-health authority. Unknown source, incomplete logs, cancellation and failed
+release-health authority. A production attempt stopped by that first guard qualifies
+only through `retention_production_evidence.py`: reviewed owner, workflow and
+publication bodies at its actual checkout, the exact cleanup-job layout including
+operational reference publication, one prepare command group and exactly one guard
+diagnostic as its final output. Only the setup action's exact unstamped cache-glob
+lines may lack timestamps. The operational reference keeps its own intent artifact
+and idempotent tag readback; this proof covers revision-cleanup custody only.
+Unknown source, incomplete logs, cancellation and failed
 checkpoint uploads remain blocked. Every attempt is inspected, including earlier
 attempts of a currently running retry; never delete failed runs to clear admission.
 The reviewed workflow source can identify a skipped primary deployment job even

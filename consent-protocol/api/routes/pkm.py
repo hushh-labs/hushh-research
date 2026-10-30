@@ -113,8 +113,10 @@ from hushh_mcp.services.pkm_mutation_contracts import (
     PKM_MAX_AFFECTED_SHARING_IDS,
 )
 from hushh_mcp.services.pkm_preparation_contracts import (
+    MEMORY_PROPOSAL_OUTCOME_LOG,
     PKMAgentLabStructureRequest,
     PKMAgentLabStructureResponse,
+    memory_proposal_outcome_args,
 )
 
 logger = logging.getLogger(__name__)
@@ -574,25 +576,50 @@ async def propose_pkm_memory(
     x_pkm_chunk_index: int | None = Header(default=None, alias="X-PKM-Chunk-Index"),
 ):
     """Product-safe alias over the existing review-before-save proposal pipeline."""
-    proposal = await _generate_pkm_memory_proposals(
-        request,
-        token_data,
-        ingestion_id=x_pkm_ingestion_id,
-        chunk_index=x_pkm_chunk_index,
-    )
-    # An explicit failed-stage signal is not a semantic "nothing to save" decision. Keep the
-    # developer-lab diagnostic contract; product consumers get a retryable failure, not 200.
-    if not proposal.preview_cards and "preview_generation_failed" in (
-        proposal.validation_hints or []
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "code": "PKM_PROPOSAL_UNAVAILABLE",
-                "message": "That note could not be prepared. Nothing was saved. Please try again.",
-            },
+    started_at = time.perf_counter()
+    status_code, error_code, proposal = 0, None, None
+    try:
+        proposal = await _generate_pkm_memory_proposals(
+            request,
+            token_data,
+            ingestion_id=x_pkm_ingestion_id,
+            chunk_index=x_pkm_chunk_index,
         )
-    return proposal
+        # An explicit failed-stage signal is not a semantic "nothing to save" decision. Keep the
+        # developer-lab diagnostic contract; product consumers get a retryable failure, not 200.
+        if not proposal.preview_cards and "preview_generation_failed" in (
+            proposal.validation_hints or []
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "PKM_PROPOSAL_UNAVAILABLE",
+                    "message": "That note could not be prepared. Nothing was saved. Please try again.",
+                },
+            )
+        status_code = 200
+        return proposal
+    except HTTPException as exc:
+        status_code = exc.status_code
+        error_code = exc.detail.get("code") if isinstance(exc.detail, dict) else None
+        raise
+    except Exception:
+        status_code = 500
+        raise
+    finally:
+        # One content-free line per attempt, after this route's own 503 decision.
+        logger.info(
+            MEMORY_PROPOSAL_OUTCOME_LOG,
+            *memory_proposal_outcome_args(
+                route="hub",
+                request=request,
+                status_code=status_code,
+                response=proposal,
+                error_code=error_code,
+                chunk_index=x_pkm_chunk_index,
+                started_at=started_at,
+            ),
+        )
 
 
 @router.post("/agent-lab/structure", response_model=PKMAgentLabStructureResponse)

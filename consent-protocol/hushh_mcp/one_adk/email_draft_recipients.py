@@ -1,4 +1,4 @@
-"""Recipients and send readiness for One's typed-chat Gmail draft.
+"""Recipients for One's typed-chat Gmail draft (send readiness: email_draft_readiness).
 
 One decides that the person wants to email someone and passes the addresses
 and names it heard. This module only validates addresses with the Gmail
@@ -16,8 +16,11 @@ closest name, and several names ask which one. Where repeating a name could not
 single the connection out (several share one name under the spoken-name rule,
 one has no name to show, or the name as said is one's whole name and part of
 another's), One asks for the email address instead. Refusals name the person as
-said and never carry an email address. Send readiness is advisory: prepare
-stays the authority when the owner taps Send.
+said and never carry an email address. A To question between several
+connections also carries opaque choice refs, so "both" or "all" can address the
+ones the owner picked; a ref is checked by recomputing it over the owner's
+current connections, never stored, and refs never single out one of several
+connections that share a name.
 """
 
 from __future__ import annotations
@@ -26,11 +29,11 @@ import asyncio
 import logging
 import unicodedata
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
+from hushh_mcp.one_adk.email_draft_choices import CHOICES_TAIL, choice_ref, parse_choice_refs
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, normalize_draft
-from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
 from hushh_mcp.services.spoken_name_resolver import (
     normalize_spoken_name,
     resolve_spoken_names,
@@ -38,15 +41,6 @@ from hushh_mcp.services.spoken_name_resolver import (
 )
 
 logger = logging.getLogger(__name__)
-
-GmailSendReadiness = Literal[
-    "ready",
-    "connect_required",
-    "reconnect_required",
-    "send_permission_required",
-    "send_disabled",
-    "unknown",
-]
 
 # The delivery path's own limit (normalize_draft refuses more than 50), so a
 # draft One addresses can always be prepared.
@@ -61,11 +55,6 @@ _UNNAMED_CONNECTION = "Hussh member"
 # ria_claim_service). A masked value is never a real destination.
 _MASK_CHARACTERS = frozenset("*•…")
 _ROLE_LABELS = {"to": "To", "cc": "Cc", "bcc": "Bcc"}
-_READINESS_BY_CODE: dict[str, GmailSendReadiness] = {
-    "GMAIL_NOT_CONNECTED": "connect_required",
-    "GMAIL_SEND_PERMISSION_REQUIRED": "send_permission_required",
-    "GMAIL_SEND_DISABLED": "send_disabled",
-}
 
 
 @dataclass(frozen=True)
@@ -257,8 +246,58 @@ def _choice_message(candidates: list[dict[str, Any]], names: list[str], name: st
     return f"{question}."
 
 
-def _match_one(rows: list[dict[str, Any]], name: str) -> _Match | dict[str, Any]:
-    candidates = _one_per_mailbox(_broad_matches(rows, name), name)
+def _addressed(row: dict[str, Any], name: str) -> _Match | dict[str, Any]:
+    address = _usable_address(row.get("email"))
+    if address is not None:
+        return _Match(address, _shown_name(row))
+    display_name = _shown_name(row)
+    return _refusal(
+        "recipient_email_unavailable",
+        f"{display_name} has no usable email address. Ask for their email address.",
+        reason="no_email",
+        name=name,
+        display_name=display_name,
+    )
+
+
+def _match_ref(
+    owner: str, rows: list[dict[str, Any]], ref: str, refs: list[str]
+) -> _Match | dict[str, Any]:
+    row = next((row for row in rows if choice_ref(owner, row) == ref), None)
+    if row is None:
+        return _refusal(
+            "recipient_choice_expired",
+            "That person is no longer one of their connections. Ask again who they mean.",
+            reason="choice_expired",
+        )
+    shown, address = _shown_name(row), _usable_address(row.get("email"))
+    # Picking one of several connections that share a name is a guess: refs
+    # address all of them ("both", "all"), and one of them needs its address.
+    same = [
+        peer
+        for peer in rows
+        if normalize_spoken_name(_shown_name(peer)) == normalize_spoken_name(shown)
+    ]
+    peers = [
+        peer
+        for peer in _one_per_mailbox(same, shown)
+        if _usable_address(peer.get("email")) != address
+    ]
+    if any(choice_ref(owner, peer) not in refs for peer in peers):
+        return _refusal(
+            "recipient_choice_needed",
+            f"{len(peers) + 1} connections are named {shown}. "
+            "Ask for the email address of the one they mean.",
+            reason="choice_needed",
+            name=shown,
+            candidates=[shown],
+        )
+    return _addressed(row, shown)
+
+
+def _match_one(
+    owner: str, name: str, candidates: list[dict[str, Any]], offer_choices: bool
+) -> _Match | dict[str, Any]:
     if not candidates:
         return _refusal(
             "recipient_not_found",
@@ -270,40 +309,50 @@ def _match_one(rows: list[dict[str, Any]], name: str) -> _Match | dict[str, Any]
         # The host never picks: a partial or misspelled match, or several, is a question.
         # The message speaks only of the names One is shown.
         names = _distinct_names(candidates)[:_MAX_CANDIDATES]
+        message, extra = _choice_message(candidates, names, name), {}
+        if offer_choices and 1 < len(candidates) <= _MAX_CANDIDATES:
+            # Every candidate, in the order asked about, so "both" or "all" can be
+            # said. Refs address To only, so a Cc or Bcc name never gets them.
+            extra["choices"] = [
+                {"ref": choice_ref(owner, row), "name": _shown_name(row)} for row in candidates
+            ]
+            message += CHOICES_TAIL
         return _refusal(
             "recipient_choice_needed",
-            _choice_message(candidates, names, name),
+            message,
             reason="choice_needed",
             name=name,
             candidates=names,
+            **extra,
         )
-    row = candidates[0]
-    address = _usable_address(row.get("email"))
-    if address is None:
-        display_name = _shown_name(row)
-        return _refusal(
-            "recipient_email_unavailable",
-            f"{display_name} has no usable email address. Ask for their email address.",
-            reason="no_email",
-            name=name,
-            display_name=display_name,
-        )
-    return _Match(address, _shown_name(row))
+    return _addressed(candidates[0], name)
 
 
-def _match_names(owner: str, names: list[str]) -> list[_Match] | dict[str, Any]:
-    """Read the owner's active connections once; the first problem wins."""
+def _match_names(
+    owner: str, names: list[str], refs: list[str], choosable: set[str]
+) -> list[_Match | None] | dict[str, Any]:
+    """Read the owner's active connections once; the first problem wins.
+
+    A To name whose question the chosen refs answer maps to None: its people
+    come from the refs, so it is never asked again.
+    """
     rows = ConnectionsService().list_connections(owner)
-    matches: list[_Match] = []
+    outcomes: list[_Match | None | dict[str, Any]] = []
     for name in names:
-        outcome = _match_one(rows, name)
+        candidates = _one_per_mailbox(_broad_matches(rows, name), name)
+        offer = name in choosable
+        answered = offer and any(choice_ref(owner, row) in refs for row in candidates)
+        outcomes.append(None if answered else _match_one(owner, name, candidates, offer))
+    outcomes += [_match_ref(owner, rows, ref, refs) for ref in refs]
+    for outcome in outcomes:
         if isinstance(outcome, dict):
             return outcome
-        matches.append(outcome)
-    return matches
+    return [outcome for outcome in outcomes if not isinstance(outcome, dict)]
 
 
-async def _resolve_names(user_id: str, names: list[str]) -> list[_Match] | dict[str, Any]:
+async def _resolve_names(
+    user_id: str, names: list[str], refs: list[str], choosable: set[str]
+) -> list[_Match | None] | dict[str, Any]:
     unavailable = {
         "status": "recipient_lookup_unavailable",
         "message": "Connections couldn't be checked right now. "
@@ -314,7 +363,7 @@ async def _resolve_names(user_id: str, names: list[str]) -> list[_Match] | dict[
         return unavailable
     try:
         # Matching is CPU work over every connection, so it shares the thread.
-        return await asyncio.to_thread(_match_names, owner, names)
+        return await asyncio.to_thread(_match_names, owner, names, refs, choosable)
     except Exception as exc:  # noqa: BLE001 - a failed lookup is a refusal, never a guess
         logger.warning(
             "one.email_draft.recipients outcome=lookup_failed error=%s", type(exc).__name__
@@ -322,7 +371,7 @@ async def _resolve_names(user_id: str, names: list[str]) -> list[_Match] | dict[
         return unavailable
 
 
-def _envelope(entries: list[_Entry], by_name: dict[str, _Match]) -> dict[str, Any]:
+def _envelope(entries: list[_Entry], by_name: dict[str, _Match | None]) -> dict[str, Any]:
     """Join each role in order. A mailbox stays only in the first role it reaches."""
     fields: dict[str, list[str]] = {"to": [], "cc": [], "bcc": []}
     landed: dict[str, str] = {}
@@ -331,8 +380,9 @@ def _envelope(entries: list[_Entry], by_name: dict[str, _Match]) -> dict[str, An
     for entry in entries:
         if entry.address is not None:
             address, text, display_name = entry.address, entry.text, ""
+        elif (match := by_name[entry.text]) is None:
+            continue  # A name its chosen refs answered.
         else:
-            match = by_name[entry.text]
             address, text, display_name = match.address, match.address, match.display_name
         if address not in landed:
             landed[address] = entry.role
@@ -360,16 +410,18 @@ async def resolve_draft_recipients(
     bcc: str = "",
     recipient_names: str = "",
     cc_names: str = "",
+    recipient_choices: str = "",
 ) -> dict[str, Any]:
     """Validate supplied addresses and match names to the owner's active connections.
 
     ``to``/``cc``/``bcc`` split on commas and semicolons. A token with "@" is
     an address, validated by the delivery normalizer and kept as supplied; any
     other token is a name for that role. ``recipient_names`` adds names for To
-    and ``cc_names`` for Cc. Connections are read once, and only when there
-    are names. A name resolves only to the one connection it matches whole
-    (see the module docstring). Every outcome carries ``status``; every
-    refusal a ``message``:
+    and ``cc_names`` for Cc; ``recipient_choices`` adds comma-separated choice
+    refs for To. Connections are read once, and only when there are names or
+    refs. A name resolves only to the one connection it matches whole (see the
+    module docstring). Every outcome carries ``status``; every refusal a
+    ``message``:
 
     - ``ok``: ``to``, ``cc``, ``bcc`` (", "-joined, each mailbox once in its
       first role) and ``recipients``, one ``{name, role}`` per connection
@@ -379,19 +431,31 @@ async def resolve_draft_recipients(
       ``MAX_RECIPIENT_FIELD_LENGTH``.
     - ``recipient_choice_needed`` (``name``, ``candidates``: up to four
       display names, distinct under the spoken-name rule, whole-word matches
-      first),
+      first; ``choices``: a ``{ref, name}`` per connection when two to four
+      match),
       ``recipient_not_found`` (``name``), ``recipient_email_unavailable``
-      (``name``, ``display_name``), first problem in To, Cc, Bcc order.
+      (``name``, ``display_name``), first problem in To, Cc, Bcc order, then
+      refs; ``recipient_choice_expired`` for a ref that is not one of their
+      current connections.
     - ``recipient_lookup_unavailable`` when connections can't be read.
     """
     fields = (("to", to), ("to", recipient_names), ("cc", cc), ("cc", cc_names), ("bcc", bcc))
-    if any(not isinstance(raw, str) for _, raw in fields):
+    if any(not isinstance(raw, str) for _, raw in (*fields, ("to", recipient_choices))):
         return _refusal(
             "invalid_recipient", "Recipients must be plain text.", reason="invalid_type"
+        )
+    refs = parse_choice_refs(recipient_choices)
+    if refs is None:
+        return _refusal(
+            "invalid_recipient",
+            "A choice isn't valid. Ask again who they mean.",
+            reason="bad_choice",
         )
     parsed = _parse(fields)
     if isinstance(parsed, dict):
         return parsed
+    choosable = {entry.text for entry in parsed if entry.address is None and entry.role == "to"}
+    parsed = [*parsed, *(_Entry("to", ref) for ref in refs)]
     distinct = {entry.address or normalize_spoken_name(entry.text) for entry in parsed}
     if len(distinct) > MAX_DRAFT_RECIPIENTS:
         return _refusal(
@@ -399,53 +463,18 @@ async def resolve_draft_recipients(
             f"An email can have at most {MAX_DRAFT_RECIPIENTS} recipients. Ask which ones to keep.",
             reason="too_many",
         )
-    names = list(dict.fromkeys(entry.text for entry in parsed if entry.address is None))
-    if not names:
+    names = list(
+        dict.fromkeys(
+            entry.text for entry in parsed if entry.address is None and entry.text not in refs
+        )
+    )
+    if not names and not refs:
         return _envelope(parsed, {})
-    outcome = await _resolve_names(user_id, names)
+    outcome = await _resolve_names(user_id, names, refs, choosable)
     if isinstance(outcome, dict):
         return outcome
-    envelope = _envelope(parsed, dict(zip(names, outcome, strict=True)))
+    envelope = _envelope(parsed, dict(zip([*names, *refs], outcome, strict=True)))
     if envelope["status"] == "ok":
-        logger.info("one.email_draft.recipients outcome=ok named=%d", len(outcome))
+        named = sum(match is not None for match in outcome)
+        logger.info("one.email_draft.recipients outcome=ok named=%d", named)
     return envelope
-
-
-async def _send_readiness(owner: str) -> GmailSendReadiness:
-    service = get_gmail_receipts_service()
-    try:
-        await service.assert_send_ready(user_id=owner)
-    except GmailApiError as exc:
-        code = str(exc.code or "")
-        # Admission reports a connection that needs re-authorisation as not
-        # connected; the status read tells it apart from no connection at all.
-        if code == "GMAIL_NOT_CONNECTED":
-            status = await service.get_status(user_id=owner)
-            if status.get("connection_state") == "needs_reauth":
-                return "reconnect_required"
-        return _READINESS_BY_CODE.get(code, "unknown")
-    return "ready"
-
-
-async def gmail_send_readiness(user_id: str, *, timeout_seconds: float = 2.5) -> GmailSendReadiness:
-    """Advisory Gmail send state from DB-only reads that share one time budget.
-
-    The admission check runs first; only when it reports Gmail not connected
-    does a status read separate ``reconnect_required`` from
-    ``connect_required``. Neither read calls Google or refreshes or returns a
-    token. Never raises: any failure other than a known admission code,
-    including the timeout, is ``unknown``.
-    """
-    owner = str(user_id or "").strip()
-    if not owner:
-        return "unknown"
-    readiness = asyncio.ensure_future(_send_readiness(owner))
-    try:
-        # Shielded, the budget holds even when a read defers cancellation: the
-        # status read's account check finishes its database call first.
-        return await asyncio.wait_for(asyncio.shield(readiness), timeout=timeout_seconds)
-    except Exception as exc:  # noqa: BLE001 - advisory readiness never blocks a draft
-        logger.warning("one.gmail_send_readiness outcome=unknown error=%s", type(exc).__name__)
-        return "unknown"
-    finally:
-        readiness.cancel()

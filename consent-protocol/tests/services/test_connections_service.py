@@ -19,6 +19,48 @@ def _svc():
     return ConnectionsService.__new__(ConnectionsService)
 
 
+def test_mutual_list_requires_visible_target_and_projects_only_public_identity():
+    service = _svc()
+    service._execute_one = lambda sql, params: {"user_id": "target"}
+    service._execute_many = lambda sql, params: [{"mutual_count": 2}]
+    service._directory_profiles = lambda viewer, ids: [
+        {"userId": "target", "displayName": "Target"}
+    ]
+    with patch(
+        "hushh_mcp.services.one_location_agent_service.OneLocationAgentService"
+    ) as directory:
+        directory.return_value.search_directory_candidates.return_value = {
+            "items": [
+                {
+                    "userId": "internal-peer",
+                    "publicPersonRef": "public-peer",
+                    "displayName": "Peer",
+                    "photoUrl": None,
+                    "email": "private@example.test",
+                }
+            ],
+            "page": 1,
+            "hasMore": False,
+        }
+        result = service.list_mutual_connections_page("viewer", person_ref="public-target")
+        directory.return_value.search_directory_candidates.assert_called_once_with(
+            owner_user_id="viewer",
+            mutual_target_user_id="target",
+            page=1,
+            limit=20,
+        )
+        assert result["items"] == [
+            {"publicPersonRef": "public-peer", "displayName": "Peer", "photoUrl": None}
+        ]
+        assert result["totalCount"] == 2
+        service._directory_profiles = lambda viewer, ids: []
+        with pytest.raises(ConnectionsError, match="unavailable"):
+            service.list_mutual_connections_page("viewer", person_ref="public-target")
+        service._execute_one = lambda sql, params: {"user_id": "viewer"}
+        with pytest.raises(ConnectionsError, match="unavailable"):
+            service.list_mutual_connections_page("viewer", person_ref="viewer-ref")
+
+
 def test_unavailable_scope_authority_returns_retryable_error_not_empty_catalog():
     from unittest.mock import AsyncMock
 

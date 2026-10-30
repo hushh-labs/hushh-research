@@ -11,12 +11,18 @@ import asyncio
 import hashlib
 import json
 import time
+from collections.abc import Callable
 from functools import partial
 from typing import Literal
 
 
 class ActivityPlannerContractError(AssertionError):
     """A generated plan failed an authored, synthetic semantic requirement."""
+
+    def __init__(self, reason: str, *, case: str | None = None, leg: str | None = None) -> None:
+        super().__init__(reason)
+        self.case = case
+        self.leg = leg
 
 
 def _probe_event(case, stage, result, **metrics):
@@ -51,10 +57,31 @@ def _planner_prompt(purpose):
     )
 
 
-def _require(case, condition, reason):
+def _require(case, condition, reason, leg=None):
     if not condition:
-        _probe_event(case, "grade", "failed", reason=reason)
-        raise ActivityPlannerContractError(reason)
+        detail = {"leg": leg} if leg else {}
+        _probe_event(case, "grade", "failed", reason=reason, **detail)
+        raise ActivityPlannerContractError(reason, case=case, leg=leg)
+
+
+def _core_entity_leg(clause):
+    """Name a clause's nearest miss; None only when one entity meets every requirement.
+
+    The reason stays one stable code; the leg says which requirement every
+    candidate entity missed, so variance can be traced to its cause.
+    """
+    entities = [p for p in clause.predicates if p.kind == "entity"]
+    if not entities:
+        return "entity_missing"
+    core = [p for p in entities if set(p.value.casefold().split()) == {"cedar", "vale"}]
+    if not core:
+        return "tokens_mismatch"
+    tokens = [p for p in core if p.match == "token"]
+    if not tokens:
+        return "match_not_token"
+    if not any(p.sparse_fallback_any_token for p in tokens):
+        return "fallback_missing"
+    return None
 
 
 def grade_plan(plan, case):
@@ -80,16 +107,8 @@ def grade_plan(plan, case):
                 any(p.kind in {"semantic", "content"} and not p.negated for p in clause.predicates),
                 "clause_concept_missing",
             )
-            require(
-                any(
-                    p.kind == "entity"
-                    and p.match == "token"
-                    and set(p.value.casefold().split()) == {"cedar", "vale"}
-                    and p.sparse_fallback_any_token
-                    for p in clause.predicates
-                ),
-                "clause_core_entity_or_sparse_fallback_missing",
-            )
+            leg = _core_entity_leg(clause)
+            require(leg is None, "clause_core_entity_or_sparse_fallback_missing", leg)
         require(
             not any("consist" in p.value.casefold().split() for p in predicates),
             "conversational_glue_became_keyword",
@@ -126,7 +145,15 @@ def grade_plan(plan, case):
 
 async def probe_drive_activity_planner(
     provider: Literal["azure_openai", "vertex"] = "azure_openai",
+    *,
+    case_ids: list[str] | None = None,
+    token_supplier: Callable[[], str] | None = None,
 ):
+    """Run the manifest's planner cases; the defaults are the UAT exam's behaviour.
+
+    Only the trusted pre-merge exam passes `case_ids` (its affected cases) and
+    `token_supplier` (its probe-only identity on the same deployment and grader).
+    """
     from hushh_mcp.runtime_providers.managed_text import build_managed_text_model
     from hushh_mcp.services.drive_suggestion_service import (
         interpret_semantic_live_search,
@@ -136,17 +163,17 @@ async def probe_drive_activity_planner(
     async def synthetic_authority():
         return None  # Authored fictional text only; no owner state or tools.
 
+    from scripts.readiness_exam_manifest import load_manifest, planner_cases
+
+    update: dict[str, object] = {"allow_fallback": False}
+    if token_supplier is not None:
+        update["token_supplier"] = token_supplier
     model = build_managed_text_model(
         scope="drive_document_requests", require_current=synthetic_authority, provider=provider
-    ).model_copy(update={"allow_fallback": False})
+    ).model_copy(update=update)
     rows = []
-    for case, purpose in (
-        ("ordinary", "resume consist Cedar Rowan Vale"),
-        (
-            "explicit",
-            'Filename exactly "Research Charter.pdf", exclude drafts. Created only within the selected period.',
-        ),
-    ):
+    # The readiness exam manifest is the single source of these case inputs.
+    for case, purpose in planner_cases(load_manifest(), case_ids):
         started = time.monotonic()
         _probe_event(case, "planner", "started")
         try:

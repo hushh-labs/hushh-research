@@ -127,7 +127,7 @@ a normal UAT catch-up before retrying this service-only lane.
 
 ### 5. Dispatch only the requested environment
 
-Curated UAT requires protected source history and exact-application Dev acceptance.
+Curated UAT requires protected source history and exact-source CI or retained Dev acceptance.
 Production retains that application's UAT receipt. A distinct `main_approval_sha`
 must incorporate the application with an identical Git tree and Main smoke;
 see the [promotion contract](../../../../docs/reference/operations/branch-governance.md#dev--uat-branch-preparation).

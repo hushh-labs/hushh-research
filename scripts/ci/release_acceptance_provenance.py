@@ -169,3 +169,20 @@ def required_checks(release: dict, environment: str) -> dict:
             ),
         },
     }
+
+
+def validate_uat_ci_predecessor(prior: dict, sha: str, services: set[str]) -> None:
+    """Validate the typed direct-CI predecessor without consulting today's branch tips."""
+    require(
+        prior.get("schema_version") == 1 and prior.get("kind") == "uat-exact-ci"
+        and prior.get("status") == "accepted" and prior.get("environment") == "uat"
+        and prior.get("repository") == "hushh-labs/hushh-research" and prior.get("sha") == sha
+        and all(isinstance(prior.get(field), str) and re.fullmatch(r"[a-f0-9]{40}", prior[field])
+                for field in ("sha", "tree", "base_sha", "authority_sha"))
+        and all(type(prior.get(field)) is int and prior[field] > 0 for field in ("run_id", "run_attempt"))
+        and isinstance(prior.get("services"), list)
+        and len(set(prior["services"])) == len(prior["services"])
+        and set(prior["services"]) <= {"backend", "frontend"}
+        and services <= set(prior["services"]),
+        "Exact UAT CI predecessor is missing or inconsistent",
+    )

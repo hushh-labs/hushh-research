@@ -49,6 +49,14 @@ export interface DirectoryPage {
   audience?: DirectoryAudience;
 }
 
+export interface MutualConnectionsPage {
+  person: { publicPersonRef: string; displayName: string | null };
+  items: { publicPersonRef: string; displayName: string | null; photoUrl: string | null }[];
+  page: number;
+  hasMore: boolean;
+  totalCount: number;
+}
+
 export type ConnectionPersonContext = {
   person: DirectoryPerson;
   request: { id: string; direction: "incoming" | "outgoing"; status: string } | null;
@@ -272,6 +280,13 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
 }
 
 export class ConnectionsService {
+  static async listMutualConnections(opts: { idToken: string; personRef: string; page: number; signal?: AbortSignal }): Promise<MutualConnectionsPage> {
+    const params = new URLSearchParams({ person_ref: opts.personRef, page: String(opts.page), limit: "20" });
+    const response = await ApiService.apiFetch(`/api/one/connections/mutuals?${params}`, {
+      method: "GET", headers: authHeaders(opts.idToken), signal: opts.signal,
+    });
+    return jsonOrThrow<MutualConnectionsPage>(response);
+  }
   static async getPersonContext(opts: { idToken: string; counterpartUserId: string }): Promise<ConnectionPersonContext> {
     const response = await ApiService.apiFetch(`/api/one/connections/${encodeURIComponent(opts.counterpartUserId)}/context`,
       { method: "GET", headers: authHeaders(opts.idToken) });

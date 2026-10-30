@@ -17,7 +17,8 @@ import wave
 
 from google.genai import types
 
-from scripts.capability_probe_failure import failure_reason, settle_recording
+from scripts.capability_check import run_capability
+from scripts.capability_probe_failure import settle_recording
 from scripts.managed_probe_media import _pdf, _png, _wav16
 from scripts.probe_vertex_research import probe_vertex_research as _probe_vertex_research
 
@@ -167,7 +168,6 @@ async def probe_managed_capabilities(provider: str, *, deadline: float | None = 
     from hushh_mcp.constants import GEMINI_MODEL
     from hushh_mcp.managed_ai_config import PROFILE_PATH, load_managed_runtime_policy, profile_hash
     from hushh_mcp.runtime_providers import build_managed_runtime_client
-    from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
 
     policy = load_managed_runtime_policy()
     if policy is None or policy["provider"] != provider:
@@ -186,33 +186,7 @@ async def probe_managed_capabilities(provider: str, *, deadline: float | None = 
     audio: dict[str, bytes] = {}
 
     async def check(name, operation):
-        at = time.monotonic()
-        dispatched = False
-        try:
-            remaining = 65 if deadline is None else min(65, max(0, deadline - at))
-            if remaining <= 0:
-                raise TimeoutError("Capability was not dispatched before the probe deadline")
-            dispatched = True
-            async with asyncio.timeout(remaining):
-                result = await operation()
-            report["capabilities"][name] = {
-                "ready": True,
-                "elapsed_ms": round((time.monotonic() - at) * 1000),
-                **(result or {}),
-            }
-        except Exception as error:
-            report["capabilities"][name] = {
-                "ready": False,
-                "elapsed_ms": round((time.monotonic() - at) * 1000),
-                "error_type": type(error).__name__,
-                "classification": classify_provider_error(error),
-                "failure_reason": failure_reason(name, error),
-                "dispatched": dispatched,
-            }
-        print(
-            json.dumps({"managed_capability_check": name, **report["capabilities"][name]}),
-            flush=True,
-        )
+        await run_capability(report, name, operation, deadline=deadline)
 
     async def generated(parts, field, expected, allowed):
         response = await client.aio.models.generate_content(

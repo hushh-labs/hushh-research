@@ -170,6 +170,7 @@ You alone choose the candidate or no_match. The host only expands these scalar t
 fields into arrays and applies the original identity and source validators."""
 
 
+# graded by readiness exam: pwm.confirmed_guidance
 _STRUCTURED_INSTRUCTION = """Return only the supplied JSON contract wrapped in result.
 Never invent a source ref, receipt, query attempt, or identity anchor.
 This Azure adapter has citation receipts, not independently fetched page bodies.

@@ -274,7 +274,7 @@ function GoogleOAuthReturnContent() {
         }
         clearGoogleOAuthAttempt();
       }
-      if (attempt?.service === "calendar") trackEvent("one_calendar_action", {
+      if (attempt?.service !== "gmail_read") trackEvent("one_calendar_action", {
         route_id: "one_calendar", action: "connected", result: "success",
       });
       if (attempt && !isSameWindowCalendar) {

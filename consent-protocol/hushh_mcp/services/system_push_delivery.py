@@ -473,7 +473,7 @@ def _followup_freshness(event: dict) -> str:
         verify_pending_push_source,
     )
 
-    return asyncio.run(
+    return asyncio.run(  # type: ignore[no-any-return]
         verify_pending_push_source(
             user_id=event["recipient_user_id"],
             request_id=str(event["source_id"]),

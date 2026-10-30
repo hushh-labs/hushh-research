@@ -2043,7 +2043,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             # authority. Ordinary ticks retain the quiet due check.
             for line in text.splitlines():
                 if "--force-inspection" in line:
-                    self.assertRegex(line.strip(), r'^if \[\[ "\$CAPACITY_BRIDGE" = true(?: \|\| -n "\$\{OPERATIONAL_RUN_ID:-\}\$\{STAGED_WORKER_RUN_ID:-\}")? \]\]; then flags(?:=|\+=)\(--force-inspection(?: --production-capacity-bridge)?\); fi$')
+                    self.assertRegex(line.strip(), r'^if \[\[ "\$GITHUB_EVENT_NAME" = workflow_dispatch \]\]; then flags(?:=|\+=)\(--force-inspection\); fi$')
             self.assertIn('"$OPERATIONAL_RUN_ID" =~ ^[1-9][0-9]*$ && "$OPERATIONAL_ATTEMPT" =~ ^[1-9][0-9]*$', text)
             self.assertIn('[[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$APPLY" = true ]] || exit 1', text)
             concurrency = text.split("\nconcurrency:\n", 1)[1].split(
@@ -2731,7 +2731,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                         checkpoint = json.loads((state_dir / "completed.json").read_text())
                         self.assertEqual(checkpoint["pass_status"], "in_progress")
                     self.assertEqual(
-                        output.read_text(), ("checkpoint_ready=true\n" if release else "") + "cleanup_outcome=no_live_source\n"
+                        output.read_text(), ("checkpoint_ready=true\n" * 2 if release else "") + "cleanup_outcome=no_live_source\n"
                     )
 
     def test_release_workflow_cannot_reintroduce_inline_retention(self):
@@ -3162,11 +3162,9 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             self.assertIn("--verify-source-only", check)
             self.assertIn("--release-run-id", check)
             if "--force-inspection" in check:
-                self.assertIn("CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}", check)
-                inspected = 'if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags=(--force-inspection); fi'
+                inspected = 'if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi'
                 self.assertIn(inspected, check)
                 self.assertNotIn("--force-inspection", check.replace(inspected, ""))
-                self.assertIn('OPERATIONAL_ATTEMPT: ${{ inputs.operational_backend_proof_attempt }}', check)
             self.assertNotIn("--apply", check)
             for i, step in enumerate(steps):
                 protected = any(
@@ -3202,7 +3200,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 assert_guarded(broken)
             if "--force-inspection" in job:
                 broken = job.replace(
-                    'if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags=(--force-inspection); fi',
+                    'if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi',
                     'if true; then flags=(--force-inspection); fi',
                 )
                 with self.assertRaises(AssertionError):
