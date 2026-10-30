@@ -86,7 +86,7 @@ export function FinanceShareFlow({ open, onOpenChange, model, source, advisorOnl
     prepared.current = null; setPreview(null); setConfig(null); setSelected([]); setPeople([]); setQuery(""); setPage(1);
     setError(null); setBusy(false); setPeopleBusy(false); setStep("edit"); setEditStep("people"); setManage(false); setAccessEnded(false);
     setSelection({ sections: advisorOnly ? ["allocation", "performance", "holdings"] : ["allocation", "performance"], holdingSymbols: [], showAmounts: advisorOnly, note: "" });
-    setAllowModel(false); setMode("snapshot"); setDuration(86400);
+    setAllowModel(false); setMode("snapshot"); setDuration(advisorOnly ? 604800 : 86400);
   }, [session, open, advisorOnly]);
   useEffect(() => {
     if (!open) return;
@@ -113,6 +113,7 @@ export function FinanceShareFlow({ open, onOpenChange, model, source, advisorOnl
     return () => { disposed = true; window.clearTimeout(timer); };
   }, [advisorOnly, capture, open, page, query, ready, session, step]);
   const choices = useMemo(() => [...new Map(model.canonicalModel.positions.filter(p => p.identifierType === "ticker" && p.tickerSymbol).map(p => [p.tickerSymbol, p])).values()], [model]);
+  const allStocksSelected = choices.length > 0 && choices.every(p => selection.holdingSymbols.includes(p.tickerSymbol!));
   const pendingConfirmation = pendingFinanceShare(ready ? capture() : null);
   const availableSteps = sharingSteps.slice(0, !selected.length ? 1 : !selection.sections.length ? 2 : 3);
   const canContinue = editStep === "people" ? selected.length > 0 : selection.sections.length > 0;
@@ -170,7 +171,7 @@ export function FinanceShareFlow({ open, onOpenChange, model, source, advisorOnl
         if (saved.sourceFence !== cfg.sourceFence || JSON.stringify(current) !== JSON.stringify(proposed)) throw new Error("Your saved portfolio changed. Go back and review the updated preview.");
         prepared.current = await FinanceSharingService.prepare(context, cfg, proposed, {
           ...(advisorOnly ? { version: 2 as const, purpose: "verified_ria_review" as const, mode,
-            sections: selection.sections, showAmounts: true as const, model_processing: { version: 1 as const, allowed: false as const }, durationSeconds: mode === "snapshot" ? 604800 as const : null }
+            sections: selection.sections, showAmounts: true as const, model_processing: { version: 1 as const, allowed: false as const }, durationSeconds: mode === "snapshot" ? duration : null }
             : { version: 1 as const, mode, sections: selection.sections, showAmounts: selection.showAmounts,
               model_processing: { version: 1 as const, allowed: allowModel }, durationSeconds: duration }),
         }, selected);
@@ -203,7 +204,7 @@ export function FinanceShareFlow({ open, onOpenChange, model, source, advisorOnl
     </div>
   </section>;
   const modeButtons = <div className={styles.mode}>
-    <button aria-pressed={mode === "snapshot"} onClick={() => { setMode("snapshot"); if (duration === null) setDuration(86400); }}>Snapshot<MaterialRipple variant="none" effect="fade" className="z-10" /></button>
+    <button aria-pressed={mode === "snapshot"} onClick={() => { setMode("snapshot"); if (!advisorOnly && duration === null) setDuration(86400); }}>Snapshot<MaterialRipple variant="none" effect="fade" className="z-10" /></button>
     <button aria-pressed={mode === "ongoing"} onClick={() => setMode("ongoing")}>Real time<MaterialRipple variant="none" effect="fade" className="z-10" /></button>
   </div>;
   return <>
@@ -227,13 +228,14 @@ export function FinanceShareFlow({ open, onOpenChange, model, source, advisorOnl
         {advisorOnly ? <>
           {peopleSection("Advisor")}
           {modeButtons}
+          {mode === "snapshot" ? <label className="block text-sm">Access ends<select className="mt-2 min-h-11 w-full rounded-full border border-input bg-background px-4" value={duration === null ? "until_stopped" : duration} onChange={e => setDuration(e.target.value === "until_stopped" ? null : Number(e.target.value) as FinancePolicy["durationSeconds"])}><option value={86400}>In 1 day</option><option value={604800}>In 7 days</option><option value="until_stopped">Always</option></select></label> : null}
         </> : <>
         <OnboardingStepper steps={sharingSteps.map(item => ({ id: item.value, label: item.label }))} currentIndex={editIndex} showLabel={false} ariaLabel="Sharing steps" />
         <SwipeViews options={availableSteps} tabSetId={tabSetId} activeValue={editStep} disabled={busy || !ready || Boolean(pendingConfirmation)} onSelectionChange={value => { if (!inFlight.current && availableSteps.some(item => item.value === value)) changeEditStep(value as EditStep); }} viewportMinHeight="0px" className={styles.pager}>
         {peopleSection("Who can see it?", `top-shell-${tabSetId}-tab-people`, peopleHeading)}
         <section className={`${styles.group} ${styles.optionGroup}`}><SectionLabel id={`top-shell-${tabSetId}-tab-sections`} ref={optionsHeading} tabIndex={-1} role="heading" aria-level={2} className={styles.heading}>What do you want to share?</SectionLabel><div className={styles.optionBody}>
           {financeSections.map(section => <label className={styles.choice} key={section}><input type="checkbox" checked={selection.sections.includes(section)} onChange={e => chooseSection(section, e.target.checked)} /><span>{sectionLabel[section]}</span></label>)}
-          {selection.sections.includes("holdings") ? <fieldset className="motion-step-enter mt-3 border-t border-border pt-3"><legend className={styles.caption}>Choose stocks</legend>{choices.map(p => <label key={p.id} className={styles.choice}><input type="checkbox" checked={selection.holdingSymbols.includes(p.tickerSymbol!)} onChange={e => setSelection(s => ({ ...s, holdingSymbols: e.target.checked ? [...s.holdingSymbols, p.tickerSymbol!] : s.holdingSymbols.filter(v => v !== p.tickerSymbol) }))} /><span>{p.tickerSymbol}<small>{p.name}</small></span></label>)}</fieldset> : null}
+          {selection.sections.includes("holdings") ? <fieldset className="motion-step-enter mt-3 border-t border-border pt-3"><legend className={styles.caption}>Choose stocks</legend><ShellActionSurface variant="pill" className="mb-2 min-h-9" onClick={() => setSelection(s => ({ ...s, holdingSymbols: allStocksSelected ? [] : choices.map(p => p.tickerSymbol!) }))}>{allStocksSelected ? "Clear all" : "Select all"}</ShellActionSurface>{choices.map(p => <label key={p.id} className={styles.choice}><input type="checkbox" checked={selection.holdingSymbols.includes(p.tickerSymbol!)} onChange={e => setSelection(s => ({ ...s, holdingSymbols: e.target.checked ? [...s.holdingSymbols, p.tickerSymbol!] : s.holdingSymbols.filter(v => v !== p.tickerSymbol) }))} /><span>{p.tickerSymbol}<small>{p.name}</small></span></label>)}</fieldset> : null}
           {selection.sections.includes("note") ? <label className="motion-step-enter mt-3 block text-sm">Your note<Textarea className="mt-2" value={selection.note} maxLength={1000} placeholder="Add context for your connection" onChange={e => setSelection(s => ({ ...s, note: e.target.value }))} /></label> : null}
         </div></section>
         <section className={`${styles.group} ${styles.optionGroup}`}><SectionLabel id={`top-shell-${tabSetId}-tab-access`} ref={accessHeading} tabIndex={-1} role="heading" aria-level={2} className={styles.heading}>Access</SectionLabel><div className={styles.optionBody}>
