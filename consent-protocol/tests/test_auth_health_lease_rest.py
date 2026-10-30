@@ -37,6 +37,8 @@ def install_lease_http(monkeypatch, module, metadata_responses, storage_response
 
         def read(self, limit):
             self.read_limits.append(limit)
+            if isinstance(self.body, BaseException):
+                raise self.body
             return self.body[:limit]
 
     def connection_type(kind):
@@ -58,7 +60,10 @@ def install_lease_http(monkeypatch, module, metadata_responses, storage_response
                         "headers": headers or {},
                     }
                 )
-                status, response_headers, response_body = queues[self.kind].pop(0)
+                response = queues[self.kind].pop(0)
+                if isinstance(response, BaseException):
+                    raise response
+                status, response_headers, response_body = response
                 self.response = FakeResponse(status, response_headers, response_body)
                 records["responses"].append(self.response)
 
@@ -257,6 +262,11 @@ def test_cloud_storage_lease_bounds_api_responses_before_reading(monkeypatch):
 
     assert error.value.stage is module.HealthCommandStage.LEASE_READ
     assert error.value.reason is module.BoundedFailureReason.SIZE
+    assert error.value.diagnostic == (
+        "storage_generation",
+        "body_read",
+        None,
+    )
     assert records["responses"][-1].read_limits == []
 
 
@@ -302,6 +312,11 @@ def test_cloud_storage_lease_rejects_unbounded_partial_lease_reads(
 
     assert error.value.stage is module.HealthCommandStage.LEASE_READ
     assert error.value.reason.value == expected_reason
+    assert error.value.diagnostic == (
+        "storage_range",
+        "range_validation",
+        None,
+    )
     assert len([row for row in records["requests"] if row["kind"] == "storage"]) == 2
 
 
@@ -356,6 +371,7 @@ def test_auth_health_job_logs_only_validated_http_status(
                 module.HealthCommandStage.LEASE_READ,
                 module.BoundedFailureReason.UNCLASSIFIED,
                 http_status=status,
+                diagnostic=module.read_diagnostic("storage_generation", "http_status"),
             )
 
         def __exit__(self, *_args):
@@ -368,6 +384,7 @@ def test_auth_health_job_logs_only_validated_http_status(
     assert module.main() == 2
     output = capsys.readouterr()
     assert output.out == (
-        f"Auth health check unavailable; stage=lease_read; reason=unclassified{expected_status}\n"
+        "Auth health check unavailable; stage=lease_read; reason=unclassified"
+        f"{expected_status}; read_step=storage_generation; failure_kind=http_status\n"
     )
     assert "private-provider-error" not in output.out + output.err
