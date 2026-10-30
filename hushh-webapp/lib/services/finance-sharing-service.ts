@@ -128,7 +128,7 @@ export const FinanceSharingService = {
         if (!recipient || seen.has(g.id) || g.ownerUserId !== context.userId || g.requestId !== prepared.requestId
           || g.recipientPersonRef !== recipient.personRef || g.recipientKeyId !== recipient.envelope.recipientKeyId
           || g.direction !== "outgoing" || (g.revision === 1 && g.contentHash !== recipient.contentHash)
-          || (g.revision !== 1 && (g.policy.version !== 1 || g.policy.mode !== "ongoing"))) return true;
+          || (g.revision !== 1 && g.policy.mode !== "ongoing")) return true;
         seen.add(g.id);
         return false;
       }) || items.some(g =>
