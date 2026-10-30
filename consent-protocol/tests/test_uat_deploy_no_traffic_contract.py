@@ -1816,11 +1816,66 @@ def test_production_release_result_fails_closed_on_upstream_or_missing_classific
     assert "UPSTREAM_JOB_STATUS: ${{ job.status }}" in workflow
     assert 'if [ "$UPSTREAM_JOB_STATUS" != "success" ]; then' in workflow
     assert 'if [ "$upstream_failed" = "true" ]' in workflow
-    assert (
-        workflow.count('if [ "${{ steps.classify.outputs.release_failed }}" != "false" ]; then')
-        == 1
+
+    def is_fail_closed(document):
+        steps = document["jobs"]["deploy"]["steps"]
+        status = [step for step in steps if step.get("id") == "release-status"]
+        summary = [step for step in steps if step.get("name") == "Deployment Summary"]
+        failure = [
+            step
+            for step in steps
+            if step.get("name") == "Fail workflow when production release did not end healthy"
+        ]
+        return (
+            len(status) == len(summary) == len(failure) == 1
+            and status[0].get("if") == "env.PHONE_DEPLOY_PHASE != 'cold' && (always())"
+            and status[0].get("run", "").startswith('set -euo pipefail\nSTATUS="blocked"')
+            and 'if [ "${{ steps.classify.outputs.release_failed }}" = "false" ]; then'
+            in status[0].get("run", "")
+            and 'STATUS="healthy"' in status[0].get("run", "")
+            and 'echo "status=$STATUS" >> "$GITHUB_OUTPUT"' in status[0].get("run", "")
+            and "steps.release-status.outputs.status || 'unknown'" in summary[0].get("run", "")
+            and "|| 'unknown'" in summary[0].get("run", "")
+            and failure[0].get("if") == "env.PHONE_DEPLOY_PHASE != 'cold' && (always())"
+            and 'if [ "$STATUS" = pending_activation ]; then' in failure[0].get("run", "")
+            and 'if [ "$STATUS" != "healthy" ]; then' in failure[0].get("run", "")
+            and 'echo "Production release did not end healthy."' in failure[0].get("run", "")
+        )
+
+    assert is_fail_closed(yaml.safe_load(workflow))
+    for mutation in ("inverted_classification", "healthy_default", "inverted_guard"):
+        changed = yaml.safe_load(workflow)
+        status = next(
+            step
+            for step in changed["jobs"]["deploy"]["steps"]
+            if step.get("id") == "release-status"
+        )
+        guard = next(
+            step
+            for step in changed["jobs"]["deploy"]["steps"]
+            if step.get("name") == "Fail workflow when production release did not end healthy"
+        )
+        if mutation == "inverted_classification":
+            status["run"] = status["run"].replace(
+                'outputs.release_failed }}" = "false"',
+                'outputs.release_failed }}" != "false"',
+            )
+        elif mutation == "healthy_default":
+            status["run"] = status["run"].replace('STATUS="blocked"', 'STATUS="healthy"', 1)
+        else:
+            guard["run"] = guard["run"].replace(
+                'if [ "$STATUS" != "healthy" ]; then',
+                'if [ "$STATUS" = "healthy" ]; then',
+            )
+        assert not is_fail_closed(changed)
+    misleading = yaml.safe_load(workflow)
+    summary = next(
+        step
+        for step in misleading["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Deployment Summary"
     )
-    assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
+    summary["run"] = summary["run"].replace("|| 'unknown'", "|| 'healthy'")
+    assert not is_fail_closed(misleading)
 
 
 def test_production_release_verifies_provenance_and_publishes_evidence() -> None:
