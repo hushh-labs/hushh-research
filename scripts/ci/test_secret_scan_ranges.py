@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import ast
+import json
 from pathlib import Path
 import os
 import subprocess
@@ -75,10 +77,7 @@ def verify_merged_feature_commits_stay_in_range() -> None:
 
 
 def verify_public_schema_bound_keeps_secret_detection() -> None:
-    public_bound = (
-        '"string", "Owner approval state, distinct from payment and usable access.", '
-        "maxLength=32\n"
-    )
+    public_bound = (ROOT / "consent-protocol/tests/test_secrets_area.py").read_text()
     # Synthetic credentials stay in process memory; scanner diagnostics are
     # redacted and never emitted. The same file must still detect a real value.
     # Keep this allowlist regression deterministic. Random URL-safe values can
@@ -110,6 +109,175 @@ def verify_public_schema_bound_keeps_secret_detection() -> None:
                 f"public schema bound case {index}: expected scanner exit {expected}, "
                 f"received {result.returncode}"
             )
+
+
+def _scan_source(
+    path: str, contents: str, *, config_path: Path | None = None
+) -> tuple[int, set[str]]:
+    with tempfile.TemporaryDirectory(prefix="gitleaks-source-allowlist-") as temp:
+        root = Path(temp)
+        fixture = root / path
+        fixture.parent.mkdir(parents=True, exist_ok=True)
+        fixture.write_text(contents, encoding="utf-8")
+        report_path = root / "redacted-report.json"
+        result = subprocess.run(
+            [
+                "gitleaks",
+                "dir",
+                "--no-banner",
+                "--redact",
+                "--exit-code",
+                "1",
+                "--config",
+                str(config_path or ROOT / ".gitleaks.toml"),
+                "--report-format",
+                "json",
+                "--report-path",
+                str(report_path),
+                str(root),
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        findings = json.loads(report_path.read_text(encoding="utf-8"))
+        return result.returncode, {str(item.get("RuleID", "")) for item in findings}
+
+def _verify_session_source_controls(generic_token):
+    scan = _scan_source
+
+    session_path = "consent-protocol/hushh_mcp/one_voice/session.py"
+
+    session_source = (ROOT / session_path).read_text(encoding="utf-8")
+
+    config_text = (ROOT / ".gitleaks.toml").read_text(encoding="utf-8")
+
+    source_allowlist = (
+        '[[rules.allowlists]]\n'
+        '    description = "Nonliteral VoiceSession keyword expression; '
+        'credential-shaped values in this file remain scanned."\n'
+    )
+
+    if config_text.count(source_allowlist) != 1:
+        raise AssertionError("expected one source-aware VoiceSession exception")
+
+    start = config_text.index(source_allowlist)
+
+    end = config_text.index("\n[[rules.allowlists]]", start + len(source_allowlist))
+
+    with tempfile.TemporaryDirectory(prefix="gitleaks-without-source-exception-") as temp:
+        config_without_source_exception = Path(temp) / ".gitleaks.toml"
+        config_without_source_exception.write_text(
+            config_text[:start] + config_text[end + 1 :], encoding="utf-8"
+        )
+        status, rules = scan(
+            session_path, session_source, config_path=config_without_source_exception
+        )
+
+    if status != 1 or "generic-api-key" not in rules:
+        raise AssertionError("pinned VoiceSession source match was not reproduced")
+
+    if scan(session_path, session_source) != (0, set()):
+        raise AssertionError("exact nonliteral source match was not exempted")
+
+    status, rules = scan(
+        session_path,
+        session_source + f'api_key = "{generic_token}"\n',
+    )
+
+    if status != 1 or "generic-api-key" not in rules:
+        raise AssertionError("quoted credential in the same source path escaped scanning")
+
+def _verify_classifier_source_controls(stripe_token):
+    scan = _scan_source
+
+    classifier_path = "consent-protocol/tests/test_secrets_area.py"
+
+    allowed_classifier = f'SYNTHETIC_STRIPE_TEST_VALUE = "{stripe_token}"\n'
+
+    source_classifier = (ROOT / classifier_path).read_text()
+
+    if "SYNTHETIC_STRIPE_TEST_VALUE" not in source_classifier or stripe_token in source_classifier:
+        raise AssertionError("synthetic Stripe classifier input must not be embedded in source")
+
+    status, rules = scan(classifier_path, source_classifier)
+
+    if status != 0 or rules:
+        raise AssertionError(
+            "named synthetic classifier fixture was not narrowly exempted "
+            f"(exit={status}, rules={sorted(rules)})"
+        )
+
+    status, rules = scan(
+        classifier_path,
+        allowed_classifier + f'separate_value = "{stripe_token}"\n',
+    )
+
+    if status != 1 or "stripe-access-token" not in rules:
+        raise AssertionError("unrelated Stripe-shaped fixture escaped scanning")
+
+    mutated_stripe_token = stripe_token[:-1] + ("1" if stripe_token[-1] == "0" else "0")
+
+    same_line_tree = ast.parse(source_classifier)
+
+    same_line_assignments = [
+        node
+        for node in ast.walk(same_line_tree)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name)
+            and target.id == "SYNTHETIC_STRIPE_TEST_VALUE"
+            for target in node.targets
+        )
+    ]
+
+    if len(same_line_assignments) != 1:
+        raise AssertionError("expected one source fixture assignment to mutate")
+
+    source_assignment = ast.get_source_segment(
+        source_classifier, same_line_assignments[0]
+    )
+
+    if not source_assignment:
+        raise AssertionError("could not locate source fixture assignment")
+
+    replacement_count = source_classifier.count(source_assignment)
+
+    if replacement_count != 1:
+        raise AssertionError("expected exactly one source assignment replacement")
+
+    same_line_mutation = source_classifier.replace(
+        source_assignment,
+        "SYNTHETIC_STRIPE_TEST_VALUE = " + json.dumps(mutated_stripe_token),
+        1,
+    )
+
+    if same_line_mutation == source_classifier or source_assignment in same_line_mutation:
+        raise AssertionError("source assignment was not replaced exactly once")
+
+    if same_line_mutation == source_classifier:
+        raise AssertionError("same-line Stripe source mutation did not change the source")
+
+    status, rules = scan(classifier_path, same_line_mutation)
+
+    if status != 1 or "stripe-access-token" not in rules:
+        raise AssertionError("same-line Stripe right-hand-side mutation was not detected")
+
+def verify_source_aware_allowlists_keep_detection():
+    version = subprocess.run(
+        ["gitleaks", "version"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    if version != "8.24.2":
+        raise AssertionError("source-aware scanner controls require Gitleaks 8.24.2")
+
+    stripe_token = "sk_test_" + "synthetic" + "0" * 16
+
+    generic_token = "".join(format(value, "x") for value in range(16)) * 4
+
+    _verify_session_source_controls(generic_token)
+    _verify_classifier_source_controls(stripe_token)
 
 
 def verify_alert_reader_is_required() -> None:
@@ -236,6 +404,7 @@ def main() -> None:
     verify_ranges_exclude_ancestry_path()
     verify_merged_feature_commits_stay_in_range()
     verify_public_schema_bound_keeps_secret_detection()
+    verify_source_aware_allowlists_keep_detection()
     verify_alert_reader_is_required()
     verify_local_alert_policy()
     print(
