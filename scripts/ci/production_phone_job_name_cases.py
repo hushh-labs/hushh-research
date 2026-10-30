@@ -17,6 +17,18 @@ from production_phone_receipt_fixtures import LeaseFixture
 
 MAINTENANCE = importlib.import_module("uat-retention-maintenance")
 RAW_PRIMARY_NAME = lease.nonproducer.LEGACY_PRIMARY_NAME
+PINNED_PREDECESSOR_SOURCE_SHA = "629ec27cd28d2eeca4ff7fb017cb4389d8338fa8"
+# Exact job-name excerpt from the pinned predecessor workflow. Keep this
+# checkout-depth independent; the reader consumes only these source fields.
+PINNED_PREDECESSOR_JOB_NAME_EXCERPT = """jobs:
+  deploy:
+    name: ${{ inputs.phone_phase == 'activate' && 'Ordinary production deploy (not selected)' || 'Deploy Production Scope' }}
+  complete-phone-activation:
+    name: ${{ inputs.phone_phase == 'activate' && 'Deploy Production Scope' || 'Activation continuation not selected' }}
+"""
+PINNED_PREDECESSOR_JOB_NAME_EXCERPT_SHA256 = (
+    "89917672588150cd5099ecf3e03320ad139ebaa10fc0ae4a60dc59905414fbd9"
+)
 
 
 def legacy_workflow():
@@ -338,14 +350,12 @@ class ProductionPhoneSkippedNameCases:
             )
 
     def test_pinned_predecessor_source_accepts_only_its_two_production_jobs(self):
-        source_sha = "629ec27cd28d2eeca4ff7fb017cb4389d8338fa8"
-        source = subprocess.run(
-            ["git", "show", f"{source_sha}:{lease.WORKFLOW}"],
-            cwd=lease.phone.ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
+        source_sha = PINNED_PREDECESSOR_SOURCE_SHA
+        source = PINNED_PREDECESSOR_JOB_NAME_EXCERPT
+        self.assertEqual(
+            hashlib.sha256(source.encode()).hexdigest(),
+            PINNED_PREDECESSOR_JOB_NAME_EXCERPT_SHA256,
+        )
         old_deploy_expression = (
             "inputs.phone_phase == 'activate' && "
             "'Ordinary production deploy (not selected)' || 'Deploy Production Scope'"
