@@ -312,7 +312,7 @@ EXACT = ("length([?name=='github-readiness-exam' && issuer=='https://token.actio
          "githubusercontent.com' && subject=='repo:hushh-labs/hushh-research:environment:"
          "readiness-exam' && length(audiences) == `1` && audiences[0]=='api://AzureADTokenExchange'])")
 ALLOWED = {"tenantId", "id", "appId", "[0].appId", "[0].id", "[].id", "length(@)", "length(value)",
-           "[?properties.customSubDomainName=='oai-x'].id | [0]", "length([?scope=='/r/oai-x'])",
+           "[?properties.customSubDomainName=='oai-x'].id | [0]", "length([?scope=='/subscriptions/s/resourceGroups/rg-x/providers/Microsoft.CognitiveServices/accounts/acct-x'])",
            "sum([length(passwordCredentials), length(keyCredentials), length(requiredResourceAccess)])",
            "sum([length(passwordCredentials), length(keyCredentials)])", EXACT}
 query = argv[argv.index("--query") + 1] if "--query" in argv else None
@@ -331,7 +331,15 @@ elif line.startswith("account show"): say(state["tenant"])
 elif line.startswith("account list"): say("sub-1")
 elif line.startswith("ad signed-in-user show"): say("admin")
 elif line.startswith("cognitiveservices account list"): say(state["resource"])
-elif line.startswith("cognitiveservices account show"): say("{}")
+elif line.startswith("cognitiveservices account show"):
+    # az 2.91 has no --ids here; it needs a name and a group, in either order or spelling.
+    flag = lambda *names: next((argv[i + 1] for i, a in enumerate(argv[:-1]) if a in names), None)
+    found = flag("--name", "-n"), flag("--resource-group", "-g")
+    if "--ids" in argv or None in found:
+        sys.exit("the following arguments are required: --resource-group/-g, --name/-n")
+    # The id names the account; its subdomain (oai-x) is not its name.
+    if found != ("acct-x", "rg-x"): sys.exit("(ResourceNotFound)")
+    say("{}")
 elif line.startswith("ad app list"):
     say(len(state["apps"]) if query == "length(@)" else app["appId"] if app else "")
 elif line.startswith("ad app create"):
@@ -379,7 +387,7 @@ def run_setup(state: dict) -> tuple[int, list[str]]:
             tool.write_text(f"#!{sys.executable}\n{FAKE_CLOUD}")
             tool.chmod(0o755)
         state_path, log = Path(work, "state.json"), Path(work, "calls.log")
-        state_path.write_text(json.dumps({"tenant": "tenant", "resource": "/r/oai-x", **state}))
+        state_path.write_text(json.dumps({"tenant": "tenant", "resource": "/subscriptions/s/resourceGroups/rg-x/providers/Microsoft.CognitiveServices/accounts/acct-x", **state}))
         env = {
             **os.environ,
             "PATH": f"{bin_dir}:{os.environ['PATH']}",

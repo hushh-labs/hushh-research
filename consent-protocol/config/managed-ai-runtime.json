@@ -13,7 +13,7 @@
         "client_id": "3290830b-a60a-4230-91af-2f15336ccdf0",
         "primary_endpoint": "https://oai-hussh-eee5f876655f1602.openai.azure.com/openai/v1/",
         "phi_endpoint": "https://ankitkumarsingh97593-4165-resour.services.ai.azure.com/openai/v1/",
-        "readiness_exam_client_id": null
+        "readiness_exam_client_id": "73234515-c512-45b9-bd7a-616db21e16c0"
       }
     }
   },
