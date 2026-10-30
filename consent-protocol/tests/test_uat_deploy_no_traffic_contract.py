@@ -2045,8 +2045,9 @@ def _provider_fixture(module, provider, *, document=None):
         "step_exit": 0,
         "capabilities": {},
     }
+    from hushh_mcp.managed_ai_config import load_managed_runtime_policy
+
     policy = document["managed_runtime_uat"]
-    digest = module.fingerprint({"policy": policy, "azure": document["pwm_research_uat"]["azure"]})
     capabilities = _capability_results_fixture(policy)
     if provider == "vertex":
         capabilities["public_source"].update(research_contracts=1, attribution_cases=8)
@@ -2054,9 +2055,9 @@ def _provider_fixture(module, provider, *, document=None):
         "schema": "managed_capabilities_probe.v1",
         "provider": provider,
         "config_fingerprint": expected["config_fingerprint"],
-        "policy_generation": str(
-            uuid5(UUID(policy["policy_id"]), policy["version"] + digest + provider)
-        ),
+        "policy_generation": load_managed_runtime_policy(
+            environment="uat", provider=provider, document=document
+        )["generation"],
         "synthetic_only": True,
         "capabilities": capabilities,
         "ready": True,
@@ -2076,10 +2077,24 @@ def _provider_fixture(module, provider, *, document=None):
     [(True, False), (False, True), (True, True), (False, False)],
 )
 @pytest.mark.parametrize("configured", ["azure_openai", "vertex"])
-def test_provider_release_admission_qualifies_the_configured_provider(azure, vertex, configured):
+@pytest.mark.parametrize("account", ["packaged", "switched"])
+def test_provider_release_admission_qualifies_the_configured_provider(
+    azure, vertex, configured, account
+):
     module = _managed_provider_gate()
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
     document["managed_provider_selection"]["uat"] = configured
+    if account == "switched":
+        # The gate must bind the selected account's identity, never re-derive it.
+        accounts = document["managed_azure_accounts"]
+        accounts["accounts"]["spare"] = {
+            "tenant_id": "11111111-2222-4333-8444-555555555555",
+            "client_id": "66666666-7777-4888-8999-aaaaaaaaaaaa",
+            "primary_endpoint": "https://spare-account.openai.azure.com/openai/v1/",
+            "phi_endpoint": "https://spare-account.services.ai.azure.com/openai/v1/",
+            "readiness_exam_client_id": None,
+        }
+        accounts["selection"]["uat"] = "spare"
     expected, a = _provider_fixture(module, "azure_openai", document=document)
     _, v = _provider_fixture(module, "vertex", document=document)
     result = module.evaluate(

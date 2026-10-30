@@ -25,13 +25,17 @@ PROVIDERS = {"azure_openai", "vertex"}
 PROVIDER_SCOPES = {provider: SCOPES for provider in PROVIDERS}
 
 
-def configured_provider(document):
-    """Use the runtime's pure configuration contract, never a second selector."""
+def _runtime_contract():
     path = ROOT / "consent-protocol/hushh_mcp/managed_ai_config.py"
     spec = importlib.util.spec_from_file_location("managed_ai_contract", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.configured_managed_provider("uat", document=document)
+    return module
+
+
+def configured_provider(document):
+    """Use the runtime's pure configuration contract, never a second selector."""
+    return _runtime_contract().configured_managed_provider("uat", document=document)
 
 
 @cache
@@ -178,13 +182,10 @@ def valid_pwm_proof(proof, document):
 
 
 def valid_capabilities(proof, provider, expected, document):
-    policy = document["managed_runtime_uat"]
-    digest = fingerprint(
-        {"policy": policy, "azure": document["pwm_research_uat"]["azure"]}
-    )
-    generation = str(
-        uuid5(UUID(policy["policy_id"]), policy["version"] + digest + provider)
-    )
+    # The runtime contract resolves the selected Azure account; never re-derive it.
+    generation = _runtime_contract().load_managed_runtime_policy(
+        environment="uat", provider=provider, document=document
+    )["generation"]
     return _capability_proof().valid_capabilities(
         proof, provider, expected, document, generation=generation
     )
