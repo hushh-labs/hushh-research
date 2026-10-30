@@ -86,6 +86,10 @@ def _reviewed_source() -> str:
     if subprocess.run(["git", "merge-base", "--is-ancestor", source, "origin/main"], cwd=ROOT).returncode:
         raise RuntimeError("Health timer source must first land on Main")
     owned = [*FILES, "deploy/observability/auth-health.Dockerfile", "deploy/observability/setup_auth_health.py"]
+    owned.extend(
+        f"deploy/observability/auth_health_uat_{name}.py"
+        for name in ("common", "job_install", "timer_activation", "installer")
+    )
     if git("status", "--porcelain", "--", *owned) or git("diff", source, "origin/main", "--", *owned):
         raise RuntimeError("Health timer source differs from reviewed Main")
     return source
