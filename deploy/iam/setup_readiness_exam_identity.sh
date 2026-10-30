@@ -60,6 +60,11 @@ echo "2. Azure OpenAI resource $resource_name"
 resource_id="$(az cognitiveservices account list \
   --query "[?properties.customSubDomainName=='$resource_name'].id | [0]" -o tsv)"
 [[ -n "$resource_id" ]] || fail "Azure OpenAI resource $resource_name was not found in this subscription"
+# The id names the account and its group; the endpoint's subdomain may differ.
+resource_group="$(cut -d/ -f5 <<<"$resource_id")"
+resource_account="$(cut -d/ -f9 <<<"$resource_id")"
+[[ -n "$resource_group" && -n "$resource_account" ]] \
+  || fail "could not read the resource group and name from $resource_id"
 
 display_name="hussh-readiness-exam-probe-${account_name}"
 echo "3. Probe-only Entra app $display_name"
@@ -172,7 +177,7 @@ final_exact_role="$(exact_role)" || { rollback; fail "could not read the role as
   || { rollback; fail "expected exactly one role assignment, $ROLE on $resource_name"; }
 
 echo "7. Network: GitHub-hosted runners must reach the resource"
-az cognitiveservices account show --ids "$resource_id" \
+az cognitiveservices account show --name "$resource_account" --resource-group "$resource_group" \
   --query '{publicNetworkAccess:properties.publicNetworkAccess, defaultAction:properties.networkAcls.defaultAction, disableLocalAuth:properties.disableLocalAuth}' -o json
 
 echo
