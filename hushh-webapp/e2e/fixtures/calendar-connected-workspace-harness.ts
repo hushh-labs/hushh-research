@@ -216,6 +216,10 @@ export async function openFixture(page: Page, width: number, locked = false, var
           ] : []),
         ],
       })),
+      people: {
+        "qa-organizer-0@example.test": { userId: "qa-priya", photoUrl: fixturePortraits[1] },
+        "manish@example.test": { userId: "qa-manish", photoUrl: fixturePortraits[2] },
+      },
       pending_count: ["shared-id", "design"].filter(id => !invitationResponses.has(id)).length,
       unreadable_calendars: [], time_zone: body.time_zone, complete: true,
       start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z",

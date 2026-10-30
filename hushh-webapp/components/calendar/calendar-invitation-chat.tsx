@@ -9,6 +9,7 @@ import { GoogleCalendarService, type CalendarAttendanceResult } from "@/lib/serv
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { CalendarInvitations } from "./calendar-invitations";
+import { useCalendarHusshPeople } from "@/lib/calendar/use-calendar-hussh-people";
 import type { InvitationDecision, InvitationTerms } from "./calendar-invitation-actions";
 
 /** The shared Calendar controls stay in this chat; OAuth opens in place. */
@@ -17,6 +18,13 @@ export function CalendarInvitationChat({ owner, ownerId: applicationOwnerId, pay
   const [actionBusy, setActionBusy] = useState(false);
   const [accountObservation, setAccountObservation] = useState<{ ownerId: string; email: string | null } | null>(null);
   const account = accountObservation?.ownerId === applicationOwnerId ? accountObservation.email : null;
+  const calendarPeople = useCalendarHusshPeople({
+    userId: applicationOwnerId,
+    accountKey: expectedAccountEmail || account || "default",
+    connectionRevision: revision,
+    getIdToken: () => owner.getIdToken(),
+    vaultOwnerToken: vaultOwnerCapability ?? null,
+  });
   const lifetime = useRef<AbortController | null>(null);
   const binding = useRef({ ownerId: applicationOwnerId, capability: vaultOwnerCapability });
   binding.current = { ownerId: applicationOwnerId, capability: vaultOwnerCapability };
@@ -58,7 +66,7 @@ export function CalendarInvitationChat({ owner, ownerId: applicationOwnerId, pay
   };
   const decision: InvitationDecision = payload.decision === "accepted" || payload.decision === "declined" || payload.decision === "offer_times" ? payload.decision : "view";
   return <div className="space-y-3" data-calendar-invitation-chat data-calendar-presentation>
-    <CalendarInvitations userId={applicationOwnerId} accountEmail={boundAccount} zone={typeof payload.timeZone === "string" ? payload.timeZone : Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"} getIdToken={() => owner.getIdToken()} initialFilter={String(payload.filter || "pending")} initialEventId={typeof payload.eventId === "string" ? payload.eventId : undefined} initialCalendarId={typeof payload.calendarId === "string" ? payload.calendarId : undefined} initialDecision={decision} initialTerms={terms} startAt={typeof payload.startAt === "string" ? payload.startAt : undefined} endAt={typeof payload.endAt === "string" ? payload.endAt : undefined} connectionRevision={revision} busy={busy} onConnect={(access, includeCalendarList) => connect("calendar", access, includeCalendarList)} onMailConnect={() => connect("mail")} onBusyChange={value => { setActionBusy(value); onBusyChange?.(value); }} onResult={onResult} />
+    <CalendarInvitations userId={applicationOwnerId} accountEmail={boundAccount} calendarPeople={calendarPeople} zone={typeof payload.timeZone === "string" ? payload.timeZone : Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"} getIdToken={() => owner.getIdToken()} initialFilter={String(payload.filter || "pending")} initialEventId={typeof payload.eventId === "string" ? payload.eventId : undefined} initialCalendarId={typeof payload.calendarId === "string" ? payload.calendarId : undefined} initialDecision={decision} initialTerms={terms} startAt={typeof payload.startAt === "string" ? payload.startAt : undefined} endAt={typeof payload.endAt === "string" ? payload.endAt : undefined} connectionRevision={revision} busy={busy} onConnect={(access, includeCalendarList) => connect("calendar", access, includeCalendarList)} onMailConnect={() => connect("mail")} onBusyChange={value => { setActionBusy(value); onBusyChange?.(value); }} onResult={onResult} />
     <Button variant="ghost" size="compact" className={calendarPresentation.utility} disabled={actionBusy} onClick={onClose}>Close invitations</Button>
   </div>;
 }

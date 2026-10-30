@@ -103,6 +103,7 @@ tests/services/test_calendar_native_optional_scope.py
 tests/services/test_google_calendar_guest_photo_token.py
 tests/services/test_google_calendar_event_type.py
 tests/services/test_google_calendar_profile_photos.py
+tests/services/test_calendar_directory_portraits.py
 tests/services/test_google_calendar_completion.py
 tests/services/test_gmail_oauth_callbacks.py
 tests/services/test_oauth_redirect_policy.py
@@ -287,6 +288,7 @@ tests/test_onboarding_contract.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py
 tests/services/test_connect_directory_postgres.py
+tests/services/test_calendar_directory_postgres.py
 tests/services/test_connect_directory_presence_postgres.py
 tests/test_environment_enrollment.py
 tests/test_one_capability_runtime_router_mount.py
