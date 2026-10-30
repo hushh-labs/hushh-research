@@ -90,10 +90,11 @@ def test_advisor_policy_requires_complete_finite_non_model_snapshot():
         TypeAdapter(FinanceSharePolicy | FinanceAdvisorPolicy).validate_python(base),
         FinanceAdvisorPolicy,
     )
-    live = FinanceAdvisorPolicy(**{**base, "mode": "ongoing", "durationSeconds": None})
-    assert (live.mode, live.durationSeconds) == ("ongoing", None)
+    for mode in ("snapshot", "ongoing"):
+        always = FinanceAdvisorPolicy(**{**base, "mode": mode, "durationSeconds": None})
+        assert (always.mode, always.durationSeconds) == (mode, None)
     for change in (
-        {"durationSeconds": None},
+        {"durationSeconds": 60},
         {"mode": "continuous"},
         {"showAmounts": False},
         {"model_processing": {"version": 1, "allowed": True}},

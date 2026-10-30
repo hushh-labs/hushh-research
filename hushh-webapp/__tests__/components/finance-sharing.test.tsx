@@ -99,9 +99,10 @@ it("opens the existing advisor, sharing and access-management flows from Portfol
 });
 
 it.each([
-  ["Snapshot", { mode: "snapshot", durationSeconds: 604800 }],
-  ["Real time", { mode: "ongoing", durationSeconds: null }],
-])("sends the full portfolio to an advisor in one screen as %s", async (label, expected) => {
+  ["Snapshot", "", { mode: "snapshot", durationSeconds: 604800 }],
+  ["Snapshot", "until_stopped", { mode: "snapshot", durationSeconds: null }],
+  ["Real time", "", { mode: "ongoing", durationSeconds: null }],
+])("sends the full portfolio to an advisor in one screen as %s (ends: %s)", async (label, ends, expected) => {
   const portfolio = { total_value: 10000, holdings: [{ symbol: "AAPL", name: "Apple", quantity: 10, price: 1000, market_value: 10000 }] };
   mocks.recipients.mockResolvedValue({ items: [
     { userId: "recipient", publicPersonRef: "person", keyId: "key", publicKeyJwk: {}, displayName: "Advisor", isFinanceAdvisor: true },
@@ -115,6 +116,7 @@ it.each([
   expect(screen.queryByRole("checkbox", { name: /^Other person/ })).toBeNull();
   expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: label }));
+  if (ends) fireEvent.change(screen.getByLabelText("Access ends"), { target: { value: ends } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(mocks.publish).toHaveBeenCalled());
   expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 2, purpose: "verified_ria_review", ...expected, showAmounts: true, model_processing: { allowed: false } });
@@ -185,6 +187,33 @@ it.each(["expired", "stopped"])("clears decrypted contents and derived review wh
   expect(screen.queryByText(/decrypted-sentinel/)).toBeNull();
   expect(screen.queryByText("derived-review-sentinel")).toBeNull();
   expect(screen.getByRole("alert")).toHaveTextContent(status === "expired" ? "expired" : "stopped");
+});
+
+it("renders the Agent One review as formatted text instead of raw markdown", async () => {
+  mocks.review.mockResolvedValue(["Here is the snapshot:", "", "- **Mostly equities**: 80% stocks", "- **Known limit**: history is incomplete"].join("\n"));
+  render(<FinanceSharedDetail grantId="grant" onClose={vi.fn()} />);
+  await screen.findByText(/decrypted-sentinel/);
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Review with Agent One" })); });
+  expect(screen.getByText("Mostly equities").tagName).toBe("STRONG");
+  expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  expect(document.body.textContent).not.toContain("**");
+});
+
+it("selects and clears every stock with one button", async () => {
+  const two = mapPortfolioToDashboardViewModel({ total_value: 20000, holdings: [
+    { symbol: "AAPL", name: "Apple", quantity: 10, price: 1000, market_value: 10000 },
+    { symbol: "MSFT", name: "Microsoft", quantity: 10, price: 1000, market_value: 10000 },
+  ] });
+  render(<FinanceShareFlow open onOpenChange={vi.fn()} model={two} source={source} />);
+  fireEvent.click(await screen.findByRole("checkbox", { name: /^Synthetic connection/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: /^Selected stocks/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+  expect(screen.getByRole("checkbox", { name: /^AAPL/ })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /^MSFT/ })).toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+  expect(screen.getByRole("checkbox", { name: /^AAPL/ })).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /^MSFT/ })).not.toBeChecked();
 });
 
 it("does not append a late outgoing page after the owner switches to received shares", async () => {
