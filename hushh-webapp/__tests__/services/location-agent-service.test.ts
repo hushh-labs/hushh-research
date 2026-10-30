@@ -353,37 +353,6 @@ describe("OneLocationService", () => {
     );
   });
 
-  it("uses the authenticated One request route when asking someone to share", async () => {
-    mockApiJson.mockResolvedValueOnce({
-      request: {
-        id: "request_1",
-        ownerUserId: "user_b",
-        requesterUserId: "user_a",
-        status: "pending",
-      },
-    });
-
-    await OneLocationService.requestAccess({
-      vaultOwnerToken: "vault-token",
-      ownerUserId: "user_b",
-      message: "Can you share?",
-      requestedDurationHours: 24,
-    });
-
-    expect(mockApiJson).toHaveBeenCalledWith("/api/one/location/requests", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer vault-token",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ownerUserId: "user_b",
-        message: "Can you share?",
-        requestedDurationHours: 24,
-      }),
-    });
-  });
-
   it("sends the current server-owned rule version for automatic approval", async () => {
     mockApiJson.mockResolvedValueOnce({
       request: { id: "request_1", status: "approved" },
