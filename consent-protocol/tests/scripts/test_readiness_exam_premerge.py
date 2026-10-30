@@ -18,9 +18,9 @@ TAVILY = "consent-protocol/hushh_mcp/one_adk/tavily_search.py"
 MANIFEST = "consent-protocol/config/readiness-exam-manifest.v1.json"
 REPO = "hushh-labs/hushh-research"
 MAIN, HEAD, MERGE = "a" * 40, "b" * 40, "c" * 40
-# 98fcd55bc6 reworded this rule; Azure gpt-5-mini then failed the ordinary case.
-KEPT_RULE = "an unquoted middle given name is optional unless explicitly required."
-REWORDED_RULE = "leaving middle-name tokens optional unless explicitly required."
+# Main's middle-name rule; 98fcd55bc6's rewording of its predecessor failed the ordinary case on Azure gpt-5-mini.
+KEPT_RULE = "leave an unquoted middle given name out of the value unless"
+REWORDED_RULE = "leaving middle-name tokens optional unless"
 PLANNER_BUDGET = "telemetry_namespace: agent.documents.request_search\n    performance:\n      latency_p95_ms: 20000\n      max_output_tokens: 4096"
 
 
@@ -57,7 +57,7 @@ def _with(path: str, text: str):
 
 
 def test_rewording_an_anchor_selects_only_its_cases(exam, tools):
-    assert KEPT_RULE in _main(DOCUMENTS)
+    assert _main(DOCUMENTS).count(KEPT_RULE) == 1
     rows = _select(
         exam, tools, _with(DOCUMENTS, _main(DOCUMENTS).replace(KEPT_RULE, REWORDED_RULE))
     )
@@ -158,14 +158,15 @@ def test_overlaid_yaml_is_what_the_production_loader_reads(exam, tools):
         assert changed == [anchor["subagent"]]
 
 
-def _fetch(merge_parents, compare="behind"):
+def _fetch(merge_parents, compare="behind", source=REPO, **pull):
     def fetch(path):
         if path.endswith("/pulls/7"):
             return {
                 "state": "open",
-                "head": {"sha": HEAD},
+                "head": {"sha": HEAD, "repo": {"full_name": source}},
                 "base": {"ref": "main"},
                 "merge_commit_sha": MERGE,
+                **pull,
             }
         if path.endswith(f"/commits/{MERGE}"):
             return {"parents": [{"sha": sha} for sha in merge_parents]}
@@ -211,8 +212,8 @@ def _tmp_root(tmp_path: Path, documents: str | None = None) -> Path:
     return tmp_path
 
 
-def _contents_fetch(texts: dict[str, str]):
-    base = _fetch([MAIN, HEAD])
+def _contents_fetch(texts: dict[str, str], base=None):
+    base = base or _fetch([MAIN, HEAD])
 
     def fetch(path):
         if "/contents/" not in path:

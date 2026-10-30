@@ -17,6 +17,7 @@ import {
   Users,
 } from "@/components/icons";
 import { CalendarAgentIcon } from "@/components/icons/agents";
+import { calendarFollowupHref } from "@/lib/calendar/calendar-followup-notification";
 
 import {
   consentInformationLabel,
@@ -70,6 +71,7 @@ const DOMAIN_ICON: Record<FeedSourceDomain, FeedItemPresentation["icon"]> = {
   connections: Users,
   profile_discovery: ScanSearch,
   pwm: UserRound,
+  calendar_email_followup: Mail,
 };
 
 const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
@@ -81,6 +83,7 @@ const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
   connections: "Connections",
   profile_discovery: "Profile discovery",
   pwm: "Personal World Model",
+  calendar_email_followup: "Follow-ups",
 };
 
 // Incoming history targets the received-share list without forcing a grant.
@@ -726,6 +729,14 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   }
 
   switch (item.event_type) {
+    case "followup_reminder":
+      return {
+        icon: Mail,
+        domainLabel: "Follow-ups",
+        label: "Email follow-up reminder",
+        description: "A request from your email needs attention.",
+        href: calendarFollowupHref(item.metadata.account_id, item.metadata.request_id) || ROUTES.CALENDAR,
+      };
     case "profile_discovery_queued":
       return { icon, domainLabel: "Public profile", label: "Building your profile", description: "A one-time public information search has started in the background.", href: ROUTES.ONE_PROFILE_DISCOVERY };
     case "profile_discovery_scanning":

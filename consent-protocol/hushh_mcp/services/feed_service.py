@@ -73,6 +73,7 @@ _SOURCE_DOMAINS = frozenset(
         "connections",
         "profile_discovery",
         "pwm",
+        "calendar_email_followup",
     }
 )
 _MAX_ACTOR_LABEL_LENGTH = 160
@@ -114,6 +115,18 @@ WITH keyed AS (
       AND (m.deleted_for_recipient_at IS NOT NULL OR m.deleted_for_everyone_at IS NOT NULL))
     AND NOT (f.source_domain = 'pwm' AND f.event_type = 'pwm_research'
       AND COALESCE(f.metadata->>'pwm_outcome', '') NOT IN ('ready', 'partial'))
+    AND (f.source_domain <> 'calendar_email_followup' OR EXISTS (
+      SELECT 1 FROM calendar_email_followup_requests r
+      JOIN calendar_email_followup_monitors fm
+        ON fm.user_id=r.user_id AND fm.account_id=r.account_id
+      WHERE r.id::text=f.metadata->>'request_id'
+        AND r.user_id=f.user_id AND r.account_id=f.metadata->>'account_id'
+        AND r.revision::text=split_part(f.source_row_id, ':', 2)
+        AND r.reminder_sent_revision=r.revision
+        AND r.state IN ('pending','snoozed')
+        AND fm.enabled=TRUE AND fm.notifications_enabled=TRUE
+        AND calendar_email_followup_grant_current(fm)
+    ))
 ), bounded AS (
   SELECT keyed.*,
     max(id) FILTER (WHERE dismissed_at IS NOT NULL)
@@ -1597,6 +1610,14 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
     @staticmethod
     def _to_item(row: dict[str, Any], viewer_user_id: str | None = None) -> dict[str, Any]:
         metadata = _safe_feed_metadata(row.get("metadata"))
+        if row.get("source_domain") == "calendar_email_followup":
+            # Only this owner-scoped reminder may expose its opaque Calendar
+            # selector. The shared metadata allowlist still excludes account
+            # identifiers from every other Feed domain.
+            source_metadata = row.get("metadata")
+            raw = source_metadata.get("account_id") if isinstance(source_metadata, dict) else None
+            if isinstance(raw, str) and re.fullmatch(r"(?:default|[A-Za-z0-9_-]{1,64})", raw):
+                metadata["account_id"] = raw
         # A participant-scoped live receipt, never a persisted metadata claim.
         if row.get("_drive_existing_access_nocharge") is True:
             metadata["current_existing_access_nocharge"] = True
