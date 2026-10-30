@@ -61,33 +61,76 @@ def test_executable_alternatives_share_primary_and_bounded_fallback(extra_concep
         assert "biodata" in queries[0]["arguments"]["query"]
 
 
+CORE_ENTITY = "clause_core_entity_or_sparse_fallback_missing"
+
+
 @pytest.mark.parametrize(
-    "defect,reason",
+    "defect,reason,leg",
     [
-        ("duplicate_concept", "distinct_executable_concepts_missing"),
-        ("missing_fallback", "clause_core_entity_or_sparse_fallback_missing"),
-        ("extra_required_middle_name", "clause_core_entity_or_sparse_fallback_missing"),
+        ("duplicate_concept", "distinct_executable_concepts_missing", None),
+        ("missing_entity", CORE_ENTITY, "entity_missing"),
+        ("extra_required_middle_name", CORE_ENTITY, "tokens_mismatch"),
+        ("phrase_match", CORE_ENTITY, "match_not_token"),
+        ("missing_fallback", CORE_ENTITY, "fallback_missing"),
     ],
 )
-def test_ordinary_contract_failure_has_fixed_reason_without_plan_text(capsys, defect, reason):
+def test_ordinary_contract_failure_has_fixed_reason_without_plan_text(capsys, defect, reason, leg):
     plan = ordinary_plan()
+    entity = plan["clauses"][0]["predicates"][0]
     if defect == "duplicate_concept":
         plan["clauses"][1]["predicates"][1]["value"] = "resume"
+    elif defect == "missing_entity":
+        entity.update(kind="content", sparse_fallback_any_token=False)
+    elif defect == "phrase_match":
+        entity.update(match="phrase", sparse_fallback_any_token=False)
     elif defect == "missing_fallback":
-        plan["clauses"][0]["predicates"][0]["sparse_fallback_any_token"] = False
+        entity["sparse_fallback_any_token"] = False
     else:
-        plan["clauses"][0]["predicates"][0]["value"] = "Cedar Rowan Vale"
+        entity["value"] = "Cedar Rowan Vale"
     with pytest.raises(ActivityPlannerContractError, match=reason):
         grade_plan(parse_semantic_plan(plan), "ordinary")
     output = capsys.readouterr().out
-    assert json.loads(output) == {
+    expected = {
         "schema": "drive.activity_planner.probe.v1",
         "case": "ordinary",
         "stage": "grade",
         "result": "failed",
         "reason": reason,
     }
+    assert json.loads(output) == (expected | {"leg": leg} if leg else expected)
     assert "Cedar" not in output
+
+
+def _former_core_entity_check(clause):
+    """The single condition the grader applied before legs were named."""
+    return any(
+        p.kind == "entity"
+        and p.match == "token"
+        and set(p.value.casefold().split()) == {"cedar", "vale"}
+        and p.sparse_fallback_any_token
+        for p in clause.predicates
+    )
+
+
+def test_core_entity_legs_keep_the_former_strictness():
+    from itertools import product
+
+    from scripts.probe_drive_activity_planner import _core_entity_leg
+
+    variants = [
+        SimpleNamespace(kind=k, match=m, value=v, sparse_fallback_any_token=f, negated=n)
+        for k, m, v, f, n in product(
+            ("entity", "content"),
+            ("token", "phrase"),
+            ("Cedar Vale", "cedar  VALE", "Cedar Rowan Vale", "Vale"),
+            (True, False),
+            (False, True),
+        )
+    ]
+    clauses = [SimpleNamespace(predicates=[v]) for v in variants]
+    clauses += [SimpleNamespace(predicates=[a, b]) for a, b in product(variants, repeat=2)]
+    for clause in clauses:
+        assert (_core_entity_leg(clause) is None) == _former_core_entity_check(clause)
 
 
 @pytest.mark.parametrize("defect", [None, "unconstrained_or", "relaxed_title", "lost_exclusion"])

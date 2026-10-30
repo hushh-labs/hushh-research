@@ -69,7 +69,12 @@ Each rule names the check that enforces it today, or its gap.
      `root.stream_mismatch`, `root.non_json`, `root.shape_mismatch`, or the
      mismatched field) at the former strictness, and the CI proof admits exactly
      the reasons probes emit (`tests/scripts/test_root_roundtrip_reasons.py`).
-   - Gap: the planner lead and location semantics lack specific reasons.
+   - Enforced: the Drive planner's core-name check keeps its stable reason and
+     names the requirement every candidate missed in `leg` (`entity_missing`,
+     `tokens_mismatch`, `match_not_token`, `fallback_missing`) at the former
+     strictness (`test_core_entity_legs_keep_the_former_strictness`).
+   - Gap: the planner lead and location semantics lack specific reasons, and a
+     trust failure's terminal verdict does not yet name its failing stage.
 6. **Classify before reacting.** Transport means a timeout, 5xx or 429. Variance
    means the same SHA flips. Deterministic means it fails every time. Never retry a
    deterministic or semantic failure, retry until green, majority-pass a
