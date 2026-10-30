@@ -91,18 +91,17 @@ export async function persistMemoryScopeSlices(params: MemoryProjectionSession &
     if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
     await params.beforeEffect();
   };
-  // Build time is diagnostic, not a source revision. Identical refreshes
-  // share a receipt even when their browser clocks differ.
+  // Build time is diagnostic, not a source revision, so it never makes a
+  // stored slice look changed.
   const content = (slice: unknown) => {
     const { builtAt: _builtAt, ...facts } = record(slice);
     return JSON.stringify(facts);
   };
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(params.slices.map(content))));
-  const signature = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+  // No content-derived receipt: slices can change back to earlier content,
+  // and the server refuses a receipt reused at a newer base revision.
   const result = await PkmWriteCoordinator.saveMergedDomain({
     userId: params.userId, domain: "one_living_sources", vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
     confirmation: { authorizationMode: "owner_source_projection", surface: "web", source: "one_living_memory_source_projection" },
-    idempotencyScope: `memory_scope_slices:${signature}`,
     beforeEffect: check,
     build: async context => {
       await check();

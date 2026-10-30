@@ -300,7 +300,7 @@ describe("persisted source-linked Profile memory.md", () => {
     const save = saveMergedDomain.mock.calls[0]![0];
     expect(save.domain).toBe("one_living_sources");
     expect(save.confirmation).toEqual({ authorizationMode: "owner_source_projection", surface: "web", source: "one_living_memory_source_projection" });
-    expect(save.idempotencyScope).toMatch(/^memory_document:[a-f0-9]{64}$/);
+    expect(save.idempotencyScope).toBeUndefined(); // A content receipt is refused (v4 binding) once the document changes back.
     expect(state.soul).toEqual(originalSoul);
     expect(state.living.legacy_record).toEqual({ retained: "Full original source record" });
     const privateData = state.living._private as Record<string, unknown>;
