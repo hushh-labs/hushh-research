@@ -333,7 +333,8 @@ connector, frontend or GitHub workflow edit is needed for these settings.
 | Setting in that file | Consumers and boundary |
 | --- | --- |
 | `managed_provider_selection.uat` | Packaged UAT provider default, currently `azure_openai`. The existing resolver supplies text, research, audio and embedding callers. Dev, production and local retain Vertex. |
-| `pwm_research_uat.azure` | Azure workload identity identifiers and endpoints; `primary_deployment` supplies general text/research. A replacement resource needs the existing identity's access and compatible deployments. |
+| `managed_azure_accounts` | UAT's managed Azure accounts by name: Entra tenant, the runtime app federated to the UAT runtime service account, resource endpoints and the readiness exam's separate probe-only app. `selection.uat` names the active account; every listed account is shape-checked before merge. |
+| `pwm_research_uat.azure` | Deployment names that every account hosts; `primary_deployment` supplies general text/research. |
 | `managed_runtime_uat.azure.one_text_root` | One chat's root deployment and generation budget. Changing only `primary_deployment` does not change this separate root binding. |
 | `managed_runtime_uat.azure` | Other Azure capability deployments: realtime, transcription, speech, embeddings and compact public search. Preserve model compatibility, the 768-dimension embedding contract and declared capability qualification. |
 | `environments.<environment>` | Vertex text, live audio and embedding model names, project and locations for that environment. |
@@ -358,7 +359,49 @@ Validate the complete file without model calls or credentials:
 ```bash
 python3 scripts/ops/managed_ai_config.py --environment uat --format validate
 python3 scripts/ops/managed_ai_config.py --environment uat --format provider
+python3 scripts/ops/managed_ai_config.py --environment uat --format azure-account
 ```
+
+#### Switching the managed Azure account
+
+`--format azure-account` prints the selected account and every deployment it must
+host, from this file. To move UAT to another Azure account:
+
+1. In the new account (Azure commercial cloud), create:
+   - one resource with a custom `*.openai.azure.com` subdomain, key authentication
+     disabled and public network access, hosting every printed deployment under the
+     same name, model, version, deployment type and capacity. Record the primary
+     deployment's model and version, which the file does not declare yet. The two
+     GPT deployments need the Responses `web_search` tool; realtime and audio API
+     `2025-04-01-preview` must be available;
+   - a `*.services.ai.azure.com` host for `phi_endpoint`, which validation still
+     requires although nothing calls Phi; an AI Services resource provides one;
+   - an Entra app registration with no secret or certificate, whose federated
+     credential trusts issuer `https://accounts.google.com`, audience
+     `api://AzureADTokenExchange` and subject
+     `gcloud iam service-accounts describe consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com --format='value(uniqueId)'`;
+   - the `Cognitive Services OpenAI User` role for that app's service principal on
+     the resource.
+
+   For a new subscription in the same tenant, keep `tenant_id`, `client_id` and the
+   federated credential, and grant the existing service principal the role on the
+   new resource.
+2. Add the account under `managed_azure_accounts.accounts` with `selection`
+   unchanged and merge. Validation checks its shape; runtime bindings do not change.
+   `readiness_exam_client_id` names the account's separate probe-only exam app, or
+   `null` until it exists; it never equals the runtime `client_id`.
+3. Change `managed_azure_accounts.selection.uat` to the new name in a one-line PR and
+   ship a normal UAT release. The exact-image candidate exam under the UAT runtime
+   identity qualifies the new account. A failure there is deterministic: fix the
+   account rather than retrying.
+4. The switch rotates Azure bindings without new owner consent. Drive requests
+   migrate on their next claim; run `scripts/ops/run_uat_text_recovery_job.py`
+   (preview, then apply) for failed ones. Saved personal research restarts within
+   its preserved budget.
+
+To roll back, select the previous account while it still serves. Once it is gone,
+fix forward or set `managed_provider_selection.uat` to `vertex`; an image from
+before the switch points at the old account.
 
 The deployment compiler reads the packaged default and pins both existing
 `HUSHH_UAT_MANAGED_AI_PROVIDER` and `HUSHH_UAT_MANAGED_TEXT_PROVIDER` values on

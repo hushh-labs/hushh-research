@@ -1008,6 +1008,7 @@ tests/test_hosted_gcp_backend.py
 tests/test_journey_is_traceable.py
 tests/test_journey_parity.py
 tests/test_kms_key_resolver.py
+tests/test_managed_azure_accounts.py
 tests/test_managed_runtime_selection.py
 tests/test_memory_judge.py
 tests/test_model_access_policy.py

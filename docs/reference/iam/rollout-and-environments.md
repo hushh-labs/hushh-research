@@ -24,8 +24,9 @@ Define environment policy for IAM changes without risking production behavior.
 owns the versioned administrator policy for `one_text_chat_and_drive_requests`.
 All existing and new UAT accounts use the candidate-verified provider for managed
 One text chat and semantic Drive document-request planning and relevance assessment.
-Azure is preferred when both providers pass; Vertex is selected when only it passes.
-Neither passing blocks release. The API and both worker revisions share that binding. Historical
+Release admission requires the provider named by `managed_provider_selection.uat`
+(Azure today) to pass; a passing alternate cannot replace it, so its failure blocks
+release. The API and both worker revisions share that binding. Historical
 personal pilot receipts and model preferences do not select that processor.
 Their original acceptance/revocation timestamps remain unchanged; no receipt is
 created or marked accepted by this rollout. The separate `managed_runtime_uat`
