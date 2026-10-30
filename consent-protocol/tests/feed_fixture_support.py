@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
+
+import asyncpg
 from sqlalchemy import text
+
+from db.migration_authority import MigrationMode, apply_manifest_entries, build_manifest_entries
+
+ROOT = Path(__file__).resolve().parents[1]
 
 # list_feed plans its Calendar follow-up visibility fence on every read, so these
 # relations must resolve even when the fixture holds no follow-up events. Shape of
@@ -23,8 +31,18 @@ def add_followup_fence_relations(connection) -> None:
     connection.execute(text(_FOLLOWUP_FENCE_DDL))
 
 
-def complete_projection_schema(connection) -> None:
-    """Columns the dismissal and identity reads expect, plus the follow-up fence."""
-    connection.execute(text("ALTER TABLE feed_events ADD COLUMN dismissed_at timestamptz"))
-    connection.execute(text("ALTER TABLE actor_identity_cache ADD COLUMN email text"))
-    add_followup_fence_relations(connection)
+def apply_fixture_migrations(engine, filenames):
+    async def run():
+        connection = await asyncpg.connect(
+            engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
+        )
+        try:
+            return await apply_manifest_entries(
+                connection,
+                build_manifest_entries(ROOT / "db/migrations", filenames),
+                mode=MigrationMode.REPLAY,
+            )
+        finally:
+            await connection.close()
+
+    return asyncio.run(run())
