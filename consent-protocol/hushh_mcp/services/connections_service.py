@@ -691,7 +691,7 @@ class ConnectionsService:
             WHERE user_id = :user_id
               AND {_RIA_VERIFIED_STATUS_SQL}
             LIMIT 1
-            """,  # nosec B608 - _RIA_VERIFIED_STATUS_SQL is a module constant of
+            """,  # nosec B608 # _RIA_VERIFIED_STATUS_SQL is a module constant of
             # static text; the only caller-supplied value here is bound.
             {"user_id": owner_user_id},
         )
@@ -1961,7 +1961,7 @@ class ConnectionsService:
             WHERE id = :id
             LIMIT 1
             {lock_clause}
-            """,  # nosec B608 - lock_clause is a fixed internal literal
+            """,  # nosec B608 # lock_clause is a fixed internal literal
             {"id": (request_id or "").strip()},
         )
         if not row:
@@ -3062,7 +3062,7 @@ class ConnectionsService:
         else:
             where = "cr.requester_user_id = :user_id"
             counterpart_col = "cr.addressee_user_id"
-        # nosec B608 - counterpart_col/where are hardcoded literals selected by
+        # nosec B608 # counterpart_col/where are hardcoded literals selected by
         # `direction` above (never user input); user_id is always parameterized.
         status_clause = "" if include_resolved else "AND cr.status = 'pending'"
         rows = self._execute_many(
@@ -3169,7 +3169,7 @@ class ConnectionsService:
             FROM ria_profiles
             WHERE user_id = ANY(:user_ids)
               AND {_RIA_VERIFIED_STATUS_SQL}
-            """,  # nosec B608 - _RIA_VERIFIED_STATUS_SQL is a module constant of
+            """,  # nosec B608 # _RIA_VERIFIED_STATUS_SQL is a module constant of
             # static text; the user ids are bound as an array parameter.
             {"user_ids": candidates},
         )
@@ -3431,6 +3431,58 @@ class ConnectionsService:
             "page": page,
             "hasMore": has_more,
             "audience": audience,
+        }
+
+    def list_mutual_connections_page(
+        self, user_id: str, *, person_ref: str, page: int = 1, limit: int = 20
+    ) -> dict[str, Any]:
+        """Read shared identities through the same live directory eligibility gate."""
+        from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+        target = self._execute_one(
+            """SELECT user_id FROM actor_profiles
+               WHERE public_person_ref = CAST(:person_ref AS UUID)
+                 AND public_profile_status = 'active' LIMIT 1""",
+            {"person_ref": person_ref},
+        )
+        target_id = str((target or {}).get("user_id") or "")
+        profiles = (
+            self._directory_profiles(user_id, [target_id])
+            if target_id and target_id != user_id
+            else []
+        )
+        if not profiles:
+            raise ConnectionsError(
+                "MUTUAL_CONNECTIONS_UNAVAILABLE",
+                "This person's connections are unavailable.",
+                status_code=404,
+            )
+        result = OneLocationAgentService().search_directory_candidates(
+            owner_user_id=user_id,
+            mutual_target_user_id=target_id,
+            page=page,
+            limit=limit,
+        )
+        counts = self._execute_many(
+            MUTUAL_CONNECTIONS_SQL, {"user_id": user_id, "page_user_ids": [target_id]}
+        )
+        return {
+            "person": {
+                "publicPersonRef": person_ref,
+                "displayName": profiles[0].get("displayName"),
+            },
+            "items": [
+                {
+                    "publicPersonRef": person.get("publicPersonRef"),
+                    "displayName": person.get("displayName"),
+                    "photoUrl": person.get("photoUrl"),
+                }
+                for person in result["items"]
+                if person.get("publicPersonRef")
+            ],
+            "page": result["page"],
+            "hasMore": result["hasMore"],
+            "totalCount": max(0, int((counts[0] if counts else {}).get("mutual_count") or 0)),
         }
 
     @staticmethod
@@ -3709,7 +3761,7 @@ class ConnectionsService:
             LEFT JOIN page_rows ON TRUE
             ORDER BY page_rows.match_rank, page_rows.normalized_name,
                      page_rows.user_id, page_rows.connection_id
-            """,  # nosec B608 - the RIA predicate is a static module constant.
+            """,  # nosec B608 # the RIA predicate is a static module constant.
             {
                 "user_id": viewer_id,
                 "query": normalized_query,

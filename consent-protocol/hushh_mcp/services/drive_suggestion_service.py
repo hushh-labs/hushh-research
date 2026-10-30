@@ -37,8 +37,9 @@ from hushh_mcp.services.drive_request_package_assessment import (
     private_semantic_request_model,
     validate_semantic_model_binding,
 )
-from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan
+from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlanInput
 from hushh_mcp.services.drive_sharing_contract import (
+    CalendarReviewedSource,
     DriveSharingError,
     LiveReviewedSource,
     ReviewedSource,
@@ -251,7 +252,7 @@ class LiveSearchPlan(BaseModel):
     # Missing counts preserve older frozen plans and exhaustive discovery.
     result_limit: int | None = Field(default=None, ge=1, le=1000)
     # New request policies retain the full expression; older stored plans omit it.
-    semantic_query: SemanticDrivePlan | None = None
+    semantic_query: SemanticDrivePlanInput | None = None
 
     @field_validator("terms")
     @classmethod
@@ -455,7 +456,7 @@ class LiveSearchModelPlan(LiveSearchPlan, EvidenceModel):
 class SemanticLiveSearchModelPlan(LiveSearchModelPlan):
     """New request interpretation; legacy hints never replace the full expression."""
 
-    semantic_query: SemanticDrivePlan
+    semantic_query: SemanticDrivePlanInput
 
     @model_validator(mode="after")
     def semantic_subject(self):
@@ -726,6 +727,27 @@ class DriveSuggestionService:
                             (datetime.now(UTC) + timedelta(days=1)).replace(microsecond=0)
                         ),
                     )
+                    if job.get("calendar_types"):
+                        if retrieved["truncated"] or len(reader._rows) != len(owner_selected):
+                            raise DriveSharingError("source_changed")
+                        allowed = set(job["calendar_types"])
+                        for source in reader._rows:
+                            mime = source.get("mime_type")
+                            artifact_kind = (
+                                "recording"
+                                if isinstance(mime, str) and mime.startswith("video/")
+                                else "notes"
+                                if mime
+                                in {
+                                    "application/vnd.google-apps.document",
+                                    "text/plain",
+                                    "text/markdown",
+                                }
+                                else None
+                            )
+                            if artifact_kind not in allowed:
+                                raise DriveSharingError("source_not_shareable")
+                            source["artifact_kind"] = artifact_kind
                 elif job.get("live"):
                     await self._require_current(job)
                     stage = "search_plan"
@@ -992,7 +1014,11 @@ class DriveSuggestionService:
                 await self._require_current(job)
                 observed = {
                     str(row["document_id"]): (
-                        LiveReviewedSource if row.get("_live") else ReviewedSource
+                        CalendarReviewedSource
+                        if row.get("artifact_kind")
+                        else LiveReviewedSource
+                        if row.get("_live")
+                        else ReviewedSource
                     ).model_validate(self.store._source_terms(row))
                     for row in reader._rows
                 }

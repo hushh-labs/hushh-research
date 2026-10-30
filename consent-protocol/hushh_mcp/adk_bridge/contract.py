@@ -197,6 +197,9 @@ class SpecialistReadResult(BaseModel):
         "response_too_large",
         "invalid_argument",
         "unavailable",
+        # Mail only: a receipts request read no mail; One answers with its
+        # on-device receipt functions in the same turn.
+        "receipt_functions_required",
     ]
     # The owner-only Drive title/date listing can return up to 60 files. Keep
     # the bridge bound aligned so a successful 30-file search reaches One.
@@ -231,3 +234,6 @@ class SpecialistTurnResult:
     continuation: dict | None = None
     # Private handback to the encrypted One session, never to the model/result.
     mail_read_offer: dict | None = field(default=None, repr=False)
+    # Owner-screen mail brief (email_mail_brief.MailBrief): display names,
+    # subjects and counts, never bodies, addresses or provider ids.
+    mail_brief: dict | None = field(default=None, repr=False)

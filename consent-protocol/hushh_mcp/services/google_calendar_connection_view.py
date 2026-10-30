@@ -21,10 +21,19 @@ class CalendarAccountConnectionView:
         self.account_id = account_id
 
     async def access_token(
-        self, *, user_id: str, service: GoogleService, access_level: Literal["read", "manage"]
+        self,
+        *,
+        user_id: str,
+        service: GoogleService,
+        access_level: Literal["read", "manage"],
+        force_refresh: bool = False,
     ) -> str:
         return await self.owner.access_token(
-            user_id=user_id, service=service, access_level=access_level, account_id=self.account_id
+            user_id=user_id,
+            service=service,
+            access_level=access_level,
+            account_id=self.account_id,
+            force_refresh=force_refresh,
         )
 
     async def status(self, *, user_id: str, service: str) -> dict[str, Any]:

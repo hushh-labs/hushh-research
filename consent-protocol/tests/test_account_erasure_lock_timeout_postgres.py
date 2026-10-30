@@ -152,7 +152,6 @@ async def _assert_blocked_erasure_rolls_back(database_url, deletion_conn, writer
 async def test_provider_cleanup_retains_custody_through_failure_and_migration_replay(
     database_url, monkeypatch
 ):
-    """The real schema cannot erase retry authority before qualified cleanup."""
     import asyncpg
 
     conn = await asyncpg.connect(database_url)
@@ -200,6 +199,7 @@ async def test_provider_cleanup_retains_custody_through_failure_and_migration_re
             "201_account_deletion_tombstones.sql",
             "144_google_integrations_calendar_foundation.sql",
             "290_chat_push_delivery.sql",
+            "441_sms_alarm_capability.sql",
             "370_one_marketing_preferences.sql",
             "418_account_provider_cleanup_staging.sql",
             "423_account_shared_provider_authority.sql",

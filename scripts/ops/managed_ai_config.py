@@ -11,7 +11,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", required=True)
     parser.add_argument(
-        "--format", choices=("json", "substitutions", "hash"), default="json"
+        "--format",
+        choices=("json", "substitutions", "hash", "provider", "validate", "azure-account"),
+        default="json",
     )
     args = parser.parse_args()
     path = (
@@ -24,6 +26,17 @@ def main():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     value = module.load_profile(args.environment, path)
+    if args.format == "validate":
+        print(json.dumps(module.validate_runtime_config(path), sort_keys=True))
+        return
+    if args.format == "provider":
+        print(module.configured_managed_provider(args.environment, path))
+        return
+    if args.format == "azure-account":
+        if args.environment != "uat":
+            parser.error("Only UAT selects a managed Azure account")
+        print(json.dumps(module.managed_azure_inventory(path), indent=2, sort_keys=True))
+        return
     if args.format == "hash":
         print(module.profile_hash(value))
     elif args.format == "substitutions":

@@ -847,12 +847,6 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 elif defect == "uat":
                     run["path"] = ".github/workflows/deploy-uat.yml"
 
-                def download(_repo, _run, _name, directory):
-                    directory.mkdir(parents=True)
-                    (directory / "prod-release-status.json").write_text(
-                        json.dumps(release)
-                    )
-
                 with (
                     mock.patch.object(
                         MAINTENANCE,
@@ -861,10 +855,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                             jobs if "/jobs?" in endpoint else run
                         ),
                     ),
-                    mock.patch.object(
-                        MAINTENANCE, "artifact_exists", return_value=True
-                    ),
-                    mock.patch.object(MAINTENANCE, "download", side_effect=download),
+                    mock.patch.object(MAINTENANCE, "load_release", return_value=release),
                     mock.patch.object(
                         MAINTENANCE.retention,
                         "service_state",
@@ -2052,7 +2043,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             # authority. Ordinary ticks retain the quiet due check.
             for line in text.splitlines():
                 if "--force-inspection" in line:
-                    self.assertRegex(line.strip(), r'^if \[\[ "\$CAPACITY_BRIDGE" = true(?: \|\| -n "\$\{OPERATIONAL_RUN_ID:-\}\$\{STAGED_WORKER_RUN_ID:-\}")? \]\]; then flags(?:=|\+=)\(--force-inspection(?: --production-capacity-bridge)?\); fi$')
+                    self.assertRegex(line.strip(), r'^if \[\[ "\$GITHUB_EVENT_NAME" = workflow_dispatch \]\]; then flags(?:=|\+=)\(--force-inspection\); fi$')
             self.assertIn('"$OPERATIONAL_RUN_ID" =~ ^[1-9][0-9]*$ && "$OPERATIONAL_ATTEMPT" =~ ^[1-9][0-9]*$', text)
             self.assertIn('[[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$APPLY" = true ]] || exit 1', text)
             concurrency = text.split("\nconcurrency:\n", 1)[1].split(
@@ -2110,6 +2101,24 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             with self.assertRaises(AssertionError):
                 check_policy(broken, broken_clock)
 
+    def test_capacity_clock_checkout_fetches_full_history_for_source_qualification(
+        self,
+    ):
+        workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
+        clock_source = (workflows / "capacity-maintenance-clock.yml").read_text()
+
+        def assert_full_history(text):
+            checkout = text.split("      - name: Checkout authority tooling\n", 1)[1]
+            checkout = checkout.split("\n      - name:", 1)[0]
+            self.assertRegex(checkout, r"(?m)^          fetch-depth: 0$")
+
+        assert_full_history(clock_source)
+        shallow_checkout = clock_source.replace(
+            "          fetch-depth: 0\n", "          fetch-depth: 1\n", 1
+        )
+        with self.assertRaises(AssertionError):
+            assert_full_history(shallow_checkout)
+
     def test_only_the_capacity_workflows_emit_its_dispatch_events(self):
         # A deploy workflow sending a tick would re-couple maintenance to releases.
         workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
@@ -2129,7 +2138,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
         for path in sorted(workflows.glob("*.y*ml")):
             with self.subTest(workflow=path.name):
                 check_policy(path.name, path.read_text())
-        observer = (workflows / "release-cadence.yml").read_text()
+        observer = "name: Retired observer\non: {}\n"
         for broken in (observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-clock\n",
                        observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-tick\n",
                        observer + "\n  repository_dispatch:\n    types: [capacity-maintenance-clock, another]\n"):
@@ -2284,7 +2293,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                             {
                                 "GITHUB_REPOSITORY": "org/repo",
                                 "GITHUB_OUTPUT": str(output),
-                            },
+                            }, clear=True,
                         ),
                         mock.patch.object(
                             sys,
@@ -2740,7 +2749,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                         checkpoint = json.loads((state_dir / "completed.json").read_text())
                         self.assertEqual(checkpoint["pass_status"], "in_progress")
                     self.assertEqual(
-                        output.read_text(), ("checkpoint_ready=true\n" if release else "") + "cleanup_outcome=no_live_source\n"
+                        output.read_text(), ("checkpoint_ready=true\n" * 2 if release else "") + "cleanup_outcome=no_live_source\n"
                     )
 
     def test_release_workflow_cannot_reintroduce_inline_retention(self):
@@ -2783,21 +2792,9 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
         ):
             with self.subTest(run=run), tempfile.TemporaryDirectory() as temporary:
 
-                def download(_repo, _run, name, directory):
-                    self.assertEqual(name, "prod-release-123")
-                    directory.mkdir(parents=True)
-                    (directory / "prod-release-status.json").write_text(
-                        json.dumps(healthy)
-                    )
-
                 with (
                     mock.patch.object(MAINTENANCE, "api", return_value=run),
-                    mock.patch.object(
-                        MAINTENANCE, "artifact_exists", return_value=True
-                    ),
-                    mock.patch.object(
-                        MAINTENANCE, "download", side_effect=download
-                    ) as fetch,
+                    mock.patch.object(MAINTENANCE, "load_release", return_value=healthy) as fetch,
                 ):
                     if run != good:
                         with self.assertRaises(MAINTENANCE.retention.UnsafeState):
@@ -3183,11 +3180,9 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             self.assertIn("--verify-source-only", check)
             self.assertIn("--release-run-id", check)
             if "--force-inspection" in check:
-                self.assertIn("CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}", check)
-                inspected = 'if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags=(--force-inspection); fi'
+                inspected = 'if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi'
                 self.assertIn(inspected, check)
                 self.assertNotIn("--force-inspection", check.replace(inspected, ""))
-                self.assertIn('OPERATIONAL_ATTEMPT: ${{ inputs.operational_backend_proof_attempt }}', check)
             self.assertNotIn("--apply", check)
             for i, step in enumerate(steps):
                 protected = any(
@@ -3223,7 +3218,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 assert_guarded(broken)
             if "--force-inspection" in job:
                 broken = job.replace(
-                    'if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags=(--force-inspection); fi',
+                    'if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi',
                     'if true; then flags=(--force-inspection); fi',
                 )
                 with self.assertRaises(AssertionError):

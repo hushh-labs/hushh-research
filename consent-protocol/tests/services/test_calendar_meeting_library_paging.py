@@ -96,7 +96,11 @@ def test_sparse_pages_continue_past_twelve_candidates(monkeypatch):
         ),
     )
     events = [
-        {**GoogleCalendarService._event_summary(EVENT), "id": str(i), "calendar_id": "primary"}
+        {
+            **GoogleCalendarService._event_summary({**EVENT, "iCalUID": f"uid-{i}"}),
+            "id": str(i),
+            "calendar_id": "primary",
+        }
         for i in range(13)
     ]
     insights.calendar.list_events.return_value = {"events": events, "next_page_token": None}
@@ -112,7 +116,8 @@ def test_sparse_pages_continue_past_twelve_candidates(monkeypatch):
 
     monkeypatch.setattr(artifacts_module.CalendarMeetingArtifacts, "detail", detail)
     first = run(insights.library(user_id="owner", date="2026-10-14", time_zone="UTC"))
-    assert first["meetings"] == [] and first["next_cursor"] and not first["complete"]
+    assert len(first["meetings"]) == 12 and first["next_cursor"] and not first["complete"]
+    assert first["calendar_complete"] is False
     second = run(
         insights.library(
             user_id="owner", date="2026-10-14", time_zone="UTC", cursor=first["next_cursor"]
@@ -120,9 +125,10 @@ def test_sparse_pages_continue_past_twelve_candidates(monkeypatch):
     )
     assert [row["id"] for row in second["meetings"]] == ["12"]
     assert second["next_cursor"] is None and second["complete"]
+    assert second["calendar_complete"] is True
 
 
-def test_library_includes_recording_notes_and_both_but_not_neither(monkeypatch):
+def test_library_keeps_recording_notes_both_and_neither(monkeypatch):
     insights, _, _ = setup()
     monkeypatch.setattr(
         artifacts_module,
@@ -162,9 +168,67 @@ def test_library_includes_recording_notes_and_both_but_not_neither(monkeypatch):
         "0": ["recording"],
         "1": ["notes"],
         "2": ["notes", "recording"],
+        "3": [],
     }
     assert calls == ["0", "1", "2", "3"]
     assert result["complete"] is True
+
+
+def test_five_meetings_keep_two_available_and_three_unavailable(monkeypatch):
+    insights, _, _ = setup()
+    monkeypatch.setattr(
+        artifacts_module,
+        "inspect_token",
+        AsyncMock(
+            return_value=artifacts_module.MEET_SCOPES
+            | {"https://www.googleapis.com/auth/drive.meet.readonly"}
+        ),
+    )
+    events = [
+        {
+            **GoogleCalendarService._event_summary({**EVENT, "iCalUID": f"meeting-{index}"}),
+            "id": str(index),
+            "title": f"Meeting {index}",
+        }
+        for index in range(5)
+    ]
+    # A regular timed meeting without any linked file or Meet record remains visible.
+    events[4] = {**events[4], "conference_id": None, "artifact_refs": []}
+    insights.calendar.list_events.return_value = {"events": events, "next_page_token": None}
+
+    async def detail(_self, **kwargs):
+        states = {
+            "0": ("checked", [{"kind": "recording", "state": "available"}]),
+            "1": (
+                "checked",
+                [
+                    {"kind": "notes", "state": "available"},
+                    {"kind": "recording", "state": "resource_denied"},
+                ],
+            ),
+            "2": ("processing", []),
+            "3": ("checked", [{"kind": "recording", "state": "resource_denied"}]),
+        }
+        discovery, found = states[kwargs["event_id"]]
+        return {
+            "complete": discovery == "checked" and all(a["state"] == "available" for a in found),
+            "discovery": discovery,
+            "artifacts": found,
+        }
+
+    monkeypatch.setattr(artifacts_module.CalendarMeetingArtifacts, "detail", detail)
+    result = run(insights.library(user_id="owner", date="2026-10-14", time_zone="UTC"))
+    assert len(result["meetings"]) == 5
+    assert result["calendar_complete"] is True
+    assert sum(bool(row["artifact_kinds"]) for row in result["meetings"]) == 2
+    assert {row["id"]: row["file_state"] for row in result["meetings"]} == {
+        "0": "available",
+        "1": "available",
+        "2": "processing",
+        "3": "access_required",
+        "4": "unknown",
+    }
+    assert result["meeting_file_access"] == "ready"
 
 
 def test_cursor_is_bound_to_account_day_and_grant(monkeypatch):
@@ -178,7 +242,11 @@ def test_cursor_is_bound_to_account_day_and_grant(monkeypatch):
         ),
     )
     events = [
-        {**GoogleCalendarService._event_summary(EVENT), "id": str(i), "calendar_id": "primary"}
+        {
+            **GoogleCalendarService._event_summary({**EVENT, "iCalUID": f"uid-{i}"}),
+            "id": str(i),
+            "calendar_id": "primary",
+        }
         for i in range(13)
     ]
     insights.calendar.list_events.return_value = {"events": events, "next_page_token": None}

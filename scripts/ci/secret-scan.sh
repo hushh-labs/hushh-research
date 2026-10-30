@@ -145,7 +145,10 @@ if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] || [ -n "${SECRET_SCAN_PR_NUMBE
   scan_pull_request_body
 fi
 
-# This is required authority; a missing or non-executable reader must fail closed.
+# Repository-wide alerts are checked in the protected deployment job.
+# Local scans retain their independent read policy; PR code never needs its credential.
+if [ "${GITHUB_ACTIONS:-false}" != "true" ]; then
+# A required local reader must fail closed.
 SECURITY_READER="$REPO_ROOT/scripts/ci/github-security-alerts.sh"
 if [ ! -f "$SECURITY_READER" ] || [ ! -x "$SECURITY_READER" ]; then
   echo "Required GitHub security reader is missing or not executable." >&2
@@ -154,6 +157,8 @@ if [ ! -f "$SECURITY_READER" ] || [ ! -x "$SECURITY_READER" ]; then
 else
   "$SECURITY_READER" ||
     { EXIT_CODE=$?; FAILED_CHECKS="${FAILED_CHECKS} github-security-alerts"; }
+fi
+
 fi
 
 if [ "$EXIT_CODE" -ne 0 ]; then

@@ -43,6 +43,8 @@ _DROP = re.compile(r'DROP TABLE (?:IF EXISTS )?"?([a-z_0-9]+)"?', re.I)
 # Every edge is checked against the creating migration below. The parent must
 # itself be deleted or lead to another checked cascade edge.
 _CASCADE_PARENT = {
+    "drive_rest_owner_admission": "user_external_connector_connections",
+    "drive_rest_call_leases": "drive_rest_owner_admission",
     "google_calendar_additional_accounts": "actor_profiles",
     "calendar_attendance_reviews": "actor_profiles",
     "pwm_research_preferences": "actor_profiles",

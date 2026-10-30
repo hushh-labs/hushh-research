@@ -1,3 +1,4 @@
+import { recordLiveActivity, snapshotLiveActivityOwner } from "@/lib/pkm/live-activity/live-activity-journal";
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService, CACHE_TTL } from "@/lib/services/cache-service";
 import type { KycScopedExportPackage } from "@/lib/services/one-kyc-client-zk-service";
@@ -383,6 +384,7 @@ export class PersonProfileService {
   }
 
   static async connect(personRef: string, idToken: string): Promise<PersonRelationship> {
+    const activityOwner = snapshotLiveActivityOwner();
     const payload = await jsonOrThrow<{ relationship: PersonRelationship }>(
       await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}/connection`, {
         method: "POST",
@@ -390,6 +392,7 @@ export class PersonProfileService {
         body: JSON.stringify({}),
       }),
     );
+    recordLiveActivity({ kind: "connection_request_sent" }, activityOwner);
     return payload.relationship;
   }
 
@@ -410,12 +413,14 @@ export class PersonProfileService {
     personRef: string,
     idToken: string,
   ): Promise<PersonRelationship> {
+    const activityOwner = snapshotLiveActivityOwner();
     const payload = await jsonOrThrow<{ relationship: PersonRelationship }>(
       await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}/connection`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${idToken}` },
       }),
     );
+    recordLiveActivity({ kind: "connection_removed" }, activityOwner);
     return payload.relationship;
   }
 }

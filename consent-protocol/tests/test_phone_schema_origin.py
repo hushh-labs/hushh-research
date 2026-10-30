@@ -109,6 +109,7 @@ def submission(monkeypatch):
             "_GITHUB_RUN_ID": "42",
             "_GITHUB_RUN_ATTEMPT": "2",
             "_DEPLOY_SHA": PRIMARY,
+            "_IMAGE_REFERENCE": IMAGE,
             "_PHONE_DEPLOY_PHASE": "cold",
             "_PHONE_ROLLBACK_SHA": FALLBACK,
             "_PHONE_ROLLBACK_IMAGE_REFERENCE": IMAGE,
@@ -163,6 +164,8 @@ def test_only_exact_acknowledged_terminal_attempt_can_close_a_submission(submiss
             "build_id": build["id"],
             "source": FALLBACK,
             "image": IMAGE,
+            "probe_source": PRIMARY,
+            "probe_image": IMAGE,
         }
 
 
@@ -309,7 +312,7 @@ def restoration_history(submission, monkeypatch):
     builds = [build]
     monkeypatch.setenv("GITHUB_SHA", "e" * 40)
     monkeypatch.setattr(module, "_builds", lambda _start: builds)
-    monkeypatch.setattr(module, "_api", lambda endpoint: case.api(module.REPOSITORY, endpoint))
+    monkeypatch.setattr(module._authorities(), "uncached_api", case.api)
     monkeypatch.setattr(importlib.import_module("qualify_image"), "run", case.source)
     return module, case, builds
 
@@ -328,6 +331,8 @@ def restoration_history(submission, monkeypatch):
         "missing_source",
         "older_active",
         "older_queued",
+        "raw_skipped",
+        "raw_older",
     ],
 )
 def test_schema_history_reuses_restoration_absence_without_hiding_producers(
@@ -367,6 +372,18 @@ def test_schema_history_reuses_restoration_absence_without_hiding_producers(
     elif change in {"older_active", "older_queued"}:
         state = "in_progress" if change == "older_active" else "queued"
         case.attempts[(300, 1)]["status"] = case.jobs[(300, 1)]["jobs"][0]["status"] = state
+    elif change in {"raw_skipped", "raw_older"}:
+        monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+        from production_phone_job_name_cases import RAW_PRIMARY_NAME, apply_legacy_job_names
+
+        apply_legacy_job_names(case, PRIMARY)
+        latest.update(name=RAW_PRIMARY_NAME, status="completed", conclusion="skipped", steps=[])
+        if change == "raw_older":
+            next(
+                step
+                for step in case.jobs[(300, 1)]["jobs"][0]["steps"]
+                if step["name"] == history.DEPLOY
+            )["conclusion"] = "failure"
     elif change == "missing_source":
 
         def unavailable(command):
@@ -377,7 +394,7 @@ def test_schema_history_reuses_restoration_absence_without_hiding_producers(
         monkeypatch.setattr(importlib.import_module("qualify_image"), "run", unavailable)
     elif change == "attempt":
         latest["run_attempt"] = 1
-    if change in {None, "failed", "cancelled"}:
+    if change in {None, "failed", "cancelled", "raw_skipped"}:
         result = module.closed_submissions(
             {"run_id": "99", "run_attempt": 1}, start="2026-10-20T12:00:00Z", source_anchor="c" * 40
         )
@@ -388,6 +405,7 @@ def test_schema_history_reuses_restoration_absence_without_hiding_producers(
         message = {
             "build": "prior_producer_history_incomplete",
             "older": "submission_unacknowledged",
+            "raw_older": "submission_unacknowledged",
             "older_active": "prior_producer_unfinished",
             "older_queued": "prior_producer_unfinished",
         }.get(change)

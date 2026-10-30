@@ -366,3 +366,28 @@ def test_private_live_builder_refuses_missing_guard_or_shared_topology(monkeypat
         agent_tree.build_one_live_runner(
             runtime_mode="hushh_managed_vertex", require_access=checker
         )
+
+
+@pytest.mark.asyncio
+async def test_private_live_runner_omits_unbound_frontend_tools(monkeypatch):
+    from ag_ui_adk import AGUIToolset
+
+    from hushh_mcp.one_adk import agent_tree, turn_warmup
+
+    monkeypatch.setattr(agent_tree, "pod_mode", lambda: True)
+    monkeypatch.setattr(
+        agent_tree,
+        "_build_one_live_model",
+        lambda: turn_warmup._WarmupLlm(model=agent_tree._SPECIALIST_MODEL),
+    )
+    monkeypatch.setattr(agent_tree, "_build_one_memory_service", lambda: None)
+    runner = agent_tree.build_one_live_runner(
+        runtime_mode="hushh_managed_vertex", require_access=AsyncMock()
+    )
+    try:
+        assert not any(isinstance(tool, AGUIToolset) for tool in runner.app.root_agent.tools)
+        assert any(
+            getattr(tool, "name", "") == "google_search" for tool in runner.app.root_agent.tools
+        )
+    finally:
+        await runner.close()

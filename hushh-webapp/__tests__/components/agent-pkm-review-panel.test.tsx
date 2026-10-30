@@ -71,7 +71,7 @@ describe("AgentPkmReviewPanel", () => {
     render(<AgentPkmReviewPanel cards={[CARDS[0]!, same]} onSave={vi.fn()} onDismiss={vi.fn()} />);
     expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
     expect(screen.getAllByTestId("agent-pkm-review-group")).toHaveLength(1);
-    expect(screen.getAllByText(/Private to your private agent/)).toHaveLength(2);
+    expect(screen.getAllByText(/Private to Agent One/)).toHaveLength(2);
   });
   it("names each destination exactly as Profile does: Saves to A › B › C", () => {
     const { container, rerender } = render(

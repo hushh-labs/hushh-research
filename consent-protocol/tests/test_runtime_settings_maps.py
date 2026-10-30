@@ -428,6 +428,29 @@ def test_managed_profiles_match_deploy_compiler_and_reject_drift(monkeypatch):
         assert actual.live_model == profile["live_model"]
         assert actual.embedding_model == profile["embedding_model"]
         assert actual.config_hash != profile_hash({**compiled, "text_model": "changed-model"})
+    # The operator command describes the packaged default, even when this
+    # process carries the diagnostic pins used by candidate verification.
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
+    command = [sys.executable, str(root / "scripts/ops/managed_ai_config.py")]
+    assert (
+        subprocess.check_output(  # noqa: S603 - fixed local compiler
+            [*command, "--environment", "uat", "--format", "provider"], text=True
+        ).strip()
+        == "azure_openai"
+    )
+    validation = json.loads(
+        subprocess.check_output(  # noqa: S603 - no cloud/client calls
+            [*command, "--environment", "uat", "--format", "validate"], text=True
+        )
+    )
+    assert validation["valid"] is True
+    assert validation["providers"] == {
+        "local": "vertex",
+        "dev": "vertex",
+        "uat": "azure_openai",
+        "production": "vertex",
+    }
     import pytest
 
     for key, value in [
@@ -526,6 +549,67 @@ def test_managed_capability_policy_is_uat_only_versioned_and_rejects_conflicting
     path.write_text(json.dumps(value))
     with pytest.raises(ValueError, match="768"):
         load_managed_runtime_policy(path, environment="uat")
+
+
+def test_file_owned_provider_selection_reaches_runtime_and_research_without_changing_authority(
+    monkeypatch, tmp_path
+):
+    from hushh_mcp.managed_ai_config import (
+        PROFILE_PATH,
+        configured_managed_provider,
+        load_managed_runtime_policy,
+        load_private_drive_text_policy,
+        load_pwm_policy,
+        selected_managed_provider,
+        validate_runtime_config,
+    )
+
+    for key in ("HUSHH_UAT_MANAGED_AI_PROVIDER", "HUSHH_UAT_MANAGED_TEXT_PROVIDER"):
+        monkeypatch.delenv(key, raising=False)
+    original = json.loads(PROFILE_PATH.read_text())
+    path = tmp_path / "profile.json"
+    path.write_text(json.dumps(original))
+    baseline = load_managed_runtime_policy(path, environment="uat")
+    assert validate_runtime_config(path)["valid"] is True
+    # A compatible resource/deployment swap is the supported quota-recovery
+    # path. It updates transport identity and capabilities without new consent.
+    replacement = json.loads(json.dumps(original))
+    accounts = replacement["managed_azure_accounts"]
+    accounts["accounts"][accounts["selection"]["uat"]]["primary_endpoint"] = (
+        "https://spare.openai.azure.com/openai/v1/"
+    )
+    replacement["pwm_research_uat"]["azure"]["primary_deployment"] = "spare-text"
+    replacement["managed_runtime_uat"]["azure"]["one_text_root"]["deployment"] = "spare-chat"
+    replacement["managed_runtime_uat"]["azure"]["realtime"]["deployment"] = "spare-live"
+    path.write_text(json.dumps(replacement))
+    switched = load_managed_runtime_policy(path, environment="uat")
+    assert validate_runtime_config(path)["valid"] is True
+    assert switched["provider"] == "azure_openai"
+    assert switched["azure"]["one_text_root"]["deployment"] == "spare-chat"
+    assert switched["azure"]["realtime"]["deployment"] == "spare-live"
+    assert switched["config_fingerprint"] != baseline["config_fingerprint"]
+    assert switched["generation"] != baseline["generation"]
+    assert load_pwm_policy(path, environment="uat")["azure"]["primary_deployment"] == "spare-text"
+    assert load_private_drive_text_policy(path) == load_private_drive_text_policy()
+    original["managed_provider_selection"]["uat"] = "vertex"
+    path.write_text(json.dumps(original))
+    changed = load_managed_runtime_policy(path, environment="uat")
+    assert selected_managed_provider(path) == changed["provider"] == "vertex"
+    assert changed["generation"] != baseline["generation"]
+    assert load_pwm_policy(path, environment="uat")["provider"] == "vertex_google_search"
+    assert load_private_drive_text_policy(path) == load_private_drive_text_policy()
+    for environment in ("local", "dev", "production"):
+        assert configured_managed_provider(environment, path) == "vertex"
+        assert load_managed_runtime_policy(path, environment=environment) is None
+    assert validate_runtime_config(path)["providers"]["uat"] == "vertex"
+    original["managed_provider_selection"]["uat"] = "unsupported"
+    path.write_text(json.dumps(original))
+    with pytest.raises(ValueError, match="Invalid managed provider selection"):
+        selected_managed_provider(path)
+    # Even a valid revision pin cannot hide an invalid packaged configuration.
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    with pytest.raises(ValueError, match="Invalid managed provider selection"):
+        selected_managed_provider(path)
 
 
 @pytest.mark.parametrize("capability", ["compact_public_search", "one_text_root"])

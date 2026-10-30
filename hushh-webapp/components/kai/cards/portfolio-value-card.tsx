@@ -26,7 +26,7 @@ export function PortfolioValueCard({ source, value, change, changePct, period, h
         </p> : null}
         {change !== null ? <p className={cn(styles.description, "mt-1")}>Period balance change · includes cash flows</p> : null}
       </div>
-      {history.length >= 2 ? <PortfolioHistoryChart data={history} height={220} /> : <p className={styles.description}>Balance snapshot · This source hasn’t supplied dated balance history.</p>}
+      {history.length >= 2 ? <PortfolioHistoryChart data={history} height={220} /> : <p className={styles.description}>Dated balance history unavailable.</p>}
       {invested !== undefined || cash !== undefined ? <dl className={styles.summaryFacts}>
         <div><dt>Invested</dt><dd>{money(invested ?? null)}</dd></div>
         <div><dt>Cash</dt><dd>{money(cash ?? null)}</dd></div>

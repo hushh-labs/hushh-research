@@ -11,7 +11,8 @@ import ipaddress
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from runpy import run_path
+from typing import Any, NamedTuple
 
 _SCOPE_SPEC = importlib.util.spec_from_file_location(
     "runtime_capacity_target_scope",
@@ -27,6 +28,38 @@ ISOLATED_DEV_CONNECTION = _scope.ISOLATED_DEV_CONNECTION
 isolated_dev_scope = _scope.isolated_dev_scope
 non_target_rows = _scope.non_target_rows
 _non_target_routing = _scope.non_target_routing
+
+
+class VerifiedObserverJobs(NamedTuple):
+    """Collector-owned proof; local JSON cannot replace active inspection."""
+
+    jobs: tuple[dict[str, Any], ...]
+
+
+def auth_health_owner():
+    return run_path(
+        str(
+            Path(__file__).resolve().parents[2]
+            / "deploy/observability/auth_health_inventory.py"
+        )
+    )
+
+
+def observer_rows(inventory, project):
+    owner = auth_health_owner()
+    proof = inventory.get("observer_jobs")
+    if proof is None:
+        return []
+    if type(proof) is not VerifiedObserverJobs or project != owner["PROJECT"] or len(proof.jobs) != 1:
+        raise BudgetError("observer job classification is outside its reviewed scope")
+    job = inventory["jobs"].get(owner["NAME"], {})
+    expected = owner["qualify_job"](job)
+    row = proof.jobs[0]
+    if any(row.get(key) != value for key, value in expected.items()) or not isinstance(
+        row.get("checked_active_executions"), list
+    ):
+        raise BudgetError("observer job classification changed after collection")
+    return [row]
 
 
 def positive_int(value: Any, label: str, *, zero_ok: bool = False) -> int:
@@ -356,6 +389,9 @@ def collect_inventory(
     )
     jobs = _job_inventory(read, opts, parallel)
     result = {"database_max_connections": maximum, "services": services, "jobs": jobs}
+    owner = auth_health_owner()
+    if project == owner["PROJECT"] and owner["NAME"] in jobs:
+        result["observer_jobs"] = VerifiedObserverJobs((owner["collect"](jobs[owner["NAME"]], read, opts),))
     if not isolated:
         return result
     zero_jobs = _non_target_jobs(

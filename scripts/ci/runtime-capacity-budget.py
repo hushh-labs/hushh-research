@@ -655,7 +655,8 @@ def evaluate(
         retained_budget=service_budget, candidate_budget=candidate_connections,
         inherited_budget=inherited_candidate_connections,
     )
-    expected_jobs = set(config["jobs"]) | {row["name"] for row in non_target_jobs}
+    observers = _inventory.observer_rows(inventory, config["project"])
+    expected_jobs = set(config["jobs"]) | {row["name"] for row in non_target_jobs + observers}
     if set(inventory["jobs"]) != expected_jobs:
         extra = set(inventory["jobs"]) - expected_jobs
         missing = expected_jobs - set(inventory["jobs"])
@@ -668,6 +669,7 @@ def evaluate(
     ]
     service_rows.extend(non_target_services)
     job_rows.extend(non_target_jobs)
+    job_rows.extend(observers)
     service_rows.extend(extra_rows)
     projected = reserve + sum(row["connections"] for row in service_rows + job_rows)
     return {

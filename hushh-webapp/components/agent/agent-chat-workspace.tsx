@@ -19,10 +19,10 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useNativeHistoryPresentation } from "@/components/agent/native-history-presentation";
-import { HistoryConnectorsPage } from "@/components/agent/history-connectors-page";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { agentPkmCaptureJobKey, aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, resumedAgentPkmCaptureMessageId, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
+import { deferAgentPkmCapture, takeDeferredAgentPkmCaptures } from "@/lib/agent/agent-pkm-deferred-capture";
 import {
   applyOwnerConfirmedSave,
   describeOwnerMemoryReview,
@@ -151,6 +151,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmailDraftCard, type GmailDraftSaveState } from "@/components/agent/email-draft-card";
+import { parseEmailDraftToolResult, type GmailSendReadiness } from "@/lib/agent/email-draft-tool-result";
 import { richEmailPlainText } from "@/components/agent/email-rich-text";
 import {
   AgentCalendarProposalCard,
@@ -296,6 +297,8 @@ import {
   AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
 } from "@/lib/agent/agent-pkm-auto-save-policy";
 import { isChatKeyRefusal } from "@/lib/vault/one-chat-key";
+import { composeAgentPkmContext } from "@/lib/pkm/live-activity/live-activity-agent-context";
+import { peekLiveActivity } from "@/lib/pkm/live-activity/live-activity-journal";
 import { recoverMcpReviews } from "@/lib/agent/mcp-review-recovery";
 import {
   loadAgentChatConversationHistory,
@@ -307,6 +310,7 @@ import {
 import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import { calendarSlotInstruction, calendarSlotProposalError, calendarSlotStarts, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
+import { isCalendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
 import { rememberInAppChat, selectedInAppChat } from "@/lib/agent/in-app-chat-selection";
 import {
   AGENT_TURN_DETACH_REASON,
@@ -390,7 +394,10 @@ import {
   type DelegateResult,
 } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, buildGmailWorkspaceRoute } from "@/lib/navigation/routes";
+import { MailAttentionStack } from "@/components/agent/mail-attention-stack";
+import { receiptSetupExperience } from "@/lib/agent/mail-chat-experiences";
+import { redactReceiptAnswer, retireReceiptAnswer, withoutSyncingReceiptCard } from "@/lib/agent/receipt-answer-redaction";
 import { cn } from "@/lib/utils";
 import {
   useConsentActions,
@@ -833,6 +840,7 @@ type AgentTurnSource = "typed";
 type AgentRunTurnOptions = {
   source: AgentTurnSource;
   calendarMeeting?: MeetingSelection;
+  timeZoneOverride?: string;
   personSelectionHandle?: string;
   gmailInformationRequestWorkflowId?: string;
   driveSearchSelection?: { jobId: string; position: number };
@@ -885,7 +893,7 @@ type AgentChatWorkspaceProps = {
 };
 
 const AGENT_GREETING =
-  "Hi, I'm One \u2014 your private agent. Ask me about your markets, portfolio, memories, or consent workflows.";
+  "Hi, I'm Agent One. Ask me about your markets, portfolio, memories, or consent workflows.";
 const AGENT_GREETING_TIMESTAMP = "Just now";
 const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   text: "",
@@ -893,6 +901,8 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   totalAttributes: 0,
   updatedAt: null,
 };
+// Sent to One when memory.md could not be read, so it never claims nothing is saved.
+const MEMORY_UNAVAILABLE_FOR_TURN = "memory.md status: could not be read for this turn; its contents are unknown, not empty.";
 
 function toPkmFactCountBucket(
   count: number,
@@ -902,6 +912,14 @@ function toPkmFactCountBucket(
   if (count < 50) return "10_49";
   if (count < 250) return "50_249";
   return "250_plus";
+}
+
+/** Ambient capture is silent in chat; its failures stay countable here. */
+function trackAmbientPkmCaptureFailure(): void {
+  trackEvent("agent_pkm_save_confirmation_completed", {
+    route_id: "agent", result: "error", saved_count_bucket: toPkmFactCountBucket(0),
+    failed_count_bucket: toPkmFactCountBucket(1), has_active_recipients: false,
+  });
 }
 
 function isSilentMemoryToolEvent(event: AgentChatToolEvent): boolean {
@@ -930,19 +948,17 @@ function getConsentRequiredPayload(
 
 export function getGmailEmailDraftPayload(
   event: AgentChatToolEvent | null,
-): { instruction: string; driveFileId: string | null; initialDraft: EmailDraft | null } | null {
+): { instruction: string; driveFileId: string | null; initialDraft: EmailDraft | null; gmailSend: GmailSendReadiness | null } | null {
   if (!event || event.raw.toolName !== "open_gmail_email_draft") return null;
-  const instruction =
-    typeof event.slots.request === "string" ? event.slots.request.trim() : "";
-  const driveFileId =
-    typeof event.slots.drive_file_id === "string"
-      ? event.slots.drive_file_id.trim()
-      : "";
+  // A refusal opens no card; an event without a result (an older server) still does.
+  const result = parseEmailDraftToolResult(event.raw.result);
+  if (result && result.status !== "draft_opened") return null;
+  const instruction = typeof event.slots.request === "string" ? event.slots.request.trim() : "";
+  const driveFileId = typeof event.slots.drive_file_id === "string" ? event.slots.drive_file_id.trim() : "";
   const draftField = (name: "to" | "cc" | "bcc" | "subject" | "body", limit: number) => {
-    const value = event.slots[name];
-    return typeof value === "string" && value.trim().length <= limit
-      ? value.trim()
-      : "";
+    // Recipients the server resolved win over the model's arguments.
+    const value = result?.envelope && name !== "subject" && name !== "body" ? result.envelope[name] : event.slots[name];
+    return typeof value === "string" && value.trim().length <= limit ? value.trim() : "";
   };
   const body = draftField("body", 12_000);
   const initialDraft = {
@@ -957,6 +973,7 @@ export function getGmailEmailDraftPayload(
         instruction,
         driveFileId: driveFileId && driveFileId.length <= 256 ? driveFileId : null,
         initialDraft: Object.values(initialDraft).some(Boolean) ? initialDraft : null,
+        gmailSend: result?.gmailSend ?? null,
       }
     : null;
 }
@@ -2732,11 +2749,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ]);
   const pkmCaptureMessageIdsRef = useRef<ReadonlySet<string>>(new Set());
   pkmCaptureMessageIdsRef.current = new Set(messages.map((message) => message.id));
-  const clearReceiptAnswers = useCallback(() => setMessages(current => current.map(message => message.receiptPrivate ? {
-    ...message, receiptPrivate: undefined, receiptRedacted: true, status: "done",
-    text: "Receipt analysis was shown for that turn. Ask again for a fresh analysis.",
-    structuredExperience: null, structuredExperiences: [], streamEvents: [], sources: [], followUps: [],
-  } : message)), []);
+  const clearReceiptAnswers = useCallback(() => setMessages(current => current.map(message => message.receiptPrivate
+    ? retireReceiptAnswer(message) : message)), []);
   useEffect(() => {
     const privateMessages = messages.filter(message => message.receiptPrivate);
     if (!privateMessages.length) return;
@@ -2755,7 +2769,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }), [applicationOwnerId, clearReceiptAnswers]);
   const compiledDriveMarkdownRef = useRef(new Map<string, string>());
   const driveCompilationAbortRef = useRef<AbortController | null>(null);
-  const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(
+  const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<{ text: string; timeZoneOverride?: string } | null>(
     null,
   );
   const pendingSessionHandoff = useOneConversationSession(
@@ -2782,16 +2796,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isOneProfileOpen, setIsOneProfileOpen] = useState(false);
   const oneProfileTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
-  const [historyConnectorsReady, setHistoryConnectorsReady] = useState<string | null>(null);
-  const [historyConnectorExternalModal, setHistoryConnectorExternalModal] = useState(false);
-  const historyConnectorsOwner = JSON.stringify([applicationOwnerId, vaultSessionEpoch]);
-  useLayoutEffect(() => {
-    if (!isHistoryDrawerOpen || drawerMode !== "connections") setHistoryConnectorsReady(null);
-  }, [isHistoryDrawerOpen, drawerMode]);
-  const openHistoryConnectors = useCallback(() => {
-    setDrawerMode("connections");
-    setIsHistoryDrawerOpen(true);
-  }, []);
   const handleHistoryDrawerOpenChange = useCallback((open: boolean) => {
     const next = transitionConnectionsDrawer(
       { open: isHistoryDrawerOpen, mode: drawerMode },
@@ -2800,9 +2804,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setIsHistoryDrawerOpen(next.open);
     setDrawerMode(next.mode);
   }, [drawerMode, isHistoryDrawerOpen]);
-  // Inline Chat cards use Profile's connector destination. History's footer
-  // uses its own leading presentation, reusing the same connector/OAuth owner.
-  // Neither path replaces the Chat workspace or its draft.
+  // Chat cards and History's footer use Profile's connector destination
+  // without replacing the Chat workspace or its draft.
   const calendarChatRecoveryRef = useRef<() => void>(() => undefined);
   const calendarChatRecoveryBusy = useRef(false);
   const openConnectorSurface = useCallback((
@@ -2826,6 +2829,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       { returnsToOrigin: true, returnFocus: trigger },
     );
   }, []);
+  const openHistoryConnectors = useCallback(() => {
+    // The footer becomes hidden when History closes. Return to its persistent
+    // opener instead, just as the Get App sheet does.
+    openConnectorSurface(undefined,
+      historyDrawerTriggerRef.current ?? historyDrawerFallbackRef.current ?? undefined);
+  }, [openConnectorSurface]);
   const [recoveryCheckedForUid, setRecoveryCheckedForUid] = useState<string | null>(null);
   const pendingDriveRecoveryRef = useRef<{
     ownerUid: string;
@@ -2881,6 +2890,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isEmailDrafting, setIsEmailDrafting] = useState(false);
   const [emailDraftInstruction, setEmailDraftInstruction] = useState("");
   const [emailDraftAutoDraft, setEmailDraftAutoDraft] = useState(false);
+  const [emailDraftGmailSend, setEmailDraftGmailSend] = useState<GmailSendReadiness | null>(null);
   const [emailDraftInitialValue, setEmailDraftInitialValue] =
     useState<EmailDraft | null>(null);
   const [emailDraftAnchorMessageId, setEmailDraftAnchorMessageId] = useState<
@@ -3066,7 +3076,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const calendarActionIdsRef = useRef<Set<string>>(new Set());
   const queuedMeetingRef = useRef<MeetingSelection | undefined>(undefined);
   const handoffPromptSubmitRef = useRef<
-    ((prompt: string, meeting?: MeetingSelection) => Promise<void>) | null
+    ((prompt: string, meeting?: MeetingSelection, timeZoneOverride?: string) => Promise<void>) | null
   >(null);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const pkmCaptureJobsRef = useRef(new Map<string, Promise<AgentPkmCaptureStatus>>());
@@ -3956,6 +3966,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setEmailDraftOpen(false);
     setEmailDraftInstruction("");
     setEmailDraftAutoDraft(false);
+    setEmailDraftGmailSend(null);
     setEmailDraftInitialValue(null);
     setEmailDraftAnchorMessageId(null);
     setGmailKycReplyRequest(null);
@@ -4123,6 +4134,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }),
       (outcome, { cancelled }) => {
         if (outcome === "connected") {
+          setEmailDraftGmailSend(null); // A confirmed grant supersedes the draft-time hint.
           toast.success(inPlaceConnectCopy("gmail_send", outcome));
           if (item) retryEmailDelivery(item);
         } else if (outcome === "failed") {
@@ -4247,6 +4259,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             : null,
       );
       setEmailDraftAutoDraft(!payload.initialDraft?.body);
+      setEmailDraftGmailSend(payload.gmailSend);
       setEmailDraftAnchorMessageId(assistantMessageId);
       setEmailDraftOpen(true);
       return true;
@@ -4394,7 +4407,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setPendingSpecialistDirective(null);
       setCalendarInvitationContext(null);
       queuedMeetingRef.current = handoff.calendarRequest.meeting;
-      setQueuedHandoffPrompt(handoff.calendarRequest.request);
+      setQueuedHandoffPrompt({ text: handoff.calendarRequest.request, timeZoneOverride: handoff.calendarRequest.timeZone });
       consumeHandoff(handoff.id);
       return;
     }
@@ -4425,7 +4438,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (invitation.request) {
         setPendingSpecialistDirective(null);
         setCalendarInvitationContext({ selection: invitation, conversationId: conversationIdRef.current, needsContext: true });
-        setQueuedHandoffPrompt(invitation.request);
+        setQueuedHandoffPrompt({ text: invitation.request });
         consumeHandoff(handoff.id);
         return;
       }
@@ -4495,7 +4508,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const shouldSkipInitialHistoryLoad = historyLoadKeyRef.current === null;
       handleCreateNewChat();
       skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad;
-      setQueuedHandoffPrompt(emailDraftInstruction);
+      setQueuedHandoffPrompt({ text: emailDraftInstruction });
       consumeHandoff(handoff.id);
       return;
     }
@@ -4503,7 +4516,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const shouldSkipInitialHistoryLoad = historyLoadKeyRef.current === null;
       handleCreateNewChat();
       skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad;
-      setQueuedHandoffPrompt(transcript);
+      setQueuedHandoffPrompt({ text: transcript });
       consumeHandoff(handoff.id);
       return;
     }
@@ -5691,14 +5704,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         controller.abort();
       }, explicitRequest ? AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS : AGENT_PKM_CAPTURE_DEADLINE_MS);
       const settle = (status: AgentPkmCaptureStatus) => {
-        // Ambient memory never narrates an ordinary answer. Explicit outcomes
-        // survive token expiry only in their originating owner/conversation.
-        if (!userRequestedSave) {
-          if (status.phase === "failed" && guard.isCurrent() && mayUpdateWorkspace()) {
-            toast.error("One couldn't update memory.md. Your message is still in chat; try saving it again.");
-          }
-          return status;
-        }
+        // Ambient memory is background work: it never narrates progress or
+        // failure in chat. Explicit outcomes survive token expiry only in
+        // their originating owner/conversation.
+        if (!userRequestedSave) return status;
         if (!shouldPublishAgentPkmCapture(status, guard.isCurrent(), scopeIsCurrent())) return status;
         if (!shouldPresentAgentPkmCapture(status, userRequestedSave)) return status;
         const receipts = pkmCaptureReceiptsRef.current.get(params.assistantMessageId) || new Map<string, AgentPkmCaptureStatus>();
@@ -5782,6 +5791,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           if (prepared.sourceCoverage?.some(isUnresolvedSourceBlock) ||
               prepared.cards.some(card => card.preparation_requires_review || card.preview_degraded || card.drift_flags?.fallback_used) ||
               prepared.previews?.some(preview => preview.used_fallback || preview.error)) {
+            if (!userRequestedSave) trackAmbientPkmCaptureFailure();
             return settle({ phase: "failed", saved: 0 });
           }
           // The V1 Markdown document has no review queue. The semantic agents
@@ -5828,6 +5838,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             kind: timedOut ? "timeout" : guard.isCurrent() ? "capture_failed" : "session_changed",
             requested_by_owner: userRequestedSave,
           });
+          if (!userRequestedSave && (timedOut || guard.isCurrent())) trackAmbientPkmCaptureFailure();
           if (timedOut) return settle({ phase: "failed", saved: 0, reason: "timeout" });
           return settle({ phase: guard.isCurrent() ? "failed" : "canceled", saved: 0 });
         } finally {
@@ -6124,7 +6135,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const delta = pendingAssistantDelta;
       pendingAssistantDelta = "";
       if (!delta) return;
-      updateMessage(assistantMessageId, (message) => ({
+      updateMessage(assistantMessageId, (message) => message.receiptRedacted ? message : ({
         ...message,
         text: message.ephemeral ? delta : `${message.text}${delta}`,
         status: "streaming",
@@ -6153,7 +6164,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       updateMessage(assistantMessageId, (message) => ({
         ...message,
         text: message.text || "Agent turn canceled.",
-        status: "done",
+        status: "done", structuredExperiences: withoutSyncingReceiptCard(message.structuredExperiences),
         streamEvents: settleVisibleStreamEvents(
           message.streamEvents,
           "blocked",
@@ -6633,6 +6644,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
     try {
       let agentPkmContext = EMPTY_PKM_CONTEXT;
+      let memoryUnavailable = false;
       try {
         agentPkmContext = await loadTurnPkmContext();
         performance.mark("hushh:agent-chat:pkm-prepare-end");
@@ -6684,24 +6696,35 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               ? error.message
               : "Failed to load private PKM context.",
         });
-        updateMessage(assistantMessageId, (message) => ({
-          ...message,
-          text: "One couldn't load your private memory for this turn. Keep your vault unlocked and try again.",
-          status: "error",
-          streamEvents: [],
-        }));
-        setIsChatLoading(false);
-        setIsStreaming(false);
-        return;
+        // A locked vault blocks, and an owner-confirmed write never runs
+        // against unknown memory. Otherwise the answer continues degraded.
+        if (!vaultKey || options.kycInformationSaveConfirmed) {
+          updateMessage(assistantMessageId, (message) => ({
+            ...message,
+            text: "One couldn't load your private memory for this turn. Keep your vault unlocked and try again.",
+            status: "error",
+            streamEvents: [],
+          }));
+          setIsChatLoading(false);
+          setIsStreaming(false);
+          return;
+        }
+        if (streamAbortController.signal.aborted) {
+          finishCanceledTurn();
+          return;
+        }
+        memoryUnavailable = true;
+        agentPkmContext = { ...EMPTY_PKM_CONTEXT, text: MEMORY_UNAVAILABLE_FOR_TURN };
       }
 
       // Assess only the owner's typed information alongside answer generation.
-      // Capture publishes to RAM; encrypted saving has its own session queue.
+      // Capture reconciles against memory.md: a turn that could not read it
+      // waits for the next successful read instead of dropping a correction.
       if (options.source === "typed" && !nameTurn && !options.kycInformationSaveConfirmed && !options.calendarMeeting) {
-        void captureEligiblePkmFactsInBackground({
-          turnId: debugTurnId, assistantMessageId, sourceMessage: turnSourceText,
-          currentDomains: agentPkmContext.domains,
-        });
+        const capture = { turnId: debugTurnId, assistantMessageId, sourceMessage: turnSourceText };
+        if (memoryUnavailable) deferAgentPkmCapture(capture);
+        else for (const turn of [...takeDeferredAgentPkmCaptures(userId), capture])
+          void captureEligiblePkmFactsInBackground({ ...turn, currentDomains: agentPkmContext.domains });
       }
       if (options.kycInformationSaveConfirmed) {
         // Use the owner-confirmed private Soul update before drafting.
@@ -6730,12 +6753,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }
       }
 
-      if (!options.deferPkmContext) {
+      if (memoryUnavailable || !options.deferPkmContext) {
         upsertTurnStreamEvent({
           id: PRIVATE_MEMORY_PREPARATION_EVENT_ID,
           label: "Private memory",
-          message: "Private memory ready.",
-          status: "done",
+          message: memoryUnavailable ? "Private memory could not load." : "Private memory ready.",
+          status: memoryUnavailable ? "error" : "done",
           createdAtMs: Date.now(),
         });
       }
@@ -6752,7 +6775,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           updateMessage(assistantMessageId, (message) => ({
             ...message,
             text: message.text || "Stopped.",
-            status: "done",
+            status: "done", structuredExperiences: withoutSyncingReceiptCard(message.structuredExperiences),
             streamEvents: settleVisibleStreamEvents(message.streamEvents, "blocked"),
           }));
           setIsChatLoading(false);
@@ -6771,17 +6794,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const streamResult = await streamAgentChat({
         userId,
         message: text,
+        timeZoneOverride: options.timeZoneOverride,
         attachments,
         messageId: options.queuedPrompts?.[0]?.id,
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         vaultKey: vaultKeyRef.current ?? "",
         loadConnectorConfigurations,
-        pkmContext: [
-          latestPkmSaveReceiptRef.current
-            ? formatPkmSaveReceiptForAgent(latestPkmSaveReceiptRef.current) : "",
-          agentPkmContext.text || "",
-        ].filter(Boolean).join("\n\n") || undefined,
+        // Receipt, Soul.md (or the memory-unavailable status), today's activity, then the Live Mirror block, last.
+        pkmContext: composeAgentPkmContext({
+          receipt: latestPkmSaveReceiptRef.current ? formatPkmSaveReceiptForAgent(latestPkmSaveReceiptRef.current) : "",
+          memory: agentPkmContext.text || "", events: peekLiveActivity(userId), now: Date.now(),
+        }),
         // Settings style choices ride beside the packet, never inside it.
         communicationPreferences: agentPkmContext.communicationPreferences,
         // Soul.md is the only saved memory supplied by chat. Connector tools
@@ -6812,6 +6836,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
               expiresAt: Date.now() + 5 * 60 * 1000,
             } }));
+          },
+          onReceiptSetupNeeded: (state) => {
+            if (streamAbortController.signal.aborted || turnStopped) return;
+            updateMessage(assistantMessageId, (message) => ({ ...message, structuredExperiences: upsertAgentStructuredExperience(
+              message.structuredExperiences ?? [], `${assistantMessageId}:receipt-setup`, receiptSetupExperience(state)) }));
           },
           // No onThinkingSummary: the model's reasoning is never shown in
           // chat, live or restored. Only the answer and Activity render.
@@ -7301,7 +7330,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const delta = pendingAssistantDelta;
       pendingAssistantDelta = "";
       if (!delta) return;
-      updateMessage(assistantMessageId, (message) => ({
+      updateMessage(assistantMessageId, (message) => message.receiptRedacted ? message : ({
         ...message,
         text: `${message.text}${delta}`,
         status: "streaming",
@@ -7829,7 +7858,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     personSelectionHandle?: string,
     options: Pick<
       AgentRunTurnOptions,
-      "deferPkmContext" | "driveSearchSelection" | "attachments" | "calendarMeeting"
+      "deferPkmContext" | "driveSearchSelection" | "attachments" | "calendarMeeting" | "timeZoneOverride"
     > = {},
   ) => {
     const chatEpoch = chatSessionRef.current.value;
@@ -7845,6 +7874,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       createdAtMs: Date.now(),
       deferPkmContext: options.deferPkmContext,
       driveSearchSelection: options.driveSearchSelection,
+      timeZoneOverride: options.timeZoneOverride,
       gmailInformationRequestWorkflowId: gmailKycReplyRequest?.workflow_id,
       // A reply supplies owner facts for Soul, not structured identity writes.
       // Once a draft is on screen, a follow-up revises that draft
@@ -7852,7 +7882,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       kycInformationSaveConfirmed:
         Boolean(gmailKycReplyRequest?.workflow_id) && !emailDraftOpen,
       // Plain typed text only; a picker choice carries its own authority.
-      joinable: hasChatAccess && !personSelectionHandle && !options.calendarMeeting,
+      joinable: hasChatAccess && !personSelectionHandle && !options.calendarMeeting && !options.timeZoneOverride,
       placement: "waiting",
     };
     const operation: QueuedWorkspaceOperation = {
@@ -7891,6 +7921,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             attachments: current.attachments,
             deferPkmContext: current.deferPkmContext,
             driveSearchSelection: current.driveSearchSelection,
+            timeZoneOverride: current.timeZoneOverride,
             gmailInformationRequestWorkflowId: options.calendarMeeting ? undefined : current.gmailInformationRequestWorkflowId,
             kycInformationSaveConfirmed: options.calendarMeeting ? false : current.kycInformationSaveConfirmed,
           });
@@ -7996,6 +8027,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 text,
                 // As editQueuedAgentPrompt: a revised intent re-picks its file.
                 driveSearchSelection: undefined,
+                timeZoneOverride: undefined,
                 placement: "waiting" as const,
               },
             }
@@ -8741,17 +8773,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setComposerExpanded(false);
   };
 
-  handoffPromptSubmitRef.current = async (prompt: string, meeting?: MeetingSelection) => {
-    enqueuePrompt(prompt, undefined, { calendarMeeting: meeting });
+  handoffPromptSubmitRef.current = async (prompt: string, meeting?: MeetingSelection, timeZoneOverride?: string) => {
+    enqueuePrompt(prompt, undefined, { calendarMeeting: meeting, timeZoneOverride });
   };
 
   useEffect(() => {
-    const prompt = queuedHandoffPrompt?.trim();
+    const prompt = queuedHandoffPrompt?.text.trim();
     if (!prompt) return;
+    const timeZoneOverride = queuedHandoffPrompt?.timeZoneOverride;
     setQueuedHandoffPrompt(null);
     const meeting = queuedMeetingRef.current;
     queuedMeetingRef.current = undefined;
-    void handoffPromptSubmitRef.current?.(prompt, meeting);
+    void handoffPromptSubmitRef.current?.(prompt, meeting, timeZoneOverride);
   }, [queuedHandoffPrompt, setQueuedHandoffPrompt]);
 
   // Agent Chat never owns audio. Its microphone affordance delegates to the
@@ -8799,10 +8832,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     (message) => message.id !== "agent-greeting",
   );
   const visibleMessages = dedupeAdjacentAgentMessages(
-    messages.map(message => message.receiptPrivate && (message.receiptPrivate.ownerId !== applicationOwnerId || !isVaultUnlocked || !vaultKey || message.receiptPrivate.vaultEpoch !== vaultSessionEpoch || message.receiptPrivate.conversationId !== conversationId || message.receiptPrivate.expiresAt <= Date.now()) ? {
-      ...message, receiptRedacted: true, text: "Receipt analysis was shown for that turn. Ask again for a fresh analysis.",
-      structuredExperience: null, structuredExperiences: [], streamEvents: [], sources: [], followUps: [],
-    } : message).filter((message) => {
+    messages.map(message => message.receiptPrivate && (message.receiptPrivate.ownerId !== applicationOwnerId || !isVaultUnlocked || !vaultKey || message.receiptPrivate.vaultEpoch !== vaultSessionEpoch || message.receiptPrivate.conversationId !== conversationId || message.receiptPrivate.expiresAt <= Date.now()) ? redactReceiptAnswer(message) : message).filter((message) => {
       if (message.id === "agent-greeting") return false;
       if (
         pendingSpecialistDirective &&
@@ -8934,6 +8964,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onDraftChange={handleEmailDraftChange}
           onDraftingChange={setIsEmailDrafting}
           onOpenConnections={openConnectorSurface}
+          gmailSend={workflowId ? null : emailDraftGmailSend}
+          onEnableGmailSend={() => handleEnableGmailSend()}
+          enablingGmailSend={gmailSendConnect.pending?.key === "gmail_send"}
           sourceBoundReply={
             workflowId
               ? {
@@ -9054,6 +9087,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       : previousAttachments;
     if (!previousUserMessage) {
       toast.error("No previous message found to retry.");
+      return;
+    }
+    // History restores the visible request but not the selected IANA zone.
+    // A retry in the device zone could search the wrong civil day at DST.
+    if (isCalendarDaySearchRequest(retryText)) {
+      toast.info("Open Calendar and choose the day again.");
       return;
     }
     // A failed answer after someone shared retries as that continuation. Sent
@@ -9343,9 +9382,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
-      onOpenConnectors={!isPuppySurface
-        ? (trigger) => { historyDrawerTriggerRef.current = trigger; openHistoryConnectors(); }
-        : undefined}
+      onOpenConnectors={!isPuppySurface ? openHistoryConnectors : undefined}
       onGetApp={offerGetApp ? openGetApp : undefined}
       getAppOpen={getAppOpen}
       driveActivity={!isPuppySurface && !customNativePresentationEnabled()
@@ -9360,8 +9397,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     owner: renderedWorkspaceOwnerId, vaultEpoch: vaultSessionEpoch,
     ready: isCanonicalChatRoute && hasChatAccess && !authLoading && !sessionVerificationRequired && isVaultUnlocked,
     disabled: !isPuppySurface && historyInteractionDisabled,
-    // Destination readiness withdraws the roster without touching Chat/drafts.
-    open: isHistoryDrawerOpen && (drawerMode === "chats" || historyConnectorsReady !== historyConnectorsOwner), surface: agentSurface,
+    open: isHistoryDrawerOpen, surface: agentSurface,
     conversations: isPuppySurface ? puppyConversations : historyListOwner.current &&
       isValidatedAuthSessionOwnerCurrent(historyListOwner.current.auth) && isVaultSessionEpochCurrent(historyListOwner.current.epoch)
       ? conversations : [],
@@ -9376,13 +9412,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     openDriveReview: () => { setDriveActivityPage({ owner: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch, open: true }); },
     openTodoList: () => { handleHistoryDrawerOpenChange(false); router.push(ROUTES.ONE_TODOS); },
   });
-  const historyConnectorsPage = !isPuppySurface && hasChatAccess && isVaultUnlocked ? <HistoryConnectorsPage
-    key={historyConnectorsOwner} owner={renderedWorkspaceOwnerId} context={historyConnectorsOwner}
-    native={customNativePresentationEnabled() && nativeHistoryRenderer !== "web"}
-    open={isHistoryDrawerOpen && drawerMode === "connections"}
-    onReady={() => setHistoryConnectorsReady(historyConnectorsOwner)}
-    onBack={() => setDrawerMode("chats")} onClose={() => handleHistoryDrawerOpenChange(false)}
-    onExternalModalChange={setHistoryConnectorExternalModal} /> : null;
   const getEmailDeliveryAuth = async (scope = emailScopeRef.current) => {
     const isCurrent = () => emailScopeRef.current === scope &&
       workspaceOwnerIdRef.current === scope.ownerId && isVaultSessionEpochCurrent(scope.epoch);
@@ -9681,16 +9710,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           open={isHistoryDrawerOpen}
           onOpenChange={handleHistoryDrawerOpenChange}
           mode={drawerMode}
-          externalModalOpen={historyConnectorExternalModal}
+          externalModalOpen={false}
           chats={renderHistorySidebar(
             "h-full w-full",
             () => handleHistoryDrawerOpenChange(false),
             false,
             "mobile",
           )}
-          connections={nativeHistoryRenderer === "web" ? historyConnectorsPage : null}
+          connections={null}
         />
-        {nativeHistoryRenderer !== "web" ? historyConnectorsPage : null}
         {customNativePresentationEnabled() && isCanonicalChatRoute && hasChatAccess && !isPuppySurface ? <DriveRecentSharing
           active={isHistoryDrawerOpen || driveActivityPageOpen} onNeedsReviewChange={onDriveNeedsReviewChange}
           page={{ open: driveActivityPageOpen,
@@ -9904,7 +9932,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}
             nativeReady={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}
             modelControl={modelPreference?.source === "owner_pod" && !isPuppySurface && !hasInlineModelPicker
-              ? <OneModelConnection connection={modelPreference} />
+              ? <OneModelConnection connection={modelPreference} fullWidth />
               : canPickOneModel && modelPreference && !isPuppySurface && !hasInlineModelPicker ? (
               <Select value={modelPreference.effective_model} disabled={modelPreferenceSaving} onValueChange={handleOneModelChange}>
                 <SelectTrigger aria-label="One's model" aria-busy={modelPreferenceSaving || undefined} className="h-11 w-full">
@@ -10058,6 +10086,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     disabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
                     onPromptSelect={handleWelcomePromptSelect}
                   />
+                  {!isPuppySurface ? <MailAttentionStack onAskOne={handleWelcomePromptSelect}
+                    briefDisabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
+                    onEmpty={() => composerTextareaRef.current?.focus()}
+                    onOpenItem={(item) => router.push(buildGmailWorkspaceRoute(item.source === "receipt" ? "receipts" : "kyc"))} /> : null}
                   {chatOnboarding.dailyTip ? (
                     <ChatOnboardingDailyTip
                       tip={chatOnboarding.dailyTip}

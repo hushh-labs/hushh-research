@@ -214,6 +214,59 @@ def _requested(conn: Connection, requester: str, addressee: str, status: str = "
     )
 
 
+def test_mutual_directory_pages_all_eligible_shared_peers_on_postgres(
+    connection: Connection,
+) -> None:
+    _person(connection, OWNER, "Viewer")
+    _person(connection, "target", "Target")
+    for index in range(25):
+        uid = f"peer-{index:02}"
+        _person(connection, uid, f"Mutual {index:02}", vault=None)
+        _connected(connection, uid)
+        a, b = sorted(("target", uid))
+        connection.execute(
+            text("INSERT INTO connections VALUES (:a, :b, 'active')"), {"a": a, "b": b}
+        )
+    _person(connection, "stranger", "A Stranger")
+    _person(connection, "revoked", "A Revoked")
+    _connected(connection, "revoked")
+    connection.execute(text("INSERT INTO connections VALUES ('revoked', 'target', 'revoked')"))
+    connection.execute(
+        text("UPDATE actor_profiles SET public_profile_status='inactive' WHERE user_id='peer-00'")
+    )
+    connection.execute(
+        text("UPDATE actor_profiles SET directory_listed=FALSE WHERE user_id='peer-03'")
+    )
+    connection.execute(
+        text(
+            "INSERT INTO connection_requests VALUES ('peer-01', 'target', 'rejected', '{\"blocked_by\":\"target\"}')"
+        )
+    )
+
+    class ActiveDirectory(_Directory):
+        def _active_directory_user_ids(self, user_ids: list[str]) -> set[str]:
+            return set(user_ids) - {"peer-02"}
+
+    service = ActiveDirectory(connection)
+    first = service.search_directory_candidates(
+        owner_user_id=OWNER, mutual_target_user_id="target", limit=20
+    )
+    last = service.search_directory_candidates(
+        owner_user_id=OWNER, mutual_target_user_id="target", limit=20, page=2
+    )
+    assert len(first["items"]) == 20
+    assert first["hasMore"] is True
+    assert last["hasMore"] is False
+    assert [person["userId"] for person in first["items"] + last["items"]] == [
+        f"peer-{index:02}" for index in range(3, 25)
+    ]
+    # Negative control: the unfiltered directory includes the unrelated stranger.
+    assert any(
+        person["userId"] == "stranger"
+        for person in service.search_directory_candidates(owner_user_id=OWNER, limit=50)["items"]
+    )
+
+
 def test_directory_hides_only_strangers_without_an_active_vault_on_postgres(
     connection: Connection,
 ) -> None:

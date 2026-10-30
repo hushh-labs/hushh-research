@@ -12,6 +12,7 @@ from fastapi import HTTPException
 
 from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
 from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE
+from hushh_mcp.services.drive_owner_allowed import request_planner_processor_supported
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
 from hushh_mcp.services.drive_period_packet_contract import CATEGORY_PURPOSES
 from hushh_mcp.services.drive_period_packet_metrics import claimed
@@ -107,7 +108,7 @@ class DrivePeriodPacketService:
             await require_current()
             return financial_plan(), None
         binding = semantic_request_model_binding()
-        if binding["provider"] != "azure_openai":
+        if not request_planner_processor_supported(binding):
             raise DriveReadError("connector_unavailable")
         # A plan was authored for this exact category/period. Another period's
         # interpretation may contain date-specific predicates and cannot be reused.
@@ -116,6 +117,7 @@ class DrivePeriodPacketService:
             await require_current()
             return build["plan"], binding
         prompt = {
+            "semantic_plan_version": 1,
             "document_request": {
                 "purpose": CATEGORY_PURPOSES[job["category"]],
                 "periodStart": job["period_start"].isoformat(),

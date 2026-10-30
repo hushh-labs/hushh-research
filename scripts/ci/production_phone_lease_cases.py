@@ -263,11 +263,35 @@ class ProductionPhoneSkippedLeaseCases:
             case, environment = self.restoration_lease(
                 conclusion, active=conclusion is None
             )
+            restoration_job_index = 0
             if historical:
+                from production_phone_job_name_cases import legacy_workflow
+
+                legacy = legacy_workflow().encode()
+                case.sources["e" * 40] = legacy
+                case.sources["origin/main"] = legacy
                 case.sources[case.runs[0]["head_sha"]] = historical_restoration_source(
-                    case.sources["e" * 40]
+                    legacy
                 )
-            case.jobs[(300, 2)]["jobs"][0]["steps"][0]["conclusion"] = admission
+                case.use_legacy_job_names()
+                jobs = case.jobs[(300, 2)]["jobs"]
+                restoration = jobs[2]
+                restoration.update(
+                    name="Deploy Production Scope",
+                    status=jobs[0]["status"],
+                    conclusion=jobs[0]["conclusion"],
+                    steps=copy.deepcopy(jobs[0]["steps"]),
+                )
+                jobs[0].update(
+                    name=lease.nonproducer.LEGACY_PRODUCTION_JOB_EXPRESSIONS["deploy"],
+                    status="completed",
+                    conclusion="skipped",
+                    steps=[],
+                )
+                restoration_job_index = 2
+            case.jobs[(300, 2)]["jobs"][restoration_job_index]["steps"][0][
+                "conclusion"
+            ] = admission
             with (
                 self.subTest(conclusion=conclusion, historical=historical),
                 mock.patch.dict("os.environ", environment),
@@ -355,58 +379,6 @@ class ProductionPhoneSkippedLeaseCases:
             with (
                 self.subTest(defect=defect),
                 mock.patch.dict("os.environ", environment),
-                self.assertRaises(lease.retention.UnsafeState),
-            ):
-                self.lease_check(case)
-
-    def test_only_completed_skipped_empty_job_is_nonexecuted_and_prior_attempt_still_fences(
-        self,
-    ):
-        self.setUp()
-        case = LeaseFixture(self)
-        case.jobs[(300, 2)]["jobs"][0].update(
-            status="completed", conclusion="skipped", steps=[]
-        )
-        self.assertIsNone(self.lease_check(case))
-        self.assertIn("runs/300/attempts/1/jobs?per_page=100", case.calls)
-        self.lease_defect(case, "older_pending")
-        with self.assertRaises(lease.retention.UnsafeState):
-            self.lease_check(case)
-        for defect in (
-            "failed",
-            "cancelled",
-            "active",
-            "missing_steps",
-            "started_step",
-            "missing_job",
-            "ambiguous_job",
-        ):
-            case = LeaseFixture(self)
-            inventory = case.jobs[(300, 2)]
-            job = inventory["jobs"][0]
-            job.update(status="completed", conclusion="skipped", steps=[])
-            if defect in {"failed", "cancelled"}:
-                job["conclusion"] = "failure" if defect == "failed" else "cancelled"
-            elif defect == "active":
-                job["status"] = "in_progress"
-            elif defect == "missing_steps":
-                del job["steps"]
-            elif defect == "started_step":
-                job["steps"] = [
-                    {
-                        "name": "Started deployment",
-                        "status": "completed",
-                        "conclusion": "success",
-                        "started_at": "2026-10-21T03:00:00Z",
-                    }
-                ]
-            elif defect == "missing_job":
-                inventory.update(total_count=0, jobs=[])
-            elif defect == "ambiguous_job":
-                inventory["jobs"].append(copy.deepcopy(job))
-                inventory["total_count"] = 2
-            with (
-                self.subTest(defect=defect),
                 self.assertRaises(lease.retention.UnsafeState),
             ):
                 self.lease_check(case)

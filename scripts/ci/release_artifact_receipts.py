@@ -10,6 +10,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 import hashlib
 import importlib
+import os
 from io import BytesIO
 from pathlib import Path
 import re
@@ -20,6 +21,12 @@ from zipfile import BadZipFile, ZipFile
 retention = importlib.import_module("cloudrun-retention")
 Document = dict[str, Any]
 Timestamp = Callable[[object], datetime | None]
+PRODUCTION_EVIDENCE_REPAIR_FLAG = "HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR"
+
+
+def production_evidence_repair_enabled() -> bool:
+    """Production activation is explicit; an unset flag preserves current behavior."""
+    return os.environ.get(PRODUCTION_EVIDENCE_REPAIR_FLAG) == "true"
 
 
 def artifact_exists(repository, run_id, name, *, api):
@@ -87,42 +94,78 @@ def _replayed_run(
     return attempt
 
 
+def _upload_job(
+    result: Document, run: Document, attempt: int, lane: Document
+) -> tuple[Document, Document]:
+    jobs = result.get("jobs")
+    if (
+        not isinstance(jobs, list)
+        or len(jobs) > 100
+        or result.get("total_count") != len(jobs)
+        or any(not isinstance(job, dict) for job in jobs)
+    ):
+        raise retention.UnsafeState("release attempt job inventory is incomplete")
+    expected_name = lane.get("deploy_job")
+    if not isinstance(expected_name, str) or not expected_name:
+        raise retention.UnsafeState("release attempt deploy job name is invalid")
+    raw_aliases = lane.get("deploy_job_aliases", (expected_name,))
+    if (
+        not isinstance(raw_aliases, (tuple, list, set, frozenset))
+        or not raw_aliases
+        or any(not isinstance(name, str) or not name for name in raw_aliases)
+        or len(set(raw_aliases)) != len(raw_aliases)
+        or expected_name not in raw_aliases
+    ):
+        raise retention.UnsafeState("release attempt deploy job aliases are invalid")
+    candidates = [job for job in jobs if job.get("name") in raw_aliases]
+    if not candidates or len({job.get("name") for job in candidates}) != len(candidates):
+        raise retention.UnsafeState("release attempt deploy job is ambiguous")
+    bound = {
+        "run_id": run["id"],
+        "run_attempt": attempt,
+        "head_sha": run["head_sha"],
+        "head_branch": "main",
+    }
+    producers = []
+    for deploy in candidates:
+        steps = deploy.get("steps")
+        if any(deploy.get(key) != value for key, value in bound.items()):
+            raise retention.UnsafeState("release attempt deploy job is not bound")
+        if deploy.get("status") == "completed" and deploy.get("conclusion") == "skipped":
+            if steps != []:
+                raise retention.UnsafeState("skipped release deploy job contains steps")
+            continue
+        if (
+            deploy.get("status") != "completed"
+            or deploy.get("conclusion") not in {"success", "failure"}
+            or not isinstance(steps, list)
+            or len(steps) > 500
+            or any(
+                not isinstance(step, dict) or not isinstance(step.get("name"), str)
+                for step in steps
+            )
+        ):
+            raise retention.UnsafeState("release attempt deploy job is not bound")
+        uploads = [step for step in steps if step.get("name") == lane["upload_step"]]
+        if (
+            len(uploads) != 1
+            or uploads[0].get("status") != "completed"
+            or uploads[0].get("conclusion") != "success"
+        ):
+            raise retention.UnsafeState("release attempt upload is not proven")
+        producers.append((deploy, uploads[0]))
+    if len(producers) != 1:
+        raise retention.UnsafeState("release attempt deploy producer is ambiguous")
+    return producers[0]
+
+
 def _upload_window(
     result: Document, run: Document, attempt: int, lane: Document, timestamp: Timestamp
 ) -> tuple[datetime, datetime]:
-    jobs = result.get("jobs")
-    if not isinstance(jobs, list) or result.get("total_count") != len(jobs):
-        raise retention.UnsafeState("release attempt job inventory is incomplete")
-    deploy = [
-        job
-        for job in jobs
-        if isinstance(job, dict) and job.get("name") == lane["deploy_job"]
-    ]
-    if len(deploy) != 1 or any(
-        deploy[0].get(key) != value
-        for key, value in {
-            "run_id": run["id"],
-            "run_attempt": attempt,
-            "head_sha": run["head_sha"],
-            "head_branch": "main",
-            "status": "completed",
-        }.items()
-    ):
-        raise retention.UnsafeState("release attempt deploy job is not bound")
-    uploads = [
-        step
-        for step in deploy[0].get("steps", [])
-        if step.get("name") == lane["upload_step"]
-    ]
-    if (
-        len(uploads) != 1
-        or uploads[0].get("status") != "completed"
-        or uploads[0].get("conclusion") != "success"
-    ):
-        raise retention.UnsafeState("release attempt upload is not proven")
+    _, upload = _upload_job(result, run, attempt, lane)
     started, ended = (
-        timestamp(uploads[0].get("started_at")),
-        timestamp(uploads[0].get("completed_at")),
+        timestamp(upload.get("started_at")),
+        timestamp(upload.get("completed_at")),
     )
     if (
         not started
@@ -212,6 +255,7 @@ def current_attempt_artifact(repository, run, lane, *, api, timestamp):
         raise retention.UnsafeState("release artifact inventory is incomplete")
     jobs = api(repository, f"runs/{run['id']}/attempts/{attempt}/jobs?per_page=100")
     started, ended = _upload_window(jobs, run, attempt, lane, timestamp)
+    deploy, _ = _upload_job(jobs, run, attempt, lane)
     selected = []
     for artifact in artifacts:
         if artifact.get("name") != f"{lane['prefix']}-release-{run['id']}":
@@ -221,20 +265,24 @@ def current_attempt_artifact(repository, run, lane, *, api, timestamp):
             selected.append(artifact)
     if len(selected) != 1 or selected[0].get("expired") is not False:
         raise retention.UnsafeState("release attempt artifact is expired or ambiguous")
-    return selected[0], next(
-        j for j in jobs["jobs"] if j.get("name") == lane["deploy_job"]
-    )
+    return selected[0], deploy
 
 
-def _status_bytes(archive: bytes, status_name: str) -> bytes:
+def _status_bytes(
+    archive: bytes, status_name: str, *, allow_legacy_production: bool = False
+) -> bytes:
     try:
         with ZipFile(BytesIO(archive)) as bundle:
             entries = bundle.infolist()
             names = [entry.filename for entry in entries]
+            allowed = {status_name}
+            if allow_legacy_production and status_name == "prod-release-status.json":
+                allowed.add("tmp/prod-release-status.json")
+            matches = [name for name in names if name in allowed]
             if (
                 len(entries) > 500
                 or len(names) != len(set(names))
-                or names.count(status_name) != 1
+                or len(matches) != 1
                 or sum(entry.file_size for entry in entries) > 20 * 1024 * 1024
                 or any(
                     path.is_absolute() or ".." in path.parts
@@ -242,7 +290,7 @@ def _status_bytes(archive: bytes, status_name: str) -> bytes:
                 )
             ):
                 raise retention.UnsafeState("release artifact has unsafe files")
-            status = bundle.getinfo(status_name)
+            status = bundle.getinfo(matches[0])
             if (
                 status.is_dir()
                 or stat.S_IFMT(status.external_attr >> 16) == stat.S_IFLNK
@@ -292,12 +340,15 @@ def download_replayed_artifact(
     *,
     run_command: Callable[..., Any],
     timeout: float,
+    allow_legacy_production: bool = False,
 ) -> None:
     """Download an immutable digest-verified archive and create only its status."""
     archive = immutable_archive(
         repository, artifact, run_command=run_command, timeout=timeout
     )
-    status = _status_bytes(archive, status_name)
+    status = _status_bytes(
+        archive, status_name, allow_legacy_production=allow_legacy_production
+    )
     if directory.is_symlink():
         raise retention.UnsafeState("release artifact directory is a symlink")
     directory.mkdir(parents=True, exist_ok=True)

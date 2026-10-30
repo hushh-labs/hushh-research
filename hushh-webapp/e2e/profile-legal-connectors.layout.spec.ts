@@ -1,3 +1,4 @@
+import { registerProfileConnectorNavigation } from "./helpers/profile-connectors-navigation";
 import { expectProfileHeaderControl } from "./helpers/header-control-geometry";
 import { assertReaderGeometry, readerGeometry } from "./helpers/legal-reader-geometry";
 import { expect, test, type Page } from "@playwright/test";
@@ -122,8 +123,8 @@ async function mount(
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.setViewportSize({ width, height: 852 });
-  await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
-    route.fulfill({ contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg'/>" }),
+  await page.route(/\/icons\/connectors\/[a-z0-9-]+\.(?:svg|png|jpg)$/, (route) =>
+    route.fulfill({ path: path.join(process.cwd(), "public", new URL(route.request().url()).pathname) }),
   );
   await page.route("**/api/**", (route) =>
     route.fulfill({
@@ -473,30 +474,7 @@ test("a direct Legal address climbs to the Legal section, then Profile", async (
   ).toBeVisible();
 });
 
-for (const [entry, act, expectedDetail] of [
-  ["the Profile row", async (page: Page) => {
-    await page.getByTestId("open-profile").click();
-    await pane(page).getByTestId("profile-connectors-row").getByRole("button").click();
-  }, null],
-  ["a Drive card's reconnect link", async (page: Page) => {
-    await page.getByTestId("drive-card-reconnect").click();
-  }, "connector:google_drive"],
-  ["chat's Open connectors", async (page: Page) => {
-    await page.getByTestId("chat-open-connectors").click();
-  }, null],
-] as const) {
-  test(`Connectors from ${entry} lands in the Profile pane`, async ({ page }) => {
-    const errors = await mount(page, { at: "/" });
-    await act(page);
-    await expect(pane(page)).toBeVisible();
-    await expect(pane(page).locator("[data-surface='profile']")).toBeVisible();
-    expect(new URL(page.url()).pathname).toBe("/");
-    expect(query(page).get("profile_pane")).toBe("1");
-    expect(query(page).get("profile_panel")).toBe("connectors");
-    expect(query(page).get("profile_detail")).toBe(expectedDetail);
-    expect(errors).toEqual([]);
-  });
-}
+registerProfileConnectorNavigation(mount);
 
 test("Connector pane text uses the Profile account scale", async ({ page }) => {
   await mount(page, { at: "/?profile_pane=1&profile_panel=connectors" });

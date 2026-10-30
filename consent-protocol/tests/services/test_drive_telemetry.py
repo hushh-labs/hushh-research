@@ -185,3 +185,28 @@ def test_stage_failure_logs_only_closed_outcome_and_never_exception_text(caplog,
         with drive_stage(drive_logger("drive_stage_test"), "private-query"):
             pytest.fail("unbounded stage accepted")
     assert len(messages(caplog)) == 1
+
+
+@pytest.mark.parametrize(
+    "environment,release,enabled",
+    [
+        ("uat", "uat", True),
+        ("dev", "dev", True),
+        ("production", "production", False),
+        ("uat", "production", False),
+        ("unknown", "", False),
+        ("", "uat", False),
+    ],
+)
+def test_verbose_drive_logs_require_nonproduction_deployment_identity(
+    monkeypatch, caplog, environment, release, enabled
+):
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("HUSSH_RELEASE_ENVIRONMENT", release)
+    monkeypatch.setenv("DRIVE_VERBOSE_DIAGNOSTICS_ENABLED", "true")
+    logger = drive_logger("drive_telemetry_environment")
+    logger.info("drive_test.verbose")
+    logger.warning("drive_test.required_warning")
+    logs = messages(caplog)
+    assert any("drive_test.verbose" in line for line in logs) is enabled
+    assert any("drive_test.required_warning" in line for line in logs)

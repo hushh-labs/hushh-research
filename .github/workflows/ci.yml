@@ -2,6 +2,7 @@ name: "PR Validation"
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
     branches: ["**"]
   workflow_dispatch:
     inputs:
@@ -22,6 +23,11 @@ on:
           - frontend
           - backend
           - all
+      uat_base_sha:
+        description: "Current UAT application SHA for exact-source qualification (optional)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -157,6 +163,8 @@ jobs:
 
   repo-governance:
     name: "Governance"
+    needs: [paths]
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -182,6 +190,17 @@ jobs:
           # already declares `pull-requests: read`, which is sufficient.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Run exact auth-health contracts
+        if: github.event_name == 'pull_request' && needs.paths.outputs.auth_health_only == 'true'
+        working-directory: consent-protocol
+        run: >-
+          .venv/bin/python -m pytest -q
+          tests/test_auth_health_deployment.py
+          tests/test_auth_health_inventory.py
+          tests/test_auth_health_lease_rest.py
+          tests/test_auth_health_wif_scopes.py
+          tests/test_phone_list_health.py
+
   # ============================================================================
   # Path filters: run platform jobs only when their paths change (or manual scope)
   # ============================================================================
@@ -195,6 +214,7 @@ jobs:
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
       editor: ${{ steps.resolve.outputs.editor }}
+      auth_health_only: ${{ steps.resolve.outputs.auth_health_only }}
     steps:
       - uses: actions/checkout@v6
 
@@ -315,6 +335,21 @@ jobs:
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
               - '.github/workflows/ci.yml'
+            auth_health:
+              - 'deploy/observability/auth_health_job.py'
+              - 'consent-protocol/tests/test_auth_health_deployment.py'
+              - 'consent-protocol/tests/test_auth_health_inventory.py'
+              - 'consent-protocol/tests/test_auth_health_lease_rest.py'
+              - 'consent-protocol/tests/test_auth_health_wif_scopes.py'
+              - 'consent-protocol/tests/test_phone_list_health.py'
+            non_auth_health:
+              - '**'
+              - '!deploy/observability/auth_health_job.py'
+              - '!consent-protocol/tests/test_auth_health_deployment.py'
+              - '!consent-protocol/tests/test_auth_health_inventory.py'
+              - '!consent-protocol/tests/test_auth_health_lease_rest.py'
+              - '!consent-protocol/tests/test_auth_health_wif_scopes.py'
+              - '!consent-protocol/tests/test_phone_list_health.py'
             # The macOS editor and drawer latency steps (web-editor-performance-check):
             # npm run test:layout-editor-performance: the editor and History specs whose
             # beforeAll hooks bundle their fixtures with Vite and compile
@@ -456,6 +491,10 @@ jobs:
           esac
 
       - id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          AUTH_HEALTH_FILTER: ${{ steps.filter.outputs.auth_health }}
+          NON_AUTH_HEALTH_FILTER: ${{ steps.filter.outputs.non_auth_health }}
         run: |
           if [ "${{ steps.override.outcome }}" = "success" ]; then
             echo "frontend=${{ steps.override.outputs.frontend }}" >> "$GITHUB_OUTPUT"
@@ -463,12 +502,20 @@ jobs:
             echo "ios=${{ steps.override.outputs.ios }}" >> "$GITHUB_OUTPUT"
             echo "android=${{ steps.override.outputs.android }}" >> "$GITHUB_OUTPUT"
             echo "editor=${{ steps.override.outputs.editor }}" >> "$GITHUB_OUTPUT"
+            echo "auth_health_only=false" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=${{ steps.filter.outputs.frontend }}" >> "$GITHUB_OUTPUT"
             echo "backend=${{ steps.filter.outputs.backend }}" >> "$GITHUB_OUTPUT"
             echo "ios=${{ steps.filter.outputs.ios }}" >> "$GITHUB_OUTPUT"
             echo "android=${{ steps.filter.outputs.android }}" >> "$GITHUB_OUTPUT"
             echo "editor=${{ steps.filter.outputs.editor }}" >> "$GITHUB_OUTPUT"
+            if [ "$EVENT_NAME" = "pull_request" ] \
+              && [ "$AUTH_HEALTH_FILTER" = "true" ] \
+              && [ "$NON_AUTH_HEALTH_FILTER" = "false" ]; then
+              echo "auth_health_only=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "auth_health_only=false" >> "$GITHUB_OUTPUT"
+            fi
           fi
         if: always()
 
@@ -479,7 +526,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
       - name: Resolve UI review base from the checked-out merge
         id: ui-base
         run: |
@@ -511,11 +558,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      frontend: ${{ needs.paths.outputs.frontend }}
-      backend: ${{ needs.paths.outputs.backend }}
-      ios: ${{ needs.paths.outputs.ios }}
-      android: ${{ needs.paths.outputs.android }}
-      editor: ${{ needs.paths.outputs.editor }}
+      frontend: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.frontend }}
+      backend: ${{ github.event_name == 'pull_request' && (github.event.pull_request.draft || needs.paths.outputs.auth_health_only == 'true') && 'false' || needs.paths.outputs.backend }}
+      ios: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.ios }}
+      android: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.android }}
+      editor: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.editor }}
     steps:
       - name: Validate cheap authority checks before expensive lanes
         shell: bash
@@ -567,7 +614,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
 
       - uses: actions/setup-node@v6
         with:
@@ -744,6 +791,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
           WEB_TARGETED_FULL_SUITE_OWNED: "1"
+          WEB_TARGETED_ALL_PACKS: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '1' || '0' }}
           WEB_TARGETED_PART: ${{ matrix.part }}
           # Only the browser leg ran npm ci in the step above; the node leg
           # installs inside the script.
@@ -900,7 +948,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh web-full-suite
         env:
           WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}/3
-          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
+          CAPABILITY_GRAPH_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
 
   ios-native-check:
@@ -1073,6 +1121,8 @@ jobs:
           set -euo pipefail
           set -o pipefail
           test -n "${SIMULATOR_ID:-}" || { echo "::error::SIMULATOR_ID was not selected"; exit 1; }
+          # Shared-Keychain tests need the App/NSE entitlements in the simulator.
+          # Ad-hoc signing requires no distribution identity or provisioning key.
           xcodebuild test \
             -project "${XCODE_PROJECT}" \
             -scheme "${XCODE_SCHEME}" \
@@ -1088,7 +1138,7 @@ jobs:
             -maximum-parallel-testing-workers 1 \
             -only-testing:AppTests \
             -only-testing:AppUITests/AppUITests/testAccountNotFoundRecoveryReturnsToLogin \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
             2>&1 | tee "${RUNNER_TEMP}/xcodebuild-ios-tests.log"
 
       - name: Assert the built app actually ships its App Shortcuts
@@ -1176,15 +1226,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
 
       # ubuntu-latest no longer guarantees command-line tools on PATH. Install
       # them explicitly before the compile-only lane invokes sdkmanager.
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
+          # v3 defaulted to 12266719 (16.0); keep that SDK tool version explicit
+          # while moving the action runtime to the Node 24 compatible major.
+          cmdline-tools-version: "12266719"
           # Google's legacy `tools` SDK package no longer exists. The action
           # otherwise tries to install it by default and exits before Gradle
           # can compile the native bridge. We install platform-tools here and
@@ -1293,7 +1346,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh protocol
         env:
           PROTOCOL_TEST_PARTITION: parallel
-          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
+          CAPABILITY_GRAPH_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
@@ -1356,7 +1409,7 @@ jobs:
           PROTOCOL_TEST_PARTITION: database
           PROTOCOL_DATABASE_SHARD_COUNT: "2"
           PROTOCOL_DATABASE_SHARD_INDEX: "${{ matrix.shard }}"
-          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
+          CAPABILITY_GRAPH_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
@@ -1418,11 +1471,19 @@ jobs:
       - name: Resolve change-aware verification plan
         id: verification-plan
         shell: bash
+        env:
+          UAT_SOURCE_BASE: ${{ inputs.uat_base_sha }}
+          DISPATCH_SCOPE: ${{ inputs.scope }}
+          SOURCE_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base_sha="${{ github.event.pull_request.base.sha }}"
             target_sha="${{ github.event.pull_request.head.sha }}"
+          elif [[ "${{ github.event_name }}" == workflow_dispatch && "$SOURCE_REF" == refs/heads/uat && "$DISPATCH_SCOPE" == all && -n "$UAT_SOURCE_BASE" ]]; then
+            [[ "$UAT_SOURCE_BASE" =~ ^[0-9a-f]{40}$ ]]
+            base_sha="$UAT_SOURCE_BASE"
+            target_sha="${{ github.sha }}"
           else
             base_sha="$(git rev-parse HEAD^ 2>/dev/null || true)"
             target_sha="${{ github.sha }}"
@@ -1570,6 +1631,34 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/ci/check-merge-fidelity.sh
 
+  # A Main-owned release verifier can admit this exact UAT checkout only after
+  # checking the immutable workflow authority, full run and security receipt.
+  # This job alone never authorizes a release or replaces the aggregate gate.
+  uat-exact-source:
+    name: "Exact UAT Candidate"
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the exact UAT checkout
+        env:
+          EXPECTED_SOURCE: ${{ github.sha }}
+          EXPECTED_BASE: ${{ inputs.uat_base_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_BASE" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          [[ "$(git rev-parse HEAD^{tree})" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
+
   # The one required check. GitHub counts a skipped or neutral required check
   # as passing, so this gate must never pass on a lane that did not run when
   # it should have: every lane its path filter (or a dispatch scope) selects
@@ -1577,7 +1666,7 @@ jobs:
   # filter at all. `if: always()` is deliberate; `!cancelled()` would let a
   # cancelled run leave this check skipped, which GitHub reads as a pass.
   ci-status:
-    name: ${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || 'CI Status Gate' }}
+    name: ${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || (github.event.pull_request.draft && 'Draft Safety Gate' || 'CI Status Gate') }}
     permissions:
       contents: read
       actions: read
@@ -1609,7 +1698,9 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
+          SCOPE: ${{ inputs.scope }}
         run: |
+          UI_CONTRACTS="${{ needs['ui-contracts'].result }}"
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
           DCO="${{ needs['dco-check'].result }}"
           PR_BASE_POLICY="${{ needs['pr-base-policy'].result }}"
@@ -1627,6 +1718,12 @@ jobs:
           MCP_PACKAGE="${{ needs['mcp-package-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
+          AUTH_HEALTH_ONLY="${{ needs.paths.outputs.auth_health_only }}"
+          FRONTEND_SELECTED="${{ needs['preflight-gate'].outputs.frontend }}"
+          BACKEND_SELECTED="${{ needs['preflight-gate'].outputs.backend }}"
+          IOS_SELECTED="${{ needs['preflight-gate'].outputs.ios }}"
+          ANDROID_SELECTED="${{ needs['preflight-gate'].outputs.android }}"
+          EDITOR_SELECTED="${{ needs['preflight-gate'].outputs.editor }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
           printf 'dco-check=%s\n' "$DCO"
@@ -1647,60 +1744,60 @@ jobs:
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
-          if [ "${{ needs['ui-contracts'].result }}" != "success" ]; then
+          if [ "$UI_CONTRACTS" != "success" ]; then
             echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_CORE" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] && [ "$WEB_CORE" != "success" ]; then
             echo "Changed frontend sources require successful core and UI validator regressions."
             fail=1
           fi
           # A skipped lane passes the loop below, so a lane whose paths changed
           # must be proven to have actually run and succeeded.
-          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_TARGETED" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] && [ "$WEB_TARGETED" != "success" ]; then
             echo "Changed frontend sources require every targeted Node and browser shard to succeed."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_FULL_SUITE" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] && [ "$WEB_FULL_SUITE" != "success" ]; then
             echo "Changed frontend sources require a successful full Vitest suite run."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.editor }}" = "true" ] && [ "$WEB_EDITOR_PERF" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.editor }}" = "true" ] && [ "$WEB_EDITOR_PERF" != "success" ]; then
             echo "Changed editor sources require a successful macOS editor performance run."
             fail=1
           fi
-          if { [ "${{ needs.paths.outputs.frontend }}" = "true" ] || [ "${{ needs.paths.outputs.backend }}" = "true" ]; } && [ "$WEB_EDITOR_PERF" != "success" ]; then
+          if { [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] || [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ]; } && [ "$WEB_EDITOR_PERF" != "success" ]; then
             echo "Changed frontend or backend sources require the native macOS WebKit document flow."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.ios }}" = "true" ] && [ "$IOS_NATIVE" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.ios }}" = "true" ] && [ "$IOS_NATIVE" != "success" ]; then
             echo "Changed iOS sources require a successful native build and XCTest run."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.android }}" = "true" ] && [ "$ANDROID_NATIVE" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.android }}" = "true" ] && [ "$ANDROID_NATIVE" != "success" ]; then
             echo "Changed Android sources require a successful native compile and unit run."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.backend }}" = "true" ] && [ "$PROTOCOL" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ] && [ "$PROTOCOL" != "success" ]; then
             echo "Changed backend sources require a successful protocol check."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.backend }}" = "true" ] && [ "$PROTOCOL_DATABASE" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ] && [ "$PROTOCOL_DATABASE" != "success" ]; then
             echo "Changed backend sources require successful isolated serial database contracts."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.backend }}" = "true" ] && [ "$MCP_PACKAGE" != "success" ]; then
+          if [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ] && [ "$MCP_PACKAGE" != "success" ]; then
             echo "Changed backend sources require a successful MCP package check."
             fail=1
           fi
-          if { [ "${{ needs.paths.outputs.frontend }}" = "true" ] || [ "${{ needs.paths.outputs.backend }}" = "true" ]; } && [ "$INTEGRATION" != "success" ]; then
+          if { [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] || [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ]; } && [ "$INTEGRATION" != "success" ]; then
             echo "Changed frontend or backend sources require a successful integration check."
             fail=1
           fi
           # An output that is neither true nor false selected nothing above, so
           # every lane it should have required would pass unrun. That is a
           # broken paths job, never a skip.
-          for lane in "frontend=${{ needs.paths.outputs.frontend }}" "backend=${{ needs.paths.outputs.backend }}" "ios=${{ needs.paths.outputs.ios }}" "android=${{ needs.paths.outputs.android }}" "editor=${{ needs.paths.outputs.editor }}"; do
+          for lane in "frontend=${{ needs['preflight-gate'].outputs.frontend }}" "backend=${{ needs['preflight-gate'].outputs.backend }}" "ios=${{ needs['preflight-gate'].outputs.ios }}" "android=${{ needs['preflight-gate'].outputs.android }}" "editor=${{ needs['preflight-gate'].outputs.editor }}"; do
             case "${lane#*=}" in
               true|false) ;;
               *) echo "Path filter output ${lane%%=*} is '${lane#*=}', not true or false."; fail=1 ;;
@@ -1735,6 +1832,109 @@ jobs:
             fi
           done
 
+          first_failure=""
+          record_failure() {
+            local label="$1" result="$2" required="$3"
+            if [ -n "$first_failure" ]; then
+              return
+            fi
+            case "$result" in
+              failure|cancelled|timed_out)
+                first_failure="$label ($result)"
+                ;;
+              *)
+                if [ "$required" = "true" ] && [ "$result" != "success" ]; then
+                  first_failure="$label ($result)"
+                fi
+                ;;
+            esac
+          }
+          selection_state() {
+            case "$1" in
+              true) printf 'selected' ;;
+              false) printf 'unselected' ;;
+              *) printf 'blocked (unknown selection)' ;;
+            esac
+          }
+          record_failure "UI Contracts" "$UI_CONTRACTS" true
+          record_failure "Secret Scan" "$SECRET_SCAN" true
+          record_failure "DCO" "$DCO" true
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            record_failure "PR Base Policy" "$PR_BASE_POLICY" true
+          fi
+          record_failure "Governance" "$REPO_GOVERNANCE" true
+          record_failure "Path filters" "$PATHS" true
+          if [ "$EVENT_NAME" = "pull_request" ] \
+            && { [ "$BASE_REF" = "main" ] || [ "$BASE_REF" = "integration/pr-train" ] || [ "$BASE_REF" = "dev" ] || [ "$BASE_REF" = "uat" ]; }; then
+            record_failure "Base Freshness Gate" "$MAIN_FRESHNESS" true
+          fi
+          record_failure "Preflight Gate" "$PREFLIGHT" true
+          record_failure "Web Core" "$WEB_CORE" "$FRONTEND_SELECTED"
+          record_failure "Web Targeted" "$WEB_TARGETED" "$FRONTEND_SELECTED"
+          record_failure "Web Full Suite" "$WEB_FULL_SUITE" "$FRONTEND_SELECTED"
+          WEBKIT_REQUIRED=false
+          INTEGRATION_REQUIRED=false
+          if [ "$FRONTEND_SELECTED" = "true" ] || [ "$BACKEND_SELECTED" = "true" ] || [ "$EDITOR_SELECTED" = "true" ]; then
+            WEBKIT_REQUIRED=true
+          fi
+          if [ "$FRONTEND_SELECTED" = "true" ] || [ "$BACKEND_SELECTED" = "true" ]; then
+            INTEGRATION_REQUIRED=true
+          fi
+          record_failure "WebKit Editor" "$WEB_EDITOR_PERF" "$WEBKIT_REQUIRED"
+          record_failure "iOS Native" "$IOS_NATIVE" "$IOS_SELECTED"
+          record_failure "Android Native" "$ANDROID_NATIVE" "$ANDROID_SELECTED"
+          record_failure "Protocol" "$PROTOCOL" "$BACKEND_SELECTED"
+          record_failure "Protocol Database" "$PROTOCOL_DATABASE" "$BACKEND_SELECTED"
+          record_failure "MCP Package" "$MCP_PACKAGE" "$BACKEND_SELECTED"
+          record_failure "Integration" "$INTEGRATION" "$INTEGRATION_REQUIRED"
+          for lane in "frontend=$FRONTEND_SELECTED" "backend=$BACKEND_SELECTED" "ios=$IOS_SELECTED" "android=$ANDROID_SELECTED" "editor=$EDITOR_SELECTED"; do
+            case "${lane#*=}" in
+              true|false) ;;
+              *)
+                if [ -z "$first_failure" ]; then
+                  first_failure="Path selection ${lane%%=*} (${lane#*=})"
+                fi
+                ;;
+            esac
+          done
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            case "$SCOPE" in
+              auto|all) ;;
+              frontend|backend)
+                if [ -z "$first_failure" ]; then
+                  first_failure="diagnostic-only dispatch scope '$SCOPE'"
+                fi
+                ;;
+              *)
+                if [ -z "$first_failure" ]; then
+                  first_failure="unknown dispatch scope '$SCOPE'"
+                fi
+                ;;
+            esac
+          fi
+          if [ -z "$first_failure" ]; then
+            if [ "$fail" -eq 0 ]; then
+              first_failure="none; all required checks passed"
+            else
+              first_failure="path selection or event contract (see gate log)"
+            fi
+          fi
+          {
+            echo "## CI Status Gate"
+            echo ""
+            echo "| Scope | Selection | Required jobs |"
+            echo "| --- | --- | --- |"
+            echo "| Frontend | $(selection_state "$FRONTEND_SELECTED") | core=$WEB_CORE; targeted=$WEB_TARGETED; suite=$WEB_FULL_SUITE; WebKit=$WEB_EDITOR_PERF |"
+            echo "| Backend | $(selection_state "$BACKEND_SELECTED") | protocol=$PROTOCOL; database=$PROTOCOL_DATABASE; MCP=$MCP_PACKAGE; integration=$INTEGRATION; WebKit=$WEB_EDITOR_PERF |"
+            echo "| iOS | $(selection_state "$IOS_SELECTED") | native=$IOS_NATIVE |"
+            echo "| Android | $(selection_state "$ANDROID_SELECTED") | native=$ANDROID_NATIVE |"
+            echo "| Editor | $(selection_state "$EDITOR_SELECTED") | performance=$WEB_EDITOR_PERF |"
+            echo "| Auth-health focus | $(selection_state "$AUTH_HEALTH_ONLY") | focused tests run through Governance=$REPO_GOVERNANCE |"
+            echo ""
+            echo "Authority results: UI=$UI_CONTRACTS; secrets=$SECRET_SCAN; Governance=$REPO_GOVERNANCE; paths=$PATHS; preflight=$PREFLIGHT; DCO=$DCO (PR/dispatch); PR base=$PR_BASE_POLICY (PR only); freshness=$MAIN_FRESHNESS (required for PR base main, integration/pr-train, dev or uat)."
+            echo ""
+            echo "First failure: **$first_failure**."
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
           if [ "$fail" -ne 0 ]; then
             echo "One or more CI jobs failed."
@@ -1763,14 +1963,3 @@ jobs:
               ;;
           esac
           echo "Branch validation scope ${SCOPE} ran every selected lane; this is not a PR merge verdict."
-
-      - uses: actions/checkout@v6
-        if: github.run_attempt > 1
-        with:
-          persist-credentials: false
-      - name: Verify the current rerun's protected security receipt
-        if: github.run_attempt > 1
-        run: python3 scripts/ci/github_security_receipt.py
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CI_SECURITY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

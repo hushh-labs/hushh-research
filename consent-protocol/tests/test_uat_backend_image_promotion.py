@@ -150,11 +150,20 @@ def test_copy_failure_or_valid_but_different_destination_fails_closed(
 def test_promotion_keeps_exact_acceptance_and_current_tools_before_mutation():
     steps = _steps()
     names = [step.get("name") for step in steps]
+    predecessor = names.index("Require exact-SHA predecessor acceptance")
     resolve = names.index("Resolve the exact accepted Dev backend image")
-    assert resolve == names.index("Require exact-SHA dev acceptance") + 1
+    assert resolve == predecessor + 1
+    predecessor_run = steps[predecessor]["run"]
+    assert '[[ "$SOURCE_BRANCH" == uat || -n "$CI_RUN_ID" ]]' in predecessor_run
+    assert '/verify-predecessor-acceptance.py" direct-uat' in predecessor_run
+    assert '--base-sha "$CI_BASE_SHA"' in predecessor_run
+    assert '/verify-predecessor-acceptance.py" require' in predecessor_run
+    assert "--environment dev" in predecessor_run
     assert resolve < names.index("Sync canonical hosted runtime secrets") < names.index(BUILD)
     gate = steps[resolve]
     assert gate["if"] == "steps.scope.outputs.deploy_backend == 'true'"
+    assert '"kind", ""' in gate["run"] and "uat-exact-ci" in gate["run"]
+    assert "printf '{}\\n'" in gate["run"]
     assert "backend-image" in gate["run"] and "--environment dev" in gate["run"]
     assert "--predecessor /tmp/uat-predecessor-acceptance.json" in gate["run"]
     for lane in ("dev", "uat", "production", "uat-one-chat"):

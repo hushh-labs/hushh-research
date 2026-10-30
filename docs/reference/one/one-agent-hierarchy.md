@@ -139,6 +139,7 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Legacy alias | `agent_orchestrator` | Compatibility package and manifest alias for One | Must resolve to One semantics |
 | Finance specialist | `agent_kai` | Finance, portfolio, markets; RIA (advisor workspace) and Investor (personal investing) are its subagents. Finance and Investor carry read-only `get_market_quotes` and `get_ticker_news` (`hushh_mcp/one_adk/finance_market_tools.py`), which wrap the existing Kai fetchers and send providers the ticker symbol only; spending answers come from the device-computed `financial.derived_v1` summaries the browser places first in the memory packet | `agent.kai.analyze` plus finance PKM gates |
 | Wallet specialist | `agent_wallet` | Wallet (payment cards) conversation over client-executed actions (`wallet.list`, `wallet.add`, `wallet.reveal`); an AgentTool child of One, roster-gated on `ONE_WALLET_ENABLED`, with no server-side tools, no PKM context injection, and no A2A transport. Card secrets live in the reserved `wallet` PKM domain and decrypt only in the owner's browser | `agent.wallet.manage` invocation only; data leaves the vault solely through owner-approved `attr.wallet.summary.*` / `attr.wallet.secrets.*` grants |
+| Career (resume reader) | `agent_career` | Not on the roster and not a chat specialist. Agent One itself offers hussh careers in chat through client-executed actions: `careers.list_roles` (open roles from careers.hushh.ai) and `careers.apply` (tap-only confirmation card; applies with the resume saved in the owner's PKM). `agent_career` only parses resumes for the Career page. Both actions and the parse route are off unless `ONE_CAREER_ENABLED` | `cap.career.resume` invocation only; the resume leaves the device only on the owner's tap, to careers.hushh.ai, with a receipt recorded in PKM |
 | Consent Center parent | `agent_nav` | Consent, scope review, vault friction, deletion, revocation; parent of Connections | `agent.nav.review` |
 | Identity specialist | `agent_kyc` | KYC workflow state, approved disclosure formatter, structured PKM writeback | `agent.kyc.process` and approved optional scopes |
 | Location specialist | `agent_location` | Trusted-people Location workflow | Exact location capability and data authority per flow |
@@ -342,21 +343,22 @@ INBOX page, "my last N emails"), `list_needs_reply`, `search_inbox`, and the bod
 reads `read_message` / `read_thread` (size-capped text seen only by the tool-less
 interpreter), each scoped to `inbox`, `sent` or `anywhere` and returning an `unread`
 flag. High-level receipt and purchase trends use the aggregate observations in
-the supplied Soul.md, not the Email receipt-list tool. New Radar scans save only
-these observations, never individual transactions. The retained `read_receipts`
-compatibility tool can filter/page a bounded legacy canonical index when an
-older admitted client supplies one; current One Chat does not attach that second
-memory channel. An individual-record lookup without an admitted index answers
-"not ready" with the generated Open Receipts action. The receipt list remains
-available in Radar, and a request to find emails that mention receipts stays
-`search_inbox`. See
-the "Email receipts read from saved receipt memory" declaration in
+the supplied Soul.md. New Radar scans save only these observations, never
+individual transactions. Receipt lists, spending totals and overdue or due
+payments use One's on-device receipt functions; a receipts request that reaches
+the Email agent returns `receipt_functions_required` without reading mail, and
+One answers with those functions in the same turn. A request to find emails
+that mention receipts stays `search_inbox`. See the "Email receipt requests
+handed back to One's receipt functions" declaration in
 [Backend Semantic Boundary](../../../consent-protocol/docs/reference/backend-semantic-boundary.md).
 Reviewed mailbox changes (archive, labels, read state, Trash) go through One's
 `propose_gmail_mailbox_change` card, never through this read path. After a read, only exact-call-reviewed MCP tools, One's
 `suggest_follow_ups` (which reads and changes nothing), and One's
 client-only editable Gmail draft remain callable in the same invocation; the
-draft cannot run in the original parallel read batch and cannot send. Its
+draft cannot run in the original parallel read batch and cannot send. When the
+Email agent hands a receipts request back, the barrier stays and that invocation
+also admits only One's device receipt functions and `get_current_time`, never in
+the original read batch. Its
 interpreter has no tools; durable tool history contains a redacted receipt,
 not mailbox metadata or draft fields. Reviewed sending and receipt sync are
 not admitted through this lane. Connected Systems remains

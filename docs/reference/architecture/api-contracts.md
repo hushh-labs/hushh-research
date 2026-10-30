@@ -46,8 +46,16 @@ Only the authenticated recipient with current owner model-processing permission
 may submit it. The current recipient processing-provider approval still applies.
 The signed private-pod consent metadata feed accepts `finance:{grantId}:{revision}`
 references with fresh nonces; it carries policy/digest/lifecycle metadata only.
+`GET /api/one/pod/owner-feed/consent` uses the same `ConsentReadReference`
+validation as the pod client: an ordinary bundle UUID or a Finance reference
+with a positive revision of at most nine digits. Malformed references return
+422 before the signed feed is read; accepted references still require the
+existing owner binding and current recipient processing permission.
 Existing shared-context tool blocking, request-secret lifetime and history/model
 redaction apply. Authority is checked again around model generation.
+The consent reply uses LOW reasoning, accepted by both managed text adapters,
+with thoughts disabled and function calling set to NONE. Provider selection and
+the current sharing authority remain unchanged.
 
 Migration 433 qualifies the grant/request tables and terminal disconnect/block
 guards. Rollback is code-only and preserves issued encrypted objects. Expired
@@ -1477,26 +1485,15 @@ that exact message and payload shape (`400`). The row's Feed projection is held
 as a 10-minute in-memory request secret for the turn; no tool runs in it; the
 history restores the message as a `selection` chip.
 
-**Saved receipts in chat.** A typed turn from an unlocked owner may carry
-`forwardedProps.receiptMemory`: the bounded canonical receipt index that the
-owner's device decrypted from `shopping.receipts_memory._canonical_index`
-(schema `receipt_canonical_index.v1`, at most 100 transactions and 96 KB). The
-server never holds the vault key, so this is the only way the Email specialist
-can read saved receipts. `POST /api/one/agent-chat` pops the field before the
-bridge can copy it, validates it against a closed schema (`extra=forbid`; no
-subject, preview, body, sender address, provider id, signed source handle or
-link can ride along; text is made single-line and markdown-inert, and a
-link-bearing field is dropped whole), and keeps it only as an expiring request
-secret for that turn; an invalid index is treated as absent, never repaired, and
-a locked or anonymous turn keeps nothing. It is never written to conversation
-state, logged, or shown to a model. A receipts question (`read_receipts`) filters,
-pages and formats it in code, newest first, ten at a time, with dates in the
-owner's timezone and any unavailable amount omitted. "Show more" continues a
-server-held position (`hussh:receipt_cursor`, filters and offset only, thirty
-minutes, void after a new save). A missing, malformed, empty or older-than-seven-day
-index answers `Your receipt memory is not ready yet. Sync and save your receipts
-in Mail.` with the generated `route.profile_receipts` action, and is never
-reported as an empty mailbox. The index is written only through writer
+**Saved receipts in chat.** Receipt lists, spending totals and overdue or due
+payments in typed chat come from One's receipt functions, which the owner's
+device runs over its encrypted receipt snapshot; the hub validates their closed
+requests and results (`receipt_client_tools.py`, `receipt_result_contract.py`)
+and never holds the vault key. `POST /api/one/agent-chat` still pops a legacy
+`forwardedProps.receiptMemory` from older clients before the bridge can copy it,
+and keeps nothing: the Email specialist no longer reads a saved receipt index. A
+receipts question that reaches it returns `receipt_functions_required` without
+reading mail, and One answers with its receipt functions in the same turn. Typed chat also sends `forwardedProps.emailDraftContract: 2` on every run; the hub and owner-pod ingress admit it per turn as `temp:hussh:email_draft_envelope`. Only with it does One pass named people to `open_gmail_email_draft` as `recipient_names` for server-side matching; an installed native build without it shows only the call's own To, so One looks the address up with `list_my_connections` and names are refused with `recipient_address_required`. The index is written only through writer
 `gmail_receipt_memory_save_button`: once, automatically, after each sync the
 owner starts on Mail > Receipts (the product default, set by
 `RECEIPT_MEMORY_AUTO_SAVE_DEFAULT`). The page shows no save control. Opening the
@@ -2571,8 +2568,8 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/calendar/disconnect`        | Firebase Bearer    | Disable the selected Calendar `account_id`; the default preserves sibling Google services, while an additional Calendar-only credential is erased and its provider token revoked best-effort. |
 | POST   | `/api/one/calendar/events`            | VAULT_OWNER Bearer | Read bounded primary-calendar events in a supplied ISO-8601 time range.                                             |
 | POST   | `/api/one/calendar/availability`      | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars.                                                         |
-| POST   | `/api/one/calendar/proposals`         | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google.                     |
-| POST   | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed.                         |
+| POST   | `/api/one/calendar/proposals`         | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google. Board creates also seal the selected account, checked account set, grant bindings, calendar selection, interval and current availability. |
+| POST   | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Atomically claim one reviewed proposal. Board creates recheck every account, writable primary destination and complete free/busy coverage before one account-bound Google create; changed or busy selections fail closed. Existing Chat proposals keep their current flow. |
 | POST | `/api/one/calendar/schedule/today` | Firebase Bearer + active owner-bound Calendar OAuth grant | Resolve `date` in `time_zone`, page the subscribed calendar inventory and all readable calendar events, including recurring instances and civil all-day dates. Fail on incomplete reads; report calendars that share only busy times separately. |
 | POST | `/api/one/calendar/schedule/availability` | Firebase Bearer + active owner-bound Calendar OAuth grant | Check every subscribed calendar and return up to three maximal free `windows` plus exact `full_count`, filtering by requested 15/30/60-minute duration. Missing permission or any unavailable calendar fails closed. |
 | POST | `/api/one/calendar/board/day` | Firebase Bearer + each account's active Calendar OAuth grant | Return all paged events, hidden invitations and full-day free windows for up to three distinct accounts, with source coverage, cross-account overlaps and exact shared free-time intersection. A missing or changing account marks the result incomplete; no shared opening is offered. Per-account calendar-inclusion overrides affect availability only. |
@@ -2591,21 +2588,25 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
 Connected `/one/calendar` shows an account board when Calendar account status is available, with one to three accounts, per-account Events/Free time, cross-account conflict review and shared openings. Invitations remains available per account and Insights retains the default account's weekly overview. An inline decline/email flow keeps the person on Calendar; Mail enablement and retry of a known failed organizer note also stay in the review. Provider-side accept/decline and Mail send cannot be rolled back together. The legacy single-account workspace remains a compatibility surface during a newly verified connection before account status refresh. Today loads every event-readable subscribed calendar with
-source names/colors and real Meet/Zoom/Teams links. Free time checks up to 100
+source names/colors and real Meet/Zoom/Teams/Discord links. Free time checks up to 100
 subscribed calendars in batches of twenty, merges busy periods and clips elapsed
 time before counting matching windows. Overlaps and civil-day/DST boundaries
 are calculated server-side. Time zone resolves from the connected primary calendar,
 with device fallback; advanced options remain in the account menu. Free time
-checks the full selected local day. A selected window hands its date, exact
-start/end, duration, zone and account context to the existing One conversation.
-One asks who should join; the reply carries this memory-only context through
-normal chat text attachments. The existing proposal requires confirmation.
-The selected window/duration are checked before confirmation and execution.
-Change time offers fitting starts in the resolved zone and requests a fresh
-proposal with the reviewed attendees/title. A changed connected account blocks
-execution. A conflict offers a fresh availability check inside chat. Only successful
-execution publishes an owner-scoped refresh for Today and Free time. Slot taps,
-cancellation and authorization never execute an event.
+checks the full selected local day. A Board Free time row opens a compact
+review dialog with a bounded duration and editable date, time, zone, guests and
+meeting place. Per-account rows bind their destination to the clicked account;
+shared openings require an explicit writable account and use its primary
+calendar. The existing short-lived proposal and one-time confirmation ledger
+own the write. Review and execution recheck every connected account and its
+included calendars, and the destination's management grant. Changed accounts,
+selection, grants, or availability require a new review. Discord uses a valid
+existing link and creates no Meet conference; no guests sends no invitations.
+Only a confirmed Google event publishes the Board refresh. Slot taps,
+cancellation and authorization never execute an event. Calendar Join uses the
+event's account email for an explicit Meet pre-join reminder; the external Meet
+app or browser still chooses its own signed-in account. Other meeting providers
+open their original validated links directly.
 Calendar automatically loads using the current signed-in identity and its existing
 Calendar OAuth grant; it has no additional credential prompt or unlock card.
 Each provider request checks the original connection/grant binding. Disconnect,
@@ -2614,10 +2615,9 @@ Responses are private/no-store; events stay in component memory. A vault lock or
 HCT revocation does not revoke these two provider reads: Firebase invalidation
 or Calendar disconnect does. Attendance still requires matching Firebase and
 VAULT_OWNER authority. Date/view changes and session epochs reject stale results.
-Selected-day shortcuts open Google Calendar, and free-window actions hand off
-date, range, time zone and the exact requested-duration booking to Calendar chat.
-Chat gathers missing details and requires the existing proposal confirmation;
-selecting a window never creates an event by itself. New proposals bind the
+Selected-day shortcuts open Google Calendar. The legacy single-account
+workspace still hands free windows to Calendar chat. Chat gathers missing
+details and requires the existing proposal confirmation. New proposals bind the
 review to the current Google grant. With subscribed-calendar access, create
 proposals show busy-period warnings across the included calendars and reject
 changed availability at confirmation. Google must return an event identifier
@@ -4233,11 +4233,14 @@ Calendar) or the system authentication browser with an app-link return (Drive); 
 does not reload. Callback URIs and scopes are unchanged.
 
 The in-chat cards use the same path through `lib/connections/google-connect-in-place.ts`:
-the Gmail send upgrade on a failed delivery, the Gmail modify card and the Calendar card One
-shows. Each opens Google's window inside the click, stays cancellable while it is open, and
-decides success only from an owner status read that checks the requested permission. A
-successful send upgrade reopens the reviewed draft, and nothing is sent until the person sends
-it again. The Gmail modify and Calendar cards clear with a confirmation, as the old redirect
+the Gmail send upgrade on a failed delivery or on the email draft card, the Gmail modify card
+and the Calendar card One shows. Each opens Google's window inside the click and decides
+success only from an owner status read that checks the requested permission. Status cannot
+see a switched-off send, so a cancelled or failed Gmail send callback ends the attempt as not
+connected even when status already shows the send scope. The delivery, Gmail modify and
+Calendar cards stay cancellable while the window is open; the draft card does not offer Cancel
+sign-in yet. A successful send upgrade reopens the reviewed draft, and nothing is sent until
+the person sends it again. The Gmail modify and Calendar cards clear with a confirmation, as the old redirect
 return did. Native Gmail modify is still web-only. `/one/calendar` settles through the same
 handler and no longer reads `popup.closed`, which Google's opener policy makes unreliable. It
 ends on the callback, an explicit Cancel sign-in, or a bounded expiry.

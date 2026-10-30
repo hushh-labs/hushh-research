@@ -4,7 +4,7 @@ import { AgentCalendarProposalCard } from "../../components/agent/agent-calendar
 import { CalendarConnectedWorkspace } from "../../components/calendar/calendar-connected-workspace";
 import { authorizeSyntheticVault, lockSyntheticVault } from "./calendar-connected-boundaries";
 import { setFixtureIdentity } from "./calendar-connected-identity";
-import { publishValidatedAuthSessionOwner } from "../../lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "../../lib/auth/session-owner";
 
 /** Synthetic records are supplied by the browser test's Calendar API interceptor. */
 function Fixture() {
@@ -14,7 +14,7 @@ function Fixture() {
   const [owner, setOwner] = useState({ id: "synthetic-calendar-owner", email: "qa-owner@example.com", token: "synthetic-firebase-owner-token" });
   useEffect(() => {
     setFixtureIdentity(owner);
-    publishValidatedAuthSessionOwner(owner.id);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: owner.id, ownerId: owner.id, accountGeneration: 0 });
   }, [owner]);
   const board = new URLSearchParams(location.search).has("board");
   const boardAccounts = ["qa-owner@example.com", "qa-work@example.com", "qa-projects@example.com"]
@@ -30,6 +30,7 @@ function Fixture() {
         busy={false} getIdToken={async () => owner.token} onConnect={access => setAction(`connect:${access}`)}
         onAddAccount={board ? () => setAction("add-account") : undefined}
         onReconnectAccount={board ? accountId => setAction(`reconnect:${accountId}`) : undefined}
+        onAllowMeetingFiles={(accountId, context) => setAction(`meeting-consent:${accountId}:${context.day}:${context.filter}`)}
         onDisconnectAccount={board ? accountId => setAction(`disconnect:${accountId}`) : undefined}
         onChat={(prompt, slot, _invitation, attendance) => { if (attendance) { void attendance.outcome.then(outcome => setAction("result" in outcome ? `calendar-email:${outcome.result.email}` : `calendar-error:${outcome.error}`)); return; } setAction(slot ? `calendar-slot:${JSON.stringify(slot)}` : prompt ? `calendar-chat:${prompt}` : "calendar-chat"); }} onDisconnect={() => setAction("disconnect-calendar")} />}
     </div>

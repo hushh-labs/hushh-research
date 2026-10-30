@@ -26,6 +26,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 
 OWNER_ALLOWED_KEY = "owner_allowed"
 OWNER_ALLOWED_VERSION = 1
@@ -39,7 +40,7 @@ LEGACY_DEFAULT_PRICE_CENTS = 1_000
 # payment with no owner file selection, at a price from $0.50 in cents. Older
 # sealed requests keep their own price and review contract.
 AUTOSHARE_REQUEST_FLOW = "oct17_autoshare"
-SEMANTIC_SEARCH_POLICY_VERSION = 3
+SEMANTIC_SEARCH_POLICY_VERSION = 4
 SEMANTIC_SEARCH_ENROLLMENT_FLAG = "DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED"
 
 
@@ -68,15 +69,64 @@ def semantic_search_enrollment_enabled() -> bool:
     )
 
 
+def activity_union_paused() -> bool:
+    """Pause new-policy work while preserving saved readers and receipts."""
+    return os.getenv("DRIVE_REQUEST_ACTIVITY_UNION_PAUSED", "false").strip().lower() == "true"
+
+
+def new_semantic_search_policy_version() -> int:
+    """Rollback changes enrollment, never the policy of a saved request."""
+    enabled = os.getenv("DRIVE_REQUEST_ACTIVITY_UNION_ENABLED", "true").strip().lower() == "true"
+    return SEMANTIC_SEARCH_POLICY_VERSION if enabled else 3
+
+
+def request_planner_processor_supported(binding: Any) -> bool:
+    """The current managed policy owns both qualified planner transports."""
+    return isinstance(binding, dict) and (
+        binding.get("provider") == "azure_openai"
+        or binding.get("provider") == "gemini"
+        and binding.get("authorization_basis") == "uat_policy"
+    )
+
+
+def new_semantic_model_binding(*, policy_version: int) -> dict | None:
+    """Freeze the current processor and validate the new request's policy."""
+    from hushh_mcp.runtime_providers.managed_text import managed_text_binding, managed_text_policy
+
+    binding: dict | None
+    if managed_text_policy() is not None:
+        binding = managed_text_binding()
+    else:
+        provider = os.getenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini").strip().lower()
+        if provider != "gemini":
+            raise ValueError("Azure Documents requires the UAT administrator policy")
+        binding = None
+    if policy_version == 4 and not request_planner_processor_supported(binding):
+        raise DriveSharingError("provider_unavailable")
+    return binding
+
+
 def semantic_search_request(private: Mapping[str, Any]) -> bool:
     """Only the exact policy sealed at creation selects semantic request search."""
     version = private.get("semantic_search_policy_version")
     return (
         type(version) is int
-        and version in {1, 2, SEMANTIC_SEARCH_POLICY_VERSION}
+        and version in {1, 2, 3, 4}
         and autoshare_request(private)
         and private.get("v1_live_request") is not True
     )
+
+
+def semantic_search_policy_view(private: Mapping[str, Any]) -> dict[str, bool]:
+    """Project saved policy capabilities without reinterpreting enrollment flags."""
+    version = private.get("semantic_search_policy_version")
+    enabled = semantic_search_request(private)
+    return {
+        "semanticSearch": enabled,
+        "providerResultsOnly": version in (3, 4),
+        "activityDateUnion": version == 4,
+        "discoveryDelivery": version in (2, 3, 4) and enabled,
+    }
 
 
 def whole_dollar_request(private: Mapping[str, Any]) -> bool:

@@ -1,12 +1,15 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { CalendarDays } from "@/components/icons";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 import type { DashboardViewModel } from "./dashboard-data-mapper";
+import type { PortfolioData } from "@/components/kai/types/portfolio";
+import { overviewFacts } from "./portfolio-display-facts";
 
 const money = (value: number) => new Intl.NumberFormat(undefined, {
   style: "currency", currency: "USD", maximumFractionDigits: 2,
@@ -17,25 +20,35 @@ function largestPosition(model?: DashboardViewModel) {
   const position = model.canonicalModel.positions.reduce<typeof model.canonicalModel.positions[number] | null>(
     (largest, current) => current.marketValue > 0 && (!largest || current.marketValue > largest.marketValue) ? current : largest, null,
   );
-  return position ? { name: position.name || position.displaySymbol, weightPct: position.marketValue / model.hero.totalValue * 100 } : null;
+  return position ? { name: position.name || position.displaySymbol, symbol: position.displaySymbol, weightPct: position.marketValue / model.hero.totalValue * 100 } : null;
 }
 
 /** A summary of the active saved portfolio, without assuming a market update or recommendation. */
-export function PortfolioBriefing({ model, onOpen, advisorAction }: { model?: DashboardViewModel; onOpen?: () => void; advisorAction?: ReactNode }) {
+export function PortfolioBriefing({ model, portfolio, onOpen, advisorAction }: { model?: DashboardViewModel; portfolio?: PortfolioData | null; onOpen?: () => void; advisorAction?: ReactNode }) {
   const largest = largestPosition(model);
   const leadingSector = model?.quality.sectorReady ? model.equity_sector_allocation[0] : undefined;
-  return <SurfaceCard data-testid="portfolio-briefing">
-    <SurfaceCardContent className="space-y-3 p-5">
-      <div className="flex items-center justify-between gap-3"><SectionLabel role="heading" aria-level={2}>One’s briefing</SectionLabel><span className={styles.description}>{model ? "Portfolio overview" : "Get started"}</span></div>
-      <p className="text-lg font-semibold leading-7">{model ? "A closer look at your portfolio." : "Your portfolio, at a glance."}</p>
-      <ul className="space-y-3 text-sm leading-6 text-muted-foreground">
-        <li>{!model ? "Add a portfolio to see your analysis." : largest
-          ? `${largest.name} is your largest tracked position at ${largest.weightPct.toFixed(1)}% of your portfolio.`
-          : "Your saved portfolio is ready to review. Position concentration is unavailable for this source."}</li>
-        {model ? <li>{model.quality.historyReady ? "Dated portfolio balances are available to review." : "This source does not provide enough dated balances for a history chart."}</li> : null}
-        {leadingSector ? <li>{`${leadingSector.sector} represents ${leadingSector.pct.toFixed(1)}% of your portfolio.`}</li> : null}
-      </ul>
-      <div className="flex flex-wrap gap-2">{onOpen ? <ShellActionSurface variant="pill" className="min-h-11" onClick={onOpen}>
+  const cash = model ? overviewFacts(model, portfolio).cash : null;
+  const cashShare = cash !== null && model && model.hero.totalValue > 0 ? cash / model.hero.totalValue * 100 : null;
+  const ringReady = largest && Number.isFinite(largest.weightPct) && largest.weightPct <= 100;
+  return <SurfaceCard className={`${styles.insightShell} ${!model ? styles.importEntry : ""}`} data-testid="portfolio-briefing">
+    <SurfaceCardContent className={`${styles.insightCard} space-y-0`}>
+      <SectionLabel role="heading" aria-level={2}>Agent One’s briefing</SectionLabel>
+      {largest ? <div className={styles.concentrationSummary}>
+        <div className={ringReady ? styles.concentrationRing : styles.concentrationValue}
+          style={ringReady ? { "--holding-share": `${largest.weightPct * 3.6}deg` } as CSSProperties : undefined}
+          role={ringReady ? "img" : undefined} aria-label={ringReady ? `${largest.name}: ${largest.weightPct.toFixed(1)}% of portfolio` : undefined}>
+          <span><strong>{largest.weightPct.toFixed(1)}%</strong><span>of portfolio</span></span>
+        </div>
+        <div className={styles.concentrationLabel}><p className={styles.insightEyebrow}>Largest tracked position</p><p className={styles.insightHoldingName}>{largest.name}</p>{largest.symbol ? <p className={styles.description}>{largest.symbol}</p> : null}</div>
+      </div> : <p className={styles.description}>{model ? "Position concentration is unavailable for this source." : "Add a portfolio to see your analysis."}</p>}
+      {model ? <>
+        <dl className={styles.insightFacts}>
+          <div><dt>Cash share</dt><dd>{cashShare === null ? "Unavailable" : `${cashShare.toFixed(1)}%`}</dd></div>
+          {leadingSector ? <div><dt>{leadingSector.sector} share</dt><dd aria-label={`${leadingSector.pct.toFixed(1)}% of portfolio`}>{leadingSector.pct.toFixed(1)}%</dd></div> : null}
+        </dl>
+        <p className={styles.insightNotice}><CalendarDays aria-hidden="true" /><span>{model.quality.historyReady ? "Dated history available" : "No dated history"}</span></p>
+      </> : null}
+      <div className={styles.cardFooter}>{onOpen ? <ShellActionSurface variant="pill" className="min-h-11" onClick={onOpen}>
         {model ? "View analysis" : "Import portfolio"}
       </ShellActionSurface> : null}{advisorAction}</div>
     </SurfaceCardContent>
@@ -61,7 +74,7 @@ export function PortfolioAnalysis({ model, source }: { model: DashboardViewModel
       {model.quality.historyReady ? <>
         <PortfolioHistoryChart data={model.history} height={180} />
         <p className={styles.description}>Saved balance changes may include deposits and withdrawals; they are not investment returns.</p>
-      </> : <p className={styles.description}>This source does not provide enough dated balances for a history chart.</p>}
+      </> : <p className={styles.description}>Dated balance history is unavailable for this source.</p>}
     </SurfaceCardContent></SurfaceCard>
     <SurfaceCard><SurfaceCardContent className="space-y-3 p-5">
       <h2 className="ui-text-section-label">Position concentration</h2>

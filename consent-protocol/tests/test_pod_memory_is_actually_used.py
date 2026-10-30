@@ -53,7 +53,22 @@ def test_the_turn_actually_writes_to_memory() -> None:
     )
 
 
-def test_a_memory_tool_is_bound_so_the_agent_can_read_it() -> None:
+def _memory_roster(monkeypatch, resolved):
+    from unittest.mock import Mock
+
+    from hushh_mcp.one_adk.agent_tree import _SPECIALIST_MODEL, build_one_text_agent
+    from hushh_mcp.one_adk.turn_warmup import _WarmupLlm
+
+    resolver = Mock(return_value=resolved)
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_memory_service.resolve_pod_memory_service", resolver
+    )
+    agent = build_one_text_agent(model=_WarmupLlm(model=_SPECIALIST_MODEL))
+    resolver.assert_called_once_with()
+    return {getattr(tool, "name", "") for tool in agent.tools}
+
+
+def test_a_memory_tool_is_bound_so_the_agent_can_read_it(monkeypatch) -> None:
     """Writing without reading is a log nobody consults.
 
     `load_memory` rather than `preload_memory` on purpose: the north star requires
@@ -61,13 +76,10 @@ def test_a_memory_tool_is_bound_so_the_agent_can_read_it() -> None:
     observed recall TOOL CALL proves it — a model can produce a plausible answer by
     guessing. Auto-injection would make the claim unfalsifiable.
     """
-    source = _AGENT_TREE.read_text()
-    assert "load_memory" in source, (
-        "One holds no memory tool, so nothing can read what the turn writes"
-    )
+    assert "load_memory" in _memory_roster(monkeypatch, object())
 
 
-def test_the_memory_tool_is_pod_conditional() -> None:
+def test_the_memory_tool_is_pod_conditional(monkeypatch) -> None:
     """A memory tool with no service behind it is a tool that always fails.
 
     `resolve_pod_memory_service` returns None on the hub by construction, so binding
@@ -75,26 +87,7 @@ def test_the_memory_tool_is_pod_conditional() -> None:
     than not offering. The binding must sit behind the same two conditions the
     service itself checks.
     """
-    source = _AGENT_TREE.read_text()
-    # The guard is the RESOLVED service, not the flags. The flags said "memory
-    # should exist"; the resolver says whether it actually does (identity, key,
-    # log all buildable) and embeds the pod_mode + flag checks itself. A BYOC pod
-    # whose key resolution failed used to pass the flag check and ship a recall
-    # tool that always errored -- the exact failure this test exists to prevent.
-    guard = source.find("if resolve_pod_memory_service() is not None:")
-    assert guard != -1, (
-        "no resolved-service guard exists, so the memory tool is bound "
-        "unconditionally (or on flags alone) and can always-fail at runtime"
-    )
-    # The IMPORT of the tool, not the prose about it -- searching from the top would
-    # match the comment above the guard and pass while the binding sat outside it.
-    binding = source.find("from google.adk.tools import load_memory")
-    assert binding != -1
-    assert guard < binding, "load_memory is imported outside the guard that gates it"
-    assert binding - guard < 400, (
-        "the guard and the binding have drifted apart; a branch between them could "
-        "reach the binding without the guard holding"
-    )
+    assert "load_memory" not in _memory_roster(monkeypatch, None)
 
 
 def test_the_write_is_guarded_so_a_memory_failure_cannot_lose_an_answer() -> None:

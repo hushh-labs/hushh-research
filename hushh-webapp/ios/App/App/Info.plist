@@ -70,6 +70,8 @@
 	<string>Hussh One uses your photo library when you choose a profile picture or a card photo to scan on your device.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Hussh One uses the camera when you take a profile picture or scan a card on your device.</string>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Allow SMS safety alerts to ring on your Lock Screen until you dismiss the alarm.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

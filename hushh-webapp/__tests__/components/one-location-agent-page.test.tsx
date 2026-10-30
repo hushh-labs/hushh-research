@@ -822,11 +822,11 @@ function locationActivity() {
 }
 
 async function openLocationFeatureStep() {
-  expect(await screen.findByRole("heading", { name: "Keep your people updated." })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Your place." })).toBeTruthy();
 }
 
 async function expectLocationInviteStep() {
-  expect(await screen.findByRole("heading", { name: /You're (on the map|all set)/ })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: /Your people\./ })).toBeTruthy();
 }
 
 /** The terminal CTA. Its label names the destination, which differs by mode. */
@@ -987,23 +987,11 @@ function holdNextCapture(): () => void {
 
 async function openLocationPermissionsStep() {
   await openLocationFeatureStep();
-  const setupButton = await screen.findByRole("button", {
-    name: "Continue",
-  });
-  await waitFor(() => expect(setupButton).toBeEnabled());
-  fireEvent.click(setupButton);
-  // Continue offers the optional Save a place step whenever Location is
-  // available. Most flows are not about it, so decline it and land on Ready.
-  await waitFor(() =>
-    expect(
-      screen.queryByRole("button", { name: "Skip saving this place" }) ??
-        screen.queryByRole("heading", { name: /You're (on the map|all set)/ }),
-    ).toBeTruthy(),
-  );
-  const skipPlace = screen.queryByRole("button", {
-    name: "Skip saving this place",
-  });
-  if (skipPlace) fireEvent.click(skipPlace);
+  fireEvent.click(await screen.findByRole("button", { name: "Use my location" }));
+  const later = await screen.findByRole("button", { name: "Set up later" });
+  await waitFor(() => expect(later).toBeEnabled());
+  fireEvent.click(later);
+  await expectLocationInviteStep();
 }
 
 async function switchLocationTab(
@@ -1758,7 +1746,7 @@ describe("OneLocationAgentPage", () => {
       mockGetState.mockResolvedValue(boundedState);
       mockListRecipientsPage.mockResolvedValue({ items: directory, page: 1, hasMore: false, totalCount: directory.length });
       render(<OneLocationAgentPage />);
-      await skipLocationEntryFlow({ expectMain: false });
+      await act(async () => { await skipLocationEntryFlow({ expectMain: false }); });
       const action = flow === "Share" ? /Select Investor D for private sharing/i : /Select Investor D for location request/i;
       expect(await screen.findByRole("button", { name: action })).toBeEnabled();
       fireEvent.click(screen.getByRole("button", { name: action }));
@@ -4683,6 +4671,36 @@ describe("OneLocationAgentPage", () => {
     expect(mockSendSosEmails).toHaveBeenCalled();
   });
 
+  it("reports SMS primary delivery and lets Stop finish while the email fallback is still pending", async () => {
+    mockGetSmsContacts.mockResolvedValue(["user_b"]);
+    mockStoreEnvelope.mockResolvedValue({ recipientAlerted: true });
+    const baseState = locationState();
+    const smsGrant = { ...baseState.ownerGrants[0]!, id: "grant_email_pending", shareKind: "sos", expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString() };
+    let active = false;
+    mockCreateGrant.mockImplementation(async () => { active = true; return smsGrant; });
+    mockRevokeGrant.mockImplementation(async () => { active = false; return { ...smsGrant, status: "revoked" }; });
+    mockGetState.mockImplementation(async () => ({ ...baseState, ownerGrants: active ? [smsGrant] : [] }));
+    let finishEmail!: (value: { emailed: number; attempted: number; configured: boolean; withoutEmail: string[] }) => void;
+    mockSendSosEmails.mockReturnValueOnce(new Promise((resolve) => { finishEmail = resolve; }));
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    fireEvent.click(screen.getByRole("button", { name: "Save My Soul emergency alert" }));
+    const hold = await screen.findByRole("button", { name: /^Press and hold for two seconds/ });
+    await waitFor(() => expect(hold).toBeEnabled());
+    fireEvent.keyDown(hold, { key: " ", code: "Space" });
+    await waitFor(() => expect(mockSendSosEmails).toHaveBeenCalled(), { timeout: 4000 });
+    expect(toast.success).toHaveBeenCalledWith("SMS alert sent.", expect.anything());
+    const stop = screen.getByRole("button", { name: "Stop Save My Soul alert" });
+    expect(stop).toBeEnabled();
+    fireEvent.click(stop);
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop Save My Soul alert?" })).getByRole("button", { name: "Stop alert" }));
+    await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop Save My Soul alert" })).toBeNull());
+    const calls = vi.mocked(toast.success).mock.calls.length;
+    await act(async () => finishEmail({ emailed: 1, attempted: 1, configured: true, withoutEmail: [] }));
+    expect(vi.mocked(toast.success).mock.calls).toHaveLength(calls);
+  });
+
   it("does not prompt for location merely by opening Save My Soul", async () => {
     mockGetPermissionState.mockResolvedValue({ state: "prompt", precise: null, background: "foreground-only", locationServicesEnabled: true });
     render(<OneLocationAgentPage />);
@@ -4724,6 +4742,8 @@ describe("OneLocationAgentPage", () => {
     await act(async () => { releasePassive({ state: "prompt", precise: null, background: "foreground-only", locationServicesEnabled: true }); });
     expect(mockCreateGrant).toHaveBeenCalledTimes(grantsAfter);
     fireEvent.click(screen.getByRole("button", { name: "Stop Save My Soul alert" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop Save My Soul alert?" })).getByRole("button", { name: "Stop alert" }));
+    await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByRole("button", { name: "Stop Save My Soul alert" })).toBeNull());
   });
 
@@ -4965,13 +4985,10 @@ describe("OneLocationAgentPage", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "Keep your people updated.",
+        name: "Your place.",
       }),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Skip saving this place" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
     expect(await screen.findByTestId("one-location-onboarding-ready")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
@@ -5025,7 +5042,7 @@ describe("OneLocationAgentPage", () => {
       await expectLocationInviteStep();
       expect(
         screen.queryByRole("heading", {
-          name: "Keep your people updated.",
+          name: "Your place.",
         }),
       ).toBeNull();
       expect(await locationFinishButton()).toBeEnabled();
@@ -5079,7 +5096,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", {
-        name: "Keep your people updated.",
+        name: "Your place.",
       }),
     ).toBeNull();
   });
@@ -5115,21 +5132,20 @@ describe("OneLocationAgentPage", () => {
     mockGetPermissionState.mockResolvedValue({ state: "denied", precise: null, background: "foreground-only", locationServicesEnabled: true });
     render(<OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} />);
     await reachLocationOnboardingFinalStep();
-    expect(screen.getByText("3 of 3")).toBeTruthy();
+    expect(screen.queryByLabelText("One Location setup progress")).toBeNull();
     expect(screen.queryByTestId("save-location-modal")).toBeNull();
     fireEvent.click(await locationFinishButton());
     await waitFor(() => expect(onSetupComplete).toHaveBeenCalledTimes(1));
     expect(mockStageSavedLocation).not.toHaveBeenCalled();
   });
 
-  it("offers Save a place after Continue and leaves nothing open when it is skipped", async () => {
+  it("defers saving and goes to Your people without a third screen", async () => {
     mockGetPermissionState.mockResolvedValue({ state: "granted", precise: null, background: "foreground-only", locationServicesEnabled: true });
     render(<OneLocationAgentPage mode="setup" />);
     await openLocationFeatureStep();
-    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
-    expect(await screen.findByTestId("one-location-onboarding-save-place-surface")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Skip saving this place" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Set up later" }));
     await expectLocationInviteStep();
+    expect(screen.queryByTestId("one-location-onboarding-save-place-surface")).toBeNull();
     await waitFor(() => expect(screen.queryByTestId("save-location-modal")).toBeNull());
     expect(mockStageSavedLocation).not.toHaveBeenCalled();
   });
@@ -5154,21 +5170,17 @@ describe("OneLocationAgentPage", () => {
     expect(mockStageSavedLocation).not.toHaveBeenCalled();
   });
 
-  it("stages the onboarding place in memory before the vault exists and then reaches Ready", async () => {
+  it("captures the finale point before the vault exists without staging a saved place", async () => {
     mockUseVault.mockReturnValue({ isVaultUnlocked: false, vaultKey: null, vaultOwnerToken: null });
     render(<OneLocationAgentPage mode="setup" />);
     await openLocationFeatureStep();
-    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
-    expect(await screen.findByTestId("one-location-onboarding-save-place-surface")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    const save = await screen.findByRole("button", { name: /^Save/ });
-    await waitFor(() => expect(save).toBeEnabled());
-    fireEvent.click(save);
+    fireEvent.click(await screen.findByRole("button", { name: "Use my location" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set up later" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
     await expectLocationInviteStep();
-    expect(mockStageSavedLocation).toHaveBeenCalledWith(
-      "user_a",
-      expect.objectContaining({ category: "home", latitude: 28.6139, longitude: 77.209 }),
-    );
+    expect(mockCaptureCurrentPosition).toHaveBeenCalled();
+    expect(screen.getByTestId("onboarding-live-map")).toHaveAttribute("data-map-point", "ready");
+    expect(mockStageSavedLocation).not.toHaveBeenCalled();
     expect(mockAddSavedLocation).not.toHaveBeenCalled();
   });
 
@@ -5328,7 +5340,7 @@ describe("OneLocationAgentPage", () => {
     const capture = new Promise((_, reject) => { rejectCapture = reject; });
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
-    // Held only now: onboarding's own place step needs a real fix to get past.
+    // Held only now: onboarding's foreground-location attempt has settled.
     mockCaptureCurrentPosition.mockReturnValue(capture);
     await screen.findByRole("button", { name: "Save a place" });
     fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
@@ -5451,12 +5463,12 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "Keep your people updated.",
+          name: "Your place.",
         }),
       ).toBeNull();
       expect(
         screen.queryByRole("heading", {
-          name: "Keep your people updated.",
+          name: "Your place.",
         }),
       ).toBeNull();
     },
@@ -5501,11 +5513,11 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockRegisterKey).toHaveBeenCalled());
     expect(
       await screen.findByRole("heading", {
-        name: "Keep your people updated.",
+        name: "Your place.",
       }),
     ).toBeTruthy();
     const onboardingShellClass =
-      screen.getByRole("main").getAttribute("class") || "";
+      screen.getByTestId("one-location-onboarding").getAttribute("class") || "";
     expect(onboardingShellClass).toContain("fixed");
     expect(onboardingShellClass).toContain("inset-0");
     // Above the agent bar's elevated z-540, not merely above its resting

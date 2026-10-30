@@ -6,12 +6,13 @@ import time
 from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 
 from hushh_mcp.services import google_connector_transition as transition
+from hushh_mcp.services.google_connection_scope_policy import selected_grant_scopes
 from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     GoogleConnectionService,
@@ -21,9 +22,28 @@ from hushh_mcp.services.google_connector_transition_store import (
     REVOCATIONS_KEY,
     publish_legacy_credential,
 )
-from hushh_mcp.services.google_oauth_attempt import connection_generation
 from hushh_mcp.services.pod_request_signing import VerifiedPod
 from tests.google_oauth_test_support import TransactionEngine
+from tests.helpers.google_connection_binding import _Db, _service, _store
+
+
+@pytest.mark.parametrize("service", ["gmail", "contacts", "drive"])
+def test_non_calendar_google_scope_fallback_is_unchanged(service):
+    scopes, granted, guest_photos = selected_grant_scopes(
+        "", ("synthetic.required", "synthetic.optional"), service
+    )
+    assert scopes == "synthetic.required synthetic.optional"
+    assert granted == set()
+    assert guest_photos is False
+
+
+def test_calendar_optional_scope_needs_provider_evidence():
+    scopes, granted, guest_photos = selected_grant_scopes(
+        "", ("synthetic.required", "synthetic.optional"), "calendar"
+    )
+    assert scopes == ""
+    assert granted == set()
+    assert guest_photos is False
 
 
 @pytest.mark.parametrize("domain", ["hushh.ai", "hussh.ai", "hussh.si"])
@@ -62,84 +82,6 @@ def test_custom_callback_does_not_gain_a_spelling_alias_from_cors(monkeypatch):
     assert allowed_oauth_callback_uris(callback) == frozenset({callback})
 
 
-class _Db:
-    def __init__(
-        self,
-        existing=None,
-        *,
-        accept_connection=True,
-        accept_grant=True,
-        grants=None,
-        additional_subjects=None,
-    ):
-        self.existing = existing
-        self.grants = grants or []
-        self.accept_connection = accept_connection
-        self.accept_grant = accept_grant
-        self.additional_subjects = additional_subjects or []
-        self.calls = []
-        self.engine = TransactionEngine(self)
-
-    def execute_raw(self, sql, params=None):
-        self.calls.append((sql, params))
-        if "SELECT * FROM google_provider_connections" in sql:
-            return SimpleNamespace(data=[self.existing] if self.existing else [])
-        if "SELECT service, scope_csv FROM google_service_grants" in sql:
-            return SimpleNamespace(
-                data=[{"service": "calendar", "scope_csv": value} for value in self.grants]
-            )
-        if "SELECT 1 FROM google_calendar_additional_accounts" in sql:
-            return SimpleNamespace(
-                data=[{"present": 1}] if params["subject"] in self.additional_subjects else []
-            )
-        if "SELECT COUNT(*) FROM google_calendar_additional_accounts" in sql:
-            return SimpleNamespace(data=[{"count": len(self.additional_subjects)}])
-        if "INSERT INTO google_provider_connections" in sql:
-            return SimpleNamespace(data=[{"user_id": "owner"}] if self.accept_connection else [])
-        if "INSERT INTO google_service_grants" in sql:
-            return SimpleNamespace(data=[{"user_id": "owner"}] if self.accept_grant else [])
-        return SimpleNamespace(data=[])
-
-
-def _service(monkeypatch, db, *, subject="google-a"):
-    service = GoogleConnectionService(db=db)
-    monkeypatch.setattr(service, "_userinfo", AsyncMock(return_value={"sub": subject}))
-    monkeypatch.setattr(service, "_decrypt", Mock(return_value="synthetic-old-refresh"))
-    monkeypatch.setattr(
-        service, "_encrypt", Mock(return_value={"ciphertext": "new", "iv": "iv", "tag": "tag"})
-    )
-    monkeypatch.setattr(service, "status", AsyncMock(return_value={"connected": True}))
-    # These cases exercise publication against a synthetic connection store;
-    # account presentation is covered separately with its own complete rows.
-    monkeypatch.setattr(
-        service,
-        "calendar_accounts_status",
-        AsyncMock(
-            return_value={
-                "connected": True,
-                "status": "connected",
-                "accounts": [{"account_id": "default", "connected": True}],
-                "account_limit": 3,
-            }
-        ),
-    )
-    return service
-
-
-async def _store(service, *, token=None, level="read"):
-    return await service._store_authorized_connection(
-        user_id="owner",
-        token=token
-        if token is not None
-        else {"access_token": "synthetic-access", "refresh_token": "synthetic-refresh"},
-        service="calendar",
-        requested_scopes=GoogleConnectionService.scopes("calendar", level),
-        oauth_started_at=datetime(2026, 9, 22, tzinfo=UTC),
-        attempt_id="synthetic-attempt",
-        expected_generation=connection_generation(service.db.existing),
-    )
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_refresh", [True, False])
 async def test_different_provider_account_never_reuses_or_replaces_existing_connection(
@@ -169,7 +111,13 @@ async def test_verified_same_account_can_reuse_its_refresh_token(monkeypatch):
         }
     )
     service = _service(monkeypatch, db)
-    await _store(service, token={"access_token": "synthetic-access"})
+    await _store(
+        service,
+        token={
+            "access_token": "synthetic-access",
+            "scope": " ".join(GoogleConnectionService.scopes("calendar", "read")),
+        },
+    )
     service._decrypt.assert_called_once()
     assert service._encrypt.call_args_list[0].args == ("synthetic-old-refresh",)
 
@@ -834,15 +782,10 @@ async def test_concurrent_replacement_refuses_stale_callback(monkeypatch, bounda
 @pytest.mark.asyncio
 @pytest.mark.parametrize("admitted", [True, False])
 async def test_cached_bearer_is_admitted_against_one_provider_grant_snapshot(
-    monkeypatch, active_account_lifecycle, admitted
+    monkeypatch, admitted, shared_hub_owner
 ):
-    from hushh_mcp.services import owner_placement_guard
-
-    # This case isolates the grant snapshot; the owner must already be eligible
-    # for the hub before the token read reaches that snapshot.
-    monkeypatch.setattr(
-        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
-    )
+    # The shared fixture supplies active lifecycle and placement admission before
+    # the token read reaches the provider-grant snapshot.
 
     class SnapshotDb:
         def __init__(self):

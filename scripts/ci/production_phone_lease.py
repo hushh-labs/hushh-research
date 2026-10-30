@@ -180,7 +180,7 @@ def _source(args, port):
         ) from error
 
 
-def _attempt(repository, run, number, api):
+def _attempt(repository, run, number, api, workflow):
     attempt = api(repository, f"runs/{run['id']}/attempts/{number}")
     _require(
         isinstance(attempt, dict)
@@ -208,28 +208,13 @@ def _attempt(repository, run, number, api):
         and all(isinstance(job, dict) for job in jobs),
         "attempt job inventory is incomplete",
     )
-    matches = [job for job in jobs if job.get("name") == JOB]
-    if not matches and attempt.get("status") in {
-        "queued",
-        "waiting",
-        "requested",
-        "pending",
-    }:
-        return attempt, result, None
-    _require(
-        len(matches) == 1
-        and all(
-            matches[0].get(key) == value
-            for key, value in {
-                "run_id": run["id"],
-                "run_attempt": number,
-                "head_sha": run["head_sha"],
-                "head_branch": "main",
-            }.items()
-        ),
-        "attempt job is not bound",
-    )
-    return attempt, result, matches[0]
+    try:
+        job = nonproducer.attempt_producer_job(jobs, run, attempt, workflow)
+    except ValueError as error:
+        raise retention.UnsafeState(
+            "Cold health lease reconciliation required: production job identity is ambiguous"
+        ) from error
+    return attempt, result, job
 
 
 def _steps(job, current=False, source_gated=False, nonproducer=False):
@@ -346,14 +331,14 @@ def _restoration_nonproducer(repository, attempt, job, trusted, text, source):
     return True
 
 
-def _artifact(repository, attempt, result, api, timestamp):
+def _artifact(repository, attempt, result, api, timestamp, job):
     return lease_documents.artifact(
         repository,
         attempt,
         result,
         api,
         timestamp,
-        job=JOB,
+        job=job["name"],
         upload=UPLOAD,
         name=f"{MARKER}{attempt['id']}-{attempt['run_attempt']}",
     )
@@ -373,7 +358,7 @@ def _verify_retired(
             attempt,
             result,
             {step["name"]: step for step in job["steps"]},
-            job=JOB,
+            job=job["name"],
             begin=BEGIN,
             upload=INTENT,
             deploy=DEPLOY,
@@ -382,7 +367,7 @@ def _verify_retired(
             run_command=run_command or retention.run_command,
             timeout=_budget(deadline),
         )
-    artifact = _artifact(repository, attempt, result, api, timestamp)
+    artifact = _artifact(repository, attempt, result, api, timestamp, job)
     archive = receipts.immutable_archive(
         repository,
         artifact,
@@ -424,7 +409,7 @@ def assert_reconciled(
                 return
             continue
         for number in range(run["run_attempt"], 0, -1):
-            attempt, result, job = _attempt(repository, run, number, api)
+            attempt, result, job = _attempt(repository, run, number, api, text)
             if (
                 job is None
                 or _steps(

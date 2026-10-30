@@ -86,10 +86,10 @@ export function PrivateAgentCard({
       ? "Being built in the background. Nothing for you to do."
       : state === "failed"
         ? "Setup did not finish. You can ask for it again."
-        : "A private agent that runs on compute you own, holding your records where only you can reach them.";
+        : "Agent One that runs on compute you own, holding your records where only you can reach them.";
 
   return (
-    <SettingsGroup title="Your private agent">
+    <SettingsGroup title="Agent One">
       <SettingsRow
         title={live ? "Live" : inFlight ? "Being built" : "Not yet built"}
         description={description}

@@ -159,6 +159,37 @@ These paths should remain deterministic by design:
 - caching
 - telemetry
 - transport retries and timeouts
+- typed-chat draft recipients: One decides to write an email and passes a named
+  person in `recipient_names` or `cc_names`; `one_adk/email_draft_recipients.py`
+  matches that name against the owner's active connections with the shared
+  spoken-name rule. It never guesses: it addresses the draft only when exactly
+  one connection matches and the name as said is that connection's whole name
+  or whole words of it; a display name holding an address never counts as a
+  name. A partial or misspelled match, several matches, people sharing one name,
+  or an unknown or address-less name opens no draft and returns a typed status
+  whose message names the one question One asks. Names resolve only for a
+  typed-chat app that declares draft contract 2 (`forwardedProps.emailDraftContract`);
+  an older installed app shows the call's own recipients, so
+  `one_adk/email_draft_tool.py` refuses names for it with
+  `recipient_address_required` and One looks the address up with
+  `list_my_connections` (a refusal, never a substituted recipient). When two to
+  four connections match a To name, the question also carries `choices`
+  (`{ref, name}`, never an address), so the owner's "both" or "all" is One's
+  decision expressed as the refs it passes in `recipient_choices`; refs address
+  To only, so a Cc or Bcc name keeps its address question. A ref is an
+  owner-bound hash of the connection (`one_adk/email_draft_choices.py`),
+  checked by recomputing it over the owner's current connections and never
+  stored; an unknown ref is `recipient_choice_expired`, and refs never single
+  out one of several connections that share a name (that still needs its
+  address). A name its chosen refs answer is not asked again.
+- model-request history: before each One model call,
+  `output_privacy.drop_replayed_tool_placeholders` keeps stored placeholders out
+  of that outgoing request only: an earlier read, draft or receipt call whose
+  stored result is `content_redacted` (its arguments emptied), an earlier private
+  receipt answer, a call that never got its result and an Azure reasoning item
+  left without the call or answer it preceded. Replayed, the model copied `ask_email_agent({})` for every
+  later mail request (UAT, 2026-10-29). Stored history keeps its redaction. Each
+  request that loses parts logs `one.history_hygiene removed=<n>`, a count only.
 
 These are safety and infrastructure concerns, not semantic classification concerns.
 
@@ -362,7 +393,7 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   not turn synthetic precision into measured real-file accuracy. Unreadable
   prefixes and ordinary media remain kept; metadata never replaces content.
 
-### Declared: request-local semantic Drive search
+### Declared: historical request-local semantic Drive search (policy v1)
 
 - Owner: Documents `agent_documents_request_search` plans a
   `SemanticLiveSearchModelPlan` independently of the legacy live-search
@@ -398,6 +429,26 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   synthetic planner and assessor cases. Report all-attempt precision/recall,
   abstentions, errors and latency. These checks do not prove complete Google UI
   parity, OCR accuracy on arbitrary originals or production-corpus recall.
+
+### Declared: activity-date query-and-list Drive requests (policy v4)
+
+Documents `agent_documents_request_search` is the sole semantic stage. Its
+host-selected semantic-plan-v2 output expresses bounded executable concept
+alternatives and explicit entity-only sparse fallback permission. Python validates,
+escapes and freezes native queries; it does not infer replacement concepts or
+reassess provider matches. Native retrieval is followed by the versioned
+`drive_activity_union_v1` deterministic date gate before durable commit and sharing.
+Explicit quotations, filename/account constraints, exclusions and created-only or
+modified-only meaning remain intact. Bounded retries remain retries of this same
+planner. No content/OCR/extraction/indexing or second model enters this path.
+
+Historical policy readers and V1 digests remain unchanged; existing paid/approved
+membership cannot be reinterpreted without a new request revision. The activity
+union is file-event eligibility, not content-period proof. See
+[the operational contract](./drive-continuous-packets.md#activity-date-search-match-delivery-policy-v4)
+for limits, evidence, diagnostics, adoption, recovery and rollback. Synthetic
+planner evaluation proves only its observed bounded cases, not Drive UI parity
+or production-corpus recall.
 
 ### Declared: Continuous Drive evidence and reusable packets
 
@@ -602,12 +653,19 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   duplicate | disclaimer}`; `agent_memory_intent` alone decides memory versus a live
   `command`; `agent_pkm_structure` chooses a domain for everything or the reserved sibling.
   The Financial Guard Agent and its keyword fallback were removed.
-- Validator, normalize only: `locate_source_quote` maps each quote onto the owner's exact
-  text, folding Markdown emphasis, heading and code marks, dash and quotation-mark variants
-  and whitespace on both sides; the stored quote is always the ORIGINAL span. A quote that
-  matches nothing is dropped alone and counted (`unmatched_quote_count`,
-  `segment_quote_unmatched`); the device shows its lines as "not yet saved". It no longer
-  discards the whole section.
+- Validator, normalize only: `locate_source_quote`
+  (`hushh_mcp/services/pkm_source_quote.py`) maps each quote onto the owner's exact text.
+  An exact substring wins; otherwise both sides fold, per character: NFKC compatibility
+  forms ("…" to "...", fullwidth to ASCII), Markdown emphasis, heading and code marks,
+  dash and quotation-mark variants, whitespace runs, case (casefold) and apostrophes. The
+  whole folded quote is tried first, so the owner's own end punctuation stays in the span,
+  then the quote with its edge punctuation (space, `.,;:!?` and `"`) trimmed, leaving at
+  least two letters or digits; a folded match may not begin or end inside a word. The returned span
+  is always the owner's exact ORIGINAL characters;
+  there is no fuzzy repair. A translation, paraphrase, person rewrite or invented clause
+  still matches nothing: it fails closed, is dropped alone and counted
+  (`unmatched_quote_count`, `segment_quote_unmatched`); the device shows its lines as
+  "not yet saved". It no longer discards the whole section.
 - Validator, recorded substitution: a model target named after a protocol namespace a
   person could mean as a subject (`agent`, `agents`, `mcp`, `system`) is kept in the intent
   agent's recommended domain, or `professional` when that is unusable, nested under the
@@ -751,7 +809,14 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   `read_mail` tool; `agent_email_read_planner` selects `analyze_mail` and the
   requested categories from the owner's current question. The existing
   `agent_email_request_classifier` judges personal-information requests;
-  `agent_email_read_analyzer` extracts action items and mail-derived meetings.
+  `agent_email_read_analyzer` extracts action items, mail-derived meetings,
+  payments due (bills, invoices or failed payments addressed to the owner) and
+  security alerts. A brief ("anything important?", "what are my blockers?",
+  "anything sensitive?") asks for every category over recent mail outside
+  Promotions and Social; the planner writes that query from its instruction.
+  Asking who mailed them today is a listing, not a brief: the planner selects
+  `search_inbox` with that day's `after:` term and no category exclusion, so
+  newsletters and social senders are included.
 - Manifest path: `consent-protocol/hushh_mcp/agents/email/agent.yaml`.
 - Structured output: `MailReadPlan` (`operation`, bounded Gmail query and limit,
   `categories`) and `MailAnalysisAnswer` (`findings` with category, source ref,
@@ -767,14 +832,20 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   failed category remains unavailable, never zero findings. The Live model sees
   only code-counted coverage; Mail text and findings are screen-only. No phrase
   table selects an operation, and analysis neither mutates Mail nor checks the
-  owner's Calendar.
+  owner's Calendar. In typed chat, a successful analysis also returns
+  `MailBrief` (`email_mail_brief.py`): code counts the model's findings per
+  category and carries display names, address-masked subjects and times, never
+  bodies, addresses or provider IDs. It renders as cards on the owner's screen,
+  and durable chat history redacts it with the rest of the read result.
 - Live eval before production promotion: run a consented UAT session on an owner
   mailbox with positive and negative personal-information requests, an action
-  item with a later completion, and an invitation with a later cancellation or
-  reschedule. Verify the bounded search scope, source and Open bindings, correct
-  timezone, partial-category failure, and the continuous One Voice conversation
-  across in-app navigation. Synthetic contract tests prove the safety boundary;
-  they do not establish classification accuracy on a live mailbox.
+  item with a later completion, an invitation with a later cancellation or
+  reschedule, a bill due and a failed payment, a security notice, and promotional
+  mail that must not appear in a brief. Verify the bounded search scope, source
+  and Open bindings, correct timezone, partial-category failure, and the
+  continuous One Voice conversation across in-app navigation. Synthetic contract
+  tests prove the safety boundary; they do not establish classification accuracy
+  on a live mailbox.
 
 ### Declared: live Gmail receipt read-through
 
@@ -814,65 +885,53 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   passes, browser/iOS/Android receipt readers remain demoted rollback code rather
   than a parallel production authority.
 
-### Declared: Email receipts read from saved receipt memory
+### Declared: Email receipt requests handed back to One's receipt functions
 
 - Owning agent: `agent_email_read_planner`. From the owner's current request alone
-  it decides that the question is about their own receipts, invoices, bills or
-  purchases (`read_receipts`) and not a search of their mail, and it chooses the
-  window, status, identifier kind, merchant and "show more". No phrase table,
-  regular expression or keyword list on the device, in the route or in host code
-  selects the operation. One's runtime Mail instruction only states which tool
-  to call; the planner's authored instruction owns the distinction between "show
-  my receipts" and "find emails mentioning receipts".
+  it decides that the question is about their own receipts, invoices, bills,
+  purchases or spending and plans `use_receipt_functions`; a request to find or
+  read emails that mention a receipt stays `search_inbox` or `read_message`. No
+  phrase table, regular expression or keyword list in the route, on the device or
+  in host code selects the operation.
 - Manifest path: `consent-protocol/hushh_mcp/agents/email/agent.yaml`.
-- Structured output: `MailReadPlan` in
-  `consent-protocol/hushh_mcp/services/email_delegated_read.py`. `operation:
-  "read_receipts"` plus flat `receipt_since`, `receipt_until`, `receipt_statuses`,
-  `receipt_identifier_kinds`, `receipt_merchant`, `receipt_window_label` and
-  `receipt_more` (no nested objects, which Vertex rejected for `MailItemGist`).
-- Validator: `consent-protocol/hushh_mcp/services/receipt_memory_read.py`. Dates
-  must be real `YYYY-MM-DD` calendar dates with `since` not after `until`;
-  statuses and identifier kinds must be members of the closed sets; a malformed
-  plan is refused as `invalid_argument`, never repaired, widened or turned into
-  an inbox search. The read builds no Gmail reader, so a receipts plan cannot
-  reach `search_inbox`, and `read_receipts` is admitted only for typed chat (One
-  Live Voice refuses it). The interpreter stage is deliberately not run: every
-  amount, date, status and identifier in the answer is copied from the owner's
-  saved index and formatted by code, and a model re-writing one of them is the
-  failure this avoids. That skip is recorded, not silent
-  (`one_voice.mail.latency stage=interpret status=skipped`, `coverage.source =
-  receipt_memory`). Only the planner's own fields choose the window and filters;
-  code filters, sorts newest first, pages by ten, and omits any value the index
-  does not hold. A missing, malformed, empty, or older-than-seven-days index is
-  "not ready" with the exact sentence `Your receipt memory is not ready yet. Sync
-  and save your receipts in Mail.` and the generated `route.profile_receipts`
-  action; it is never reported as an empty mailbox. A "show more" continues a
-  server-held position (`hussh:receipt_cursor`: filters and an offset, never a
-  receipt) that expires after thirty minutes and is void after a new save.
-- Authority and storage: the index is derived on the owner's device from the same
-  canonical rows Mail > Receipts renders (`buildRecentReceiptRows`), never from
-  the retired `kai_gmail_receipts` table. It is saved only by the owner-confirmed
-  `gmail_receipt_memory_save_button` writer into the private
-  `shopping.receipts_memory._canonical_index` branch (leading underscore: never a
-  shareable path, Memory card or prompt-packet fact) and holds only an opaque
-  reference, merchant, amount and currency, category, lifecycle status,
-  transaction date, typed order/invoice/receipt/PNR identifiers, one grounded
-  short detail and a generated-at time. No subject, preview, body, sender
-  address, provider id, signed source handle or link is stored. The server never
-  holds the vault key: the device sends the decrypted index beside a typed turn
-  as `forwardedProps.receiptMemory`; the route validates it against a closed
-  schema, holds it only as an expiring request secret for that turn, and shows it
-  to no model.
-- Live eval before production promotion: the planner's operation choice is
-  measured only by mocked contract tests. On an owner mailbox with a saved
-  receipt memory, run requests such as "show my receipts", "receipts from the
-  last 2 months", "recent invoices", "what purchases did I make", "show overdue
-  bills" and "show more" and confirm `read_receipts` with the right window and
-  filters every time; run "find emails mentioning receipts", "emails from Amazon
-  about my order" and "what does the Supabase invoice email say" and confirm
-  `search_inbox` or `read_message`, never `read_receipts`. Include a missing,
-  stale and truncated memory, a locked vault, and a second page. Until then the
-  Email Mail-read kill switch (`GMAIL_CHAT_READS`) remains the rollback.
+- Structured output: `MailReadPlan.operation: "use_receipt_functions"` with no
+  receipt fields (`email_delegated_read.py`, `extra="forbid"`). The typed-chat
+  read returns `structured.status = "receipt_functions_required"` with the fixed
+  `RECEIPT_FUNCTIONS_TEXT`, no sources, no directive and no navigation. Voice keeps
+  its `invalid_argument` refusal.
+- Validator: the read builds no Gmail reader for this plan, so it cannot reach the
+  mailbox; a plan carrying categories, an ordinal or a target is refused as
+  `invalid_argument`. The skip is recorded (`one_voice.mail.latency stage=receipts
+  status=redirected`). One's `_specialist_turn` adds a fixed next step to answer
+  with its on-device receipt functions. `after_external_read_tool` never clears
+  the typed-chat read barrier: it records a separate marker for this invocation,
+  and the barrier then also admits only One's device receipt tools and
+  `get_current_time`, because another read in the same turn may have set the
+  barrier with provider text. Two schema violations are caught and recorded,
+  never decided for One: a read call missing a required argument reads nothing
+  and is refused with `missing_argument` without arming the barrier or recording
+  a Drive outcome (`one.read_call_refused`), so One can retry once in the same turn
+  (a second empty call closes the turn's tools like a read, so it can't loop);
+  and a receipt call whose arguments fail the closed schema is removed from the
+  model response in `receipt_after_model` before the bridge can defer it to the
+  device (`one.receipt_call outcome=invalid_dropped`), failing the turn closed
+  when the response holds nothing else. Receipt results return in a new turn where every
+  tool is refused, checked against the closed result schema.
+  Host code never runs an Email proposal, including the retired Open Receipts
+  action.
+- Receipt functions: the owner's device computes lists and per-currency totals
+  over its encrypted snapshot (`hushh-webapp/lib/mail/receipt-analysis.ts`). The
+  hub validates the closed request and result (`receipt_client_tools.py`,
+  `receipt_result_contract.py`), including the closed unavailable codes
+  `gmail_not_connected`, `receipts_not_synced` and `receipt_snapshot_unavailable`.
+  The retired saved-receipt-memory read (`receipt_memory_read.py`) has no producer
+  in typed chat; the hub drops `receiptMemory` at ingress.
+- Live eval before production promotion: on a consented UAT owner session, "what
+  did I spend last month", "show my invoices" and "do I have overdue bills" must
+  plan `use_receipt_functions` when they reach the Email agent, while "find the
+  email with my Amazon receipt" stays `search_inbox`. One's own first tool for
+  spending questions is measured by the `receipts` family in
+  `consent-protocol/scripts/eval_cases/one_first_tool.v1.json`.
 
 
 ### Declared: typed-chat message reactions
@@ -1190,3 +1249,80 @@ never become content verification, sharing permission or a purchase decision.
 
 See [the owning packet contract](./drive-continuous-packets.md)
 for enrollment, migration, recovery and privacy boundaries.
+
+### Declared: in-app activity digest
+
+Founder decision, 2026-10-29. One's in-app activity log reaches memory only
+through the existing Soul.md memory pipeline. No new route, model profile or
+agent is added.
+
+- Owning agents: the existing `agent_memory_segmentation`, `agent_memory_intent`,
+  `agent_memory_merge` and `agent_pkm_structure` decide which activity is a
+  durable fact, where it belongs and whether it creates, extends or corrects a
+  memory, or is a no-op. Manifests under `consent-protocol/hushh_mcp/agents/`.
+- Structured output: the existing `POST /api/pkm/memory/proposals` preview cards
+  under `memoryProfile: "soul_markdown_v1"` and `currentDomains: ["one_memory"]`,
+  prepared through `prepareNaturalLanguagePkm` with the client-log label
+  `app_activity_digest`. The proposal request carries no source, so the memory
+  agents receive the digest as first-person text, and each cycle offers the
+  current memory.md bullets as reconciliation candidates, as ambient chat
+  capture does. Only the write record `app_activity_product_default_auto_save`
+  identifies activity. Usable facts are staged with `stageMarkdownMemoryFacts`.
+- Host policy (`hushh-webapp/lib/pkm/live-activity/`) enforces form and
+  authority only. It renders allowlisted events into dated first-person lines
+  (`liveActivityStatements`), enforces the field allowlist in
+  `live-activity-types.ts` and coalesces exact repeats. It never decides that an
+  activity is durable, never adds or rewrites a fact, and never writes when
+  preparation is incomplete, degraded or a fallback.
+- Authority: activity never removes a memory. A delete decision, or a
+  correction whose replacement would save as nothing or as another existing
+  bullet, fails the whole cycle closed, because a delete can pair with a create
+  to express a move and half of it is never applied. It is reported as
+  `failed`. Other corrections and extensions stay within this writer's declared
+  authority.
+- Declared input filters, applied before the model and recorded here:
+  - Within one cycle's events, opposing pairs (connect/disconnect per service,
+    save/remove per place, link created/revoked) collapse to the latest
+    observed state. A day can arrive in several cycles, and the counts in a
+    line cover only that cycle.
+  - Visits to the One home section are not a usage statement.
+  - Memory saves, consent decisions, profile updates and successful connector
+    syncs are never sent, because they are already saved by their own owners or
+    carry no durable meaning. They still show in Today and in the per-turn
+    packet. A failed sync is not recorded at all: it is not an owner action and
+    offers no fix there.
+  - Place labels are third-party or free text (a Google venue's public name,
+    from a check-in or a place saved from one, or the owner's own place name), so the digest and the per-turn packet render
+    them as quoted names. A label that repeats the place's own street address
+    is dropped, best effort.
+  - An event that can still absorb repeats (seen within the 10-minute coalesce
+    window) waits for a later cycle, so a repeat never merges into an event
+    already sent.
+- Each cycle covers the not-yet-consolidated events of one local day, so no
+  statement is truncated. Each run reads memory.md from the server first and
+  does not run while a local memory save is still pending (`saving` is
+  cancelled, `retryable` is `failed`), so a device whose cached copy predates a
+  Reset on another device never writes that old document back. The outcome is recorded as enums through the dedicated
+  `live_activity_consolidation_completed` event:
+  - `saved`;
+  - `nothing_durable`: the model kept nothing new, or only facts memory.md
+    already holds;
+  - `host_skipped`: only kinds the digest never describes, settled without
+    asking the model, so a host decision is never counted as a model answer;
+  - `failed`: a counted failure (degraded output, a refused removal, a rejected
+    write, a model timeout), or a run that could not read memory.md or found a
+    local memory save stuck, which keeps its attempt;
+  - `memory_full`: memory.md is near its ceilings or the staged facts would
+    overflow it. The events are kept.
+
+  `busy`, `skipped` and `cancelled` runs (stale, aborted or offline) reached no
+  decision and are not reported.
+- Scheduling: a failed consolidation writes nothing and stays a quiet pending
+  state. Runs never start as the app hides, and a run cut off by hiding is
+  cancelled. Every run waits at least five minutes after the last. A `failed`
+  or `memory_full` run waits for new activity or the next unlock rather than a
+  timer; a cancelled run, or one that left a later day queued, retries after the
+  gap. After two counted failures a day is settled without a write, so it never
+  retries forever.
+- Live eval before promotion: mocked contract tests for the host policy only.
+  Durable-fact quality on real owner activity is unmeasured.

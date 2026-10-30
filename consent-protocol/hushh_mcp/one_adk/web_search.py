@@ -1,7 +1,7 @@
 """Provider-aware public search behind One's isolated manifest-authored child.
 
-Managed One chat uses Azure native web search on the same Azure processor as
-its root. Gemini heads retain ADK Google Search; unsupported heads get the
+Managed One chat uses native search on the same configured processor as
+its root. Vertex heads use ADK Google Search; unsupported heads get the
 existing honest unavailable response. The child receives an explicit public
 request and no parent conversation history. Managed chat may explicitly delegate
 its final public answer without a second synthesis call.
@@ -53,6 +53,21 @@ def head_supports_web_search(model: Any) -> bool:
     return provider_supports_web_search(head_provider(model))
 
 
+def search_model_for_text_head(model: Any, selected: Any | None) -> Any | None:
+    """Enable Search on the selected managed processor when none is supplied."""
+    from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
+
+    if selected is not None or not isinstance(model, ManagedPrimaryTextModel):
+        return selected
+    return model.model_copy(
+        update={
+            "allow_web_search": True,
+            "default_reasoning_effort": "low",
+            "text_verbosity": "low",
+        }
+    )
+
+
 def instruction_for_head(model: Any, instruction: Callable[[Any], str]) -> Callable[[Any], str]:
     """One's ``instruction`` as is for a head with web search; plus the honest line otherwise.
 
@@ -74,7 +89,10 @@ def build_web_search_agent(model: Any, *, manifest: Any) -> LlmAgent:
     if not head_supports_web_search(model):
         raise ValueError("Web search is unavailable for this model")
     tool = GoogleSearchTool()
-    if isinstance(model, AzureOpenAIAdkModel):
+    if (
+        isinstance(model, AzureOpenAIAdkModel)
+        and getattr(model, "primary_provider", "azure_openai") == "azure_openai"
+    ):
         from hushh_mcp.runtime_providers.managed_azure_text import AzurePublicSearchTool
 
         tool = AzurePublicSearchTool()
@@ -110,5 +128,6 @@ __all__ = [
     "head_supports_web_search",
     "instruction_for_head",
     "provider_supports_web_search",
+    "search_model_for_text_head",
     "web_search_tools",
 ]

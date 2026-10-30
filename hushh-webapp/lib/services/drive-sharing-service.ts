@@ -31,6 +31,7 @@ import {
 } from "@/lib/services/drive-search-service";
 
 export type SharingStatus = DocumentRequestSetup & {
+  requestType?: "calendar_meeting";
   oneCopyRequested?: boolean;
   requestId: string;
   status: string;
@@ -141,6 +142,7 @@ export function validDocumentRequestTerms(
   );
 }
 export type SharingReview = DocumentRequestSetup & {
+  requestType?: "calendar_meeting";
   oneCopyRequested?: boolean;
   agentPackage?: AgentDocumentPackage;
   /** Live request evaluation lane; packet catalog requests use the legacy package view. */
@@ -1079,6 +1081,8 @@ export class DriveSharingService {
     );
   }
 
+  private static send(path: string, token: string, guard: SharingSessionGuard, body?: object, firebaseToken?: string, maxLength?: number, allowNull?: false): Promise<RecordValue>;
+  private static send(path: string, token: string, guard: SharingSessionGuard, body: object | undefined, firebaseToken: string | undefined, maxLength: number, allowNull: true): Promise<RecordValue | null>;
   private static async send(
     path: string,
     token: string,
@@ -1086,7 +1090,8 @@ export class DriveSharingService {
     body?: object,
     firebaseToken?: string,
     maxLength = VIEW_MAX_LENGTH,
-  ): Promise<RecordValue> {
+    allowNull = false,
+  ): Promise<RecordValue | null> {
     guard();
     return traceDriveRequest(path, body === undefined ? "GET" : "POST", async (diagnosticHeaders, observe) => {
       guard();
@@ -1120,7 +1125,9 @@ export class DriveSharingService {
         throw new DriveSharingError("invalid_response");
       let payload: RecordValue;
       try {
-        payload = record(JSON.parse(serialized));
+        const parsed: unknown = JSON.parse(serialized);
+        if (parsed === null && allowNull && response.ok) return null;
+        payload = record(parsed);
       } catch {
         throw new DriveSharingError("invalid_response", response.status);
       }
@@ -1210,11 +1217,14 @@ export class DriveSharingService {
     if (requestedAccessDays === 0 || approvedAccessDays === 0 ||
       approvedAccessDays !== null && (requestedAccessDays === null || approvedAccessDays > requestedAccessDays))
       throw new DriveSharingError("invalid_response");
+    if (result.requestType !== undefined && result.requestType !== "calendar_meeting")
+      throw new DriveSharingError("invalid_response");
     const view: SharingStatus = {
       requestId,
       revision: revision(result.revision),
       status: string(result.status, 80),
       direction: result.direction,
+      ...(result.requestType === "calendar_meeting" ? { requestType: "calendar_meeting" as const } : {}),
       ...(typeof result.oneCopyRequested === "boolean" ? { oneCopyRequested: result.oneCopyRequested } : {}),
       ...(result.delivery && typeof result.delivery === "object" && ["one", "both"].includes((result.delivery as Record<string, unknown>).receiveThrough as string) ? { hostedDelivery: true as const } : {}),
       ...(typeof result.outcomeReason === "string" && ["no_matching_files", "matching_files_unshareable"].includes(result.outcomeReason)
@@ -1467,7 +1477,10 @@ export class DriveSharingService {
     const ownerPayout = result.ownerPayout == null
       ? null
       : parseOwnerPayout(result.ownerPayout, requestId);
+    if (result.requestType !== undefined && result.requestType !== "calendar_meeting")
+      throw new DriveSharingError("invalid_response");
     const view: SharingReview = {
+      ...(result.requestType === "calendar_meeting" ? { requestType: "calendar_meeting" as const } : {}),
       ...(result.agentPackage === undefined ? {} : { agentPackage: parseAgentDocumentPackage(result.agentPackage) }),
       revision: revision(result.revision),
       status: string(result.status, 80),
@@ -1547,6 +1560,13 @@ export class DriveSharingService {
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     return parseDriveSearchStatus(await this.request(token, requestId, guard, "/search",
       typeof timeZone === "string" && timeZone ? { timeZone } : {}));
+  }
+
+  /** Private frozen queries and date policy, through the existing owner GET. */
+  static async requestSearchStatus(token: string, requestId: string, guard: SharingSessionGuard): Promise<DriveSearchStatus | null> {
+    id(requestId);
+    const result = await this.send(`${SHARING_PATH}/requests/${requestId}/search`, token, guard, undefined, undefined, VIEW_MAX_LENGTH, true);
+    return result == null ? null : parseDriveSearchStatus(result);
   }
 
   /** A small page from the request-bound search, never the whole Drive set. */
@@ -1806,6 +1826,7 @@ export class DriveSharingService {
     documentIds: string[],
     trustFutureRequests = false,
     trustScope?: "any_requested_drive_file",
+    calendarOccurrenceConfirmed = false,
   ) {
     if (
       !review.canApprove ||
@@ -1826,6 +1847,7 @@ export class DriveSharingService {
       reviewDigest: review.reviewDigest,
       documentIds,
       confirmed: true,
+      ...(calendarOccurrenceConfirmed ? { calendarOccurrenceConfirmed: true } : {}),
       ...(trustFutureRequests ? {trustFutureRequests: true} : {}),
       ...(trustScope ? {trustScope, trustDisclosureVersion: "drive-any-requested-file-including-future-v1"} : {}),
     });

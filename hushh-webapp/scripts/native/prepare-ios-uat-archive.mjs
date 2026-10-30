@@ -25,6 +25,9 @@ const verifyProductAssetsScript = path.join(
   "verify-ios-product-build-assets.mjs",
 );
 const DEFAULT_UAT_BACKEND_URL = "https://consent-protocol-f2gsa4kfsq-uc.a.run.app";
+// The UAT Drive registry expects this callback origin; ordinary native API
+// traffic continues to use the Cloud Run URL.
+const UAT_DRIVE_NATIVE_CALLBACK_ORIGIN = "https://api.uat.hushh.ai";
 const DEFAULT_UAT_APP_URL = "https://uat.one.hussh.ai";
 const DEFAULT_PASSKEY_RP_ID = "uat.one.hushh.ai";
 
@@ -97,6 +100,7 @@ export function buildIosUatRuntimeEnv({
     APP_RUNTIME_PROFILE: "uat",
     NEXT_PUBLIC_APP_ENV: "uat",
     NEXT_PUBLIC_BACKEND_URL: backendUrl,
+    NEXT_PUBLIC_DRIVE_NATIVE_CALLBACK_ORIGIN: UAT_DRIVE_NATIVE_CALLBACK_ORIGIN,
     NEXT_PUBLIC_APP_URL: firstConfiguredValue(
       "NEXT_PUBLIC_APP_URL",
       [processEnv, uatValues],

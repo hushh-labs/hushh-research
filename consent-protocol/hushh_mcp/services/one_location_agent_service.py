@@ -39,6 +39,7 @@ from hushh_mcp.operons.location.policy import (
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services import finance_advisor_directory as finance_directory
+from hushh_mcp.services.connection_mutuals import MUTUAL_DIRECTORY_FILTER_SQL
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
 from hushh_mcp.services.directory_identity_service import (
     DirectoryIdentityUnavailableError,
@@ -66,7 +67,10 @@ from hushh_mcp.services.people_search_sql import (
     mask_directory_phone,
     people_query_match_params,
 )
-from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
+from hushh_mcp.services.push_tokens_service import (
+    PUSH_SMS_DEVICES_FOR_USER_SQL,
+    remove_stale_push_token,
+)
 from hushh_mcp.services.requester_identity import (
     OPAQUE_LABEL_MIN_LENGTH,
     UUID_LIKE_LABEL_PATTERN,
@@ -1714,15 +1718,10 @@ class OneLocationAgentService:
             )
             if receipt is not None:
                 return receipt > 0
-            rows = (
-                get_db()
-                .execute_raw(
-                    PUSH_TOKENS_FOR_USER_SQL,
-                    {"user_id": user_id},
-                )
-                .data
-                or []
+            registrations = get_db().execute_raw(
+                PUSH_SMS_DEVICES_FOR_USER_SQL, {"user_id": user_id}
             )
+            rows = registrations.data or []
             if not rows:
                 return False
             configured, _ = ensure_firebase_admin()
@@ -1764,6 +1763,7 @@ class OneLocationAgentService:
                     request_url=request_url,
                     notification_tag=notification_tag,
                     show_alert=show_alert,
+                    sms_alarm_version=int(row.get("sms_alarm_version") or 0),
                 )
                 queued = _submit_notification_send(
                     messaging=messaging,
@@ -4476,7 +4476,7 @@ class OneLocationAgentService:
               {id_filter}
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
             LIMIT :limit
-            """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL and id_filter are static/param-only.
+            """,  # nosec B608 # RIA_VERIFIED_STATUS_SQL and id_filter are static/param-only.
             {
                 "owner_user_id": owner_user_id,
                 "limit": max(1, min(int(limit), 100)),
@@ -4643,7 +4643,7 @@ class OneLocationAgentService:
             ) recipient_key ON TRUE
             ORDER BY page_rows.match_rank, page_rows.normalized_name,
                      page_rows.user_id
-            """,  # nosec B608 - directory SQL fragments are static; values are bound.
+            """,  # nosec B608 # directory SQL fragments are static; values are bound.
             {
                 "owner_user_id": owner_user_id,
                 "query": normalized_query,
@@ -4711,6 +4711,7 @@ class OneLocationAgentService:
         candidate_user_ids: list[str] | None = None,
         audience: str = "all",
         name_only: bool = False,
+        mutual_target_user_id: str | None = None,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
 
@@ -4860,7 +4861,7 @@ class OneLocationAgentService:
         all_tokens_match_sql = f"""NOT EXISTS (
             SELECT 1 FROM unnest(CAST(:token_prefixes AS TEXT[])) AS query_token(pattern)
             WHERE (' ' || {_DIRECTORY_SEPARATOR_SQL}) NOT LIKE query_token.pattern ESCAPE '!'
-        )"""  # nosec B608 - static SQL fragments only; every value is a bound parameter.
+        )"""  # nosec B608 # static SQL fragments only; every value is a bound parameter.
 
         # Use the same technical-label contract as the projection. A legacy
         # raw UID/UUID must not hide a usable marketplace or adviser name.
@@ -4875,7 +4876,7 @@ class OneLocationAgentService:
                   OR STRPOS(BTRIM({column}), ' ') > 0
                   OR LENGTH(BTRIM({column})) < :opaque_label_min_length
                 )
-                THEN BTRIM({column}) END"""  # nosec B608 - literal column names only.
+                THEN BTRIM({column}) END"""  # nosec B608 # literal column names only.
 
         directory_sql = f"""
             SELECT
@@ -4945,6 +4946,7 @@ class OneLocationAgentService:
                 ON marketplace.user_id = profile.user_id
               LEFT JOIN ria_profiles ria ON ria.user_id = profile.user_id
               WHERE profile.user_id <> :owner_user_id
+                AND ({MUTUAL_DIRECTORY_FILTER_SQL if mutual_target_user_id else "TRUE"})
                 AND profile.public_profile_status = 'active'
                 AND (
                   profile.directory_listed = TRUE
@@ -5040,11 +5042,12 @@ class OneLocationAgentService:
               LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
               a.user_id
             LIMIT :fetch_limit OFFSET :offset
-            """  # nosec B608 - static SQL fragments only; every value is a bound parameter.
+            """  # nosec B608 # static SQL fragments only; every value is a bound parameter.
         params: dict[str, Any] = {
             "owner_user_id": owner_user_id,
             "candidate_user_id": target,
             "candidate_user_ids": targets,
+            "mutual_target_user_id": mutual_target_user_id,
             "contact_sync_contract_version": CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
             "technical_uuid_pattern": UUID_LIKE_LABEL_PATTERN,
             "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
@@ -6043,7 +6046,7 @@ class OneLocationAgentService:
                       AND recipient_user_id = :recipient_user_id
                       AND status = 'active'
                       AND (expires_at IS NULL OR expires_at > NOW())
-                    """  # nosec B608 - the appended lane predicate is a
+                    """  # nosec B608 # the appended lane predicate is a
                     # module-level constant of static SQL and every value,
                     # including the lane flag, remains a bound parameter.
                     + _share_lane_match_sql()
@@ -6122,7 +6125,7 @@ class OneLocationAgentService:
                         SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                         WHERE owner_user_id = :owner_user_id
                           AND recipient_user_id = :recipient_user_id
-                          AND status = 'active'"""  # nosec B608 - the lane predicate
+                          AND status = 'active'"""  # nosec B608 # the lane predicate
                         # below is a module-level constant of static SQL text and the
                         # lane itself is BOUND as `:is_sos_lane`; nothing
                         # caller-supplied reaches this statement.
@@ -6373,7 +6376,7 @@ class OneLocationAgentService:
                 SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                 WHERE owner_user_id = :owner_user_id
                   AND recipient_user_id = :recipient_user_id
-                  AND status = 'active'"""  # nosec B608 - the lane predicate below
+                  AND status = 'active'"""  # nosec B608 # the lane predicate below
                 # is a module-level constant of static SQL text and the lane itself is
                 # BOUND as `:is_sos_lane`; nothing caller-supplied reaches this
                 # statement.
@@ -6796,7 +6799,7 @@ class OneLocationAgentService:
               SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
               WHERE g.owner_user_id = :owner_user_id
                 AND g.recipient_user_id = :recipient_user_id
-                AND g.status = 'active'"""  # nosec B608 - the lane predicate below
+                AND g.status = 'active'"""  # nosec B608 # the lane predicate below
             # is a module-level constant of static SQL text with a fixed alias
             # substituted, and the lane itself is BOUND as `:is_sos_lane`; nothing
             # caller-supplied reaches this statement.
@@ -7691,7 +7694,7 @@ class OneLocationAgentService:
         if not row:
             raise OneLocationAgentError(
                 "LOCATION_SOS_VOICE_PREFERENCE_UPDATE_FAILED",
-                "Could not update the SOS voice default.",
+                "Could not update the SMS voice default.",
                 status_code=500,
             )
         return self._sos_voice_preference_payload(row)

@@ -191,7 +191,7 @@ async def test_the_answer_turn_calls_no_tools_at_the_lowest_thinking_level(monke
         types.FunctionCallingConfigMode.NONE
     )
     assert answer_turn.thinking_config.include_thoughts is False
-    # MINIMAL is coerced to LOW for a supported release: the lowest it accepts.
+    # The answer uses LOW, supported by both the Gemini and Azure text adapters.
     assert str(answer_turn.thinking_config.thinking_level).upper().endswith("LOW")
     # The fast path never leaks into the next turn through the shared agent config.
     assert ordinary_turn.tool_config is None

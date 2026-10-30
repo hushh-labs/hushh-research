@@ -142,7 +142,7 @@ function BrowserActivationView({ model }: { model: BrowserActivationModel }) {
         <Button variant="muted" disabled={busy} onClick={closeReview}>Not now</Button>
       </div>
     </> : <>
-      <p className="text-muted-foreground">Research public pages with your private agent. Review access before enabling.</p>
+      <p className="text-muted-foreground">Research public pages with Agent One. Review access before enabling.</p>
       <Button variant="muted" disabled={disabled || busy} onClick={() => void inspect()}>Review Browser setup</Button>
     </>}
   </section>;

@@ -4,9 +4,9 @@ import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { trackEvent } from "@/lib/observability/client";
 
-export const openCalendarChat = (prompt?: string, calendarSlot?: CalendarSlotHandoff, calendarInvitation?: CalendarInvitationHandoff, calendarAttendance?: CalendarAttendanceHandoff) => {
+export const openCalendarChat = (prompt?: string, calendarSlot?: CalendarSlotHandoff, calendarInvitation?: CalendarInvitationHandoff, calendarAttendance?: CalendarAttendanceHandoff, calendarDay?: { ownerId: string; timeZone: string }) => {
   trackEvent("one_calendar_action", { route_id: "one_calendar", action: "chat_opened", result: "success" });
-  if (!prompt && !calendarSlot && !calendarInvitation && !calendarAttendance) {
+  if (!prompt && !calendarSlot && !calendarInvitation && !calendarAttendance && !calendarDay) {
     navigateToAgentChat();
     return;
   }
@@ -14,7 +14,7 @@ export const openCalendarChat = (prompt?: string, calendarSlot?: CalendarSlotHan
   useOneConversationSession.getState().createHandoff({
     id: `calendar-prompt-${createdAtMs}`,
     reason: "user_requested",
-    transcript: prompt,
+    ...(calendarDay ? { calendarRequest: { ownerId: calendarDay.ownerId, request: prompt || "", timeZone: calendarDay.timeZone } } : { transcript: prompt }),
     calendarSlot,
     calendarInvitation,
     calendarAttendance,

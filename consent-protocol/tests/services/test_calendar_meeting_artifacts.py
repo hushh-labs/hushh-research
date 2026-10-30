@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -11,104 +10,19 @@ from fastapi import HTTPException, Response
 
 from api.routes.one import calendar_workspace
 from hushh_mcp.services import calendar_meeting_artifacts as artifacts_module
-from hushh_mcp.services.calendar_insights_service import CalendarInsightsService
-from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
 from hushh_mcp.services.google_calendar_service import GoogleCalendarService
 from hushh_mcp.services.google_connection_service import (
-    CalendarGrantIdentity,
     GoogleConnectionError,
 )
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.google_drive_file_facts import facts_projection
-
-BINDING = ("owner", "calendar", "google-subject", "stamp", "generation", "revision")
-GRANT = CalendarGrantIdentity("owner", "default", "google-subject", BINDING)
-EVENT = {
-    "id": "event",
-    "summary": "Review",
-    "iCalUID": "review-uid",
-    "start": {"dateTime": "2026-10-14T10:00:00Z"},
-    "end": {"dateTime": "2026-10-14T11:00:00Z"},
-    "conferenceData": {
-        "conferenceId": "abc-defg-hij",
-        "conferenceSolution": {"key": {"type": "hangoutsMeet"}},
-    },
-}
-RECORD = {
-    "name": "conferenceRecords/a",
-    "startTime": "2026-10-14T10:05:00Z",
-    "endTime": "2026-10-14T10:55:00Z",
-}
-
-
-def setup(account_id="default"):
-    grant = CalendarGrantIdentity("owner", account_id, "google-subject", BINDING)
-    calendar = SimpleNamespace(
-        connections=SimpleNamespace(
-            read_calendar_grant_identity=AsyncMock(return_value=grant),
-            access_token=AsyncMock(return_value="synthetic-token"),
-            status=AsyncMock(return_value={"google_email": "selected@example.test"}),
-        ),
-        _check_read_binding=AsyncMock(),
-        _event_summary=GoogleCalendarService._event_summary,
-        _request=AsyncMock(return_value=EVENT),
-        list_events=AsyncMock(return_value={"events": [], "next_page_token": None}),
-    )
-    schedule = SimpleNamespace(
-        calendar=calendar,
-        _read_binding=AsyncMock(return_value=BINDING),
-        _included_calendars=AsyncMock(return_value=[{"id": "primary", "access_role": "owner"}]),
-        _seal=CalendarScheduleService._seal,
-        _open=CalendarScheduleService._open,
-    )
-    insights = CalendarInsightsService(schedule, account_id=account_id)
-    insights.events = AsyncMock(
-        return_value=(
-            [{**GoogleCalendarService._event_summary(EVENT), "calendar_id": "primary"}],
-            True,
-        )
-    )
-    drive = SimpleNamespace(
-        get_file_facts=AsyncMock(), get_metadata=AsyncMock(), read_live_bytes=AsyncMock()
-    )
-    return (
-        insights,
-        artifacts_module.CalendarMeetingArtifacts(insights=insights, drive=drive),
-        drive,
-    )
-
-
-def run(coroutine):
-    return asyncio.run(coroutine)
-
-
-def test_missing_meet_or_drive_scope_is_explicit_even_without_calendar_events(monkeypatch):
-    insights, svc, _ = setup()
-    monkeypatch.setattr(artifacts_module, "inspect_token", AsyncMock(return_value=set()))
-    result = run(insights.library(user_id="owner", date="2026-10-14", time_zone="UTC"))
-    assert result["complete"] is False
-    assert result["limitations"] == ["permission_required"]
-    assert result["meetings"] == []
-    insights.calendar.list_events.assert_not_called()
-
-
-@pytest.mark.parametrize("account_id", ["default", "calendar-2", "calendar-3"])
-def test_selected_account_grant_is_used_for_library(monkeypatch, account_id):
-    insights, _, _ = setup(account_id)
-    monkeypatch.setattr(
-        artifacts_module,
-        "inspect_token",
-        AsyncMock(
-            return_value=artifacts_module.MEET_SCOPES
-            | {"https://www.googleapis.com/auth/drive.meet.readonly"}
-        ),
-    )
-    result = run(insights.library(user_id="owner", date="2026-10-14", time_zone="UTC"))
-    assert result["account_id"] == account_id
-    insights.calendar.connections.access_token.assert_awaited_with(
-        user_id="owner", service="calendar", access_level="read"
-    )
-    insights.calendar.list_events.assert_awaited_once()
+from tests.helpers.calendar_meeting_artifact_fixtures import (
+    EVENT,
+    GRANT,
+    RECORD,
+    run,
+    setup,
+)
 
 
 def test_reused_meet_link_with_two_overlapping_occurrences_is_unverified(monkeypatch):
@@ -292,6 +206,10 @@ def test_legacy_chat_still_requires_its_separate_verified_drive_connector(monkey
     assert drive.get_file_facts.call_args.kwargs["access_token"] == "drive-token"
     assert drive.get_metadata.call_args.kwargs["require_genai_eligibility"] is True
 
+    drive.get_file_facts.side_effect = DriveReadError("provider_unavailable", retryable=True)
+    limited = run(svc._file("owner", GRANT, ref, content=True, for_chat=True))
+    assert limited["state"] == "temporarily_unavailable"
+
 
 def test_library_only_consent_cannot_authorize_chat_context_but_legacy_drive_can(monkeypatch):
     _, svc, drive = setup()
@@ -462,4 +380,89 @@ def test_revoked_file_does_not_leak_old_content(monkeypatch):
     result = run(
         svc._file("owner", GRANT, {"file_id": "exact-file-id", "kind": "notes"}, content=True)
     )
-    assert result == {"file_id": "exact-file-id", "kind": "notes", "state": "permission_required"}
+    assert result == {"file_id": "exact-file-id", "kind": "notes", "state": "resource_denied"}
+
+
+def test_drive_401_refreshes_once_before_reading_authorized_file(monkeypatch):
+    insights, svc, drive = setup()
+    insights.calendar.connections.access_token.side_effect = ["cached", "refreshed"]
+    monkeypatch.setattr(
+        artifacts_module,
+        "inspect_token",
+        AsyncMock(
+            return_value={
+                "https://www.googleapis.com/auth/meetings.space.readonly",
+                "https://www.googleapis.com/auth/drive.meet.readonly",
+            }
+        ),
+    )
+    facts = {
+        "title": "Recording",
+        "mimeType": "video/mp4",
+        "viewUrl": "https://drive.google.com/file/d/exact-file-id/view",
+        "capabilities": {"canDownload": False},
+    }
+    drive.get_file_facts.side_effect = [
+        DriveReadError("reconnect_required", status_code=401),
+        facts,
+        facts,
+    ]
+    result = run(
+        svc._file("owner", GRANT, {"file_id": "exact-file-id", "kind": "recording"}, content=False)
+    )
+    assert result["state"] == "available"
+    assert drive.get_file_facts.await_args_list[1].kwargs["access_token"] == "refreshed"
+    assert (
+        insights.calendar.connections.access_token.await_args_list[-1].kwargs["force_refresh"]
+        is True
+    )
+
+
+def test_drive_rate_limit_retries_once_without_another_consent(monkeypatch):
+    _, svc, drive = setup()
+    monkeypatch.setattr(
+        artifacts_module,
+        "inspect_token",
+        AsyncMock(
+            return_value={
+                "https://www.googleapis.com/auth/meetings.space.readonly",
+                "https://www.googleapis.com/auth/drive.meet.readonly",
+            }
+        ),
+    )
+    facts = {
+        "title": "Recording",
+        "mimeType": "video/mp4",
+        "viewUrl": "https://drive.google.com/file/d/exact-file-id/view",
+        "capabilities": {"canDownload": False},
+    }
+    drive.get_file_facts.side_effect = [
+        DriveReadError("provider_unavailable", retryable=True, status_code=403),
+        facts,
+        facts,
+    ]
+    result = run(
+        svc._file("owner", GRANT, {"file_id": "exact-file-id", "kind": "recording"}, content=False)
+    )
+    assert result["state"] == "available"
+    assert drive.get_file_facts.await_count == 3
+
+
+def test_drive_rate_limit_exhaustion_is_incomplete_not_permission_required(monkeypatch):
+    _, svc, drive = setup()
+    monkeypatch.setattr(
+        artifacts_module,
+        "inspect_token",
+        AsyncMock(
+            return_value={
+                "https://www.googleapis.com/auth/meetings.space.readonly",
+                "https://www.googleapis.com/auth/drive.meet.readonly",
+            }
+        ),
+    )
+    drive.get_file_facts.side_effect = DriveReadError("provider_unavailable", retryable=True)
+    result = run(
+        svc._file("owner", GRANT, {"file_id": "exact-file-id", "kind": "notes"}, content=False)
+    )
+    assert result["state"] == "temporarily_unavailable"
+    assert drive.get_file_facts.await_count == 2

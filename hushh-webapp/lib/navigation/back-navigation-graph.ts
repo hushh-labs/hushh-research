@@ -37,6 +37,8 @@ import {
   CONNECT_CIRCLES_LIST_HREF,
   connectCircleTaskTitle,
   readConnectCircleAction,
+  CONNECT_MUTUALS_PARAM,
+  connectDirectoryReturnHref,
 } from "@/lib/navigation/connect-routes";
 import {
   buildNearbyCheckInResumeHref,
@@ -420,13 +422,12 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
       if (pathname !== KAI_MARKET_PATH) return undefined;
       const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
       const setupBackHref = resolveCapabilitySetupBackHref(pathname, originHref);
-      const fromSetup = originHref === ROUTES.ONE_SETUP;
       return {
         backHref: setupBackHref || ROUTES.ONE_HOME,
         width: "content",
         align: "center",
         suppressFallbackTitle: true,
-        items: fromSetup ? [] : [{ label: "One", href: ROUTES.ONE_HOME }],
+        items: [{ label: "Finance" }],
       };
     },
   },
@@ -1053,6 +1054,17 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
               { label: "Connect", href: CONNECT_CIRCLES_LIST_HREF },
               { label },
             ],
+      };
+    },
+  },
+  {
+    id: "connect-mutuals",
+    resolve: (pathname, searchParams) => {
+      if (pathname !== ROUTES.CONNECT || searchParams?.get("tab") === "circles" || !searchParams?.get(CONNECT_MUTUALS_PARAM)?.trim()) return undefined;
+      const backHref = connectDirectoryReturnHref(searchParams);
+      return {
+        backHref, backLabel: "Back to Find people", width: "profile", align: "center", hideBack: false,
+        items: [{ label: "Connect", href: backHref }, { label: "Mutual connections" }],
       };
     },
   },

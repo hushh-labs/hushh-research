@@ -297,6 +297,17 @@ class ApprovalRequest(DecisionRequest):
     trustFutureRequests: StrictBool = False
     trustScope: str | None = Field(default=None, max_length=80)
     trustDisclosureVersion: str | None = Field(default=None, max_length=80)
+    calendarOccurrenceConfirmed: StrictBool = False
+
+
+class CalendarFileSearch(StrictRequest):
+    query: str = Field(min_length=3, max_length=80)
+
+
+class CalendarFilePrepare(StrictRequest):
+    candidateToken: dict
+    fileIds: list[str] = Field(min_length=1, max_length=8)
+    occurrenceConfirmed: StrictBool
 
 
 class RuleRevocationRequest(StrictRequest):
@@ -313,6 +324,26 @@ class RevocationRequest(DecisionRequest):
 
 def _service():
     return DriveSharingService()
+
+
+def _calendar_service(owner: Owner):
+    from hushh_mcp.services.calendar_meeting_request_service import CalendarMeetingRequestService
+
+    return CalendarMeetingRequestService(
+        sharing=DriveSharingService(require_owner=owner.require_current)
+    )
+
+
+async def _calendar_call(method: str, *, owner: Owner, **kwargs):
+    try:
+        await owner.require_current()
+        result = await getattr(_calendar_service(owner), method)(user_id=owner.user_id, **kwargs)
+        await owner.require_current()
+        return result
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise _error(error) from None
 
 
 def _query_service():
@@ -553,6 +584,39 @@ async def owner_review(request_id: UUID, owner: Owner = Depends(_content_owner))
             )
         )
     return review
+
+
+@router.get("/calendar-requests/{request_id}")
+async def calendar_request_preview(request_id: UUID, owner: Owner = Depends(_content_owner)):
+    return await _calendar_call("owner_preview", owner=owner, request_id=str(request_id))
+
+
+@router.post("/calendar-requests/{request_id}/files")
+async def calendar_request_files(
+    request_id: UUID, body: CalendarFileSearch, owner: Owner = Depends(_content_owner)
+):
+    return await _calendar_call(
+        "search_owner_files", owner=owner, request_id=str(request_id), query=body.query
+    )
+
+
+@router.get("/calendar-requests/{request_id}/linked-files")
+async def calendar_request_linked_files(request_id: UUID, owner: Owner = Depends(_content_owner)):
+    return await _calendar_call("exact_owner_files", owner=owner, request_id=str(request_id))
+
+
+@router.post("/calendar-requests/{request_id}/review", status_code=202)
+async def calendar_prepare_review(
+    request_id: UUID, body: CalendarFilePrepare, owner: Owner = Depends(_content_owner)
+):
+    return await _calendar_call(
+        "prepare_owner_review",
+        owner=owner,
+        request_id=str(request_id),
+        candidate_token=body.candidateToken,
+        file_ids=body.fileIds,
+        occurrence_confirmed=body.occurrenceConfirmed,
+    )
 
 
 @router.get("/requests/{request_id}/context")
@@ -1019,6 +1083,7 @@ async def approve(request_id: UUID, body: ApprovalRequest, owner: Owner = Depend
         review_digest=body.reviewDigest,
         document_ids=[str(value) for value in body.documentIds],
         confirmed=body.confirmed,
+        calendar_occurrence_confirmed=body.calendarOccurrenceConfirmed,
         trust_future_requests=body.trustFutureRequests,
         **(
             {

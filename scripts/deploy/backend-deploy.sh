@@ -64,12 +64,8 @@ if [[ -n "${_DB_POOL_SETTINGS:-}" ]]; then
   done
   export _DB_POOL_ACQUIRE_TIMEOUT_SECONDS _DB_POOL_MAX_SIZE _DB_POOL_MIN_SIZE _DB_SQLALCHEMY_MAX_OVERFLOW _DB_SQLALCHEMY_POOL_SIZE
 fi
-# Cloud Build has a 100-entry environment limit; keep the reviewed search pair together.
-IFS='|' read -r _DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED _DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER _drive_search_extra <<< "${_DRIVE_SEARCH_SETTINGS:-false|gemini}"
-if [[ -n "${_drive_search_extra}" || ! "${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}" =~ ^(true|false)$ ||
-      ! "${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}" =~ ^(gemini|azure_openai)$ ]]; then
-  echo "Invalid Drive semantic search settings." >&2; exit 1
-fi
+# Keep version-compatible search and rollback controls in one packed entry.
+source scripts/deploy/backend-drive-search-settings.sh
 source scripts/deploy/backend-model-settings.sh
 source scripts/deploy/backend-drive-secret-settings.sh
 # UAT's Drive work-drain scheduler identity is packed into one Cloud Build
@@ -207,14 +203,16 @@ fi
 append_optional_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
 append_optional_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
 append_optional_secret "${_NEWSAPI_KEY_SECRET}" "NEWSAPI_KEY"
-# Bind the qualified ciphertext pilot only on the new dev revision. Changing
-# canonical :latest before rollout could enable an older one-shot writer.
-if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+# Bind the qualified ciphertext pilot only on the new dev and UAT revisions.
+# Changing canonical :latest before rollout could enable an older one-shot
+# writer. Production stays off until UAT acceptance. The secrets are optional:
+# an environment without them deploys exactly as before.
+if [[ "${_DEPLOY_ENV}" == "dev" || "${_DEPLOY_ENV}" == "uat" ]]; then
   append_optional_secret "HUSSH_SHARED_FILES_ENABLED" "HUSSH_SHARED_FILES_ENABLED"
   append_optional_secret "HUSSH_SHARED_FILES_BUCKET" "HUSSH_SHARED_FILES_BUCKET"
-  if [[ -z "${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET}" ]]; then
-    _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET="EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
-  fi
+fi
+if [[ "${_DEPLOY_ENV}" == "dev" && -z "${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET}" ]]; then
+  _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET="EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
 fi
 append_optional_secret "${_GMAIL_OAUTH_CLIENT_ID_SECRET}" "GMAIL_OAUTH_CLIENT_ID"
 append_optional_secret "${_GMAIL_OAUTH_CLIENT_SECRET_SECRET}" "GMAIL_OAUTH_CLIENT_SECRET"
@@ -390,6 +388,8 @@ fi
 env_vars=(
   "DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}"
   "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}"
+  "DRIVE_REQUEST_ACTIVITY_UNION_ENABLED=${_DRIVE_REQUEST_ACTIVITY_UNION_ENABLED}"
+  "DRIVE_REQUEST_ACTIVITY_UNION_PAUSED=${_DRIVE_REQUEST_ACTIVITY_UNION_PAUSED}"
   "ENVIRONMENT=${runtime_environment}"
   "HUSHH_DEPLOY_ENV=${_DEPLOY_ENV}"
   "HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE}"
@@ -410,10 +410,14 @@ env_vars=(
   "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
   "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
 )
-configure_backend_process_bounds
 if [[ "${_DEPLOY_ENV}" == "uat" ]]; then
-  env_vars+=("HUSHH_UAT_MANAGED_TEXT_PROVIDER=azure_openai" "HUSHH_UAT_MANAGED_AI_PROVIDER=azure_openai")
+  # Validate the packaged config before any deployment mutation. Readiness still
+  # qualifies the candidate; these two values pin the same file-owned default.
+  python3 scripts/ops/managed_ai_config.py --environment uat --format validate >/dev/null
+  managed_provider="$(python3 scripts/ops/managed_ai_config.py --environment uat --format provider)"
+  env_vars+=("HUSHH_UAT_MANAGED_TEXT_PROVIDER=${managed_provider}" "HUSHH_UAT_MANAGED_AI_PROVIDER=${managed_provider}")
 fi
+configure_backend_process_bounds
 env_vars+=("WEB_CONCURRENCY=${worker_count}")
 append_optional_env() {
   local env_name="$1"

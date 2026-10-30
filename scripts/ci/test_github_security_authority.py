@@ -11,18 +11,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import urllib.error
-import sys
 
 PATH = Path(__file__).with_name("github_security_authority.py")
 SPEC = importlib.util.spec_from_file_location("security_authority", PATH)
 authority = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(authority)
-with patch.dict(sys.modules, {"github_security_authority": authority}):
-    probe_spec = importlib.util.spec_from_file_location(
-        "ci_trust_qualification", PATH.with_name("ci_trust_qualification.py")
-    )
-    probe = importlib.util.module_from_spec(probe_spec)
-    probe_spec.loader.exec_module(probe)
 REPOSITORY = "example/repository"
 HEAD = "a" * 40
 
@@ -53,12 +46,6 @@ def source_fixture():
 
 
 class SecurityAuthorityTest(unittest.TestCase):
-    def test_probe_requires_declared_read_only_cache_without_overrides(self):
-        self.assertTrue(probe.declared_read_only_cache("cache-mode: read\njobs:\n"))
-        for text in ("jobs:\n", "cache-mode: write\n", "cache-mode: read\njobs:\n  cache-mode: write\n"):
-            with self.subTest(text=text):
-                self.assertFalse(probe.declared_read_only_cache(text))
-
     def test_exact_current_attempt_including_fork_without_executing_fork(self):
         for status in ("pending", "queued", "in_progress", "completed"):
             with self.subTest(status=status):
@@ -290,18 +277,16 @@ class SecurityRerunTest(unittest.TestCase):
             else:
                 retry.rerun_validation(read_job, write, expected, job_id=50)
                 self.assertTrue(writes[0][0].endswith("/actions/jobs/50/rerun"))
-                self.assertEqual(len(writes), 2)
+                self.assertEqual(len(writes), 1)
 
     def test_one_rerun_and_exact_observed_attempt_dispatch(self):
         for all_jobs in (False, True):
             retry, expected, _, read, write, writes = rerun_fixture()
             result = retry.rerun_validation(read, write, expected, all_jobs=all_jobs)
             self.assertEqual(result["attempt"], 3)
-            self.assertEqual(len(writes), 2)
+            self.assertEqual(len(writes), 1)
             self.assertTrue(writes[0][0].endswith("/rerun" if all_jobs else "/rerun-failed-jobs"))
-            self.assertEqual(writes[1][1], {"ref": "main", "inputs": {
-                "source_run_id": "20", "source_attempt": "3", "source_sha": HEAD,
-            }})
+            self.assertFalse(any(path.endswith("/dispatches") for path, _ in writes))
 
     def test_ungoverned_stale_or_running_source_refuses_before_mutation(self):
         for scenario in ("actor", "attempt", "running", "successful"):
@@ -327,22 +312,16 @@ class SecurityRerunTest(unittest.TestCase):
                 raise retry.Refused("lost response")
 
         self.assertEqual(retry.rerun_validation(read, uncertain, expected)["attempt"], 3)
-        self.assertEqual(len(writes), 2)
+        self.assertEqual(len(writes), 1)
 
-    def test_attempt_race_or_uncertain_security_dispatch_never_replays(self):
-        for scenario in ("race", "dispatch"):
-            retry, expected, source, read, write, writes = rerun_fixture()
-
-            def uncertain(path, body):
-                write(path, body)
-                if scenario == "race":
-                    source["run_attempt"] = 4
-                elif path.endswith("/dispatches"):
-                    raise retry.Refused("lost response")
-
-            with self.subTest(scenario=scenario), self.assertRaises(retry.Refused):
-                retry.rerun_validation(read, uncertain, expected)
-            self.assertEqual(len(writes), 1 if scenario == "race" else 2)
+    def test_attempt_race_never_replays_or_dispatches_another_workflow(self):
+        retry, expected, source, read, write, writes = rerun_fixture()
+        def race(path, body):
+            write(path, body)
+            source["run_attempt"] = 4
+        with self.assertRaises(retry.Refused):
+            retry.rerun_validation(read, race, expected)
+        self.assertEqual(len(writes), 1)
 
     def test_unobserved_rerun_has_a_bound_and_no_second_post(self):
         retry, expected, _, read, _, writes = rerun_fixture()

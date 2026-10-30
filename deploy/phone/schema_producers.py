@@ -40,6 +40,28 @@ def fingerprint(value) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
+def _reviewed_history(sha: str, *, required: bool) -> bool:
+    authority = run_path(str(ROOT / "deploy/account-deletion/compatibility_restoration.py"))
+    record = authority["qualify_recorded_source"]()
+    if not required and sha != record["previousSha"]:
+        return True
+    authority["qualify_phone_history_source"](sha, project=PROJECT)
+    if sha == record["previousSha"]:
+        # This reviewed parallel main branch predates the phone authority.
+        run(
+            [
+                "git",
+                "diff",
+                "--exit-code",
+                SOURCE_ANCHOR + "^",
+                sha,
+                "--",
+                *authority["PHONE_PRODUCER_PATHS"],
+            ]
+        )
+    return False
+
+
 @lru_cache(maxsize=512)
 def source_capable(sha: str) -> bool:
     if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
@@ -49,17 +71,14 @@ def source_capable(sha: str) -> bool:
     except subprocess.CalledProcessError as error:
         if error.returncode != 1:
             raise
-        run_path(str(ROOT / "deploy/account-deletion/compatibility_restoration.py"))[
-            "qualify_phone_history_source"
-        ](sha, project=PROJECT)
-        return False
+        return _reviewed_history(sha, required=True)
     run(["git", "cat-file", "-e", SOURCE_ANCHOR])
     try:
         run(["git", "merge-base", "--is-ancestor", sha, SOURCE_ANCHOR + "^"])
     except subprocess.CalledProcessError as error:
         if error.returncode != 1:
             raise
-        return True
+        return _reviewed_history(sha, required=False)
     return False
 
 
@@ -212,13 +231,21 @@ def _job(job: dict, images: dict) -> dict:
     ):
         raise ValueError("phone_schema_job_launcher_unknown")
     container = containers[0]
-    if (
-        container.get("command") != ["python3"]
-        or container.get("args") != ["scripts/verify_managed_vertex_runtime.py"]
-        or container.get("image") not in images
-    ):
+    if container.get("command") != ["python3"] or container.get("args") != [
+        "scripts/verify_managed_vertex_runtime.py"
+    ]:
         raise ValueError("phone_schema_job_source_unknown")
-    sha = images[container["image"]]
+    provenance = {}
+    from schema_legacy_job import IMAGE as legacy_image
+    from schema_legacy_job import NAME as legacy_name
+    from schema_legacy_job import resolve
+
+    if container.get("image") in images and not (
+        name == legacy_name and container.get("image") == legacy_image
+    ):
+        sha = images[container["image"]]
+    else:
+        sha, provenance = resolve(job, check=source_capable, images=images)
     # A capable image is admitted only with the same reviewed probe body.
     if (
         source_capable(sha)
@@ -238,58 +265,23 @@ def _job(job: dict, images: dict) -> dict:
         "source": sha,
         "spec": fingerprint(job["spec"]),
         "launcher": "managed_vertex_probe",
+        **({"source_provenance": provenance} if provenance else {}),
     }
 
 
-def _job_history(jobs: dict, images: dict, until: str) -> int:
-    query = (
-        f'logName="projects/{PROJECT}/logs/cloudaudit.googleapis.com%2Factivity" '
-        'protoPayload.serviceName="run.googleapis.com" '
-        'protoPayload.methodName=~"(CreateJob|ReplaceJob|UpdateJob|RunJob|DeleteJob)$" '
-        f'timestamp>="{HISTORY_START}" timestamp<="{until}"'
+def _job_history(
+    jobs: dict, images: dict, until: str, submissions, probe_images, observers=None
+) -> dict:
+    from schema_job_history import qualify
+
+    return qualify(
+        jobs,
+        images,
+        until,
+        submissions=submissions,
+        probe_images=probe_images,
+        observers=observers,
     )
-    events = closed._document(
-        [
-            "gcloud",
-            "logging",
-            "read",
-            query,
-            f"--project={PROJECT}",
-            f"--limit={closed.LIMIT}",
-            "--order=asc",
-            "--format=json",
-        ]
-    )
-    if not isinstance(events, list) or len(events) >= closed.LIMIT:
-        raise ValueError("phone_schema_job_history_incomplete")
-    known = dict(jobs)
-    for event in events:
-        payload = event.get("protoPayload", {})
-        if (
-            event.get("logName") != f"projects/{PROJECT}/logs/cloudaudit.googleapis.com%2Factivity"
-            or payload.get("serviceName") != "run.googleapis.com"
-            or not closed._instant(HISTORY_START)
-            <= closed._instant(event["timestamp"])
-            <= closed._instant(until)
-        ):
-            raise ValueError("phone_schema_job_audit_scope_unknown")
-        method = payload.get("methodName", "")
-        if method.endswith(("RunJob", "DeleteJob")):
-            request = payload.get("request", {})
-            if (
-                set(request) - {"@type", "name"}
-                or request.get("name", "").rsplit("/", 1)[-1] not in known
-            ):
-                raise ValueError("phone_schema_job_execution_unknown")
-            continue
-        templates = closed._audit_templates(event, kind="Job")
-        response = payload.get("response", {})
-        if templates and response.get("kind") != "Job":
-            raise ValueError("phone_schema_job_birth_unavailable")
-        if templates:
-            classified = _job(response, images)
-            known[classified["job"]] = classified
-    return len(events)
 
 
 def _revision_history(service: str, state: dict, until: str) -> int:
@@ -314,6 +306,16 @@ def _revision_history(service: str, state: dict, until: str) -> int:
         require_retained=True,
         container_name="drive-worker" if service.endswith("-drive-worker") else None,
     )
+
+
+def _job_partition(inventory, images, owner):
+    rows = owner.observer_rows(inventory, PROJECT)
+    observers = {row["name"]: inventory["jobs"][row["name"]] for row in rows}
+    jobs = {
+        name: _job(job, images) for name, job in inventory["jobs"].items()
+        if name not in observers
+    }
+    return jobs, observers, rows
 
 
 class Runtime:
@@ -386,12 +388,27 @@ class Runtime:
                     ]
                 ),
             }
-        jobs = {name: _job(job, images) for name, job in inventory["jobs"].items()}
-        audit_counts["jobs"] = _job_history(jobs, images, until)
+        jobs, observers, observer_rows = _job_partition(inventory, images, budget._inventory)
+        audit_counts["jobs"] = _job_history(
+            jobs,
+            images,
+            until,
+            self.submissions,
+            frozenset(
+                {(self.prepared["source"], self.prepared["image"])}
+                | (
+                    {(self.prepared["primary_sha"], self.primary_image)}
+                    if self.primary_image
+                    else set()
+                )
+            ),
+            observers,
+        )
         return {
             "services": services,
             "revisions": revisions,
             "jobs": jobs,
+            "observer_jobs": observer_rows,
             "history_start": HISTORY_START,
             "source_anchor": SOURCE_ANCHOR,
             "audit_counts": audit_counts,
@@ -412,20 +429,32 @@ class Runtime:
             or result.get("sso_activation_qualified") is not False
         ):
             raise ValueError("phone_schema_workos_not_closed")
-        return {"qualification": "passed", "digest": fingerprint(result)}
+        return {
+            "qualification": "passed",
+            "digest": fingerprint(result),
+            "receipt": result,
+        }
 
     def reference(self) -> dict:
+        authority = _authorities()
+        from production_worker_basis import current_release_run_id
+
+        selected_run_id = current_release_run_id()
         with tempfile.TemporaryDirectory(prefix="phone-schema-serving-") as temporary:
-            found = _authorities().find_release(
+            found = authority.find_release(
                 REPOSITORY,
-                "",
+                selected_run_id,
                 Path(temporary),
                 require_live=True,
                 environment="production",
             )
-        if found is None:
-            raise ValueError("phone_schema_healthy_serving_reference_missing")
-        run_id, release = found
+            if found is None or str(found[0]) != selected_run_id:
+                raise ValueError("phone_schema_healthy_serving_reference_missing")
+            run_id, release = found
+            # An explicit run selects provenance; the legacy reader does not
+            # check serving traffic on that path, even with require_live=True.
+            if not authority.live_release_matches(release, environment="production"):
+                raise ValueError("phone_schema_healthy_serving_reference_not_live")
         return {
             "run_id": str(run_id),
             "source": release["sha"],

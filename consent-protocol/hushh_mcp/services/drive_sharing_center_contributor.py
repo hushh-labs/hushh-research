@@ -4,6 +4,7 @@ No credential or document key is needed: recorded access remains manageable
 after disconnect, a rollout kill switch, or erasure of the private request.
 """
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -19,6 +20,7 @@ from hushh_mcp.services.drive_request_queue import (
     queue_delayed,
     started_work_waiting_since,
 )
+from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -975,6 +977,58 @@ SELECT
 
 
 class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
+    @staticmethod
+    def _calendar_enrich(connection, user_id, rows, items):
+        share_ids = [
+            str(row["request_id"])
+            for row in rows
+            if row["request_id"] is not None and row["source"] == "share"
+        ]
+        if not share_ids:
+            return
+        cipher = DriveSharingCipher()
+        try:
+            cipher._key()
+        except DriveSharingError:
+            # The center's generic metadata projection must remain available
+            # when the optional private sharing key is unavailable.
+            return
+        private_rows = connection.execute(
+            text("""SELECT request_id,user_id,request_envelope
+            FROM drive_share_requests
+            WHERE (user_id=:user OR recipient_user_id=:user)
+              AND request_id IN (SELECT CAST(value AS UUID)
+                FROM jsonb_array_elements_text(CAST(:ids AS jsonb)))"""),
+            {"user": user_id, "ids": json.dumps(share_ids)},
+        ).mappings()
+        by_id = {}
+        for private_row in private_rows:
+            identifier = str(private_row["request_id"])
+            private = cipher.open(
+                private_row["request_envelope"],
+                user_id=private_row["user_id"],
+                resource_id=identifier,
+                purpose="request",
+            )
+            if private.get("request_type") == "calendar_meeting":
+                by_id[identifier] = True
+        for item in items:
+            if not by_id.get(item["request_id"]):
+                continue
+            item["action"] = "CALENDAR_MEETING_REVIEW"
+            item["scope_description"] = "Meeting recording and notes"
+            item["metadata"].update(
+                {
+                    "calendar_meeting": True,
+                    "owner_decision_available": False,
+                    "owner_price_available": False,
+                    "owner_attention_required": item["kind"] == "incoming_request"
+                    and item["status"] == "pending",
+                    "automatic_progress_active": False,
+                    "automatic_progress_state": None,
+                }
+            )
+
     def _supports_projection(self) -> bool:
         # Existing SQLite-only callers have no Drive domain. Check the dialect
         # before the lifecycle store issues PostgreSQL transaction settings.
@@ -1081,11 +1135,9 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                     },
                 ).mappings()
             )
-            return {
-                "total": rows[0]["total"],
-                "items": [entry(row) for row in rows if row["request_id"] is not None],
-                "schema_available": True,
-            }
+            items = [entry(row) for row in rows if row["request_id"] is not None]
+            self._calendar_enrich(connection, user_id, rows, items)
+            return {"total": rows[0]["total"], "items": items, "schema_available": True}
 
         return cast(dict[str, Any], await self._transaction(operation))
 
@@ -1106,25 +1158,26 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                     "counts": dict.fromkeys(BUCKETS, 0),
                     "schema_available": False,
                 }
-            rows = connection.execute(
-                text(
-                    # Both SQL fragments are static; every value is bound below.
-                    _projection(
-                        capabilities.queries,
-                        capabilities.owner_search,
-                        capabilities.bulk,
-                        capabilities.background,
-                        capabilities.payments,
-                        capabilities.identity_cache,
-                        capabilities.owner_allowed,
-                        capabilities.pricing,
-                        capabilities.payout_projection,
-                        capabilities.estimate,
-                        packages=capabilities.packages,
-                        v1_live=capabilities.v1_live,
-                        evaluations=capabilities.evaluations,
-                    )  # nosec B608
-                    + """
+            rows = list(
+                connection.execute(
+                    text(
+                        # Both SQL fragments are static; every value is bound below.
+                        _projection(
+                            capabilities.queries,
+                            capabilities.owner_search,
+                            capabilities.bulk,
+                            capabilities.background,
+                            capabilities.payments,
+                            capabilities.identity_cache,
+                            capabilities.owner_allowed,
+                            capabilities.pricing,
+                            capabilities.payout_projection,
+                            capabilities.estimate,
+                            packages=capabilities.packages,
+                            v1_live=capabilities.v1_live,
+                            evaluations=capabilities.evaluations,
+                        )  # nosec B608
+                        + """
                     , ranked AS (
                       SELECT *,count(*) OVER (PARTITION BY bucket) AS total,
                         row_number() OVER (
@@ -1132,14 +1185,18 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         ) AS position FROM filtered
                     ) SELECT * FROM ranked WHERE position<=50 ORDER BY issued_at DESC,id COLLATE "C" DESC
                     """
-                ),
-                self._params(user_id),
-            ).mappings()
+                    ),
+                    self._params(user_id),
+                ).mappings()
+            )
             buckets: dict[str, list[dict[str, Any]]] = {key: [] for key in BUCKETS}
             counts = dict.fromkeys(BUCKETS, 0)
             for row in rows:
                 buckets[row["bucket"]].append(entry(row))
                 counts[row["bucket"]] = row["total"]
+            self._calendar_enrich(
+                connection, user_id, rows, [item for bucket in buckets.values() for item in bucket]
+            )
             return {"buckets": buckets, "counts": counts, "schema_available": True}
 
         return cast(dict[str, Any], await self._transaction(operation))

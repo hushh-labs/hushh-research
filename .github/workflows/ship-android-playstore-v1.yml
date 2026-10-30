@@ -36,6 +36,7 @@ name: Ship Android to Google Play Store
         type: string
 
 permissions:
+  actions: read
   contents: read
   checks: read
   id-token: write
@@ -55,7 +56,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ inputs.sha || github.sha }}
+      environment_name: native
+      scope: ${{ 'native' }}
+
   ship:
+    needs: deployment-security
     name: Build & upload Android AAB (UAT backend, selected Play track)
     runs-on: ubuntu-latest
     # The `uat` environment carries the UAT workload identity needed to read the
@@ -65,6 +77,16 @@ jobs:
     timeout-minutes: 50
 
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Validate target track
         shell: bash
         env:
@@ -109,7 +131,7 @@ jobs:
           REQUIRED_BRANCH: main
           REQUIRE_CI_SUCCESS: "1"
           REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin main
@@ -141,13 +163,13 @@ jobs:
           test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 
       - name: Setup Java 21 (Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: "temurin"
           java-version: "21"
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -162,7 +184,7 @@ jobs:
           test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing UAT deployment service account." >&2; exit 1; }
 
       - name: Authenticate to GCP with UAT workload identity
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -171,7 +193,7 @@ jobs:
           export_environment_variables: true
 
       - name: Set up gcloud CLI
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Assert UAT project scope
         shell: bash
@@ -290,7 +312,7 @@ jobs:
       - name: Fetch Android release secrets from GCP Secret Manager
         id: gcp-secrets
         continue-on-error: true
-        uses: google-github-actions/get-secretmanager-secrets@v2
+        uses: google-github-actions/get-secretmanager-secrets@v3
         with:
           secrets: |-
             KEYSTORE_B64:${{ env.GCP_PROJECT_ID }}/ANDROID_RELEASE_KEYSTORE_B64
@@ -538,7 +560,7 @@ jobs:
             --receipt "$RUNNER_TEMP/private-native-artifact-receipt.json"
 
       - name: Upload redacted private AAB receipt
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: hushh-one-android-private-receipt-${{ steps.resolve.outputs.sha }}
           path: ${{ runner.temp }}/private-native-artifact-receipt.json

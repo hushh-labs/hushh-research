@@ -38,7 +38,7 @@ describe("Scheduled tasks placement", () => {
     render(<ScheduledTasksPanel ownerId="owner" />);
     expect(schedule.hosting).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Scheduled tasks" }));
-    await screen.findByText("Scheduled tasks need a private agent.");
+    await screen.findByText("Scheduled tasks need Agent One.");
     expect(schedule.status).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "Hosting" })).toHaveAttribute("href", "/one/profile/hosting");
   });
@@ -201,7 +201,7 @@ describe("OneDashboardPage", () => {
     // The greeting is gone entirely (founder, 2026-09-02: "I still have the greeting
     // message on the /one route for some reason added, we don't need that").
     expect(screen.queryByText(/Good (morning|afternoon|evening), /)).toBeNull();
-    expect(screen.queryByText("Your private agent")).toBeNull();
+    expect(screen.queryByText("Agent One")).toBeNull();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
     expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
     expect(container.textContent).not.toContain("Finish setup");

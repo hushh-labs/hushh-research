@@ -363,9 +363,13 @@ test("import progress and stream updates retain their layout", async ({ page }) 
   await mount(page);
   const bar = page.getByRole("progressbar", { name: "Import progress" });
   const footer = page.getByTestId("after-import");
+  const update = page.getByRole("button", { name: "Update progress" });
+  // The fixture includes other screens above this one. Settle browser scrolling
+  // before measuring so the assertion detects layout movement, not viewport movement.
+  await update.scrollIntoViewIfNeeded();
   const initialBar = await bar.boundingBox();
   const initialFooter = await footer.boundingBox();
-  await page.getByRole("button", { name: "Update progress" }).click();
+  await update.click();
   await expect(bar).toHaveAttribute("aria-valuenow", "77");
   expect((await bar.boundingBox())?.y).toBe(initialBar?.y);
   expect((await footer.boundingBox())?.y).toBe(initialFooter?.y);

@@ -43,7 +43,7 @@ export type AgentChatHandoff = {
   calendarSlot?: CalendarSlotHandoff;
   calendarInvitation?: CalendarInvitationHandoff;
   calendarAttendance?: CalendarAttendanceHandoff;
-  calendarRequest?: { ownerId: string; request: string; meeting?: { calendar_id: string; event_id: string; expected_account_email: string } };
+  calendarRequest?: { ownerId: string; request: string; timeZone?: string; meeting?: { calendar_id: string; event_id: string; expected_account_email: string } };
   /** A user-initiated Gmail draft request. It never authorizes delivery. */
   emailDraftInstruction?: string | null;
   /**

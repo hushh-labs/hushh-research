@@ -61,7 +61,12 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
                 self._active(connection, user_id, generation)
                 self._selection_policy(connection, user_id, feature="drive_document_sharing")
             row = self._related_request(connection, user_id, request_id)
-            if self._open_request(row).get("agent_package_required") is True:
+            private = self._open_request(row)
+            if private.get("request_type") == "calendar_meeting" and not (
+                foreground and owner_selected
+            ):
+                return None
+            if private.get("agent_package_required") is True:
                 return None
             setup = self._request_setup(connection, row, self._open_request(row))
             if setup and self._setup_code(setup):
@@ -108,6 +113,11 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
                 "requested_at": row["created_at"],
                 "live": live,
                 "foreground": foreground,
+                **(
+                    {"calendar_types": private["calendar"]["requested_types"]}
+                    if private.get("request_type") == "calendar_meeting"
+                    else {}
+                ),
             }
 
         return await self._transaction(operation)
@@ -208,6 +218,49 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
 
         await self._transaction(operation)
 
+    async def reset_calendar_preparation(self, *, user_id, request_id, expected_revision):
+        """Replace only a Calendar owner's manual review before a decision.
+
+        This invalidates an old review directive and restores a failed
+        hand-picked attempt without entering the ordinary retry worker.
+        """
+        self._sharing_admission(user_id)
+        request_id = str(UUID(request_id))
+
+        def operation(connection):
+            self._participant_gate(connection, user_id, request_id)
+            row = self._related_request(connection, user_id, request_id)
+            if self._open_request(row).get("request_type") != "calendar_meeting":
+                raise DriveSharingError("request_unavailable")
+            now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+            if row["revision"] != expected_revision or row["expires_at"] <= now:
+                raise DriveSharingError("review_changed")
+            if row["status"] == "pending":
+                return
+            if row["status"] != "review_ready":
+                raise DriveSharingError("review_changed")
+            connection.execute(
+                text("""
+                UPDATE one_action_directive_ledger SET state='cancelled',settled_at=clock_timestamp(),
+                  settlement_status='cancelled',settlement_reason_code='document_review_refreshed'
+                WHERE channel='document_review' AND user_id=:user AND document_request_id=:request
+                  AND state IN ('issued','confirmed')
+            """),
+                {"user": user_id, "request": request_id},
+            )
+            connection.execute(
+                text("""
+                UPDATE drive_share_requests SET status='pending',revision=revision+1,
+                  preparation_attempts=0,preparation_next_at=expires_at,
+                  preparation_error_code=NULL,preparation_lease_id=NULL,
+                  preparation_lease_expires_at=NULL,updated_at=clock_timestamp()
+                WHERE request_id=:request
+            """),
+                {"request": request_id},
+            )
+
+        await self._transaction(operation)
+
     async def retry_preparation(self, *, user_id, request_id, revision):
         """Explicit owner refresh; never consumes old review authority."""
         self._sharing_admission(user_id)
@@ -215,6 +268,8 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
         def operation(connection):
             self._participant_gate(connection, user_id, request_id)
             row = self._related_request(connection, user_id, request_id)
+            if self._open_request(row).get("request_type") == "calendar_meeting":
+                raise DriveSharingError("request_already_decided")
             if (
                 row["status"] not in {"pending", "preparing", "review_ready"}
                 or row["revision"] != revision

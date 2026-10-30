@@ -1,3 +1,4 @@
+import { recordLiveActivity, snapshotLiveActivityOwner } from "@/lib/pkm/live-activity/live-activity-journal";
 import { ApiService } from "@/lib/services/api-service";
 
 export type ConnectionRelationship =
@@ -46,6 +47,14 @@ export interface DirectoryPage {
   hasMore: boolean;
   totalCount: number;
   audience?: DirectoryAudience;
+}
+
+export interface MutualConnectionsPage {
+  person: { publicPersonRef: string; displayName: string | null };
+  items: { publicPersonRef: string; displayName: string | null; photoUrl: string | null }[];
+  page: number;
+  hasMore: boolean;
+  totalCount: number;
 }
 
 export type ConnectionPersonContext = {
@@ -271,6 +280,13 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
 }
 
 export class ConnectionsService {
+  static async listMutualConnections(opts: { idToken: string; personRef: string; page: number; signal?: AbortSignal }): Promise<MutualConnectionsPage> {
+    const params = new URLSearchParams({ person_ref: opts.personRef, page: String(opts.page), limit: "20" });
+    const response = await ApiService.apiFetch(`/api/one/connections/mutuals?${params}`, {
+      method: "GET", headers: authHeaders(opts.idToken), signal: opts.signal,
+    });
+    return jsonOrThrow<MutualConnectionsPage>(response);
+  }
   static async getPersonContext(opts: { idToken: string; counterpartUserId: string }): Promise<ConnectionPersonContext> {
     const response = await ApiService.apiFetch(`/api/one/connections/${encodeURIComponent(opts.counterpartUserId)}/context`,
       { method: "GET", headers: authHeaders(opts.idToken) });
@@ -529,6 +545,7 @@ export class ConnectionsService {
     requestedScopeHandles?: string[];
     offeredScopeHandles?: string[];
   }): Promise<ConnectionRequest> {
+    const activityOwner = snapshotLiveActivityOwner();
     const response = await ApiService.apiFetch(
       "/api/one/connections/requests",
       {
@@ -543,6 +560,7 @@ export class ConnectionsService {
       },
     );
     const payload = await jsonOrThrow<{ request: ConnectionRequest }>(response);
+    recordLiveActivity({ kind: "connection_request_sent" }, activityOwner);
     return payload.request;
   }
 
@@ -602,6 +620,7 @@ export class ConnectionsService {
     selectedRequestedScopeHandles?: string[];
     selectedOfferedScopeHandles?: string[];
   }): Promise<void> {
+    const activityOwner = snapshotLiveActivityOwner();
     const hasScopeSelection =
       opts.selectedRequestedScopeHandles !== undefined ||
       opts.selectedOfferedScopeHandles !== undefined;
@@ -614,15 +633,14 @@ export class ConnectionsService {
         // fail closed on the server until the review UI supplies both selections.
         body: hasScopeSelection
           ? JSON.stringify({
-              selected_requested_scope_handles:
-                opts.selectedRequestedScopeHandles ?? [],
-              selected_offered_scope_handles:
-                opts.selectedOfferedScopeHandles ?? [],
+              selected_requested_scope_handles: opts.selectedRequestedScopeHandles ?? [],
+              selected_offered_scope_handles: opts.selectedOfferedScopeHandles ?? [],
             })
           : undefined,
       },
     );
     await jsonOrThrow<unknown>(response);
+    recordLiveActivity({ kind: "connection_accepted" }, activityOwner);
   }
 
   static async reject(opts: {
@@ -681,14 +699,14 @@ export class ConnectionsService {
     idToken: string;
     connectionId: string;
   }): Promise<ConnectionRemovalResult> {
+    const activityOwner = snapshotLiveActivityOwner();
     const response = await ApiService.apiFetch(
       `/api/one/connections/${encodeURIComponent(opts.connectionId)}`,
       { method: "DELETE", headers: authHeaders(opts.idToken) },
     );
-    const payload = await jsonOrThrow<{ result?: ConnectionRemovalResult }>(
-      response,
-    );
+    const payload = await jsonOrThrow<{ result?: ConnectionRemovalResult }>(response);
     const result = payload.result ?? { removed: 0 };
+    if (result.removed > 0) recordLiveActivity({ kind: "connection_removed" }, activityOwner);
     // Prefer canonical Circle objects; synthesize them from the legacy
     // parallel arrays for old servers that predate `circles`, then derive
     // both arrays back from the canonical list so callers see one truth.

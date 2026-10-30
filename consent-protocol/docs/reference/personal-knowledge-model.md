@@ -178,15 +178,50 @@ Current evidence does not verify refund amounts/allocation, so refund amounts
 and net with observed refunds remain unknown. Products always return
 `unsupported: product_data_unavailable` until structured line/quantity evidence
 exists. A function result is at most 64 KiB; group limits apply per currency.
-Unavailable results keep the requested range/timezone and policy/limitations,
-with unknown freshness, counts and coverage explicitly null.
+Each row's analysis day is its ISO `transaction_date` in the owner's timezone,
+else its primary event's ISO email date, else undated (counted in
+`coverage.undated_count`). Printed dates are never parsed, and list rows carry
+that day as `transaction_date`. Limitations add deterministic coverage facts: a
+range that starts before `coverage.window_from`, a partial sync, and freshness
+older than 7 days. The hub also admits an optional list filter `attention:
+needs_attention | coming_up` over the snapshot's own `attention_state`; clients
+keep declaring the pre-attention list schema until every hub and owner pod
+admits it, so overdue or due items come from each row's status for now.
+Unavailable results carry one closed `code` with its exact sentence:
+`gmail_not_connected`, `receipts_not_synced` or `receipt_snapshot_unavailable`.
+They keep the requested range/timezone and policy, with unknown freshness, counts
+and coverage explicitly null. The device reports `gmail_not_connected` only when
+the connector status already says Gmail is disconnected; any other missing
+snapshot, including an unknown status, is `receipts_not_synced`. The chat shows
+the in-chat Connect card for the first. For the second, when Gmail is connected
+for sync, the device first runs one bounded sync for the turn (45 s; the card
+reads "Syncing receipts…") through the shared Mail Receipts resource and answers
+from what it saved; only when nothing was saved does the result stay
+`receipts_not_synced`, with the Open receipts control. Each card state shows at
+most once per turn; `receipt_snapshot_unavailable` shows no card. The app also
+syncs in the background once per owner, account and vault session, after unlock
+or a new Gmail connection, when no snapshot is saved or it is a day old.
+An owner pod that advertises `receiptToolVersion: 1` may run the older validator,
+so its continuation carries `receipt_snapshot_unavailable` and its sentence in place
+of either setup code (expand phase); the card still follows the device's own code,
+and hub turns keep the exact code.
 
 Only the authorized continuation's model request receives detailed results.
 Native tool messages, encrypted session history and restored answers contain
 value-free receipts. Receipt-result invocations cannot execute further tools.
-Private answers expire or disappear on a new turn, conversation/owner change,
-vault transition or Reset. One explains deterministic function output; it never
-computes totals from memory rows. Finance remains the bank-spending authority.
+A continuation carries only its receipt results: the hub and owner-pod ingress
+keep just the admitted tool-result messages, and the device sends no others, so
+the bridge resumes the paused turn instead of running the question again. Each
+admitted continuation logs `one.receipt_resume results=<n> dropped=<n>`, where
+`dropped` counts messages an older app resent. A call
+whose arguments fail the closed schema is removed from the model's response
+before the bridge can defer it, so it never reaches the device; when the
+response holds nothing else, the turn fails closed. Earlier receipt calls and private
+answers are never replayed into a later model request. Private answers expire or
+disappear on a new turn, conversation/owner change, vault transition or Reset; a
+receipt turn that failed keeps its error rather than reading as shown. One explains deterministic function output; it never
+computes totals from memory rows. Bank or card cash flow comes only from the
+consented memory packet's precomputed summaries; Finance has no spending tool.
 
 ### PKM table map
 

@@ -77,3 +77,34 @@
   .portfolioTop { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
   .portfolioInsights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.insightCard { display: flex; height: 100%; flex-direction: column; align-items: stretch; gap: 16px; padding: 20px; }
+.cardFooter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 8px; }
+.concentrationSummary { display: flex; align-items: center; gap: 16px; padding-block: 8px; }
+.concentrationRing, .concentrationValue { display: grid; place-items: center; flex: none; width: 104px; height: 104px; text-align: center; }
+.concentrationRing { position: relative; isolation: isolate; border-radius: 50%; background: conic-gradient(var(--app-accent-deep) var(--holding-share), var(--muted) 0); }
+.concentrationRing::before { content: ""; position: absolute; inset: 7px; border-radius: inherit; background: var(--app-card-surface-default-solid); z-index: -1; }
+.concentrationRing strong, .concentrationValue strong { display: block; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.concentrationRing > span > span, .concentrationValue > span > span { display: block; color: var(--muted-foreground); font-size: 12px; line-height: 18px; }
+.concentrationLabel { min-width: 0; }
+.insightEyebrow { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
+.insightHoldingName { margin-block: 5px 3px; font-size: 14px; line-height: 21px; font-weight: 550; overflow-wrap: anywhere; }
+.insightFacts { margin: 0; }
+.insightFacts > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 12px; border-top: 1px solid var(--border); font-size: 12px; line-height: 18px; }
+.insightFacts dt { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.insightFacts dd { margin: 0; color: var(--muted-foreground); font-variant-numeric: tabular-nums; text-align: end; }
+.insightFacts svg, .insightNotice svg { width: 16px; height: 16px; flex: none; color: var(--muted-foreground); }
+.insightNotice { display: flex; align-items: flex-start; gap: 7px; color: var(--muted-foreground); font-size: 12px; line-height: 18px; }
+.balanceChange { padding-top: 8px; }
+.insightAmount { margin-top: 6px; font-size: clamp(28px, 5vw, 36px); line-height: 1.2; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.unavailableChange { margin-top: 6px; color: var(--muted-foreground); font-size: 20px; line-height: 28px; }
+:global(.dark) .concentrationRing { background: conic-gradient(var(--app-accent-bright) var(--holding-share), var(--muted) 0); }
+@media (min-width: 640px) { .insightCard { padding: 24px; } }
+@media (min-width: 768px) {
+  .insightShell > div { display: flex; flex: 1; flex-direction: column; }
+  .insightShell .insightCard { flex: 1; height: auto; }
+  .insightCard > .cardFooter { margin-block-start: auto; }
+}
+
+.importEntry { background: var(--app-accent-surface) !important; border-color: var(--app-accent-border) !important; }
+.bankEntry { background: var(--app-accent-surface); border-radius: var(--app-input-radius); }

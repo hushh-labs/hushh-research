@@ -95,7 +95,7 @@ Verification:
 5. Write core tests only. A new test must protect a real contract: a regression that actually happened, a security, consent, vault or trust boundary, or a public API or schema shape. Guard a security boundary with one focused test plus a negative control that fails on the broken code. Do not add tests that restate the implementation, snapshot markup, cover trivial wiring, or duplicate an existing test.
 6. Extend the nearest existing test file before creating a new one, and delete or merge a redundant test rather than keeping both.
 7. Test the changed contract with the nearest authoritative suite. Reuse unchanged evidence and remove demonstrated duplicate checks. Run the local core mirror `scripts/ci/orchestrate.sh core` once on the completed candidate before pushing: secret and governance first, protocol and web-core in parallel, then mcp-package and integration. After environment-only repairs, resume the failed stages on unchanged source; broaden verification only for changed dependencies or unresolved risk. GitHub Actions owns the browser layout packs and full web suite; do not run duplicate full local suites beside the core mirror.
-8. Push once per finished, locally verified change, not once per edit. Each push to a PR cancels its running `PR Validation` and starts about 19 jobs on the hosted-runner pool that every team in the organization shares (20 jobs, 5 of them macOS). On 2026-10-14, 47% of PR runs were cancelled by a newer push (64% on agent branches), burning roughly 3,000-4,000 runner-minutes that day. Never push, or dispatch `PR Validation`, on a timer or in a loop to watch CI. Retry failed validation through `./bin/hushh codex ci-rerun` so its exact-attempt protected security worker follows the retry; use the existing CI runbook for bounded recovery.
+8. Push once per finished, locally verified change, not once per edit. Each push to a PR cancels its running `PR Validation` and starts about 19 jobs on the hosted-runner pool that every team in the organization shares (20 jobs, 5 of them macOS). On 2026-10-14, 47% of PR runs were cancelled by a newer push (64% on agent branches), burning roughly 3,000-4,000 runner-minutes that day. Never push, or dispatch `PR Validation`, on a timer or in a loop to watch CI. Retry failed validation through `./bin/hushh codex ci-rerun` for one exact-attempt retry without another workflow dispatch. Repository-wide alert clearance belongs to the protected Deployment Security job before release mutation; use the existing CI runbook for bounded recovery.
 9. Never loosen, skip or weaken a real gate to go faster; make the check cheaper instead.
 
 For a local core run, supply `CI_IMPACT_BASE_SHA` only when the actual PR target
@@ -344,6 +344,10 @@ For browser tests that depend on an unlocked vault, decrypted information, or a 
 ## Project-Wide Branch Discipline Gate (HARD RULE)
 
 This is a hard, non-negotiable rule for every coding-agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
+
+Freshness drift or a newer Main head can require branch resynchronization and
+CI revalidation; neither that drift nor green CI authorizes deployment to an
+environment the current request did not ask to deploy.
 
 1. Record the developer's active branch at the start of any branch, CI, PR, merge, deploy, or validation work, and treat it as the branch you MUST return to.
 2. NEVER create a new branch for follow-up, continuation, "phase N", "it felt cleaner", or ship-convenience reasons without either (a) an explicit user request for a new branch, or (b) a genuine isolation need (an isolated `main` hotfix, or unrelated unsafe in-flight work). When in doubt, continue on the existing development branch and cherry-pick across named existing branches.

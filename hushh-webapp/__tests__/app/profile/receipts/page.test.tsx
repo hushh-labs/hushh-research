@@ -2633,13 +2633,10 @@ describe("ProfileReceiptsPage", () => {
     await waitFor(() => {
       expect(gmailView.disconnectGmail).toHaveBeenCalledTimes(1);
     });
-    expect(mocks.toast.promise).toHaveBeenCalledWith(
-      expect.any(Promise),
-      expect.objectContaining({
-        loading: "Disconnecting Mail...",
-        success: "Mail disconnected. Saved receipts remain available; reconnect to open their original emails.",
-      }),
-    );
+    expect(mocks.toast.promise).toHaveBeenCalledWith(expect.any(Promise), expect.objectContaining({ loading: "Disconnecting Mail..." }));
+    // Whether saved receipts remain is read after the disconnect stopped every receipt sync.
+    const [disconnected, toastOptions] = mocks.toast.promise.mock.calls.at(-1)!;
+    expect(toastOptions.success(await disconnected)).toBe("Mail disconnected. Saved receipts remain available; reconnect to open their original emails.");
     await waitFor(() => {
       expect(screen.queryByText("Stored Shop")).toBeNull();
     });
